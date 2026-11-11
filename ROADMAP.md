@@ -19,11 +19,12 @@ Each phase ends when it is used daily in place of what came before.
 | Step | Issue |
 | --- | --- |
 | 1. Repository skeleton, solution, live CI | [#2](https://github.com/Forrest-Technologies/drover/issues/2) |
-| 2. Style analyzers | [#3](https://github.com/Forrest-Technologies/drover/issues/3) |
+| 2. Style and data access analyzers | [#3](https://github.com/Forrest-Technologies/drover/issues/3) |
 | 3. Database roles and the tenant scope | [#4](https://github.com/Forrest-Technologies/drover/issues/4) |
 | 4. Isolation suite | [#5](https://github.com/Forrest-Technologies/drover/issues/5) |
 | 5. Core schema | [#6](https://github.com/Forrest-Technologies/drover/issues/6) |
 | 6. Sign-in, first run, secret vault | [#7](https://github.com/Forrest-Technologies/drover/issues/7) |
+| 6b. Deployment policy presets | [#20](https://github.com/Forrest-Technologies/drover/issues/20) |
 | 7. Agent framework spike, kept as tests | [#8](https://github.com/Forrest-Technologies/drover/issues/8) |
 | 8. Model providers: Venice and compatible endpoints | [#9](https://github.com/Forrest-Technologies/drover/issues/9) |
 | 9. Run engine | [#10](https://github.com/Forrest-Technologies/drover/issues/10) |

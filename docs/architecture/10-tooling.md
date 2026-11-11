@@ -57,7 +57,7 @@ Stock rules that contradict the guide or the platform are switched off in `.edit
 
 ### `Drover.Analyzers`
 
-A small Roslyn analyzer project in `tools/`, referenced by every project through `Directory.Build.props`. Seven rules:
+A small Roslyn analyzer project in `tools/`, referenced by every project through `Directory.Build.props`. Eight rules:
 
 | Id | Rule | Notes |
 | --- | --- | --- |
@@ -68,8 +68,9 @@ A small Roslyn analyzer project in `tools/`, referenced by every project through
 | DRV0005 | No silent `catch` | A catch block must log, rethrow, or return a value built from the exception |
 | DRV0006 | Tenancy shape | An entity exposed as a `DbSet` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest` |
 | DRV0007 | Vendor containment | A vendor namespace (from a list in the analyzer's configuration) may be referenced only by its adapter project |
+| DRV0008 | Data access containment | `DroverDbContext`, `DbSet<T>`, and `IQueryable<T>` may be used only in `Drover.Data`, and no public member there may return `IQueryable<T>` |
 
-DRV0006 and DRV0007 are architecture rules, not style. They give an agent a clear message at compile time for the two mistakes that matter most.
+DRV0006, DRV0007, and DRV0008 are architecture rules, not style. They give an agent a clear message at compile time for the two mistakes that matter most.
 
 Each rule has tests with compliant and non-compliant samples, and a code fix where one is mechanical (DRV0001, DRV0002, DRV0004).
 
@@ -116,7 +117,6 @@ Notes:
 
 | Situation | Runner | How |
 | --- | --- | --- |
-| Repository is private | Owner's self-hosted runners for everything | Hosted minutes cost money for private repositories |
 | Repository is public, job runs pull request code | GitHub-hosted | Free, and a stranger's code never touches the owner's machines |
 | Repository is public, trusted job (release from a protected tag) | Owner's self-hosted runner | Never executes pull request code |
 
@@ -126,7 +126,7 @@ The workflows pick the runner from `github.event.repository.private`, so nobody 
 runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
 ```
 
-Before going public, two repository settings must be set, because they are the controls outside the workflow files:
+The repository is public, so two repository settings must be in place **before the workflows go live in Phase 0 step 1**, because they are the controls outside the workflow files:
 
 1. Actions settings: require approval for workflows from all outside contributors.
 2. Runner groups: the self-hosted runner group is restricted to the `release` workflow, so even a mistaken `runs-on` in another workflow cannot reach it.

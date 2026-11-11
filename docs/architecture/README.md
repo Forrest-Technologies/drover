@@ -21,6 +21,7 @@ This document answers the architecture handoff. It is split into one file per ha
 | 13 | [13-deployment-and-push.md](13-deployment-and-push.md) | Compose deployment, first run, push notifications |
 | 14 | [14-agent-framework.md](14-agent-framework.md) | What Drover uses from the agent framework, and how it stays current |
 | 15 | [15-model-providers.md](15-model-providers.md) | Model connections: Venice first-party, compatible endpoints, subscription sign-in |
+| 16 | [16-deployment-policies.md](16-deployment-policies.md) | Deployment policy: self-hosted by default, a hosted preset that locks the server into compliance |
 
 Files that already sit at their final paths: [`/AGENTS.md`](../../AGENTS.md), [`/CODE_STYLE.md`](../../CODE_STYLE.md), [`/.editorconfig`](../../.editorconfig), [`/BannedSymbols.txt`](../../BannedSymbols.txt). The CI workflows are drafts under [`drafts/workflows/`](drafts/workflows/) and move to `.github/workflows/` in Phase 0 step 1, once there is a solution for them to build.
 

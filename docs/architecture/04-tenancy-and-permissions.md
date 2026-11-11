@@ -179,11 +179,11 @@ public sealed class TenantTransactionInterceptor(TenantContext tenant) : DbTrans
 
 The overridden method keeps EF Core's own name, `TransactionStartedAsync`. `CODE_STYLE.md` bans the suffix on Drover's methods; an override cannot rename its base member, and analyzer `DRV0001` exempts overrides and interface implementations for that reason.
 
-Callers do not use the interceptor directly. They use `TenantScope`:
+Callers do not use the interceptor directly. A service opens a `TenantScope` and calls repositories inside it. Repositories never open or commit one:
 
 ```csharp
 await using var work = await tenantScope.Begin(cancellationToken);
-var thread = await db.Threads.SingleAsync(t => t.Id == threadId, cancellationToken);
+var thread = await threads.GetThread(threadId, cancellationToken);
 thread.Title = title;
 await work.Commit(cancellationToken);
 ```

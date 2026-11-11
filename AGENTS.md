@@ -23,7 +23,7 @@ One space must never read or write another space's data, even when application c
 - Every table is space-owned (`ISpaceOwned`), user-owned (`IUserOwned`), or listed in `GlobalTables.manifest`. There is no fourth kind.
 - A migration that creates a space-owned table calls `IsolateBySpace`. Do not write policies by hand.
 - A foreign key between two space-owned tables includes `space_id`.
-- All tenant data access runs inside a `TenantScope` transaction. Never run a query outside one. Never hold one across a model call, a tool call, or any network wait.
+- All tenant data access runs inside a `TenantScope` transaction. Never run a query outside one. Never hold one across a model call, a tool call, or any network wait. Services open the scope; repositories never open or commit one.
 - Never add `IgnoreQueryFilters`, raw SQL that names another space, a connection string for another role, or anything else that reaches around the policy.
 - Work that must cross spaces goes through a function in schema `sys`. Adding or changing one requires editing `SystemFunctions.manifest` and explaining why in the pull request. Expect it to be questioned. Return ids from such a function, then read the rows inside a normal tenant scope.
 - A new table needs a seeder in `Drover.Data.Tests` so the isolation suite covers it. The build fails without one. Do not weaken, skip, or special-case an isolation test to get green.
@@ -47,7 +47,8 @@ Inside a space, bots are separated by grants. These hold everywhere:
 - The agent framework is the one exception in kind, not in rule: Drover builds on Microsoft Agent Framework fully, and all of it lives in `Drover.Agents`. Use its features (sessions, history providers, context providers, skills, workflows, orchestration, approval, middleware) before writing your own. Do not re-implement something it provides. Its types still never leave `Drover.Agents` and the server's wiring. Read `docs/architecture/14-agent-framework.md` before touching that project.
 - Framework session and checkpoint data is opaque working state. Conversation content lives in Drover's own `messages` schema. Never make a feature depend on reading a framework blob.
 - A new adapter must pass the conformance suite for its interface in `Drover.Adapters.Conformance`. A new behavior every adapter must have goes into that suite first.
-- Do not wrap the platform. Use ASP.NET Core, EF Core, dependency injection, and logging directly. No repository layer, no mediator, no wrapper around `DbContext`.
+- Do not wrap the platform. Use ASP.NET Core, EF Core, dependency injection, and logging directly. No mediator, no generic repository, no unit-of-work wrapper.
+- Data access is layered: **repositories** in `Drover.Data` store and retrieve, **services** in `Drover.Engine` hold business logic and call repositories. `DroverDbContext`, `DbSet`, and `IQueryable` never appear outside `Drover.Data` (DRV0008). A repository is a concrete class per aggregate (`ThreadRepository`), uses EF Core fully inside, returns entities or records, and never returns `IQueryable`. No repository interfaces and no mocks of repositories: services are tested against real PostgreSQL, because a mocked repository cannot fail the way row-level security does.
 - Do not add an interface for something with one implementation and no realistic second one. A small library used in one place is called directly.
 
 Why: providers change, and the agent framework ships breaking changes weekly, so one project absorbs them. The platform does not change, and wrapping it only hides features.
@@ -79,6 +80,12 @@ Why: providers change, and the agent framework ships breaking changes weekly, so
 - Secrets are stored through `ISecretVault` and are never returned by any endpoint. No contract type carries a secret value.
 - Never log a secret, put one in an exception message, a run event, a tool argument, or model context.
 - Never commit a credential, key, or token, including in tests. Tests generate their own.
+
+## 8a. Deployment policy
+
+- Anything that must differ between a self-hosted server and the hosted service is a named rule in `DeploymentPolicy`, never an `if (hosted)` in feature code. Read `docs/architecture/16-deployment-policies.md`.
+- Limits only narrow: deployment policy, then space policy, then bot settings. A lower level can never loosen a higher one.
+- A feature that could harm other tenants or break a provider's terms on a shared server ships with a policy rule and a row in the hosted preset test.
 
 ## 9. Tests
 
@@ -120,7 +127,7 @@ hadolint Dockerfile
 ## 11. CI and runners
 
 - Any job that builds or runs code from a pull request runs on GitHub-hosted runners. Never give such a job a self-hosted runner. A pull request from a fork could run anything on the owner's machine.
-- Self-hosted runners are only for trusted jobs that never execute pull request code, such as release builds from a protected branch, and for everything while the repository is private.
+- The repository is public. Self-hosted runners are only for trusted jobs that never execute pull request code, such as release builds from a protected tag.
 - Workflows choose the runner from the repository's visibility. Do not hard-code `self-hosted` in a workflow that has a `pull_request` trigger. Never use `pull_request_target`.
 - Every third-party action is pinned to a full commit SHA with the version in a comment. Workflows declare `permissions` explicitly, starting from none.
 - The project publishes no container images. Do not add a registry push.

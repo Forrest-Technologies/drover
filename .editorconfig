@@ -221,6 +221,8 @@ dotnet_diagnostic.DRV0005.severity = error
 dotnet_diagnostic.DRV0006.severity = error
 # DRV0007 Vendor namespace referenced outside its adapter project
 dotnet_diagnostic.DRV0007.severity = error
+# DRV0008 DbContext, DbSet, or IQueryable used outside Drover.Data
+dotnet_diagnostic.DRV0008.severity = error
 
 [GlobalUsings.cs]
 # The one file where using directives belong
