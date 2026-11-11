@@ -207,7 +207,7 @@ Some work must look across spaces: claiming jobs, finding a user at sign-in, cle
 
 Rules for a `sys` function:
 
-1. Owned by `drover_system`, `SECURITY DEFINER`, with `SET search_path = pg_catalog, public` pinned.
+1. Owned by `drover_system`, `SECURITY DEFINER`, with `SET search_path = pg_catalog, public, pg_temp` pinned (`pg_temp` last, so a temporary object cannot shadow a table), and every table name in the body schema-qualified.
 2. Does one narrow thing and returns the minimum: ids, not rows. `claim_runs` returns `(run_id, space_id, principal_user_id)`; the worker then opens a normal tenant scope and reads the run under row-level security.
 3. `EXECUTE` revoked from `PUBLIC`, granted to `drover_app`.
 4. Writes one row to `sys.audit`: function, caller, time, row count.
@@ -219,13 +219,13 @@ Initial set:
 | --- | --- |
 | `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree. The lease is 45 seconds. |
 | `sys.claim_due_schedules(limit)` | Phase 1 |
-| `sys.find_user_for_sign_in(email)` | Return the user id and credential fields (password hash, security stamp, lockout state) for one email, compared by its normalized form |
-| `sys.memberships_for_user(user_id)` | Used once after sign-in, before a space is chosen. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
+| `sys.find_user_for_sign_in(email)` | Return the user id for one email, compared by its normalized form, and nothing else. The caller then reads the user row in a transaction with `drover.user_id` set to that id, which the `users` policy allows. |
+| `sys.memberships_for_user()` | Used once after sign-in, before a space is chosen. Takes no argument: it answers for `sys.current_user_id()` only, so it can never list another person's spaces. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
 | `sys.resolve_oauth_state(state_hash)` | Map an OAuth callback to its space and user |
 | `sys.purge_expired(limit)` | Delete expired OAuth flows and destroyed sandboxes that no tool call mentions, at most `limit` of each. Session tables join it when they exist. |
 | `sys.health()` | Counts for the status page and the first-run check: queued, running, and waiting runs, expired leases, the oldest lease, and the number of users. No tenant data. |
 
-`effective_grants(bot_id)` is not a `sys` function: it lives in `public`, runs as the caller under row-level security, and is not on the manifest. `drover_system` is given each table privilege one by one in the migration, and `USAGE` on `public` by the bootstrap; a test lists exactly what it holds. `sys.audit` is written by the functions only.
+`effective_grants(bot_id)` is not a `sys` function: it lives in `public`, runs as the caller under row-level security, and is not on the manifest. `drover_system` is given column-level `SELECT` (and `UPDATE` on `runs` columns) limited to what its functions read, and `DELETE` on `oauth_flows` and `sandboxes`; it has no table-wide `SELECT` anywhere. The bootstrap gives it `USAGE` on `public`; a test lists exactly what it holds. `sys.audit` is written by the functions only.
 
 Observed: `drover_app` calling `sys.claim_runs` received runs from two spaces, while a direct `SELECT` on `runs` in space A's transaction saw only A's.
 
@@ -304,7 +304,7 @@ This is computed when a run assembles its tools and again when a tool is called,
 
 Writes are validated too: granting a child an effect above its parent's effective grant is rejected with a clear message ("raise it on Atlas first"). The read-time rule is the guarantee; the write-time rule keeps stored data honest.
 
-A `needs_review` grant counts as `ask` until a human confirms it.
+A `needs_review` grant counts as `ask` until a human confirms it. A bot whose own row (distance 0) is missing from `bot_ancestors` is not in the tree and gets no grants at all.
 
 Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQL function and the C# function are tested against the same table of cases.
 

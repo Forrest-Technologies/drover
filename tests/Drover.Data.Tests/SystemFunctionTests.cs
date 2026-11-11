@@ -24,7 +24,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         var world = await TenantWorld.Seed(provider);
         var email = $"{world.UserA2:N}@Example.Test";
 
-        var found = await Query(postgres.AppConnectionString(), "SELECT user_id, display_name FROM sys.find_user_for_sign_in(@email)", ("email", email));
+        var found = await Query(postgres.AppConnectionString(), "SELECT user_id FROM sys.find_user_for_sign_in(@email)", ("email", email));
         var unknown = await Query(postgres.AppConnectionString(), "SELECT user_id FROM sys.find_user_for_sign_in(@email)", ("email", "nobody@example.test"));
 
         found.Should().ContainSingle().Which[0].Should().Be(world.UserA2);
@@ -32,19 +32,46 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task Memberships_are_listed_for_a_user_before_any_space_is_chosen()
+    public async Task Sign_in_returns_the_user_id_and_nothing_else()
+    {
+        var columns = await Query(
+            postgres.AdminConnectionString,
+            """
+            SELECT array_agg(a.attname::text ORDER BY a.attnum)
+            FROM pg_proc p, unnest(p.proargnames, p.proargmodes) WITH ORDINALITY a(attname, mode, attnum)
+            WHERE p.pronamespace = 'sys'::regnamespace AND p.proname = 'find_user_for_sign_in' AND a.mode = 't'
+            """);
+
+        ((string[])columns.Single()[0]!).Should().Equal("user_id");
+    }
+
+    [Fact]
+    public async Task Memberships_are_those_of_the_transactions_own_user_and_nobody_elses()
     {
         await using var provider = postgres.BuildServices();
         var world = await TenantWorld.Seed(provider);
+        var sql = "SELECT space_id, kind, role FROM sys.memberships_for_user()";
 
-        var traveler = await Query(postgres.AppConnectionString(), "SELECT space_id, kind, role FROM sys.memberships_for_user(@user)", ("user", world.Traveler));
-        var owner = await Query(postgres.AppConnectionString(), "SELECT space_id, role FROM sys.memberships_for_user(@user)", ("user", world.UserA1));
-        var stranger = await Query(postgres.AppConnectionString(), "SELECT space_id FROM sys.memberships_for_user(@user)", ("user", Guid.CreateVersion7()));
+        var traveler = await QueryAs(world.Traveler, sql);
+        var owner = await QueryAs(world.UserA1, sql);
+        var other = await QueryAs(world.UserB1, sql);
+        var nobody = await QueryAs(null, sql);
 
         traveler.Select(row => row[0]).Should().BeEquivalentTo([world.SpaceA, world.SpaceB]);
         traveler.Should().OnlyContain(row => (string)row[1]! == "shared" && (string)row[2]! == "member");
-        owner.Should().ContainSingle().Which.Should().Equal(world.SpaceA, "owner");
-        stranger.Should().BeEmpty();
+        owner.Should().ContainSingle().Which[0].Should().Be(world.SpaceA);
+        other.Should().ContainSingle().Which[0].Should().Be(world.SpaceB);
+        other.Select(row => row[0]).Should().NotContain(world.SpaceA, "B's context never returns A's memberships");
+        owner.Select(row => row[0]).Should().NotContain(world.SpaceB);
+        nobody.Should().BeEmpty("with no user set there is nobody to answer for");
+    }
+
+    [Fact]
+    public async Task The_memberships_function_takes_no_argument()
+    {
+        var arguments = await Query(postgres.AdminConnectionString, "SELECT pronargs::int FROM pg_proc WHERE pronamespace = 'sys'::regnamespace AND proname = 'memberships_for_user'");
+
+        arguments.Should().ContainSingle().Which[0].Should().Be(0);
     }
 
     #endregion
@@ -123,7 +150,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         {
             ("claim_runs", "SELECT * FROM sys.claim_runs(@worker, @limit)", 2, [("worker", "w"), ("limit", 2)]),
             ("find_user_for_sign_in", "SELECT * FROM sys.find_user_for_sign_in(@email)", 1, [("email", $"{world.UserA1:N}@example.test")]),
-            ("memberships_for_user", "SELECT * FROM sys.memberships_for_user(@user)", 2, [("user", world.Traveler)]),
+            ("memberships_for_user", "SELECT * FROM sys.memberships_for_user()", 2, [("as_user", world.Traveler)]),
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
@@ -131,7 +158,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
 
         foreach (var call in calls)
         {
-            await Query(scratch.AppConnectionString, call.Sql, call.Parameters);
+            var asUser = call.Parameters.Where(parameter => parameter.Item1 == "as_user").Select(parameter => (Guid?)parameter.Item2).FirstOrDefault();
+            await QueryAs(scratch.AppConnectionString, asUser, call.Sql, [.. call.Parameters.Where(parameter => parameter.Item1 != "as_user")]);
         }
 
         var audit = await Query(AdminFor(scratch), "SELECT function_name, caller, row_count FROM sys.audit ORDER BY id");
@@ -168,7 +196,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             SELECT p.proname,
                    pg_get_userbyid(p.proowner),
                    p.prosecdef,
-                   coalesce(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog, public'],
+                   coalesce(p.proconfig, ARRAY[]::text[]) @> ARRAY['search_path=pg_catalog, public, pg_temp'],
                    NOT EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0),
                    has_function_privilege('drover_app', p.oid, 'EXECUTE')
             FROM pg_proc p
@@ -183,29 +211,41 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task The_system_role_holds_exactly_the_table_privileges_its_functions_need()
+    public async Task The_system_role_holds_exactly_the_privileges_its_functions_need_and_reads_by_column()
     {
-        var granted = await Query(
+        var tables = await Query(
             postgres.AdminConnectionString,
             """
-            SELECT table_schema || '.' || table_name, privilege_type
-            FROM information_schema.table_privileges
-            WHERE grantee = 'drover_system'
+            SELECT n.nspname || '.' || c.relname || ' ' || p.privilege
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) p(privilege)
+            WHERE n.nspname IN ('public', 'sys') AND c.relkind IN ('r', 'p') AND has_table_privilege('drover_system', c.oid, p.privilege)
+            """);
+        var columns = await Query(
+            postgres.AdminConnectionString,
+            """
+            SELECT c.relname || '.' || a.attname || ' ' || p.privilege
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            CROSS JOIN (VALUES ('SELECT'), ('UPDATE')) p(privilege)
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+              AND has_column_privilege('drover_system', c.oid, a.attnum, p.privilege)
             """);
 
-        granted.Select(row => $"{row[0]} {row[1]}").Should().BeEquivalentTo(
+        tables.Select(row => (string)row[0]!).Should().BeEquivalentTo(
+            ["sys.audit INSERT", "public.oauth_flows DELETE", "public.sandboxes DELETE"],
+            "no table-wide SELECT or UPDATE anywhere");
+        columns.Select(row => (string)row[0]!).Should().BeEquivalentTo(
         [
-            "sys.audit INSERT",
-            "public.runs SELECT",
-            "public.runs UPDATE",
-            "public.tool_calls SELECT",
-            "public.users SELECT",
-            "public.memberships SELECT",
-            "public.spaces SELECT",
-            "public.oauth_flows SELECT",
-            "public.oauth_flows DELETE",
-            "public.sandboxes SELECT",
-            "public.sandboxes DELETE",
+            .. Columns("runs", "SELECT", "id space_id parent_run_id root_run_id principal_user_id status attempt lease_expires_at started_at"),
+            .. Columns("runs", "UPDATE", "status status_reason attempt lease_owner lease_expires_at started_at"),
+            .. Columns("tool_calls", "SELECT", "space_id run_id status sandbox_id"),
+            .. Columns("users", "SELECT", "id normalized_email"),
+            .. Columns("memberships", "SELECT", "space_id user_id role"),
+            .. Columns("spaces", "SELECT", "id kind name slug"),
+            .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
+            .. Columns("sandboxes", "SELECT", "id space_id state"),
         ]);
     }
 
@@ -218,6 +258,52 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         {
             Database = new NpgsqlConnectionStringBuilder(scratch.AppConnectionString).Database,
         }.ConnectionString;
+
+    private static IEnumerable<string> Columns(string table, string privilege, string names) =>
+        names.Split(' ').Select(column => $"{table}.{column} {privilege}");
+
+    private Task<List<object?[]>> QueryAs(Guid? user, string sql) => QueryAs(postgres.AppConnectionString(), user, sql);
+
+    /// <summary>Runs the query in a transaction that carries a user, as a tenant scope does, or none.</summary>
+    private static async Task<List<object?[]>> QueryAs(string connectionString, Guid? user, string sql, params (string Name, object? Value)[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+
+        if (user is { } id)
+        {
+            await using var set = new NpgsqlCommand("SELECT set_config('drover.user_id', @user, true)", connection, transaction);
+            set.Parameters.AddWithValue("user", id.ToString());
+            await set.ExecuteScalarAsync();
+        }
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        }
+
+        var rows = new List<object?[]>();
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var row = new object?[reader.FieldCount];
+
+                for (var index = 0; index < row.Length; index++)
+                {
+                    row[index] = await reader.IsDBNullAsync(index) ? null : reader.GetValue(index);
+                }
+
+                rows.Add(row);
+            }
+        }
+
+        await transaction.CommitAsync();
+        return rows;
+    }
 
     private static async Task<List<object?[]>> Query(string connectionString, string sql, params (string Name, object? Value)[] parameters)
     {

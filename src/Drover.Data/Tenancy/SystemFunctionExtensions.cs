@@ -3,7 +3,7 @@ namespace Drover.Data.Tenancy;
 /// <summary>
 /// The only way a migration creates a function in schema <c>sys</c>, so the rules of
 /// docs/architecture/04-tenancy-and-permissions.md hold for every one: owned by <c>drover_system</c>,
-/// <c>SECURITY DEFINER</c> with the search path pinned, <c>EXECUTE</c> revoked from everyone and granted to
+/// <c>SECURITY DEFINER</c> with the search path pinned (pg_temp last, so a temporary object can never shadow a table), <c>EXECUTE</c> revoked from everyone and granted to
 /// <c>drover_app</c>. The body is also responsible for writing a row to <c>sys.audit</c>, and the function must be
 /// listed in <c>SystemFunctions.manifest</c> or the data tests fail. Names and bodies are compile-time text from a
 /// migration, never user input.
@@ -30,7 +30,7 @@ public static class SystemFunctionExtensions
             RETURNS {returns}
             LANGUAGE plpgsql
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             {body}
             $function$;

@@ -11,10 +11,16 @@ public static class GrantRules
     /// <summary>
     /// The effective grant for one tool: the minimum of the bot's own grant and every ancestor's. Pass one entry
     /// per bot on the path, the bot first, with <c>null</c> for a bot that has no grant. Any <c>null</c>, or an
-    /// empty path, means no grant, which means the tool is invisible.
+    /// empty path, means no grant, which means the tool is invisible. A bot whose own closure row is missing is
+    /// not in the tree, so <paramref name="botIsInTree"/> false gives no grant whatever the grants say.
     /// </summary>
-    public static GrantEffect? Effective(IEnumerable<GrantEntry?> path)
+    public static GrantEffect? Effective(IEnumerable<GrantEntry?> path, bool botIsInTree = true)
     {
+        if (!botIsInTree)
+        {
+            return null;
+        }
+
         GrantEffect? effective = null;
 
         foreach (var entry in path)

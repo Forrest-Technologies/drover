@@ -14,7 +14,7 @@ public sealed class GrantRulesTests
     {
         var grantCase = EffectiveGrantCases.Find(name);
 
-        var effective = GrantRules.Effective(grantCase.Entries());
+        var effective = GrantRules.Effective(grantCase.Entries(), grantCase.OwnClosureRow);
 
         effective.Should().Be(grantCase.ExpectedEffect());
     }

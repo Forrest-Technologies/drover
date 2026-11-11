@@ -1,7 +1,8 @@
 # The cases that the SQL function effective_grants(bot_id) and the C# rule GrantRules.Effective must agree on.
 # Both test projects read this file; there is no second copy.
 #
-# One case per line:  name | grants along the path, the bot first and the root last | expected effective grant
+# One case per line:  name | grants along the path, the bot first and the root last | expected effective grant | flags
+#   - The optional last field is a flag. no-own-row means the bot's own closure row (distance 0) is missing, which hides every tool.
 #   - A grant is none (the bot has no grant row), deny, ask, or allow. Add :review for a grant that needs review.
 #   - The expected value is none, deny, ask, or allow. none means the tool is invisible to the bot.
 #   - The depth is the number of grants listed: one is a root bot, four is a bot three levels below the root.
@@ -38,6 +39,9 @@ the grandparent has no grant                  | allow,allow,none             | n
 the root has no grant, depth 3                | allow,allow,allow,none       | none
 a missing ancestor in the middle              | allow,none,allow             | none
 the bot has no grant, ancestors allow         | none,allow,allow             | none
+
+# A bot missing from its own closure table is not in the tree, so it is granted nothing
+the bot has no closure row of its own         | allow,allow                  | none | no-own-row
 
 # A grant that needs review counts as ask, and never as more
 needs review, allow                           | allow:review                 | ask

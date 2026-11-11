@@ -1063,6 +1063,9 @@ namespace Drover.Data.Migrations
                   JOIN tool_grants g ON g.space_id = a.space_id AND g.bot_id = a.ancestor_bot_id
                   CROSS JOIN LATERAL (SELECT CASE g.effect WHEN 'deny' THEN 0 WHEN 'ask' THEN 1 ELSE 2 END AS rank) ranked
                   WHERE a.descendant_bot_id = target_bot_id
+                    AND EXISTS (
+                      SELECT 1 FROM bot_ancestors own
+                      WHERE own.descendant_bot_id = target_bot_id AND own.ancestor_bot_id = target_bot_id AND own.distance = 0)
                   GROUP BY g.tool_id
                   HAVING count(*) = (SELECT count(*) FROM bot_ancestors WHERE descendant_bot_id = target_bot_id)
                 $function$;
@@ -1086,9 +1089,17 @@ namespace Drover.Data.Migrations
             migrationBuilder.Sql(
                 """
                 GRANT INSERT ON sys.audit TO drover_system;
-                GRANT SELECT, UPDATE ON runs TO drover_system;
-                GRANT SELECT ON tool_calls, users, memberships, spaces TO drover_system;
-                GRANT SELECT, DELETE ON oauth_flows, sandboxes TO drover_system;
+                GRANT SELECT (id, space_id, parent_run_id, root_run_id, principal_user_id, status, attempt, lease_expires_at, started_at)
+                  ON runs TO drover_system;
+                GRANT UPDATE (status, status_reason, attempt, lease_owner, lease_expires_at, started_at) ON runs TO drover_system;
+                GRANT SELECT (space_id, run_id, status, sandbox_id) ON tool_calls TO drover_system;
+                GRANT SELECT (id, normalized_email) ON users TO drover_system;
+                GRANT SELECT (space_id, user_id, role) ON memberships TO drover_system;
+                GRANT SELECT (id, kind, name, slug) ON spaces TO drover_system;
+                GRANT SELECT (state_hash, space_id, audience_user_id, tool_connection_id, expires_at) ON oauth_flows TO drover_system;
+                GRANT SELECT (id, space_id, state) ON sandboxes TO drover_system;
+                GRANT DELETE ON oauth_flows, sandboxes TO drover_system;
+                GRANT EXECUTE ON FUNCTION sys.current_user_id() TO drover_system;
                 """);
 
             // Lease runnable root runs across spaces. Returns ids only; the worker then opens a tenant scope.
@@ -1102,20 +1113,20 @@ namespace Drover.Data.Migrations
                   RETURN QUERY
                   WITH picked AS (
                     SELECT r.id
-                    FROM runs r
+                    FROM public.runs r
                     WHERE r.parent_run_id IS NULL
                       AND (r.status = 'queued'
                         OR (r.status = 'running' AND r.lease_expires_at < now())
                         OR (r.status = 'waiting' AND NOT EXISTS (
                               SELECT 1
-                              FROM tool_calls tc
-                              JOIN runs tree ON tree.space_id = tc.space_id AND tree.id = tc.run_id
+                              FROM public.tool_calls tc
+                              JOIN public.runs tree ON tree.space_id = tc.space_id AND tree.id = tc.run_id
                               WHERE tc.space_id = r.space_id AND tree.root_run_id = r.id AND tc.status = 'pending_approval')))
                     ORDER BY r.id
                     LIMIT greatest(max_runs, 0)
                     FOR UPDATE OF r SKIP LOCKED),
                   claimed AS (
-                    UPDATE runs
+                    UPDATE public.runs
                     SET attempt = CASE WHEN runs.status = 'running' THEN runs.attempt + 1 ELSE runs.attempt END,
                         status = 'running',
                         status_reason = NULL,
@@ -1136,36 +1147,28 @@ namespace Drover.Data.Migrations
             migrationBuilder.CreateSystemFunction(
                 "find_user_for_sign_in",
                 [("sign_in_email", "text")],
-                """
-                TABLE (user_id uuid, user_name text, display_name text, password_hash text, security_stamp text,
-                  email_confirmed boolean, two_factor_enabled boolean, lockout_end timestamp with time zone,
-                  lockout_enabled boolean, access_failed_count integer)
-                """,
+                "TABLE (user_id uuid)",
                 """
                 #variable_conflict use_column
                 BEGIN
                   RETURN QUERY
                   WITH found AS (
-                    SELECT u.id AS found_id, u.user_name::text AS found_name, u.display_name::text AS found_display,
-                           u.password_hash AS found_hash, u.security_stamp AS found_stamp, u.email_confirmed AS found_confirmed,
-                           u.two_factor_enabled AS found_two_factor, u.lockout_end AS found_lockout_end,
-                           u.lockout_enabled AS found_lockout_enabled, u.access_failed_count AS found_failures
-                    FROM users u
+                    SELECT u.id AS found_id
+                    FROM public.users u
                     WHERE u.normalized_email = upper(sign_in_email)
                     ORDER BY u.id),
                   logged AS (
                     INSERT INTO sys.audit (function_name, caller, row_count)
                     SELECT 'find_user_for_sign_in', session_user, count(*)::integer FROM found)
-                  SELECT found_id, found_name, found_display, found_hash, found_stamp, found_confirmed, found_two_factor,
-                         found_lockout_end, found_lockout_enabled, found_failures
-                  FROM found;
+                  SELECT found_id FROM found;
                 END;
                 """);
 
-            // After sign-in and before a space is chosen: which spaces the person can pick from.
+            // After sign-in and before a space is chosen: which spaces the signed-in user can pick from. It takes no
+            // argument: it answers for the user the transaction was opened for, and for nobody else.
             migrationBuilder.CreateSystemFunction(
                 "memberships_for_user",
-                [("target_user", "uuid")],
+                [],
                 "TABLE (space_id uuid, kind text, name text, slug text, role text)",
                 """
                 #variable_conflict use_column
@@ -1174,9 +1177,9 @@ namespace Drover.Data.Migrations
                   WITH found AS (
                     SELECT s.id AS found_space, s.kind::text AS found_kind, s.name::text AS found_name,
                            s.slug::text AS found_slug, m.role::text AS found_role
-                    FROM memberships m
-                    JOIN spaces s ON s.id = m.space_id
-                    WHERE m.user_id = target_user
+                    FROM public.memberships m
+                    JOIN public.spaces s ON s.id = m.space_id
+                    WHERE m.user_id = sys.current_user_id()
                     ORDER BY s.name, s.id),
                   logged AS (
                     INSERT INTO sys.audit (function_name, caller, row_count)
@@ -1196,7 +1199,7 @@ namespace Drover.Data.Migrations
                   RETURN QUERY
                   WITH found AS (
                     SELECT f.space_id AS found_space, f.audience_user_id AS found_user, f.tool_connection_id AS found_connection
-                    FROM oauth_flows f
+                    FROM public.oauth_flows f
                     WHERE f.state_hash = hash AND f.expires_at > now()),
                   logged AS (
                     INSERT INTO sys.audit (function_name, caller, row_count)
@@ -1216,9 +1219,9 @@ namespace Drover.Data.Migrations
                   boxes integer;
                 BEGIN
                   WITH gone AS (
-                    DELETE FROM oauth_flows
+                    DELETE FROM public.oauth_flows
                     WHERE state_hash IN (
-                      SELECT f.state_hash FROM oauth_flows f
+                      SELECT f.state_hash FROM public.oauth_flows f
                       WHERE f.expires_at < now()
                       ORDER BY f.expires_at
                       LIMIT greatest(max_rows, 0))
@@ -1226,11 +1229,11 @@ namespace Drover.Data.Migrations
                   SELECT count(*) INTO flows FROM gone;
 
                   WITH gone AS (
-                    DELETE FROM sandboxes
+                    DELETE FROM public.sandboxes
                     WHERE id IN (
-                      SELECT s.id FROM sandboxes s
+                      SELECT s.id FROM public.sandboxes s
                       WHERE s.state = 'destroyed'
-                        AND NOT EXISTS (SELECT 1 FROM tool_calls tc WHERE tc.space_id = s.space_id AND tc.sandbox_id = s.id)
+                        AND NOT EXISTS (SELECT 1 FROM public.tool_calls tc WHERE tc.space_id = s.space_id AND tc.sandbox_id = s.id)
                       ORDER BY s.id
                       LIMIT greatest(max_rows, 0))
                     RETURNING 1)
@@ -1259,8 +1262,8 @@ namespace Drover.Data.Migrations
                            count(*) FILTER (WHERE r.status = 'waiting') AS waiting,
                            count(*) FILTER (WHERE r.status = 'running' AND r.lease_expires_at < now()) AS expired,
                            min(r.lease_expires_at) FILTER (WHERE r.status = 'running') AS oldest
-                    FROM runs r),
-                  people AS (SELECT count(*) AS total FROM users),
+                    FROM public.runs r),
+                  people AS (SELECT count(*) AS total FROM public.users),
                   logged AS (
                     INSERT INTO sys.audit (function_name, caller, row_count) SELECT 'health', session_user, 1)
                   SELECT counts.queued, counts.running, counts.waiting, counts.expired, counts.oldest, people.total
@@ -1275,7 +1278,7 @@ namespace Drover.Data.Migrations
             migrationBuilder.DropSystemFunction("health", string.Empty);
             migrationBuilder.DropSystemFunction("purge_expired", "integer");
             migrationBuilder.DropSystemFunction("resolve_oauth_state", "text");
-            migrationBuilder.DropSystemFunction("memberships_for_user", "uuid");
+            migrationBuilder.DropSystemFunction("memberships_for_user", string.Empty);
             migrationBuilder.DropSystemFunction("find_user_for_sign_in", "text");
             migrationBuilder.DropSystemFunction("claim_runs", "text, integer");
             migrationBuilder.Sql("DROP TABLE sys.audit;");

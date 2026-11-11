@@ -19,7 +19,7 @@ public sealed class EffectiveGrantTests(PostgresFixture postgres)
         var path = await SavePath(provider, world, grantCase);
 
         var fromSql = await EffectiveGrant(provider, world.SpaceA, world.UserA1, path.Leaf, path.Tool);
-        var fromCSharp = GrantRules.Effective(grantCase.Entries());
+        var fromCSharp = GrantRules.Effective(grantCase.Entries(), grantCase.OwnClosureRow);
 
         fromSql.Should().Be(grantCase.ExpectedEffect(), "the SQL function must give the expected grant");
         fromCSharp.Should().Be(grantCase.ExpectedEffect(), "the C# rule must give the expected grant");
@@ -119,7 +119,7 @@ public sealed class EffectiveGrantTests(PostgresFixture postgres)
 
         for (var index = bots.Count - 1; index >= 0; index--)
         {
-            CoreRows.AddBot(session.Db, bots[index], [.. bots.Skip(index + 1)]);
+            CoreRows.AddBot(session.Db, bots[index], [.. bots.Skip(index + 1)], includeOwnRow: index != 0 || grantCase.OwnClosureRow);
         }
 
         var entries = grantCase.Entries();

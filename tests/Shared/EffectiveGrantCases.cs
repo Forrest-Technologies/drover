@@ -1,7 +1,7 @@
 namespace Drover.Tests.Common;
 
 /// <summary>One line of <c>effective-grants.cases</c>. See that file for the format.</summary>
-public sealed record GrantCase(string Name, IReadOnlyList<string> Path, string Expected)
+public sealed record GrantCase(string Name, IReadOnlyList<string> Path, string Expected, bool OwnClosureRow = true)
 {
     #region Public Methods
 
@@ -47,9 +47,13 @@ public static class EffectiveGrantCases
         {
             var fields = line.Split('|', StringSplitOptions.TrimEntries);
 
-            if (!line.TrimStart().StartsWith('#') && fields.Length == 3)
+            if (!line.TrimStart().StartsWith('#') && fields.Length is 3 or 4)
             {
-                cases.Add(new GrantCase(fields[0], [.. fields[1].Split(',', StringSplitOptions.TrimEntries)], fields[2]));
+                cases.Add(new GrantCase(
+                    fields[0],
+                    [.. fields[1].Split(',', StringSplitOptions.TrimEntries)],
+                    fields[2],
+                    OwnClosureRow: fields.Length < 4 || fields[3] != "no-own-row"));
             }
         }
 

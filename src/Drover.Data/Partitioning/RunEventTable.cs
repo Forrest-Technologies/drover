@@ -40,7 +40,8 @@ public static class RunEventTable
     /// <summary>
     /// Creates the table with one partition for each of <paramref name="months"/> months from <paramref name="first"/>,
     /// and a default partition for anything outside them, so an insert never fails for want of a partition. The
-    /// application role gets no privilege on the partitions, only on the table.
+    /// application role gets no privilege on the partitions, only on the table, and each partition has row-level
+    /// security enabled and forced with no policy, which denies everything.
     /// </summary>
     public static MigrationBuilder CreateRunEventsTable(this MigrationBuilder migration, DateOnly first, int months)
     {
@@ -55,9 +56,11 @@ public static class RunEventTable
                 CREATE TABLE run_events_{start:yyyy_MM} PARTITION OF run_events
                   FOR VALUES FROM ('{start:yyyy-MM-dd} 00:00:00+00') TO ('{end:yyyy-MM-dd} 00:00:00+00');
                 """);
+            migration.EnableForcedSecurity($"run_events_{start:yyyy_MM}");
         }
 
         migration.Sql("CREATE TABLE run_events_default PARTITION OF run_events DEFAULT;");
+        migration.EnableForcedSecurity("run_events_default");
         return migration;
     }
 

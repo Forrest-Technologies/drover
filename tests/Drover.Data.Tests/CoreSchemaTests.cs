@@ -108,6 +108,26 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Every_partition_has_row_level_security_forced_with_no_policy_and_the_app_role_has_no_privilege_of_any_kind()
+    {
+        var partitions = await Query(
+            """
+            SELECT c.relname,
+                   c.relrowsecurity,
+                   c.relforcerowsecurity,
+                   (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid),
+                   has_table_privilege('drover_app', c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'),
+                   has_any_column_privilege('drover_app', c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
+            FROM pg_class c
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relispartition AND c.relkind IN ('r', 'p')
+            """);
+
+        partitions.Should().HaveCountGreaterThan(14, "fourteen months and the default partition");
+        partitions.Should().OnlyContain(row => (bool)row[1]! && (bool)row[2]! && (long)row[3]! == 0, "no policy means deny");
+        partitions.Should().OnlyContain(row => !(bool)row[4]! && !(bool)row[5]!, "the app role reaches events through the table only");
+    }
+
+    [Fact]
     public async Task An_event_lands_in_the_partition_of_its_month_or_in_the_default_one()
     {
         await using var provider = postgres.BuildServices();

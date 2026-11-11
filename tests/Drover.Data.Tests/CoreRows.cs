@@ -34,10 +34,14 @@ public static class CoreRows
     };
 
     /// <summary>A bot, its closure rows to itself and to every ancestor, saved in the session's transaction.</summary>
-    public static void AddBot(DroverDbContext db, Bot bot, IReadOnlyList<Bot> ancestorsNearestFirst)
+    public static void AddBot(DroverDbContext db, Bot bot, IReadOnlyList<Bot> ancestorsNearestFirst, bool includeOwnRow = true)
     {
         db.Bots.Add(bot);
-        db.BotAncestors.Add(new BotAncestor { AncestorBotId = bot.Id, DescendantBotId = bot.Id, Distance = 0 });
+
+        if (includeOwnRow)
+        {
+            db.BotAncestors.Add(new BotAncestor { AncestorBotId = bot.Id, DescendantBotId = bot.Id, Distance = 0 });
+        }
 
         for (var index = 0; index < ancestorsNearestFirst.Count; index++)
         {

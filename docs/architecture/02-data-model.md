@@ -160,6 +160,6 @@ Phase 1 adds `memories` (space-owned with an audience, with a `vector` column) a
 
 `run_events` grows fastest. It is range-partitioned by month on `created_at` from the first migration, so old partitions can be detached or dropped without a table rewrite.
 
-The first migration creates fourteen monthly partitions, November 2026 to December 2027, and a default partition that takes any row outside them, so an insert never fails for want of a partition. Creating the next months ahead of time is a maintenance job that does not exist yet. The application role holds privileges on `run_events` only, never on a partition, so every read and write goes through the table's policies.
+The first migration creates fourteen monthly partitions, November 2026 to December 2027, and a default partition that takes any row outside them, so an insert never fails for want of a partition. Creating the next months ahead of time is a maintenance job that does not exist yet. The application role holds privileges on `run_events` only, never on a partition, so every read and write goes through the table's policies. Each partition also has row-level security enabled and forced with no policy, which denies everything if a privilege is ever granted by mistake.
 
 Because the key carries `created_at`, the database does not enforce that `(root_run_id, seq)` is unique. The lock on the root run row does: sequence numbers are only ever given out by the `UPDATE ... RETURNING` in [03-run-lifecycle.md](03-run-lifecycle.md).
