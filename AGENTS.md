@@ -134,6 +134,11 @@ hadolint Dockerfile
 
 ## 12. User interface
 
+- **Read `DESIGN.md` before any change a person can see.** It is the direction: identity, palette, type, motion, and the list of things Drover's interface never does. Build toward it; do not invent a look.
+- Before you finish, check your change against every item under "What Drover's interface never does". The ones marked (test) fail the build. The rest are yours to hold.
+- No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
+- Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.
+- A pull request that changes the interface includes screenshots: dark, light, and 360 px wide, and each state it adds (empty, loading, error).
 - Use the tokens in `tokens.css`. No raw colors, sizes, or durations in components.
 - Dark is primary; light must work. Every text and status color keeps 4.5:1 contrast.
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.

@@ -23,6 +23,7 @@ dotnet run --project src/Drover.Server      # http://localhost:8080
 | [docs/adr](docs/adr/README.md) | Decisions and what would reopen them |
 | [AGENTS.md](AGENTS.md) | Rules for anyone, human or coding agent, changing this repository |
 | [CODE_STYLE.md](CODE_STYLE.md) | The C# style guide. Binding. |
+| [DESIGN.md](DESIGN.md) | The interface direction, and what the interface never does |
 
 ## License
 

@@ -1,5 +1,7 @@
 # 9. Design direction
 
+The one-page version of this section, written for anyone building a screen, is [`/DESIGN.md`](../../DESIGN.md). It also holds the list of habits Drover's interface never falls into and which of them the build checks.
+
 Working name for the look: **Night Yard**. A dark, calm workspace where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something.
 
 ## Principles
