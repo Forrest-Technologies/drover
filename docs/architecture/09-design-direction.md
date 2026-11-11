@@ -1,0 +1,184 @@
+# 9. Design direction
+
+Working name for the look: **Night Yard**. A dark, calm workspace where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something.
+
+## Principles
+
+1. **Light means live.** Color and motion mark what is working right now. Everything at rest is neutral.
+2. **Show the work.** Tool activity and the bot tree are content, not debug panels.
+3. **One thing at a time.** A screen starts with what most people need. Controls appear when a choice makes them relevant.
+4. **Fast first.** Every effect has a job: showing state or confirming an action. If removing it loses no information, remove it.
+
+## Tokens
+
+One file, `Drover.Ui/wwwroot/tokens.css`, as CSS custom properties. Web and the MAUI shell load the same file. Components reference semantic tokens only, never raw values.
+
+### Color, dark (primary)
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--dv-bg-0` | `#0A0C10` | App background |
+| `--dv-bg-1` | `#10141B` | Panels, sidebar |
+| `--dv-bg-2` | `#171C26` | Cards, message bubbles |
+| `--dv-bg-3` | `#202735` | Hover, selected |
+| `--dv-line` | `#2B3445` | Dividers, decorative borders |
+| `--dv-text` | `#E9EDF5` | Primary text |
+| `--dv-text-2` | `#AEB7C7` | Secondary text |
+| `--dv-text-3` | `#8791A5` | Captions, timestamps |
+| `--dv-ember` | `#FFB454` | Human intent: primary buttons, focus ring, the send action |
+| `--dv-ion` | `#67E8F9` | Bot activity: thinking, streaming, running tool |
+| `--dv-violet` | `#B4A0FF` | Delegation between bots |
+| `--dv-ok` | `#4ADE80` | Success |
+| `--dv-warn` | `#FACC15` | Needs attention, approval waiting |
+| `--dv-danger` | `#FF7A7A` | Failure, destructive action |
+
+### Color, light
+
+| Token | Value |
+| --- | --- |
+| `--dv-bg-0`, `-1`, `-2` | `#F6F7FA`, `#FFFFFF`, `#EEF0F5` |
+| `--dv-line` | `#D5DAE3` |
+| `--dv-text`, `-2`, `-3` | `#12151C`, `#414B5E`, `#5D6779` |
+| `--dv-ember`, `--dv-ion`, `--dv-violet` | `#9A5B00`, `#0B6E82`, `#5B3FD6` |
+| `--dv-ok`, `--dv-warn`, `--dv-danger` | `#15703A`, `#7A5A00`, `#B3261E` |
+
+### Contrast, computed
+
+Ratios against the WCAG formula, calculated for these exact values:
+
+| Foreground | Dark, on `bg-0` to `bg-3` | Light, on `bg-0` to `bg-2` |
+| --- | --- | --- |
+| `text` | 16.7 to 12.8 | 17.0 to 16.0 |
+| `text-2` | 9.7 to 7.4 | 8.2 to 7.7 |
+| `text-3` | 6.2 to 4.7 | 5.3 to 5.0 |
+| `ember` | 11.1 to 8.5 | 5.1 to 4.8 |
+| `ion` | 13.5 to 10.3 | 5.5 to 5.2 |
+| `violet` | 8.8 to 6.7 | 6.3 to 5.9 |
+| `ok`, `warn`, `danger` | 7.8 or higher on `bg-0`, 5.9 or higher on `bg-3` | 5.4 or higher |
+
+Every text and status color clears 4.5:1 on every surface in both themes. `--dv-line` is about 1.5:1 and is decorative only; any border that conveys a control's edge or state uses `--dv-text-3` or a status color, which clear the 3:1 needed for interface elements. A unit test recomputes this table from `tokens.css` and fails if a change drops a pair below its threshold.
+
+### Bot identity color
+
+Each bot gets a hue derived from its id, shown as a ring on its avatar and as its lane color in the activity view and tree. The hue is picked from twelve fixed steps tuned to clear 4.5:1 on `bg-2`. Color is never the only signal: the bot's name or initials always accompany it.
+
+### Type
+
+| Token | Value |
+| --- | --- |
+| `--dv-font-ui` | Inter (variable), then the system UI stack |
+| `--dv-font-mono` | JetBrains Mono, then the system monospace stack |
+| Scale | 12, 13, 14 (base), 16, 20, 28 px, with line heights 1.5 for text and 1.25 for headings |
+| Weights | 400 body, 500 labels, 600 headings |
+
+Both fonts are bundled (SIL OFL 1.1). Nothing loads from a third-party host, which matters for privacy on self-hosted servers and for the MAUI shell offline. Monospace is used for tool arguments, commands, and output, so "what the machine did" always looks different from "what was said".
+
+### Space, shape, depth
+
+| Token | Value |
+| --- | --- |
+| Spacing | 4 px base: 4, 8, 12, 16, 24, 32, 48 |
+| Radius | 6 (controls), 10 (cards), 16 (sheets), full (avatars, pills) |
+| Elevation | Two levels only, done with a lighter surface and a 1 px line, not heavy shadows |
+| Hit target | 44 px minimum on touch, 32 px on pointer |
+
+### Motion
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--dv-dur-1` | 120 ms | Hover, press, small state changes |
+| `--dv-dur-2` | 220 ms | Panels, sheets, list insertions |
+| `--dv-dur-3` | 420 ms | Delegation handoff, tree layout changes |
+| `--dv-ease` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | Everything that moves |
+
+## Motion rules
+
+1. **Motion shows state, nothing else.** The four states that earn motion:
+
+   | State | Motion |
+   | --- | --- |
+   | Bot thinking | A slow ion-colored breath on the bot's avatar ring. No bouncing dots. |
+   | Text streaming | Text appears as it arrives. The last few characters fade in over 120 ms so chunks do not flicker. No typewriter effect that delays text already received. |
+   | Tool running | A thin ion line travels along the top edge of the tool card. It stops and turns green or red when the tool finishes. |
+   | Delegation | A violet pulse travels the connector from parent to child in the tree and in the activity rail, once, when the handoff happens, and back when the result returns. |
+
+2. **Nothing loops unless something is in progress.** When the work stops, the motion stops.
+3. **Nothing blocks.** No animation delays input or hides content that has arrived. Durations stay under half a second.
+4. **Reduced motion is respected.** Under `prefers-reduced-motion: reduce`, travel and pulse animations are replaced by an instant state change plus a static indicator: a solid ring for thinking, a "running" label for tools, a highlighted connector for delegation. No information is lost.
+5. **Layout does not jump.** Streaming text grows downward in a container that keeps the scroll position pinned only while the user is at the bottom.
+
+## Key screens
+
+### 1. Thread
+
+Three regions on a wide window: thread list, conversation, activity rail. On a phone: conversation only, with the list behind a back gesture and the rail as a pull-up sheet.
+
+- The conversation is quiet. User messages sit right in a `bg-2` bubble; bot messages run full width with no bubble, like a document. Markdown renders live.
+- Tool use appears inline as a compact card: tool title, a one-line summary of the arguments, and a state edge (running, done, failed, waiting for you). Tapping it opens the full call in the rail.
+- The **activity rail** is the run as a vertical timeline. Each bot in the run gets a lane in its identity color. Steps, tool calls, and delegations are nodes; a delegation branches into the child's lane and rejoins when it returns. Selecting a node shows arguments, live output in monospace, result, duration, and cost. A terminal-style view is used for sandbox commands.
+- An approval request raises a bar above the composer: what the bot wants to do, with which arguments, and Approve or Deny. It is reachable by keyboard without leaving the composer.
+- The composer is one field. Attach, model override, and other options appear in a row only after the plus button is used.
+- A cancel control replaces send while a run is active. It cancels the whole tree.
+
+### 2. Crew
+
+The bot hierarchy as a top-down tree on a pannable canvas. This is the first bold screen.
+
+- Each bot is a node: avatar with identity ring, name, a one-line role, and a small live indicator. Connectors are thin lines.
+- Live state is visible at a glance: a breathing ring where a bot is thinking, a violet pulse along a connector during a handoff, a warning dot where an approval waits.
+- Selecting a node opens a side sheet: what the bot is doing now, recent runs, cost for it and its subtree, and Pause, Edit, Remove.
+- A human can add a bot beneath any node. Caps (depth, width) show as a quiet counter on the parent, such as "3 of 5", and the add control disables at the cap with the reason in its label.
+- Bots created by another bot carry a small "made by" mark.
+- With a keyboard, the tree is an accessible tree view: arrow keys move, Enter opens. A list view with the same data is one toggle away and is the default for screen readers.
+
+### 3. Bot editor
+
+One page, sectioned, with progressive disclosure. Never a wall of settings.
+
+- Always visible: name, avatar, "what this bot is for" (the description other bots read, labeled in those words), and instructions.
+- Sections that open on demand, each showing a one-line summary when closed: Model, Tools, Memory, Schedule, Sandbox, Team.
+- **Tools** lists connections, each expandable to its tools. Every tool has a three-way control: Off, Ask, Allow. A tool the parent bot lacks is shown disabled with "Atlas does not have this". A changed tool definition shows a "review" badge with a diff.
+- **Sandbox** offers three choices in plain words (Private, Shared with its team, Shared with chosen bots) and states what sharing means.
+- **Team** holds the bot-building permissions and their caps, off by default.
+- Anything that needs setup says what is missing and links to it: "Add a sandbox provider to use this".
+
+### 4. Activity
+
+Every run in the space, newest first, filterable by bot, status, and "waiting for me". Each row expands to the same timeline as the thread rail. This is where a human audits what the crew did overnight and answers approvals in bulk.
+
+### 5. Setup and Status
+
+Setup is three steps with one decision each: create your account, connect a model (base address and key, with a "test" button that reports the result in plain words), meet your first bot. Status is a single page of rows, each green, amber, or red with a sentence: database, migrations, each model connection, each tool connection, sandbox provider, push, background workers, key ring backup.
+
+## Accessibility
+
+Required for every component, and tested:
+
+- Full keyboard operation, visible focus (a 2 px ember ring with 2 px offset), logical tab order, no keyboard traps.
+- Names, roles, and states for assistive technology. Streaming messages use a polite live region that announces completed sentences, not every token. Tool state changes are announced once.
+- Text contrast 4.5:1, interface elements 3:1, as computed above.
+- Reduced motion, as above. Text scales to 200 percent without loss.
+- Component tests assert roles and names; an automated accessibility check runs against the key screens in CI.
+
+## Component approach
+
+**Recommendation: Drover's own small component set on plain CSS with custom properties and Blazor CSS isolation.**
+
+| Option | Finding | Verdict |
+| --- | --- | --- |
+| Established styled library (several checked; all MIT or Apache-2.0 and healthy) | Each carries a strong look of its own. Themes change colors and corners, but spacing, density, motion, and component anatomy stay the library's. The two bold screens, tree and timeline, exist in none of them. | No. Drover would fight the library on exactly the screens that matter. |
+| Utility stylesheet (Tailwind v4, MIT) | Works with a standalone binary and no Node. Adds a build step and a tool download to the Docker build, and long class lists to every component. | No. Tokens as custom properties give the same consistency with no build step. |
+| Headless primitives package | One credible candidate exists (Apache-2.0, active, single maintainer). Useful for hard widgets: combobox, menu, popover positioning. | Not at the start. Adopt for a specific widget only if building it accessibly costs more than a day. |
+| **Own components, plain CSS** | Full control of the aesthetic. No dependency to restyle or outgrow. Uses native elements that are accessible by default: `dialog`, the popover attribute, `details`, real buttons and inputs. | **Yes.** |
+
+The set is small: Button, IconButton, Field, Select, Switch, SegmentedControl, Dialog, Sheet, Menu, Tooltip, Toast, Avatar, Badge, Tabs, Tree, Timeline, MarkdownView, CodeBlock, EmptyState. Each has component tests and a page in an in-app gallery (development builds only) that doubles as the visual reference.
+
+## Markdown
+
+Markdig, as decided. No reason was found to do otherwise.
+
+- **Streaming**: the message is re-parsed on each flushed chunk (at most ten times a second). An unclosed code fence renders as a code block to the end of the text, which is the right look mid-stream. Completed messages are parsed once and cached.
+- **Safety**: the pipeline disables raw HTML, and the output then passes through HtmlSanitizer with a short allowlist of elements and attributes. Links open in a new context with `rel="noopener noreferrer"`. Only `http`, `https`, and `mailto` addresses survive.
+- **Remote images** are not loaded automatically ([06-mcp.md](06-mcp.md)).
+- **MAUI web view**: same component, same code. Nothing platform-specific.
+- Code blocks get a copy button and syntax coloring from a small bundled highlighter, loaded on first use.

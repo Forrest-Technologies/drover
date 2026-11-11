@@ -1,0 +1,237 @@
+# Drover editor and analyzer configuration.
+# CODE_STYLE.md is the authority. This file enforces as much of it as tooling can.
+# When this file and CODE_STYLE.md disagree, fix this file.
+# Rules that no stock analyzer covers live in tools/Drover.Analyzers (DRV####) and BannedSymbols.txt.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml,xml,props,targets,csproj,slnx,razor.css,css,js}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{cs,razor}]
+max_line_length = 120
+
+[*.cs]
+
+# ---------------------------------------------------------------------------
+# Language features (CODE_STYLE.md: Language Features)
+# ---------------------------------------------------------------------------
+
+# File-scoped namespaces, always
+csharp_style_namespace_declarations = file_scoped:error
+dotnet_diagnostic.IDE0161.severity = error
+
+# var for every local
+csharp_style_var_for_built_in_types = true:error
+csharp_style_var_when_type_is_apparent = true:error
+csharp_style_var_elsewhere = true:error
+dotnet_diagnostic.IDE0007.severity = error
+
+# Braces on every block, Allman style
+csharp_prefer_braces = true:error
+dotnet_diagnostic.IDE0011.severity = error
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = true
+
+# Collection expressions, never new List<T>()
+dotnet_style_prefer_collection_expression = when_types_loosely_match:error
+dotnet_diagnostic.IDE0028.severity = error
+dotnet_diagnostic.IDE0300.severity = error
+dotnet_diagnostic.IDE0301.severity = error
+dotnet_diagnostic.IDE0302.severity = error
+dotnet_diagnostic.IDE0303.severity = error
+dotnet_diagnostic.IDE0304.severity = error
+dotnet_diagnostic.IDE0305.severity = error
+
+# Target-typed new
+csharp_style_implicit_object_creation_when_type_is_apparent = true:error
+dotnet_diagnostic.IDE0090.severity = error
+
+# Primary constructors preferred. Warning, because the guide allows a traditional
+# constructor for complex initialization; suppress with a reason when that applies.
+csharp_style_prefer_primary_constructors = true:warning
+dotnet_diagnostic.IDE0290.severity = warning
+
+# Expression bodies for simple members only
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+
+# Pattern matching and null handling
+csharp_style_pattern_matching_over_is_with_cast_check = true:error
+csharp_style_pattern_matching_over_as_with_null_check = true:error
+csharp_style_prefer_not_pattern = true:error
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_switch_expression = true:suggestion
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:error
+dotnet_style_coalesce_expression = true:error
+dotnet_style_null_propagation = true:error
+dotnet_style_prefer_compound_assignment = true:error
+dotnet_diagnostic.IDE0041.severity = error
+dotnet_diagnostic.IDE0074.severity = error
+dotnet_diagnostic.IDE0083.severity = error
+
+# Interpolation over string.Format (the + operator is covered by DRV0004)
+dotnet_style_prefer_simplified_interpolation = true:error
+dotnet_diagnostic.IDE0071.severity = error
+
+# Usings: global usings only, in GlobalUsings.cs (local usings are DRV0002)
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:error
+dotnet_diagnostic.IDE0005.severity = error
+
+# Formatting is checked in the build, so "dotnet format" and CI agree
+dotnet_diagnostic.IDE0055.severity = error
+
+# No "this." unless it disambiguates (traditional constructors assigning same-named fields)
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:error
+dotnet_style_qualification_for_method = false:error
+dotnet_style_qualification_for_event = false:error
+
+# ---------------------------------------------------------------------------
+# Naming (CODE_STYLE.md: Naming)
+# ---------------------------------------------------------------------------
+
+dotnet_diagnostic.IDE1006.severity = error
+
+dotnet_naming_style.pascal.capitalization = pascal_case
+
+dotnet_naming_style.bare_camel.capitalization = camel_case
+
+dotnet_naming_style.interface_prefix.capitalization = pascal_case
+dotnet_naming_style.interface_prefix.required_prefix = I
+
+dotnet_naming_style.type_parameter_prefix.capitalization = pascal_case
+dotnet_naming_style.type_parameter_prefix.required_prefix = T
+
+# Interfaces: I + PascalCase
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_rule.interfaces_prefixed.symbols = interfaces
+dotnet_naming_rule.interfaces_prefixed.style = interface_prefix
+dotnet_naming_rule.interfaces_prefixed.severity = error
+
+# Type parameters: T or TDescriptive
+dotnet_naming_symbols.type_parameters.applicable_kinds = type_parameter
+dotnet_naming_rule.type_parameters_prefixed.symbols = type_parameters
+dotnet_naming_rule.type_parameters_prefixed.style = type_parameter_prefix
+dotnet_naming_rule.type_parameters_prefixed.severity = error
+
+# Constants: PascalCase (must come before the private field rule)
+dotnet_naming_symbols.constants.applicable_kinds = field, local
+dotnet_naming_symbols.constants.required_modifiers = const
+dotnet_naming_rule.constants_pascal.symbols = constants
+dotnet_naming_rule.constants_pascal.style = pascal
+dotnet_naming_rule.constants_pascal.severity = error
+
+# Private fields: bare camelCase, NO underscore prefix
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private, private_protected
+dotnet_naming_rule.private_fields_bare_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_bare_camel.style = bare_camel
+dotnet_naming_rule.private_fields_bare_camel.severity = error
+
+# Locals and parameters: camelCase
+dotnet_naming_symbols.locals_and_parameters.applicable_kinds = local, parameter
+dotnet_naming_rule.locals_and_parameters_camel.symbols = locals_and_parameters
+dotnet_naming_rule.locals_and_parameters_camel.style = bare_camel
+dotnet_naming_rule.locals_and_parameters_camel.severity = error
+
+# Everything else that is a type or member: PascalCase
+dotnet_naming_symbols.types_and_members.applicable_kinds = namespace, class, struct, enum, delegate, method, property, event, local_function
+dotnet_naming_rule.types_and_members_pascal.symbols = types_and_members
+dotnet_naming_rule.types_and_members_pascal.style = pascal
+dotnet_naming_rule.types_and_members_pascal.severity = error
+
+# Non-private fields: PascalCase
+dotnet_naming_symbols.visible_fields.applicable_kinds = field
+dotnet_naming_symbols.visible_fields.applicable_accessibilities = public, internal, protected, protected_internal
+dotnet_naming_rule.visible_fields_pascal.symbols = visible_fields
+dotnet_naming_rule.visible_fields_pascal.style = pascal
+dotnet_naming_rule.visible_fields_pascal.severity = error
+
+# ---------------------------------------------------------------------------
+# Async, logging, exceptions (CODE_STYLE.md: Async / Await, Logging)
+# ---------------------------------------------------------------------------
+
+# Never block on a task (.Result / .Wait() / GetResult also banned in BannedSymbols.txt)
+dotnet_diagnostic.CA1849.severity = error
+dotnet_diagnostic.CA2012.severity = error
+# Structured logging only: message template must be a constant, never interpolated
+dotnet_diagnostic.CA2254.severity = error
+dotnet_diagnostic.CA2017.severity = error
+# Rethrow with "throw;" to keep the stack
+dotnet_diagnostic.CA2200.severity = error
+# Banned APIs (string.Format, Console.Write*, ContinueWith, ...)
+dotnet_diagnostic.RS0030.severity = error
+
+# The guide never uses the Async suffix. Stock rules that demand it stay off;
+# DRV0001 forbids it unless a synchronous twin exists.
+dotnet_diagnostic.VSTHRD200.severity = none
+
+# ---------------------------------------------------------------------------
+# Stock rules switched off because they contradict the guide or the platform
+# ---------------------------------------------------------------------------
+
+# ASP.NET Core has no synchronization context; ConfigureAwait(false) is noise here
+dotnet_diagnostic.CA2007.severity = none
+# The guide calls logger.LogX(...) directly; no LoggerMessage delegates required
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none
+# Nullable reference types already cover argument null checks
+dotnet_diagnostic.CA1062.severity = none
+# "Return Task directly when there is nothing to do with the result" is the guide's rule,
+# so do not flag methods that elide async/await
+dotnet_diagnostic.CA1822.severity = suggestion
+# XML docs are not required; names carry the meaning
+dotnet_diagnostic.CS1591.severity = none
+
+# ---------------------------------------------------------------------------
+# Drover analyzers (tools/Drover.Analyzers)
+# ---------------------------------------------------------------------------
+
+# DRV0001 No Async suffix unless a synchronous twin exists in the same type
+dotnet_diagnostic.DRV0001.severity = error
+# DRV0002 No local using directives (alias directives that resolve an ambiguity are allowed)
+dotnet_diagnostic.DRV0002.severity = error
+# DRV0003 Regions: required on non-trivial types, standard order, blank line inside each tag
+dotnet_diagnostic.DRV0003.severity = error
+# DRV0004 No string concatenation with +, use interpolation
+dotnet_diagnostic.DRV0004.severity = error
+# DRV0005 No empty catch blocks and no catch that neither logs nor rethrows
+dotnet_diagnostic.DRV0005.severity = error
+# DRV0006 Tenant-owned entity without ISpaceOwned, or a DbSet missing from the RLS manifest
+dotnet_diagnostic.DRV0006.severity = error
+# DRV0007 Vendor namespace referenced outside its adapter project
+dotnet_diagnostic.DRV0007.severity = error
+
+[GlobalUsings.cs]
+# The one file where using directives belong
+dotnet_diagnostic.DRV0002.severity = none
+dotnet_diagnostic.IDE0005.severity = none
+
+[**/Migrations/*.cs]
+# EF Core generated code
+generated_code = true
+
+[tests/**/*.cs]
+# Test names read as sentences: Tenant_A_cannot_read_tenant_B_threads
+dotnet_diagnostic.CA1707.severity = none
+dotnet_naming_rule.types_and_members_pascal.severity = none

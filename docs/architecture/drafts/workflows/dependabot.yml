@@ -1,0 +1,29 @@
+# Draft. Moves to .github/dependabot.yml in Phase 0 step 1.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      microsoft:
+        patterns: ["Microsoft.*", "System.*", "Npgsql*"]
+    ignore:
+      # Upgraded on purpose, with the IAgentRuntime conformance suite as the gate.
+      - dependency-name: "Microsoft.Agents.AI*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      # Stay on the .NET 10 LTS line.
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.AspNetCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
