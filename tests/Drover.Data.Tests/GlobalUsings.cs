@@ -1,0 +1,17 @@
+global using System;
+global using System.Collections.Generic;
+global using System.Linq;
+global using System.Security.Cryptography;
+global using System.Threading;
+global using System.Threading.Tasks;
+global using AwesomeAssertions;
+global using Drover.Data;
+global using Drover.Data.Bootstrap;
+global using Drover.Data.Identity;
+global using Drover.Data.Tenancy;
+global using Drover.Domain.Spaces;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.Extensions.DependencyInjection;
+global using Npgsql;
+global using Testcontainers.PostgreSql;
+global using Xunit;

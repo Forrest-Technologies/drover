@@ -23,6 +23,8 @@ The SQL and the EF Core mechanism in this section were run against PostgreSQL 16
 | `drover_app` | Yes | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, owns nothing | Every request and every background job |
 | `drover_system` | No | `BYPASSRLS`, table privileges granted one by one | Owns the functions in schema `sys`. Nobody can log in as it or `SET ROLE` to it. |
 
+`DatabaseBootstrap` creates the roles and the schema-level grants. It runs before the migrations, over a superuser connection (granting `BYPASSRLS` needs one), holds an advisory lock, and is safe to run again from several servers at once. `drover_owner` is made a member of `drover_system` so that a migration can hand a `sys` function to it. `drover_owner` creates the `sys` schema's functions, so it owns the schema; `drover_app` has `USAGE` on `sys` and on `public`, and `drover_owner` alone has `CREATE`. `PUBLIC` has no privileges on the database, `public`, or `sys`, which also takes away temporary tables.
+
 `drover_app` has `SELECT, INSERT, UPDATE, DELETE` on tenant tables, `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
 
 ### Policies
@@ -83,39 +85,22 @@ User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.cur
 | Table | Policy |
 | --- | --- |
 | `threads` | The two policies above, plus a check constraint `audience_user_id IN (sys.everyone(), owner_user_id)`, and no `UPDATE` privilege on `owner_user_id` for the app role |
-| `spaces` | `id = sys.current_space()` |
-| `memberships` | `space_id = sys.current_space() OR user_id = sys.current_user_id()` for select; space match for writes |
-| `users` | Select own row, or rows of users who are members of the current space. Update own row only. |
+| `spaces` | `id = sys.current_space()`, all commands. A space is created in a transaction whose space is already the new id. |
+| `memberships` | `IsolateBySpace` (space match, all commands), plus a second policy for select only: `user_id = sys.current_user_id()`. Permissive policies combine with OR, so a user lists their own memberships before a space is chosen, and writes need the space. |
+| `users` | Select own row, or rows of users who are members of the current space. Insert and update own row only (`id = sys.current_user_id()`); the app role has no `DELETE` privilege. |
+| `user_claims`, `user_logins`, `user_tokens` | The rest of the ASP.NET Core Identity tables, renamed. `IsolateByUser`: `user_id = sys.current_user_id()`. No passkey table until passkeys are offered (Phase 2). |
+
+Open point for the step that builds sign-in: the `users` policy lets a member of a shared space select the whole row of a fellow member, and the row includes `password_hash` and `security_stamp`. Row-level security cannot hide columns. Before shared spaces get a UI (Phase 2), either move the credential columns to a user-owned table or restrict the app role to a column list that the Identity stores can live with.
 | `audit_log` | Space match; `drover_app` has no `UPDATE` or `DELETE` privilege |
 
-In C# the helper is an extension on `MigrationBuilder`, following the guide's preference for extension builders:
+In C# the helpers are extensions on `MigrationBuilder`, following the guide's preference for extension builders. They live in `Drover.Data.Tenancy`, not in the `Migrations` folder, because `.editorconfig` treats that folder as generated code:
 
 ```csharp
-namespace Drover.Data.Migrations;
-
-public static class RowLevelSecurityExtensions
-{
-    #region Public Methods
-
-    public static MigrationBuilder IsolateBySpace(this MigrationBuilder migration, string table)
-    {
-        migration.Sql($"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;");
-        migration.Sql($"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;");
-        migration.Sql(
-            $"""
-            CREATE POLICY space_isolation ON {table} FOR ALL
-              USING (space_id = sys.current_space())
-              WITH CHECK (space_id = sys.current_space());
-            """);
-        migration.Sql($"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO drover_app;");
-        return migration;
-    }
-
-    #endregion
-}
+public static MigrationBuilder IsolateBySpace(this MigrationBuilder migration, string table, bool audience = false);
+public static MigrationBuilder IsolateByUser(this MigrationBuilder migration, string table);
 ```
 
-`table` is always a compile-time table name from a migration, never user input.
+`IsolateBySpace` enables and forces row-level security, creates `space_isolation`, creates `audience` when asked, and grants `SELECT, INSERT, UPDATE, DELETE` to `drover_app`. `IsolateByUser` does the same with `user_isolation` on `user_id`. `table` is always a compile-time table name from a migration, never user input.
 
 ### Setting the tenant: EF Core and connection pooling
 
@@ -126,7 +111,7 @@ How it is wired:
 1. `TenantContext` is a scoped service holding the space id and user id. It is set once per request by middleware after authentication and membership check, and once per job by the worker. It refuses to change space once set.
 2. `TenantTransactionInterceptor` is an EF Core `DbTransactionInterceptor`. When any transaction starts on the context, it runs the `set_config` statement on that transaction before anything else.
 3. `TenantGuardInterceptor` is a `DbCommandInterceptor` that throws when a command runs with no transaction. Forgetting the transaction is a loud failure in development, and would return zero rows anyway.
-4. `DroverDbContext` is registered with `AddDbContext` (scoped), not `AddDbContextPool`. Pooled contexts share interceptors across scopes; a scoped context gets the interceptor for its own `TenantContext`. Database connections are still pooled by Npgsql.
+4. `DroverDbContext` is registered by `AddDroverData` with `AddDbContext` (scoped), not `AddDbContextPool`. Pooled contexts share interceptors across scopes; a scoped context gets the interceptor for its own `TenantContext`. Database connections are still pooled by Npgsql.
 
 ```csharp
 namespace Drover.Data;
@@ -188,6 +173,8 @@ thread.Title = title;
 await work.Commit(cancellationToken);
 ```
 
+`Begin` returns a `TenantWork`. `Commit` saves the tracked changes and then commits; disposing without committing rolls back. Scopes do not nest. The context also sets `AutoTransactionBehavior.Never`, so `SaveChanges` never opens a transaction of its own: only a `TenantScope` opens one, and a request that touches no tenant data opens none.
+
 API endpoints get this from an endpoint filter that opens the scope before the handler and commits after it, so most handlers contain no transaction code. Streaming endpoints and workers open short scopes themselves.
 
 **Observed with a pool of exactly one connection**, reused for every call:
@@ -211,6 +198,7 @@ Settings that interact, and the decision for each:
 | `No Reset On Close` | Left at the default (reset on) | A second line of defense that costs nothing |
 | External pooler in transaction mode | Compatible | The identity never outlives the transaction |
 | EF Core global query filters on `space_id` | Not used | One mechanism, tested hard. A filter can be bypassed with `IgnoreQueryFilters`; a policy cannot. |
+| `SaveChanges` opening its own transaction | Off (`AutoTransactionBehavior.Never`) | An implicit transaction would start with an empty tenant. Outside a scope the guard throws instead. |
 | Stamping `space_id` on insert | A `SaveChanges` interceptor fills `SpaceId` on new `ISpaceOwned` entities from `TenantContext` | Convenience only. `WITH CHECK` is what enforces it. |
 
 ### Cross-tenant work: the `sys` path
@@ -243,7 +231,7 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 
 ### Isolation test suite
 
-`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). Migrations are applied as `drover_owner`; tests connect as `drover_app`.
+`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). It makes a database of its own, runs `DatabaseBootstrap` with passwords generated for the run, applies migrations as `drover_owner`, and connects as `drover_app`. Roles belong to the server, so two runs against one server at once would reset each other's passwords.
 
 **Catalog tests** read `pg_catalog`, so they cover tables the author forgot about:
 

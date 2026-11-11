@@ -36,7 +36,7 @@ What is shared by the whole space, and has no audience column: bots, grants, con
 | --- | --- | --- | --- |
 | `users` | Global, special policy | `id`, `email`, `display_name`, password and passkey fields from ASP.NET Core Identity | A user is visible to themself and to members of the current space. Sign-in lookups go through `sys.find_user_for_sign_in`. |
 | `spaces` | Space-owned (its `id` is the space) | `id`, `kind`, `name`, `slug`, `settings jsonb` | `kind` is `personal` or `shared`. Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
-| `memberships` | Space-owned, readable by own user | `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
+| `memberships` | Space-owned, readable by own user | `id`, `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
 | `user_sessions`, `push_subscriptions` | User-owned | `user_id`, device fields | A device belongs to a person, not to a space. |
 
 ### Roles
