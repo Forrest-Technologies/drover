@@ -21,11 +21,13 @@ The owner chats with a bot that uses MCP tools, through a compose deployment, ev
 
 ## Before you dispatch anything
 
-1. The step 1 pull request is merged into `main`.
-2. `main` is green in CI.
-3. The owner has set the repository settings listed on #2, and Dependency graph and Secret scanning are enabled (`docs/architecture/10-tooling.md`).
+1. The step 1 pull request is merged into `main`. Check it yourself.
+2. `main` is green in CI. Check it yourself. A check still running on the newest commit is not red: if the commit before it passed everything, start, and stop only if the running check fails.
+3. The owner has set the repository settings listed on #2, and Dependency graph and Secret scanning are enabled (`docs/architecture/10-tooling.md`). You cannot read these settings, so do not try. The owner's word in the kickoff is the confirmation. Record it as a comment on #2 and go on.
 
-If any of these is not true, stop and tell the owner. Do not start workers on a branch other than `main`.
+Stop only if 1 or 2 is false, or the owner has not spoken to 3 at all. Then ask once, with the exact sentence you need back, and start every lane that does not depend on the answer. Do not start workers on a branch other than `main`, except the lane A stack described below.
+
+A kickoff that leaves a choice open does not stop the run. Take the default this file gives (do not merge, stack lane A, framing run limit applies), say which default you took, and go on.
 
 ## What to read
 
