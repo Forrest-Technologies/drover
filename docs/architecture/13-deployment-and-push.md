@@ -77,7 +77,7 @@ The image is built on the self-hoster's machine, so the build must fit a modest 
 - Restore is a separate layer keyed on the lock files, so a rebuild after a small change skips it.
 - The build server and parallelism are limited inside the Dockerfile (`-maxcpucount:1`, shared compilation off) to cap peak memory at the cost of some time.
 
-**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time and image size on every run. These are budgets to hold, not measurements; there is no code to measure yet. Phase 0 step 14 records the first real numbers in the README. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
+**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time and image size on every run. These are budgets to hold, not measurements; there is no code to measure yet. Phase 0 step 15 records the first real numbers in the README. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
 
 ### Local development
 

@@ -44,11 +44,13 @@ Inside a space, bots are separated by grants. These hold everywhere:
 
 - External providers sit behind an interface Drover owns, in `Drover.Domain`: models, agent runtime, tools, sandbox, memory, search, voice, push, files, email, secrets.
 - A vendor package is referenced by exactly one `Drover.Adapters.*` project. Vendor types never appear in `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Data`, `Drover.Ui`, a database column, or an API response.
+- The agent framework is the one exception in kind, not in rule: Drover builds on Microsoft Agent Framework fully, and all of it lives in `Drover.Agents`. Use its features (sessions, history providers, context providers, skills, workflows, orchestration, approval, middleware) before writing your own. Do not re-implement something it provides. Its types still never leave `Drover.Agents` and the server's wiring. Read `docs/architecture/14-agent-framework.md` before touching that project.
+- Framework session and checkpoint data is opaque working state. Conversation content lives in Drover's own `messages` schema. Never make a feature depend on reading a framework blob.
 - A new adapter must pass the conformance suite for its interface in `Drover.Adapters.Conformance`. A new behavior every adapter must have goes into that suite first.
 - Do not wrap the platform. Use ASP.NET Core, EF Core, dependency injection, and logging directly. No repository layer, no mediator, no wrapper around `DbContext`.
 - Do not add an interface for something with one implementation and no realistic second one. A small library used in one place is called directly.
 
-Why: providers change and the agent framework is young. The platform does not change, and wrapping it only hides features.
+Why: providers change, and the agent framework ships breaking changes weekly, so one project absorbs them. The platform does not change, and wrapping it only hides features.
 
 ## 5. Libraries and licenses
 
@@ -144,3 +146,13 @@ hadolint Dockerfile
 7. Documentation in `docs/architecture/` still describes what the code does. If your change makes a section wrong, update the section in the same pull request.
 
 If you cannot meet one of these, stop and say which and why. Do not work around it silently.
+
+## 14. How work is tracked
+
+- GitHub Issues are the source of truth for tasks. `ROADMAP.md` gives direction and links to tracking issues; it never holds status.
+- One issue, one branch, one pull request. The pull request body starts with `Closes #n` and says how the issue's verification plan was carried out.
+- Work only on an issue whose acceptance criteria you can meet. If the issue is unclear or wrong, say so on the issue instead of guessing.
+- Do not widen scope. If you find something else that needs doing, open an issue for it.
+- Pull request titles follow Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `build:`, `refactor:`, with `!` for a breaking change.
+- A change that goes against a decision in `docs/adr` adds the ADR that supersedes it, in the same pull request.
+- Never edit `ROADMAP.md` status, close an issue by hand, or mark a criterion done that you did not verify.

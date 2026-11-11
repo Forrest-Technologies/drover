@@ -6,18 +6,19 @@ updates:
     schedule:
       interval: weekly
     groups:
+      agent-framework:
+        # Tracked at the latest release, previews included. The conformance suite is the gate.
+        patterns: ["Microsoft.Agents.*", "Microsoft.Extensions.AI*", "ModelContextProtocol*"]
       microsoft:
         patterns: ["Microsoft.*", "System.*", "Npgsql*"]
+        exclude-patterns: ["Microsoft.Agents.*", "Microsoft.Extensions.AI*"]
     ignore:
-      # Upgraded on purpose, with the IAgentRuntime conformance suite as the gate.
-      - dependency-name: "Microsoft.Agents.AI*"
-        update-types: ["version-update:semver-minor", "version-update:semver-major"]
       # Stay on the .NET 10 LTS line.
       - dependency-name: "Microsoft.EntityFrameworkCore*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.AspNetCore*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "Microsoft.Extensions*"
+      - dependency-name: "Microsoft.Extensions.Http*"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /

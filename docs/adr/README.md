@@ -15,3 +15,13 @@ One short file per decision that would be expensive to reverse or that an agent 
 
 | # | Decision | Status |
 | --- | --- | --- |
+| [0001](0001-build-on-agent-framework-in-one-project.md) | Build on Microsoft Agent Framework fully, inside one project | Accepted |
+| [0002](0002-isolation-in-postgresql.md) | Isolate users and groups with PostgreSQL row-level security | Accepted |
+| [0003](0003-one-data-path-for-all-clients.md) | One data path for every client: JSON API and Server-Sent Events | Accepted |
+| [0004](0004-runs-are-durable-jobs.md) | A run is a durable job with a gapless event log | Accepted |
+| [0005](0005-grants-narrow-down-the-tree.md) | Tool grants are per bot and per tool, narrow down the bot tree, and are enforced outside the model | Accepted |
+| [0006](0006-credentials-belong-to-users-or-spaces.md) | Tool and model credentials belong to a user or a space, never to a bot | Accepted |
+| [0007](0007-mcp-both-generations-stateless-preferred.md) | Support both MCP protocol generations and prefer stateless | Accepted |
+| [0008](0008-own-ui-components.md) | Drover's own UI components on plain CSS tokens | Accepted |
+| [0009](0009-build-from-source-no-images.md) | Deploy with compose files that build from source; publish no images | Accepted |
+| [0010](0010-issues-are-the-source-of-truth.md) | GitHub Issues are the source of truth for work | Accepted |

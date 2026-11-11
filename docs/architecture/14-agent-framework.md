@@ -1,0 +1,126 @@
+# 14. Agent framework adoption
+
+Owner direction, recorded 2026-11-11: use Microsoft Agent Framework as fully as possible, adopt its preview packages, and stay on its latest release. This section is the map of what Drover uses, how, and where Drover still has to add something of its own.
+
+Everything named here was verified in the framework's source at version 1.28.0 and its main branch on 2026-11-10. Status words: **stable** (released package), **experimental** (marked experimental inside a stable package), **preview**, **alpha**.
+
+## Principle
+
+**The framework runs the agent. Drover governs it.**
+
+- The framework owns: the model and tool loop, sessions, history handling, compaction, context and memory injection, skills, multi-agent orchestration, checkpoints, human-in-the-loop requests, telemetry, evaluation.
+- Drover owns: who may do what (grants, hierarchy, audience), where state is stored (PostgreSQL, under row-level security), the run as a job (claim, lease, cancel, cost), and the event log clients read.
+
+Drover does this the way the framework intends: by implementing its storage abstractions on PostgreSQL and by placing middleware and agent wrappers at its extension points. Drover does not re-implement the loop.
+
+## Where it lives
+
+`Drover.Agents` replaces the earlier idea of a thin adapter project. It is a first-class project that references the framework, `Drover.Domain`, and `Drover.Data`.
+
+| Rule | Reason |
+| --- | --- |
+| Framework types appear in `Drover.Agents` and in `Drover.Server`'s wiring. Nowhere else. | The framework ships breaking changes weekly. One project absorbs them. |
+| `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Ui`, and API responses stay free of framework types. | Clients and the database schema must not change when the framework does. |
+| Conversation content is stored in Drover's own `messages` schema. | It is the product's data and must outlive any framework version. |
+| Framework session state and workflow checkpoints are stored as opaque JSON with the framework version beside them. | They are working state, not records. If a new framework version cannot read an old blob, Drover discards it and rebuilds from `messages`. An in-flight run restarts its current step. |
+
+The engine still talks to the framework through one small interface, `IAgentRuntime`, so the run engine can be tested without a model. That interface is now a seam for testing, not a hedge against the framework.
+
+## Adoption map
+
+### Core, from Phase 0
+
+| Framework feature | Status | How Drover uses it |
+| --- | --- | --- |
+| `ChatClientAgent`, `AIAgent`, streaming runs | stable | Every bot is built into an agent from its definition at run start. Streaming updates become Drover run events. |
+| `ChatHistoryProvider` | stable | `PostgresChatHistoryProvider` reads and writes the thread's `messages` inside a tenant scope, translating to Drover's part schema. No built-in PostgreSQL provider exists, so Drover supplies one. |
+| Per-service-call history persistence (`RequirePerServiceCallChatHistoryPersistence`) | stable | On. Each model call and each tool result is saved as it completes. This is the crash-recovery hook: after a restart, history already holds everything that finished. |
+| `AgentSession`, session serialization, `AgentSessionStore` with `AgentSessionStoreKey` partitions | stable; store is experimental | `PostgresAgentSessionStore` keeps the serialized session per thread in an `agent_sessions` table. Space and audience are key partitions and also row-level security columns, so the database enforces what the partition only names. |
+| Function-invocation middleware | stable | The tool gate. Every tool call passes Drover's grant check, taint rule, redaction, and `tool_calls` bookkeeping here. |
+| `ApprovalRequiredAIFunction`, tool approval request and response content | experimental in the AI abstractions | Tools whose effective grant is `ask` are wrapped. The run ends with an approval request; the pending state is in the saved session; the run resumes with the response after any number of restarts. |
+| Run and chat-client middleware | stable | Usage and cost recording, cancellation, secret redaction on the way to the provider's log. |
+| `UseOpenTelemetry` | stable | On for agents and workflows. Traces are exported only if the operator sets an endpoint. Message content is never attached. |
+| Compaction strategies (sliding window, summarization, tool-result, truncation, pipeline) | experimental | A bot's memory settings choose a strategy and thresholds. Long threads stay usable without Drover writing a summarizer. |
+| Evaluation (`EvaluateAsync`, local evaluators, expected tool calls) | stable | Used in Drover's own tests from Phase 0. Offered to users as per-bot checks in Phase 2. |
+
+### Teams and delegation, Phase 1
+
+| Framework feature | Status | How Drover uses it |
+| --- | --- | --- |
+| Workflows with `ICheckpointStore`, `CheckpointManager`, resume in a new process | stable | `PostgresCheckpointStore` (a JSON checkpoint store on a `workflow_checkpoints` table). A team run is a workflow; after a restart it resumes from its latest checkpoint. |
+| `RequestPort`, request and response events | stable | Human-in-the-loop inside a team run. Pending requests survive in the checkpoint and are re-raised on resume. They surface in Drover as the same approval prompt. |
+| Agent as a tool (`AsAIFunction`) | stable | The `delegate` tool. A parent bot calls a child bot as a function. |
+| Orchestration builders: sequential, concurrent, handoff, group chat, Magentic | stable | "Team patterns" a human, or a permitted parent bot, picks for a group of bots. Stored as data on the parent bot. |
+| `DelegatingAIAgent` and agent builder middleware | stable | `GovernedAgent`: every bot handed to a builder or exposed as a tool is wrapped first. The wrapper is where Drover checks the hierarchy rules, creates the child run row, applies the child's own grants, records cost, and emits delegation events. The framework has no per-invocation host callback, so the wrapper is the supported way to do this. |
+| Sub-workflows, workflow as agent | stable; recovery helper experimental | A child bot that itself leads a team appears to its parent as one agent. |
+| Background responses and continuation tokens | experimental | For providers that support them, a long model call survives a server restart by resuming from its token instead of starting over. |
+| Harness: todo list, agent modes (plan, act), file memory | stable | Bot capabilities, switched on per bot. Their tools are ordinary tools in the catalog with grants. |
+| Harness: file access over `AgentFileStore`, background sub-agents, loop agent with completion evaluators | experimental | `AgentFileStore` is implemented over the bot's sandbox or `IFileStore`. The loop agent backs "work until done" routines with a step and cost budget. |
+| `AIContextProvider`, `TextSearchProvider`, `ChatHistoryMemoryProvider` | stable | Long-term memory and document search are context providers backed by `IMemoryStore` on PostgreSQL. |
+| MCP tasks (`ListAgentToolsWithTasksAsync`) | alpha | Long-running MCP tools with polling and cancel, shown in the activity view as a tool that is still working. |
+| Shell tool with a policy and pluggable executor | preview | Backs `sandbox.run`. Drover supplies an executor that runs the command through `ISandboxProvider`. The local executor is never registered. |
+| Micro virtual machine code execution | preview | Candidate for a second sandbox adapter that needs no account and no Docker, for "run this snippet" use. Evaluated in Phase 1; it does not replace a full environment. |
+
+### Skills and reach, Phase 2
+
+| Framework feature | Status | How Drover uses it |
+| --- | --- | --- |
+| Agent Skills (`AgentSkillsProvider`, custom `AgentSkillsSource`, script runner delegate) | stable | Skill import. A Drover source serves skills attached to the bot from the database. The script runner executes only inside the bot's sandbox. Loading, reading resources, and running scripts each require approval by default, which Drover keeps. |
+| A2A client (remote agent as an `AIAgent`) | preview | An external agent can be added to a team as a member, wrapped in `GovernedAgent` like any bot. |
+| A2A server | preview | A bot can be published as an A2A agent. Message-only since 1.28. |
+| AG-UI endpoint | preview | A bot can be reached by any AG-UI client. Optional surface, off by default. |
+| OpenAI-compatible chat completions endpoint | alpha | "Use your bot from any compatible client." Stateless facade only; its conversation storage is in-memory and not pluggable, so Drover does not use that part. |
+| Declarative agents (YAML) | release candidate | Export and import of a bot definition. Drover's schema stays the source of truth. |
+| Declarative workflows | stable | Evaluated for user-defined routines. Its agent actions are tied to one cloud service today, so this waits. |
+| MCP-sourced skills | alpha | Skills offered by a connected MCP server, treated as untrusted like any import. |
+
+### Development only
+
+| Feature | Use |
+| --- | --- |
+| DevUI | Mounted by the AppHost in development to inspect agents and workflows. Never in the shipped server. |
+
+### Not usable self-hosted
+
+| Feature | Why |
+| --- | --- |
+| Durable task extension | Targets a cloud scheduler service. No self-hosted backend could be verified. Checkpoints, sessions, and history on PostgreSQL give Drover the same durability. |
+| Compliance middleware tied to a cloud service | Needs that service. |
+| Built-in store implementations for other databases | Reference only. Drover's are PostgreSQL. |
+
+## What Drover must still add
+
+The framework does not provide these, so Drover does:
+
+| Gap | Drover's answer |
+| --- | --- |
+| Multi-tenant isolation | The framework has isolation keys and key partitions. They name a tenant; they do not stop a query. Row-level security does. |
+| Per-bot, per-tool grants that narrow down a hierarchy | The tool gate middleware and `GovernedAgent`. |
+| A durable event log clients can resume from | Drover's `run_events`. Framework streaming updates and workflow events are translated into it. |
+| Recovery of a tool call that was in flight at a crash | Drover's `tool_calls` rows and the "interrupted, outcome unknown" rule ([03-run-lifecycle.md](03-run-lifecycle.md)). |
+| Prompt-injection containment | The framework's proposed design for this has no .NET implementation. Drover's tainted-run rule and definition pinning stay ([06-mcp.md](06-mcp.md)). |
+| Skill content is injected unsanitized | The framework's own source notes this. Drover keeps approval on, treats imports as untrusted, and runs scripts only in a sandbox. |
+| Cost | Usage arrives in responses; pricing, roll-up, and budgets are Drover's. |
+
+## Staying current
+
+| Practice | Detail |
+| --- | --- |
+| Track the latest release, including previews | Dependabot proposes framework updates weekly as one grouped pull request. |
+| The conformance suite is the gate | It runs the runtime through: plain reply, allowed tool, asked tool with restart before the answer, refused tool, parallel tools, cancel mid-stream, kill mid-step and recover, delegation, team run resumed from a checkpoint. An update merges when it is green. |
+| Canary | A weekly scheduled job builds and tests against the newest prerelease versions and opens an issue when it fails, so a break is known before the release lands. |
+| Read the release notes | Breaking changes are marked in each release. The update pull request links them. |
+| Blob versioning | Sessions and checkpoints carry the framework version. Unreadable blobs are discarded, never migrated by hand. |
+| Experimental APIs | Allowed. Each use is listed in `docs/architecture/05-dependencies.md` so an API that changes is easy to find. |
+
+## What has to be proven first
+
+These integration points exist and are documented, but their combined behavior has not been run by Drover yet. Phase 0 step 7 is a spike that proves each one with a test before the run engine is built on them:
+
+1. History saved per service call lets a killed run continue without repeating a finished model call.
+2. An approval request survives a process restart through the saved session and resumes correctly.
+3. The function middleware sees every tool call, including calls made by a harness capability.
+4. A workflow resumes in a new process from a PostgreSQL checkpoint, with a pending request re-raised. (Needed in Phase 1; proven early because the design leans on it.)
+5. `GovernedAgent` wrapping holds inside each orchestration builder.
+
+If one fails, the fallback for that point is Drover code at the same seam, and the finding is reported before work continues.

@@ -140,6 +140,7 @@ Also: a tag protection rule for `v*`, a protected `release` environment, and bra
 | `ci.yml` | Pull request, push to `main` | Restore in locked mode, build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health. Apps: build the Android shell. |
 | `security.yml` | Pull request, push to `main`, weekly | CodeQL, dependency review, secret scan, workflow lint, Dockerfile lint |
 | `release.yml` | Version tag | Verify the tag is on `main`, build, test, SBOM, source archive, provenance and SBOM attestations, GitHub release. No images. |
+| `framework-canary.yml` | Weekly, and on demand | Move the agent framework packages to their newest versions, prerelease included, run the conformance and engine tests, and open an issue if they fail |
 
 Every third-party action is pinned to a full commit SHA with its version in a comment. The SHAs in the drafts were read from each action's repository on 2026-11-11. Every workflow starts from `permissions: {}` and grants per job. Checkouts set `persist-credentials: false`. No workflow uses `pull_request_target`.
 

@@ -13,14 +13,14 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 
 | Interface | Purpose | First adapter | Next adapters |
 | --- | --- | --- | --- |
-| `IAgentRuntime` | Run one model turn with tool calls gated by Drover | Microsoft Agent Framework | None planned; the seam exists because the framework is young |
-| `IModelClientProvider` | Turn a model connection into a chat client for the runtime, list models, test the connection | OpenAI-compatible endpoint through `Microsoft.Extensions.AI.OpenAI` | Anthropic through its official package; subscription sign-in adapters in Phase 2 |
+| `IAgentRuntime` | Execute a run: agent, tools, approvals, delegation, teams | `Drover.Agents` on Microsoft Agent Framework | None planned. The seam is for testing the engine without a model. |
+| `IModelClientProvider` | Turn a model connection into chat and embedding clients, list models with capabilities and prices, test the connection | Two in Phase 0: any OpenAI-compatible endpoint, and Venice as a first-party provider | Anthropic through its official package; ChatGPT plan sign-in for self-hosted servers; other sign-in adapters. See [15-model-providers.md](15-model-providers.md). |
 | `IToolSource` | List tools and call a tool on a connection | MCP over HTTP | MCP over stdio inside a sandbox |
 | `ISandboxProvider` | Create, pause, resume, destroy an environment; run commands; read and write files | E2B | Operator's Docker host |
 | `IMemoryStore` | Store and recall long-term memory for a bot | PostgreSQL with `pgvector` (Phase 1) | |
-| `IEmbeddingProvider` | Text to vector | Same connection kinds as models, through `IEmbeddingGenerator` (Phase 1) | |
-| `IWebSearch` | Search the web | Chosen in Phase 1; any provider with a plain HTTP API and operator key | |
-| `ISpeechToText`, `ITextToSpeech` | Voice in and out | Chosen in Phase 2 | |
+| `IEmbeddingProvider` | Text to vector | Venice and compatible endpoints, through `IEmbeddingGenerator` (Phase 1) | |
+| `IWebSearch` | Search the web | Venice's search endpoint, since a Venice key is already there (Phase 1) | Any provider with a plain HTTP API and operator key |
+| `ISpeechToText`, `ITextToSpeech` | Voice in and out | Venice's speech endpoints (Phase 2) | |
 | `IPushChannel` | Deliver a wake-up to one subscription | Web Push, which also serves UnifiedPush | Apple relay, Google |
 | `IFileStore` | Store and fetch blobs by key | Local volume | S3-compatible through `AWSSDK.S3` |
 | `IEmailSender` | Send account email | SMTP through MailKit (Phase 2) | |
@@ -28,7 +28,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 
 Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see the simplicity rule in `AGENTS.md`.
 
-`Microsoft.Extensions.AI` deserves a note. Its abstractions are stable and are themselves a provider-neutral layer, so Drover does not wrap `IChatClient` a second time. It is confined to two adapter projects (`AgentFramework` and the model client providers) and never appears in `Domain`, `Engine`, `Contracts`, or the database. Messages are stored in Drover's own part schema and translated at the adapter.
+`Microsoft.Extensions.AI` deserves a note. Its abstractions are stable and are themselves a provider-neutral layer, so Drover does not wrap `IChatClient` a second time. It is confined to `Drover.Agents` and the model provider adapters and never appears in `Domain`, `Engine`, `Contracts`, or the database. Messages are stored in Drover's own part schema and translated at the adapter.
 
 ## Runtime dependencies
 
@@ -38,7 +38,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | Entity Framework Core 10 | MIT | Microsoft | Data access, migrations | Direct. The platform. |
 | `Npgsql`, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.x | PostgreSQL License (permissive) | Npgsql team, the standard .NET driver | PostgreSQL driver and provider | Direct. PostgreSQL is a settled decision. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
-| `Microsoft.Agents.AI` 1.28.x | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | Agent turn execution | **Wrapped** by `IAgentRuntime`. Pinned to an exact version; upgraded on purpose, with the conformance suite as the gate. Only the stable core package is used. |
+| Microsoft Agent Framework: `Microsoft.Agents.AI`, `.Workflows`, `.Harness`, and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map and the list of experimental APIs in use are in [14-agent-framework.md](14-agent-framework.md). |
 | `Microsoft.Extensions.AI`, `.OpenAI` | MIT | Microsoft, stable | Chat and embedding clients | Confined to adapters, as above |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |

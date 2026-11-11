@@ -1,0 +1,42 @@
+# Draft. Moves to .github/workflows/framework-canary.yml in Phase 0.
+# Builds and tests against the newest agent framework packages, prerelease included,
+# so a breaking change is known before the regular update pull request arrives.
+name: framework-canary
+
+on:
+  schedule:
+    - cron: "17 5 * * 2"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  canary:
+    name: Conformance suite on latest prerelease
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Move framework packages to latest, prerelease included
+        run: |
+          dotnet tool restore
+          dotnet tool run dotnet-outdated Drover.slnx --include "Microsoft.Agents." --include "Microsoft.Extensions.AI" --include "ModelContextProtocol" --pre-release Always --upgrade
+      - name: Build
+        run: dotnet build Drover.slnx -c Release -warnaserror
+      - name: Conformance and engine tests
+        run: dotnet test Drover.slnx --no-build -c Release --filter "Category=Conformance|Category=Engine"
+      - name: Open an issue on failure
+        if: failure()
+        run: |
+          gh issue create --title "Framework canary failed on $(date -u +%F)" \
+            --body "The conformance suite failed against the newest agent framework packages. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        env:
+          GH_TOKEN: ${{ github.token }}

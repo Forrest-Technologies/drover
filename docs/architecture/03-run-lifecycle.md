@@ -17,10 +17,10 @@ A run is one bot working on one request. It is a database row that a worker exec
 | --- | --- |
 | `queued` | Waiting for a worker |
 | `running` | A worker holds the lease and is executing a step |
-| `waiting` | The turn ended with tool calls that have no result yet: an approval, a delegation, or both. No worker holds it. |
+| `waiting` | The run ended with a request that has no answer yet: an approval, or a workflow's question. No worker holds it. |
 | `completed`, `failed`, `cancelled` | Terminal |
 
-`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_delegation`, `budget_exceeded`, `loop_detected`, `step_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
+`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
 
 ## From message to run
 
@@ -41,30 +41,31 @@ A thread runs one root run at a time. A message sent while a run is active is st
 
 1. **Claim.** Call `sys.claim_runs(worker_id, limit)`. It selects claimable runs with `FOR UPDATE SKIP LOCKED`, sets `lease_owner` and `lease_expires_at`, and returns only `(run_id, space_id, principal_user_id)`. This is one of the few cross-tenant functions; see [04-tenancy-and-permissions.md](04-tenancy-and-permissions.md).
 2. **Enter scope.** Open a tenant scope for that space and principal. From here on the worker is subject to row-level security like any request.
-3. **Execute steps** until the run waits or ends, renewing the lease every 15 seconds.
+3. **Execute** until the run waits or ends, renewing the lease every 15 seconds.
 
 Wake-up is a signal on an in-process channel, with a PostgreSQL `NOTIFY` so a second server instance also wakes. A poll every few seconds is the fallback, so a lost signal costs seconds, never correctness.
 
-A claimable run is `queued`, or `running` with an expired lease, or `waiting` with no unresolved tool calls left.
+A claimable run is a root run that is `queued`, or `running` with an expired lease, or `waiting` with every pending request answered.
 
-## One step
+## Executing a run
 
-A step is one model turn plus the tool calls it asks for.
+The model and tool loop is the agent framework's. Drover supplies storage and governance at the framework's extension points. The full map is in [14-agent-framework.md](14-agent-framework.md).
 
-1. **Assemble.** In a short transaction, load the bot, its effective grants, the thread's messages, and the tool definitions for granted tools only. Close the transaction. No transaction is ever held across a model or tool call.
-2. **Run the turn.** Call `IAgentRuntime.RunTurn`. It streams `AgentEvent` values: text deltas, reasoning deltas, tool call requests, usage.
-3. **Gate each tool call.** The runtime hands every tool call to `IToolGate`, which is the engine. The gate re-checks the grant, then returns one of:
+1. **Build.** In a short transaction, load the bot, its effective grants, and its capabilities. Build the framework agent from that data: instructions, model client, the granted tools only, context providers for memory and skills, a compaction strategy. Close the transaction. No transaction is ever held across a model or tool call.
+2. **Load state.** The thread's saved session is read through `PostgresAgentSessionStore`. History comes from `messages` through `PostgresChatHistoryProvider`.
+3. **Run.** The agent runs with streaming on. Updates are translated to Drover events as they arrive.
+4. **Persist as it goes.** History is saved after every model call and every tool result (the framework's per-service-call persistence). Events, tool call rows, and usage are written in short transactions.
+5. **Gate each tool call.** Function middleware hands every call to the tool gate:
 
    | Gate decision | When | Effect |
    | --- | --- | --- |
-   | Result | Effect is `allow` and the tool finished | Result goes back to the model in the same turn |
-   | Pending | Effect is `ask`, or the tool is a delegation | The tool call row is saved as `pending_approval` or `running` with a child run. The turn ends. |
-   | Refused | No grant, bot paused, budget or loop check failed | A structured error result goes back to the model |
+   | Run it | Effect is `allow` | A `tool_calls` row is saved as `running`, the tool runs, the redacted result is saved and returned to the model |
+   | Ask | Effect is `ask`, or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. |
+   | Refuse | No grant, bot paused, budget or loop check failed | A structured error result goes back to the model |
 
-4. **Persist.** Assistant message parts, tool call rows, usage, and events are written in short transactions as they complete.
-5. **Decide.** If any tool call is pending, set `waiting`. If the model finished with no tool calls, set `completed`. Otherwise loop to the next step, up to a step limit (default 50 per run).
+6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. A step limit (default 50 model calls per run) stops a runaway loop.
 
-Tool calls marked read-only by their definition run in parallel within a step. Everything else runs in order.
+Read-only tools requested together run in parallel. Everything else runs in order.
 
 ## The runtime boundary
 
@@ -73,45 +74,42 @@ namespace Drover.Domain.Agents;
 
 public interface IAgentRuntime
 {
-    IAsyncEnumerable<AgentEvent> RunTurn(
-        AgentTurnRequest request,
-        IToolGate toolGate,
+    IAsyncEnumerable<AgentEvent> Execute(
+        RunExecution execution,
+        IRunGovernor governor,
         CancellationToken cancellationToken);
 }
 
 
-public interface IToolGate
+public interface IRunGovernor
 {
     Task<ToolGateDecision> Decide(ToolCallRequest call, CancellationToken cancellationToken);
+
+    Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken);
+
+    Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken);
+
+    Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken);
 }
 
 
-public sealed record AgentTurnRequest
+public sealed record RunExecution
 {
-    public required string Instructions { get; init; }
+    public required Guid RunId { get; init; }
 
-    public required IReadOnlyList<ConversationMessage> Messages { get; init; }
+    public required BotDefinition Bot { get; init; }
 
     public required IReadOnlyList<ToolDefinition> Tools { get; init; }
 
-    public required ModelSelection Model { get; init; }
+    public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
 }
 ```
 
-Every type in those signatures is Drover's. The request carries the full history each turn, so the runtime needs no memory of its own.
+Every type in those signatures is Drover's. `Responses` carries answers to whatever the run was waiting on: an approval decision, or a reply to a workflow request.
 
-How the Agent Framework adapter fills the gaps (all behavior verified against version 1.28):
+`Drover.Agents` implements `IAgentRuntime` on the framework. The engine implements `IRunGovernor`. The interface exists so the run engine can be tested with a scripted runtime and no model; it is not a plan to replace the framework.
 
-| Need | Framework behavior | What the adapter does |
-| --- | --- | --- |
-| Persistence | Sessions serialize to JSON; built-in history stores are in-memory or a cloud database | Ignores sessions. Builds a fresh agent per turn from Drover's messages. |
-| Resume after restart | Workflow checkpoints, in-memory store only in C#; the durable extension needs a cloud service | Not used. Drover's step log is the checkpoint. |
-| Intercept each tool call | Function-calling middleware on agents backed by the function-invoking chat client | Registers one middleware that forwards every call to `IToolGate` |
-| Human approval | Approval-required functions end the run with an approval request | Tools whose effect is `ask` are wrapped that way, so the turn ends cleanly and the adapter emits a pending decision |
-| Bot-to-bot handoff | Workflow orchestrations and agent-as-tool, in process | Not used across bots. Delegation is a Drover child run so it gets its own grants, budget, and cancel. |
-| Streaming | `RunStreamingAsync` yields response updates | Mapped one-to-one to `AgentEvent` |
-
-If the framework is replaced, one project changes. A conformance suite in `Drover.Adapters.Conformance` runs any `IAgentRuntime` against a scripted fake model and asserts the event sequence for: plain reply, allowed tool, asked tool, refused tool, parallel read-only tools, and cancellation mid-stream.
+A conformance suite in `Drover.Adapters.Conformance` runs the runtime against a scripted fake model and asserts the event sequence for: plain reply, allowed tool, asked tool with a restart before the answer, refused tool, parallel read-only tools, cancellation mid-stream, kill mid-step and recover, delegation, and a team run resumed from a checkpoint. This suite is the gate for every framework update.
 
 ## Events
 
@@ -161,31 +159,46 @@ Why Server-Sent Events and not a socket library: resume from a cursor is the bui
 
 ## Approval
 
-1. The gate saves the tool call as `pending_approval` and the turn ends. The run becomes `waiting`.
+1. The gate saves the tool call as `pending_approval`. The framework ends the run with an approval request, and the pending state is part of the saved session. The run becomes `waiting`.
 2. The principal gets a signal on `/api/stream` and, if they are away, a push.
 3. They approve or deny through `POST /api/tool-calls/{id}/decision`. The endpoint checks that the caller is the run's principal or a space admin.
-4. Approved: the call is executed by a worker, its result is stored. Denied: a "denied by user" result is stored.
-5. With no unresolved tool calls left, the run is claimable again and the next step starts with the results in its history.
+4. The run becomes claimable. A worker loads the session and runs the agent again with the response. Approved: the framework invokes the tool, through the gate. Denied: the model is told the user declined.
 
-An approval that nobody answers expires (default 24 hours) as denied.
+The server can restart any number of times between steps 1 and 4. An approval that nobody answers expires (default 24 hours) as denied.
+
+"Always allow" in the prompt changes the bot's grant from `ask` to `allow` when the user is permitted to do that, so the decision is visible in the bot editor and obeys the hierarchy rule. "Allow for this conversation" uses the framework's own approval rules, which are stored in the session.
 
 ## Delegation
 
-Delegation is the built-in tool `delegate`. Its gate path, in one transaction:
+Delegation is the built-in tool `delegate`. The child bot is exposed to its parent as a function (the framework's agent-as-tool), wrapped in `GovernedAgent`. When the parent's model calls it, the wrapper asks the governor to begin a child run. In one transaction the governor:
 
-1. Check the caller's grant and that the target is allowed ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)).
-2. **Loop check.** Walk the caller's run ancestors. If the target bot already appears in that chain, refuse with `loop_detected`.
-3. **Budget check.** Refuse if the tree would exceed the space's maximum delegation depth (default 5), maximum runs per tree (default 50), or cost budget per tree.
-4. Create a thread for the child (origin `delegation`), a user-role message holding the task, and a child run with `parent_run_id`, `root_run_id`, `parent_tool_call_id`, `depth + 1`, and the same `principal_user_id`.
-5. Save the parent's tool call with `child_run_id`. The parent turn ends and the parent run waits.
+1. Checks the caller's grant and that the target is allowed ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)).
+2. **Loop check.** Walks the caller's run ancestors. If the target bot already appears in that chain, refuses with `loop_detected`.
+3. **Budget check.** Refuses if the tree would exceed the space's maximum delegation depth (default 5), maximum runs per tree (default 50), or cost budget per tree.
+4. Creates a thread for the child (origin `delegation`, same audience as the root thread), a user-role message holding the task, and a child run with `parent_run_id`, `root_run_id`, `parent_tool_call_id`, `depth + 1`, and the same `principal_user_id`.
+5. Saves the parent's tool call with `child_run_id`.
 
-When the child reaches a terminal status, the engine writes the child's final answer (or its failure) as the result of the parent's tool call, in the same transaction that completes the child. The parent becomes claimable.
+The child then runs as its own agent with **its own** grants, history, session, and events, inside the parent's tool call. When it finishes, its answer (or its failure) becomes the tool result and the child run is completed in one transaction.
+
+`BeginChildRun` is idempotent on the parent's tool call id. If the server restarts while a child is working, the parent's step is re-entered, the same delegation is requested again, and the governor returns the existing child run, which continues from its own saved history instead of starting over.
+
+If a child needs an approval, the whole tree pauses on it: the request surfaces, sessions are saved, and the root run becomes `waiting`.
+
+A lease is held on the root run and covers its tree. Child runs are rows with their own status, usage, and events, executed by the worker that holds the root.
+
+### Teams
+
+Beyond one-to-one delegation, a parent bot can lead its children with one of the framework's orchestration patterns: sequential, concurrent, handoff, group chat, or a planner-led pattern. The pattern is data on the parent bot. A team run is a framework workflow:
+
+- Each member is wrapped in `GovernedAgent`, so each still gets its own child run, grants, and events.
+- Checkpoints are saved to PostgreSQL at each workflow step. After a restart the workflow resumes from the latest checkpoint.
+- A workflow's request for human input surfaces as the same approval prompt and is re-raised after a resume.
 
 Because every run in the tree shares `root_run_id`:
 
 - The activity view shows the whole chain from one query and one stream.
 - **Cost rolls up.** Each `usage_records` row carries `root_run_id`. When a run finishes, its usage is added to `subtree_usage` on each ancestor run. Per-bot totals are sums over `usage_records`; "this bot and everything it started" is a sum over its runs' `subtree_usage`.
-- **Cancel a subtree.** `POST /api/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. Workers check the flag between events and when renewing the lease, cancel the model call or tool, and write `run.cancelled`. Waiting runs are cancelled directly. The parent of a cancelled subtree root receives a "cancelled" tool result and continues, unless it was cancelled too.
+- **Cancel a subtree.** `POST /api/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. The worker checks the flag between events and when renewing the lease, cancels the model call, tool, or workflow, and writes `run.cancelled`. Waiting runs are cancelled directly. The parent of a cancelled child receives a "cancelled" tool result and continues, unless it was cancelled too.
 
 ## Server restart mid-run
 
@@ -197,10 +210,12 @@ Nothing in memory is needed to continue.
 
    | State found | Action |
    | --- | --- |
-   | Model turn was streaming, no tool call started | Append `step.discarded`, rerun the step |
+   | A model call was streaming | Append `step.discarded` and run the agent again. History already holds every model call and tool result that finished, so only the interrupted call repeats. Where the provider supports background responses, the call is resumed from its continuation token instead. |
    | Tool call `running`, tool is read-only or idempotent by its definition | Run it again |
    | Tool call `running`, tool may have side effects | Mark it `interrupted` and give the model the result "interrupted, outcome unknown". The model decides what to do; if the grant is `ask`, the retry asks the human again. |
-   | Tool call `pending_approval` or waiting on a child | Nothing; the run stays `waiting` |
+   | Tool call `pending_approval` | Nothing; the run stays `waiting` and its session holds the request |
+   | A delegation was in progress | The delegation is requested again and resolves to the existing child run, which continues |
+   | A team workflow was in progress | Resume from its latest checkpoint |
 
 4. After three attempts the run fails with `lease_lost`.
 

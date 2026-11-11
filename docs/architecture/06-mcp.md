@@ -2,6 +2,37 @@
 
 Remote HTTP servers first. The adapter is `Drover.Adapters.Mcp`, built on the official C# SDK 2.4 (Apache-2.0), which targets spec revision 2026-07-28 and falls back to older servers on its own (verified).
 
+## Two protocol generations, stateless preferred
+
+MCP has two generations in use. Drover supports both and prefers the newer one.
+
+| Generation | Spec revisions | Shape |
+| --- | --- | --- |
+| **Stateless** | 2026-07-28 and later | No handshake and no session. Each request stands alone. Capabilities come from a discovery request. |
+| **Session-based** | 2025-11-25 and earlier | An `initialize` handshake, usually a session id, and a long-lived stream for notifications. Transport is Streamable HTTP, or the older HTTP with SSE. |
+
+How Drover chooses, per connection (behavior verified in the SDK at 2.4.0):
+
+| Setting | Behavior |
+| --- | --- |
+| **Automatic** (default) | Try stateless first. If the server does not speak it, fall back to the handshake, and from Streamable HTTP to the older transport. The SDK does this itself when no protocol version is forced. |
+| Stateless only | Force the current revision. A server that cannot do it fails with a clear message. For operators who want no session state anywhere. |
+| Session-based only | Force a legacy revision. An escape hatch for a server that misbehaves when probed. |
+
+After the first connection Drover stores what was negotiated (protocol version, and whether a session was issued) on the connection and shows it as a small badge: "stateless" or "session-based". The choice is cached per server, as the spec recommends, and re-checked when a connection is edited or fails.
+
+What differs by generation, and what Drover does:
+
+| Concern | Stateless | Session-based |
+| --- | --- | --- |
+| Client lifetime | Created per use. Cheap: one discovery request, cached. No connection is held between calls. | One client is cached per connection and credential, with idle eviction. Recreated when the server reports the session gone. |
+| Tool list changes | List results carry a time-to-live; Drover refreshes the catalog when it lapses. A subscription stream is optional and added later; the SDK has no high-level helper for it yet. | Notifications on the session's stream while the cached client is alive, plus the same hourly refresh |
+| A server asking the user a question | Arrives as an "input required" result that the SDK resolves and retries | A server-initiated request on the session |
+| Cancel | Closing the response stream | A cancel notification |
+| Scaling Drover to several instances | Nothing to share between instances | A session lives in one instance; another instance simply opens its own |
+
+Stateless is preferred because it has no connection to keep alive, nothing to lose on a restart, and nothing that pins a tool server to one Drover instance.
+
 ## Who owns what
 
 | Thing | Owner | Reason |

@@ -86,7 +86,8 @@ A bot's instructions are assembled by the engine from an ordered list of instruc
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `model_connections` | Space-owned | `id`, `name`, `kind`, `base_url`, `auth_kind`, `secret_id null`, `default_model`, `capabilities jsonb`, `status` |
+| `model_connections` | Space-owned | `id`, `name`, `kind`, `base_url`, `auth_kind`, `credential_scope`, `secret_id null`, `default_model`, `status`, `balance jsonb`, `last_checked_at` |
+| `model_catalog` | Space-owned | `model_connection_id`, `model`, `display_name`, `capabilities jsonb`, `pricing jsonb`, `privacy_mode`, `traits`, `state`, `last_seen_at` |
 | `tool_connections` | Space-owned | `id`, `name`, `slug`, `url`, `transport`, `auth_kind`, `credential_scope`, `oauth jsonb`, `trust`, `status`, `last_listed_at`, `last_error` |
 | `tool_connection_credentials` | Space-owned with an audience | `id`, `tool_connection_id`, `audience_user_id`, `secret_id`, `expires_at`, `status` |
 | `tools` | Space-owned | `id`, `source_kind`, `tool_connection_id null`, `name`, `title`, `description`, `input_schema jsonb`, `annotations jsonb`, `definition_hash`, `sensitivity`, `state`, `first_seen_at`, `last_seen_at` |
@@ -94,6 +95,8 @@ A bot's instructions are assembled by the engine from an ordered list of instruc
 
 Notes:
 
+- `model_connections.kind` is `openai_compatible`, `venice`, `anthropic`, or a sign-in kind. `model_catalog` holds one capability record per model, in Drover's own shape ([15-model-providers.md](15-model-providers.md)). Sign-in connections keep per-user credentials in `secrets` with that user as the audience.
+- `tool_connections` also stores `protocol_mode` (automatic, stateless only, session-based only) and what was negotiated.
 - `tools.source_kind` is `builtin` or `mcp`. Built-in tools are seeded as rows when a space is created, so a grant always references a `tools` row and the grant logic has one shape.
 - `tools.state` is `available` or `missing`. A tool that disappears from a server keeps its row and its grants, marked missing.
 - `tool_connections.auth_kind` is `none`, `header`, or `oauth`. `credential_scope` is `space` or `per_user`.
@@ -112,6 +115,8 @@ Notes:
 
 Notes:
 
+- `agent_sessions` (space-owned with an audience, inherited from the thread): `thread_id`, `bot_id`, `state jsonb`, `framework_version`, `updated_at`. The agent framework's serialized session, including any pending approval. Opaque working state: if a framework update cannot read it, it is discarded and the session is rebuilt from `messages`.
+- `workflow_checkpoints` (same class, Phase 1): `run_id`, `checkpoint_id`, `parent_checkpoint_id null`, `state jsonb`, `framework_version`, `created_at`. Team runs resume from the latest one.
 - `messages.parts` is an ordered array of Drover's own part records: `text`, `reasoning`, `image`, `file`, `tool_call`, `tool_result`. This is Drover's schema, defined in `Drover.Contracts`. No vendor message type is ever serialized into it.
 - `messages.position` orders a thread. It is assigned under a lock on the thread row.
 - `runs.principal_user_id` is the human the run acts for. A child run inherits it unchanged from its parent. Scheduled runs use the schedule's owner.

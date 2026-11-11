@@ -18,7 +18,9 @@ Drover.slnx
     Drover.Domain                 entities, enums, pure rules, Drover-owned interfaces
     Drover.Data                   EF Core context, mappings, migrations, tenant scope
     Drover.Engine                 run loop, tool gate, grants, hierarchy, delegation, scheduling
-    Drover.Adapters.AgentFramework   IAgentRuntime over Microsoft Agent Framework
+    Drover.Agents                 the agent runtime on Microsoft Agent Framework: stores, governance, teams
+    Drover.Adapters.OpenAICompatible IModelClientProvider for any compatible endpoint
+    Drover.Adapters.Venice           IModelClientProvider and more for Venice
     Drover.Adapters.Mcp              IToolSource over the MCP C# SDK
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
@@ -57,6 +59,7 @@ Later adapters get their own projects in the same pattern: `Drover.Adapters.Dock
 | `Drover.Domain` | Entities, value objects, grant and hierarchy rules as pure functions, the interfaces in [05-dependencies.md](05-dependencies.md) | EF Core, HTTP, any vendor type |
 | `Drover.Data` | `DroverDbContext`, entity mappings, migrations, `TenantScope`, the row-level security migration helpers, the `sys` functions | Business rules |
 | `Drover.Engine` | Everything that decides: run state machine, tool gate, effective grants, delegation, loop and budget checks, MCP catalog, scheduler | Vendor types. It sees providers only through `Drover.Domain` interfaces. |
+| `Drover.Agents` | Everything built on the agent framework: building an agent from a bot, PostgreSQL history, session, and checkpoint stores, the tool gate middleware, `GovernedAgent`, team patterns. See [14-agent-framework.md](14-agent-framework.md). | Run lifecycle (claiming, leases, status), HTTP |
 | `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, database access |
 | `Drover.Client` | `HttpClient`-based API client, SSE reader with resume, client-side run state reducer | UI |
 | `Drover.Ui` | Components, design tokens, markdown rendering, platform service interfaces (`IPushRegistration`, `ISecureStore`, `IFilePicker`, `IMicrophone`) | Direct `HttpClient` use; it goes through `Drover.Client` |
@@ -68,8 +71,9 @@ Later adapters get their own projects in the same pattern: `Drover.Adapters.Dock
 
 ```
 Contracts  <-  Domain  <-  Data  <-  Engine  <-  Server
-                 ^                                 |
-                 +----  Adapters.*  <--------------+   (Server wires adapters in)
+                 ^           ^                     |
+                 |           +----  Agents  <------+   (Server wires these in)
+                 +----------------  Adapters.*  <--+
 
 Contracts  <-  Client  <-  Ui  <-  Web
                             ^
@@ -80,8 +84,9 @@ Rules, enforced by project references and by analyzer `DRV0007`:
 
 1. Arrows point one way. `Domain` references only `Contracts`. `Engine` never references an adapter.
 2. A vendor package is referenced by exactly one adapter project. Because `Engine`, `Data`, `Contracts`, and `Ui` do not reference it, a vendor type cannot appear in a contract, a column, or a component even by accident. `DRV0007` reports the attempt with a readable message before the compiler does.
-3. `Server` is the only project that references both engine and adapters. It is the composition root.
-4. Client projects never reference `Domain`, `Data`, or `Engine`. The server owns the work.
+3. `Server` is the only project that references the engine together with `Agents` and the adapters. It is the composition root.
+4. Agent framework types are allowed in `Drover.Agents` and in `Server`'s wiring, and nowhere else. `Agents` is the one non-adapter project that holds a vendor's types, because the owner chose to build on that framework fully; it may read and write through `Drover.Data`.
+5. Client projects never reference `Domain`, `Data`, or `Engine`. The server owns the work.
 
 ## Why these boundaries and not fewer
 
