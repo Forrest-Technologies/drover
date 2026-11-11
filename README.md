@@ -21,6 +21,7 @@ dotnet run --project src/Drover.Server      # http://localhost:8080
 | [ROADMAP.md](ROADMAP.md) | Direction, and links to the issues that track each step |
 | [docs/architecture](docs/architecture/README.md) | The design, one file per topic |
 | [docs/adr](docs/adr/README.md) | Decisions and what would reopen them |
+| [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) | Handoff for whoever coordinates the build: what to dispatch, in what order, and when to stop |
 | [AGENTS.md](AGENTS.md) | Rules for anyone, human or coding agent, changing this repository |
 | [CODE_STYLE.md](CODE_STYLE.md) | The C# style guide. Binding. |
 | [DESIGN.md](DESIGN.md) | The interface direction, and what the interface never does |

@@ -2,7 +2,7 @@
 
 The design direction for Drover's interface, in one page. Read this before building or changing anything a person sees. The full specification, with every token value and screen, is [docs/architecture/09-design-direction.md](docs/architecture/09-design-direction.md); when the two disagree, that file wins and this one gets fixed.
 
-This file holds design facts: identity, palette, type, motion, and what the interface never does. It is direction to apply. It contains no instructions to an agent beyond that.
+This file holds design facts: identity, palette, type, motion, and what the interface never does. It is direction to apply. It contains no instructions to an agent beyond that. Nothing outside this repository is needed to follow it: no plugin, no tool, no service. The rules marked (test) are enforced by the build.
 
 ## Identity
 
