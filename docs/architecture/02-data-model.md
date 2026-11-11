@@ -9,18 +9,33 @@ Every table belongs to exactly one class. The class decides its row-level securi
 | Class | Marker in C# | Column | Policy |
 | --- | --- | --- | --- |
 | Space-owned | `ISpaceOwned` | `space_id uuid not null` | Row visible and writable only when `space_id` equals the transaction's space |
-| Space-owned and user-private | `ISpaceOwned, IUserPrivate` | plus `user_id uuid null` | As above, and `user_id` is null or equals the transaction's user |
+| Space-owned with an audience | `ISpaceOwned, IAudienceScoped` | plus `audience_user_id uuid not null` | As above, and the audience is "everyone in the space" or equals the transaction's user |
 | User-owned | `IUserOwned` | `user_id uuid not null` | Row visible only to that user |
 | Global | listed in the isolation manifest | none | App role has no direct access, or read-only reference data |
 
 Every foreign key between two space-owned tables is composite, `(space_id, x_id)` referencing `(space_id, id)`. A row therefore cannot point at another space's row even if application code tries. Foreign key checks are not subject to row-level security, so this closes a gap the policies alone leave open.
+
+### Users, personal spaces, and shared spaces
+
+Isolation between people is the normal case and the database enforces it at two levels.
+
+| Level | What it is | Enforced by |
+| --- | --- | --- |
+| **Personal space** | Every user gets one at sign-up, with exactly one member. Their own bots, connections, threads, and secrets live here. | Space isolation. Another user is simply in a different space. |
+| **Shared space** | A group that several users belong to. Bots, connections, and the bot tree are the group's. | Space isolation between groups, plus the audience column inside the group. |
+
+Inside a shared space, each content row has an **audience**: one user, or everyone in the space. `audience_user_id` holds the user's id, or the all-zero UUID meaning everyone. A private thread, its messages, its run events, its tool calls, and its files are invisible to other members of the same space, by policy, not by application check.
+
+The column is `not null` with a sentinel on purpose. It lets child tables carry the audience inside their foreign key, `(space_id, thread_id, audience_user_id)` referencing the thread with `ON UPDATE CASCADE`. The database then guarantees a message can never have a wider audience than its thread, and sharing a thread updates every descendant row in one statement. A nullable column cannot do this, because a null in a composite foreign key skips the check.
+
+What is shared by the whole space, and has no audience column: bots, grants, connections' definitions, the tool catalog, and the `runs` and `usage_records` rows. A run row is metadata only (which bot, status, timing, cost). That lets space admins see activity and cost and cancel any run, while the content of a private thread stays unreadable to them.
 
 ## Identity and membership
 
 | Table | Class | Key columns | Notes |
 | --- | --- | --- | --- |
 | `users` | Global, special policy | `id`, `email`, `display_name`, password and passkey fields from ASP.NET Core Identity | A user is visible to themself and to members of the current space. Sign-in lookups go through `sys.find_user_for_sign_in`. |
-| `spaces` | Space-owned (its `id` is the space) | `id`, `name`, `slug`, `settings jsonb` | Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
+| `spaces` | Space-owned (its `id` is the space) | `id`, `kind`, `name`, `slug`, `settings jsonb` | `kind` is `personal` or `shared`. Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
 | `memberships` | Space-owned, readable by own user | `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
 | `user_sessions`, `push_subscriptions` | User-owned | `user_id`, device fields | A device belongs to a person, not to a space. |
 
@@ -35,7 +50,7 @@ Every foreign key between two space-owned tables is composite, `(space_id, x_id)
 | Chat with bots, own threads, sign in to per-user connections | Yes | Yes | Yes |
 | Approve "ask" tool calls | Own runs, and any run | Own runs, and any run | Own runs |
 
-Phase 0 creates exactly one space and one owner, through the same tables.
+Phase 0 creates one user and their personal space, through the same tables. Shared spaces get their UI in Phase 2; the schema and policies for them exist from the first migration and are covered by the isolation suite.
 
 ## Bots
 
@@ -73,26 +88,26 @@ A bot's instructions are assembled by the engine from an ordered list of instruc
 | --- | --- | --- |
 | `model_connections` | Space-owned | `id`, `name`, `kind`, `base_url`, `auth_kind`, `secret_id null`, `default_model`, `capabilities jsonb`, `status` |
 | `tool_connections` | Space-owned | `id`, `name`, `slug`, `url`, `transport`, `auth_kind`, `credential_scope`, `oauth jsonb`, `trust`, `status`, `last_listed_at`, `last_error` |
-| `tool_connection_credentials` | Space-owned and user-private | `id`, `tool_connection_id`, `user_id null`, `secret_id`, `expires_at`, `status` |
+| `tool_connection_credentials` | Space-owned with an audience | `id`, `tool_connection_id`, `audience_user_id`, `secret_id`, `expires_at`, `status` |
 | `tools` | Space-owned | `id`, `source_kind`, `tool_connection_id null`, `name`, `title`, `description`, `input_schema jsonb`, `annotations jsonb`, `definition_hash`, `sensitivity`, `state`, `first_seen_at`, `last_seen_at` |
-| `oauth_flows` | Space-owned and user-private | `state_hash`, `user_id`, `tool_connection_id`, `expires_at` |
+| `oauth_flows` | Space-owned with an audience | `state_hash`, `audience_user_id`, `tool_connection_id`, `expires_at` |
 
 Notes:
 
 - `tools.source_kind` is `builtin` or `mcp`. Built-in tools are seeded as rows when a space is created, so a grant always references a `tools` row and the grant logic has one shape.
 - `tools.state` is `available` or `missing`. A tool that disappears from a server keeps its row and its grants, marked missing.
 - `tool_connections.auth_kind` is `none`, `header`, or `oauth`. `credential_scope` is `space` or `per_user`.
-- `tool_connection_credentials.user_id` null means a credential shared by the whole space. A row with a user id is readable only inside a transaction running for that user. That is how a bot acting for one person cannot use another person's sign-in: the database will not return the row.
+- A `tool_connection_credentials` row whose audience is everyone is a credential shared by the whole space. A row whose audience is one user is readable only inside a transaction running for that user. That is how a bot acting for one person cannot use another person's sign-in: the database will not return the row.
 
 ## Conversations and runs
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `threads` | Space-owned | `id`, `bot_id`, `owner_user_id`, `title`, `origin`, `visibility`, `last_activity_at`, `archived_at null` |
-| `messages` | Space-owned | `id`, `thread_id`, `position`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `parts jsonb`, `created_at` |
+| `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null` |
+| `messages` | Space-owned with an audience, inherited from the thread | `id`, `thread_id`, `audience_user_id`, `position`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `parts jsonb`, `created_at` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at` |
-| `run_events` | Space-owned | `root_run_id`, `seq`, `run_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq)` |
-| `tool_calls` | Space-owned | `id`, `run_id`, `tool_id`, `tool_name`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
+| `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq)` |
+| `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
 | `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id`, `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost`, `currency`, `created_at` |
 
 Notes:
@@ -104,22 +119,23 @@ Notes:
 - `runs.status` values and transitions are in [03-run-lifecycle.md](03-run-lifecycle.md).
 - `tool_calls` is a first-class table, not only events, because the activity view, the approval inbox, and restart recovery all query it by status.
 - `tool_calls.arguments` and `result` are stored after redaction ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Large results go to a file and the row keeps a preview.
-- `threads.visibility` is `private` or `space`. Phase 0 has one user, so this is stored but not yet meaningful.
+- A thread is private to its owner by default. Sharing it with the space sets its audience to everyone, and the cascade carries that to its messages, events, and tool calls. A check constraint allows only two audiences for a thread, its owner or everyone, and the app role has no privilege to update `owner_user_id`, so one member cannot take over another's thread.
+- A delegated child run's thread inherits the audience of the root thread.
 
 ## Sandboxes, files, secrets, audit
 
 | Table | Class | Key columns |
 | --- | --- | --- |
 | `sandboxes` | Space-owned | `id`, `owner_bot_id`, `policy`, `provider`, `provider_sandbox_id`, `state`, `access_secret_id`, `last_used_at`, `expires_at`, `retire_after null` |
-| `files` | Space-owned | `id`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `created_by_user_id null`, `created_by_bot_id null` |
-| `secrets` | Space-owned and user-private | `id`, `user_id null`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
+| `files` | Space-owned with an audience | `id`, `audience_user_id`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `created_by_user_id null`, `created_by_bot_id null` |
+| `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
 | `audit_log` | Space-owned, insert and select only | `id`, `actor_kind`, `actor_id`, `action`, `target_kind`, `target_id`, `data jsonb`, `created_at` |
 | `sys.audit` | Global | One row per call of a cross-tenant function |
 | `data_protection_keys` | Global, no app-role table access outside the key ring store | Key ring when stored in the database |
 
 `sandboxes.state` is `creating`, `running`, `paused`, `retiring`, or `destroyed`.
 
-Phase 1 adds `memories` (space-owned, with a `vector` column) and nothing else structural.
+Phase 1 adds `memories` (space-owned with an audience, with a `vector` column) and nothing else structural. A bot's memory of one user's private conversations is private to that user; memory from shared threads is shared.
 
 ## Indexes that matter from day one
 

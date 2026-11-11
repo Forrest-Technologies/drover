@@ -59,7 +59,7 @@ public interface ISecretVault
 
 ### First adapter: Data Protection with rows in PostgreSQL
 
-- Ciphertext lives in the `secrets` table, which is space-owned and user-private.
+- Ciphertext lives in the `secrets` table, which is space-owned with an audience.
 - Encryption uses ASP.NET Core Data Protection. The protector's purpose string is built from the space id and the secret id: `Drover.Secrets.v1 / {spaceId} / {secretId}`.
 - Purpose binding means a ciphertext copied into another space's row, or another secret's row, does not decrypt. Tenant isolation holds for the ciphertext as well as the row.
 - Key rotation and algorithm choice are Data Protection's. Old keys are kept so old secrets still decrypt.

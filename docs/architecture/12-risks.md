@@ -62,11 +62,11 @@ Chosen to have one mechanism and no false comfort. The cost is that a missing te
 
 Would change my mind: I do not expect to. Quiet filtering is how tenancy bugs hide.
 
-### 8. Thread privacy between members of one space is enforced by the engine, not by row-level security
+### 8. Space admins cannot read a member's private thread
 
-In Phase 0 there is one user, so this has no effect yet. For Phase 2, a member's private thread is hidden from other members by application checks, while space isolation stays in the database.
+Per-user privacy inside a shared space is enforced by row-level security, as the owner asked. A consequence: an admin of a shared space can see that a run happened, what it cost, and can cancel it, but cannot open a private thread's content. There is no override short of the member sharing the thread.
 
-Would change my mind: if shared spaces on the hosted service are used by people who do not trust each other, not only by teams. Then `threads`, `messages`, `runs`, and `run_events` get a restrictive per-user policy like `secrets` has. The columns needed are already there. This is worth deciding before Phase 2 starts, with the owner.
+Would change my mind: a compliance need for admin review in shared spaces. The clean way to add it is an explicit, audited "review access" grant recorded in the database and checked by the policy, never a general bypass.
 
 ### 9. Approval moved into Phase 0
 
@@ -85,4 +85,4 @@ See [11-phase-0-plan.md](11-phase-0-plan.md). It adds roughly one sitting to Pha
 1. Confirm "BYOS" means bring your own subscription ([README.md](README.md)).
 2. Confirm approval moves into Phase 0.
 3. The agent framework: are you comfortable with the adapter using it only for single-turn execution, with Drover owning persistence, approval state, and delegation? This is the largest gap between what the framework offers and what the design uses.
-4. Decide thread privacy for shared spaces before Phase 2 (decision 8 above).
+4. Confirm that space admins should not be able to read members' private threads (decision 8 above).

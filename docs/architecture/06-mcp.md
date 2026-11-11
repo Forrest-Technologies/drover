@@ -26,7 +26,7 @@ An admin can set an OAuth connection to `space` on purpose (a shared service acc
 
 1. Every run has a `principal_user_id`, fixed at creation and inherited by child runs.
 2. The worker's database transactions carry that user id.
-3. `tool_connection_credentials` and `secrets` are user-private: the database returns a per-user row only inside that user's transactions ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)).
+3. `tool_connection_credentials` and `secrets` carry an audience: the database returns a per-user row only inside that user's transactions ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)).
 4. The credential lookup has no fallback. If the principal has no credential, the tool call returns "this connection needs you to sign in", and the user sees a connect prompt.
 
 Step 3 means a coding mistake in step 4 still cannot fetch someone else's token.

@@ -4,7 +4,7 @@ Two layers, kept separate on purpose:
 
 | Layer | Separates | Enforced by | Fails how |
 | --- | --- | --- | --- |
-| 1. Tenancy | One space from another, and one user's private rows from another's | PostgreSQL row-level security | Zero rows, or a database error |
+| 1. Tenancy | One user from another, and one group from another. Every user has a personal space; a shared space is a group; inside a group, private rows belong to one user. | PostgreSQL row-level security | Zero rows, or a database error |
 | 2. Bot permissions | One bot from another inside a space | The engine, backed by constraints and one SQL function | A refused tool call |
 
 A bug in layer 2 can let a bot overreach inside its own space. It cannot cross a space boundary, because layer 1 does not depend on application code being right.
@@ -50,18 +50,39 @@ CREATE POLICY space_isolation ON threads FOR ALL
 
 `FORCE` makes the policy apply to the table owner too. `USING` filters what can be read, updated, or deleted. `WITH CHECK` rejects inserting a row for another space or moving a row into one.
 
-User-private tables (`secrets`, `tool_connection_credentials`, `oauth_flows`) add a restrictive policy, which is combined with the first using AND:
+Tables with an audience (`threads`, `messages`, `run_events`, `tool_calls`, `files`, `secrets`, `tool_connection_credentials`, `oauth_flows`, later `memories`) add a restrictive policy, which is combined with the first using AND. `sys.everyone()` returns the all-zero UUID.
 
 ```sql
-CREATE POLICY user_private ON secrets AS RESTRICTIVE FOR ALL
-  USING      (user_id IS NULL OR user_id = sys.current_user_id())
-  WITH CHECK (user_id IS NULL OR user_id = sys.current_user_id());
+CREATE POLICY audience ON threads AS RESTRICTIVE FOR ALL
+  USING      (audience_user_id IN (sys.everyone(), sys.current_user_id()))
+  WITH CHECK (audience_user_id IN (sys.everyone(), sys.current_user_id()));
 ```
 
-User-owned tables use `user_id = sys.current_user_id()` alone. Special cases, each written out in the migration and each covered by a named test:
+So the rule the owner asked for holds in the database: **a row is reachable by its user, or by the group when it is not private to a user.** In a personal space the group is one person, so the two rules coincide.
+
+Children inherit the audience through their foreign key:
+
+```sql
+FOREIGN KEY (space_id, thread_id, audience_user_id)
+  REFERENCES threads (space_id, id, audience_user_id) ON UPDATE CASCADE
+```
+
+Observed on PostgreSQL 16, two users in one space, connected as `drover_app`:
+
+| Action | Result |
+| --- | --- |
+| User 2 lists threads and messages | Sees the shared thread only. User 1's private thread and its message do not exist for them. |
+| A message is inserted with a wider audience than its thread | Foreign key error |
+| User 2 inserts a row addressed to user 1 | Error, "new row violates row-level security policy audience" |
+| User 1 shares the private thread | One `UPDATE`; the cascade updates the messages under forced row-level security; user 2 then sees both |
+
+The migration helper `IsolateBySpace(table, audience: true)` emits both policies.
+
+User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.current_user_id()` alone. Special cases, each written out in the migration and each covered by a named test:
 
 | Table | Policy |
 | --- | --- |
+| `threads` | The two policies above, plus a check constraint `audience_user_id IN (sys.everyone(), owner_user_id)`, and no `UPDATE` privilege on `owner_user_id` for the app role |
 | `spaces` | `id = sys.current_space()` |
 | `memberships` | `space_id = sys.current_space() OR user_id = sys.current_user_id()` for select; space match for writes |
 | `users` | Select own row, or rows of users who are members of the current space. Update own row only. |
@@ -231,7 +252,8 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 | Every table has an ownership class | A table in `public` is not `ISpaceOwned`, `IUserOwned`, or listed in `GlobalTables.manifest` |
 | Row-level security is enabled and forced | `relrowsecurity` or `relforcerowsecurity` is false on a classed table |
 | Policies are complete | A classed table lacks a policy covering all commands with both `USING` and `WITH CHECK` |
-| The discriminator is not nullable | `space_id` or `user_id` allows null on an owned table |
+| The discriminator is not nullable | `space_id`, `audience_user_id`, or `user_id` allows null on a table of that class |
+| Audience is inherited | A table that references an audience table does not include `audience_user_id` in that foreign key |
 | Foreign keys stay inside a space | A foreign key between two space-owned tables does not include `space_id` |
 | The app role is weak | `drover_app` is superuser, has `BYPASSRLS`, owns any object, or can create in any schema |
 | The bypass surface is known | `sys` functions differ from the manifest |
@@ -249,7 +271,7 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 | Insert a row referencing B's parent row | Foreign key error |
 | Any statement with no tenant set | Zero rows, inserts rejected |
 
-User-private tables repeat the pattern with two users in one space.
+Tables with an audience repeat the pattern with two users in one space: user 2 cannot select, update, or delete user 1's private rows, cannot insert a row addressed to user 1, and cannot give a child row a wider audience than its parent. A catalog test asserts that every child of an audience table carries the audience in its foreign key.
 
 **Pooling test**: pool size one, alternate tenants across 1,000 transactions including rolled-back and faulted ones, assert no row ever appears for the wrong tenant.
 
@@ -260,12 +282,13 @@ These tests need Docker and nothing else. They run in pull request CI on hosted 
 | Thing | Belongs to | Notes |
 | --- | --- | --- |
 | Bot | Space | Created by a human or by a parent bot |
-| Thread | Space, with an owning user | Visibility `private` or `space`. Per-user thread privacy is enforced by the engine in Phase 2; see [12-risks.md](12-risks.md). |
+| Thread, with its messages, events, tool calls, files | Space, with an audience | Private to its owner by default, enforced by policy. Sharing it makes the audience the whole space. |
+| Run, usage record | Space | Metadata only, so admins can see activity and cost and cancel any run without being able to read a private thread |
 | Tool connection (definition) | Space | Admins create and edit it |
-| Tool connection credential | Space, or one user in the space | Per-user rows are unreadable outside that user's transactions |
+| Tool connection credential | Space, with an audience | Per-user rows are unreadable outside that user's transactions |
 | Model connection | Space | Its key is a space secret |
 | Sandbox | Space, owned by one bot | Access by other bots follows the sandbox policy |
-| Secret | Space, optionally private to one user | Ciphertext is also bound to space and secret id; see [08-auth-and-secrets.md](08-auth-and-secrets.md) |
+| Secret | Space, with an audience | Ciphertext is also bound to space and secret id; see [08-auth-and-secrets.md](08-auth-and-secrets.md) |
 | Push subscription, session | User | Not tied to a space |
 
 ---
