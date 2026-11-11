@@ -1,6 +1,6 @@
 {
   "provenance": "captured",
-  "note": "Captured with curl on 2026-11-11 by sending a made-up key ('drover-fake-key-for-capture') to POST /chat/completions and GET /api_keys/rate_limits. Both answered 401 with this body. Cookies and tracing headers were dropped; the rate-limit headers are as returned.",
+  "note": "Captured with curl on 2026-11-11 by sending a made-up key ('drover-fake-key-for-capture') to POST /chat/completions and GET /api_keys/rate_limits. Both answered 401 with this body. The body is as returned. Headers: x-ratelimit-remaining is as returned (50); x-ratelimit-resets was a real Unix-millisecond clock time and is replaced here by the template {now_ms+30000} so it stays in the future; every other header (cookies, tracing, caching) was dropped. This is a 401, not a 429: it shows x-ratelimit-resets exists but not that a 429 carries it.",
   "exchanges": [
     {
       "method": "*",

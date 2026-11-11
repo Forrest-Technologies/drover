@@ -28,9 +28,9 @@ public sealed class FixtureProvenanceTests
     {
         var captured = RecordedFixture.AllFixturePaths()
             .Where(path => RecordedFixture.Parse(File.ReadAllText(path)).Provenance == "captured")
-            .Select(Path.GetFileName);
+            .Select(path => $"{Path.GetFileName(Path.GetDirectoryName(path))}/{Path.GetFileName(path)}");
 
-        captured.Should().BeEquivalentTo(["list_models.json", "invalid_key.json"]);
+        captured.Should().BeEquivalentTo(["venice/list_models.json", "venice/invalid_key.json"]);
     }
 
     #endregion

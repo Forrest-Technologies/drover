@@ -107,9 +107,13 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
             return ParseModels(document.RootElement);
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (JsonException exception)
         {
             throw ModelProviderException.FromNetwork(exception);
+        }
+        catch (Exception exception) when (ErrorMappingChatClient.TryMap(exception, out var mapped))
+        {
+            throw mapped;
         }
     }
 

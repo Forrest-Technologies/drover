@@ -6,6 +6,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Drover.Adapters.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
   </ItemGroup>
 </Project>

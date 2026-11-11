@@ -17,6 +17,8 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Http.Resilience;
 global using OpenAI;
 global using Polly;
+global using Polly.CircuitBreaker;
+global using Polly.Timeout;
 
 // OpenAI.Chat also defines ChatMessage, which Microsoft.Extensions.AI owns here. Only these two are needed from it.
 global using ChatCompletion = OpenAI.Chat.ChatCompletion;

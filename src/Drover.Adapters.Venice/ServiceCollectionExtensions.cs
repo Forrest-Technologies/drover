@@ -24,14 +24,15 @@ public static class ServiceCollectionExtensions
                 options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(6);
                 options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
 
-                options.Retry.ShouldHandle = arguments => ValueTask.FromResult(ShouldRetry(arguments.Outcome));
+                options.Retry.ShouldHandle = arguments =>
+                    ValueTask.FromResult(ShouldRetry(arguments.Context, arguments.Outcome));
                 options.Retry.DelayGenerator = arguments => ValueTask.FromResult(WaitForReset(arguments.Outcome));
 
-                // Every tenant shares this one host. One key being rate limited must not open the circuit for all.
+                // A rate limit says nothing about the service's health, so it must not pause calls for everyone.
                 options.CircuitBreaker.ShouldHandle = arguments =>
-                    ValueTask.FromResult(HttpClientResiliencePredicates.IsTransient(arguments.Outcome)
-                        && arguments.Outcome.Result?.StatusCode != HttpStatusCode.TooManyRequests);
-            });
+                    ValueTask.FromResult(RetryRules.CountsAgainstCircuit(arguments.Outcome));
+            })
+            .SelectPipelineByAuthority();
 
         services.AddSingleton<IModelClientProvider, VeniceProvider>();
 
@@ -42,14 +43,15 @@ public static class ServiceCollectionExtensions
 
     #region Rate Limit Backoff
 
-    private static bool ShouldRetry(Outcome<HttpResponseMessage> outcome) =>
-        HttpClientResiliencePredicates.IsTransient(outcome)
+    private static bool ShouldRetry(ResilienceContext context, Outcome<HttpResponseMessage> outcome) =>
+        RetryRules.ShouldRetry(context, outcome)
         && !(WaitForReset(outcome) is { } wait && wait > maxBackoff);
 
     private static TimeSpan? WaitForReset(Outcome<HttpResponseMessage> outcome) =>
         outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests } response
-        && response.Headers.TryGetValues(VeniceHeaders.RateLimitReset, out var values)
-            ? VeniceHeaders.WaitUntilReset(values.FirstOrDefault(), DateTimeOffset.UtcNow)
+            ? VeniceHeaders.WaitUntilReset(
+                name => response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null,
+                DateTimeOffset.UtcNow)
             : null;
 
     #endregion

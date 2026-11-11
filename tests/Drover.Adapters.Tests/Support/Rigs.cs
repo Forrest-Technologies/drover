@@ -13,7 +13,7 @@ public static class VeniceRig
         var provider = new VeniceProvider(new FixtureHttpClientFactory(handler));
         var connection = new ModelConnection(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress);
 
-        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId), handler);
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
     }
 }
 
@@ -29,6 +29,6 @@ public static class CompatibleRig
         var provider = new OpenAICompatibleProvider(new FixtureHttpClientFactory(handler));
         var connection = new ModelConnection(OpenAICompatibleProvider.ConnectionKind, Address);
 
-        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId), handler);
+        return new Rig(new ProviderUnderTest(provider, connection, TestKeys.Generate(), ModelId, handler.Wire), handler);
     }
 }

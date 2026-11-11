@@ -21,6 +21,8 @@ public sealed class ModelProviderException(
     public static ModelProviderException FromStatus(int status, TimeSpan? retryAfter = null, Exception? inner = null) =>
         status switch
         {
+            // A client library reports "no response arrived" as status 0.
+            <= 0 => FromNetwork(inner),
             401 or 403 => new(
                 ModelFailure.InvalidKey,
                 "The provider rejected the API key. Check the key on the connection and save it again.",
@@ -38,11 +40,20 @@ public sealed class ModelProviderException(
             _ => new(ModelFailure.Rejected, $"The provider refused the request (HTTP {status}).", inner: inner),
         };
 
-    public static ModelProviderException FromNetwork(Exception inner) =>
+    public static ModelProviderException FromNetwork(Exception? inner = null) =>
         new(
             ModelFailure.Unreachable,
             "The provider could not be reached. Check the address and that the server is running.",
             inner: inner);
+
+    public static ModelProviderException FromTimeout() =>
+        new(ModelFailure.Unreachable, "The provider took too long to answer. Try again shortly.");
+
+    /// <summary>Calls to this provider are paused after repeated failures, so nothing was sent.</summary>
+    public static ModelProviderException FromCircuitOpen() =>
+        new(
+            ModelFailure.RetryLater,
+            "Calls to this provider are paused for a moment after repeated failures. Try again shortly.");
 
     #endregion
 }

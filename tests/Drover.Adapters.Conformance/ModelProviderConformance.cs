@@ -77,6 +77,7 @@ public abstract class ModelProviderConformance
         var response = await subject.CreateChatClient().GetResponseAsync(GreetingPrompt);
 
         response.Text.Should().NotBeNullOrWhiteSpace();
+        VendorTypesIn(response).Should().BeEmpty("no vendor object may leave the adapter");
     }
 
     [Fact]
@@ -93,6 +94,7 @@ public abstract class ModelProviderConformance
 
         updates.Count(update => !string.IsNullOrEmpty(update.Text)).Should().BeGreaterThan(1);
         updates.ToChatResponse().Text.Should().NotBeNullOrWhiteSpace();
+        updates.SelectMany(update => VendorTypesIn(update)).Should().BeEmpty("no vendor object may leave the adapter");
     }
 
     [Fact]
@@ -116,6 +118,17 @@ public abstract class ModelProviderConformance
         var second = await client.GetResponseAsync(conversation, options);
 
         second.Text.Should().NotBeNullOrWhiteSpace();
+
+        var chats = ChatRequests(subject);
+        chats.Should().HaveCount(2);
+        chats[0].Json.GetProperty("tools").EnumerateArray()
+            .Select(tool => tool.GetProperty("function").GetProperty("name").GetString())
+            .Should().Contain("get_weather");
+
+        var sentBack = chats[1].Json.GetProperty("messages").EnumerateArray()
+            .Single(message => message.GetProperty("role").GetString() == "tool");
+        sentBack.GetProperty("tool_call_id").GetString().Should().Be(call.CallId);
+        sentBack.GetProperty("content").GetString().Should().Be("Sunny, 21 degrees");
     }
 
     [Fact]
@@ -135,6 +148,10 @@ public abstract class ModelProviderConformance
 
         report.Should().NotBeNull();
         report!.City.Should().Be("Paris");
+
+        var format = ChatRequests(subject).Single().Json.GetProperty("response_format");
+        format.GetProperty("type").GetString().Should().Be("json_schema");
+        format.GetProperty("json_schema").GetProperty("name").GetString().Should().Be("weather_report");
     }
 
     [Fact]
@@ -180,6 +197,7 @@ public abstract class ModelProviderConformance
         failure.Failure.Should().Be(ModelFailure.RetryLater);
         failure.RetryAfter.Should().NotBeNull();
         failure.Message.Should().NotContain(subject.ApiKey);
+        failure.InnerException.Should().BeNull("the vendor's exception stays inside the adapter");
     }
 
     [Fact]
@@ -206,6 +224,7 @@ public abstract class ModelProviderConformance
         failure.Failure.Should().Be(ModelFailure.InvalidKey);
         failure.Message.Should().Contain("key");
         failure.Message.Should().NotContain(subject.ApiKey);
+        failure.InnerException.Should().BeNull("the vendor's exception stays inside the adapter");
     }
 
     [Fact]
@@ -223,6 +242,21 @@ public abstract class ModelProviderConformance
     #endregion
 
     #region Helpers
+
+    private static List<WireRequest> ChatRequests(ProviderUnderTest subject) =>
+        [.. subject.SentRequests().Where(request => request.Uri.AbsolutePath.EndsWith("/chat/completions"))];
+
+    /// <summary>Raw objects the vendor client attaches to what it returns. There must be none.</summary>
+    private static IEnumerable<object> VendorTypesIn(ChatResponse response) =>
+        new object?[] { response.RawRepresentation }
+            .Concat(response.Messages.Select(message => message.RawRepresentation))
+            .Concat(response.Messages.SelectMany(message => message.Contents).Select(content => content.RawRepresentation))
+            .OfType<object>();
+
+    private static IEnumerable<object> VendorTypesIn(ChatResponseUpdate update) =>
+        new object?[] { update.RawRepresentation }
+            .Concat(update.Contents.Select(content => content.RawRepresentation))
+            .OfType<object>();
 
     private static async Task Drain(IAsyncEnumerable<ChatResponseUpdate> updates)
     {

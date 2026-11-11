@@ -14,4 +14,8 @@ global using System.Threading.Tasks;
 global using Drover.Domain.Models;
 global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Http.Resilience;
 global using OpenAI;
+global using Polly;
+global using Polly.CircuitBreaker;
+global using Polly.Timeout;

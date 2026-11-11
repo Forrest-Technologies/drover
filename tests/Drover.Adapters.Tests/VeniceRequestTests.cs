@@ -6,16 +6,21 @@ public sealed class VeniceRequestTests
     #region System Prompt
 
     [Fact]
-    public async Task Switches_off_the_providers_system_prompt_on_every_chat_request()
+    public async Task Switches_off_the_providers_system_prompt_on_every_chat_request_including_a_tool_follow_up()
     {
         var rig = VeniceRig.Start(ConformanceScenarios.ToolCall);
         var client = rig.Subject.CreateChatClient();
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create(() => "Sunny", "get_weather")] };
+        List<ChatMessage> conversation = [new(ChatRole.User, ModelProviderConformance.WeatherPrompt)];
 
-        await client.Ask(ModelProviderConformance.WeatherPrompt, options);
+        var first = await client.Ask(conversation, options);
+        var call = first.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Single();
+        conversation.AddRange(first.Messages);
+        conversation.Add(new ChatMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, "Sunny")]));
+        await client.Ask(conversation, options);
 
         var chatRequests = rig.Handler.Requests.Where(IsChat).ToList();
-        chatRequests.Should().NotBeEmpty();
+        chatRequests.Should().HaveCount(2, "the follow-up that carries the tool result is a request too");
         chatRequests.Should().OnlyContain(request =>
             request.Json.GetProperty("model").GetString() == "kimi-k3:include_venice_system_prompt=false");
     }

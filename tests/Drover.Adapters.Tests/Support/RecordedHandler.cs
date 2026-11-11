@@ -27,6 +27,19 @@ public sealed class RecordedHandler(RecordedFixture fixture) : HttpMessageHandle
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>The requests seen so far, in the shape the conformance suite reads.</summary>
+    public IReadOnlyList<WireRequest> Wire()
+    {
+        lock (gate)
+        {
+            return [.. Requests.Select(request => new WireRequest(request.Method.Method, request.Uri, request.Body))];
+        }
+    }
+
+    #endregion
+
     #region Interface Implementations
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

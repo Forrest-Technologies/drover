@@ -28,6 +28,7 @@ internal sealed class VeniceChatClient(
             var response = await base.GetResponseAsync(messages, ShapeOptions(options), cancellationToken);
 
             MapResponse(response);
+            StripVendorTypes(response);
 
             return response;
         }
@@ -68,6 +69,7 @@ internal sealed class VeniceChatClient(
             var update = updates.Current;
 
             MapUpdate(update);
+            StripVendorTypes(update);
 
             if (!balancesReported && headers.Balances.Count > 0)
             {
@@ -207,25 +209,80 @@ internal sealed class VeniceChatClient(
 
     #region Failure Mapping
 
-    private static bool TryMap(Exception exception, out ModelProviderException mapped)
+    /// <summary>
+    /// Finds the failure Drover understands anywhere in the exception chain. The vendor's own exception is not
+    /// kept as the inner exception, so no vendor type leaves the adapter.
+    /// </summary>
+    internal static bool TryMap(Exception exception, out ModelProviderException mapped)
     {
-        mapped = exception switch
+        for (var current = exception; current is not null; current = current.InnerException)
         {
-            ClientResultException failure => ModelProviderException.FromStatus(
-                failure.Status,
-                ReadWait(failure),
-                failure),
-            HttpRequestException network => ModelProviderException.FromNetwork(network),
-            _ => null!,
-        };
+            var found = Describe(current);
 
-        return mapped is not null;
+            if (found is not null)
+            {
+                mapped = found;
+
+                return true;
+            }
+        }
+
+        mapped = null!;
+
+        return false;
     }
 
+    private static ModelProviderException? Describe(Exception exception) =>
+        exception switch
+        {
+            ClientResultException failure => ModelProviderException.FromStatus(failure.Status, ReadWait(failure)),
+            BrokenCircuitException => ModelProviderException.FromCircuitOpen(),
+            TimeoutRejectedException => ModelProviderException.FromTimeout(),
+            HttpRequestException or HttpIOException => ModelProviderException.FromNetwork(exception),
+            _ => null,
+        };
+
     private static TimeSpan? ReadWait(ClientResultException failure) =>
-        failure.GetRawResponse()?.Headers.TryGetValue(VeniceHeaders.RateLimitReset, out var value) == true
-            ? VeniceHeaders.WaitUntilReset(value, DateTimeOffset.UtcNow)
+        failure.GetRawResponse() is { } response
+            ? VeniceHeaders.WaitUntilReset(
+                name => response.Headers.TryGetValue(name, out var value) ? value : null,
+                DateTimeOffset.UtcNow)
             : null;
+
+    #endregion
+
+    #region Vendor Types
+
+    // The vendor client attaches its own objects to everything it returns. Nothing past this project may see them.
+    private static void StripVendorTypes(ChatResponse response)
+    {
+        response.RawRepresentation = null;
+
+        foreach (var message in response.Messages)
+        {
+            StripVendorTypes(message.Contents);
+            message.RawRepresentation = null;
+        }
+    }
+
+    private static void StripVendorTypes(ChatResponseUpdate update)
+    {
+        update.RawRepresentation = null;
+        StripVendorTypes(update.Contents);
+    }
+
+    private static void StripVendorTypes(IList<AIContent> contents)
+    {
+        foreach (var content in contents)
+        {
+            content.RawRepresentation = null;
+
+            foreach (var annotation in content.Annotations ?? [])
+            {
+                annotation.RawRepresentation = null;
+            }
+        }
+    }
 
     #endregion
 }

@@ -142,16 +142,20 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients) : IModelClien
 
             return await JsonDocument.ParseAsync(body, cancellationToken: cancellation);
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException)
+        catch (JsonException exception)
         {
             throw ModelProviderException.FromNetwork(exception);
+        }
+        catch (Exception exception) when (VeniceChatClient.TryMap(exception, out var mapped))
+        {
+            throw mapped;
         }
     }
 
     private static TimeSpan? ReadWait(HttpResponseMessage response) =>
-        response.Headers.TryGetValues(VeniceHeaders.RateLimitReset, out var values)
-            ? VeniceHeaders.WaitUntilReset(values.FirstOrDefault(), DateTimeOffset.UtcNow)
-            : null;
+        VeniceHeaders.WaitUntilReset(
+            name => response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null,
+            DateTimeOffset.UtcNow);
 
     #endregion
 }

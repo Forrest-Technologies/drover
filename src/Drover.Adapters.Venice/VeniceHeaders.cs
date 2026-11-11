@@ -5,7 +5,14 @@ internal static class VeniceHeaders
 {
     #region Constants
 
-    public const string RateLimitReset = "x-ratelimit-reset-requests";
+    /// <summary>
+    /// Seen on a real 401 from the service (the failed-request budget). The rate-limit guide documents a 429 as
+    /// carrying <see cref="RateLimitResetRequests"/> instead. Neither has been seen on a real 429, so both are read.
+    /// </summary>
+    public const string RateLimitResets = "x-ratelimit-resets";
+
+    /// <summary>Documented for inference 429 responses; unconfirmed against the live service.</summary>
+    public const string RateLimitResetRequests = "x-ratelimit-reset-requests";
 
     public const string BalancePrefix = "x-venice-balance-";
 
@@ -28,6 +35,12 @@ internal static class VeniceHeaders
 
         return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
     }
+
+    /// <summary>Reads the wait from the first reset header present, in the order they are trusted.</summary>
+    public static TimeSpan? WaitUntilReset(Func<string, string?> header, DateTimeOffset now) =>
+        new[] { RateLimitResets, RateLimitResetRequests }
+            .Select(name => WaitUntilReset(header(name), now))
+            .FirstOrDefault(wait => wait is not null);
 
     /// <summary>Balances are reported one header per currency, for example <c>x-venice-balance-usd</c>.</summary>
     public static List<ModelBalance> ReadBalances(IEnumerable<KeyValuePair<string, string>> headers) =>

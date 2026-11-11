@@ -1,4 +1,5 @@
 global using System;
+global using System.ClientModel;
 global using System.Collections.Generic;
 global using System.IO;
 global using System.Linq;
@@ -19,4 +20,6 @@ global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Http.Resilience;
 global using Microsoft.Extensions.Options;
+global using Polly.CircuitBreaker;
+global using Polly.Timeout;
 global using Xunit;

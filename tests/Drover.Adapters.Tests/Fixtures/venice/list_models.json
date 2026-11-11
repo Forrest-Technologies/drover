@@ -1,6 +1,6 @@
 {
   "provenance": "captured",
-  "note": "Captured with curl and no API key from GET https://api.venice.ai/api/v1/models?type=text and GET https://api.venice.ai/api/v1/models/traits on 2026-11-11. The model list is trimmed to 8 of 139 models; every kept model is byte-for-byte as returned.",
+  "note": "Captured with curl and no API key from GET https://api.venice.ai/api/v1/models?type=text and GET https://api.venice.ai/api/v1/models/traits on 2026-11-11. The model list is trimmed to 8 of 139 models. The kept model entries, the envelope, and the traits body are as returned; nothing was edited, only models were dropped.",
   "exchanges": [
     {
       "method": "GET",

@@ -9,6 +9,7 @@ public sealed class ModelProviderExceptionTests
     [InlineData(429, ModelFailure.RetryLater)]
     [InlineData(500, ModelFailure.Unreachable)]
     [InlineData(503, ModelFailure.Unreachable)]
+    [InlineData(0, ModelFailure.Unreachable)]
     [InlineData(400, ModelFailure.Rejected)]
     [InlineData(404, ModelFailure.Rejected)]
     public void Maps_a_status_to_a_failure(int status, ModelFailure expected)
