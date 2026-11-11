@@ -14,6 +14,7 @@ ENV DOTNET_NOLOGO=1 \
 # Restore is its own layer. It changes only when package versions or project files change.
 COPY global.json nuget.config Directory.Build.props Directory.Packages.props ./
 COPY tools/Drover.Analyzers/Drover.Analyzers.csproj tools/Drover.Analyzers/
+COPY tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj tools/Drover.Analyzers.CodeFixes/
 COPY src/Drover.Contracts/Drover.Contracts.csproj src/Drover.Contracts/
 COPY src/Drover.Domain/Drover.Domain.csproj src/Drover.Domain/
 COPY src/Drover.Data/Drover.Data.csproj src/Drover.Data/

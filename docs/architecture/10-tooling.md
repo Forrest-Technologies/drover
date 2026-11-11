@@ -58,18 +58,18 @@ Stock rules that contradict the guide or the platform are switched off in `.edit
 
 ### `Drover.Analyzers`
 
-A small Roslyn analyzer project in `tools/`, referenced by every project through `Directory.Build.props`. Eight rules:
+Two small Roslyn projects in `tools/`, referenced by every project through `Directory.Build.props`: `Drover.Analyzers` holds the rules and `Drover.Analyzers.CodeFixes` holds the fixes. They are separate because the compiler hosts analyzers and must not load `Microsoft.CodeAnalysis.Workspaces`, which the fixes need (RS1038). `Drover.Analyzers.CodeFixes` is analyzed like every other project. `Drover.Analyzers` cannot be analyzed by itself during its own build, so `AnalyzersObeyTheirOwnRulesTests` runs every rule over the source of both projects. Eight rules:
 
 | Id | Rule | Notes |
 | --- | --- | --- |
-| DRV0001 | No `Async` suffix | Exempt: overrides, explicit and implicit interface implementations of members declared outside Drover, and methods with a synchronous twin in the same type |
+| DRV0001 | No `Async` suffix | Exempt: overrides, explicit and implicit interface implementations of members declared outside Drover (an assembly named `Drover` or `Drover.*` counts as Drover), and methods with a synchronous twin, meaning a method of the name without the suffix in the same type. An explicit implementation of a Drover interface is reported on the interface member, not on itself |
 | DRV0002 | No local `using` directives | Exempt: `GlobalUsings.cs`, and `using X = Y;` aliases |
-| DRV0003 | Regions | A type is non-trivial when it has more than one kind of member or more than three members. Interfaces, enums, and positional records are exempt. Checks names against the standard order, allowing descriptively named groups after the public section. |
-| DRV0004 | No `+` on strings | Constant-folded concatenations of literals are exempt |
-| DRV0005 | No silent `catch` | A catch block must log, rethrow, or return a value built from the exception |
+| DRV0003 | Regions | A type is non-trivial when it has more than one kind of member or more than three members. Interfaces, enums, and positional records are exempt. Checks names against the standard order, allowing descriptively named groups after the public section. A non-trivial type must have every member inside a region. Any type that has regions is checked for order and for the blank lines. |
+| DRV0004 | No `+` on strings | Constant-folded concatenations are exempt. `+=` on a string is reported too. A chain is reported once. |
+| DRV0005 | No silent `catch` | A catch block must log (a call on `ILogger` or `LoggerExtensions`, or a `[LoggerMessage]` method), throw, or return a value built from the exception. A `throw` inside a lambda in the catch does not count. |
 | DRV0006 | Tenancy shape | An entity exposed as a `DbSet` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest` |
 | DRV0007 | Vendor containment | A vendor namespace (from a list in the analyzer's configuration) may be referenced only by its adapter project |
-| DRV0008 | Data access containment | `DroverDbContext`, `DbSet<T>`, and `IQueryable<T>` may be used only in `Drover.Data`, and no public member there may return `IQueryable<T>` |
+| DRV0008 | Data access containment | `DroverDbContext`, `DbSet<T>`, and `IQueryable<T>` may be used only in `Drover.Data`, and no public member there may return `IQueryable<T>`, also inside `Task<>` or another generic. Decided by assembly name: `Drover.Data` is the one allowed assembly, and an assembly ending `.Tests` is exempt. A `var` that infers one of the types is reported. |
 
 DRV0006, DRV0007, and DRV0008 are architecture rules, not style. They give an agent a clear message at compile time for the two mistakes that matter most.
 
@@ -96,10 +96,19 @@ Each rule has tests with compliant and non-compliant samples, and a code fix whe
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
-    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers/Drover.Analyzers.csproj"
-                      OutputItemType="Analyzer" ReferenceOutputAssembly="false"
-                      Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers'" />
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+  </ItemGroup>
+
+  <!-- Every project is checked by Drover's own analyzers, except the analyzer project itself. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers/Drover.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The code fixes ride along so editors and dotnet format offer them. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers' And '$(MSBuildProjectName)' != 'Drover.Analyzers.CodeFixes'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 </Project>
 ```
