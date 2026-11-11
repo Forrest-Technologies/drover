@@ -17,6 +17,9 @@ public sealed class PostgresAgentSessionStore(RunContext run, ILogger logger) : 
 
     public const string AudiencePartition = "audience";
 
+    public const string ExpiredApproval =
+        "The approval request expired: the run's saved state could not be read after an update. Ask again if it is still needed.";
+
     #endregion
 
     #region Properties
@@ -72,11 +75,11 @@ public sealed class PostgresAgentSessionStore(RunContext run, ILogger logger) : 
                 run.Thread.Id,
                 stored.FrameworkVersion,
                 FrameworkVersion);
-            await DeleteSessionAsync(agent, key, cancellationToken);
+            await Discard(cancellationToken);
             return null;
         }
 
-        return await Deserialize(agent, key, stored.State, cancellationToken);
+        return await Deserialize(agent, stored.State, cancellationToken);
     }
 
     public override async ValueTask DeleteSessionAsync(
@@ -95,23 +98,38 @@ public sealed class PostgresAgentSessionStore(RunContext run, ILogger logger) : 
 
     #region Private Methods
 
-    private async Task<AgentSession?> Deserialize(
-        AIAgent agent,
-        AgentSessionStoreKey key,
-        JsonElement state,
-        CancellationToken cancellationToken)
+    private async Task<AgentSession?> Deserialize(AIAgent agent, JsonElement state, CancellationToken cancellationToken)
     {
         try
         {
             return await agent.DeserializeSessionAsync(state, cancellationToken: cancellationToken);
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or NotSupportedException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Any failure means the blob is unusable; the conversation is safe in messages either way.
             logger.LogWarning(exception, "Discarding the session of thread {ThreadId}: it does not deserialize", run.Thread.Id);
-            await DeleteSessionAsync(agent, key, cancellationToken);
+            await Discard(cancellationToken);
             return null;
         }
     }
+
+    /// <summary>
+    /// Deletes the session and denies the approvals it was holding. Those requests lived only in the session, so they
+    /// can no longer be answered; the reason is stored as each call's result, so the history and the model say so.
+    /// </summary>
+    private Task Discard(CancellationToken cancellationToken) =>
+        run.Database.Transact(
+            async services =>
+            {
+                await services.GetRequiredService<AgentSessionRepository>()
+                    .DeleteSession(run.Thread.Id, run.Execution.Bot.BotId, cancellationToken);
+                await ToolCallLedger.ExpirePendingApprovals(
+                    services.GetRequiredService<ToolCallRepository>(),
+                    run.Thread.Id,
+                    ExpiredApproval,
+                    cancellationToken);
+            },
+            cancellationToken);
 
     /// <summary>The store serves one run; a key for another thread or tenant is a bug, never a lookup.</summary>
     private void RequireThisRun(AgentSessionStoreKey key)

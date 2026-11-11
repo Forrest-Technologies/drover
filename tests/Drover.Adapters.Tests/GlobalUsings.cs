@@ -31,6 +31,7 @@ global using Microsoft.Agents.AI.Workflows;
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging.Abstractions;
 global using Npgsql;
 global using Testcontainers.PostgreSql;
 global using Xunit;

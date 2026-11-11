@@ -16,17 +16,22 @@ public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, Gui
         CancellationToken cancellationToken = default)
     {
         var child = await Begin(cancellationToken);
+        var outcome = ChildRunOutcome.Failed;
 
         try
         {
             var response = await InnerAgent.RunAsync(messages, session, options, cancellationToken);
-            await governor.CompleteChildRun(child, ChildRunOutcome.Completed, cancellationToken);
+            outcome = ChildRunOutcome.Completed;
             return response;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException)
         {
-            await governor.CompleteChildRun(child, ChildRunOutcome.Failed, CancellationToken.None);
+            outcome = ChildRunOutcome.Cancelled;
             throw;
+        }
+        finally
+        {
+            await governor.CompleteChildRun(child, outcome, CancellationToken.None);
         }
     }
 
@@ -50,7 +55,7 @@ public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, Gui
         }
         finally
         {
-            await governor.CompleteChildRun(child, outcome, CancellationToken.None);
+            await governor.CompleteChildRun(child, cancellationToken.IsCancellationRequested ? ChildRunOutcome.Cancelled : outcome, CancellationToken.None);
         }
     }
 

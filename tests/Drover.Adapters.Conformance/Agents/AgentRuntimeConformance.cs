@@ -189,6 +189,47 @@ public abstract class AgentRuntimeConformance
         model.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.StartsWith("c1 = ", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task An_approval_response_for_an_unknown_request_is_rejected_and_the_tool_never_runs()
+    {
+        var run = await NewRun("Email the report", new ToolSpec("send_email", ToolSensitivity.Write, RequiresApproval: true));
+        var tools = new ScriptedTools().Add("send_email");
+        var model = new ScriptedModel([new ToolCallOutput("c1", "send_email")], [new TextOutput("Not sent.")]);
+
+        var asked = await Execute(model, run, new ScriptedGovernor(tools));
+        var request = asked.OfType<ApprovalRequested>().Single();
+        var resumed = await Execute(
+            model,
+            run with { Responses = [new ToolApproval($"not-{request.RequestId}", request.CallId, Approved: true)] },
+            new ScriptedGovernor(tools));
+
+        tools.Count("send_email").Should().Be(0);
+        resumed[^1].Should().Be(new RunFinished(RunOutcome.Completed));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Denied);
+    }
+
+    [Fact]
+    public async Task An_approved_tool_cut_off_by_a_kill_is_reported_interrupted_not_rejected()
+    {
+        var run = await NewRun("Email the report", new ToolSpec("send_email", ToolSensitivity.Write, RequiresApproval: true));
+        var tools = new ScriptedTools().AddPausing("send_email");
+        var model = new ScriptedModel([new ToolCallOutput("c1", "send_email")], [new TextOutput("It may have been sent.")]);
+
+        var request = (await Execute(model, run, new ScriptedGovernor(tools))).OfType<ApprovalRequested>().Single();
+        await Kill(model, tools.Paused, run with { Responses = [new ToolApproval(request.RequestId, request.CallId, Approved: true)] }, tools);
+
+        await using var recovering = StartHost(model);
+        var events = await Collect(recovering, run, new ScriptedGovernor(tools));
+
+        events[^1].Should().Be(new RunFinished(RunOutcome.Completed));
+        tools.Count("send_email").Should().Be(1);
+        model.Requests.Should().HaveCount(2);
+        model.Requests[1].Should().ContainSingle(message => message.Role == "tool")
+            .Which.Should().Be(new SeenMessage("tool", "c1 = \"interrupted, outcome unknown\""));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Interrupted);
+        Summaries(await ReadMessages(run)).Should().Contain("tool: result c1 \"interrupted, outcome unknown\"");
+    }
+
     #endregion
 
     #region Kill And Recover
@@ -235,12 +276,41 @@ public abstract class AgentRuntimeConformance
         (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Interrupted);
     }
 
+    [Fact]
+    public async Task A_call_id_reused_by_a_later_run_is_repaired_from_that_runs_own_row()
+    {
+        var first = await NewRun("Count once", new ToolSpec("count"));
+        var counted = 0;
+        var tools = new ScriptedTools().Add("count", (_, _) =>
+            Task.FromResult(new ToolOutcome(ScriptedTools.Json($$"""{"n":{{Interlocked.Increment(ref counted)}}}"""))));
+        var model = new ScriptedModel(
+            [new ToolCallOutput("c1", "count")],
+            [new TextOutput("One")],
+            [new ToolCallOutput("c1", "count")],
+            [new PauseOutput()],
+            [new TextOutput("Two")]);
+
+        await Execute(model, first, new ScriptedGovernor(tools));
+        var second = await ContinueThread(first, "Count again");
+        await Kill(model, model.Paused, second, tools);
+
+        await using var recovering = StartHost(model);
+        await Collect(recovering, second, new ScriptedGovernor(tools));
+
+        tools.Count("count").Should().Be(2);
+        model.Requests[^1].Where(message => message.Role == "tool").Select(message => message.Summary)
+            .Should().Equal("""c1 = {"n":1}""", """c1 = {"n":2}""");
+    }
+
     #endregion
 
     #region Harness
 
     /// <summary>A thread with one user message, a run row, and the given tools granted, as the engine would make them.</summary>
     protected abstract Task<RunExecution> NewRun(string userText, params ToolSpec[] tools);
+
+    /// <summary>A new run in the same thread after another user message, as the engine makes one for the next turn.</summary>
+    protected abstract Task<RunExecution> ContinueThread(RunExecution previous, string userText);
 
     /// <summary>A new process: a new service provider, sharing only the database, the model, and the tools.</summary>
     protected abstract IRuntimeHost StartHost(ScriptedModel model);

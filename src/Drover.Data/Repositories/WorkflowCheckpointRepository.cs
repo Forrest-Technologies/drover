@@ -3,7 +3,8 @@ namespace Drover.Data.Repositories;
 /// <summary>
 /// Stores workflow checkpoints as opaque JSON. The <c>workflow_checkpoints</c> table is a Phase 1 migration; until
 /// then only the agent framework proofs create it, in their own test database. Runs inside the caller's tenant
-/// scope, and the table's policy limits it to the current space like every other space-owned table. The state is
+/// scope. The table is space-owned with an audience, like <c>agent_sessions</c>: its policies limit it to the current
+/// space and to the run's audience. The state is
 /// written as <c>json</c>, never <c>jsonb</c>: the framework's polymorphic JSON needs its "$type" property kept first,
 /// and jsonb reorders object keys.
 /// </summary>
@@ -12,6 +13,7 @@ public sealed class WorkflowCheckpointRepository(DroverDbContext db)
     #region Public Methods
 
     public async Task AddCheckpoint(
+        Guid audienceUserId,
         string sessionId,
         string checkpointId,
         string? parentCheckpointId,
@@ -19,8 +21,8 @@ public sealed class WorkflowCheckpointRepository(DroverDbContext db)
         CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlAsync(
             $"""
-            INSERT INTO workflow_checkpoints (session_id, checkpoint_id, parent_checkpoint_id, state)
-            VALUES ({sessionId}, {checkpointId}, {parentCheckpointId}, {state.GetRawText()}::json)
+            INSERT INTO workflow_checkpoints (audience_user_id, session_id, checkpoint_id, parent_checkpoint_id, state)
+            VALUES ({audienceUserId}, {sessionId}, {checkpointId}, {parentCheckpointId}, {state.GetRawText()}::json)
             """,
             cancellationToken);
 

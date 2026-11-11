@@ -223,6 +223,7 @@ Nothing in memory is needed to continue.
    | Tool call `running`, tool is read-only or idempotent by its definition | Run it again. Not built yet: the runtime treats it like the next row today. Step 9 decides how the engine re-runs it. |
    | Tool call `running`, tool may have side effects | Mark it `interrupted` and give the model the result "interrupted, outcome unknown". The model decides what to do; if the grant is `ask`, the retry asks the human again. |
    | Tool call `pending_approval` | Nothing; the run stays `waiting` and its session holds the request |
+   | Tool call approved and `running` when the process died | Mark it `interrupted`. The stale session makes the framework reject the approval on the next run; the `tool_calls` row wins over that result, so the model is told "interrupted, outcome unknown", not "rejected". |
    | A delegation was in progress | The delegation is requested again and resolves to the existing child run, which continues |
    | A team workflow was in progress | Resume from its latest checkpoint |
 

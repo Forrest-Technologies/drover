@@ -28,6 +28,9 @@ public sealed class PostgresAgentRuntimeTests(PostgresFixture postgres) : AgentR
 
     protected override Task<RunExecution> NewRun(string userText, params ToolSpec[] tools) => world.NewRun(userText, tools);
 
+    protected override Task<RunExecution> ContinueThread(RunExecution previous, string userText) =>
+        world.ContinueThread(previous, userText);
+
     protected override IRuntimeHost StartHost(ScriptedModel model) => new AgentRuntimeHost(postgres, model);
 
     protected override Task<IReadOnlyList<Message>> ReadMessages(RunExecution run) =>

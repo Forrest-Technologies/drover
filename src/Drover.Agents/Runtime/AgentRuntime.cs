@@ -66,39 +66,17 @@ public sealed class AgentRuntime(
             ?? throw new InvalidOperationException($"Thread {execution.ThreadId} is not visible to the run's principal."));
     }
 
-    private AIAgent BuildAgent(RunContext run)
-    {
-        var bot = run.Execution.Bot;
-        var options = new ChatClientAgentOptions
-        {
-            Id = bot.BotId.ToString("N"),
-            Name = bot.Name,
-            ChatOptions = new ChatOptions
+    private AIAgent BuildAgent(RunContext run) =>
+        resolveChatClient(run.Execution.Bot).AsGovernedAgent(
+            run,
+            new ChatClientAgentOptions
             {
-                Instructions = bot.Instructions,
-                ModelId = bot.Model,
-                Tools = [.. run.Execution.Tools.Select(definition => ToTool(definition, run))],
+                ChatHistoryProvider = new PostgresChatHistoryProvider(run, loggerFactory.CreateLogger<PostgresChatHistoryProvider>()),
+                AIContextProviders = [.. resolveCapabilities(run.Execution.Bot)],
+                RequirePerServiceCallChatHistoryPersistence = true,
+                AllowConcurrentInvocation = true,
             },
-            ChatHistoryProvider = new PostgresChatHistoryProvider(run, loggerFactory.CreateLogger<PostgresChatHistoryProvider>()),
-            AIContextProviders = [.. resolveCapabilities(bot)],
-            RequirePerServiceCallChatHistoryPersistence = true,
-            AllowConcurrentInvocation = true,
-        };
-        var gate = new ToolGate(run, loggerFactory.CreateLogger<ToolGate>());
-
-        return resolveChatClient(bot)
-            .AsAIAgent(options, loggerFactory)
-            .AsBuilder()
-            .Use(gate.Invoke)
-            .UseOpenTelemetry(TelemetrySource, telemetry => telemetry.EnableSensitiveData = false)
-            .Build();
-    }
-
-    private static AITool ToTool(ToolDefinition definition, RunContext run)
-    {
-        var function = new GovernedToolFunction(definition, run);
-        return definition.RequiresApproval ? new ApprovalRequiredAIFunction(function) : function;
-    }
+            loggerFactory);
 
     /// <summary>
     /// The human's answers, as framework approval responses. The framework binds each one by its request id to the

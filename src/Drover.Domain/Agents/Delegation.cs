@@ -11,4 +11,5 @@ public enum ChildRunOutcome
 {
     Completed,
     Failed,
+    Cancelled,
 }

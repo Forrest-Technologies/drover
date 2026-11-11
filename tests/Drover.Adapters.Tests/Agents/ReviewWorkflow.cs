@@ -5,9 +5,9 @@ public static class ReviewWorkflow
 {
     #region Public Methods
 
-    public static Workflow Build()
+    public static Workflow Build(WriteCounter writes)
     {
-        var writer = new Writer();
+        var writer = new Writer(writes);
         var review = RequestPort.Create<ReviewRequest, bool>("Review");
         var publisher = new Publisher();
 
@@ -25,13 +25,39 @@ public static class ReviewWorkflow
 public sealed record ReviewRequest(string Draft);
 
 
+/// <summary>Counts how often the writer really ran, across every process that builds the workflow.</summary>
+public sealed class WriteCounter
+{
+    #region Private Fields
+
+    private int count;
+
+    #endregion
+
+    #region Properties
+
+    public int Count => Volatile.Read(ref count);
+
+    #endregion
+
+    #region Public Methods
+
+    public void Increment() => Interlocked.Increment(ref count);
+
+    #endregion
+}
+
+
 [SendsMessage(typeof(ReviewRequest))]
-public sealed class Writer() : Executor<string>("Writer")
+public sealed class Writer(WriteCounter writes) : Executor<string>("Writer")
 {
     #region Public Methods
 
-    public override ValueTask HandleAsync(string message, IWorkflowContext context, CancellationToken cancellationToken = default) =>
-        context.SendMessageAsync(new ReviewRequest($"{message}, written"), cancellationToken: cancellationToken);
+    public override ValueTask HandleAsync(string message, IWorkflowContext context, CancellationToken cancellationToken = default)
+    {
+        writes.Increment();
+        return context.SendMessageAsync(new ReviewRequest($"{message}, written"), cancellationToken: cancellationToken);
+    }
 
     #endregion
 }

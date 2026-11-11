@@ -58,28 +58,10 @@ public sealed class AgentEventTranslator(RunContext run)
         }
     }
 
-    private Task RecordPendingApproval(FunctionCallContent call, CancellationToken cancellationToken)
-    {
-        if (run.FindTool(call.Name) is not { } tool)
-        {
-            return Task.CompletedTask;
-        }
-
-        return run.Database.Transact(
-            async services =>
-            {
-                var calls = services.GetRequiredService<ToolCallRepository>();
-                var id = ToolCallIds.For(run.Execution.RunId, call.CallId);
-
-                if (await calls.GetToolCall(id, cancellationToken) is null)
-                {
-                    var row = run.NewToolCallRow(id, tool.ToolId, call.Name, MessageParts.ToJson(call.Arguments));
-                    row.Status = ToolCallStatus.PendingApproval;
-                    calls.AddToolCall(row);
-                }
-            },
-            cancellationToken);
-    }
+    private Task RecordPendingApproval(FunctionCallContent call, CancellationToken cancellationToken) =>
+        run.FindTool(call.Name) is { } tool
+            ? new ToolCallLedger(run).RecordPendingApproval(call, tool, cancellationToken)
+            : Task.CompletedTask;
 
     #endregion
 }

@@ -127,6 +127,21 @@ public sealed class AgentWorld(IServiceProvider services, Guid spaceId, Guid use
             });
         });
 
+    /// <summary>The next turn in the same thread: another user message and a new run for it.</summary>
+    public async Task<RunExecution> ContinueThread(RunExecution previous, string userText)
+    {
+        await AddUserMessage(previous.ThreadId, userText);
+        var run = new Drover.Domain.Runs.Run { ThreadId = previous.ThreadId, BotId = botId, PrincipalUserId = userId };
+        run.RootRunId = run.Id;
+        await Write(db =>
+        {
+            db.Runs.Add(run);
+            return Task.CompletedTask;
+        });
+
+        return previous with { RunId = run.Id, Responses = [] };
+    }
+
     public Task<T> Read<T>(Func<DroverDbContext, Task<T>> query) => Transact(services, spaceId, userId, query);
 
     public Task Write(Func<DroverDbContext, Task> change) =>

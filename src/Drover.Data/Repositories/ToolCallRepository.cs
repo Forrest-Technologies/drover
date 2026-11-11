@@ -13,6 +13,12 @@ public sealed class ToolCallRepository(DroverDbContext db)
         CancellationToken cancellationToken) =>
         await db.ToolCalls.AsNoTracking().Where(call => ids.Contains(call.Id)).ToListAsync(cancellationToken);
 
+    /// <summary>The thread's calls still waiting for a human, tracked so the caller can settle them.</summary>
+    public async Task<IReadOnlyList<ToolCall>> ListPendingApprovals(Guid threadId, CancellationToken cancellationToken) =>
+        await db.ToolCalls
+            .Where(call => call.ThreadId == threadId && call.Status == ToolCallStatus.PendingApproval)
+            .ToListAsync(cancellationToken);
+
     public void AddToolCall(ToolCall call) => db.ToolCalls.Add(call);
 
     #endregion

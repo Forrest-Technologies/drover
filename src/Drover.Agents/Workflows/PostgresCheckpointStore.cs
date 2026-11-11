@@ -2,9 +2,10 @@ namespace Drover.Agents.Workflows;
 
 /// <summary>
 /// Workflow checkpoints as opaque JSON in PostgreSQL, inside a tenant transaction, so a team run resumes in any
-/// process from its latest checkpoint. The table arrives with teams in Phase 1.
+/// process from its latest checkpoint. A team run's checkpoints carry the audience of the thread it belongs to, so a
+/// private thread's team state is as private as its messages. The table arrives with teams in Phase 1.
 /// </summary>
-public sealed class PostgresCheckpointStore(RunDatabase database) : JsonCheckpointStore
+public sealed class PostgresCheckpointStore(RunDatabase database, Guid audienceUserId) : JsonCheckpointStore
 {
     #region Public Methods
 
@@ -16,7 +17,7 @@ public sealed class PostgresCheckpointStore(RunDatabase database) : JsonCheckpoi
         var checkpoint = new CheckpointInfo(sessionId, Guid.CreateVersion7().ToString("N"));
         await database.Transact(
             services => services.GetRequiredService<WorkflowCheckpointRepository>()
-                .AddCheckpoint(sessionId, checkpoint.CheckpointId, parent?.CheckpointId, value, CancellationToken.None),
+                .AddCheckpoint(audienceUserId, sessionId, checkpoint.CheckpointId, parent?.CheckpointId, value, CancellationToken.None),
             CancellationToken.None);
         return checkpoint;
     }
