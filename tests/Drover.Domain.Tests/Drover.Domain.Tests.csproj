@@ -13,4 +13,10 @@
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />
   </ItemGroup>
 
+  <!-- The cases the SQL function and the C# rule must agree on. One file, read by both test projects. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\EffectiveGrantCases.cs" Link="Shared\EffectiveGrantCases.cs" />
+    <None Include="..\Shared\effective-grants.cases" Link="effective-grants.cases" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

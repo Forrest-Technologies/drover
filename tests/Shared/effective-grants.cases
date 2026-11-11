@@ -1,0 +1,50 @@
+# The cases that the SQL function effective_grants(bot_id) and the C# rule GrantRules.Effective must agree on.
+# Both test projects read this file; there is no second copy.
+#
+# One case per line:  name | grants along the path, the bot first and the root last | expected effective grant
+#   - A grant is none (the bot has no grant row), deny, ask, or allow. Add :review for a grant that needs review.
+#   - The expected value is none, deny, ask, or allow. none means the tool is invisible to the bot.
+#   - The depth is the number of grants listed: one is a root bot, four is a bot three levels below the root.
+
+# No grant, and each plain grant, on a root bot
+no grant at the root                          | none                         | none
+deny at the root                              | deny                         | deny
+ask at the root                               | ask                          | ask
+allow at the root                             | allow                        | allow
+
+# Depth 1: a bot and its parent
+allow under an allow parent                   | allow,allow                  | allow
+allow under an ask parent                     | allow,ask                    | ask
+allow under a deny parent                     | allow,deny                   | deny
+ask under an allow parent                     | ask,allow                    | ask
+deny under an allow parent                    | deny,allow                   | deny
+
+# Depth 2
+allow all the way up, depth 2                 | allow,allow,allow            | allow
+grandparent asks                              | allow,allow,ask              | ask
+grandparent denies                            | allow,allow,deny             | deny
+parent denies                                 | allow,deny,allow             | deny
+the bot asks, ancestors allow                 | ask,allow,allow              | ask
+
+# Depth 3
+allow all the way up, depth 3                 | allow,allow,allow,allow      | allow
+the root asks                                 | allow,allow,allow,ask        | ask
+the root denies                               | allow,allow,allow,deny       | deny
+ask all the way, the root denies              | ask,ask,ask,deny             | deny
+
+# A missing grant anywhere on the path hides the tool
+the parent has no grant                       | allow,none                   | none
+the grandparent has no grant                  | allow,allow,none             | none
+the root has no grant, depth 3                | allow,allow,allow,none       | none
+a missing ancestor in the middle              | allow,none,allow             | none
+the bot has no grant, ancestors allow         | none,allow,allow             | none
+
+# A grant that needs review counts as ask, and never as more
+needs review, allow                           | allow:review                 | ask
+needs review, ask                             | ask:review                   | ask
+needs review, deny                            | deny:review                  | deny
+needs review in the parent                    | allow,allow:review           | ask
+needs review in the root, depth 3             | allow,allow,allow,allow:review | ask
+needs review in the bot, parent denies        | allow:review,deny            | deny
+needs review in the parent, the bot asks      | ask,allow:review             | ask
+needs review and a missing ancestor           | allow:review,none            | none

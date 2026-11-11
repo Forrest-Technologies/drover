@@ -217,13 +217,15 @@ Initial set:
 
 | Function | Purpose |
 | --- | --- |
-| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces |
+| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree. The lease is 45 seconds. |
 | `sys.claim_due_schedules(limit)` | Phase 1 |
-| `sys.find_user_for_sign_in(email)` | Return the user id and credential fields for one email |
-| `sys.memberships_for_user(user_id)` | Used once after sign-in, before a space is chosen |
+| `sys.find_user_for_sign_in(email)` | Return the user id and credential fields (password hash, security stamp, lockout state) for one email, compared by its normalized form |
+| `sys.memberships_for_user(user_id)` | Used once after sign-in, before a space is chosen. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
 | `sys.resolve_oauth_state(state_hash)` | Map an OAuth callback to its space and user |
-| `sys.purge_expired(limit)` | Delete expired sessions, OAuth flows, and retired rows |
-| `sys.health()` | Counts for the status page: queued runs, oldest lease, no tenant data |
+| `sys.purge_expired(limit)` | Delete expired OAuth flows and destroyed sandboxes that no tool call mentions, at most `limit` of each. Session tables join it when they exist. |
+| `sys.health()` | Counts for the status page and the first-run check: queued, running, and waiting runs, expired leases, the oldest lease, and the number of users. No tenant data. |
+
+`effective_grants(bot_id)` is not a `sys` function: it lives in `public`, runs as the caller under row-level security, and is not on the manifest. `drover_system` is given each table privilege one by one in the migration, and `USAGE` on `public` by the bootstrap; a test lists exactly what it holds. `sys.audit` is written by the functions only.
 
 Observed: `drover_app` calling `sys.claim_runs` received runs from two spaces, while a direct `SELECT` on `runs` in space A's transaction saw only A's.
 

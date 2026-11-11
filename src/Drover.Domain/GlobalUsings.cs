@@ -1,2 +1,15 @@
 global using System;
+global using System.Collections.Generic;
+global using System.Text.Json;
+global using System.Text.Json.Serialization;
+global using Drover.Contracts.Bots;
+global using Drover.Contracts.Permissions;
+global using Drover.Contracts.Runs;
+global using Drover.Domain.Audit;
+global using Drover.Domain.Bots;
+global using Drover.Domain.Models;
+global using Drover.Domain.Sandboxes;
+global using Drover.Domain.Secrets;
 global using Drover.Domain.Tenancy;
+global using Drover.Domain.Threads;
+global using Drover.Domain.Tools;
