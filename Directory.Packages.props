@@ -7,6 +7,8 @@
   <!-- Adding a package: add it here, add a row to docs/architecture/05-dependencies.md, and let the license check pass. -->
   <ItemGroup Label="Build">
     <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup Label="Web client">
@@ -17,6 +19,10 @@
 
   <ItemGroup Label="Tests">
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <!-- Transitive pin: the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
   </ItemGroup>
 </Project>

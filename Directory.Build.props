@@ -23,9 +23,17 @@
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
   </ItemGroup>
 
-  <!-- Every project is checked by Drover's own analyzers, except the analyzer project itself. -->
+  <!-- Every project is checked by Drover's own analyzers, except the analyzer project itself. The code fixes
+       are a separate assembly because the compiler hosts analyzers and must not load Workspaces (RS1038). -->
   <ItemGroup Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers'">
     <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers/Drover.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers' And '$(MSBuildProjectName)' != 'Drover.Analyzers.CodeFixes'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />
