@@ -85,7 +85,13 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     {
         using var target = new TestWebServer(_ => TestWebServer.Ok("reached"));
         var http = Services.GetRequiredService<IHttpClientFactory>().CreateClient();
-        var attempt = () => http.GetStringAsync($"http://127.0.0.1:{target.Port}/", Token);
+        var attempt = async () =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{target.Port}/")
+                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+            using var response = await http.SendAsync(request, Token);
+            return await response.Content.ReadAsStringAsync(Token);
+        };
 
         if (Setting(nameof(DeploymentPolicy.AllowPrivateAddresses)) == "true")
         {

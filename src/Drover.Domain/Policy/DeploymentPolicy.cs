@@ -183,22 +183,29 @@ public sealed record DeploymentPolicy
     {
         List<string> problems =
         [
+            .. Rules
+                .Where(rule => !rule.HasDefinedValue(this))
+                .Select(rule => $"{rule.Name} is not one of the values this rule has."),
             .. FindLoosenedRules(preset).Select(name => $"{name} is set looser than the '{presetName}' preset allows."),
         ];
 
-        if (KeyRingProtection is KeyRingProtection.CertificateOrKeyService && !facts.KeyRingProtectedByCertificate)
+        // Each requirement is checked when either the preset or the policy asks for the strict value, so no
+        // configured value, however odd, switches a check off.
+        if ((preset.KeyRingProtection is KeyRingProtection.CertificateOrKeyService
+            || KeyRingProtection != KeyRingProtection.FilePermissions)
+            && !facts.KeyRingProtectedByCertificate)
         {
             problems.Add(
                 $"{nameof(KeyRingProtection)} requires a certificate: set DataProtection:CertificatePath and DataProtection:CertificateKeyPath.");
         }
 
-        if (!AllowMigrationCredentialInServer && facts.HoldsMigrationCredential)
+        if ((!preset.AllowMigrationCredentialInServer || !AllowMigrationCredentialInServer) && facts.HoldsMigrationCredential)
         {
             problems.Add(
                 $"{nameof(AllowMigrationCredentialInServer)} is off, so ConnectionStrings:DroverOwner must not be set on the serving process. Migrate in a separate job.");
         }
 
-        if (OpenRegistration && RequireTermsAcceptance && string.IsNullOrWhiteSpace(termsVersion))
+        if (OpenRegistration && (preset.RequireTermsAcceptance || RequireTermsAcceptance) && string.IsNullOrWhiteSpace(termsVersion))
         {
             problems.Add(
                 $"{nameof(RequireTermsAcceptance)} is on with open registration, so Drover:Policy:TermsVersion must name the version people accept.");

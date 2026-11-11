@@ -40,6 +40,63 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         message.Should().Contain($"{rule} is set looser than the 'hosted' preset allows");
     }
 
+    [Theory]
+    [InlineData("KeyRingProtection", "-1")]
+    [InlineData("KeyRingProtection", "7")]
+    [InlineData("SandboxAdapters", "-1")]
+    [InlineData("AuditRetention", "99")]
+    public async Task Hosted_with_an_enum_rule_that_is_not_one_of_its_values_does_not_start(string rule, string number)
+    {
+        var settings = Hosted(withCertificate: rule != "KeyRingProtection");
+        settings[$"Drover:Policy:Rules:{rule}"] = number;
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain($"{rule} is not one of the values this rule has");
+    }
+
+    [Fact]
+    public async Task Hosted_with_key_ring_protection_set_to_minus_one_and_no_certificate_does_not_start()
+    {
+        var settings = Hosted(withCertificate: false);
+        settings["Drover:Policy:Rules:KeyRingProtection"] = "-1";
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain("DataProtection:CertificatePath");
+    }
+
+    [Fact]
+    public async Task Self_hosted_with_an_enum_rule_that_is_not_one_of_its_values_does_not_start()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:ModelProviders"] = "-1";
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain("ModelProviders is not one of the values this rule has");
+    }
+
+    [Fact]
+    public async Task Hosted_connected_as_a_role_that_is_not_the_application_role_does_not_start()
+    {
+        var settings = Hosted(withCertificate: true);
+
+        var message = await StartupFailure(settings, useAdminConnection: true);
+
+        message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer)).And.Contain("drover_app");
+    }
+
+    [Fact]
+    public async Task Self_hosted_may_connect_as_any_role()
+    {
+        var settings = SelfHosted();
+
+        var start = () => Boot(settings, useAdminConnection: true);
+
+        await start.Should().NotThrowAsync();
+    }
+
     [Fact]
     public async Task Hosted_with_the_migration_credential_in_the_server_does_not_start_and_names_the_rule()
     {
@@ -116,7 +173,12 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         using var target = new TestWebServer(_ => TestWebServer.Ok("reached"));
         var http = server.Services.GetRequiredService<IHttpClientFactory>().CreateClient();
 
-        var attempt = () => http.GetStringAsync($"http://127.0.0.1:{target.Port}/", TestContext.Current.CancellationToken);
+        var attempt = async () =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{target.Port}/")
+                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+            return await http.SendAsync(request, TestContext.Current.CancellationToken);
+        };
 
         await attempt.Should().ThrowAsync<OutboundBlockedException>();
         target.Requests.Should().Be(0);
@@ -140,23 +202,40 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         return settings;
     }
 
-    private async Task<string> StartupFailure(Dictionary<string, string?> settings)
+    // When a host fails to start, the test host sometimes loses the real exception to an ObjectDisposedException of
+    // its own, whichever of the two finishes first. That is the harness, not the server, so such an attempt is
+    // run again.
+    private async Task<string> StartupFailure(Dictionary<string, string?> settings, bool useAdminConnection = false)
     {
-        try
+        for (var attempt = 0; attempt < 5; attempt++)
         {
-            await using var server = await Boot(settings);
-        }
-        catch (Exception failure)
-        {
-            return failure.ToString();
+            try
+            {
+                await using var server = await Boot(settings, useAdminConnection);
+                throw new InvalidOperationException("The server started, and it should not have.");
+            }
+            catch (Exception failure) when (failure is not InvalidOperationException { Message: "The server started, and it should not have." })
+            {
+                if (!failure.ToString().Contains("DeferredHost.StartAsync", StringComparison.Ordinal)
+                    || !failure.ToString().Contains("ObjectDisposedException", StringComparison.Ordinal))
+                {
+                    return failure.ToString();
+                }
+            }
         }
 
-        throw new InvalidOperationException("The server started, and it should not have.");
+        throw new InvalidOperationException("The server never reported why it did not start.");
     }
 
-    private async Task<RunningServer> Boot(Dictionary<string, string?> settings)
+    private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false)
     {
         var database = await postgres.CreateDatabase();
+
+        if (useAdminConnection)
+        {
+            settings["ConnectionStrings:Drover"] = database.AdminConnectionString;
+        }
+
         var keyRing = Path.Combine(Path.GetTempPath(), $"drover-keys-{Guid.NewGuid():N}");
         var factory = new DroverFactory(database, keyRing, new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings);
         var server = new RunningServer(factory, database, keyRing);

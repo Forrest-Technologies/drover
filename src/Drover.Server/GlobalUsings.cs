@@ -14,6 +14,7 @@ global using Drover.Contracts.Auth;
 global using Drover.Contracts.Policy;
 global using Drover.Contracts.Secrets;
 global using Drover.Data;
+global using Drover.Data.Bootstrap;
 global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
 global using Drover.Domain.Policy;

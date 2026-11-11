@@ -9,7 +9,8 @@ public sealed record PolicyRule(
     Func<DeploymentPolicy, object> Read,
     Func<DeploymentPolicy, int> Looseness,
     Enforcement Enforcement,
-    bool IsLocked = true)
+    bool IsLocked = true,
+    Func<DeploymentPolicy, bool>? IsDefined = null)
 {
     #region Public Methods
 
@@ -36,7 +37,19 @@ public sealed record PolicyRule(
         Enforcement enforcement,
         bool isLocked = true)
         where TValue : struct, Enum =>
-        new(name, policy => read(policy), policy => Convert.ToInt32(read(policy)), enforcement, isLocked);
+        new(
+            name,
+            policy => read(policy),
+            policy => Convert.ToInt32(read(policy)),
+            enforcement,
+            isLocked,
+            policy => Enum.IsDefined(read(policy)));
+
+    /// <summary>
+    /// False for a choice whose value is not one of the declared members, which configuration binding accepts for
+    /// a number such as -1. Such a value is never read as stricter than the preset.
+    /// </summary>
+    public bool HasDefinedValue(DeploymentPolicy policy) => IsDefined?.Invoke(policy) ?? true;
 
     public string ReadText(DeploymentPolicy policy) =>
         Read(policy) switch

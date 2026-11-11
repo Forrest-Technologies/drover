@@ -4,15 +4,31 @@ namespace Drover.Engine.Policy;
 public sealed class OutboundBlockedException(string message) : HttpRequestException(message);
 
 /// <summary>
-/// The one handler every outbound client uses. When the deployment forbids private addresses it resolves the
-/// host, refuses the request if any returned address is private, and connects to the address it checked, so a
-/// second lookup cannot return a different answer. The check runs for every new connection, so a redirect to
-/// another host is checked again. A proxy would be asked to connect on the server's behalf, so a guarded handler
-/// does not use one.
+/// The one handler every outbound client uses. A request is allowed to reach private addresses only when the
+/// deployment allows it and the request says so: the caller that knows the space puts the space's effective value on
+/// the request with <see cref="ForSpace"/>, and a request that says nothing is treated as forbidden. A forbidden
+/// request goes through a handler that resolves the host, refuses the request if any returned address is private,
+/// and connects to the address it checked, so a second lookup cannot return a different answer. The check runs for
+/// every new connection, so a redirect to another host is checked again. Forbidden and allowed requests never share
+/// a pooled connection. HTTP/3 is refused, because it does not go through the connection check. A proxy would be
+/// asked to connect on the server's behalf, so the forbidden path does not use one.
 /// </summary>
 public static class OutboundHttp
 {
+    #region Private Fields
+
+    private static readonly HttpRequestOptionsKey<bool> allowPrivateAddresses = new("Drover.AllowPrivateAddresses");
+
+    #endregion
+
     #region Public Methods
+
+    /// <summary>States whether this request may reach private addresses, from the space's effective policy.</summary>
+    public static HttpRequestMessage ForSpace(this HttpRequestMessage request, EffectivePolicy policy)
+    {
+        request.Options.Set(allowPrivateAddresses, policy.AllowPrivateAddresses);
+        return request;
+    }
 
     public static HttpMessageHandler CreateHandler(DeploymentPolicy policy) =>
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains);
@@ -23,16 +39,13 @@ public static class OutboundHttp
         Func<string, CancellationToken, Task<IPAddress[]>> resolve,
         Func<IPAddress, bool> isRefused)
     {
-        var sockets = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
-
-        if (!policy.AllowPrivateAddresses)
-        {
-            sockets.UseProxy = false;
-            sockets.ConnectCallback = (context, cancellationToken) =>
-                ConnectToCheckedAddress(context, resolve, isRefused, cancellationToken);
-        }
-
-        return new BlockedRequestHandler(sockets);
+        var guarded = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), UseProxy = false };
+        guarded.ConnectCallback = (context, cancellationToken) =>
+            ConnectToCheckedAddress(context, resolve, isRefused, cancellationToken);
+        var open = policy.AllowPrivateAddresses
+            ? new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }
+            : null;
+        return new RoutingHandler(guarded, open);
     }
 
     #endregion
@@ -96,23 +109,48 @@ public static class OutboundHttp
     #region Nested Types
 
     /// <summary>
-    /// The connection callback's refusal reaches the caller wrapped in a general failure. This puts the refusal
+    /// Sends each request through the handler its policy calls for, and puts a refusal from the connection check
     /// back as itself, so its message is the one the caller sees.
     /// </summary>
-    private sealed class BlockedRequestHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    private sealed class RoutingHandler(SocketsHttpHandler guarded, SocketsHttpHandler? open) : HttpMessageHandler
     {
+        private readonly HttpMessageInvoker guardedInvoker = new(guarded);
+
+        private readonly HttpMessageInvoker? openInvoker = open is null ? null : new(open);
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            if (request.Version.Major >= 3)
+            {
+                throw new OutboundBlockedException("This server does not make HTTP/3 requests. Use HTTP/2 or HTTP/1.1.");
+            }
+
+            // A request that could be upgraded to HTTP/3 by the server's Alt-Svc header would skip the check.
+            request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+            var mayReachPrivate = request.Options.TryGetValue(allowPrivateAddresses, out var allowed) && allowed;
+            var invoker = mayReachPrivate && openInvoker is not null ? openInvoker : guardedInvoker;
+
             try
             {
-                return await base.SendAsync(request, cancellationToken);
+                return await invoker.SendAsync(request, cancellationToken);
             }
             catch (HttpRequestException failure) when (failure.InnerException is OutboundBlockedException blocked)
             {
                 throw blocked;
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                guardedInvoker.Dispose();
+                openInvoker?.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 

@@ -238,6 +238,18 @@ generated_code = true
 dotnet_diagnostic.CA1707.severity = none
 dotnet_naming_rule.types_and_members_pascal.severity = none
 
+# The outbound policy is the one place that builds a handler, and the one place a connection is opened by hand.
+[src/Drover.Engine/Policy/OutboundHttp.cs]
+dotnet_diagnostic.RS0030.severity = none
+
+# The browser client talks to its own origin through the browser's fetch. It never runs on the server.
+[src/Drover.Web/Program.cs]
+dotnet_diagnostic.RS0030.severity = none
+
+# These tests drive the outbound handler directly, which is the thing under test.
+[tests/Drover.Engine.Tests/OutboundHttpTests.cs]
+dotnet_diagnostic.RS0030.severity = none
+
 [**/obj/**/*.cs]
 # Build-generated files (for example the test entry point) are not ours to style
 generated_code = true

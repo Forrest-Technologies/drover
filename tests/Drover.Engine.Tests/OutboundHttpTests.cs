@@ -10,19 +10,60 @@ public sealed class OutboundHttpTests
 
     private static readonly IPAddress otherLoopback = IPAddress.Parse("127.0.0.2");
 
+    private static readonly EffectivePolicy everythingAllowed = new(true, true, false);
+
+    private static readonly EffectivePolicy privateForbidden = new(false, true, false);
+
     #endregion
 
     #region Public Methods
 
     [Fact]
-    public async Task Private_addresses_are_reachable_when_the_deployment_allows_them()
+    public async Task Private_addresses_are_reachable_when_the_deployment_and_the_space_allow_them()
     {
         using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
         using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
 
-        var body = await client.GetStringAsync($"http://127.0.0.1:{server.Port}/", Token);
+        var body = await Get(client, $"http://127.0.0.1:{server.Port}/", everythingAllowed);
 
         body.Should().Be("hello");
+    }
+
+    [Fact]
+    public async Task A_space_that_narrows_the_rule_is_refused_a_private_address_under_a_permissive_deployment()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
+
+        var attempt = () => Get(client, $"http://127.0.0.1:{server.Port}/", privateForbidden);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>();
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_request_that_does_not_say_what_its_space_allows_is_treated_as_forbidden()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
+
+        var attempt = () => client.GetStringAsync($"http://127.0.0.1:{server.Port}/", Token);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>();
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_forbidden_request_cannot_reuse_a_connection_an_allowed_request_opened()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello").Replace("Connection: close", "Connection: keep-alive", StringComparison.Ordinal));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
+        var url = $"http://127.0.0.1:{server.Port}/";
+
+        await Get(client, url, everythingAllowed);
+        var attempt = () => Get(client, url, privateForbidden);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>();
     }
 
     [Fact]
@@ -31,7 +72,7 @@ public sealed class OutboundHttpTests
         using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
         using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.Hosted));
 
-        var attempt = () => client.GetStringAsync($"http://127.0.0.1:{server.Port}/", Token);
+        var attempt = () => Get(client, $"http://127.0.0.1:{server.Port}/", everythingAllowed);
 
         var failure = await attempt.Should().ThrowAsync<OutboundBlockedException>();
         failure.Which.Message.Should().Contain("does not allow requests to private addresses").And.Contain("127.0.0.1");
@@ -47,7 +88,7 @@ public sealed class OutboundHttpTests
             (_, _) => Task.FromResult(new[] { publicAddress, loopback }),
             PrivateAddresses.Contains));
 
-        var attempt = () => client.GetStringAsync($"http://mixed.test:{server.Port}/", Token);
+        var attempt = () => Get(client, $"http://mixed.test:{server.Port}/", everythingAllowed);
 
         await attempt.Should().ThrowAsync<OutboundBlockedException>().WithMessage("*mixed.test*");
         server.Requests.Should().Be(0);
@@ -62,7 +103,7 @@ public sealed class OutboundHttpTests
             (_, _) => Task.FromResult(new[] { loopback }),
             PrivateAddresses.Contains));
 
-        var attempt = () => client.GetStringAsync($"http://internal.test:{server.Port}/", Token);
+        var attempt = () => Get(client, $"http://internal.test:{server.Port}/", everythingAllowed);
 
         await attempt.Should().ThrowAsync<OutboundBlockedException>();
     }
@@ -79,7 +120,7 @@ public sealed class OutboundHttpTests
             (host, _) => Task.FromResult(new[] { addresses[host] }),
             address => address.Equals(otherLoopback)));
 
-        var attempt = () => client.GetStringAsync($"http://first.test:{server.Port}/", Token);
+        var attempt = () => Get(client, $"http://first.test:{server.Port}/", everythingAllowed);
 
         await attempt.Should().ThrowAsync<OutboundBlockedException>().WithMessage("*second.test*");
         server.Requests.Should().Be(1);
@@ -97,10 +138,43 @@ public sealed class OutboundHttpTests
             (host, _) => Task.FromResult(new[] { addresses[host] }),
             _ => false));
 
-        var body = await client.GetStringAsync($"http://first.test:{server.Port}/", Token);
+        var body = await Get(client, $"http://first.test:{server.Port}/", everythingAllowed);
 
         body.Should().Be("reached the second host");
         server.Requests.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData(3, 0)]
+    [InlineData(4, 0)]
+    public async Task HTTP_3_and_above_is_refused_because_it_would_skip_the_connection_check(int major, int minor)
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{server.Port}/")
+        {
+            Version = new Version(major, minor),
+        }.ForSpace(everythingAllowed);
+
+        var attempt = () => client.SendAsync(request, Token);
+
+        await attempt.Should().ThrowAsync<OutboundBlockedException>().WithMessage("*HTTP/3*");
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_request_is_not_left_free_to_upgrade_to_HTTP_3()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(DeploymentPolicy.SelfHosted));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{server.Port}/")
+        {
+            VersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        }.ForSpace(everythingAllowed);
+
+        await client.SendAsync(request, Token);
+
+        request.VersionPolicy.Should().Be(HttpVersionPolicy.RequestVersionOrLower);
     }
 
     #endregion
@@ -108,6 +182,13 @@ public sealed class OutboundHttpTests
     #region Private Methods
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
+
+    private static async Task<string> Get(HttpClient client, string url, EffectivePolicy space)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url).ForSpace(space);
+        using var response = await client.SendAsync(request, Token);
+        return await response.Content.ReadAsStringAsync(Token);
+    }
 
     // The test server hands the request text to its responder; the port is in the Host header.
     private static string Port(string request) =>

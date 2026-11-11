@@ -22,6 +22,10 @@ public sealed class PrivateAddressesTests
     [InlineData("fd12:3456::1")]
     [InlineData("::ffff:127.0.0.1")]
     [InlineData("::ffff:10.0.0.1")]
+    [InlineData("::ffff:8.8.8.8")]
+    [InlineData("::ffff:93.184.216.34")]
+    [InlineData("64:ff9b:1::1")]
+    [InlineData("64:ff9b:1:ffff::1")]
     [InlineData("::ffff:169.254.169.254")]
     [InlineData("64:ff9b::a00:1")]
     [InlineData("2002:a00:1::1")]
@@ -38,7 +42,6 @@ public sealed class PrivateAddressesTests
     [InlineData("172.32.0.1")]
     [InlineData("100.63.255.255")]
     [InlineData("2606:4700:4700::1111")]
-    [InlineData("::ffff:8.8.8.8")]
     [InlineData("64:ff9b::808:808")]
     public void A_public_address_is_not_refused(string text)
     {
