@@ -1,0 +1,70 @@
+name: Task
+description: One unit of work that one pull request can finish. Written so a coding agent can do it without asking.
+title: "<area>: <outcome>"
+type: Task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Treat this issue as the prompt. Someone with no other context should be able to finish it from what is written here plus the linked documents.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this exists. Link the sections of docs/architecture and any ADR it depends on.
+      placeholder: |
+        - docs/architecture/04-tenancy-and-permissions.md, "Setting the tenant"
+        - docs/adr/0003-tenancy-in-postgresql.md
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One or two sentences. The outcome, not the steps.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: What this task builds or changes.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What is tempting but belongs to another task. Name the task if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkboxes. Each one can be shown true or false.
+      value: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Tests and verification
+      description: Which tests are added, and how to show the criteria hold. The pull request must say how this was carried out.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files likely touched
+      description: Projects, folders, or files. A starting point, not a fence.
+    validations:
+      required: false
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      description: Issues that must be done first. Also set them as "blocked by" on this issue.
+    validations:
+      required: false

@@ -122,25 +122,41 @@ public enum PushOutcome
 | Target | Adapter | Account needed | Phase |
 | --- | --- | --- | --- |
 | Browsers, installed PWA | Web Push | None | 1 |
-| Android through UnifiedPush and ntfy | **The same Web Push adapter** | None | 1 |
+| Android, through a UnifiedPush distributor or the embedded distributor | **The same Web Push adapter** | None | 1 |
 | iPhone and iPad, as an installed web app | The same Web Push adapter | None | 1, see below |
 | iOS native app | Apple relay | Paid Apple developer account | 2, last |
 | Android store build | Google's push service | Google account | Later |
 
-**One adapter covers three targets.** UnifiedPush's server side is plain Web Push: an encrypted POST to the subscription's endpoint (verified against the current UnifiedPush specification). Some distributors require VAPID, so the adapter always signs. The library is `Lib.Net.Http.WebPush` (MIT). VAPID keys are generated at first start and stored in the vault.
+**One adapter covers every target that needs no publisher account.** UnifiedPush's server side is plain Web Push: an encrypted POST to the subscription's endpoint (verified against the current UnifiedPush specification). Some distributors require VAPID, so the adapter always signs. The library is `Lib.Net.Http.WebPush` (MIT). VAPID keys are generated at first start and stored in the vault.
 
 ### Android client
 
-There is no .NET or MAUI binding for the UnifiedPush Android connector (verified). Two ways to get one:
+UnifiedPush stays. Alternatives were checked (the app holding its own connection in a foreground service, publishing to a notification app's topics, Google's push service directly, web push inside the app's web view) and none is a better open option: each either costs battery and a permanent notification, does not wake the Drover app, needs the publisher's credentials and a relay, or is not supported by the Android web view (verified).
 
-| Option | Work | Risk |
-| --- | --- | --- |
-| A binding library around the official connector (Apache-2.0) | Small project that wraps the published Android archive | Binding generation can be fiddly; tracks upstream releases |
-| Implement the protocol directly in the MAUI Android platform code | A broadcast receiver for the handful of connector messages, registration intents, and decryption of the Web Push payload | More code Drover owns, but it is a small, stable, documented protocol |
+What changes is how the app speaks it. There is no .NET or MAUI binding for the official connector, and the connector pulls in a Kotlin runtime and a crypto library. The protocol itself is small, so Drover implements it directly in the Android platform project:
 
-Recommendation: start with the binding, since it reuses the official, tested implementation. Fall back to the direct implementation if the binding fights the build. Either sits behind `IPushRegistration` in `Drover.Ui`, so nothing else changes. This is the riskiest client-side item in Phase 1 and should be started early in that phase.
+| Piece | What it is |
+| --- | --- |
+| Registration | Three broadcasts to the distributor: register, unregister, acknowledge |
+| Receiver | One exported broadcast receiver for: new endpoint, message, unregistered, registration failed |
+| Distributor choice | One activity call that lets the user pick among installed distributors |
+| Decryption | The Web Push payload, using the platform's elliptic-curve and AES-GCM primitives. No extra library. |
 
-The user installs a distributor app (ntfy) once. The Drover app registers with it and sends the endpoint to the server. Self-hosters can run their own ntfy from the compose profile.
+A few hundred lines of C#, all in `Drover.App/Platforms/Android`, behind `IPushRegistration`. One other .NET app is known to do the same, which shows it is feasible.
+
+The app picks a path at run time, in this order:
+
+| # | Path | When | User effort | Google involved |
+| --- | --- | --- | --- | --- |
+| 1 | **A UnifiedPush distributor app** (such as ntfy, or one backed by a browser vendor's push service) | One is installed | Install one app once, allow it to run in the background | No |
+| 2 | **Embedded distributor over the phone's built-in push transport** | No distributor installed, and Google Play services is present | None | Transport only. No Google account, no Firebase project, no proprietary library: it registers a standard Web Push endpoint using the server's own VAPID key (verified in the distributor's documentation). |
+| 3 | **In-app connection** with a foreground service | Neither of the above, and the user opts in | A permanent notification and a battery exemption | No |
+
+Path 2 is the important find: most Android phones get working push with zero setup, and the server still needs only its Web Push adapter. It is an Apache-2.0 library added as an unbound Android archive with one manifest entry. A build flag leaves it out for a strictly Google-free build.
+
+If no path is available, the app says so in plain words and offers a one-tap link to install a distributor.
+
+Order of work in Phase 1: path 1 first (pure C#, no dependency), then path 2 (prototype early, since "unbound archive with no C# calls" is inferred from documentation, not yet tried). Path 3 is built only if users ask.
 
 ### iPhone before the Apple account exists
 

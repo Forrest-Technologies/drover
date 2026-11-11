@@ -1,0 +1,34 @@
+name: Bug
+description: Something does not work as the documentation or the interface says it should.
+type: Bug
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1. 
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release tag or commit, and how it is deployed (compose, local run, app).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server log lines. Remove keys, tokens, and message content first.
+      render: text
+    validations:
+      required: false
