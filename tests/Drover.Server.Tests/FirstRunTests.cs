@@ -8,11 +8,12 @@ public sealed class FirstRunTests(PostgresServer postgres) : ServerTestBase(post
     public async Task Setup_works_exactly_once_and_afterwards_the_setup_endpoints_return_404()
     {
         var client = NewClient("127.0.0.1");
+        var code = Services.GetRequiredService<SetupCode>().Display;
 
         var open = await client.Get("/api/setup");
-        var created = await client.Post("/api/setup", new SetupRequest("owner@example.test", "Owner", NewPassword(), null));
+        var created = await client.Post("/api/setup", new SetupRequest("owner@example.test", "Owner", NewPassword(), code));
         var closedStatus = await client.Get("/api/setup");
-        var closedCreate = await client.Post("/api/setup", new SetupRequest("again@example.test", "Again", NewPassword(), null));
+        var closedCreate = await client.Post("/api/setup", new SetupRequest("again@example.test", "Again", NewPassword(), code));
 
         open.StatusCode.Should().Be(HttpStatusCode.OK);
         created.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -28,9 +29,11 @@ public sealed class FirstRunTests(PostgresServer postgres) : ServerTestBase(post
         (await first.Get("/api/antiforgery")).EnsureSuccessStatusCode();
         (await second.Get("/api/antiforgery")).EnsureSuccessStatusCode();
 
+        var code = Services.GetRequiredService<SetupCode>().Display;
+
         var statuses = await Task.WhenAll(
-            first.Post("/api/setup", new SetupRequest("a@example.test", "A", NewPassword(), null)),
-            second.Post("/api/setup", new SetupRequest("b@example.test", "B", NewPassword(), null)));
+            first.Post("/api/setup", new SetupRequest("a@example.test", "A", NewPassword(), code)),
+            second.Post("/api/setup", new SetupRequest("b@example.test", "B", NewPassword(), code)));
 
         statuses.Select(response => response.StatusCode).Should()
             .BeEquivalentTo([HttpStatusCode.Created, HttpStatusCode.NotFound]);
@@ -54,12 +57,18 @@ public sealed class FirstRunTests(PostgresServer postgres) : ServerTestBase(post
     }
 
     [Fact]
-    public void A_request_that_a_proxy_forwarded_is_not_treated_as_this_machine()
+    public async Task A_request_from_this_machine_without_the_code_is_refused()
     {
-        SetupCode.IsFromThisMachine(ContextFrom(IPAddress.Loopback, forwardedFor: null)).Should().BeTrue();
-        SetupCode.IsFromThisMachine(ContextFrom(IPAddress.Loopback, forwardedFor: "203.0.113.9")).Should().BeFalse();
-        SetupCode.IsFromThisMachine(ContextFrom(IPAddress.Parse("203.0.113.9"), forwardedFor: null)).Should().BeFalse();
-        SetupCode.IsFromThisMachine(ContextFrom(null, forwardedFor: null)).Should().BeFalse();
+        var local = NewClient("127.0.0.1");
+
+        var status = await (await local.Get("/api/setup")).Content.ReadFromJsonAsync<SetupStatus>(Token);
+        var refused = await local.Post("/api/setup", new SetupRequest("o@example.test", "Owner", NewPassword(), null));
+        var wrong = await local.Post("/api/setup", new SetupRequest("o@example.test", "Owner", NewPassword(), "AAAA-AAAA-AAAA"));
+
+        status!.RequiresCode.Should().BeTrue();
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        wrong.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await local.Get("/api/setup")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -90,8 +99,9 @@ public sealed class FirstRunTests(PostgresServer postgres) : ServerTestBase(post
     public async Task A_weak_password_creates_nothing_and_leaves_setup_open()
     {
         var client = NewClient("127.0.0.1");
+        var code = Services.GetRequiredService<SetupCode>().Display;
 
-        var refused = await client.Post("/api/setup", new SetupRequest("o@example.test", "Owner", "short", null));
+        var refused = await client.Post("/api/setup", new SetupRequest("o@example.test", "Owner", "short", code));
         var stillOpen = await client.Get("/api/setup");
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -107,23 +117,6 @@ public sealed class FirstRunTests(PostgresServer postgres) : ServerTestBase(post
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await client.Get("/api/setup")).StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private static DefaultHttpContext ContextFrom(IPAddress? address, string? forwardedFor)
-    {
-        var context = new DefaultHttpContext();
-        context.Connection.RemoteIpAddress = address;
-
-        if (forwardedFor is not null)
-        {
-            context.Request.Headers["X-Forwarded-For"] = forwardedFor;
-        }
-
-        return context;
     }
 
     #endregion

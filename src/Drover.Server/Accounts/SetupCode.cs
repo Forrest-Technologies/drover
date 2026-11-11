@@ -2,7 +2,8 @@ namespace Drover.Server.Accounts;
 
 /// <summary>
 /// The one-time code that guards first-run setup. Generated at start while the server has no users and printed to
-/// the log. A request from the same machine does not need it; every other request does.
+/// the log. Every setup request needs it, including one from this machine: a reverse proxy or an SSH tunnel on the
+/// same host makes a remote request look local, so the address proves nothing.
 /// </summary>
 public sealed class SetupCode
 {
@@ -26,17 +27,6 @@ public sealed class SetupCode
     {
         var normalized = candidate?.Replace("-", string.Empty).Trim().ToUpperInvariant() ?? string.Empty;
         return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(normalized), Encoding.UTF8.GetBytes(value));
-    }
-
-    /// <summary>
-    /// True for a request that comes from this machine and was not forwarded by a proxy. A proxy on the same
-    /// machine makes every request look local, so a forwarding header turns the exemption off.
-    /// </summary>
-    public static bool IsFromThisMachine(HttpContext context)
-    {
-        var headers = context.Request.Headers;
-        var forwarded = headers.ContainsKey("X-Forwarded-For") || headers.ContainsKey("Forwarded") || headers.ContainsKey("X-Real-IP");
-        return !forwarded && context.Connection.RemoteIpAddress is { } address && IPAddress.IsLoopback(address);
     }
 
     #endregion

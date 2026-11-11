@@ -8,6 +8,8 @@ public sealed class DroverFactory(
     TestDatabase database,
     string keyRing,
     LogCapture logs,
+    AdjustableTimeProvider time,
+    HashCounter hashes,
     IReadOnlyDictionary<string, string?> settings) : WebApplicationFactory<Program>
 {
     #region Constants
@@ -34,7 +36,13 @@ public sealed class DroverFactory(
             logging.SetMinimumLevel(LogLevel.Trace);
             logging.AddProvider(logs);
         });
-        builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, RemoteAddressFilter>());
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<IStartupFilter, RemoteAddressFilter>();
+            services.AddSingleton<TimeProvider>(time);
+            services.AddSingleton(hashes);
+            services.AddSingleton<IPasswordHasher<User>, CountingPasswordHasher>();
+        });
     }
 
     #endregion

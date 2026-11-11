@@ -41,7 +41,7 @@ public static class AccountEndpoints
             return TypedResults.NotFound();
         }
 
-        return TypedResults.Ok(new SetupStatus(RequiresCode: !SetupCode.IsFromThisMachine(context)));
+        return TypedResults.Ok(new SetupStatus(RequiresCode: true));
     }
 
     private static async Task<Results<Created<SessionResponse>, NotFound, ProblemHttpResult>> CreateFirstAccount(
@@ -56,10 +56,10 @@ public static class AccountEndpoints
             return TypedResults.NotFound();
         }
 
-        if (!SetupCode.IsFromThisMachine(context) && !code.Matches(request.SetupCode))
+        if (!code.Matches(request.SetupCode))
         {
             return TypedResults.Problem(
-                title: "The setup code is required from another machine. It is printed in the server log.",
+                title: "The setup code is required. It is printed in the server log.",
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
@@ -82,7 +82,11 @@ public static class AccountEndpoints
                 statusCode: StatusCodes.Status400BadRequest),
             _ => TypedResults.Created(
                 "/api/session",
-                await StartSession(context, accounts, antiforgery, result.UserId, request.Email, request.DisplayName.Trim())),
+                await StartSession(
+                    context,
+                    accounts,
+                    antiforgery,
+                    new CredentialResult(true, result.UserId, request.Email, request.DisplayName.Trim(), result.SecurityStamp))),
         };
     }
 
@@ -102,14 +106,7 @@ public static class AccountEndpoints
             return TypedResults.Problem(title: "The email or password is not right.", statusCode: StatusCodes.Status401Unauthorized);
         }
 
-        var session = await StartSession(
-            context,
-            accounts,
-            antiforgery,
-            credentials.UserId,
-            credentials.Email,
-            credentials.DisplayName);
-        return TypedResults.Ok(session);
+        return TypedResults.Ok(await StartSession(context, accounts, antiforgery, credentials));
     }
 
     private static async Task<NoContent> SignOut(HttpContext context)
@@ -137,11 +134,11 @@ public static class AccountEndpoints
         HttpContext context,
         AccountService accounts,
         IAntiforgery antiforgery,
-        Guid userId,
-        string email,
-        string displayName)
+        CredentialResult person)
     {
-        var principal = BuildPrincipal(userId, email, displayName);
+        var (_, userId, email, displayName, stamp) = person;
+        var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+        var principal = SessionStamp.BuildPrincipal(userId, email, displayName, stamp, now);
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
 
         // The antiforgery token belongs to the signed-in person, so the client gets a fresh one with the session.
@@ -150,18 +147,6 @@ public static class AccountEndpoints
 
         var spaces = await accounts.ListSpaces(userId, context.RequestAborted);
         return BuildSession(userId, email, displayName, spaces);
-    }
-
-    private static ClaimsPrincipal BuildPrincipal(Guid userId, string email, string displayName)
-    {
-        var identity = new ClaimsIdentity(
-            [
-                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                new Claim(ClaimTypes.Email, email),
-                new Claim(ClaimTypes.Name, displayName),
-            ],
-            CookieAuthenticationDefaults.AuthenticationScheme);
-        return new ClaimsPrincipal(identity);
     }
 
     private static SessionResponse BuildSession(

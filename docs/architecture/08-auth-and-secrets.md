@@ -17,15 +17,15 @@ Decisions:
 - **External sign-in** (Phase 2): ASP.NET Core's OpenID Connect handler, as a client. For the MAUI app the flow runs in the system browser against the Drover server and ends with a one-time code handed back to the app through a registered link.
 - **No OAuth server inside Drover** until something needs one. If third-party clients ever need delegated access, OpenIddict (Apache-2.0) is the candidate.
 - **Rate limiting** on sign-in and token endpoints through ASP.NET Core's rate limiter. Today that is sign-in and first-run setup, per remote address: 10 attempts a minute, set by `Drover:SignInRateLimit` (`PermitLimit`, `Window`).
-- **Lockout**: five wrong passwords lock the account for five minutes. A wrong password, an unknown email, and a locked account all answer 401 with the same body, so the answer does not say which emails exist.
+- **Lockout**: five wrong passwords lock the account for five minutes. A wrong password, an unknown email, and a locked account all answer 401 with the same body, so the answer does not say which emails exist. The password is hashed before the lockout decision, and an unknown email is hashed against a decoy, so the timing does not say either.
 - **Passwords** need 12 characters and no composition rules.
 
 ### How the web cookie works
 
-- The session cookie is `__Host-Drover.Session`: `HttpOnly`, `Secure`, `SameSite=Lax`, path `/`. It carries the user id, email, and display name as claims. There is no security-stamp check on each request yet, because that read has no tenant to run in; sign-out and expiry end a session.
+- The session cookie is `__Host-Drover.Session`: `HttpOnly`, `Secure`, `SameSite=Lax`, path `/`. It carries the user id, email, display name, and the security stamp it was issued with. Every five minutes the cookie middleware checks the stamp against the database, in a scope with only the user set (the user's own row is visible there). A changed stamp, such as after a password change, or a user who no longer exists, signs the cookie out. Between checks a changed stamp takes up to five minutes to end a session. The check is `SessionStamp`, and the clock is an injected `TimeProvider`.
 - Antiforgery follows the cookie-to-header pattern. `GET /api/antiforgery` sets the antiforgery cookie (`__Host-Drover.Antiforgery`, `HttpOnly`, `SameSite=Strict`) and a readable `XSRF-TOKEN` cookie holding the request token. A client sends that value in `X-XSRF-TOKEN` on every `POST`, `PUT`, `PATCH`, and `DELETE`, sign-in and setup included. Without it the request is refused with 400. Sign-in and setup issue a fresh pair for the new user.
 - An unauthenticated request to a protected endpoint gets 401 and a refused role gets 403, never a redirect.
-- Sign-in cannot use Identity's `SignInManager`: its user lookup runs without a tenant, and row-level security would return nothing. `AccountService` finds the user id through `sys.find_user_for_sign_in`, which returns the id and nothing else, then reads that one row in a transaction with only the user set, and uses `UserManager` for the password check and the lockout counters.
+- Sign-in cannot use Identity's `SignInManager` or its security-stamp validator as they are: their user lookup runs without a tenant, and row-level security would return nothing. `AccountService` finds the user id through `sys.find_user_for_sign_in`, which returns the id and nothing else, then reads that one row in a transaction with only the user set, and uses `UserManager` for the password check and the lockout counters.
 
 ### From request to tenant
 
@@ -41,9 +41,9 @@ Not signed in: 401. Not a member, or no such space: 404, the same body for both,
 
 The setup screen appears only while the `users` table is empty, checked through `sys.health()`. Creating the owner account, the first space, and the membership is one transaction. After that the setup endpoints return 404 for good.
 
-On a server reachable from the internet, an empty instance could be claimed by whoever finds it first. The server prints a one-time setup code to its log at first start, and the setup screen asks for it unless the request comes from the same machine. "The same machine" means a loopback address and no `X-Forwarded-For`, `Forwarded`, or `X-Real-IP` header, because a reverse proxy on the same machine makes every request look local. The code is not stored: a restart while the instance is still empty prints a new one.
+On a server reachable from the internet, an empty instance could be claimed by whoever finds it first. The server prints a one-time setup code to its log at first start, and the setup screen always asks for it. There is no exemption for a request from the same machine: a reverse proxy or an SSH tunnel on the same host makes a remote request look local, so the address proves nothing. The code is not stored: a restart while the instance is still empty prints a new one.
 
-`GET /api/setup` answers whether the code is required, and `POST /api/setup` creates the account and signs the owner in. Two requests at once take turns on a PostgreSQL advisory lock and count users again after getting it, so exactly one account is created.
+`GET /api/setup` answers 200 while setup is open (and says the code is required), and `POST /api/setup` creates the account and signs the owner in. Two requests at once take turns on a PostgreSQL advisory lock and count users again after getting it, so exactly one account is created.
 
 ## Secrets
 
@@ -83,7 +83,7 @@ Why Data Protection and not hand-written encryption: the library rule. It is the
 
 | Deployment | Key ring | Protected by |
 | --- | --- | --- |
-| Self-hosted compose | Files on the `drover-keys` volume, separate from the database volume. The server reads the path from `DataProtection:KeyPath`, and without it uses `drover/keys` under the user's local application data. The directory is created readable by its owner only. | File permissions; optionally a certificate the operator supplies |
+| Self-hosted compose | Files on the `drover-keys` volume, separate from the database volume. The server reads the path from `DataProtection:KeyPath`, and without it uses `drover/keys` under the user's local application data. The directory is created readable by its owner only, and at every start, on Unix, a key ring that is open to the group or others is tightened to 0700 (files 0600), with a warning in the log if that fails. | File permissions; optionally a certificate the operator supplies |
 | Hosted | Database or object storage | A certificate or a cloud key service, through Data Protection's own key-encryption options |
 
 A database dump alone does not reveal secrets, because the keys are elsewhere. A backup needs both volumes, and losing the key volume loses every stored secret. The status page and the README say so, and the status page warns when the key ring has never been backed up to a second location the operator has confirmed.

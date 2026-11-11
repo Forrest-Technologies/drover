@@ -14,6 +14,9 @@ public static class SecretVaultExtensions
             .SetApplicationName("Drover")
             .PersistKeysToFileSystem(CreateKeyRingDirectory(keyRingPath));
         services.AddScoped<ISecretVault, DataProtectionSecretVault>();
+        services.AddHostedService(provider => new KeyRingPermissionsGuard(
+            keyRingPath,
+            provider.GetRequiredService<ILogger<KeyRingPermissionsGuard>>()));
         return services;
     }
 

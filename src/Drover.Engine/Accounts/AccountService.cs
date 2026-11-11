@@ -51,7 +51,8 @@ public sealed class AccountService(
             return new SetupResult(SetupOutcome.Closed, Guid.Empty, []);
         }
 
-        var created = await users.CreateAsync(NewUser(userId, email, displayName), password);
+        var user = NewUser(userId, email, displayName);
+        var created = await users.CreateAsync(user, password);
 
         if (!created.Succeeded)
         {
@@ -61,7 +62,7 @@ public sealed class AccountService(
         accounts.Add(PersonalSpace(spaceId, displayName));
         accounts.Add(new Membership { SpaceId = spaceId, UserId = userId, Role = MembershipRole.Owner });
         await work.Commit(cancellationToken);
-        return new SetupResult(SetupOutcome.Created, userId, []);
+        return new SetupResult(SetupOutcome.Created, userId, [], await users.GetSecurityStampAsync(user));
     }
 
     /// <summary>Checks an email and password, counting failures and locking the account as Identity is set to.</summary>
@@ -80,6 +81,17 @@ public sealed class AccountService(
         var result = await VerifyPassword(id, password);
         await work.Commit(cancellationToken);
         return result;
+    }
+
+    /// <summary>The user's current security stamp, or null when the user no longer exists. Runs with only the user set.</summary>
+    public async Task<string?> GetSecurityStamp(Guid userId, CancellationToken cancellationToken)
+    {
+        tenant.SetUser(userId);
+        await using var work = await scope.Begin(cancellationToken);
+        var user = await users.FindByIdAsync(userId.ToString());
+        var stamp = user is null ? null : await users.GetSecurityStampAsync(user);
+        await work.Commit(cancellationToken);
+        return stamp;
     }
 
     /// <summary>The spaces the signed-in person can pick from. The user comes from the tenant context.</summary>
@@ -121,19 +133,32 @@ public sealed class AccountService(
     {
         var user = await users.FindByIdAsync(userId.ToString());
 
-        if (user is null || await users.IsLockedOutAsync(user))
+        if (user is null)
         {
             return CredentialResult.Refused;
         }
 
-        if (!await users.CheckPasswordAsync(user, password))
+        // The password is hashed before the lockout decision, so a locked account takes as long to refuse as any other.
+        var passwordIsRight = await users.CheckPasswordAsync(user, password);
+
+        if (await users.IsLockedOutAsync(user))
+        {
+            return CredentialResult.Refused;
+        }
+
+        if (!passwordIsRight)
         {
             await users.AccessFailedAsync(user);
             return CredentialResult.Refused;
         }
 
         await users.ResetAccessFailedCountAsync(user);
-        return new CredentialResult(true, user.Id, user.Email ?? string.Empty, user.DisplayName);
+        return new CredentialResult(
+            true,
+            user.Id,
+            user.Email ?? string.Empty,
+            user.DisplayName,
+            await users.GetSecurityStampAsync(user) ?? string.Empty);
     }
 
     private static User NewUser(Guid userId, string email, string displayName) => new()

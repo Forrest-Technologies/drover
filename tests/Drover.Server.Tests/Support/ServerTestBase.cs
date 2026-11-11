@@ -20,6 +20,10 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     protected LogCapture Logs { get; } = new();
 
+    protected AdjustableTimeProvider Time { get; } = new();
+
+    protected HashCounter Hashes { get; } = new();
+
     protected IServiceProvider Services => factory.Services;
 
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -37,7 +41,7 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         database = await postgres.CreateDatabase();
-        factory = new DroverFactory(database, keyRing, Logs, Settings);
+        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings);
     }
 
     public async ValueTask DisposeAsync()
@@ -68,13 +72,14 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
         return new ApiClient(http) { RemoteIp = remoteIp };
     }
 
-    /// <summary>Creates the first account through the API, as the person at the machine would.</summary>
+    /// <summary>Creates the first account through the API, with the code from the log.</summary>
     protected async Task<(ApiClient Client, SessionResponse Session, string Password)> SetUpFirstAccount(
         string email = "owner@example.test")
     {
         var client = NewClient("127.0.0.1");
         var password = NewPassword();
-        var response = await client.Post("/api/setup", new SetupRequest(email, "Owner", password, null));
+        var code = Services.GetRequiredService<SetupCode>().Display;
+        var response = await client.Post("/api/setup", new SetupRequest(email, "Owner", password, code));
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var session = (await response.Content.ReadFromJsonAsync<SessionResponse>(Token))!;
         return (client, session, password);

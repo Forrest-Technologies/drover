@@ -32,6 +32,7 @@ public static class SecurityServiceExtensions
         services.Configure<SignInRateLimitOptions>(configuration.GetSection("Drover:SignInRateLimit"));
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(ConfigureSessionCookie);
         services.AddAuthorization();
+        services.TryAddSingleton(TimeProvider.System);
         services.AddAntiforgery(ConfigureAntiforgery);
         services.AddRateLimiter(options =>
         {
@@ -56,6 +57,7 @@ public static class SecurityServiceExtensions
         options.ExpireTimeSpan = TimeSpan.FromDays(14);
 
         // An API answers with a status code, never a redirect to a sign-in page.
+        options.Events.OnValidatePrincipal = SessionStamp.Validate;
         options.Events.OnRedirectToLogin = context => Refuse(context.Response, StatusCodes.Status401Unauthorized);
         options.Events.OnRedirectToAccessDenied = context => Refuse(context.Response, StatusCodes.Status403Forbidden);
     }
