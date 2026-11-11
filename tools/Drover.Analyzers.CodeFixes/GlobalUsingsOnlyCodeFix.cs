@@ -9,6 +9,13 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
 
     private const string GlobalUsingsFileName = "GlobalUsings.cs";
 
+    private static readonly SymbolDisplayFormat qualifiedNameFormat = SymbolDisplayFormat.FullyQualifiedFormat
+        .WithMiscellaneousOptions(
+            (SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions
+                & ~SymbolDisplayMiscellaneousOptions.UseSpecialTypes)
+            | SymbolDisplayMiscellaneousOptions.ExpandNullable
+            | SymbolDisplayMiscellaneousOptions.ExpandValueTuple);
+
     #endregion
 
     #region Properties
@@ -40,7 +47,7 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
             return;
         }
 
-        var qualifiedName = target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var qualifiedName = target.ToDisplayString(qualifiedNameFormat);
         var action = CodeAction.Create(
             "Move to GlobalUsings.cs",
             token => MoveToGlobalUsings(context.Document, directive, qualifiedName, token),
@@ -111,7 +118,7 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
             && existing.StaticKeyword.RawKind == directive.StaticKeyword.RawKind
             && existing.Name is not null
             && model?.GetSymbolInfo(existing.Name, token).Symbol
-                ?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == qualifiedName);
+                ?.ToDisplayString(qualifiedNameFormat) == qualifiedName);
     }
 
     #endregion

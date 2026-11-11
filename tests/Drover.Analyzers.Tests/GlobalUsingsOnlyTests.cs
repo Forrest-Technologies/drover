@@ -202,5 +202,93 @@ public sealed class GlobalUsingsOnlyTests
                 "{|DRV0002:using System.Text;|}\n\npublic class ThreadService\n{\n}\n",
                 "\npublic class ThreadService\n{\n}\n"));
 
+    [Theory]
+    [InlineData("System.Int32", "int", "MaxValue")]
+    [InlineData("System.String", "string", "Empty")]
+    public Task Fix_preserves_a_static_using_of_a_predefined_type(string typeName, string returnType, string member) =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: (string.Empty, $"global using static global::{typeName};\n"),
+            source: (
+                $$"""
+                {|DRV0002:using static {{typeName}};|}
+
+                public class Values
+                {
+                    public {{returnType}} Read() => {{member}};
+                }
+                """,
+                $$"""
+
+                public class Values
+                {
+                    public {{returnType}} Read() => {{member}};
+                }
+                """));
+
+    [Theory]
+    [InlineData("System.Int32", "int", "MaxValue")]
+    [InlineData("System.String", "string", "Empty")]
+    public Task Fix_reuses_a_static_import_of_a_predefined_type(string typeName, string returnType, string member) =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: ($"global using static {typeName};\n", $"global using static {typeName};\n"),
+            source: (
+                $$"""
+                {|DRV0002:using static {{typeName}};|}
+
+                public class Values
+                {
+                    public {{returnType}} Read() => {{member}};
+                }
+                """,
+                $$"""
+
+                public class Values
+                {
+                    public {{returnType}} Read() => {{member}};
+                }
+                """));
+
+    [Theory]
+    [InlineData("System.Nullable<int>", "global::System.Nullable<global::System.Int32>")]
+    [InlineData("System.ValueTuple<int, int>", "global::System.ValueTuple<global::System.Int32, global::System.Int32>")]
+    public Task Fix_preserves_a_static_using_of_a_special_generic_type(string typeName, string qualifiedName) =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: (string.Empty, $"global using static {qualifiedName};\n"),
+            source: (
+                $$"""
+                {|DRV0002:using static {{typeName}};|}
+
+                public class Values
+                {
+                }
+                """,
+                """
+
+                public class Values
+                {
+                }
+                """));
+
+    [Theory]
+    [InlineData("System.Nullable<int>")]
+    [InlineData("System.ValueTuple<int, int>")]
+    public Task Fix_reuses_a_static_import_of_a_special_generic_type(string typeName) =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: ($"global using static {typeName};\n", $"global using static {typeName};\n"),
+            source: (
+                $$"""
+                {|DRV0002:using static {{typeName}};|}
+
+                public class Values
+                {
+                }
+                """,
+                """
+
+                public class Values
+                {
+                }
+                """));
+
     #endregion
 }
