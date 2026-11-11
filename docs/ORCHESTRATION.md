@@ -79,6 +79,57 @@ Issue numbers #12 and #13 are out of step order. The order above is correct.
 | Useful | #14 merged | The bot uses MCP tools with approval |
 | Daily driver | #17 | They confirm on the issue; then tag the release |
 
+## Worker tiers
+
+Match the worker to the cost of a mistake, not to the size of the diff. Three tiers, named by role. Which model fills each role is the owner's choice at kickoff and is never written in this repository.
+
+| Tier | Does | Never does |
+| --- | --- | --- |
+| Lead | Coordinates. Reads the design once. Writes briefs. Does the second review of lane A, #8, and #9. Runs #8 itself, because a wrong reading of a proof poisons everything after it. | Writes lane code it will also review |
+| Builder | One issue, end to end: #3, #4, #5, #6, #7, #9, #20, #21 | Reviews its own pull request |
+| Clerk | Mechanical work with a checkable answer: the review checklist items 1 to 4, reading a CI log to find the failing step, rebasing a branch whose only conflicts are in the files under "Where workers collide" | Touches `Drover.Data`, migrations, `sys` functions, analyzers, grants, or anything in `Drover.Agents`; resolves a conflict in code; decides anything |
+
+Rules for spending workers well:
+
+- A builder gets the brief below and the issue number. Do not paste design text into the brief; it reads the files. Pasted design goes stale and doubles the cost.
+- A builder that reports "blocked" gets one answer from the lead and one more attempt. After that the stop rule applies.
+- Keep at most four builders running. More than that and the merge queue, not the work, sets the pace.
+- The lead does not hold file contents it does not need. Ask a clerk for the conclusion.
+
+## When the owner is away
+
+Lane A is five issues in a row, each needing the one before it on `main`. If the owner is not there to merge, do not wait and do not merge without permission. Stack instead:
+
+1. The next lane A branch is cut from the previous lane A branch, not from `main`, and its pull request targets that branch.
+2. Its body says `Stacked on #<pull request>` under the `Closes` line.
+3. When the owner merges the bottom of the stack, retarget the next one to `main` and rebase.
+
+Only lane A stacks. Every other lane branches from `main`.
+
+If the owner has said in the kickoff that the lead may merge, merge only a pull request that is green, passed the review list, and, where this file asks for one, passed the second review. Merge with a merge commit, one at a time, lane A first. Never merge a pull request that edits `.github/workflows`, `SystemFunctions.manifest`, `GlobalTables.manifest`, `licenses/`, or an ADR; those wait for the owner.
+
+## The framing run
+
+The first run builds the frame and stops. The owner decides at kickoff whether this limit applies; if they do not say, it does.
+
+| In the run | Held back |
+| --- | --- |
+| #21, #3, #4, #5, #6, #7, #20, #8, #9 | #22, #10, and everything in "Single file from here" |
+
+Why the line is there:
+
+- #22 and #13 set how Drover looks and feels. Every later screen copies them, so they are done once, slowly, by whoever the owner picks for that.
+- #10 is the center of the product and depends on what #8 proved. It starts from a written record of those proofs, not from a worker's memory of them.
+
+What the run must leave behind, because the next coordinator starts cold:
+
+1. On #8: each of the five proofs, pass or fail, the test that holds it, and anything the framework did that the design in `docs/architecture/14-agent-framework.md` did not expect.
+2. On #9: the answers to the two Venice questions under "Known open items".
+3. On #1: one closing comment. Per issue: merged, in review (with the pull request), or blocked (on what). Then every place a worker found the design wrong or silent, and every decision waiting on the owner.
+4. `docs/architecture` corrected wherever the code proved it wrong, in the pull request that proved it.
+
+Do not leave notes anywhere else. No status files, no scratch documents in the repository.
+
 ## Gates
 
 Hard stops. Do not route around them.
@@ -135,7 +186,7 @@ Check these before it is put in front of the owner. Most are mechanical; the bui
 7. `docs/architecture` still describes what the code does. If the change made a section wrong, the section is fixed in the same pull request.
 8. A changed decision has an ADR that supersedes the old one.
 
-Have a second agent review anything in lane A, #8, #10, and #14. Those are where a mistake is expensive.
+Have a second agent review anything in lane A, #8, #9, #10, and #14. Those are where a mistake is expensive.
 
 ## Where workers collide
 
