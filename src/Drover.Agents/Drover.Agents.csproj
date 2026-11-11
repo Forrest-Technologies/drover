@@ -1,5 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!--
+      MAAI001 marks experimental agent framework APIs. They are allowed by the owner's decision to use the framework
+      fully, previews included (docs/architecture/14-agent-framework.md). Every one this project uses is listed in
+      docs/architecture/05-dependencies.md, so a change to one is easy to find.
+    -->
+    <NoWarn>$(NoWarn);MAAI001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Drover.Data\Drover.Data.csproj" />
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />

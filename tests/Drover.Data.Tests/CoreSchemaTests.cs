@@ -235,8 +235,8 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
             new ReasoningPart("thinking"),
             new ImagePart(file, "image/png", "a chart"),
             new FilePart(file, "notes.txt", "text/plain"),
-            new ToolCallPart(call, "search", arguments),
-            new ToolResultPart(call, false, arguments),
+            new ToolCallPart(call, "call_1", "search", arguments),
+            new ToolResultPart(call, "call_1", false, arguments),
         ];
         await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
         {

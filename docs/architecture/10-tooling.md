@@ -68,7 +68,7 @@ A small Roslyn analyzer project in `tools/`, referenced by every project through
 | DRV0004 | No `+` on strings | Constant-folded concatenations of literals are exempt |
 | DRV0005 | No silent `catch` | A catch block must log, rethrow, or return a value built from the exception |
 | DRV0006 | Tenancy shape | An entity exposed as a `DbSet` on a `DbContext` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest`. The manifest is passed to the analyzer as an additional file; its lines are `table_name  EntityType  # reason`, and the analyzer reads the second word. Entities the context inherits (the Identity ones) have no `DbSet` in Drover's source, so only the catalog tests see them. |
-| DRV0007 | Vendor containment | A vendor namespace (from a list in the analyzer's configuration) may be referenced only by its adapter project |
+| DRV0007 | Vendor containment | A vendor namespace may be referenced only by the project that wraps it and by `Drover.Server`'s wiring. The list is a table in `VendorContainmentAnalyzer`: `Microsoft.Agents.AI` in `Drover.Agents`; `Microsoft.Extensions.AI` in `Drover.Agents` and the two model provider adapters; `ModelContextProtocol` in `Drover.Adapters.Mcp`. A namespace declaration is not a reference, a dotted name is reported once, and test projects (`*.Tests`) are exempt. A new vendor package adds its row in the same pull request. |
 | DRV0008 | Data access containment | `DroverDbContext`, `DbSet<T>`, and `IQueryable<T>` may be used only in `Drover.Data`, and no public member there may return `IQueryable<T>` |
 
 DRV0006, DRV0007, and DRV0008 are architecture rules, not style. They give an agent a clear message at compile time for the two mistakes that matter most.
