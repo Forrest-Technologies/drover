@@ -1,0 +1,16 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this. Some servers have no /models route.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 404,
+      "body": {
+        "error": {
+          "message": "Not found"
+        }
+      }
+    }
+  ]
+}

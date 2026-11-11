@@ -1,0 +1,16 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 500,
+      "body": {
+        "error": {
+          "message": "The server had an error"
+        }
+      }
+    }
+  ]
+}

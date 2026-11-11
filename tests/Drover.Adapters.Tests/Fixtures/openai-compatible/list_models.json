@@ -1,0 +1,26 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/models",
+      "status": 200,
+      "body": {
+        "object": "list",
+        "data": [
+          {
+            "id": "local-model",
+            "object": "model",
+            "owned_by": "local"
+          },
+          {
+            "id": "second-model",
+            "object": "model",
+            "owned_by": "local"
+          }
+        ]
+      }
+    }
+  ]
+}

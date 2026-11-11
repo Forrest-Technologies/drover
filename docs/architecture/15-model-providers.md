@@ -61,10 +61,11 @@ So a self-hoster with only a Venice key gets chat, memory, search, and later voi
 | The provider's own MCP server | It is a local process. Like every local-process server it runs only inside a sandbox, Phase 2. |
 | Wallet-based key creation | Out of scope. The user brings a key. |
 
-### To verify in the first sitting
+### Verified in the first sitting
 
-- That the compatible client surfaces the non-standard reasoning field. If it does not, the adapter adds a small response-reading step at the HTTP pipeline. The conformance suite has a test for reasoning text either way.
-- That every option the adapter sets is accepted in suffix form, including the system prompt switch.
+- **Reasoning field: confirmed.** `Microsoft.Extensions.AI.OpenAI` 10.11.0 reads `choices[0].message.reasoning_content` and `choices[0].delta.reasoning_content` into reasoning parts (`TryGetReasoningMessage` and `TryGetReasoningDelta` in `OpenAIChatClient.cs`), so no HTTP pipeline step is needed. A recorded-fixture test pins it, whole and streamed, and the conformance suite keeps checking it. The adapter only maps the encrypted placeholder to "not available" and the citations to source links. Only the first choice is read, which is all Drover asks for.
+- **Suffix form: confirmed from the documentation, not yet from a keyed call.** The suffix guide lists `include_venice_system_prompt`, `enable_web_search` (`on`, `auto`, `off`), `enable_web_citations`, `disable_thinking`, `strip_thinking_response`, and `character_slug`. The adapter sets `include_venice_system_prompt=false` on every request, `enable_web_search` when a bot asks for it, and `disable_thinking=true` for the neutral effort "none". Reasoning effort is **not** a suffix key; it is a field of the request body (`reasoning_effort`), which the client already sends. The service authenticates before it reads the model name, so a keyless request cannot show whether a suffix is accepted. The `Live` test `Accepts_every_option_the_adapter_sets_in_suffix_form` makes that call; until the owner runs it with a key, acceptance is documented but unconfirmed.
+- **Still assumed.** The names of the `x-venice-balance-*` response headers (the guide names the family, not each header), the exact text of the encrypted placeholder in a stream, and whether `GET /api_keys/rate_limits` answers an inference key. The live test run covers the last; the first two need a keyed response to read.
 
 ### Terms to read before the hosted service
 

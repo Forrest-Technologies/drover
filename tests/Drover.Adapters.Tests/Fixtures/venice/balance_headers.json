@@ -1,0 +1,36 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available. The documentation names the x-venice-balance-* family without listing each header; these two names (usd, diem) are an assumption until a keyed response confirms them.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "headers": {
+        "x-venice-balance-usd": "4.20",
+        "x-venice-balance-diem": "12.5"
+      },
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Hello!"
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        }
+      }
+    }
+  ]
+}

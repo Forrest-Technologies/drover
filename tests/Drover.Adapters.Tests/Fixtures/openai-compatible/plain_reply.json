@@ -1,0 +1,32 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "local-model",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "Hello! How can I help you today?"
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        }
+      }
+    }
+  ]
+}

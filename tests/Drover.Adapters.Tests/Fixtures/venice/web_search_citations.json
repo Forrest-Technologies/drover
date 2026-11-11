@@ -1,0 +1,126 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available. venice_parameters.web_search_citations follows the documented response schema. One citation carries a javascript: address on purpose: only web addresses may become links.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "It is sunny in Paris."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        },
+        "venice_parameters": {
+          "enable_web_search": "on",
+          "include_venice_system_prompt": false,
+          "web_search_citations": [
+            {
+              "title": "Paris weather today",
+              "url": "https://weather.example.test/paris",
+              "content": "Sunny, 21C",
+              "date": "2026-11-11"
+            },
+            {
+              "title": "Not a web page",
+              "url": "javascript:alert(1)",
+              "content": "ignored"
+            },
+            {
+              "title": "Climate of Paris",
+              "url": "https://climate.example.test/paris",
+              "content": "Temperate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "sse": [
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": ""
+              },
+              "finish_reason": null
+            }
+          ],
+          "venice_parameters": {
+            "web_search_citations": [
+              {
+                "title": "Paris weather today",
+                "url": "https://weather.example.test/paris",
+                "content": "Sunny, 21C",
+                "date": "2026-11-11"
+              },
+              {
+                "title": "Not a web page",
+                "url": "javascript:alert(1)",
+                "content": "ignored"
+              },
+              {
+                "title": "Climate of Paris",
+                "url": "https://climate.example.test/paris",
+                "content": "Temperate"
+              }
+            ]
+          }
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "It is sunny in Paris."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        "[DONE]"
+      ]
+    }
+  ]
+}

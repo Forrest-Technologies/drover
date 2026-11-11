@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Abstractions only: IChatClient is the provider-neutral type IModelClientProvider hands to the agent runtime. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
   </ItemGroup>
 </Project>

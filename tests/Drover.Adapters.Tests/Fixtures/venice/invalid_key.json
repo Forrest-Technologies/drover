@@ -1,0 +1,18 @@
+{
+  "provenance": "captured",
+  "note": "Captured with curl on 2026-11-11 by sending a made-up key ('drover-fake-key-for-capture') to POST /chat/completions and GET /api_keys/rate_limits. Both answered 401 with this body. Cookies and tracing headers were dropped; the rate-limit headers are as returned.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 401,
+      "headers": {
+        "x-ratelimit-remaining": "50",
+        "x-ratelimit-resets": "{now_ms+30000}"
+      },
+      "body": {
+        "error": "Authentication failed"
+      }
+    }
+  ]
+}
