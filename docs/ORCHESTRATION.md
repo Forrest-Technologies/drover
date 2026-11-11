@@ -23,7 +23,7 @@ The owner chats with a bot that uses MCP tools, through a compose deployment, ev
 
 1. The step 1 pull request is merged into `main`.
 2. `main` is green in CI.
-3. The owner has set the repository settings listed on #2.
+3. The owner has set the repository settings listed on #2, and Dependency graph and Secret scanning are enabled (`docs/architecture/10-tooling.md`).
 
 If any of these is not true, stop and tell the owner. Do not start workers on a branch other than `main`.
 

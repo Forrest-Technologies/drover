@@ -130,6 +130,13 @@ The repository is public, so two repository settings must be in place **before t
 
 Also: a tag protection rule for `v*`, a protected `release` environment, and branch protection on `main` requiring the `ci` and `security` checks.
 
+Two more settings the checks themselves depend on, found on the first pull request:
+
+| Setting | What breaks without it |
+| --- | --- |
+| Dependency graph | The dependency review job fails with "not supported on this repository" |
+| Secret scanning, with push protection | A branch rule that requires it refuses every merge. A commit pushed before it was switched on is not scanned, so the next push is what clears the rule. |
+
 ### Workflows
 
 | Workflow | Triggers | Jobs |
