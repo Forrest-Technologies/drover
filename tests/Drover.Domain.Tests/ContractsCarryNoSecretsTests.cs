@@ -2,7 +2,7 @@ namespace Drover.Domain.Tests;
 
 /// <summary>
 /// No type in <c>Drover.Contracts</c> can carry a secret value. A property whose name says it holds one fails the
-/// test, whether it sits on the type itself or on a type reachable from it. The only exceptions are the two
+/// test, whether it sits on the type itself or on a type reachable from it. The only exceptions are the
 /// inbound forms a person fills in with their own credentials, which no response may contain.
 /// </summary>
 public sealed class ContractsCarryNoSecretsTests
@@ -14,7 +14,7 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest"];
 
     #endregion
 

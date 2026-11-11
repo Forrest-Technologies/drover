@@ -9,7 +9,8 @@ builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
-builder.Services.AddDroverSecretVault(keyRingPath);
+builder.Services.AddDroverPolicy(builder.Configuration);
+builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
@@ -27,6 +28,8 @@ app.UseMiddleware<SpaceMembershipMiddleware>();
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();
 api.MapAccountEndpoints();
+api.MapRegistrationEndpoints();
+api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
 api.MapFallback(() => Results.NotFound());
 
