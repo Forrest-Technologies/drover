@@ -17,15 +17,30 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly string appPassword = NewPassword();
 
+    private readonly Stopwatch elapsed = new();
+
+    private readonly Lazy<Task<string>> scratchTemplate;
+
     private PostgreSqlContainer? container;
+
+    private string? scratchTemplateName;
 
     private NpgsqlConnectionStringBuilder serverConnection = null!; // set first thing in InitializeAsync
 
     #endregion
 
+    #region Constructors
+
+    public PostgresFixture()
+    {
+        scratchTemplate = new Lazy<Task<string>>(BuildScratchTemplate);
+    }
+
+    #endregion
+
     #region Properties
 
-    public string AdminConnectionString => ForDatabase(serverConnection).ConnectionString;
+    public string AdminConnectionString => ForDatabase(serverConnection, databaseName).ConnectionString;
 
     #endregion
 
@@ -33,6 +48,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
+        elapsed.Start();
         serverConnection = new NpgsqlConnectionStringBuilder(await FindServer());
         await CreateDatabase();
         await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
@@ -46,10 +62,17 @@ public sealed class PostgresFixture : IAsyncLifetime
         await connection.OpenAsync();
         await new NpgsqlCommand($"DROP DATABASE IF EXISTS {databaseName} WITH (FORCE)", connection).ExecuteNonQueryAsync();
 
+        if (scratchTemplateName is not null)
+        {
+            await new NpgsqlCommand($"DROP DATABASE IF EXISTS {scratchTemplateName} WITH (FORCE)", connection).ExecuteNonQueryAsync();
+        }
+
         if (container is not null)
         {
             await container.DisposeAsync();
         }
+
+        ReportDuration();
     }
 
     #endregion
@@ -71,6 +94,31 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         return builder.ConnectionString;
     }
+
+    /// <summary>
+    /// A database of its own with the roles and migrations, for a test that breaks a rule on purpose. Disposing it
+    /// drops it, so the main database never sees what the test did.
+    /// </summary>
+    public async Task<ScratchDatabase> CreateScratchDatabase()
+    {
+        var templateName = await scratchTemplate.Value;
+        var name = $"drover_scratch_{Guid.NewGuid():N}";
+        await ExecuteOnServer($"CREATE DATABASE {name} TEMPLATE {templateName}");
+
+        // A copied database keeps its tables and grants but not its database-level privileges, so grant them again.
+        await DatabaseBootstrap.Run(ForDatabase(serverConnection, name).ConnectionString, ownerPassword, appPassword);
+        var app = ConnectionStringFor("drover_app", appPassword, name);
+        app.Timeout = 10;
+        return new ScratchDatabase(
+            ForDatabase(serverConnection, name).ConnectionString,
+            ConnectionStringFor("drover_owner", ownerPassword, name).ConnectionString,
+            app.ConnectionString,
+            () => ExecuteOnServer($"DROP DATABASE IF EXISTS {name} WITH (FORCE)"));
+    }
+
+    /// <summary>The generated checks over the real database, with every seeder this assembly registers.</summary>
+    public Task<IsolationHarness> OpenHarness() =>
+        IsolationHarness.Create(BuildServices(), AppConnectionString(), OwnershipMap.Current, SeederRegistry.Discover());
 
     public Task Bootstrap() => DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
 
@@ -102,23 +150,56 @@ public sealed class PostgresFixture : IAsyncLifetime
         return container.GetConnectionString();
     }
 
-    private async Task CreateDatabase()
+    private Task CreateDatabase() => ExecuteOnServer($"CREATE DATABASE {databaseName}");
+
+    /// <summary>
+    /// A migrated database nobody connects to, copied for each scratch database so that a test which breaks a rule
+    /// on purpose starts in a fraction of a second.
+    /// </summary>
+    private async Task<string> BuildScratchTemplate()
+    {
+        var name = $"drover_template_{Guid.NewGuid():N}";
+        await ExecuteOnServer($"CREATE DATABASE {name}");
+        await DatabaseBootstrap.Run(ForDatabase(serverConnection, name).ConnectionString, ownerPassword, appPassword);
+        var owner = ConnectionStringFor("drover_owner", ownerPassword, name).ConnectionString;
+        await DatabaseMigrator.Run(owner);
+        NpgsqlConnection.ClearAllPools();
+        scratchTemplateName = name;
+        return name;
+    }
+
+    private async Task ExecuteOnServer(string sql)
     {
         await using var connection = new NpgsqlConnection(serverConnection.ConnectionString);
         await connection.OpenAsync();
-        await new NpgsqlCommand($"CREATE DATABASE {databaseName}", connection).ExecuteNonQueryAsync();
+        await new NpgsqlCommand(sql, connection).ExecuteNonQueryAsync();
     }
 
-    private NpgsqlConnectionStringBuilder ConnectionStringFor(string role, string password)
+    private NpgsqlConnectionStringBuilder ConnectionStringFor(string role, string password, string? database = null)
     {
-        var builder = ForDatabase(serverConnection);
+        var builder = ForDatabase(serverConnection, database ?? databaseName);
         builder.Username = role;
         builder.Password = password;
         return builder;
     }
 
-    private NpgsqlConnectionStringBuilder ForDatabase(NpgsqlConnectionStringBuilder server) =>
-        new(server.ConnectionString) { Database = databaseName };
+    private static NpgsqlConnectionStringBuilder ForDatabase(NpgsqlConnectionStringBuilder server, string database) =>
+        new(server.ConnectionString) { Database = database };
+
+    /// <summary>
+    /// Adds the time the whole data suite took, database setup included, to the job summary on GitHub Actions, so a
+    /// slow isolation suite shows on every pull request. It writes nowhere else.
+    /// </summary>
+    private void ReportDuration()
+    {
+        var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
+
+        if (!string.IsNullOrEmpty(summary))
+        {
+            var line = $"Isolation suite (Drover.Data.Tests, with database setup): {elapsed.Elapsed.TotalSeconds:F1} s";
+            File.AppendAllText(summary, $"{line}{Environment.NewLine}");
+        }
+    }
 
     private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 

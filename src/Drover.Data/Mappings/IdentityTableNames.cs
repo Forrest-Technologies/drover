@@ -8,9 +8,9 @@ public static class IdentityTableNames
     public static ModelBuilder RenameIdentityTables(this ModelBuilder builder)
     {
         builder.Entity<User>().ToTable("users");
-        builder.Entity<IdentityUserClaim<Guid>>().ToTable("user_claims");
-        builder.Entity<IdentityUserLogin<Guid>>().ToTable("user_logins");
-        builder.Entity<IdentityUserToken<Guid>>().ToTable("user_tokens");
+        builder.Entity<UserClaim>().ToTable("user_claims");
+        builder.Entity<UserLogin>().ToTable("user_logins");
+        builder.Entity<UserToken>().ToTable("user_tokens");
         return builder;
     }
 

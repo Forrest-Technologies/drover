@@ -8,6 +8,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Read by analyzer DRV0006 and by the isolation suite. -->
+    <AdditionalFiles Include="GlobalTables.manifest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
   </ItemGroup>
 </Project>

@@ -189,7 +189,7 @@ namespace Drover.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserClaim", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -219,7 +219,7 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_claims", (string)null);
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserLogin", b =>
                 {
                     b.Property<string>("LoginProvider")
                         .HasColumnType("text")
@@ -246,7 +246,7 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_logins", (string)null);
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>
                 {
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -287,7 +287,7 @@ namespace Drover.Data.Migrations
                         .HasConstraintName("fk_memberships_users_user_id");
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserClaim", b =>
                 {
                     b.HasOne("Drover.Data.Identity.User", null)
                         .WithMany()
@@ -297,7 +297,7 @@ namespace Drover.Data.Migrations
                         .HasConstraintName("fk_user_claims_users_user_id");
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserLogin", b =>
                 {
                     b.HasOne("Drover.Data.Identity.User", null)
                         .WithMany()
@@ -307,7 +307,7 @@ namespace Drover.Data.Migrations
                         .HasConstraintName("fk_user_logins_users_user_id");
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<System.Guid>", b =>
+            modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>
                 {
                     b.HasOne("Drover.Data.Identity.User", null)
                         .WithMany()

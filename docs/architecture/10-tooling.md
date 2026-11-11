@@ -67,7 +67,7 @@ A small Roslyn analyzer project in `tools/`, referenced by every project through
 | DRV0003 | Regions | A type is non-trivial when it has more than one kind of member or more than three members. Interfaces, enums, and positional records are exempt. Checks names against the standard order, allowing descriptively named groups after the public section. |
 | DRV0004 | No `+` on strings | Constant-folded concatenations of literals are exempt |
 | DRV0005 | No silent `catch` | A catch block must log, rethrow, or return a value built from the exception |
-| DRV0006 | Tenancy shape | An entity exposed as a `DbSet` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest` |
+| DRV0006 | Tenancy shape | An entity exposed as a `DbSet` on a `DbContext` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest`. The manifest is passed to the analyzer as an additional file; its lines are `table_name  EntityType  # reason`, and the analyzer reads the second word. Entities the context inherits (the Identity ones) have no `DbSet` in Drover's source, so only the catalog tests see them. |
 | DRV0007 | Vendor containment | A vendor namespace (from a list in the analyzer's configuration) may be referenced only by its adapter project |
 | DRV0008 | Data access containment | `DroverDbContext`, `DbSet<T>`, and `IQueryable<T>` may be used only in `Drover.Data`, and no public member there may return `IQueryable<T>` |
 

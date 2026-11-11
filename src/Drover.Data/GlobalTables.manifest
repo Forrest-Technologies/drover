@@ -1,0 +1,13 @@
+# Tables that belong to no space and no user. Every other table is ISpaceOwned or IUserOwned.
+#
+# One table per line:  table_name  [EntityType]  # why it is global
+#   - EntityType is the simple name of the entity class. Analyzer DRV0006 reads it, so a DbSet of that entity is
+#     allowed without an ownership interface. A table with no entity class leaves it out.
+#   - tests/Drover.Data.Tests checks that this list matches the database and the EF Core model.
+#
+# Adding a line means a table sits outside the isolation suite's generated tests. Give the reason, and name the
+# test that covers its policy, in the pull request.
+
+__EFMigrationsHistory                # EF Core bookkeeping. The app role has no privilege on it.
+spaces  Space                        # The tenant itself. Policy: id = current space. Named tests: SpecialPolicyTests.
+users   User                         # A person. Policy: own row, or a member of the current space. Named tests: SpecialPolicyTests.

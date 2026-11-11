@@ -80,7 +80,7 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |
 | `Microsoft.EntityFrameworkCore.Design`, `dotnet-ef` | MIT | Microsoft | Generate migrations. The design package is private to `Drover.Data`; the tool is pinned in `dotnet-tools.json`. |
-| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers` |
+| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`, and compile the samples its tests run it over. Version 5.0.0, the one `Microsoft.EntityFrameworkCore.Design` already pulls in. |
 
 ## Considered and rejected
 
