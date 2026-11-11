@@ -19,6 +19,7 @@ Each phase ends when it is used daily in place of what came before.
 | Step | Issue |
 | --- | --- |
 | 1. Repository skeleton, solution, live CI | [#2](https://github.com/Forrest-Technologies/drover/issues/2) |
+| 1b. Compose walking skeleton | [#21](https://github.com/Forrest-Technologies/drover/issues/21) |
 | 2. Style and data access analyzers | [#3](https://github.com/Forrest-Technologies/drover/issues/3) |
 | 3. Database roles and the tenant scope | [#4](https://github.com/Forrest-Technologies/drover/issues/4) |
 | 4. Isolation suite | [#5](https://github.com/Forrest-Technologies/drover/issues/5) |
@@ -30,13 +31,14 @@ Each phase ends when it is used daily in place of what came before.
 | 9. Run engine | [#10](https://github.com/Forrest-Technologies/drover/issues/10) |
 | 10. Streaming API and client | [#11](https://github.com/Forrest-Technologies/drover/issues/11) |
 | 11. UI shell, setup, streaming chat | [#13](https://github.com/Forrest-Technologies/drover/issues/13) |
+| 11a. Interface kit: tokens, components, markdown | [#22](https://github.com/Forrest-Technologies/drover/issues/22) |
 | 12. Bot editor and tool grants | [#12](https://github.com/Forrest-Technologies/drover/issues/12) |
 | 13. MCP connections and approval | [#14](https://github.com/Forrest-Technologies/drover/issues/14) |
 | 14. Tool activity view | [#15](https://github.com/Forrest-Technologies/drover/issues/15) |
 | 15. Compose deployment and status page | [#16](https://github.com/Forrest-Technologies/drover/issues/16) |
 | 16. Daily-driver pass and v0.1.0 | [#17](https://github.com/Forrest-Technologies/drover/issues/17) |
 
-Steps 7 and 8 can be done in either order. Step 9 waits for step 7's proofs.
+After step 1, steps 1b, 2, 3, and 11a can be worked at the same time. Steps 7 and 8 can be done in either order. Step 9 waits for step 7's proofs. The lanes are laid out in the [tracking issue](https://github.com/Forrest-Technologies/drover/issues/1).
 
 ### Phase 1: daily driver · [tracking issue #18](https://github.com/Forrest-Technologies/drover/issues/18)
 
