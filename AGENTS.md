@@ -94,20 +94,20 @@ A change is not done until its tests exist and pass.
 | Kind | Where | Notes |
 | --- | --- | --- |
 | Unit | `tests/Drover.*.Tests` | Pure logic. No network, no clock, no randomness without a seed. |
-| Data and isolation | `tests/Drover.Data.Tests` | Real PostgreSQL through Testcontainers. Needs Docker. |
+| Data and isolation | `tests/Drover.Data.Tests` | Real PostgreSQL. The fixture uses `DROVER_TEST_POSTGRES` when set and starts a container otherwise. No Docker in your session? Run `eval "$(scripts/dev-postgres.sh start)"` first. |
 | Adapter conformance | `tests/Drover.Adapters.Tests` | Recorded fixtures. Offline. |
 | API | `tests/Drover.Server.Tests` | In-process server, real PostgreSQL. |
 | Components | `tests/Drover.Ui.Tests` | Assert roles and accessible names as well as content. |
 
-Tests are deterministic and offline by default. A test that needs a live provider is marked `Live` and never runs in pull request CI. Do not delete, skip, or loosen a failing test to pass; fix the cause or stop and report.
+A test that cannot run in your environment is a reason to stop and say so, never a reason to skip it. Tests are deterministic and offline by default. A test that needs a live provider is marked `Live` and never runs in pull request CI. Do not delete, skip, or loosen a failing test to pass; fix the cause or stop and report.
 
 ## 10. Commands
 
 ```bash
-dotnet restore Drover.slnx --locked-mode
 dotnet build Drover.slnx -warnaserror
 dotnet format Drover.slnx --verify-no-changes
-dotnet test Drover.slnx
+dotnet test --solution Drover.slnx
+dotnet run --project src/Drover.Server         # http://localhost:8080
 dotnet run --project src/Drover.AppHost        # server and PostgreSQL for local work
 docker compose up --build                      # the deployment a self-hoster runs
 ```
@@ -116,7 +116,7 @@ Scanners, the same ones CI runs:
 
 ```bash
 dotnet list Drover.slnx package --vulnerable --include-transitive
-dotnet tool run nuget-license -i Drover.slnx -a licenses/allowed.json
+dotnet tool run nuget-license -- -i Drover.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
 dotnet tool run dotnet-CycloneDX Drover.slnx -o artifacts/sbom
 gitleaks git --redact
 zizmor .github/workflows
@@ -128,7 +128,7 @@ hadolint Dockerfile
 
 - Any job that builds or runs code from a pull request runs on GitHub-hosted runners. Never give such a job a self-hosted runner. A pull request from a fork could run anything on the owner's machine.
 - The repository is public. Self-hosted runners are only for trusted jobs that never execute pull request code, such as release builds from a protected tag.
-- Workflows choose the runner from the repository's visibility. Do not hard-code `self-hosted` in a workflow that has a `pull_request` trigger. Never use `pull_request_target`.
+- Only `release.yml` may name a self-hosted runner. Never use `pull_request_target`.
 - Every third-party action is pinned to a full commit SHA with the version in a comment. Workflows declare `permissions` explicitly, starting from none.
 - The project publishes no container images. Do not add a registry push.
 

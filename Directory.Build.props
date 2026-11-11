@@ -1,0 +1,33 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Needed so the unused-using rule (IDE0005) runs in the build. Missing-comment warnings are off in .editorconfig. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The one switch for Apple targets. Off until a paid developer account exists. -->
+    <DroverEnableApple Condition="'$(DroverEnableApple)' == ''">false</DroverEnableApple>
+    <IsTestProject Condition="$(MSBuildProjectName.EndsWith('.Tests'))">true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+  </ItemGroup>
+
+  <!-- Every project is checked by Drover's own analyzers, except the analyzer project itself. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Drover.Analyzers'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)tools/Drover.Analyzers/Drover.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+</Project>

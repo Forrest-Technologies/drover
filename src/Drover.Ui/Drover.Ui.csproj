@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
+    <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

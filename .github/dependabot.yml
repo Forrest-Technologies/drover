@@ -1,13 +1,19 @@
-# Draft. Moves to .github/dependabot.yml in Phase 0 step 1.
 version: 2
 updates:
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      # Wait a week before taking a new release, so a bad publish is caught by others first.
+      default-days: 7
+      exclude:
+        # The agent framework is tracked at its latest release on purpose. The conformance suite is the gate.
+        - "Microsoft.Agents.*"
+        - "Microsoft.Extensions.AI*"
+        - "ModelContextProtocol*"
     groups:
       agent-framework:
-        # Tracked at the latest release, previews included. The conformance suite is the gate.
         patterns: ["Microsoft.Agents.*", "Microsoft.Extensions.AI*", "ModelContextProtocol*"]
       microsoft:
         patterns: ["Microsoft.*", "System.*", "Npgsql*"]
@@ -24,7 +30,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
+    cooldown:
+      default-days: 7

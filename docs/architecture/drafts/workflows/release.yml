@@ -33,10 +33,10 @@ jobs:
           global-json-file: global.json
       - name: Restore (locked) and build
         run: |
-          dotnet restore Drover.slnx --locked-mode
+          dotnet restore Drover.slnx
           dotnet build Drover.slnx --no-restore -c Release -warnaserror
       - name: Test
-        run: dotnet test Drover.slnx --no-build -c Release --filter "Category!=Live"
+        run: dotnet test --solution Drover.slnx --no-build -c Release
       - name: Software bill of materials (CycloneDX)
         run: |
           dotnet tool restore

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Engine\Drover.Engine.csproj" />
+    <ProjectReference Include="..\Drover.Agents\Drover.Agents.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
+    <ProjectReference Include="..\Drover.Web\Drover.Web.csproj" />
+  </ItemGroup>
+
+</Project>

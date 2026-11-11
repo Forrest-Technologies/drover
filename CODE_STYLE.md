@@ -457,7 +457,7 @@ Run these. They check most of the list below for you.
 ```bash
 dotnet build Drover.slnx -warnaserror
 dotnet format Drover.slnx --verify-no-changes
-dotnet test Drover.slnx
+dotnet test --solution Drover.slnx
 ```
 
 - [ ] No nullable warnings

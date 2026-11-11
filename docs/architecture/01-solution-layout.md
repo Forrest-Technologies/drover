@@ -139,9 +139,8 @@ Revisit in Phase 2 with a thin Avalonia window hosting a web view pointed at the
 | File | Purpose |
 | --- | --- |
 | `Directory.Build.props` | `net10.0`, nullable, `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, analyzer references, `DroverEnableApple`. See [10-tooling.md](10-tooling.md). |
-| `Directory.Packages.props` | Central package management. Every version in one file, which is also what the license check reads. |
+| `Directory.Packages.props` | Central package management with transitive pinning. Every version in one file. No lock files; see [10-tooling.md](10-tooling.md). |
 | `global.json` | Pins the SDK feature band so local, CI, and the Docker build agree. |
 | `nuget.config` | `nuget.org` only, with package source mapping. |
-| `packages.lock.json` per project | `RestorePackagesWithLockFile`, so the vulnerability and license scans read exact versions. |
 | `compose.yaml`, `Dockerfile` | See [13-deployment-and-push.md](13-deployment-and-push.md). |
 | `LICENSE`, `NOTICE` | Apache-2.0. |

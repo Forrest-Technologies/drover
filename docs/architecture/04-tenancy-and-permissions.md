@@ -243,7 +243,7 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 
 ### Isolation test suite
 
-`tests/Drover.Data.Tests`, run against a real PostgreSQL started by Testcontainers. Migrations are applied as `drover_owner`; tests connect as `drover_app`.
+`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). Migrations are applied as `drover_owner`; tests connect as `drover_app`.
 
 **Catalog tests** read `pg_catalog`, so they cover tables the author forgot about:
 
@@ -275,7 +275,7 @@ Tables with an audience repeat the pattern with two users in one space: user 2 c
 
 **Pooling test**: pool size one, alternate tenants across 1,000 transactions including rolled-back and faulted ones, assert no row ever appears for the wrong tenant.
 
-These tests need Docker and nothing else. They run in pull request CI on hosted runners.
+They run in pull request CI on hosted runners.
 
 ### How things are scoped
 

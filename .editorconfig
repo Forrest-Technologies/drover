@@ -237,3 +237,8 @@ generated_code = true
 # Test names read as sentences: Tenant_A_cannot_read_tenant_B_threads
 dotnet_diagnostic.CA1707.severity = none
 dotnet_naming_rule.types_and_members_pascal.severity = none
+
+[**/obj/**/*.cs]
+# Build-generated files (for example the test entry point) are not ours to style
+generated_code = true
+dotnet_diagnostic.RS0030.severity = none

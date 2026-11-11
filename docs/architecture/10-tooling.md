@@ -8,7 +8,8 @@
 | [`/AGENTS.md`](../../AGENTS.md) | Written. About 150 lines, meant to be read in full every time. |
 | [`/.editorconfig`](../../.editorconfig) | Written and tested, see below |
 | [`/BannedSymbols.txt`](../../BannedSymbols.txt) | Written and tested |
-| [`drafts/workflows/ci.yml`](drafts/workflows/ci.yml), [`security.yml`](drafts/workflows/security.yml), [`release.yml`](drafts/workflows/release.yml), [`dependabot.yml`](drafts/workflows/dependabot.yml) | Drafts. They move to `.github/` in Phase 0 step 1. They are not live yet because there is no solution for them to build. |
+| `.github/workflows/ci.yml`, `security.yml`, `.github/dependabot.yml` | Live since step 1. Linted clean with zizmor (pedantic) and actionlint before the first run. |
+| [`drafts/workflows/release.yml`](drafts/workflows/release.yml), [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Drafts. The release workflow goes live with the first release; the canary with the agent framework step. |
 
 ## Style enforcement
 
@@ -87,7 +88,6 @@ Each rule has tests with compliant and non-compliant samples, and a code fix whe
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
@@ -109,6 +109,7 @@ Notes:
 - `ImplicitUsings` is off so that every using is visible in `GlobalUsings.cs`, as the guide says.
 - `GenerateDocumentationFile` is on only because IDE0005 needs it to run in the build. Missing-comment warnings are off.
 - `NuGetAuditMode` `all` makes a known vulnerability in any package, direct or transitive, a build error.
+- No lock files. Central package management with transitive pinning already fixes every version in one file. Lock files would also record packages the SDK adds on its own, whose versions follow the SDK patch level, so a locked restore would fail whenever a machine's SDK differs by a patch. That is friction for every coding session with no gain in safety.
 - Test projects add a second banned-symbols file that lifts the `Console` and `Process` bans where a test needs them.
 
 ## CI
@@ -120,11 +121,7 @@ Notes:
 | Repository is public, job runs pull request code | GitHub-hosted | Free, and a stranger's code never touches the owner's machines |
 | Repository is public, trusted job (release from a protected tag) | Owner's self-hosted runner | Never executes pull request code |
 
-The workflows pick the runner from `github.event.repository.private`, so nobody has to remember to flip a setting on the day the repository goes public:
-
-```yaml
-runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64"]') || 'ubuntu-latest' }}
-```
+Every workflow uses `runs-on: ubuntu-latest` except `release.yml`.
 
 The repository is public, so two repository settings must be in place **before the workflows go live in Phase 0 step 1**, because they are the controls outside the workflow files:
 
@@ -137,14 +134,14 @@ Also: a tag protection rule for `v*`, a protected `release` environment, and bra
 
 | Workflow | Triggers | Jobs |
 | --- | --- | --- |
-| `ci.yml` | Pull request, push to `main` | Restore in locked mode, build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health. Apps: build the Android shell. |
+| `ci.yml` | Pull request, push to `main` | Restore, build with warnings as errors, format check, all tests including the isolation suite, vulnerable package check, license check. Compose: validate the file, build the image under a 2 GB memory limit, start it, wait for health. Apps: build the Android shell. |
 | `security.yml` | Pull request, push to `main`, weekly | CodeQL, dependency review, secret scan, workflow lint, Dockerfile lint |
 | `release.yml` | Version tag | Verify the tag is on `main`, build, test, SBOM, source archive, provenance and SBOM attestations, GitHub release. No images. |
 | `framework-canary.yml` | Weekly, and on demand | Move the agent framework packages to their newest versions, prerelease included, run the conformance and engine tests, and open an issue if they fail |
 
 Every third-party action is pinned to a full commit SHA with its version in a comment. The SHAs in the drafts were read from each action's repository on 2026-11-11. Every workflow starts from `permissions: {}` and grants per job. Checkouts set `persist-credentials: false`. No workflow uses `pull_request_target`.
 
-Two values are left as repository variables for step 1 to fill, because they must be copied from the upstream release at that moment: the checksum of the secret scanner's binary and the image digest of the workflow linter.
+The secret scanner and the workflow linter are downloaded as release binaries and verified against checksums written in the workflow file.
 
 ## Scanners
 
