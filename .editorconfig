@@ -221,6 +221,8 @@ dotnet_diagnostic.DRV0005.severity = error
 dotnet_diagnostic.DRV0006.severity = error
 # DRV0007 Vendor namespace referenced outside its adapter project
 dotnet_diagnostic.DRV0007.severity = error
+# DRV0008 DbContext, DbSet, or IQueryable used outside Drover.Data
+dotnet_diagnostic.DRV0008.severity = error
 
 [GlobalUsings.cs]
 # The one file where using directives belong
@@ -235,3 +237,8 @@ generated_code = true
 # Test names read as sentences: Tenant_A_cannot_read_tenant_B_threads
 dotnet_diagnostic.CA1707.severity = none
 dotnet_naming_rule.types_and_members_pascal.severity = none
+
+[**/obj/**/*.cs]
+# Build-generated files (for example the test entry point) are not ours to style
+generated_code = true
+dotnet_diagnostic.RS0030.severity = none

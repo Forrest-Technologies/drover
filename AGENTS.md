@@ -23,7 +23,7 @@ One space must never read or write another space's data, even when application c
 - Every table is space-owned (`ISpaceOwned`), user-owned (`IUserOwned`), or listed in `GlobalTables.manifest`. There is no fourth kind.
 - A migration that creates a space-owned table calls `IsolateBySpace`. Do not write policies by hand.
 - A foreign key between two space-owned tables includes `space_id`.
-- All tenant data access runs inside a `TenantScope` transaction. Never run a query outside one. Never hold one across a model call, a tool call, or any network wait.
+- All tenant data access runs inside a `TenantScope` transaction. Never run a query outside one. Never hold one across a model call, a tool call, or any network wait. Services open the scope; repositories never open or commit one.
 - Never add `IgnoreQueryFilters`, raw SQL that names another space, a connection string for another role, or anything else that reaches around the policy.
 - Work that must cross spaces goes through a function in schema `sys`. Adding or changing one requires editing `SystemFunctions.manifest` and explaining why in the pull request. Expect it to be questioned. Return ids from such a function, then read the rows inside a normal tenant scope.
 - A new table needs a seeder in `Drover.Data.Tests` so the isolation suite covers it. The build fails without one. Do not weaken, skip, or special-case an isolation test to get green.
@@ -47,7 +47,8 @@ Inside a space, bots are separated by grants. These hold everywhere:
 - The agent framework is the one exception in kind, not in rule: Drover builds on Microsoft Agent Framework fully, and all of it lives in `Drover.Agents`. Use its features (sessions, history providers, context providers, skills, workflows, orchestration, approval, middleware) before writing your own. Do not re-implement something it provides. Its types still never leave `Drover.Agents` and the server's wiring. Read `docs/architecture/14-agent-framework.md` before touching that project.
 - Framework session and checkpoint data is opaque working state. Conversation content lives in Drover's own `messages` schema. Never make a feature depend on reading a framework blob.
 - A new adapter must pass the conformance suite for its interface in `Drover.Adapters.Conformance`. A new behavior every adapter must have goes into that suite first.
-- Do not wrap the platform. Use ASP.NET Core, EF Core, dependency injection, and logging directly. No repository layer, no mediator, no wrapper around `DbContext`.
+- Do not wrap the platform. Use ASP.NET Core, EF Core, dependency injection, and logging directly. No mediator, no generic repository, no unit-of-work wrapper.
+- Data access is layered: **repositories** in `Drover.Data` store and retrieve, **services** in `Drover.Engine` hold business logic and call repositories. `DroverDbContext`, `DbSet`, and `IQueryable` never appear outside `Drover.Data` (DRV0008). A repository is a concrete class per aggregate (`ThreadRepository`), uses EF Core fully inside, returns entities or records, and never returns `IQueryable`. No repository interfaces and no mocks of repositories: services are tested against real PostgreSQL, because a mocked repository cannot fail the way row-level security does.
 - Do not add an interface for something with one implementation and no realistic second one. A small library used in one place is called directly.
 
 Why: providers change, and the agent framework ships breaking changes weekly, so one project absorbs them. The platform does not change, and wrapping it only hides features.
@@ -80,6 +81,12 @@ Why: providers change, and the agent framework ships breaking changes weekly, so
 - Never log a secret, put one in an exception message, a run event, a tool argument, or model context.
 - Never commit a credential, key, or token, including in tests. Tests generate their own.
 
+## 8a. Deployment policy
+
+- Anything that must differ between a self-hosted server and the hosted service is a named rule in `DeploymentPolicy`, never an `if (hosted)` in feature code. Read `docs/architecture/16-deployment-policies.md`.
+- Limits only narrow: deployment policy, then space policy, then bot settings. A lower level can never loosen a higher one.
+- A feature that could harm other tenants or break a provider's terms on a shared server ships with a policy rule and a row in the hosted preset test.
+
 ## 9. Tests
 
 A change is not done until its tests exist and pass.
@@ -87,20 +94,20 @@ A change is not done until its tests exist and pass.
 | Kind | Where | Notes |
 | --- | --- | --- |
 | Unit | `tests/Drover.*.Tests` | Pure logic. No network, no clock, no randomness without a seed. |
-| Data and isolation | `tests/Drover.Data.Tests` | Real PostgreSQL through Testcontainers. Needs Docker. |
+| Data and isolation | `tests/Drover.Data.Tests` | Real PostgreSQL. The fixture uses `DROVER_TEST_POSTGRES` when set and starts a container otherwise. No Docker in your session? Run `eval "$(scripts/dev-postgres.sh start)"` first. |
 | Adapter conformance | `tests/Drover.Adapters.Tests` | Recorded fixtures. Offline. |
 | API | `tests/Drover.Server.Tests` | In-process server, real PostgreSQL. |
 | Components | `tests/Drover.Ui.Tests` | Assert roles and accessible names as well as content. |
 
-Tests are deterministic and offline by default. A test that needs a live provider is marked `Live` and never runs in pull request CI. Do not delete, skip, or loosen a failing test to pass; fix the cause or stop and report.
+A test that cannot run in your environment is a reason to stop and say so, never a reason to skip it. Tests are deterministic and offline by default. A test that needs a live provider is marked `Live` and never runs in pull request CI. Do not delete, skip, or loosen a failing test to pass; fix the cause or stop and report.
 
 ## 10. Commands
 
 ```bash
-dotnet restore Drover.slnx --locked-mode
 dotnet build Drover.slnx -warnaserror
 dotnet format Drover.slnx --verify-no-changes
-dotnet test Drover.slnx
+dotnet test --solution Drover.slnx
+dotnet run --project src/Drover.Server         # http://localhost:8080
 dotnet run --project src/Drover.AppHost        # server and PostgreSQL for local work
 docker compose up --build                      # the deployment a self-hoster runs
 ```
@@ -109,7 +116,7 @@ Scanners, the same ones CI runs:
 
 ```bash
 dotnet list Drover.slnx package --vulnerable --include-transitive
-dotnet tool run nuget-license -i Drover.slnx -a licenses/allowed.json
+dotnet tool run nuget-license -- -i Drover.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
 dotnet tool run dotnet-CycloneDX Drover.slnx -o artifacts/sbom
 gitleaks git --redact
 zizmor .github/workflows
@@ -120,13 +127,18 @@ hadolint Dockerfile
 ## 11. CI and runners
 
 - Any job that builds or runs code from a pull request runs on GitHub-hosted runners. Never give such a job a self-hosted runner. A pull request from a fork could run anything on the owner's machine.
-- Self-hosted runners are only for trusted jobs that never execute pull request code, such as release builds from a protected branch, and for everything while the repository is private.
-- Workflows choose the runner from the repository's visibility. Do not hard-code `self-hosted` in a workflow that has a `pull_request` trigger. Never use `pull_request_target`.
+- The repository is public. Self-hosted runners are only for trusted jobs that never execute pull request code, such as release builds from a protected tag.
+- Only `release.yml` may name a self-hosted runner. Never use `pull_request_target`.
 - Every third-party action is pinned to a full commit SHA with the version in a comment. Workflows declare `permissions` explicitly, starting from none.
 - The project publishes no container images. Do not add a registry push.
 
 ## 12. User interface
 
+- **Read `DESIGN.md` before any change a person can see.** It is the direction: identity, palette, type, motion, and the list of things Drover's interface never does. Build toward it; do not invent a look.
+- Before you finish, check your change against every item under "What Drover's interface never does". The ones marked (test) fail the build. The rest are yours to hold.
+- No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
+- Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.
+- A pull request that changes the interface includes screenshots: dark, light, and 360 px wide, and each state it adds (empty, loading, error).
 - Use the tokens in `tokens.css`. No raw colors, sizes, or durations in components.
 - Dark is primary; light must work. Every text and status color keeps 4.5:1 contrast.
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.

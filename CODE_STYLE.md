@@ -126,7 +126,7 @@ A type is non-trivial when it has more than three members or more than one kind 
 5. `#region Private Methods` or a descriptively named group (e.g., `#region Grant Resolution`, `#region Validation`)
 
 ```csharp
-public class ThreadService(DroverDbContext db)
+public class ThreadService(ThreadRepository threads)
 {
     #region Public Methods
 
@@ -160,7 +160,7 @@ public async Task ExecuteStep(Run run)
 {
     if (run.Status is RunStatus.Running)
     {
-        var bot = await db.Bots.SingleAsync(b => b.Id == run.BotId);
+        var bot = await bots.GetBot(run.BotId);
         if (bot.Status is BotStatus.Active)
         {
             // resolve grants...
@@ -187,7 +187,7 @@ public async Task ExecuteStep(Run run)
 
 ```csharp
 public class ThreadService(
-    DroverDbContext db,
+    ThreadRepository threads,
     ILogger<ThreadService> logger)
 {
     #region Public Methods
@@ -195,7 +195,7 @@ public class ThreadService(
     public async Task<Thread> GetThread(Guid id)
     {
         logger.LogInformation("Getting thread {ThreadId}", id);
-        return await db.Threads.SingleAsync(thread => thread.Id == id);
+        return await threads.GetThread(id);
     }
 
     #endregion
@@ -209,16 +209,16 @@ public class ThreadService
 {
     #region Private Fields
 
-    private readonly DroverDbContext db;
+    private readonly ThreadRepository threads;
     private readonly ILogger logger;
 
     #endregion
 
     #region Constructors
 
-    public ThreadService(DroverDbContext db, ILogger<ThreadService> logger)
+    public ThreadService(ThreadRepository threads, ILogger<ThreadService> logger)
     {
-        this.db = db;
+        this.threads = threads;
         this.logger = logger;
     }
 
@@ -228,11 +228,17 @@ public class ThreadService
 
 **Never use:** property injection, field injection, or service locator.
 
+### Layers
+
+- **Repositories** store and retrieve. They live in `Drover.Data`, one concrete class per aggregate, and are the only code that touches `DroverDbContext`.
+- **Services** hold business logic. They call repositories and never build queries themselves.
+- A repository method is named for what it returns (`GetThread`, `ListThreadsForBot`), returns entities or records, and never returns `IQueryable`.
+
 ### DI Lifetime guidelines
 
 | Type | Lifetime |
 |---|---|
-| Services that touch tenant data | `Scoped` |
+| Repositories | `Scoped` |
 | Stateless services | `Scoped` |
 | Stateful services (caches, event hubs) | `Singleton` |
 | Configuration | `Singleton` |
@@ -451,7 +457,7 @@ Run these. They check most of the list below for you.
 ```bash
 dotnet build Drover.slnx -warnaserror
 dotnet format Drover.slnx --verify-no-changes
-dotnet test Drover.slnx
+dotnet test --solution Drover.slnx
 ```
 
 - [ ] No nullable warnings

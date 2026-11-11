@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
+  </ItemGroup>
+</Project>

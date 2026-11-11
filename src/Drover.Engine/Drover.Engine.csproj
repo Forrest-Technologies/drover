@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Data\Drover.Data.csproj" />
+    <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
+    <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
+  </ItemGroup>
+</Project>

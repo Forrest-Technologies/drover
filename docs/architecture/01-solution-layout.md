@@ -57,8 +57,8 @@ Later adapters get their own projects in the same pattern: `Drover.Adapters.Dock
 | --- | --- | --- |
 | `Drover.Contracts` | Request and response records, run event records, enums used on the wire | Logic, package references |
 | `Drover.Domain` | Entities, value objects, grant and hierarchy rules as pure functions, the interfaces in [05-dependencies.md](05-dependencies.md) | EF Core, HTTP, any vendor type |
-| `Drover.Data` | `DroverDbContext`, entity mappings, migrations, `TenantScope`, the row-level security migration helpers, the `sys` functions | Business rules |
-| `Drover.Engine` | Everything that decides: run state machine, tool gate, effective grants, delegation, loop and budget checks, MCP catalog, scheduler | Vendor types. It sees providers only through `Drover.Domain` interfaces. |
+| `Drover.Data` | `DroverDbContext`, entity mappings, migrations, `TenantScope`, the row-level security migration helpers, the `sys` functions, and the **repositories**: every query in the product | Business rules |
+| `Drover.Engine` | The **services**. Everything that decides: run state machine, tool gate, effective grants, delegation, loop and budget checks, MCP catalog, scheduler, deployment policy | Vendor types, and queries. It reads and writes only through repositories. |
 | `Drover.Agents` | Everything built on the agent framework: building an agent from a bot, PostgreSQL history, session, and checkpoint stores, the tool gate middleware, `GovernedAgent`, team patterns. See [14-agent-framework.md](14-agent-framework.md). | Run lifecycle (claiming, leases, status), HTTP |
 | `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, database access |
 | `Drover.Client` | `HttpClient`-based API client, SSE reader with resume, client-side run state reducer | UI |
@@ -93,7 +93,8 @@ Rules, enforced by project references and by analyzer `DRV0007`:
 - **`Domain` and `Engine` are split** so the grant and hierarchy rules are pure functions testable without a database, and so adapters can reference the interfaces without pulling in the engine.
 - **`Data` is its own project** because the migration role, the row-level security helpers, and the isolation tests form one unit that should change together.
 - **Adapters are one project per vendor**, not one "Infrastructure" project. That is the cheapest way to make the wrap rule physical instead of a convention.
-- **No repository layer over EF Core.** The handoff says not to wrap the platform. Engine services take `DroverDbContext` directly. `CODE_STYLE.md` mentions repositories in its lifetime table; where a query is reused in several places it becomes an extension method on `IQueryable<T>`, which fits the guide's preference for extension builders.
+- **Repositories and services.** `Drover.Data` holds one repository per aggregate; `Drover.Engine` holds the services that use them. This is the owner's usual layering, and it earns its place here for a reason specific to Drover: with every query in one project, the set of statements that run under row-level security is small, reviewable, and written by fewer hands. Analyzer `DRV0008` keeps `DroverDbContext`, `DbSet`, and `IQueryable` inside `Drover.Data`.
+- **What the repositories are not.** Not generic (`IRepository<T>` hides what EF Core can do), not behind interfaces (one implementation, and services are tested against real PostgreSQL because a mock cannot fail the way a policy does), and not owners of the transaction (the service opens the `TenantScope`; several repository calls share it). Inside a repository, EF Core is used directly and fully. See [ADR 0011](../adr/0011-repositories-and-services.md).
 
 ## Web hosting model
 
@@ -138,9 +139,8 @@ Revisit in Phase 2 with a thin Avalonia window hosting a web view pointed at the
 | File | Purpose |
 | --- | --- |
 | `Directory.Build.props` | `net10.0`, nullable, `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, analyzer references, `DroverEnableApple`. See [10-tooling.md](10-tooling.md). |
-| `Directory.Packages.props` | Central package management. Every version in one file, which is also what the license check reads. |
+| `Directory.Packages.props` | Central package management with transitive pinning. Every version in one file. No lock files; see [10-tooling.md](10-tooling.md). |
 | `global.json` | Pins the SDK feature band so local, CI, and the Docker build agree. |
 | `nuget.config` | `nuget.org` only, with package source mapping. |
-| `packages.lock.json` per project | `RestorePackagesWithLockFile`, so the vulnerability and license scans read exact versions. |
 | `compose.yaml`, `Dockerfile` | See [13-deployment-and-push.md](13-deployment-and-push.md). |
 | `LICENSE`, `NOTICE` | Apache-2.0. |

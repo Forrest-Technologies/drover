@@ -25,3 +25,5 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0008](0008-own-ui-components.md) | Drover's own UI components on plain CSS tokens | Accepted |
 | [0009](0009-build-from-source-no-images.md) | Deploy with compose files that build from source; publish no images | Accepted |
 | [0010](0010-issues-are-the-source-of-truth.md) | GitHub Issues are the source of truth for work | Accepted |
+| [0011](0011-repositories-and-services.md) | Repositories store and retrieve; services hold business logic | Accepted |
+| [0012](0012-deployment-policy-presets.md) | Hosted-service behavior is a deployment policy preset, not a fork | Accepted |

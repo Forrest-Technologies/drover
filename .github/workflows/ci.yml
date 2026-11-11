@@ -1,0 +1,57 @@
+# Builds and tests pull request code. The repository is public, so every job here
+# runs on GitHub-hosted runners. Never give this workflow a self-hosted runner.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  build-test:
+    name: Build, format, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore Drover.slnx
+      - name: Build, warnings are errors
+        run: dotnet build Drover.slnx --no-restore -c Release -warnaserror
+      - name: Format check
+        run: dotnet format Drover.slnx --no-restore --verify-no-changes
+      - name: Test
+        run: dotnet test --solution Drover.slnx --no-build -c Release
+      - name: Vulnerable packages
+        run: dotnet list Drover.slnx package --vulnerable --include-transitive
+      - name: License check
+        run: |
+          dotnet tool restore
+          dotnet tool run nuget-license -- -i Drover.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: "**/TestResults/**"
+          if-no-files-found: ignore
+
+  # The compose job (build the image under a 2 GB memory limit, start it, wait for health)
+  # is added with the compose walking skeleton. Tracked in the Phase 0 tracking issue.
