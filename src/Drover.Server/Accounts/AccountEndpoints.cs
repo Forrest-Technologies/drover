@@ -1,0 +1,179 @@
+namespace Drover.Server.Accounts;
+
+public static class AccountEndpoints
+{
+    #region Public Methods
+
+    public static IEndpointRouteBuilder MapAccountEndpoints(this RouteGroupBuilder api)
+    {
+        api.MapGet("/antiforgery", IssueAntiforgeryToken)
+            .WithName("GetAntiforgeryToken")
+            .WithSummary("Sets the XSRF-TOKEN cookie to send back in the X-XSRF-TOKEN header on every state-changing request.");
+
+        var setup = api.MapGroup("/setup").RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit);
+        setup.MapGet("/", GetSetupStatus).WithName("GetSetupStatus");
+        setup.MapPost("/", CreateFirstAccount).WithName("CreateFirstAccount");
+
+        api.MapPost("/sign-in", SignIn)
+            .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithName("SignIn");
+        api.MapPost("/sign-out", (Delegate)SignOut).RequireAuthorization().WithName("SignOut");
+        api.MapGet("/session", GetSession).RequireAuthorization().WithName("GetSession");
+        return api;
+    }
+
+    #endregion
+
+    #region Endpoints
+
+    private static NoContent IssueAntiforgeryToken(HttpContext context, IAntiforgery antiforgery)
+    {
+        AntiforgeryTokens.Issue(context, antiforgery);
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<Ok<SetupStatus>, NotFound>> GetSetupStatus(
+        HttpContext context,
+        AccountService accounts)
+    {
+        if (!await accounts.IsSetupOpen(context.RequestAborted))
+        {
+            return TypedResults.NotFound();
+        }
+
+        return TypedResults.Ok(new SetupStatus(RequiresCode: !SetupCode.IsFromThisMachine(context)));
+    }
+
+    private static async Task<Results<Created<SessionResponse>, NotFound, ProblemHttpResult>> CreateFirstAccount(
+        SetupRequest request,
+        HttpContext context,
+        AccountService accounts,
+        SetupCode code,
+        IAntiforgery antiforgery)
+    {
+        if (!await accounts.IsSetupOpen(context.RequestAborted))
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (!SetupCode.IsFromThisMachine(context) && !code.Matches(request.SetupCode))
+        {
+            return TypedResults.Problem(
+                title: "The setup code is required from another machine. It is printed in the server log.",
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.DisplayName.Length > 200)
+        {
+            return TypedResults.Problem(title: "A display name of up to 200 characters is required.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await accounts.CreateFirstAccount(
+            request.Email,
+            request.DisplayName.Trim(),
+            request.Password,
+            context.RequestAborted);
+
+        return result.Status switch
+        {
+            SetupOutcome.Closed => TypedResults.NotFound(),
+            SetupOutcome.Invalid => TypedResults.Problem(
+                title: string.Join(" ", result.Problems),
+                statusCode: StatusCodes.Status400BadRequest),
+            _ => TypedResults.Created(
+                "/api/session",
+                await StartSession(context, accounts, antiforgery, result.UserId, request.Email, request.DisplayName.Trim())),
+        };
+    }
+
+    private static async Task<Results<Ok<SessionResponse>, ProblemHttpResult>> SignIn(
+        SignInRequest request,
+        HttpContext context,
+        AccountService accounts,
+        IAntiforgery antiforgery)
+    {
+        var credentials = await accounts.CheckCredentials(
+            request.Email ?? string.Empty,
+            request.Password ?? string.Empty,
+            context.RequestAborted);
+
+        if (!credentials.Succeeded)
+        {
+            return TypedResults.Problem(title: "The email or password is not right.", statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        var session = await StartSession(
+            context,
+            accounts,
+            antiforgery,
+            credentials.UserId,
+            credentials.Email,
+            credentials.DisplayName);
+        return TypedResults.Ok(session);
+    }
+
+    private static async Task<NoContent> SignOut(HttpContext context)
+    {
+        await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Ok<SessionResponse>> GetSession(HttpContext context, AccountService accounts)
+    {
+        var principal = context.User;
+        var spaces = await accounts.ListSpaces(principal.GetUserId(), context.RequestAborted);
+        return TypedResults.Ok(BuildSession(
+            principal.GetUserId(),
+            principal.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+            principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
+            spaces));
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static async Task<SessionResponse> StartSession(
+        HttpContext context,
+        AccountService accounts,
+        IAntiforgery antiforgery,
+        Guid userId,
+        string email,
+        string displayName)
+    {
+        var principal = BuildPrincipal(userId, email, displayName);
+        await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+
+        // The antiforgery token belongs to the signed-in person, so the client gets a fresh one with the session.
+        context.User = principal;
+        AntiforgeryTokens.Issue(context, antiforgery);
+
+        var spaces = await accounts.ListSpaces(userId, context.RequestAborted);
+        return BuildSession(userId, email, displayName, spaces);
+    }
+
+    private static ClaimsPrincipal BuildPrincipal(Guid userId, string email, string displayName)
+    {
+        var identity = new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                new Claim(ClaimTypes.Email, email),
+                new Claim(ClaimTypes.Name, displayName),
+            ],
+            CookieAuthenticationDefaults.AuthenticationScheme);
+        return new ClaimsPrincipal(identity);
+    }
+
+    private static SessionResponse BuildSession(
+        Guid userId,
+        string email,
+        string displayName,
+        IReadOnlyList<SpaceMembership> spaces) =>
+        new(
+            userId,
+            email,
+            displayName,
+            [.. spaces.Select(space => new SpaceSummary(space.SpaceId, space.Kind, space.Name, space.Slug, space.Role))]);
+
+    #endregion
+}

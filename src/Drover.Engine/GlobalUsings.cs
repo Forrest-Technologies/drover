@@ -1,1 +1,14 @@
 global using System;
+global using System.Collections.Generic;
+global using System.Linq;
+global using System.Threading;
+global using System.Threading.Tasks;
+global using Drover.Data;
+global using Drover.Data.Identity;
+global using Drover.Data.Repositories;
+global using Drover.Data.Tenancy;
+global using Drover.Domain.Spaces;
+global using Drover.Engine.Accounts;
+global using Drover.Engine.Spaces;
+global using Microsoft.AspNetCore.Identity;
+global using Microsoft.Extensions.DependencyInjection;

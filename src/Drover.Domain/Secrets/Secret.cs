@@ -21,4 +21,6 @@ public sealed class Secret : ISpaceOwned, IAudienceScoped
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset? LastUsedAt { get; set; }
+
+    public override string ToString() => "[secret]";
 }
