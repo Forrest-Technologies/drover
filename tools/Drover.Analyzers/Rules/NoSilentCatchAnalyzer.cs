@@ -10,7 +10,7 @@ public sealed class NoSilentCatchAnalyzer : DiagnosticAnalyzer
 
     private const string LoggerExtensionsMetadataName = "Microsoft.Extensions.Logging.LoggerExtensions";
 
-    private const string LoggerMessageAttributeName = "LoggerMessageAttribute";
+    private const string LoggerMessageAttributeName = "Microsoft.Extensions.Logging.LoggerMessageAttribute";
 
     #endregion
 
@@ -91,9 +91,11 @@ public sealed class NoSilentCatchAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        return SymbolEqualityComparer.Default.Equals(method.ContainingType, loggerExtensions)
-            || SymbolEqualityComparer.Default.Equals(method.ContainingType, logger)
-            || method.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == LoggerMessageAttributeName);
+        return (method.Name.StartsWith("Log", StringComparison.Ordinal)
+                && SymbolEqualityComparer.Default.Equals(method.ContainingType, loggerExtensions))
+            || (method.Name == "Log" && SymbolEqualityComparer.Default.Equals(method.ContainingType, logger))
+            || method.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.ToDisplayString() == LoggerMessageAttributeName);
     }
 
     private static bool ReturnsValueBuiltFromException(

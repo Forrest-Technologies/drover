@@ -11,6 +11,16 @@ public sealed class NoSilentCatchTests
         {
             public interface ILogger
             {
+                bool IsEnabled(LogLevel level);
+
+                System.IDisposable BeginScope<TState>(TState state);
+
+                void Log(string message);
+            }
+
+            public enum LogLevel
+            {
+                Error,
             }
 
             public interface ILogger<T> : ILogger
@@ -19,6 +29,11 @@ public sealed class NoSilentCatchTests
 
             public static class LoggerExtensions
             {
+                public static System.IDisposable BeginScope(
+                    this ILogger logger,
+                    string message,
+                    params object[] args) => null;
+
                 public static void LogError(this ILogger logger, System.Exception exception, string message, params object[] args)
                 {
                 }
@@ -110,6 +125,66 @@ public sealed class NoSilentCatchTests
                     {
                         Action later = () => throw new InvalidOperationException();
                     }
+                }
+            }
+            """);
+
+    [Theory]
+    [InlineData("logger.IsEnabled(LogLevel.Error);")]
+    [InlineData("logger.BeginScope(42);")]
+    [InlineData("logger.BeginScope(\"Failed {Id}\", 42);")]
+    public Task Flags_a_catch_that_calls_a_non_logging_logger_method(string statement) =>
+        Verify.Analyzer<NoSilentCatchAnalyzer>($$"""
+            using System;
+            using Microsoft.Extensions.Logging;
+
+            public class Worker(ILogger<Worker> logger)
+            {
+                public void Run()
+                {
+                    try
+                    {
+                        Console.Write(1);
+                    }
+                    {|DRV0005:catch|} (Exception)
+                    {
+                        {{statement}}
+                    }
+                }
+            }
+
+            {{LoggingStub}}
+            """);
+
+    [Fact]
+    public Task Flags_an_unrelated_LoggerMessage_attribute() =>
+        Verify.Analyzer<NoSilentCatchAnalyzer>("""
+            using System;
+
+            public class Worker
+            {
+                public void Run()
+                {
+                    try
+                    {
+                        Console.Write(1);
+                    }
+                    {|DRV0005:catch|} (Exception ex)
+                    {
+                        LogFailure(ex);
+                    }
+                }
+
+                [Other.LoggerMessage]
+                private static void LogFailure(Exception exception)
+                {
+                }
+            }
+
+            namespace Other
+            {
+                public sealed class LoggerMessageAttribute : Attribute
+                {
                 }
             }
             """);
@@ -228,6 +303,63 @@ public sealed class NoSilentCatchTests
                     {
                         throw;
                     }
+                }
+            }
+            """);
+
+    [Fact]
+    public Task Allows_a_catch_that_calls_ILogger_Log_directly() =>
+        Verify.Analyzer<NoSilentCatchAnalyzer>($$"""
+            using System;
+            using Microsoft.Extensions.Logging;
+
+            public class Worker(ILogger<Worker> logger)
+            {
+                public void Run()
+                {
+                    try
+                    {
+                        Console.Write(1);
+                    }
+                    catch (Exception)
+                    {
+                        logger.Log("Failed to do work");
+                    }
+                }
+            }
+
+            {{LoggingStub}}
+            """);
+
+    [Fact]
+    public Task Allows_the_framework_LoggerMessage_attribute() =>
+        Verify.Analyzer<NoSilentCatchAnalyzer>("""
+            using System;
+
+            public class Worker
+            {
+                public void Run()
+                {
+                    try
+                    {
+                        Console.Write(1);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogFailure(ex);
+                    }
+                }
+
+                [Microsoft.Extensions.Logging.LoggerMessage]
+                private static void LogFailure(Exception exception)
+                {
+                }
+            }
+
+            namespace Microsoft.Extensions.Logging
+            {
+                public sealed class LoggerMessageAttribute : Attribute
+                {
                 }
             }
             """);

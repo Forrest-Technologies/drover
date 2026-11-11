@@ -31,9 +31,19 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
             return;
         }
 
+        var model = await context.Document.GetSemanticModelAsync(context.CancellationToken);
+
+        if (directive.Name is null
+            || model?.GetSymbolInfo(directive.Name, context.CancellationToken).Symbol
+                is not INamespaceOrTypeSymbol target)
+        {
+            return;
+        }
+
+        var qualifiedName = target.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var action = CodeAction.Create(
             "Move to GlobalUsings.cs",
-            token => MoveToGlobalUsings(context.Document, directive, token),
+            token => MoveToGlobalUsings(context.Document, directive, qualifiedName, token),
             nameof(GlobalUsingsOnlyCodeFix));
 
         context.RegisterCodeFix(action, diagnostic);
@@ -46,39 +56,62 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
     private static async Task<Solution> MoveToGlobalUsings(
         Document document,
         UsingDirectiveSyntax directive,
+        string qualifiedName,
         CancellationToken token)
     {
-        var line = $"global {directive.WithoutTrivia()}";
+        var qualifiedDirective = directive.WithName(SyntaxFactory.ParseName(qualifiedName));
         var root = await document.GetSyntaxRootAsync(token);
         var withoutDirective = root!.RemoveNode(directive, SyntaxRemoveOptions.KeepNoTrivia)!;
         var solution = document.Project.Solution.WithDocumentSyntaxRoot(document.Id, withoutDirective);
 
-        return await AddGlobalUsing(solution, document.Project.Id, line, token);
+        return await AddGlobalUsing(solution, document.Project.Id, qualifiedDirective, token);
     }
 
     private static async Task<Solution> AddGlobalUsing(
         Solution solution,
         ProjectId projectId,
-        string line,
+        UsingDirectiveSyntax directive,
         CancellationToken token)
     {
         var project = solution.GetProject(projectId)!;
         var existing = project.Documents.FirstOrDefault(candidate => candidate.Name == GlobalUsingsFileName);
+        var line = $"global {directive.WithoutTrivia()}";
 
         if (existing is null)
         {
             return solution.AddDocument(DocumentId.CreateNewId(projectId), GlobalUsingsFileName, $"{line}\n");
         }
 
-        var text = await existing.GetTextAsync(token);
-
-        if (text.ToString().Contains(line))
+        if (await AlreadyImported(existing, directive, token))
         {
             return solution;
         }
 
+        var text = await existing.GetTextAsync(token);
         var separator = text.Length == 0 || text.ToString().EndsWith("\n", StringComparison.Ordinal) ? string.Empty : "\n";
         return solution.WithDocumentText(existing.Id, text.Replace(text.Length, 0, $"{separator}{line}\n"));
+    }
+
+    private static async Task<bool> AlreadyImported(
+        Document document,
+        UsingDirectiveSyntax directive,
+        CancellationToken token)
+    {
+        if (await document.GetSyntaxRootAsync(token) is not CompilationUnitSyntax root)
+        {
+            return false;
+        }
+
+        var model = await document.GetSemanticModelAsync(token);
+        var qualifiedName = directive.Name!.ToString();
+
+        return root.Usings.Any(existing =>
+            existing.GlobalKeyword.IsKind(SyntaxKind.GlobalKeyword)
+            && existing.Alias is null
+            && existing.StaticKeyword.RawKind == directive.StaticKeyword.RawKind
+            && existing.Name is not null
+            && model?.GetSymbolInfo(existing.Name, token).Symbol
+                ?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) == qualifiedName);
     }
 
     #endregion

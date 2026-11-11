@@ -95,7 +95,109 @@ public sealed class GlobalUsingsOnlyTests
     [Fact]
     public Task Fix_moves_the_directive_to_the_existing_GlobalUsings_file() =>
         Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
-            globalUsings: ("global using System;\n", "global using System;\nglobal using System.Text;\n"),
+            globalUsings: ("global using System;\n", "global using System;\nglobal using global::System.Text;\n"),
+            source: (
+                "{|DRV0002:using System.Text;|}\n\npublic class ThreadService\n{\n}\n",
+                "\npublic class ThreadService\n{\n}\n"));
+
+    [Fact]
+    public Task Fix_preserves_a_namespace_relative_using() =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: (string.Empty, "global using global::Drover.Sample.Helpers;\n"),
+            source: (
+                """
+                namespace Drover.Sample
+                {
+                    {|DRV0002:using Helpers;|}
+
+                    public class Worker
+                    {
+                        public Helper Create() => new();
+                    }
+                }
+
+                namespace Drover.Sample.Helpers
+                {
+                    public class Helper
+                    {
+                    }
+                }
+                """,
+                """
+                namespace Drover.Sample
+                {
+
+                    public class Worker
+                    {
+                        public Helper Create() => new();
+                    }
+                }
+
+                namespace Drover.Sample.Helpers
+                {
+                    public class Helper
+                    {
+                    }
+                }
+                """));
+
+    [Fact]
+    public Task Fix_preserves_a_namespace_relative_static_using() =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: (string.Empty, "global using static global::Drover.Sample.Helpers.Values;\n"),
+            source: (
+                """
+                namespace Drover.Sample
+                {
+                    {|DRV0002:using static Helpers.Values;|}
+
+                    public class Worker
+                    {
+                        public int Read() => Answer;
+                    }
+                }
+
+                namespace Drover.Sample.Helpers
+                {
+                    public static class Values
+                    {
+                        public const int Answer = 42;
+                    }
+                }
+                """,
+                """
+                namespace Drover.Sample
+                {
+
+                    public class Worker
+                    {
+                        public int Read() => Answer;
+                    }
+                }
+
+                namespace Drover.Sample.Helpers
+                {
+                    public static class Values
+                    {
+                        public const int Answer = 42;
+                    }
+                }
+                """));
+
+    [Fact]
+    public Task Fix_reuses_an_existing_equivalent_global_using() =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: ("global using System.Text;\n", "global using System.Text;\n"),
+            source: (
+                "{|DRV0002:using System.Text;|}\n\npublic class ThreadService\n{\n}\n",
+                "\npublic class ThreadService\n{\n}\n"));
+
+    [Fact]
+    public Task Fix_does_not_mistake_a_comment_for_an_existing_using() =>
+        Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            globalUsings: (
+                "// global using global::System.Text;\n",
+                "// global using global::System.Text;\nglobal using global::System.Text;\n"),
             source: (
                 "{|DRV0002:using System.Text;|}\n\npublic class ThreadService\n{\n}\n",
                 "\npublic class ThreadService\n{\n}\n"));
