@@ -14,8 +14,8 @@ public static class SecurityServiceExtensions
 
     /// <summary>
     /// Cookie sign-in, antiforgery for state-changing requests, and the rate limit on sign-in. The cookies are
-    /// <c>HttpOnly</c>, <c>Secure</c>, and carry the <c>__Host-</c> prefix, so a browser only sends them to this
-    /// origin over HTTPS.
+    /// <c>HttpOnly</c>, always <c>Secure</c> whatever scheme the request came in on, and carry the <c>__Host-</c>
+    /// prefix, so a browser only keeps them for a secure origin: HTTPS, or <c>http://localhost</c>.
     /// </summary>
     public static IServiceCollection AddDroverSecurity(this IServiceCollection services, IConfiguration configuration)
     {
@@ -24,6 +24,8 @@ public static class SecurityServiceExtensions
         services.AddAuthorization();
         services.TryAddSingleton(TimeProvider.System);
         services.AddAntiforgery(ConfigureAntiforgery);
+        services.Configure<CookiePolicyOptions>(options => options.Secure = CookieSecurePolicy.Always);
+        services.AddTrustedProxies(configuration);
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -67,7 +69,11 @@ public static class SecurityServiceExtensions
         options.HeaderName = AntiforgeryHeader;
         options.Cookie.Name = "__Host-Drover.Antiforgery";
         options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+
+        // Not "Always": antiforgery refuses to answer a plain-HTTP request under that setting, which breaks
+        // http://localhost. The cookie is still always Secure: over HTTPS this sets it, and over plain HTTP the
+        // cookie policy stamps Secure on every cookie the server sends.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.Path = "/";
     }
