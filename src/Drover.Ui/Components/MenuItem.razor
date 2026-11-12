@@ -1,0 +1,55 @@
+@implements IDisposable
+
+<button @ref="element" type="button" class="dv-menu-item" role="menuitem" disabled="@Disabled" autofocus="@Menu.OpensOn(this)" popovertarget="@Menu.ListId" popovertargetaction="hide" @onclick="Select" @onkeydown="MoveFocus">
+    @ChildContent
+</button>
+
+@code {
+    #region Private Fields
+
+    private ElementReference element;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public EventCallback OnSelect { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [CascadingParameter]
+    private Menu? Parent { get; set; }
+
+    private Menu Menu => Parent ?? throw new InvalidOperationException($"A {nameof(MenuItem)} belongs inside a {nameof(Components.Menu)}.");
+
+    #endregion
+
+    #region Public Methods
+
+    public void Dispose() => Parent?.Unregister(this);
+
+    #endregion
+
+    #region Menu Wiring
+
+    internal ValueTask Focus() => element.FocusAsync();
+
+    protected override void OnParametersSet() => Menu.Register(this);
+
+    // The button's popovertarget closes the menu natively. Focus goes back to the trigger first, so a
+    // dialog the action opens remembers the trigger as the place to return to.
+    private async Task Select()
+    {
+        await Menu.ReturnFocusToTrigger();
+        await OnSelect.InvokeAsync();
+    }
+
+    private Task MoveFocus(KeyboardEventArgs args) => Menu.MoveFocus(this, args.Key);
+
+    #endregion
+}

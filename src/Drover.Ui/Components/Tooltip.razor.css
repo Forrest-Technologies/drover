@@ -1,0 +1,53 @@
+.dv-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The padding bridges the gap to the control, so the pointer can move onto the text without losing it. */
+.dv-tooltip-popup {
+  display: none;
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: var(--dv-layer-menu);
+  width: max-content;
+  max-width: var(--dv-tooltip-width);
+  padding-block: var(--dv-space-1);
+}
+
+.dv-tooltip:hover > .dv-tooltip-popup,
+.dv-tooltip:has(:focus-visible) > .dv-tooltip-popup {
+  display: block;
+}
+
+.dv-tooltip.dv-tooltip-dismissed > .dv-tooltip-popup {
+  display: none;
+}
+
+.dv-tooltip-text {
+  display: block;
+  padding: var(--dv-space-1) var(--dv-space-2);
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+/* With anchor positioning the tooltip flips to stay inside the viewport. */
+@supports (anchor-scope: --dv-tooltip) {
+  .dv-tooltip {
+    position: static;
+    anchor-name: --dv-tooltip;
+    anchor-scope: --dv-tooltip;
+  }
+
+  .dv-tooltip-popup {
+    position: fixed;
+    inset: auto;
+    position-anchor: --dv-tooltip;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-inline, flip-block, flip-block flip-inline;
+  }
+}

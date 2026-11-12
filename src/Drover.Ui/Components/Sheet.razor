@@ -1,0 +1,22 @@
+<div class="dv-sheet">
+    <Dialog Open="Open" OpenChanged="OpenChanged" Title="@Title" Actions="Actions">
+        @ChildContent
+    </Dialog>
+</div>
+
+@code {
+    [Parameter]
+    public bool Open { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

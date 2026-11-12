@@ -1,0 +1,55 @@
+@implements IDisposable
+@inject ToastService Toasts
+
+@* Both live regions are always present: a region added together with its first message is not announced. *@
+<section class="dv-toast-host" aria-label="Notifications">
+    <div class="dv-toast-list" role="status" aria-live="polite">
+        @foreach (var toast in Toasts.Toasts.Where(toast => toast.Kind is not ToastKind.Error))
+        {
+            @Toast(toast)
+        }
+    </div>
+    <div class="dv-toast-list" role="alert">
+        @foreach (var toast in Toasts.Toasts.Where(toast => toast.Kind is ToastKind.Error))
+        {
+            @Toast(toast)
+        }
+    </div>
+</section>
+
+@code {
+    #region Properties
+
+    private RenderFragment<ToastMessage> Toast => toast =>
+        @<div @key="toast.Id" class="dv-toast dv-toast-@toast.Kind.ToString().ToLowerInvariant()">
+            <p class="dv-toast-message">
+                <span class="dv-toast-kind">@KindWord(toast.Kind)</span>
+                @toast.Message
+            </p>
+            <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
+        </div>;
+
+    #endregion
+
+    #region Public Methods
+
+    public void Dispose() => Toasts.Changed -= Refresh;
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnInitialized() => Toasts.Changed += Refresh;
+
+    private static string KindWord(ToastKind kind) => kind switch
+    {
+        ToastKind.Success => "Done",
+        ToastKind.Warning => "Warning",
+        ToastKind.Error => "Error",
+        _ => "Note",
+    };
+
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    #endregion
+}
