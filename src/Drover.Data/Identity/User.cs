@@ -14,7 +14,13 @@ public sealed class User : IdentityUser<Guid>
 
     #region Properties
 
-    public string DisplayName { get; set; } = string.Empty;
+    public UserProfile Profile { get; set; } = new();
+
+    public string DisplayName
+    {
+        get => Profile.DisplayName;
+        set => Profile.DisplayName = value;
+    }
 
     #endregion
 }
