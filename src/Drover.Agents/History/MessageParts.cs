@@ -16,8 +16,11 @@ public static class MessageParts
             CreatedAt = message.CreatedAt,
         };
 
-    /// <summary>Null when the message holds nothing Drover stores.</summary>
-    public static Message? ToMessage(this ChatMessage message, Guid runId, Guid botId, Guid principalUserId)
+    /// <summary>
+    /// Null when the message holds nothing Drover stores. A model's reply keeps the id its model call gave it
+    /// (<paramref name="keepReplyId"/>), so the row has the id the run's events already named.
+    /// </summary>
+    public static Message? ToMessage(this ChatMessage message, Guid runId, Guid botId, Guid principalUserId, bool keepReplyId = false)
     {
         List<MessagePart> parts = [.. message.Contents.Select(content => ToPart(content, runId)).OfType<MessagePart>()];
 
@@ -29,6 +32,9 @@ public static class MessageParts
         var role = ToMessageRole(message.Role);
         return new Message
         {
+            Id = keepReplyId && role is MessageRole.Assistant && Guid.TryParseExact(message.MessageId, "N", out var replyId)
+                ? replyId
+                : Guid.CreateVersion7(),
             Role = role,
             RunId = runId,
             AuthorBotId = role is MessageRole.Assistant ? botId : null,

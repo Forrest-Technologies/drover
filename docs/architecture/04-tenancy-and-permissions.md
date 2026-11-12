@@ -316,7 +316,7 @@ Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQ
 | A bot | Its strict descendants only | Built-in management tools, each needing its own grant |
 | A bot | Its siblings, ancestors, or unrelated bots | Nothing. The check is one lookup in `bot_ancestors`. |
 
-Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool.
+Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. One default, set when a person creates a bot through the API: the bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`. That is a grant row like any other, visible and removable. The list is by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should.
 
 | Tool | Does | Suggested default when a human turns it on |
 | --- | --- | --- |

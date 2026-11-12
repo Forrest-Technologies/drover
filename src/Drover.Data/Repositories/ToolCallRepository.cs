@@ -19,6 +19,12 @@ public sealed class ToolCallRepository(DroverDbContext db)
             .Where(call => call.ThreadId == threadId && call.Status == ToolCallStatus.PendingApproval)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The run's calls that started and have no outcome: after a restart, the ones a kill cut off.</summary>
+    public async Task<IReadOnlyList<ToolCall>> ListRunningCalls(Guid runId, CancellationToken cancellationToken) =>
+        await db.ToolCalls.AsNoTracking()
+            .Where(call => call.RunId == runId && call.Status == ToolCallStatus.Running && call.StartedAt != null)
+            .ToListAsync(cancellationToken);
+
     public void AddToolCall(ToolCall call) => db.ToolCalls.Add(call);
 
     #endregion

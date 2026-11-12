@@ -18,5 +18,11 @@ public sealed record ToolDefinition
     /// <summary>The effective grant is <c>ask</c>: the run stops for a human before the tool runs.</summary>
     public bool RequiresApproval { get; init; }
 
+    /// <summary>
+    /// Whether a call cut off by a restart may run again. Only a read-only tool may: anything else might already
+    /// have happened, so the model is told the outcome is unknown.
+    /// </summary>
+    public bool MayRunAgainAfterInterruption => Sensitivity is ToolSensitivity.Read;
+
     #endregion
 }

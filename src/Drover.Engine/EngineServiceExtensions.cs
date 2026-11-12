@@ -29,5 +29,26 @@ public static class EngineServiceExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers the run engine: bots, threads, runs, the built-in tools, and the dispatcher that executes runs.
+    /// Needs <c>AddDroverData</c>, an <see cref="IAgentRuntime"/>, the model providers, the secret vault, the
+    /// deployment policy, and a <see cref="TimeProvider"/>. The host starts <see cref="RunDispatcher.Run"/>.
+    /// </summary>
+    public static IServiceCollection AddDroverRuns(this IServiceCollection services, Action<RunOptions>? configure = null)
+    {
+        services.AddOptions<RunOptions>().Configure(options => configure?.Invoke(options));
+        services.AddBuiltinTools();
+        services.AddSingleton<RunScopes>();
+        services.AddSingleton<RunSignal>();
+        services.AddSingleton<RunEventHub>();
+        services.AddSingleton<RunExecutor>();
+        services.AddSingleton<RunDispatcher>();
+        services.AddScoped<ToolCatalog>();
+        services.AddScoped<BotService>();
+        services.AddScoped<ThreadService>();
+        services.AddScoped<RunService>();
+        return services;
+    }
+
     #endregion
 }

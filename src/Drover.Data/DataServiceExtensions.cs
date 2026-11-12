@@ -24,6 +24,12 @@ public static class DataServiceExtensions
         services.AddScoped<AgentSessionRepository>();
         services.AddScoped<ToolCallRepository>();
         services.AddScoped<WorkflowCheckpointRepository>();
+        services.AddScoped<RunRepository>();
+        services.AddScoped<RunEventRepository>();
+        services.AddScoped<ThreadRepository>();
+        services.AddScoped<BotRepository>();
+        services.AddScoped<ToolRepository>();
+        services.AddSingleton(provider => new RunWakeListener(appConnectionString, provider.GetRequiredService<ILogger<RunWakeListener>>()));
         services.AddDbContext<DroverDbContext>((provider, options) => options
             .UseDroverNpgsql(appConnectionString)
             .AddInterceptors(

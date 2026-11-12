@@ -98,7 +98,7 @@ Notes:
 
 - `model_connections.kind` is `openai_compatible`, `venice`, `anthropic`, or a sign-in kind. `model_catalog` holds one capability record per model, in Drover's own shape ([15-model-providers.md](15-model-providers.md)). Sign-in connections keep per-user credentials in `secrets` with that user as the audience.
 - `tool_connections` also stores `protocol_mode` (automatic, stateless only, session-based only) and what was negotiated.
-- `tools.source_kind` is `builtin` or `mcp`. Built-in tools are seeded as rows when a space is created, so a grant always references a `tools` row and the grant logic has one shape.
+- `tools.source_kind` is `builtin` or `mcp`. Built-in tools are rows in each space's catalog, so a grant always references a `tools` row and the grant logic has one shape. The rows are added, and refreshed when a definition changes, whenever a bot is created in the space. The catalog name of a built-in uses dots (`time.now`); the model sees it with underscores (`time_now`), because providers do not accept a dot in a function name.
 - `tools.state` is `available` or `missing`. A tool that disappears from a server keeps its row and its grants, marked missing.
 - `tool_connections.auth_kind` is `none`, `header`, or `oauth`. `credential_scope` is `space` or `per_user`.
 - A `tool_connection_credentials` row whose audience is everyone is a credential shared by the whole space. A row whose audience is one user is readable only inside a transaction running for that user. That is how a bot acting for one person cannot use another person's sign-in: the database will not return the row.

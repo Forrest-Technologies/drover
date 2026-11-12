@@ -1,4 +1,4 @@
-namespace Drover.Agents.Runtime;
+namespace Drover.Domain.Runs;
 
 /// <summary>
 /// The <c>tool_calls</c> row id for a model's call id within a run. Model call ids are strings and differ by
