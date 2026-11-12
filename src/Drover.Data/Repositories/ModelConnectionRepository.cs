@@ -29,6 +29,10 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
             .OrderBy(entry => entry.DisplayName).ThenBy(entry => entry.Model)
             .ToListAsync(cancellationToken);
 
+    public Task<ModelCatalogEntry?> FindCatalogEntry(Guid connectionId, string model, CancellationToken cancellationToken) =>
+        db.ModelCatalog.AsNoTracking()
+            .SingleOrDefaultAsync(entry => entry.ModelConnectionId == connectionId && entry.Model == model, cancellationToken);
+
     /// <summary>The tracked catalog rows of one connection, for the upsert.</summary>
     public Task<List<ModelCatalogEntry>> GetCatalog(Guid connectionId, CancellationToken cancellationToken) =>
         db.ModelCatalog.Where(entry => entry.ModelConnectionId == connectionId).ToListAsync(cancellationToken);

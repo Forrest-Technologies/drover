@@ -38,7 +38,7 @@ public sealed class RunContext(RunExecution execution, IRunGovernor governor, Ru
         ThreadId = thread.Id,
         ToolId = toolId,
         ToolName = toolName,
-        Arguments = arguments,
+        Arguments = governor.Redact(arguments),
     };
 
     public bool IsReadOnly(string toolName) => FindTool(toolName)?.Sensitivity is ToolSensitivity.Read;

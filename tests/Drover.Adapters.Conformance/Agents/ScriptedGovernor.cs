@@ -60,5 +60,7 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
         return Task.CompletedTask;
     }
 
+    public JsonElement Redact(JsonElement value) => value;
+
     #endregion
 }

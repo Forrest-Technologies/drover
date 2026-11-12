@@ -15,6 +15,9 @@ public sealed class MessageRepository(DroverDbContext db)
             .OrderBy(message => message.Position)
             .ToListAsync(cancellationToken);
 
+    public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
+        db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
+
     /// <summary>
     /// Adds the messages after the thread's last one, in order. A thread has one run working on it at a time, and
     /// the unique position index rejects a second writer that slips past that rule.

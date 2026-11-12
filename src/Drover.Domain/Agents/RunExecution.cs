@@ -19,6 +19,12 @@ public sealed record RunExecution
     /// <summary>The granted tools only. A tool with no grant is never in this list, so it never reaches the model.</summary>
     public required IReadOnlyList<ToolDefinition> Tools { get; init; }
 
+    /// <summary>
+    /// The model the bot talks to, already built for the bot's connection. The engine owns it: it counts steps and
+    /// records usage around every call, and disposes it when the step ends.
+    /// </summary>
+    public IModelChatClient? Model { get; init; }
+
     /// <summary>Answers to whatever the run was waiting on.</summary>
     public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
 

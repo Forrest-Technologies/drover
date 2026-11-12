@@ -33,17 +33,19 @@ One transaction, opened by the API endpoint in the caller's tenant scope:
 
 The endpoint returns the run id immediately. The client opens the event stream.
 
-A thread runs one root run at a time. A message sent while a run is active is stored and queued behind it, or the user cancels and resends. This keeps message order unambiguous.
+A thread runs one root run at a time. A message sent while a run is active (queued, running, or waiting) is refused with 409 and is not stored: the person waits for the run, or cancels it and sends again. Posting takes a lock on the thread row first, so two posts to one thread take turns. This keeps message order unambiguous. Queueing a message behind an active run is not built.
 
 ## Workers
 
-`RunWorker` is a hosted service inside `Drover.Server`. A fixed number of worker loops (default 8, configurable) each do:
+`RunWorker` is a hosted service inside `Drover.Server`. It runs the engine's `RunDispatcher`, which executes a fixed number of runs at once (default 8, `Runs:Workers`). One loop claims for all of them, asking for as many runs as it has free workers: every call to `sys.claim_runs` writes an audit row, so an idle server asks once per poll, not once per worker. For each run:
 
 1. **Claim.** Call `sys.claim_runs(worker_id, limit)`. It selects claimable runs with `FOR UPDATE SKIP LOCKED`, sets `lease_owner` and `lease_expires_at`, and returns only `(run_id, space_id, principal_user_id)`. This is one of the few cross-tenant functions; see [04-tenancy-and-permissions.md](04-tenancy-and-permissions.md).
 2. **Enter scope.** Open a tenant scope for that space and principal. From here on the worker is subject to row-level security like any request.
-3. **Execute** until the run waits or ends, renewing the lease every 15 seconds.
+3. **Execute** until the run waits or ends, renewing the lease every 15 seconds. While it executes, the worker reads the run row once a second: that is where it sees a cancel request and where it learns that another worker has taken the run, in which case it stops and writes nothing more.
 
-Wake-up is a signal on an in-process channel, with a PostgreSQL `NOTIFY` so a second server instance also wakes. A poll every few seconds is the fallback, so a lost signal costs seconds, never correctness.
+Wake-up is an in-process signal, with a PostgreSQL `NOTIFY` on the channel `drover_runs`, sent in the transaction that queues the run, so a second server instance also wakes. The notification carries no payload. Each server holds one connection that listens for it. A poll every 5 seconds (`Runs:PollSeconds`) is the fallback, so a lost signal costs seconds, never correctness.
+
+A server that shuts down cleanly releases the leases of the runs it was executing, so the next server takes them over at once. That still counts as an attempt.
 
 A claimable run is a root run that is `queued`, or `running` with an expired lease, or `waiting` with every pending request answered.
 
@@ -51,7 +53,7 @@ A claimable run is a root run that is `queued`, or `running` with an expired lea
 
 The model and tool loop is the agent framework's. Drover supplies storage and governance at the framework's extension points. The full map is in [14-agent-framework.md](14-agent-framework.md).
 
-1. **Build.** In a short transaction, load the bot, its effective grants, and its capabilities. Build the framework agent from that data: instructions, model client, the granted tools only, context providers for memory and skills, a compaction strategy. Close the transaction. No transaction is ever held across a model or tool call.
+1. **Build.** In a short transaction, as the run's principal in the run's space, load the bot, its effective grants, its model connection and key, and what the event log says about the run so far. Build the framework agent from that data: instructions, model client, the granted tools only, context providers for memory and skills, a compaction strategy. Close the transaction. No transaction is ever held across a model or tool call.
 2. **Load state.** The thread's saved session is read through `PostgresAgentSessionStore`. History comes from `messages` through `PostgresChatHistoryProvider`.
 3. **Run.** The agent runs with streaming on. Updates are translated to Drover events as they arrive.
 4. **Persist as it goes.** History is saved after every model call (the framework's per-service-call persistence). The framework saves a tool result together with the model call that follows it, so the tool gate writes the result to the `tool_calls` row as soon as the tool returns, and reading the history repairs a result the history is missing from that row (see [Server restart mid-run](#server-restart-mid-run)). Events, tool call rows, and usage are written in short transactions.
@@ -63,7 +65,9 @@ The model and tool loop is the agent framework's. Drover supplies storage and go
    | Ask | Effect is `ask`, or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. The wrapping happens when the agent is built: the framework can only stop for approval before it invokes a tool. A gate decision of `ask` for a tool that was not wrapped (a run that became tainted mid-step) is returned to the model as a refusal that says approval is needed; see open points in [14-agent-framework.md](14-agent-framework.md#results-of-the-step-7-spike). |
    | Refuse | No grant, bot paused, budget or loop check failed | A structured error result goes back to the model |
 
-6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. A step limit (default 50 model calls per run) stops a runaway loop.
+6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. The status change and the event that reports it commit in one transaction.
+
+A **step** is one model call. The engine hands the runtime a model client of its own (`RunExecution.Model`) that wraps the provider's: every call through it is counted against the step limit (default 50 per run, `Runs:StepLimit`; the run fails with `step_limit`), announced as `step.started`, and refused outright if a tenant transaction is open in the calling flow. The step's message id is chosen before the call. The deltas carry it, and the runtime stores the reply under it, so `message.completed` names the row the deltas were building.
 
 Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 
@@ -92,6 +96,8 @@ public interface IRunGovernor
     Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken);
 
     Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken);
+
+    JsonElement Redact(JsonElement value);
 }
 
 
@@ -109,11 +115,13 @@ public sealed record RunExecution
 
     public required IReadOnlyList<ToolDefinition> Tools { get; init; }
 
+    public IModelChatClient? Model { get; init; }
+
     public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
 }
 ```
 
-Every type in those signatures is Drover's. `Responses` carries answers to whatever the run was waiting on: an approval decision, or a reply to a workflow request. The runtime reads and writes the run's data as the principal in the run's space, so it needs the space, thread, and principal. `InvokeTool` is how a granted tool runs: the runtime never calls a tool itself, it hands the call, already approved by the gate, to the engine, which owns the tool sources. The runtime writes the `tool_calls` row and the thread's messages; the engine writes run status, events, and usage.
+Every type in those signatures is Drover's. `Responses` carries answers to whatever the run was waiting on: an approval decision, or a reply to a workflow request. The runtime reads and writes the run's data as the principal in the run's space, so it needs the space, thread, and principal. `InvokeTool` is how a granted tool runs: the runtime never calls a tool itself, it hands the call, already approved by the gate, to the engine, which owns the tool sources. `Redact` is what the runtime passes tool arguments through before it stores them. `Model` is the model client the engine built for the run's bot; the engine owns it and counts every call made through it. The runtime writes the `tool_calls` row and the thread's messages; the engine writes run status, events, and usage.
 
 `Drover.Agents` implements `IAgentRuntime` on the framework. The engine implements `IRunGovernor`. The interface exists so the run engine can be tested with a scripted runtime and no model; it is not a plan to replace the framework.
 
@@ -133,23 +141,28 @@ Appending events runs `UPDATE runs SET last_event_seq = last_event_seq + n WHERE
 
 ### Keeping the write rate sane
 
-Model output arrives token by token. The engine coalesces deltas and flushes at most every 100 ms or 512 characters, whichever comes first. Persisted events are the coalesced chunks, and live subscribers receive exactly what was persisted, after commit. Live and replay are the same bytes.
+Model output arrives token by token. The engine coalesces deltas and flushes at most every 100 ms or 512 characters, whichever comes first, and always before any other event, so the log keeps the order things happened in. Persisted events are the coalesced chunks, and live subscribers receive exactly what was persisted, after commit. Live and replay are the same bytes: an event's data is published as the database returned it, because `jsonb` orders keys its own way.
+
+Live delivery inside a server is a convenience, not the record. A subscriber that falls behind loses the oldest events from its queue and reads them from the table, which the gapless number makes safe.
 
 ### Event types
 
 | Type | Data |
 | --- | --- |
 | `run.queued`, `run.started`, `run.waiting`, `run.completed`, `run.failed`, `run.cancelled` | Status, reason, error, usage totals |
-| `step.started`, `step.discarded` | Step number. `step.discarded` tells clients to drop partial output from a step that was restarted. |
+| `step.started`, `step.discarded` | Step number and the step's message id. `step.discarded` tells clients to drop the partial output of a step whose model call was cut off: its message was never stored. |
 | `message.delta` | Message id, part index, text chunk, part kind (`text` or `reasoning`) |
-| `message.completed` | The final message as stored |
+| `message.completed` | The final message as stored. Written for each model reply, once the runtime has stored it: before the reply's first tool is decided, before the next step, or when the run ends. |
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
-| `tool.approval_requested`, `tool.approved`, `tool.denied` | Tool call id, who decided |
-| `tool.started`, `tool.output`, `tool.completed` | Tool call id, incremental output for long commands, outcome, redacted result preview, duration |
+| `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name |
+| `tool.approved`, `tool.denied` | Tool call id, who decided. Arrive with the decision endpoint. |
+| `tool.started`, `tool.output`, `tool.completed` | Tool call id, incremental output for long commands, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
 | `delegation.started`, `delegation.completed` | Tool call id, child run id, child bot id, result summary |
 | `usage.recorded` | Tokens and cost for one model call |
 
 Tool activity is not a side channel. The activity view is a projection of these events plus the `tool_calls` rows.
+
+The log closes what it opens. Every `step.started` is followed by that step's `message.completed` or by `step.discarded`, and every `tool.requested` by a `tool.completed` or a `tool.approval_requested`, whether the run finished, failed, was cancelled, or was taken over after a crash. A client that replays the log therefore shows what a reload of the thread would show. Payload records and type names are in `Drover.Contracts.Runs`; both sides read and write them through `RunEventTypes.Read` and `RunEventTypes.Write`. A contract carries free-form JSON (an event's data, a tool's arguments and result) as JSON text, never as a JSON type: the check that no contract can carry a secret reads every property a contract reaches, and a JSON type reaches everything.
 
 ## Streaming and resume
 
@@ -166,6 +179,8 @@ A second, lightweight stream, `GET /api/stream`, carries non-durable signals for
 Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 
 ## Approval
+
+Phase 0 state: a run whose tool is granted as `ask` stops and becomes `waiting` with `awaiting_approval`, and the log holds `tool.approval_requested`. The decision endpoint, and passing the answer to the resumed run, arrive with the approval prompt (step 13). Until then a waiting run can only be cancelled.
 
 1. The gate saves the tool call as `pending_approval`. The framework ends the run with an approval request, and the pending state is part of the saved session. The run becomes `waiting`.
 2. The principal gets a signal on `/api/stream` and, if they are away, a push.
@@ -206,7 +221,7 @@ Because every run in the tree shares `root_run_id`:
 
 - The activity view shows the whole chain from one query and one stream.
 - **Cost rolls up.** Each `usage_records` row carries `root_run_id`. When a run finishes, its usage is added to `subtree_usage` on each ancestor run. Per-bot totals are sums over `usage_records`; "this bot and everything it started" is a sum over its runs' `subtree_usage`.
-- **Cancel a subtree.** `POST /api/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. The worker checks the flag between events and when renewing the lease, cancels the model call, tool, or workflow, and writes `run.cancelled`. Waiting runs are cancelled directly. The parent of a cancelled child receives a "cancelled" tool result and continues, unless it was cancelled too.
+- **Cancel a subtree.** `POST /api/spaces/{spaceId}/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. The route carries the space, like every tenant route: a run cannot be found without knowing its tenant. The run's own principal may cancel, and so may a space admin. The worker executing the run is told at once when it is on the same server, and otherwise sees the flag on its next look at the run row (once a second); it cancels the model call, tool, or workflow, and writes `run.cancelled`. Queued and waiting runs are cancelled directly by the endpoint when the caller can see the run's thread. An admin who cannot see a private thread cannot write its events, so their cancel of a queued run takes effect when a worker claims it, and of a waiting run when its approval is answered or expires. The parent of a cancelled child receives a "cancelled" tool result and continues, unless it was cancelled too.
 
 ## Server restart mid-run
 
@@ -220,7 +235,7 @@ Nothing in memory is needed to continue.
    | --- | --- |
    | A model call was streaming | Append `step.discarded` and run the agent again. History already holds every model call that finished, and every tool result is in its `tool_calls` row, so only the interrupted call repeats. Where the provider supports background responses, the call is resumed from its continuation token instead. |
    | Tool call finished, history has no result for it | The result is taken from the `tool_calls` row and added to the history. The tool does not run again. |
-   | Tool call `running`, tool is read-only or idempotent by its definition | Run it again. Not built yet: the runtime treats it like the next row today. Step 9 decides how the engine re-runs it. |
+   | Tool call `running`, tool is read-only by its definition | Run it again. The runtime does this when it reads the history, before the next model call and with no transaction open: it asks the governor to decide the call again, invokes the tool through the governor, writes the result to the row, and adds it to the history. If the bot may no longer make the call, it is settled as interrupted instead. Only Drover's own classification counts (`Sensitivity` is `Read`); an idempotency hint from a tool server is untrusted text and is not used. |
    | Tool call `running`, tool may have side effects | Mark it `interrupted` and give the model the result "interrupted, outcome unknown". The model decides what to do; if the grant is `ask`, the retry asks the human again. |
    | Tool call `pending_approval` | Nothing; the run stays `waiting` and its session holds the request |
    | Tool call approved and `running` when the process died | Mark it `interrupted`. The stale session makes the framework reject the approval on the next run; the `tool_calls` row wins over that result, so the model is told "interrupted, outcome unknown", not "rejected". |
@@ -228,6 +243,8 @@ Nothing in memory is needed to continue.
    | A team workflow was in progress | Resume from its latest checkpoint |
 
 4. After three attempts the run fails with `lease_lost`.
+
+The engine also repairs the event log when it takes a run over, from what the rows say. A step whose model call was cut off gets `step.discarded`, or `message.completed` if its message did reach the thread. A tool call the log never saw finish gets `tool.completed` with its row's outcome, or `interrupted`; a read-only one that was running is left open, because it runs again.
 
 Drover never silently repeats an action that might have already happened. That is the honest limit of at-least-once execution, and the activity view shows `interrupted` so the human can see it.
 
