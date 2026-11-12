@@ -5,7 +5,8 @@ namespace Drover.Server.Policy;
 /// request connection is really the application role: not the owner, not a superuser, nothing that bypasses
 /// row-level security. A configuration key says what was intended; the database says what the connection is.
 /// </summary>
-public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<DeploymentPolicyOptions> options) : IHostedService
+public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<DeploymentPolicyOptions> options,
+    IOptions<DatabaseOptions> database) : IHostedService
 {
     #region Interface Implementations
 
@@ -16,8 +17,9 @@ public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<Dep
             return;
         }
 
-        var connectionString = configuration.GetConnectionString("Drover")
-            ?? throw new InvalidOperationException("ConnectionStrings:Drover is not set.");
+        var connectionString = string.IsNullOrEmpty(database.Value.ConnectionString)
+            ? DatabaseStartup.ApplicationConnection(configuration, allowCustomRole: true)
+            : database.Value.ConnectionString;
         var role = await DatabaseRole.Inspect(connectionString, cancellationToken);
 
         if (!role.IsApplicationRole)
