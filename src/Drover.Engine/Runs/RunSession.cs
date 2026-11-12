@@ -24,7 +24,8 @@ public sealed class RunSession(
     Redactor redactor,
     RunOptions options,
     TimeProvider time,
-    int stepsSoFar) : IAsyncDisposable
+    int stepsSoFar,
+    IReadOnlyList<Guid> alreadyDelivered) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -36,7 +37,13 @@ public sealed class RunSession(
 
     private readonly ConcurrentDictionary<Guid, bool> reruns = new();
 
+    private readonly ConcurrentDictionary<Guid, bool> settled = new();
+
+    private readonly ConcurrentDictionary<Guid, bool> requestedBefore = new();
+
     private readonly SemaphoreSlim announcing = new(1, 1);
+
+    private readonly HashSet<Guid> delivered = [.. alreadyDelivered];
 
     private int step = stepsSoFar;
 
@@ -172,21 +179,40 @@ public sealed class RunSession(
                 return;
             }
 
-            var stored = await tenant.Transact(
-                services => services.GetRequiredService<MessageRepository>().FindMessage(pending.MessageId, CancellationToken.None),
+            var (stored, taken) = await tenant.Transact(
+                async services =>
+                {
+                    var messages = services.GetRequiredService<MessageRepository>();
+                    return (
+                        await messages.FindMessage(pending.MessageId, CancellationToken.None),
+                        await messages.ListDeliveredMessages(thread.Id, RunId, CancellationToken.None));
+                },
                 CancellationToken.None);
             unannounced = null;
 
             // A model call that produced nothing to store has no message; its step is closed as discarded instead.
-            await (stored is null
-                ? writer.Append(RunId, RunEventTypes.StepDiscarded, pending)
-                : writer.Append(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse())));
+            // Messages that steered the call were stored just before its reply, so they are announced before it.
+            var closed = stored is null
+                ? RunEventWriter.Event(RunId, RunEventTypes.StepDiscarded, pending)
+                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()));
+            await writer.Write(null, [.. Delivered(taken), closed]);
         }
         finally
         {
             announcing.Release();
         }
     }
+
+    /// <summary>
+    /// <c>message.delivered</c> for each message this run took that the log has not announced yet: a pending message
+    /// now has its place in the conversation.
+    /// </summary>
+    public IReadOnlyList<NewRunEvent> Delivered(IReadOnlyList<Message> taken) =>
+    [
+        .. taken
+            .Where(message => delivered.Add(message.Id))
+            .Select(message => RunEventWriter.Event(RunId, RunEventTypes.MessageDelivered, new MessageDelivered(message.ToResponse()))),
+    ];
 
     #endregion
 
@@ -204,12 +230,18 @@ public sealed class RunSession(
 
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
 
+    /// <summary>A call the log already holds <c>tool.requested</c> for, from an earlier execution.</summary>
+    public void MarkRequested(Guid toolCallId) => requestedBefore[toolCallId] = true;
+
+    /// <summary>A call whose end is in the log already: an earlier execution wrote it, or this one just did.</summary>
+    public void MarkSettled(Guid toolCallId) => settled[toolCallId] = true;
+
     /// <summary>Emits <c>tool.requested</c> once for a call the model asked for, with its arguments redacted.</summary>
     public async Task RequestTool(string callId, string modelName, JsonElement arguments)
     {
         var call = Call(callId);
 
-        if (!call.TryMarkRequested())
+        if (!call.TryMarkRequested() || requestedBefore.ContainsKey(ToolCallIds.For(RunId, callId)))
         {
             return;
         }
@@ -237,7 +269,7 @@ public sealed class RunSession(
     {
         var call = Call(callId);
 
-        if (!call.TryMarkCompleted())
+        if (!call.TryMarkCompleted() || settled.ContainsKey(ToolCallIds.For(RunId, callId)))
         {
             return;
         }

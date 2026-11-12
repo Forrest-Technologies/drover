@@ -328,7 +328,7 @@ public sealed class RunEngineTests(PostgresServer postgres)
     #region One Run Per Thread
 
     [Fact]
-    public async Task A_thread_runs_one_root_run_at_a_time()
+    public async Task A_thread_runs_one_root_run_at_a_time_and_a_message_sent_meanwhile_is_kept_for_the_next()
     {
         var script = new ScriptedModel([new PauseOutput()], [new TextOutput("Second answer.")]);
         await using var world = await RunWorld.Create(postgres, script);
@@ -337,15 +337,19 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var first = await world.Post(threadId, "First");
         await script.Paused.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
 
-        var refused = await world.PostRaw(threadId, "Second, too soon");
+        var early = await world.PostRaw(threadId, "Second, while the first is answered", steer: false);
 
-        refused.Problem.Should().Be(PostProblem.Busy);
-        (await world.ReadMessages(threadId)).Should().ContainSingle("a refused message is not stored");
+        early.Problem.Should().Be(PostProblem.None, "a message is never refused for arriving while the bot works");
+        early.Run!.Id.Should().Be(first, "the thread still has one run, and it is the first");
+        early.Message!.Position.Should().BeNull("the message is stored, and is not part of the conversation yet");
+        (await world.ReadRuns(threadId)).Should().ContainSingle();
         await world.Cancel(first, host);
         await world.WaitForStatus(first, RunStatus.Cancelled);
-        var second = await world.Post(threadId, "Second");
-        (await world.WaitForStatus(second, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        RunWorld.Summaries(await world.ReadMessages(threadId)).Should().Equal("user: First", "user: Second", "assistant: Second answer.");
+        var runs = await world.ReadRuns(threadId);
+        runs.Should().HaveCount(2, "the run that ended queued the run for the message that was waiting");
+        (await world.WaitForStatus(runs[1].Id, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        RunWorld.Summaries(await world.ReadMessages(threadId))
+            .Should().Equal("user: First", "user: Second, while the first is answered", "assistant: Second answer.");
     }
 
     #endregion

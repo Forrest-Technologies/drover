@@ -217,7 +217,7 @@ Initial set:
 
 | Function | Purpose |
 | --- | --- |
-| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree. The lease is 45 seconds. |
+| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree, or `waiting` with a cancel request. The lease is 45 seconds. For the last case the function reads one more column, `runs.cancel_requested_at`, and `drover_system` is granted `SELECT` on that column and nothing else new. |
 | `sys.claim_due_schedules(limit)` | Phase 1 |
 | `sys.find_user_for_sign_in(email)` | Return the user id for one email, compared by its normalized form, and nothing else. The caller then reads the user row in a transaction with `drover.user_id` set to that id, which the `users` policy allows. |
 | `sys.memberships_for_user()` | Used once after sign-in, before a space is chosen. Takes no argument: it answers for `sys.current_user_id()` only, so it can never list another person's spaces. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |

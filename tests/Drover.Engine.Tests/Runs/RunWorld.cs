@@ -115,19 +115,68 @@ public sealed class RunWorld : IAsyncDisposable
         return post.Run!.Id;
     }
 
-    public async Task<MessagePost> PostRaw(Guid threadId, string text, EngineHost? through = null)
+    /// <summary>Posts as the world's person, or as <paramref name="asUser"/>. <paramref name="steer"/> is what the sender asked for if the bot is busy.</summary>
+    public async Task<MessagePost> PostRaw(Guid threadId, string text, EngineHost? through = null, bool steer = true, Guid? asUser = null)
     {
         await using var scope = (through ?? seeder).Services.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, UserId);
-        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, UserId, Token);
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
+        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, steer, asUser ?? UserId, Token);
     }
 
-    public async Task<RunCancel> Cancel(Guid runId, EngineHost through)
+    public Task<RunCancel> Cancel(Guid runId, EngineHost through) => CancelAs(runId, through, UserId, isSpaceAdmin: false);
+
+    public async Task<RunCancel> CancelAs(Guid runId, EngineHost through, Guid userId, bool isSpaceAdmin)
     {
         await using var scope = through.Services.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, UserId);
-        return await scope.ServiceProvider.GetRequiredService<RunService>().Cancel(runId, UserId, isSpaceAdmin: false, Token);
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, userId);
+        return await scope.ServiceProvider.GetRequiredService<RunService>().Cancel(runId, userId, isSpaceAdmin, Token);
     }
+
+    /// <summary>Answers an approval through the engine, as the API does, as the world's person or as <paramref name="asUser"/>.</summary>
+    public async Task<ToolDecision> Decide(Guid toolCallId, bool approved, string? reason = null, Guid? asUser = null, bool isSpaceAdmin = false)
+    {
+        await using var scope = seeder.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
+        return await scope.ServiceProvider.GetRequiredService<ApprovalService>()
+            .Decide(toolCallId, approved, reason, asUser ?? UserId, isSpaceAdmin, Token);
+    }
+
+    /// <summary>Another person in the world's space.</summary>
+    public async Task<Guid> AddMember(MembershipRole role)
+    {
+        var memberId = Guid.CreateVersion7();
+
+        // A person's row is theirs to write, so the member joins as themselves.
+        await TransactAs(SpaceId, memberId, services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            db.Users.Add(new User
+            {
+                Id = memberId,
+                UserName = $"user-{memberId:N}",
+                NormalizedUserName = $"USER-{memberId:N}".ToUpperInvariant(),
+                Email = $"{memberId:N}@example.test",
+                NormalizedEmail = $"{memberId:N}@EXAMPLE.TEST".ToUpperInvariant(),
+                DisplayName = "Another member",
+            });
+            db.Memberships.Add(new Membership { UserId = memberId, Role = role });
+            return Task.FromResult(true);
+        });
+        return memberId;
+    }
+
+    /// <summary>A thread every member of the space can see and write in.</summary>
+    public Task<Guid> NewSharedThread() =>
+        Read(db =>
+        {
+            var thread = new ChatThread { BotId = BotId, OwnerUserId = UserId, AudienceUserId = Audience.Everyone, LastActivityAt = DateTimeOffset.UtcNow };
+            db.Threads.Add(thread);
+            return Task.FromResult(thread.Id);
+        });
+
+    /// <summary>The root runs of a thread, oldest first.</summary>
+    public Task<List<Run>> ReadRuns(Guid threadId) =>
+        Read(db => db.Runs.AsNoTracking().Where(run => run.ThreadId == threadId).OrderBy(run => run.Id).ToListAsync(Token));
 
     public Task<Run> ReadRun(Guid runId) => Read(db => db.Runs.AsNoTracking().SingleAsync(run => run.Id == runId, Token));
 

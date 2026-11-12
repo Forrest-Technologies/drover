@@ -28,6 +28,15 @@ public sealed record ToolRequested(Guid ToolCallId, string ToolName, string Titl
 /// </summary>
 public sealed record ToolApprovalRequested(Guid ToolCallId, string RequestId, string CallId);
 
+/// <summary>Data of <c>tool.approved</c> and <c>tool.denied</c>: who answered the approval request.</summary>
+public sealed record ToolDecided(Guid ToolCallId, Guid DecidedByUserId);
+
+/// <summary>
+/// Data of <c>message.delivered</c>: a message sent while the bot was working has joined the conversation, with the
+/// position it was given.
+/// </summary>
+public sealed record MessageDelivered(MessageResponse Message);
+
 public sealed record ToolStarted(Guid ToolCallId);
 
 /// <summary>

@@ -5,7 +5,6 @@ public enum PostProblem
     None,
     NotFound,
     Invalid,
-    Busy,
 }
 
 /// <summary>What posting a message came to: the stored message and its run, or why nothing was stored.</summary>
@@ -31,6 +30,7 @@ public sealed class RunService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
+    ThreadLine queue,
     TenantScope scope,
     RunSignal signal,
     RunEventHub hub,
@@ -61,11 +61,13 @@ public sealed class RunService(
     }
 
     /// <summary>
-    /// Stores the message, queues a run for it, and appends <c>run.queued</c>, in one transaction; then wakes the
-    /// workers. A thread runs one root run at a time, so a message sent while one is active is refused: the person
-    /// waits for it or cancels it and sends again. That keeps the order of a thread unambiguous.
+    /// Stores the message and makes sure a run answers it, in one transaction; then wakes the workers. A thread runs
+    /// one root run at a time. With none active, the message joins the conversation and a run is queued for it. With
+    /// one active, the message is stored as pending and is never refused: it steers that run at its next step when
+    /// <paramref name="steer"/> is set and the run acts for the sender, and otherwise waits for the run to end and
+    /// starts the next one. A run only ever takes instructions from the person it acts for.
     /// </summary>
-    public async Task<MessagePost> PostMessage(Guid threadId, string text, Guid userId, CancellationToken cancellationToken)
+    public async Task<MessagePost> PostMessage(Guid threadId, string text, bool steer, Guid userId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > MaxMessageLength)
         {
@@ -74,7 +76,7 @@ public sealed class RunService(
 
         Message message;
         Run run;
-        IReadOnlyList<RunEvent> appended;
+        IReadOnlyList<RunEvent> appended = [];
 
         await using (var work = await scope.Begin(cancellationToken))
         {
@@ -85,42 +87,47 @@ public sealed class RunService(
                 return new MessagePost(null, null, PostProblem.NotFound);
             }
 
-            if (await runs.FindActiveRun(threadId, cancellationToken) is not null)
-            {
-                return new MessagePost(null, null, PostProblem.Busy, "The bot is still working on the last message. Wait for it, or stop it and send again.");
-            }
-
-            if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
-            {
-                return new MessagePost(null, null, PostProblem.Invalid, "This bot is paused or removed, so it cannot answer.");
-            }
-
             message = NewUserMessage(text, userId);
-            await messages.AppendMessages(thread, [message], cancellationToken);
-            run = NewRun(thread, message, userId);
-            runs.Add(run);
             thread.LastActivityAt = time.GetUtcNow();
-            thread.Title ??= ThreadService.Shorten(text.Trim()[..Math.Min(text.Trim().Length, TitleLength)]);
-            appended = await events.Append(run.Id, thread, [QueuedEvent(run)], cancellationToken);
-            await runs.SignalWorkers(cancellationToken);
+
+            if (await runs.FindActiveRun(threadId, cancellationToken) is { } active)
+            {
+                message.Steers = steer && active.PrincipalUserId == userId;
+                messages.AddPending(thread, message);
+                run = active;
+            }
+            else
+            {
+                if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
+                {
+                    return new MessagePost(null, null, PostProblem.Invalid, "This bot is paused or removed, so it cannot answer.");
+                }
+
+                await messages.AppendMessages(thread, [message], cancellationToken);
+                thread.Title ??= ThreadService.Shorten(text.Trim()[..Math.Min(text.Trim().Length, TitleLength)]);
+                (run, appended) = await queue.Queue(thread, message, userId, cancellationToken);
+            }
+
             await work.Commit(cancellationToken);
         }
 
         hub.Publish(run.RootRunId, appended);
         signal.Wake();
-        logger.LogInformation("Run {RunId} queued for thread {ThreadId}", run.Id, threadId);
+        logger.LogInformation("Message {MessageId} stored for thread {ThreadId}; run {RunId} answers it", message.Id, threadId, run.Id);
         return new MessagePost(message, run);
     }
 
     /// <summary>
     /// Asks a run and the runs below it to stop. The run's own person may, and so may a space admin. A run no worker
-    /// holds (queued or waiting) is cancelled here and now when the caller can see its thread; a running one is
-    /// stopped by its worker, which sees the request within its watch interval.
+    /// holds (queued or waiting) is ended here and now when the caller can see its thread. Any other is ended by a
+    /// worker acting as the run's own person: a running one within its watch interval, and one whose private thread
+    /// the caller cannot see as soon as a worker claims it, which a cancel request makes possible at once.
     /// </summary>
     public async Task<RunCancel> Cancel(Guid runId, Guid userId, bool isSpaceAdmin, CancellationToken cancellationToken)
     {
         Run? run;
         IReadOnlyList<RunEvent> appended = [];
+        QueuedRun? next = null;
 
         await using (var work = await scope.Begin(cancellationToken))
         {
@@ -131,7 +138,8 @@ public sealed class RunService(
                 return new RunCancel(CancelOutcome.NotFound);
             }
 
-            var thread = await threads.FindThread(run.ThreadId, cancellationToken);
+            // Run first, thread second: the order a worker takes the same two locks in when it ends a run.
+            var thread = await threads.GetThreadForUpdate(run.ThreadId, cancellationToken);
 
             if (thread is null && !isSpaceAdmin)
             {
@@ -151,20 +159,28 @@ public sealed class RunService(
             await runs.RequestCancel(runId, cancellationToken);
             run.CancelRequestedAt ??= time.GetUtcNow();
 
-            // An admin who cannot see a private thread cannot write its events; the run's worker does it as its person.
             if (run is { Status: RunStatus.Queued or RunStatus.Waiting, ParentRunId: null } && thread is not null)
             {
                 run.Status = RunStatus.Cancelled;
                 run.StatusReason = RunReasons.CancelledByUser;
                 run.FinishedAt = time.GetUtcNow();
                 appended = await events.Append(run.RootRunId, thread, [CancelledEvent(run)], cancellationToken);
+                next = await queue.RunEnded(run, thread, cancellationToken);
             }
+
+            await runs.SignalWorkers(cancellationToken);
             await work.Commit(cancellationToken);
         }
 
         signal.RequestCancel(runId);
         signal.Wake();
         hub.Publish(run.RootRunId, appended);
+
+        if (next is not null)
+        {
+            hub.Publish(next.Run.RootRunId, next.Events);
+        }
+
         logger.LogInformation("Cancel requested for run {RunId}; status is now {Status}", runId, run.Status);
         return new RunCancel(CancelOutcome.Requested, run);
     }
@@ -180,23 +196,6 @@ public sealed class RunService(
         Parts = [new TextPart(text)],
         CreatedAt = time.GetUtcNow(),
     };
-
-    private static Run NewRun(ChatThread thread, Message message, Guid userId)
-    {
-        var run = new Run
-        {
-            ThreadId = thread.Id,
-            BotId = thread.BotId,
-            PrincipalUserId = userId,
-            Trigger = RunTrigger.Message,
-            TriggerMessageId = message.Id,
-        };
-        run.RootRunId = run.Id;
-        return run;
-    }
-
-    private static NewRunEvent QueuedEvent(Run run) =>
-        RunEventWriter.Event(run.Id, RunEventTypes.RunQueued, new RunStatusChanged(RunStatus.Queued.ToWireName(), null, null, run.Attempt, null));
 
     private static NewRunEvent CancelledEvent(Run run) =>
         RunEventWriter.Event(

@@ -77,14 +77,19 @@ public sealed class RunEventWriter(
     /// <summary>
     /// Writes the buffered delta and then the events, in one transaction. <paramref name="alongside"/> runs in that
     /// transaction first, so a status change and the event that reports it commit together or not at all.
+    /// <paramref name="afterwards"/> runs in it last, once the events are in: what it writes is not checked against
+    /// this run's claim, which the events before it were.
     /// </summary>
-    public async Task Write(Func<IServiceProvider, Task>? alongside, IReadOnlyList<NewRunEvent> events)
+    public async Task Write(
+        Func<IServiceProvider, Task>? alongside,
+        IReadOnlyList<NewRunEvent> events,
+        Func<IServiceProvider, Task>? afterwards = null)
     {
         await gate.WaitAsync();
 
         try
         {
-            await WriteLocked(alongside, events);
+            await WriteLocked(alongside, events, afterwards);
         }
         finally
         {
@@ -126,7 +131,10 @@ public sealed class RunEventWriter(
         return started;
     }
 
-    private async Task WriteLocked(Func<IServiceProvider, Task>? alongside, IReadOnlyList<NewRunEvent> events)
+    private async Task WriteLocked(
+        Func<IServiceProvider, Task>? alongside,
+        IReadOnlyList<NewRunEvent> events,
+        Func<IServiceProvider, Task>? afterwards = null)
     {
         List<NewRunEvent> writing = [];
 
@@ -145,13 +153,16 @@ public sealed class RunEventWriter(
             return;
         }
 
-        var stored = await Store(alongside, writing);
+        var stored = await Store(alongside, writing, afterwards);
 
         buffer = null;
         hub.Publish(rootRunId, stored);
     }
 
-    private async Task<IReadOnlyList<RunEvent>> Store(Func<IServiceProvider, Task>? alongside, List<NewRunEvent> writing)
+    private async Task<IReadOnlyList<RunEvent>> Store(
+        Func<IServiceProvider, Task>? alongside,
+        List<NewRunEvent> writing,
+        Func<IServiceProvider, Task>? afterwards)
     {
         try
         {
@@ -163,8 +174,15 @@ public sealed class RunEventWriter(
                         await alongside(services);
                     }
 
-                    return await services.GetRequiredService<RunEventRepository>()
+                    var appended = await services.GetRequiredService<RunEventRepository>()
                         .Append(rootRunId, thread, writing, CancellationToken.None, fence);
+
+                    if (afterwards is not null)
+                    {
+                        await afterwards(services);
+                    }
+
+                    return appended;
                 },
                 CancellationToken.None);
         }
