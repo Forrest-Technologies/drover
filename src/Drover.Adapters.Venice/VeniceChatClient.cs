@@ -153,6 +153,15 @@ internal sealed class VeniceChatClient(IModelChatClient inner, string modelId, M
 
         for (var current = exception; current is not null; current = current.InnerException)
         {
+            if (current is OutboundBlockedException blocked)
+            {
+                mapped = ModelProviderException.FromRefusal(blocked.Message);
+                return true;
+            }
+        }
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
             var found = current switch
             {
                 ModelProviderException failure => WithReset(failure),

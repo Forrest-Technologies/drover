@@ -33,9 +33,6 @@ public sealed class OutboundAttempt : IDisposable
 
     public EffectivePolicy Policy { get; }
 
-    /// <summary>Set when a request was refused because it would reach a private address.</summary>
-    public string? BlockedMessage { get; set; }
-
     #endregion
 
     #region Public Methods
@@ -52,7 +49,7 @@ public sealed class SpaceOutboundHandler : DelegatingHandler
 {
     #region Public Methods
 
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var attempt = OutboundAttempt.Current;
 
@@ -61,16 +58,7 @@ public sealed class SpaceOutboundHandler : DelegatingHandler
             request.ForSpace(attempt.Policy);
         }
 
-        try
-        {
-            return await base.SendAsync(request, cancellationToken);
-        }
-        catch (OutboundBlockedException blocked)
-        {
-            attempt?.BlockedMessage = blocked.Message;
-
-            throw;
-        }
+        return base.SendAsync(request, cancellationToken);
     }
 
     #endregion

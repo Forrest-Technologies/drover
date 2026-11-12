@@ -48,6 +48,17 @@ public sealed class ModelProviderException(
             "The provider could not be reached. Check the address and that the server is running.",
             inner: inner);
 
+    /// <summary>The deployment or the space does not allow this call. Trying again changes nothing.</summary>
+    public static ModelProviderException FromRefusal(string message) => new(ModelFailure.Rejected, message);
+
+    /// <summary>The provider's answer is larger than the deployment accepts. Trying again changes nothing.</summary>
+    public static ModelProviderException FromLimit(string what) =>
+        new(ModelFailure.Rejected, $"The provider's {what} is larger than this server accepts, so it was not used.");
+
+    /// <summary>The provider answered, but not in a shape Drover understands.</summary>
+    public static ModelProviderException FromMalformedResponse() =>
+        new(ModelFailure.Rejected, "The provider answered in a form Drover does not understand.");
+
     public static ModelProviderException FromTimeout() =>
         new(ModelFailure.Unreachable, "The provider took too long to answer. Try again shortly.");
 

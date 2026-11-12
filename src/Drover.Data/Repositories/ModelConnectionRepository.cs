@@ -33,5 +33,12 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
     public Task<List<ModelCatalogEntry>> GetCatalog(Guid connectionId, CancellationToken cancellationToken) =>
         db.ModelCatalog.Where(entry => entry.ModelConnectionId == connectionId).ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// True when a save failed because another request stored the same model first. The transaction is lost, so the
+    /// caller starts a new scope, reads again, and updates the row instead of adding it.
+    /// </summary>
+    public static bool IsAlreadyStored(Exception failure) =>
+        failure is DbUpdateException { InnerException: PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } };
+
     #endregion
 }

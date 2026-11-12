@@ -41,12 +41,19 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
         string? apiKey,
         CancellationToken cancellation)
     {
-        using var models = await Get("models?type=text", null, cancellation);
+        using var models = await Get("models?type=text", null, connection.Limits, cancellation);
 
         // The trait list only adds the provider's picks. The models are usable without it.
-        using var traits = await TryGetTraits(cancellation);
+        using var traits = await TryGetTraits(connection.Limits, cancellation);
 
-        return VeniceModelCatalog.Parse(models.RootElement, traits?.RootElement);
+        try
+        {
+            return VeniceModelCatalog.Parse(models.RootElement, traits?.RootElement);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        {
+            throw ModelProviderException.FromMalformedResponse();
+        }
     }
 
     public async Task<ConnectionTestResult> TestConnection(
@@ -61,7 +68,7 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
 
         try
         {
-            using var limits = await Get("api_keys/rate_limits", apiKey, cancellation);
+            using var limits = await Get("api_keys/rate_limits", apiKey, connection.Limits, cancellation);
 
             return ReadKeyStatus(limits.RootElement);
         }
@@ -77,7 +84,12 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
 
     private static ConnectionTestResult ReadKeyStatus(JsonElement root)
     {
-        var data = root.GetProperty("data");
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("data", out var data)
+            || data.ValueKind != JsonValueKind.Object)
+        {
+            throw ModelProviderException.FromMalformedResponse();
+        }
 
         if (data.TryGetProperty("accessPermitted", out var permitted) && permitted.ValueKind == JsonValueKind.False)
         {
@@ -87,20 +99,33 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
         }
 
         var balances = data.TryGetProperty("balances", out var found) && found.ValueKind == JsonValueKind.Object
-            ? found.EnumerateObject()
-                .Where(balance => balance.Value.ValueKind == JsonValueKind.Number)
-                .Select(balance => new ModelBalance(balance.Name.ToLowerInvariant(), balance.Value.GetDecimal()))
-                .ToList()
+            ? ReadBalances(found)
             : [];
 
         return ConnectionTestResult.Ok("Connected to Venice.", balances);
     }
 
-    private async Task<JsonDocument?> TryGetTraits(CancellationToken cancellation)
+    /// <summary>A balance that is not a number Drover can hold is left out rather than failing the test.</summary>
+    private static List<ModelBalance> ReadBalances(JsonElement balances)
+    {
+        List<ModelBalance> read = [];
+
+        foreach (var balance in balances.EnumerateObject())
+        {
+            if (balance.Value.ValueKind == JsonValueKind.Number && balance.Value.TryGetDecimal(out var amount))
+            {
+                read.Add(new ModelBalance(balance.Name.ToLowerInvariant(), amount));
+            }
+        }
+
+        return read;
+    }
+
+    private async Task<JsonDocument?> TryGetTraits(DiscoveryLimits limits, CancellationToken cancellation)
     {
         try
         {
-            return await Get("models/traits?type=text", null, cancellation);
+            return await Get("models/traits?type=text", null, limits, cancellation);
         }
         catch (ModelProviderException failure)
         {
@@ -109,7 +134,7 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
         }
     }
 
-    private async Task<JsonDocument> Get(string path, string? apiKey, CancellationToken cancellation)
+    private async Task<JsonDocument> Get(string path, string? apiKey, DiscoveryLimits limits, CancellationToken cancellation)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(BaseAddress, path));
 
@@ -120,20 +145,18 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
 
         try
         {
-            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, cancellation);
+            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
 
             if (!response.IsSuccessStatusCode)
             {
                 throw ModelProviderException.FromStatus((int)response.StatusCode, ReadWait(response));
             }
 
-            await using var body = await response.Content.ReadAsStreamAsync(cancellation);
-
-            return await JsonDocument.ParseAsync(body, cancellationToken: cancellation);
+            return await BoundedResponse.ReadJson(response.Content, limits.MaxBytes, "answer", cancellation);
         }
         catch (JsonException)
         {
-            throw ModelProviderException.FromNetwork();
+            throw ModelProviderException.FromMalformedResponse();
         }
         catch (Exception exception) when (VeniceChatClient.TryMap(exception, out var mapped))
         {

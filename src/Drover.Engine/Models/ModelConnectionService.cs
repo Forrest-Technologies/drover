@@ -37,6 +37,8 @@ public sealed class ModelConnectionService(
 
     private const int MaxKeyLength = 512;
 
+    private const int MaxStoreAttempts = 3;
+
     private const int MaxNameLength = 200;
 
     private const int MaxAddressLength = 2048;
@@ -72,6 +74,11 @@ public sealed class ModelConnectionService(
         if (provider is null || problem is not null)
         {
             return ConnectionChange.Invalid(problem!);
+        }
+
+        if (provider.FixedAddress is null && await FindForbiddenAddress(baseUrl!, cancellationToken) is { } forbidden)
+        {
+            return ConnectionChange.Invalid(forbidden);
         }
 
         var key = apiKey?.Trim();
@@ -142,14 +149,13 @@ public sealed class ModelConnectionService(
 
         var answer = await Ask(call, (provider, key, token) => provider.TestConnection(call.Endpoint!, key, token), cancellationToken);
         var outcome = answer.Value ?? ConnectionTestResult.Failed(answer.Failure ?? ModelFailure.Unreachable, answer.Message);
-        var message = outcome.Failure is ModelFailure.Unreachable && answer.Blocked is { } blocked ? blocked : outcome.Message;
         var connection = await Record(call, outcome.Succeeded, outcome.Failure, outcome.Balances ?? [], cancellationToken);
         logger.LogInformation(
             "Model connection {ConnectionId} tested: succeeded {Succeeded}, failure {Failure}",
             connectionId,
             outcome.Succeeded,
             outcome.Failure);
-        return new ProviderCheck<ConnectionTestResult>(outcome, outcome.Failure, message, connection ?? call.Snapshot);
+        return new ProviderCheck<ConnectionTestResult>(outcome, outcome.Failure, outcome.Message, connection ?? call.Snapshot);
     }
 
     /// <summary>
@@ -167,10 +173,15 @@ public sealed class ModelConnectionService(
 
         var asked = await Ask(call, (provider, key, token) => provider.ListModels(call.Endpoint!, key, token), cancellationToken);
 
-        if (asked.Value is { } models)
+        if (asked.Value is { } models && models.Count > policy.Deployment.MaxModelsPerConnection)
         {
-            await StoreCatalog(call, models, cancellationToken);
-            logger.LogInformation("Model connection {ConnectionId} listed {ModelCount} models", connectionId, models.Count);
+            asked = new Answer<IReadOnlyList<ModelInfo>>(null, ModelFailure.Rejected, ModelProviderException.FromLimit("model list").Message);
+        }
+
+        if (asked.Value is { } listed)
+        {
+            await StoreCatalog(call, listed, cancellationToken);
+            logger.LogInformation("Model connection {ConnectionId} listed {ModelCount} models", connectionId, listed.Count);
         }
         else
         {
@@ -225,7 +236,9 @@ public sealed class ModelConnectionService(
 
         var provider = providers.FirstOrDefault(candidate => candidate.Kind == connection.Kind);
         var address = provider?.FixedAddress ?? (Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var parsed) ? parsed : null);
-        return new PreparedCall(connection, provider, address is null ? null : new ModelEndpoint(connection.Kind, address), key, effective);
+        var limits = new DiscoveryLimits(policy.Deployment.MaxModelListBytes, policy.Deployment.MaxModelsPerConnection);
+        var endpoint = address is null ? null : new ModelEndpoint(connection.Kind, address) { Limits = limits };
+        return new PreparedCall(connection, provider, endpoint, key, effective);
     }
 
     /// <summary>No scope is open here. The adapter's requests carry the space's outbound rule.</summary>
@@ -236,19 +249,18 @@ public sealed class ModelConnectionService(
     {
         if (call.Provider is null || call.Endpoint is null)
         {
-            return new Answer<T>(default, ModelFailure.Rejected, "This server has no adapter for that connection.", null);
+            return new Answer<T>(default, ModelFailure.Rejected, "This server has no adapter for that connection.");
         }
 
         using var attempt = OutboundAttempt.Begin(call.Policy);
 
         try
         {
-            return new Answer<T>(await ask(call.Provider, call.Key, cancellationToken), null, string.Empty, attempt.BlockedMessage);
+            return new Answer<T>(await ask(call.Provider, call.Key, cancellationToken), null, string.Empty);
         }
         catch (ModelProviderException failure)
         {
-            var message = failure.Failure is ModelFailure.Unreachable && attempt.BlockedMessage is { } blocked ? blocked : failure.Message;
-            return new Answer<T>(default, failure.Failure, message, attempt.BlockedMessage);
+            return new Answer<T>(default, failure.Failure, failure.Message);
         }
     }
 
@@ -287,7 +299,27 @@ public sealed class ModelConnectionService(
         return connection;
     }
 
+    /// <summary>
+    /// Writes the catalog. Two refreshes of one connection can both find a model missing and both add it; the
+    /// second save is refused by the primary key, so it starts again and finds the row the first one added.
+    /// </summary>
     private async Task StoreCatalog(PreparedCall call, IReadOnlyList<ModelInfo> models, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await TryStoreCatalog(call, models, cancellationToken);
+                return;
+            }
+            catch (Exception failure) when (ModelConnectionRepository.IsAlreadyStored(failure) && attempt < MaxStoreAttempts)
+            {
+                logger.LogInformation("Model catalog of {ConnectionId} changed while it was being written; reading it again", call.Snapshot.Id);
+            }
+        }
+    }
+
+    private async Task TryStoreCatalog(PreparedCall call, IReadOnlyList<ModelInfo> models, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
         var connection = await connections.GetConnection(call.Snapshot.Id, cancellationToken);
@@ -334,6 +366,27 @@ public sealed class ModelConnectionService(
         return string.IsNullOrWhiteSpace(apiKey) ? null : FindKeyProblem(apiKey);
     }
 
+    /// <summary>
+    /// A literal private address can be refused now. A name cannot: it is checked each time a connection is made,
+    /// because what it resolves to can change.
+    /// </summary>
+    private async Task<string?> FindForbiddenAddress(string baseUrl, CancellationToken cancellationToken)
+    {
+        var host = new Uri(baseUrl.Trim()).IdnHost;
+
+        if (!IPAddress.TryParse(host, out var literal) || !PrivateAddresses.Contains(literal))
+        {
+            return null;
+        }
+
+        var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("No space is set for this request.");
+        var effective = await policy.GetEffective(spaceId, cancellationToken);
+
+        return effective.AllowPrivateAddresses
+            ? null
+            : "This server does not allow connections to private addresses, and that address is one. Use a public address, or ask the operator to allow private addresses.";
+    }
+
     private static string? FindAddressProblem(string? baseUrl)
     {
         if (string.IsNullOrWhiteSpace(baseUrl) || baseUrl.Length > MaxAddressLength
@@ -357,7 +410,7 @@ public sealed class ModelConnectionService(
 
     #region Nested Types
 
-    private sealed record Answer<T>(T? Value, ModelFailure? Failure, string Message, string? Blocked);
+    private sealed record Answer<T>(T? Value, ModelFailure? Failure, string Message);
 
     private sealed record PreparedCall(
         ModelConnection Snapshot,

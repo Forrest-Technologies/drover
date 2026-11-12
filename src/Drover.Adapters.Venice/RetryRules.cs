@@ -9,16 +9,24 @@ internal static class RetryRules
     #region Public Methods
 
     public static bool ShouldRetry(ResilienceContext context, Outcome<HttpResponseMessage> outcome) =>
-        IsRead(context)
+        !IsPolicyRefusal(outcome)
+        && (IsRead(context)
             ? HttpClientResiliencePredicates.IsTransient(outcome)
-            : IsRateLimited(outcome) || NeverReachedTheServer(outcome);
+            : IsRateLimited(outcome) || NeverReachedTheServer(outcome));
 
     /// <summary>
     /// A rate limit says nothing about the provider's health, and on a shared host one caller's limit must not
     /// pause everyone's calls.
     /// </summary>
     public static bool CountsAgainstCircuit(Outcome<HttpResponseMessage> outcome) =>
-        HttpClientResiliencePredicates.IsTransient(outcome) && !IsRateLimited(outcome);
+        HttpClientResiliencePredicates.IsTransient(outcome) && !IsRateLimited(outcome) && !IsPolicyRefusal(outcome);
+
+    /// <summary>
+    /// The deployment refused the address. Sending it again changes nothing, and on a shared host one space's
+    /// refusal says nothing about the provider, so it must not pause calls for another space.
+    /// </summary>
+    public static bool IsPolicyRefusal(Outcome<HttpResponseMessage> outcome) =>
+        outcome.Exception is OutboundBlockedException;
 
     public static bool IsRateLimited(Outcome<HttpResponseMessage> outcome) =>
         outcome.Result?.StatusCode == HttpStatusCode.TooManyRequests;

@@ -17,6 +17,13 @@ internal static class ProtocolFailureMapping
             return false;
         }
 
+        if (FindRefusal(exception) is { } refusal)
+        {
+            mapped = refusal;
+
+            return true;
+        }
+
         for (var current = exception; current is not null; current = current.InnerException)
         {
             var found = Describe(current);
@@ -32,6 +39,20 @@ internal static class ProtocolFailureMapping
         mapped = null!;
 
         return false;
+    }
+
+    /// <summary>A refusal by policy wins over whatever wrapped it, because the wrapper only says "no response".</summary>
+    internal static ModelProviderException? FindRefusal(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OutboundBlockedException blocked)
+            {
+                return ModelProviderException.FromRefusal(blocked.Message);
+            }
+        }
+
+        return null;
     }
 
     internal static TimeSpan? ParseRetryAfter(string? value, DateTimeOffset now)

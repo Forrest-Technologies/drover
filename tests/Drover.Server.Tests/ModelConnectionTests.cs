@@ -151,14 +151,20 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
     }
 
     [Fact]
-    public async Task A_connection_of_another_space_is_not_found_from_any_route()
+    public async Task A_connection_of_another_space_is_not_found_from_any_route_and_is_left_unchanged()
     {
         var alice = await SeedPerson("alice");
         var bob = await SeedPerson("bob");
         var aliceClient = await SignIn(alice);
         var bobClient = await SignIn(bob);
-        var bobs = await CreateScripted(bobClient, bob.SpaceId);
+        var bobsKey = NewKey();
+        var bobs = await CreateScripted(bobClient, bob, bobsKey);
+        Scripted.OnList = _ => Task.FromResult<IReadOnlyList<ModelInfo>>([Model("bobs-model", 1m)]);
+        (await bobClient.Post($"{Path(bob.SpaceId)}/{bobs.Id}/models/refresh")).EnsureSuccessStatusCode();
+        (await bobClient.Post($"{Path(bob.SpaceId)}/{bobs.Id}/test")).EnsureSuccessStatusCode();
+        var before = await Snapshot(bobClient, bob, bobs.Id);
         var path = $"{Path(alice.SpaceId)}/{bobs.Id}";
+        Scripted.OnList = _ => Task.FromResult<IReadOnlyList<ModelInfo>>([Model("intruder", 1m)]);
 
         (await aliceClient.Get($"{path}/models")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await aliceClient.Put($"{path}/key", new UpdateModelKeyRequest(NewKey()))).StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -166,6 +172,10 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
         (await aliceClient.Post($"{path}/models/refresh")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await aliceClient.Get($"{Path(bob.SpaceId)}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ReadConnections(aliceClient, alice.SpaceId)).Should().BeEmpty();
+
+        (await Snapshot(bobClient, bob, bobs.Id)).Should().BeEquivalentTo(before);
+        before.Key.Should().Be(bobsKey);
+        before.Models.Should().Equal("bobs-model");
     }
 
     #endregion
@@ -329,6 +339,66 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
     }
 
     [Fact]
+    public async Task Concurrent_refreshes_that_add_the_same_models_all_succeed_and_store_each_model_once()
+    {
+        const int Callers = 6;
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var summary = await CreateScripted(client, alice.SpaceId);
+        var path = $"{Path(alice.SpaceId)}/{summary.Id}/models";
+        var entered = 0;
+        var everyoneIsWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Scripted.OnList = async _ =>
+        {
+            if (Interlocked.Increment(ref entered) == Callers)
+            {
+                everyoneIsWaiting.SetResult();
+            }
+
+            await everyoneIsWaiting.Task;
+            return [Model("alpha", 1m), Model("beta", 2m), Model("gamma", 3m)];
+        };
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, Callers).Select(_ => client.Post($"{path}/refresh")));
+
+        foreach (var response in responses)
+        {
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await response.Content.ReadFromJsonAsync<ModelRefreshResponse>(Token))!.Succeeded.Should().BeTrue();
+        }
+
+        var stored = (await (await client.Get(path)).Content.ReadFromJsonAsync<List<ModelCatalogResponse>>(Token))!;
+        stored.Select(model => model.Model).Should().BeEquivalentTo(["alpha", "beta", "gamma"]);
+    }
+
+    [Fact]
+    public async Task A_save_that_loses_the_race_to_add_a_model_is_recognised_as_such()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var summary = await CreateScripted(client, alice.SpaceId);
+        await using var first = Services.CreateAsyncScope();
+        await using var second = Services.CreateAsyncScope();
+        foreach (var scope in new[] { first, second })
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(alice.SpaceId, alice.UserId);
+        }
+
+        await using var firstWork = await first.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        await using var secondWork = await second.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        foreach (var scope in new[] { first, second })
+        {
+            scope.ServiceProvider.GetRequiredService<ModelConnectionRepository>()
+                .Add(new ModelCatalogEntry { ModelConnectionId = summary.Id, Model = "alpha", DisplayName = "Alpha", LastSeenAt = DateTimeOffset.UtcNow });
+        }
+
+        await firstWork.Commit(Token);
+        var loser = await FluentActions.Awaiting(() => secondWork.Commit(Token)).Should().ThrowAsync<Exception>();
+
+        ModelConnectionRepository.IsAlreadyStored(loser.Which).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_refresh_the_provider_cannot_answer_keeps_the_stored_catalog_and_says_why()
     {
         var alice = await SeedPerson("alice");
@@ -391,6 +461,22 @@ public sealed class ModelConnectionTests(PostgresServer postgres) : ServerTestBa
         var key = await provider.GetRequiredService<ISecretVault>().Reveal(connection.SecretId!.Value, Token);
         await work.Commit(Token);
         return key;
+    }
+
+    private sealed record Observed(string Key, string Status, DateTimeOffset? LastCheckedAt, List<string> Models, List<string> States);
+
+    private async Task<Observed> Snapshot(ApiClient client, (string Email, string Password, Guid UserId, Guid SpaceId) person, Guid connectionId)
+    {
+        var connection = (await ReadConnections(client, person.SpaceId)).Single(row => row.Id == connectionId);
+        var catalog = (await (await client.Get($"{Path(person.SpaceId)}/{connectionId}/models")).Content
+            .ReadFromJsonAsync<List<ModelCatalogResponse>>(Token))!;
+
+        return new Observed(
+            await RevealStoredKey(person, connectionId),
+            connection.Status,
+            connection.LastCheckedAt,
+            [.. catalog.Select(model => model.Model)],
+            [.. catalog.Select(model => model.State)]);
     }
 
     private async Task<List<SecretKind>> ReadSecretKinds((string Email, string Password, Guid UserId, Guid SpaceId) person)
