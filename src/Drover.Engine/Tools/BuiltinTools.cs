@@ -3,6 +3,17 @@ namespace Drover.Engine.Tools;
 /// <summary>The built-in tools Phase 0 ships, so a bot's tool loop can be used before any tool server is connected.</summary>
 public static class BuiltinTools
 {
+    #region Properties
+
+    /// <summary>
+    /// The built-in tools a new bot is granted, as allow, when a person creates it. A list of names on purpose, not
+    /// "every tool that only reads": a later built-in that reads the web, a file, or memory must not reach every new
+    /// bot by default. Adding a name here is a product decision.
+    /// </summary>
+    public static IReadOnlyList<string> GrantedToNewBots { get; } = ["time.now"];
+
+    #endregion
+
     #region Public Methods
 
     public static IServiceCollection AddBuiltinTools(this IServiceCollection services) =>

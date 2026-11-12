@@ -154,6 +154,12 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         var memberPost = await asMember.Post($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("Let me in"));
         var memberThreads = await GetFor<List<ThreadSummary>>(asMember, $"{Space(alice.SpaceId)}/bots/{bot.Id}/threads");
         var memberCancel = await asMember.Post($"{Space(alice.SpaceId)}/runs/{sent.Run.Id}/cancel");
+        var memberRun = await asMember.Get($"{Space(alice.SpaceId)}/runs/{sent.Run.Id}");
+        var admin = await SeedMember(alice.SpaceId, "admin", MembershipRole.Admin);
+        var asAdmin = NewClient();
+        await asAdmin.SignIn(admin.Email, admin.Password);
+        var adminRun = await asAdmin.Get($"{Space(alice.SpaceId)}/runs/{sent.Run.Id}");
+        var adminThread = await asAdmin.Get($"{Space(alice.SpaceId)}/threads/{thread.Id}");
         var outsiderThread = await asOutsider.Get($"{Space(alice.SpaceId)}/threads/{thread.Id}");
         var outsiderRun = await asOutsider.Get($"{Space(alice.SpaceId)}/runs/{sent.Run.Id}");
         var outsiderOwnSpace = await asOutsider.Get($"{Space(outsider.SpaceId)}/runs/{sent.Run.Id}");
@@ -163,7 +169,10 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         memberMessages.StatusCode.Should().Be(HttpStatusCode.NotFound);
         memberPost.StatusCode.Should().Be(HttpStatusCode.NotFound);
         memberThreads.Should().BeEmpty();
-        memberCancel.StatusCode.Should().Be(HttpStatusCode.Forbidden, "only the run's own person or an admin may stop it");
+        memberCancel.StatusCode.Should().Be(HttpStatusCode.NotFound, "a member who cannot see the thread learns nothing about its run, not even that it exists");
+        memberRun.StatusCode.Should().Be(HttpStatusCode.NotFound, "a run id tells a member nothing about another member's private thread");
+        adminRun.StatusCode.Should().Be(HttpStatusCode.OK, "an admin sees activity and cost");
+        adminThread.StatusCode.Should().Be(HttpStatusCode.NotFound, "and still cannot read the private thread itself");
         outsiderThread.StatusCode.Should().Be(HttpStatusCode.NotFound);
         outsiderRun.StatusCode.Should().Be(HttpStatusCode.NotFound);
         outsiderOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound, "a run id from another space finds nothing in one's own");

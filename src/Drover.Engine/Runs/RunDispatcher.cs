@@ -79,7 +79,10 @@ public sealed class RunDispatcher(
 
             foreach (var run in claimed)
             {
-                running[run.RunId] = Execute(run, running, stopping);
+                // Keyed by execution, not by run: a run this server still executes can be claimed again after its
+                // lease lapsed, and the stale execution, which stops at its next write, must not free the new one's slot.
+                var execution = Guid.NewGuid();
+                running[execution] = Execute(run, execution, running, stopping);
             }
 
             return claimed.Count == free;
@@ -103,7 +106,7 @@ public sealed class RunDispatcher(
         }
     }
 
-    private async Task Execute(ClaimedRun run, ConcurrentDictionary<Guid, Task> running, CancellationToken stopping)
+    private async Task Execute(ClaimedRun run, Guid execution, ConcurrentDictionary<Guid, Task> running, CancellationToken stopping)
     {
         // Let the dispatcher go back to claiming before this run does any work.
         await Task.Yield();
@@ -123,7 +126,7 @@ public sealed class RunDispatcher(
         }
         finally
         {
-            running.TryRemove(run.RunId, out _);
+            running.TryRemove(execution, out _);
             signal.Wake();
         }
     }

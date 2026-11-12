@@ -39,7 +39,7 @@ public sealed class RunSignal : IDisposable
     public IDisposable Executing(Guid runId, Action stop)
     {
         executing[runId] = stop;
-        return new Registration(this, runId);
+        return new Registration(this, runId, stop);
     }
 
     /// <summary>Stops the run now if this server is executing it. The cancel flag on the row covers every other case.</summary>
@@ -61,9 +61,10 @@ public sealed class RunSignal : IDisposable
 
     #region Nested Types
 
-    private sealed class Registration(RunSignal signal, Guid runId) : IDisposable
+    private sealed class Registration(RunSignal signal, Guid runId, Action stop) : IDisposable
     {
-        public void Dispose() => signal.executing.TryRemove(runId, out _);
+        // Only this registration's own entry: a newer claim of the same run may have registered since.
+        public void Dispose() => signal.executing.TryRemove(new KeyValuePair<Guid, Action>(runId, stop));
     }
 
     #endregion

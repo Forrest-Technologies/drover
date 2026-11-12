@@ -27,7 +27,8 @@ public sealed class EngineHost : IAsyncDisposable
         string keyRing,
         ScriptedModelProvider model,
         IEnumerable<BuiltinTool> tools,
-        Action<RunOptions>? configure = null)
+        Action<RunOptions>? configure = null,
+        Action<IServiceCollection>? replaceServices = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -51,6 +52,7 @@ public sealed class EngineHost : IAsyncDisposable
         }
 
         services.AddDroverAgents(execution => new ModelChatClientBridge(execution.Model!));
+        replaceServices?.Invoke(services);
         provider = services.BuildServiceProvider();
     }
 

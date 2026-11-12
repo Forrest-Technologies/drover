@@ -45,6 +45,10 @@ A thread runs one root run at a time. A message sent while a run is active (queu
 
 Wake-up is an in-process signal, with a PostgreSQL `NOTIFY` on the channel `drover_runs`, sent in the transaction that queues the run, so a second server instance also wakes. The notification carries no payload. Each server holds one connection that listens for it. A poll every 5 seconds (`Runs:PollSeconds`) is the fallback, so a lost signal costs seconds, never correctness.
 
+Every write an execution makes is fenced by its claim: the worker name and the attempt number the claim gave the run. A worker name is per process, so it cannot tell two claims by one server apart; the attempt can, because taking over a running run always raises it. Renewing the lease, appending events (and the usage or status change that travels with them), and the check before a model reply is stored all name the fence, and a write whose fence no longer matches changes nothing and stops that execution. So a server that stalls past its lease and then claims its own run again ends up with one execution that can write. A worker that cannot read its lease for 45 seconds stops as well.
+
+A run that cannot even be loaded (its model key unreadable, say) does not loop: an unreadable key fails the run at once with `model_unavailable`, and any other load failure still honours a cancel request and fails the run when it is out of attempts.
+
 A server that shuts down cleanly releases the leases of the runs it was executing, so the next server takes them over at once. That still counts as an attempt.
 
 A claimable run is a root run that is `queued`, or `running` with an expired lease, or `waiting` with every pending request answered.

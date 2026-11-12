@@ -3,6 +3,17 @@ namespace Drover.Data.Repositories;
 /// <summary>A run a worker leased through <c>sys.claim_runs</c>: ids only. The worker reads the row in the run's own tenant scope.</summary>
 public sealed record ClaimedRun(Guid RunId, Guid SpaceId, Guid PrincipalUserId);
 
+/// <summary>
+/// One claim of one run: the worker that made it and the attempt number the claim gave the run. A worker name is
+/// per process, so it cannot tell two claims by the same server apart; the attempt can, because taking over a
+/// running run always raises it. Every write an execution makes names its fence, and a write whose fence no longer
+/// matches the row changes nothing.
+/// </summary>
+public sealed record RunFence(string Worker, int Attempt);
+
+/// <summary>The run is held by another claim now. The execution that learns this stops and writes nothing more.</summary>
+public sealed class LeaseLostException(Guid runId) : Exception($"The lease on run {runId} belongs to another claim now.");
+
 /// <summary>What a worker learns when it looks at its lease: whether it still holds it, and whether someone asked to stop.</summary>
 public sealed record LeaseState(bool Held, bool CancelRequested);
 
@@ -88,32 +99,32 @@ public sealed class RunRepository(DroverDbContext db)
             .ToListAsync(cancellationToken);
 
     /// <summary>Whether this worker still holds the run, and whether a stop was requested.</summary>
-    public async Task<LeaseState> ReadLease(Guid runId, string worker, CancellationToken cancellationToken)
+    public async Task<LeaseState> ReadLease(Guid runId, RunFence fence, CancellationToken cancellationToken)
     {
         var run = await db.Runs.AsNoTracking()
             .Where(found => found.Id == runId)
-            .Select(found => new { found.Status, found.LeaseOwner, found.CancelRequestedAt })
+            .Select(found => new { found.Status, found.LeaseOwner, found.Attempt, found.CancelRequestedAt })
             .SingleOrDefaultAsync(cancellationToken);
         return new LeaseState(
-            run is { Status: RunStatus.Running } && run.LeaseOwner == worker,
+            run is { Status: RunStatus.Running } && run.LeaseOwner == fence.Worker && run.Attempt == fence.Attempt,
             run?.CancelRequestedAt is not null);
     }
 
     /// <summary>Pushes the lease out again. False when the run is no longer this worker's.</summary>
-    public async Task<bool> RenewLease(Guid runId, string worker, CancellationToken cancellationToken) =>
+    public async Task<bool> RenewLease(Guid runId, RunFence fence, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlAsync(
             $"""
             UPDATE runs SET lease_expires_at = now() + interval '45 seconds'
-            WHERE id = {runId} AND lease_owner = {worker} AND status = 'running'
+            WHERE id = {runId} AND lease_owner = {fence.Worker} AND attempt = {fence.Attempt} AND status = 'running'
             """,
             cancellationToken) == 1;
 
     /// <summary>Gives the lease up at once, so another worker can take the run without waiting for it to expire.</summary>
-    public Task ReleaseLease(Guid runId, string worker, CancellationToken cancellationToken) =>
+    public Task ReleaseLease(Guid runId, RunFence fence, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlAsync(
             $"""
             UPDATE runs SET lease_expires_at = now() - interval '1 second'
-            WHERE id = {runId} AND lease_owner = {worker} AND status = 'running'
+            WHERE id = {runId} AND lease_owner = {fence.Worker} AND attempt = {fence.Attempt} AND status = 'running'
             """,
             cancellationToken);
 

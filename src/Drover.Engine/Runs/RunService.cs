@@ -49,7 +49,18 @@ public sealed class RunService(
 
     #region Public Methods
 
-    public Task<Run?> FindRun(Guid runId, CancellationToken cancellationToken) => runs.FindRun(runId, cancellationToken);
+    /// <summary>
+    /// A run, for someone who may know about it: a person who can see its thread, or a space admin, who sees
+    /// activity and cost without being able to read a private thread. For anyone else it is not found, so a run id
+    /// tells a member nothing about another member's private thread.
+    /// </summary>
+    public async Task<Run?> FindRun(Guid runId, bool isSpaceAdmin, CancellationToken cancellationToken)
+    {
+        var run = await runs.FindRun(runId, cancellationToken);
+        return run is not null && (isSpaceAdmin || await threads.FindThread(run.ThreadId, cancellationToken) is not null)
+            ? run
+            : null;
+    }
 
     /// <summary>
     /// Stores the message, queues a run for it, and appends <c>run.queued</c>, in one transaction; then wakes the
@@ -123,6 +134,13 @@ public sealed class RunService(
                 return new RunCancel(CancelOutcome.NotFound);
             }
 
+            var thread = await threads.FindThread(run.ThreadId, cancellationToken);
+
+            if (thread is null && !isSpaceAdmin)
+            {
+                return new RunCancel(CancelOutcome.NotFound);
+            }
+
             if (run.PrincipalUserId != userId && !isSpaceAdmin)
             {
                 return new RunCancel(CancelOutcome.Forbidden);
@@ -137,8 +155,7 @@ public sealed class RunService(
             run.CancelRequestedAt ??= time.GetUtcNow();
 
             // An admin who cannot see a private thread cannot write its events; the run's worker does it as its person.
-            if (run is { Status: RunStatus.Queued or RunStatus.Waiting, ParentRunId: null }
-                && await threads.FindThread(run.ThreadId, cancellationToken) is { } thread)
+            if (run is { Status: RunStatus.Queued or RunStatus.Waiting, ParentRunId: null } && thread is not null)
             {
                 run.Status = RunStatus.Cancelled;
                 run.StatusReason = RunReasons.CancelledByUser;
