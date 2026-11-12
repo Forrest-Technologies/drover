@@ -1,0 +1,14 @@
+# Keep the build context to what the server image needs.
+**/bin/
+**/obj/
+**/TestResults/
+.git/
+.github/
+.claude/
+artifacts/
+docs/
+tests/
+*.md
+Dockerfile
+.dockerignore
+compose.yaml

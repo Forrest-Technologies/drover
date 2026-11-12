@@ -6,6 +6,8 @@ namespace Drover.Domain.Tools;
 /// </summary>
 public sealed class ToolConnectionCredential : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -19,4 +21,6 @@ public sealed class ToolConnectionCredential : ISpaceOwned, IAudienceScoped
     public DateTimeOffset? ExpiresAt { get; set; }
 
     public CredentialStatus Status { get; set; } = CredentialStatus.Active;
+
+    #endregion
 }

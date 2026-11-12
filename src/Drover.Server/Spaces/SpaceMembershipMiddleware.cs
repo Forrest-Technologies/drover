@@ -9,7 +9,7 @@ public sealed class SpaceMembershipMiddleware(RequestDelegate next)
 {
     #region Public Methods
 
-    public async Task InvokeAsync(HttpContext context, AccountService accounts, TenantContext tenant)
+    public async Task Invoke(HttpContext context, AccountService accounts, TenantContext tenant)
     {
         var endpoint = context.GetEndpoint();
 

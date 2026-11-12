@@ -32,7 +32,8 @@ Drover.slnx
     Drover.Server                 ASP.NET Core host: API, SSE, auth, workers, composition root
     Drover.AppHost                Aspire, local development only
   tools/
-    Drover.Analyzers              Roslyn analyzers DRV0001 to DRV0007
+    Drover.Analyzers              Roslyn analyzers DRV0001 to DRV0008
+    Drover.Analyzers.CodeFixes    Code fixes for the analyzers; a separate assembly because the compiler must not load Workspaces
   tests/
     Drover.Domain.Tests
     Drover.Data.Tests             RLS isolation suite, real PostgreSQL

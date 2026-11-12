@@ -10,16 +10,6 @@ public sealed class SignInRateLimitOptions
 
 public static class SecurityServiceExtensions
 {
-    #region Constants
-
-    public const string SignInRateLimit = "sign-in";
-
-    public const string AntiforgeryHeader = "X-XSRF-TOKEN";
-
-    public const string AntiforgeryCookie = "XSRF-TOKEN";
-
-    #endregion
-
     #region Public Methods
 
     /// <summary>
@@ -41,6 +31,16 @@ public static class SecurityServiceExtensions
         });
         return services;
     }
+
+    #endregion
+
+    #region Constants
+
+    public const string SignInRateLimit = "sign-in";
+
+    public const string AntiforgeryHeader = "X-XSRF-TOKEN";
+
+    public const string AntiforgeryCookie = "XSRF-TOKEN";
 
     #endregion
 

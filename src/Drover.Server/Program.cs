@@ -5,7 +5,8 @@ var connectionString = builder.Configuration.GetConnectionString("Drover")
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
-builder.Services.AddHealthChecks();
+builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
+builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
