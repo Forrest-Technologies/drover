@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The compiler hosts the analyzers, so this must not reference Workspaces (RS1038). The code fixes live in
+         Drover.Analyzers.CodeFixes for that reason. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
   </ItemGroup>
 

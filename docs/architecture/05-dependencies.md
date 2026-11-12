@@ -80,7 +80,10 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |
 | `Microsoft.EntityFrameworkCore.Design`, `dotnet-ef` | MIT | Microsoft | Generate migrations. The design package is private to `Drover.Data`; the tool is pinned in `dotnet-tools.json`. |
-| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`, and compile the samples its tests run it over. Version 4.14, so the analyzers load in any current compiler, including Visual Studio's. `Drover.Data` overrides it to 5.0.0 because `Microsoft.EntityFrameworkCore.Design` requires it; that reference is private. |
+| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 4.14 for compiler compatibility; `Drover.Data` privately overrides CSharp and CSharp.Workspaces to 5.0.0 for EF Core design tooling |
+| `Microsoft.CodeAnalysis.CSharp.Workspaces` | MIT | Microsoft | Build `Drover.Analyzers.CodeFixes`. Kept out of `Drover.Analyzers` because the compiler hosts analyzers and must not load Workspaces (RS1038) |
+| `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing`, `.CSharp.CodeFix.Testing` | MIT | Microsoft (Roslyn SDK) | Run analyzers and code fixes over source samples in `Drover.Analyzers.Tests`. The xUnit verifier packages are v2 only, so the tests use the default verifier. Samples compile against the running runtime, so nothing is downloaded. They pull in `Microsoft.VisualStudio.Validation`, MIT by URL only, mapped in `licenses/url-mappings.json` |
+| `System.Security.Cryptography.Pkcs` | MIT | Microsoft | Not used directly. Pinned to 10.0.15 because the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities |
 
 ## Considered and rejected
 

@@ -444,7 +444,13 @@ public sealed class CatalogAudit(NpgsqlConnection connection, OwnershipMap owner
 
     private sealed class PolicyRequirement(string description, bool permissive, string column, params string[] functions)
     {
+        #region Properties
+
         public string Description { get; } = description;
+
+        #endregion
+
+        #region Public Methods
 
         public bool IsMetBy(PolicySpec policy) =>
             policy.Command == '*'
@@ -452,8 +458,14 @@ public sealed class CatalogAudit(NpgsqlConnection connection, OwnershipMap owner
             && Mentions(policy.Using)
             && Mentions(policy.WithCheck);
 
+        #endregion
+
+        #region Private Methods
+
         private bool Mentions(string? expression) =>
             expression is not null && expression.Contains(column) && functions.All(expression.Contains);
+
+        #endregion
     }
 
     #endregion
