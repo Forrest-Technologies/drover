@@ -30,7 +30,7 @@ public sealed class PostgresServer : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        server = new NpgsqlConnectionStringBuilder(await FindServer());
+        server = [with(await FindServer())];
         await ExecuteOnServer($"CREATE DATABASE {templateName}");
         await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);

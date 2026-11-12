@@ -28,7 +28,7 @@ public sealed class ScriptedTools
 
     #region Public Methods
 
-    public static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    public static JsonElement Json(string json) => JsonElement.Parse(json);
 
     public ScriptedTools Add(string name, string resultJson = """{"ok":true}""") =>
         Add(name, (_, _) => Task.FromResult(new ToolOutcome(Json(resultJson))));

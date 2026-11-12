@@ -163,7 +163,7 @@ On reconnect the client sends `Last-Event-ID`, or `?after=`. The phone locking, 
 
 A second, lightweight stream, `GET /api/stream`, carries non-durable signals for the current user: "thread changed", "approval waiting", "run finished". It has no replay. On reconnect the client refetches lists. This keeps durable replay for the one thing that needs it.
 
-Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 with no extra package.
+Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 
 ## Approval
 

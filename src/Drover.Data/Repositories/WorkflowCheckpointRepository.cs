@@ -39,7 +39,7 @@ public sealed class WorkflowCheckpointRepository(DroverDbContext db)
                 """)
             .SingleOrDefaultAsync(cancellationToken);
 
-        return state is null ? null : JsonDocument.Parse(state).RootElement.Clone();
+        return state is null ? null : JsonElement.Parse(state);
     }
 
     public async Task<IReadOnlyList<string>> ListCheckpointIds(

@@ -1,6 +1,6 @@
 # 5. Dependencies
 
-Licenses and versions were checked on 2026-11-11 against package metadata and license files. Versions are the newest that fit `net10.0`; `Directory.Packages.props` pins exact versions.
+Licenses and versions were checked on 2026-11-11 against package metadata and license files. Versions are the newest generally available that fit `net11.0` (previews only for AI libraries, [ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md)); `Directory.Packages.props` pins exact versions.
 
 The rule from the handoff, restated as the test applied to each row:
 
@@ -34,7 +34,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 
 | Dependency | License | Maintainer and standing | Use | Wrapped? |
 | --- | --- | --- | --- | --- |
-| ASP.NET Core, Minimal APIs, Identity, Data Protection, OpenAPI | MIT | Microsoft, part of .NET 10 LTS | Server, sign-in, key ring, API description | Direct. The platform. Data Protection sits behind `ISecretVault` only for secret storage. |
+| ASP.NET Core, Minimal APIs, Identity, Data Protection, OpenAPI | MIT | Microsoft, part of .NET 11 | Server, sign-in, key ring, API description | Direct. The platform. Data Protection sits behind `ISecretVault` only for secret storage. |
 | Entity Framework Core 10 | MIT | Microsoft | Data access, migrations | Direct. The platform. |
 | `Npgsql`, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.x | PostgreSQL License (permissive) | Npgsql team, the standard .NET driver | PostgreSQL driver and provider | Direct. PostgreSQL is a settled decision. |
 | `Microsoft.AspNetCore.OpenApi` | MIT | Microsoft | The OpenAPI description of the endpoints, served at `/openapi/v1.json` | Direct. The platform. |
@@ -95,10 +95,10 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |
 | `Microsoft.EntityFrameworkCore.Design`, `dotnet-ef` | MIT | Microsoft | Generate migrations. The design package is private to `Drover.Data`; the tool is pinned in `dotnet-tools.json`. |
-| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 4.14 for compiler compatibility; `Drover.Data` privately overrides CSharp and CSharp.Workspaces to 5.0.0 for EF Core design tooling |
+| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 5.9.0, so `Drover.Analyzers` needs a compiler with Roslyn 5.9 or newer; SDK 11.0.100 ships 5.12. The SDK 10.0.115 compiler (Roslyn 5.0) refuses to load them (CS9057), which is why this repository needs SDK 11. `Drover.Data` privately overrides CSharp and CSharp.Workspaces to 5.0.0 for EF Core design tooling |
 | `Microsoft.CodeAnalysis.CSharp.Workspaces` | MIT | Microsoft | Build `Drover.Analyzers.CodeFixes`. Kept out of `Drover.Analyzers` because the compiler hosts analyzers and must not load Workspaces (RS1038) |
 | `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing`, `.CSharp.CodeFix.Testing` | MIT | Microsoft (Roslyn SDK) | Run analyzers and code fixes over source samples in `Drover.Analyzers.Tests`. The xUnit verifier packages are v2 only, so the tests use the default verifier. Samples compile against the running runtime, so nothing is downloaded. They pull in `Microsoft.VisualStudio.Validation`, MIT by URL only, mapped in `licenses/url-mappings.json` |
-| `System.Security.Cryptography.Pkcs` | MIT | Microsoft | Not used directly. Pinned to 10.0.15 because the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities |
+| `System.Security.Cryptography.Pkcs` | MIT | Microsoft | Not used directly. Pinned to 11.0.0 because the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities |
 
 ## Considered and rejected
 

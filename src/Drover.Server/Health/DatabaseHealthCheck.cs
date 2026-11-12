@@ -14,7 +14,7 @@ public sealed class DatabaseHealthCheck(IOptions<DatabaseOptions> options) : IHe
         var settings = options.Value;
         if (!string.IsNullOrWhiteSpace(settings.ConnectionString))
         {
-            return await TryConnect(new NpgsqlConnectionStringBuilder(settings.ConnectionString), cancellationToken);
+            return await TryConnect([with(settings.ConnectionString)], cancellationToken);
         }
 
         if (settings.Host.Length is 0)

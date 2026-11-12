@@ -170,7 +170,7 @@ public sealed class AgentWorld(IServiceProvider services, Guid spaceId, Guid use
         SourceKind = ToolSourceKind.Builtin,
         Name = spec.Name,
         DefinitionHash = Convert.ToHexString(SHA256.HashData(Guid.NewGuid().ToByteArray())),
-        InputSchema = JsonDocument.Parse("""{"type":"object","properties":{}}""").RootElement.Clone(),
+        InputSchema = JsonElement.Parse("""{"type":"object","properties":{}}"""),
         Sensitivity = spec.Sensitivity,
         FirstSeenAt = DateTimeOffset.UtcNow,
         LastSeenAt = DateTimeOffset.UtcNow,
