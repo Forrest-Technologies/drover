@@ -10,7 +10,8 @@ public sealed class DroverFactory(
     LogCapture logs,
     AdjustableTimeProvider time,
     HashCounter hashes,
-    IReadOnlyDictionary<string, string?> settings) : WebApplicationFactory<Program>
+    IReadOnlyDictionary<string, string?> settings,
+    bool useAppConnection = true) : WebApplicationFactory<Program>
 {
     #region Constants
 
@@ -22,7 +23,10 @@ public sealed class DroverFactory(
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseSetting("ConnectionStrings:Drover", database.AppConnectionString);
+        if (useAppConnection)
+        {
+            builder.UseSetting("ConnectionStrings:Drover", database.AppConnectionString);
+        }
         builder.UseSetting("DataProtection:KeyPath", keyRing);
 
         foreach (var (key, value) in settings)

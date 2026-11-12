@@ -1,8 +1,7 @@
 namespace Drover.Server.Health;
 
 /// <summary>
-/// Ready means the server can reach PostgreSQL. It opens a connection and runs nothing: no schema exists yet,
-/// and no tenant data is touched.
+/// Ready means the application role can reach PostgreSQL. No tenant data is touched.
 /// </summary>
 public sealed class DatabaseHealthCheck(IOptions<DatabaseOptions> options) : IHealthCheck
 {
@@ -13,6 +12,11 @@ public sealed class DatabaseHealthCheck(IOptions<DatabaseOptions> options) : IHe
         CancellationToken cancellationToken = default)
     {
         var settings = options.Value;
+        if (!string.IsNullOrWhiteSpace(settings.ConnectionString))
+        {
+            return await TryConnect(new NpgsqlConnectionStringBuilder(settings.ConnectionString), cancellationToken);
+        }
+
         if (settings.Host.Length is 0)
         {
             return HealthCheckResult.Unhealthy("Database:Host is not set.");
@@ -24,7 +28,15 @@ public sealed class DatabaseHealthCheck(IOptions<DatabaseOptions> options) : IHe
             return HealthCheckResult.Unhealthy("Database:PasswordFile is not set or cannot be read.");
         }
 
-        return await TryConnect(settings, password, cancellationToken);
+        return await TryConnect(new NpgsqlConnectionStringBuilder
+        {
+            Host = settings.Host,
+            Port = settings.Port,
+            Database = settings.Database,
+            Username = settings.Username,
+            Password = password,
+            Timeout = settings.TimeoutSeconds,
+        }, cancellationToken);
     }
 
     #endregion
@@ -43,21 +55,11 @@ public sealed class DatabaseHealthCheck(IOptions<DatabaseOptions> options) : IHe
     }
 
     private static async Task<HealthCheckResult> TryConnect(
-        DatabaseOptions settings,
-        string password,
+        NpgsqlConnectionStringBuilder builder,
         CancellationToken cancellationToken)
     {
-        // Pooling is off so a connection kept from an earlier check cannot hide that the database is gone.
-        var builder = new NpgsqlConnectionStringBuilder
-        {
-            Host = settings.Host,
-            Port = settings.Port,
-            Database = settings.Database,
-            Username = settings.Username,
-            Password = password,
-            Timeout = settings.TimeoutSeconds,
-            Pooling = false,
-        };
+        // A fresh connection must not hide a database outage behind a pooled connection.
+        builder.Pooling = false;
 
         try
         {

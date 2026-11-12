@@ -92,6 +92,41 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Real_program_validates_policy_before_resolving_an_allowed_custom_role()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:ModelProviders"] = "-1";
+        var boot = () => Boot(settings, useAdminConnection: true);
+
+        await boot.Should().ThrowAsync<OptionsValidationException>()
+            .WithMessage("*ModelProviders is not one of the values this rule has*");
+    }
+
+    [Fact]
+    public async Task Hosted_real_program_rejects_a_privileged_role_before_building_the_host()
+    {
+        var settings = Hosted(withCertificate: true);
+        var boot = () => Boot(settings, useAdminConnection: true);
+
+        await boot.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*entry point exited without ever building an IHost*");
+    }
+
+    [Fact]
+    public async Task Tightened_self_hosted_real_program_uses_the_secret_file_connection_for_role_validation()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:AllowMigrationCredentialInServer"] = "false";
+        await using var server = await Boot(settings, useSecretFile: true);
+
+        var connection = server.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString;
+        var role = await DatabaseRole.Inspect(connection, TestContext.Current.CancellationToken);
+        role.IsApplicationRole.Should().BeTrue();
+        server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules
+            .AllowMigrationCredentialInServer.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Self_hosted_may_connect_as_any_role()
     {
         var settings = SelfHosted();
@@ -242,7 +277,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         return failure.Which.Message;
     }
 
-    private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false)
+    private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false, bool useSecretFile = false)
     {
         var database = await postgres.CreateDatabase();
 
@@ -252,7 +287,19 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         }
 
         var keyRing = Path.Combine(Path.GetTempPath(), $"drover-keys-{Guid.NewGuid():N}");
-        var factory = new DroverFactory(database, keyRing, new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings);
+        if (useSecretFile)
+        {
+            Directory.CreateDirectory(keyRing);
+            var connection = new NpgsqlConnectionStringBuilder(database.AppConnectionString);
+            var passwordFile = Path.Combine(keyRing, "database-password");
+            await File.WriteAllTextAsync(passwordFile, connection.Password, TestContext.Current.CancellationToken);
+            settings["Database:Host"] = connection.Host;
+            settings["Database:Port"] = connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            settings["Database:Database"] = connection.Database;
+            settings["Database:AppPasswordFile"] = passwordFile;
+        }
+
+        var factory = new DroverFactory(database, keyRing, new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings, useAppConnection: !useSecretFile);
         var server = new RunningServer(factory, database, keyRing);
 
         try

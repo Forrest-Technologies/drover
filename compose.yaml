@@ -17,18 +17,23 @@ services:
         set -eu
         umask 077
         create() {
-          [ -s "/secrets/$$1" ] && return 0
-          tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 48 > "/secrets/.$$1.new"
-          chown "$$2" "/secrets/.$$1.new"
-          chmod "$$3" "/secrets/.$$1.new"
-          mv "/secrets/.$$1.new" "/secrets/$$1"
+          if [ ! -s "/secrets/$$1" ]; then
+            tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 48 > "/secrets/.$$1.new"
+            mv "/secrets/.$$1.new" "/secrets/$$1"
+          fi
+          chown "$$2" "/secrets/$$1"
+          chmod "$$3" "/secrets/$$1"
         }
-        # db reads this one as the postgres user and drover reads it as the app user (uid 1654).
-        create postgres_password 0:0 0444
-        create owner_password 1654:1654 0400
+        # Only db and the root initialization command receive these credentials.
+        create postgres_password 999:999 0400
+        create owner_password 0:0 0400
         create app_password 1654:1654 0400
+        cp /secrets/app_password /app-secrets/app_password
+        chown 1654:1654 /app-secrets/app_password
+        chmod 0400 /app-secrets/app_password
     volumes:
       - drover-secrets:/secrets
+      - drover-app-secrets:/app-secrets
 
   db:
     image: *postgres-image
@@ -49,6 +54,24 @@ services:
       retries: 12
       start_period: 10s
 
+  database-init:
+    build:
+      context: .
+    image: drover:local
+    user: "0:0"
+    restart: "no"
+    command: ["--initialize-database"]
+    environment:
+      Database__Host: db
+      Database__PasswordFile: /run/secrets/postgres_password
+      Database__OwnerPasswordFile: /run/secrets/owner_password
+      Database__AppPasswordFile: /run/secrets/app_password
+    volumes:
+      - drover-secrets:/run/secrets:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
   drover:
     build:
       context: .
@@ -58,14 +81,15 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       Database__Host: db
-      Database__PasswordFile: /run/secrets/postgres_password
+      Database__AppPasswordFile: /run/secrets/app_password
+      DataProtection__KeyPath: /var/lib/drover/keys
     volumes:
-      - drover-secrets:/run/secrets:ro
+      - drover-app-secrets:/run/secrets:ro
       - drover-keys:/var/lib/drover/keys
       - drover-files:/var/lib/drover/files
     depends_on:
-      db:
-        condition: service_healthy
+      database-init:
+        condition: service_completed_successfully
     healthcheck:
       # The runtime image has no curl. This asks /health/ready over a plain socket with bash.
       test:
@@ -85,5 +109,6 @@ services:
 volumes:
   drover-db:
   drover-secrets:
+  drover-app-secrets:
   drover-keys:
   drover-files:

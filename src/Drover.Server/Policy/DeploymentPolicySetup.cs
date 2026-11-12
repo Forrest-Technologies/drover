@@ -9,6 +9,23 @@ namespace Drover.Server.Policy;
 public sealed class DeploymentPolicySetup(IConfiguration configuration)
     : IConfigureOptions<DeploymentPolicyOptions>, IValidateOptions<DeploymentPolicyOptions>
 {
+    #region Public Methods
+
+    public DeploymentPolicyOptions Resolve()
+    {
+        var options = new DeploymentPolicyOptions();
+        Configure(options);
+        var validation = Validate(Options.DefaultName, options);
+        if (validation.Failed)
+        {
+            throw new OptionsValidationException(Options.DefaultName, typeof(DeploymentPolicyOptions), validation.Failures);
+        }
+
+        return options;
+    }
+
+    #endregion
+
     #region Interface Implementations
 
     public void Configure(DeploymentPolicyOptions options)

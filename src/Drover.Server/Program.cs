@@ -1,11 +1,35 @@
-var builder = WebApplication.CreateBuilder(args);
+var initializeDatabase = args is ["--initialize-database"];
+if (args.Contains("--initialize-database") && !initializeDatabase)
+{
+    throw new InvalidOperationException("Database initialization must run as a standalone command.");
+}
 
-var connectionString = builder.Configuration.GetConnectionString("Drover")
-    ?? throw new InvalidOperationException("ConnectionStrings:Drover is not set. It names the drover_app database role.");
+var builder = WebApplication.CreateBuilder(initializeDatabase ? [] : args);
+if (initializeDatabase)
+{
+    await DatabaseStartup.Initialize(builder.Configuration);
+    return;
+}
+
+var policy = new DeploymentPolicySetup(builder.Configuration).Resolve();
+var connectionString = string.Empty;
+try
+{
+    connectionString = DatabaseStartup.ApplicationConnection(builder.Configuration, policy.Rules.AllowMigrationCredentialInServer);
+}
+catch (Exception exception) when (exception is InvalidOperationException or ArgumentException
+    or IOException or UnauthorizedAccessException)
+{
+    using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
+    var logger = loggerFactory.CreateLogger("Drover.Startup");
+    logger.LogCritical("Database configuration is invalid. Configure a valid application database connection and its credentials.");
+    Environment.ExitCode = 1;
+    return;
+}
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
-builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection("Database"));
+builder.Services.Configure<DatabaseOptions>(options => options.ConnectionString = connectionString);
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
