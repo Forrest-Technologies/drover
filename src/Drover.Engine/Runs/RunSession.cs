@@ -39,6 +39,8 @@ public sealed class RunSession(
 
     private readonly ConcurrentDictionary<Guid, bool> settled = new();
 
+    private readonly ConcurrentDictionary<Guid, bool> requestedBefore = new();
+
     private readonly SemaphoreSlim announcing = new(1, 1);
 
     private readonly HashSet<Guid> delivered = [.. alreadyDelivered];
@@ -228,7 +230,10 @@ public sealed class RunSession(
 
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
 
-    /// <summary>A call an earlier execution left open, whose end this one has just written to the log.</summary>
+    /// <summary>A call the log already holds <c>tool.requested</c> for, from an earlier execution.</summary>
+    public void MarkRequested(Guid toolCallId) => requestedBefore[toolCallId] = true;
+
+    /// <summary>A call whose end is in the log already: an earlier execution wrote it, or this one just did.</summary>
     public void MarkSettled(Guid toolCallId) => settled[toolCallId] = true;
 
     /// <summary>Emits <c>tool.requested</c> once for a call the model asked for, with its arguments redacted.</summary>
@@ -236,7 +241,7 @@ public sealed class RunSession(
     {
         var call = Call(callId);
 
-        if (!call.TryMarkRequested())
+        if (!call.TryMarkRequested() || requestedBefore.ContainsKey(ToolCallIds.For(RunId, callId)))
         {
             return;
         }

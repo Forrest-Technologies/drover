@@ -317,6 +317,89 @@ public sealed class RunConversationTests(PostgresServer postgres)
         script.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"interrupted, outcome unknown\""));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_run_taken_over_at_a_later_step_does_not_answer_a_settled_approval_again(bool killed)
+    {
+        var tools = new TestTools()
+            .Add("test.write", ToolSensitivity.Write, """{"written":true}""")
+            .AddPausing("test.send", ToolSensitivity.Write);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_write")],
+            [new ToolCallOutput("c2", "test_send")],
+            [new TextOutput("Written; the send may not have gone out.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.Grant("test.write", GrantEffect.Ask);
+        await world.Grant("test.send", GrantEffect.Allow);
+        var first = world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Write the file, then send it");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
+        await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true);
+        await tools.Paused.WaitAsync(patience, RunWorld.Token);
+        var deadWorker = first.WorkerId;
+
+        if (killed)
+        {
+            await first.Kill();
+            world.StartHost();
+            await world.ExpireLeaseOf(deadWorker, runId);
+        }
+        else
+        {
+            // A deploy: the server stops cleanly, releases the run, and the next server takes it over.
+            await first.DisposeAsync();
+            world.StartHost();
+        }
+
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        tools.Count("test.write").Should().Be(1);
+        script.Requests[2].Select(seen => $"{seen.Role}: {seen.Summary}").Should().Equal(
+            [
+                "user: Write the file, then send it",
+                "assistant: call c1 test_write",
+                """tool: c1 = {"written":true}""",
+                "assistant: call c2 test_send",
+                "tool: c2 = \"interrupted, outcome unknown\"",
+            ],
+            "the approved call was done and answered; handing its approval over again would add a second result after later messages");
+        var events = await world.ReadEvents(runId);
+        var writeCall = ToolCallIds.For(runId, "c1");
+        events.Where(stored => stored.Type == RunEventTypes.ToolRequested).Select(RunWorld.Data<ToolRequested>)
+            .Count(requested => requested.ToolCallId == writeCall).Should().Be(1);
+        events.Where(stored => stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
+            .Count(completed => completed.ToolCallId == writeCall).Should().Be(1);
+        (await world.ReadMessages(run.ThreadId)).SelectMany(message => message.Parts.OfType<ToolResultPart>())
+            .Count(result => result.ToolCallId == writeCall).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_call_whose_row_names_no_person_who_approved_it_does_not_run()
+    {
+        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_write")], [new TextOutput("It was not approved.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.Grant("test.write", GrantEffect.Ask);
+        var idle = world.StartHost(options => options.Workers = 0);
+        var working = world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Write the file");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
+        await working.DisposeAsync();
+
+        // Something other than the decision endpoint marks the call approved: no person is on record for it.
+        await world.Read(db => db.ToolCalls.Where(call => call.RunId == runId)
+            .ExecuteUpdateAsync(call => call.SetProperty(row => row.Status, ToolCallStatus.Approved), RunWorld.Token));
+        world.StartHost();
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        idle.Should().NotBeNull();
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        tools.Count("test.write").Should().Be(0, "the gate reads the row at call time, and the row names nobody who approved");
+        script.Requests[1].Should().ContainSingle(seen => seen.Role == "tool").Which.Summary.Should().Contain("no approval for it is on record");
+    }
+
     #endregion
 
     #region Stopping

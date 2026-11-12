@@ -12,6 +12,8 @@ public sealed class ToolGate(RunContext run, ILogger logger)
     private const string ApprovalUnavailable =
         "This call needs a human's approval, and approval can only be asked for before the run starts calling tools.";
 
+    private const string NotApproved = "This call needs a human's approval, and no approval for it is on record.";
+
     private readonly ToolCallLedger ledger = new(run);
 
     #endregion
@@ -47,13 +49,14 @@ public sealed class ToolGate(RunContext run, ILogger logger)
         CancellationToken cancellationToken)
     {
         var definition = CatalogDefinition(context.Function);
-        var request = BuildRequest(context, definition);
+        var wrapped = context.Function.GetService<ApprovalRequiredAIFunction>() is not null;
+        var request = await BuildRequest(context, definition, wrapped, cancellationToken);
         var decision = await run.Governor.Decide(request, cancellationToken);
         var verdict = decision.Verdict is ToolGateVerdict.Ask && request.Approved ? ToolGateVerdict.Run : decision.Verdict;
 
         if (verdict is not ToolGateVerdict.Run)
         {
-            var reason = verdict is ToolGateVerdict.Ask ? ApprovalUnavailable : decision.Reason ?? "Refused.";
+            var reason = verdict is not ToolGateVerdict.Ask ? decision.Reason ?? "Refused." : wrapped ? NotApproved : ApprovalUnavailable;
             logger.LogInformation("Tool {ToolName} refused in run {RunId}", request.ToolName, request.RunId);
             return await Finish(request, definition, ToolCallStatus.Failed, ToolCallLedger.Error(reason), cancellationToken);
         }
@@ -86,17 +89,22 @@ public sealed class ToolGate(RunContext run, ILogger logger)
     private static ToolDefinition? CatalogDefinition(AIFunction function) =>
         function.GetService<GovernedToolFunction>()?.Definition;
 
-    private ToolCallRequest BuildRequest(FunctionInvocationContext context, ToolDefinition? definition) => new()
-    {
-        RunId = run.Execution.RunId,
-        CallId = context.CallContent.CallId,
-        ToolName = context.Function.Name,
-        ToolId = definition?.ToolId,
-        Arguments = MessageParts.ToJson(context.Arguments),
+    private async Task<ToolCallRequest> BuildRequest(
+        FunctionInvocationContext context,
+        ToolDefinition? definition,
+        bool wrapped,
+        CancellationToken cancellationToken) => new()
+        {
+            RunId = run.Execution.RunId,
+            CallId = context.CallContent.CallId,
+            ToolName = context.Function.Name,
+            ToolId = definition?.ToolId,
+            Arguments = MessageParts.ToJson(context.Arguments),
 
-        // The framework invokes an approval-required function only after a human approved the call.
-        Approved = context.Function.GetService<ApprovalRequiredAIFunction>() is not null,
-    };
+            // The framework invokes an approval-required function only after it was handed an approval. That is not
+            // taken on trust: the call's row must say a person approved it, so the row is the authority at call time.
+            Approved = wrapped && await ledger.WasApprovedByAPerson(context.CallContent.CallId, cancellationToken),
+        };
 
     private async Task<JsonElement> Finish(
         ToolCallRequest request,

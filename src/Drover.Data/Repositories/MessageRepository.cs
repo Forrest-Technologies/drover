@@ -39,6 +39,18 @@ public sealed class MessageRepository(DroverDbContext db)
             .OrderBy(message => message.Position)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The tool calls of a thread that have a result in the conversation.</summary>
+    public async Task<HashSet<Guid>> ListAnsweredCalls(Guid threadId, CancellationToken cancellationToken) =>
+    [
+        .. (await db.Messages
+                .AsNoTracking()
+                .Where(message => message.ThreadId == threadId && message.Role == MessageRole.Tool && message.Position != null)
+                .Select(message => message.Parts)
+                .ToListAsync(cancellationToken))
+            .SelectMany(parts => parts.OfType<ToolResultPart>())
+            .Select(result => result.ToolCallId),
+    ];
+
     public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
         db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
 

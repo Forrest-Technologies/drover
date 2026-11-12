@@ -54,6 +54,19 @@ public sealed class RunExecutor(
         }
 
         await using var session = NewSession(loaded, tenant, workerId);
+
+        // What the log already says about a call is not said again: a call an earlier execution saw through keeps
+        // one tool.requested and one tool.completed, however the runtime reports it this time.
+        foreach (var callId in loaded.RequestedCalls)
+        {
+            session.MarkRequested(callId);
+
+            if (!loaded.UnsettledCalls.Contains(callId))
+            {
+                session.MarkSettled(callId);
+            }
+        }
+
         session.Writer.LeaseLost = session.LoseLease;
         using var executing = signal.Executing(claimed.RunId, session.CancelByUser);
         using var watchStop = new CancellationTokenSource();
@@ -167,14 +180,19 @@ public sealed class RunExecutor(
         var openMessage = steps.Open is { } open
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
-        var unsettled = ReadUnsettledCalls(await events.ListEventsOfRun(runId, toolEventTypes, cancellationToken));
+        var toolEvents = await events.ListEventsOfRun(runId, toolEventTypes, cancellationToken);
+        var unsettled = ReadUnsettledCalls(toolEvents);
+        List<Guid> requested = [.. toolEvents.Where(stored => stored.Type == RunEventTypes.ToolRequested).Select(stored => RunEventTypes.Read<ToolRequested>(stored.Data.GetRawText()).ToolCallId)];
         var toolCalls = services.GetRequiredService<ToolCallRepository>();
         var rows = await toolCalls.ListToolCalls(unsettled, cancellationToken);
         var asked = ReadLastApprovalRequests(await events.ListEventsOfRun(runId, approvalEventTypes, cancellationToken));
-        var answers = ToAnswers(asked, await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
+        var answered = asked.Count == 0 ? [] : await services.GetRequiredService<MessageRepository>().ListAnsweredCalls(run.ThreadId, cancellationToken);
+        var answers = ToAnswers(
+            [.. asked.Where(request => !answered.Contains(request.ToolCallId))],
+            await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)]);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -247,8 +265,10 @@ public sealed class RunExecutor(
 
     /// <summary>
     /// The approval requests the run last went to wait on. A run that waits saves its session with those requests in
-    /// it, and the session is saved again only when the run next stops, so until then every execution must hand the
-    /// answers over: the first one after the answers arrive, and any that takes over from it after a crash.
+    /// it, and the session is saved again only when the run next stops, so until then an execution hands the answers
+    /// over: the first one after the answers arrive, and one that takes over from it after a crash. An answer is
+    /// handed over only while its call has no result in the conversation. Once it has, the call is done, and
+    /// answering it again would put a second result after later messages.
     /// </summary>
     private static List<ToolApprovalRequested> ReadLastApprovalRequests(IReadOnlyList<RunEvent> events)
     {
@@ -765,7 +785,8 @@ public sealed class RunExecutor(
         IReadOnlyList<Guid> UnsettledCalls,
         IReadOnlyList<ToolCall> UnsettledRows,
         IReadOnlyList<PendingResponse> Answers,
-        IReadOnlyList<Guid> Delivered);
+        IReadOnlyList<Guid> Delivered,
+        IReadOnlyList<Guid> RequestedCalls);
 
     #endregion
 }

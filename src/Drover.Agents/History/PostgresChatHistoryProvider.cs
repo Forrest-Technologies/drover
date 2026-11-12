@@ -47,8 +47,9 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         var (request, history, cutOff, steers) = await run.Database.Transact(
             async services =>
             {
+                var repository = services.GetRequiredService<MessageRepository>();
                 var reconciled = await ledger.PreferRows(
-                    [.. context.RequestMessages],
+                    WithoutSecondResults([.. context.RequestMessages], await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken)),
                     services.GetRequiredService<ToolCallRepository>(),
                     cancellationToken);
                 var (messages, rerun) = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
@@ -85,6 +86,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             async services =>
             {
                 var repository = services.GetRequiredService<MessageRepository>();
+                request = WithoutSecondResults(request, await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken));
                 var reconciled = await ledger.PreferRows(
                     [.. request, .. context.ResponseMessages ?? []],
                     services.GetRequiredService<ToolCallRepository>(),
@@ -156,6 +158,39 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     #endregion
 
     #region History Repair
+
+    /// <summary>
+    /// The messages without any tool result for a call the conversation already has a result for. A session saved
+    /// while a call waited for approval still holds that request; when a later execution starts from it after the
+    /// call was approved, ran, and was answered, the framework answers the request once more. That second result
+    /// would land after later messages, where no call precedes it.
+    /// </summary>
+    private List<ChatMessage> WithoutSecondResults(List<ChatMessage> messages, HashSet<Guid> answered)
+    {
+        List<ChatMessage> kept = [];
+
+        foreach (var message in messages)
+        {
+            List<AIContent> contents =
+            [
+                .. message.Contents.Where(content => content is not FunctionResultContent result
+                    || !answered.Contains(ToolCallIds.For(run.Execution.RunId, result.CallId))),
+            ];
+
+            if (contents.Count == message.Contents.Count)
+            {
+                kept.Add(message);
+            }
+            else if (contents.Count > 0)
+            {
+                var copy = message.Clone();
+                copy.Contents = contents;
+                kept.Add(copy);
+            }
+        }
+
+        return kept;
+    }
 
     private HashSet<Guid> AnsweredIn(IReadOnlyList<ChatMessage> request) =>
     [
