@@ -3,7 +3,7 @@ namespace Drover.Adapters.Venice;
 /// <summary>Reads the rate-limit and balance headers Venice sends on inference responses.</summary>
 internal static class VeniceHeaders
 {
-    #region Constants
+    #region Private Fields
 
     /// <summary>
     /// Seen on a real 401 from the service (the failed-request budget). The rate-limit guide documents a 429 as
@@ -31,16 +31,22 @@ internal static class VeniceHeaders
             return null;
         }
 
+        if (resetMilliseconds < DateTimeOffset.MinValue.ToUnixTimeMilliseconds()
+            || resetMilliseconds > DateTimeOffset.MaxValue.ToUnixTimeMilliseconds())
+        {
+            return null;
+        }
+
         var wait = DateTimeOffset.FromUnixTimeMilliseconds(resetMilliseconds) - now;
 
         return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
     }
 
-    /// <summary>Reads the wait from the first reset header present, in the order they are trusted.</summary>
+    /// <summary>Uses the longest valid wait so an earlier failed-request reset cannot bypass an inference quota.</summary>
     public static TimeSpan? WaitUntilReset(Func<string, string?> header, DateTimeOffset now) =>
-        new[] { RateLimitResets, RateLimitResetRequests }
+        new[] { RateLimitResets, RateLimitResetRequests, "x-ratelimit-reset-tokens" }
             .Select(name => WaitUntilReset(header(name), now))
-            .FirstOrDefault(wait => wait is not null);
+            .Max();
 
     /// <summary>Balances are reported one header per currency, for example <c>x-venice-balance-usd</c>.</summary>
     public static List<ModelBalance> ReadBalances(IEnumerable<KeyValuePair<string, string>> headers) =>

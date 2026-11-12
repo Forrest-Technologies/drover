@@ -221,6 +221,7 @@ public sealed class ResilienceTests
     {
         var services = new ServiceCollection();
         services.AddOpenAICompatibleProvider();
+        services.AddOpenAICompatibleProvider();
         services.AddVeniceProvider();
         using var provider = services.BuildServiceProvider();
 
@@ -234,7 +235,7 @@ public sealed class ResilienceTests
 
     #region Helpers
 
-    private sealed record Built(IModelClientProvider Provider, ModelConnection Connection, IChatClient Client, RecordedHandler? Handler);
+    private sealed record Built(IModelClientProvider Provider, ModelEndpoint Connection, IChatClient Client, RecordedHandler? Handler);
 
     private static Built BuildFromFixture(string fixtureName)
     {
@@ -251,6 +252,7 @@ public sealed class ResilienceTests
 
         if (venice)
         {
+            services.AddOpenAICompatibleProvider();
             services.AddVeniceProvider();
         }
         else
@@ -268,11 +270,11 @@ public sealed class ResilienceTests
 
         var provider = services.BuildServiceProvider().GetRequiredService<IModelClientProvider>();
         var connection = venice
-            ? new ModelConnection(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress)
-            : new ModelConnection(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address);
+            ? new ModelEndpoint(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress)
+            : new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address);
         var client = provider.CreateChatClient(connection, TestKeys.Generate(), "m", new ModelSettings());
 
-        return new Built(provider, connection, client, handler as RecordedHandler);
+        return new Built(provider, connection, new ModelChatClientBridge(client), handler as RecordedHandler);
     }
 
     private static void EagerBreaker(HttpStandardResilienceOptions options)

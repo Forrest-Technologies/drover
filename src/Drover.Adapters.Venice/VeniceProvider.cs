@@ -4,9 +4,9 @@ namespace Drover.Adapters.Venice;
 /// Venice as a named provider. The address is fixed and only an inference key is needed.
 /// Model discovery needs no key, so the model picker works before the key is saved.
 /// </summary>
-public sealed class VeniceProvider(IHttpClientFactory httpClients) : IModelClientProvider
+public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleChatClientBuilder createCompatibleClient, ILogger<VeniceProvider> logger) : IModelClientProvider
 {
-    #region Constants
+    #region Private Fields
 
     public const string ConnectionKind = "venice";
 
@@ -24,45 +24,31 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients) : IModelClien
 
     #region Interface Implementations
 
-    public IChatClient CreateChatClient(ModelConnection connection, string? apiKey, string modelId, ModelSettings settings)
+    public IModelChatClient CreateChatClient(ModelEndpoint connection, string? apiKey, string modelId, ModelSettings settings)
     {
         if (string.IsNullOrEmpty(apiKey))
         {
             throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
         }
 
-        var headers = new VeniceHeaderCapture();
-        var options = new OpenAIClientOptions
-        {
-            Endpoint = BaseAddress,
-            Transport = new HttpClientPipelineTransport(httpClients.CreateClient(HttpClientName)),
-
-            // Retries belong to the resilience handler on the HttpClient, so they are not stacked.
-            RetryPolicy = new ClientRetryPolicy(0),
-        };
-
-        options.AddPolicy(headers, PipelinePosition.PerCall);
-
-        var client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
-
-        return new VeniceChatClient(client.GetChatClient(modelId).AsIChatClient(), modelId, settings, headers);
+        return new VeniceChatClient(createCompatibleClient(new ModelEndpoint(ConnectionKind, BaseAddress), apiKey, modelId), modelId, settings);
     }
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
-        ModelConnection connection,
+        ModelEndpoint connection,
         string? apiKey,
         CancellationToken cancellation)
     {
         using var models = await Get("models?type=text", null, cancellation);
 
         // The trait list only adds the provider's picks. The models are usable without it.
-        var traits = await TryGetTraits(cancellation);
+        using var traits = await TryGetTraits(cancellation);
 
         return VeniceModelCatalog.Parse(models.RootElement, traits?.RootElement);
     }
 
     public async Task<ConnectionTestResult> TestConnection(
-        ModelConnection connection,
+        ModelEndpoint connection,
         string? apiKey,
         CancellationToken cancellation)
     {
@@ -114,8 +100,9 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients) : IModelClien
         {
             return await Get("models/traits?type=text", null, cancellation);
         }
-        catch (ModelProviderException)
+        catch (ModelProviderException failure)
         {
+            logger.LogWarning("Optional Venice model traits unavailable with {Failure}", failure.Failure);
             return null;
         }
     }
@@ -142,9 +129,9 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients) : IModelClien
 
             return await JsonDocument.ParseAsync(body, cancellationToken: cancellation);
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
-            throw ModelProviderException.FromNetwork(exception);
+            throw ModelProviderException.FromNetwork();
         }
         catch (Exception exception) when (VeniceChatClient.TryMap(exception, out var mapped))
         {

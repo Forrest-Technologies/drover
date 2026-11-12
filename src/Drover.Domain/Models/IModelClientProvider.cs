@@ -10,9 +10,9 @@ public interface IModelClientProvider
     string Kind { get; }
 
     /// <summary>Builds a chat client for one model. Provider failures surface as <see cref="ModelProviderException"/>.</summary>
-    IChatClient CreateChatClient(ModelConnection connection, string? apiKey, string modelId, ModelSettings settings);
+    IModelChatClient CreateChatClient(ModelEndpoint connection, string? apiKey, string modelId, ModelSettings settings);
 
-    Task<IReadOnlyList<ModelInfo>> ListModels(ModelConnection connection, string? apiKey, CancellationToken cancellation);
+    Task<IReadOnlyList<ModelInfo>> ListModels(ModelEndpoint connection, string? apiKey, CancellationToken cancellation);
 
-    Task<ConnectionTestResult> TestConnection(ModelConnection connection, string? apiKey, CancellationToken cancellation);
+    Task<ConnectionTestResult> TestConnection(ModelEndpoint connection, string? apiKey, CancellationToken cancellation);
 }

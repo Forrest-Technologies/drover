@@ -1,0 +1,15 @@
+# Every function in schema sys, by name and argument types. A test compares this list with the database catalog.
+# Adding, removing, or changing the signature of a sys function without editing this file fails the build.
+# A new line is a change to the bypass surface: say in the pull request why the function must exist.
+#
+# One function per line:  schema.name(argument types)  # what it is for
+
+sys.current_space()                  # Reads the space id the transaction was opened for
+sys.current_user_id()                # Reads the user id the transaction was opened for
+sys.everyone()                       # The all-zero audience that means every member of the space
+sys.claim_runs(text, integer)        # A worker leases runnable root runs across all spaces; returns ids only
+sys.find_user_for_sign_in(text)      # Sign-in knows an email and no space; returns the user id only
+sys.memberships_for_user()           # After sign-in, before a space is chosen: the spaces of the transaction's own user
+sys.resolve_oauth_state(text)        # An OAuth callback has no tenant; maps the hash of its state to a space and user
+sys.purge_expired(integer)           # Deletes expired OAuth flows and destroyed, unreferenced sandboxes across spaces
+sys.health()                         # Counts for the status page and the first-run check; no tenant data

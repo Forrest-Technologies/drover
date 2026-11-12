@@ -13,11 +13,11 @@ public sealed record WireRequest(string Method, Uri Uri, string Body)
 /// </summary>
 public sealed record ProviderUnderTest(
     IModelClientProvider Provider,
-    ModelConnection Connection,
+    ModelEndpoint Connection,
     string ApiKey,
     string ModelId,
     Func<IReadOnlyList<WireRequest>> SentRequests)
 {
-    public IChatClient CreateChatClient() =>
+    public IModelChatClient CreateChatClient() =>
         Provider.CreateChatClient(Connection, ApiKey, ModelId, new ModelSettings());
 }

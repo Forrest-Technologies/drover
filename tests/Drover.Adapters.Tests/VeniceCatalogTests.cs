@@ -13,6 +13,8 @@ public sealed class VeniceCatalogTests
         var kimi = models.Single(model => model.Id == "kimi-k3");
 
         kimi.DisplayName.Should().Be("Kimi K3");
+        kimi.Pricing.Should().BeEquivalentTo(new ModelPricing { InputPerMillion = 3.75m, OutputPerMillion = 18.75m });
+        kimi.Privacy.Should().Be(PrivacyMode.Private);
         kimi.Capabilities.Should().BeEquivalentTo(new ModelCapabilities
         {
             ContextTokens = 1_000_000,
@@ -23,9 +25,6 @@ public sealed class VeniceCatalogTests
             ReasoningEfforts = ["none", "low", "high", "max"],
             StructuredOutput = true,
             WebSearch = true,
-            InputPricePerMillion = 3.75m,
-            OutputPricePerMillion = 18.75m,
-            Privacy = PrivacyMode.Private,
         });
     }
 
@@ -45,9 +44,9 @@ public sealed class VeniceCatalogTests
     {
         var models = await ListModels();
 
-        models.Single(model => model.Id == "gemini-4-argon").Capabilities.Privacy.Should().Be(PrivacyMode.Anonymized);
-        models.Single(model => model.Id == "kimi-k3").Capabilities.Privacy.Should().Be(PrivacyMode.Private);
-        models.Single(model => model.Id == "e2ee-kimi-k3-p").Capabilities.Privacy.Should().Be(PrivacyMode.Attested);
+        models.Single(model => model.Id == "gemini-4-argon").Privacy.Should().Be(PrivacyMode.Anonymized);
+        models.Single(model => model.Id == "kimi-k3").Privacy.Should().Be(PrivacyMode.Private);
+        models.Single(model => model.Id == "e2ee-kimi-k3-p").Privacy.Should().Be(PrivacyMode.Attested);
     }
 
     #endregion
@@ -77,6 +76,18 @@ public sealed class VeniceCatalogTests
 
         var models = await provider.ListModels(connection, null, TestContext.Current.CancellationToken);
 
+        models.Select(model => model.Id).Should().Equal("m1");
+    }
+
+    [Fact]
+    public async Task Ignores_a_malformed_optional_trait_list()
+    {
+        var provider = ProviderFor("""
+            {"provenance":"hand-written","note":"hand-written: malformed optional traits","exchanges":[
+              {"path":"/models","body":{"data":[{"id":"m1","model_spec":{"name":"One","capabilities":{}}}]}},
+              {"path":"/models/traits","body":[]}]}
+            """);
+        var models = await provider.ListModels(connection, null, TestContext.Current.CancellationToken);
         models.Select(model => model.Id).Should().Equal("m1");
     }
 
@@ -134,7 +145,7 @@ public sealed class VeniceCatalogTests
 
     #region Helpers
 
-    private static readonly ModelConnection connection = new(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress);
+    private static readonly ModelEndpoint connection = new(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress);
 
     private static async Task<IReadOnlyList<ModelInfo>> ListModels()
     {
@@ -144,7 +155,7 @@ public sealed class VeniceCatalogTests
     }
 
     private static VeniceProvider ProviderFor(string fixtureJson) =>
-        new(new FixtureHttpClientFactory(new RecordedHandler(RecordedFixture.Parse(fixtureJson))));
+        ProviderBuilders.Venice(new FixtureHttpClientFactory(new RecordedHandler(RecordedFixture.Parse(fixtureJson))));
 
     #endregion
 }

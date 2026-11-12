@@ -57,8 +57,12 @@ public sealed class RecordedHandler(RecordedFixture fixture) : HttpMessageHandle
 
         var response = new HttpResponseMessage((HttpStatusCode)exchange.Status)
         {
-            Content = new StringContent(exchange.Body, Encoding.UTF8, exchange.ContentType),
+            Content = exchange.ContentType == "text/event-stream"
+                ? new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(exchange.Body))))
+                : new StringContent(exchange.Body, Encoding.UTF8, exchange.ContentType),
         };
+
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(exchange.ContentType);
 
         foreach (var header in exchange.ResolveHeaders(DateTimeOffset.UtcNow))
         {

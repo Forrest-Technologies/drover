@@ -62,8 +62,8 @@ public sealed class VeniceRequestTests
 
     [Theory]
     [InlineData(WebSearchMode.Off, "kimi-k3:include_venice_system_prompt=false")]
-    [InlineData(WebSearchMode.On, "kimi-k3:include_venice_system_prompt=false&enable_web_search=on")]
-    [InlineData(WebSearchMode.Auto, "kimi-k3:include_venice_system_prompt=false&enable_web_search=auto")]
+    [InlineData(WebSearchMode.On, "kimi-k3:include_venice_system_prompt=false&enable_web_search=on&include_search_results_in_stream=true")]
+    [InlineData(WebSearchMode.Automatic, "kimi-k3:include_venice_system_prompt=false&enable_web_search=auto&include_search_results_in_stream=true")]
     public async Task Sends_the_bots_web_search_choice_in_the_model_suffix(WebSearchMode mode, string expectedModel)
     {
         var rig = VeniceRig.Start(ConformanceScenarios.PlainReply);
@@ -71,7 +71,7 @@ public sealed class VeniceRequestTests
             rig.Subject.Connection,
             rig.Subject.ApiKey,
             rig.Subject.ModelId,
-            new ModelSettings(mode));
+            new ModelSettings { WebSearch = mode });
 
         await client.Ask("Say hello.");
 
@@ -150,7 +150,7 @@ public sealed class VeniceRequestTests
     public async Task Ignores_any_address_on_the_connection_because_the_address_is_fixed()
     {
         var rig = VeniceRig.Start(ConformanceScenarios.PlainReply);
-        var elsewhere = new ModelConnection(VeniceProvider.ConnectionKind, new Uri("https://elsewhere.example.test/v1"));
+        var elsewhere = new ModelEndpoint(VeniceProvider.ConnectionKind, new Uri("https://elsewhere.example.test/v1"));
 
         await rig.Subject.Provider
             .CreateChatClient(elsewhere, rig.Subject.ApiKey, rig.Subject.ModelId, new ModelSettings())

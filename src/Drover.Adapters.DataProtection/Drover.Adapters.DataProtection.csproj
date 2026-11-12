@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Data Protection ships in the ASP.NET Core shared framework, so no package is added. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
+    <!-- The ciphertext lives in the secrets table, reached through its repository and the tenant context. -->
+    <ProjectReference Include="..\Drover.Data\Drover.Data.csproj" />
   </ItemGroup>
 </Project>

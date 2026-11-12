@@ -10,8 +10,8 @@ public sealed class FailureMappingTests
     {
         var noResponse = new ClientResultException("no response arrived");
 
-        ErrorMappingChatClient.TryMap(noResponse, out var compatible).Should().BeTrue();
-        VeniceChatClient.TryMap(noResponse, out var venice).Should().BeTrue();
+        ProtocolFailureMapping.TryMap(noResponse, out var compatible).Should().BeTrue();
+        VeniceChatClient.TryMap(compatible, out var venice).Should().BeTrue();
 
         compatible.Failure.Should().Be(ModelFailure.Unreachable);
         venice.Failure.Should().Be(ModelFailure.Unreachable);
@@ -22,7 +22,7 @@ public sealed class FailureMappingTests
     {
         var cut = new HttpIOException(HttpRequestError.ResponseEnded, "the response ended prematurely");
 
-        ErrorMappingChatClient.TryMap(cut, out var compatible).Should().BeTrue();
+        ProtocolFailureMapping.TryMap(cut, out var compatible).Should().BeTrue();
         VeniceChatClient.TryMap(cut, out var venice).Should().BeTrue();
 
         compatible.Failure.Should().Be(ModelFailure.Unreachable);
@@ -34,7 +34,7 @@ public sealed class FailureMappingTests
     {
         var wrapped = new InvalidOperationException("outer", new HttpRequestException("inner"));
 
-        ErrorMappingChatClient.TryMap(wrapped, out var compatible).Should().BeTrue();
+        ProtocolFailureMapping.TryMap(wrapped, out var compatible).Should().BeTrue();
         VeniceChatClient.TryMap(wrapped, out var venice).Should().BeTrue();
 
         compatible.Failure.Should().Be(ModelFailure.Unreachable);
@@ -59,7 +59,7 @@ public sealed class FailureMappingTests
     [Fact]
     public void Leaves_alone_a_failure_it_does_not_know()
     {
-        ErrorMappingChatClient.TryMap(new InvalidOperationException("a bug"), out _).Should().BeFalse();
+        ProtocolFailureMapping.TryMap(new InvalidOperationException("a bug"), out _).Should().BeFalse();
         VeniceChatClient.TryMap(new InvalidOperationException("a bug"), out _).Should().BeFalse();
     }
 
@@ -79,13 +79,13 @@ public sealed class FailureMappingTests
     }
 
     [Fact]
-    public void Prefers_the_header_seen_on_the_live_service_when_both_are_present()
+    public void Waits_for_the_latest_quota_reset_when_multiple_headers_are_present()
     {
         var now = DateTimeOffset.FromUnixTimeMilliseconds(1_794_400_000_000L);
 
         VeniceHeaders.WaitUntilReset(
             header => header == "x-ratelimit-resets" ? "1794400005000" : "1794400099000",
-            now).Should().Be(TimeSpan.FromSeconds(5));
+            now).Should().Be(TimeSpan.FromSeconds(99));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class FailureMappingTests
 
     private static ModelProviderException MapCompatible(Exception exception)
     {
-        ErrorMappingChatClient.TryMap(exception, out var mapped).Should().BeTrue();
+        ProtocolFailureMapping.TryMap(exception, out var mapped).Should().BeTrue();
 
         return mapped;
     }

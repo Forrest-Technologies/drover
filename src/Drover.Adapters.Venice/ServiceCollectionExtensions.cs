@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers the Venice provider. Streaming replies and reasoning models run for minutes, so the timeouts
     /// are wider than the resilience defaults. Retries wait for the provider's own rate-limit reset.
+    /// Register the shared CompatibleChatClientBuilder first with AddOpenAICompatibleProvider in the composition root.
     /// </summary>
     public static IServiceCollection AddVeniceProvider(this IServiceCollection services)
     {

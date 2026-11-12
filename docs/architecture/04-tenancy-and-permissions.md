@@ -23,7 +23,9 @@ The SQL and the EF Core mechanism in this section were run against PostgreSQL 16
 | `drover_app` | Yes | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, owns nothing | Every request and every background job |
 | `drover_system` | No | `BYPASSRLS`, table privileges granted one by one | Owns the functions in schema `sys`. Nobody can log in as it or `SET ROLE` to it. |
 
-`drover_app` has `SELECT, INSERT, UPDATE, DELETE` on tenant tables, `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
+`DatabaseBootstrap` creates the roles and the schema-level grants. It runs before the migrations, over a superuser connection (granting `BYPASSRLS` needs one), holds an advisory lock, and is safe to run again from several servers at once. `drover_owner` is made a member of `drover_system` so that a migration can hand a `sys` function to it. `drover_owner` creates the `sys` schema's functions, so it owns the schema; `drover_app` has `USAGE` on `sys` and on `public`, and `drover_owner` alone has `CREATE`. `PUBLIC` has no privileges on the database, `public`, or `sys`, which also takes away temporary tables.
+
+`drover_app` has `SELECT, INSERT, UPDATE, DELETE` on mutable tenant tables. `audit_log` is append-only: only `SELECT, INSERT` are granted. `threads` permits `UPDATE` only on `id`, `space_id`, `audience_user_id`, `bot_id`, `title`, `origin`, `last_activity_at`, and `archived_at`. No tenant table permits `TRUNCATE`. The isolation suite checks these declared grants independently of the catalog, alongside behavioral isolation checks. The role has `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
 
 ### Policies
 
@@ -83,39 +85,22 @@ User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.cur
 | Table | Policy |
 | --- | --- |
 | `threads` | The two policies above, plus a check constraint `audience_user_id IN (sys.everyone(), owner_user_id)`, and no `UPDATE` privilege on `owner_user_id` for the app role |
-| `spaces` | `id = sys.current_space()` |
-| `memberships` | `space_id = sys.current_space() OR user_id = sys.current_user_id()` for select; space match for writes |
-| `users` | Select own row, or rows of users who are members of the current space. Update own row only. |
+| `spaces` | `id = sys.current_space()`, all commands. A space is created in a transaction whose space is already the new id. |
+| `memberships` | `IsolateBySpace` (space match, all commands), plus a second policy for select only: `user_id = sys.current_user_id()`. Permissive policies combine with OR, so a user lists their own memberships before a space is chosen, and writes need the space. |
+| `users` | Select own row only. Insert and update own row only (`id = sys.current_user_id()`); the app role has no `DELETE` privilege. |
+| `user_profiles` | Self-only insert, update and own reads; no DELETE privilege, because every Identity user requires its profile. A SELECT-only policy additionally exposes profiles of members of the current space, provided the caller is also a member. Only `user_id` and `display_name` live here, never Identity credentials or contact details. |
+| `user_claims`, `user_logins`, `user_tokens` | The rest of the ASP.NET Core Identity tables, renamed. `IsolateByUser`: `user_id = sys.current_user_id()`. No passkey table until passkeys are offered (Phase 2). |
+
 | `audit_log` | Space match; `drover_app` has no `UPDATE` or `DELETE` privilege |
 
-In C# the helper is an extension on `MigrationBuilder`, following the guide's preference for extension builders:
+In C# the helpers are extensions on `MigrationBuilder`, following the guide's preference for extension builders. They live in `Drover.Data.Tenancy`, not in the `Migrations` folder, because `.editorconfig` treats that folder as generated code:
 
 ```csharp
-namespace Drover.Data.Migrations;
-
-public static class RowLevelSecurityExtensions
-{
-    #region Public Methods
-
-    public static MigrationBuilder IsolateBySpace(this MigrationBuilder migration, string table)
-    {
-        migration.Sql($"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;");
-        migration.Sql($"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;");
-        migration.Sql(
-            $"""
-            CREATE POLICY space_isolation ON {table} FOR ALL
-              USING (space_id = sys.current_space())
-              WITH CHECK (space_id = sys.current_space());
-            """);
-        migration.Sql($"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO drover_app;");
-        return migration;
-    }
-
-    #endregion
-}
+public static MigrationBuilder IsolateBySpace(this MigrationBuilder migration, string table, bool audience = false);
+public static MigrationBuilder IsolateByUser(this MigrationBuilder migration, string table);
 ```
 
-`table` is always a compile-time table name from a migration, never user input.
+`IsolateBySpace` enables and forces row-level security, creates `space_isolation`, creates `audience` when asked, and grants `SELECT, INSERT, UPDATE, DELETE` to `drover_app`. `IsolateByUser` does the same with `user_isolation` on `user_id`. `table` is always a compile-time table name from a migration, never user input.
 
 ### Setting the tenant: EF Core and connection pooling
 
@@ -126,7 +111,7 @@ How it is wired:
 1. `TenantContext` is a scoped service holding the space id and user id. It is set once per request by middleware after authentication and membership check, and once per job by the worker. It refuses to change space once set.
 2. `TenantTransactionInterceptor` is an EF Core `DbTransactionInterceptor`. When any transaction starts on the context, it runs the `set_config` statement on that transaction before anything else.
 3. `TenantGuardInterceptor` is a `DbCommandInterceptor` that throws when a command runs with no transaction. Forgetting the transaction is a loud failure in development, and would return zero rows anyway.
-4. `DroverDbContext` is registered with `AddDbContext` (scoped), not `AddDbContextPool`. Pooled contexts share interceptors across scopes; a scoped context gets the interceptor for its own `TenantContext`. Database connections are still pooled by Npgsql.
+4. `DroverDbContext` is registered by `AddDroverData` with `AddDbContext` (scoped), not `AddDbContextPool`. Pooled contexts share interceptors across scopes; a scoped context gets the interceptor for its own `TenantContext`. Database connections are still pooled by Npgsql.
 
 ```csharp
 namespace Drover.Data;
@@ -188,6 +173,8 @@ thread.Title = title;
 await work.Commit(cancellationToken);
 ```
 
+`Begin` returns a `TenantWork`. `Commit` saves the tracked changes and then commits; disposing without committing rolls back and clears all tracked entities, including changes accepted by a prior SaveChanges in the rolled-back transaction. A failed commit is also uncommitted, so disposal clears its tracking before another scope reuses the context. Successful scopes retain tracking. Scopes do not nest. The context also sets `AutoTransactionBehavior.Never`, so `SaveChanges` never opens a transaction of its own: only a `TenantScope` opens one, and a request that touches no tenant data opens none.
+
 API endpoints get this from an endpoint filter that opens the scope before the handler and commits after it, so most handlers contain no transaction code. Streaming endpoints and workers open short scopes themselves.
 
 **Observed with a pool of exactly one connection**, reused for every call:
@@ -211,6 +198,7 @@ Settings that interact, and the decision for each:
 | `No Reset On Close` | Left at the default (reset on) | A second line of defense that costs nothing |
 | External pooler in transaction mode | Compatible | The identity never outlives the transaction |
 | EF Core global query filters on `space_id` | Not used | One mechanism, tested hard. A filter can be bypassed with `IgnoreQueryFilters`; a policy cannot. |
+| `SaveChanges` opening its own transaction | Off (`AutoTransactionBehavior.Never`) | An implicit transaction would start with an empty tenant. Outside a scope the guard throws instead. |
 | Stamping `space_id` on insert | A `SaveChanges` interceptor fills `SpaceId` on new `ISpaceOwned` entities from `TenantContext` | Convenience only. `WITH CHECK` is what enforces it. |
 
 ### Cross-tenant work: the `sys` path
@@ -219,7 +207,7 @@ Some work must look across spaces: claiming jobs, finding a user at sign-in, cle
 
 Rules for a `sys` function:
 
-1. Owned by `drover_system`, `SECURITY DEFINER`, with `SET search_path = pg_catalog, public` pinned.
+1. Owned by `drover_system`, `SECURITY DEFINER`, with `SET search_path = pg_catalog, public, pg_temp` pinned (`pg_temp` last, so a temporary object cannot shadow a table), and every table name in the body schema-qualified.
 2. Does one narrow thing and returns the minimum: ids, not rows. `claim_runs` returns `(run_id, space_id, principal_user_id)`; the worker then opens a normal tenant scope and reads the run under row-level security.
 3. `EXECUTE` revoked from `PUBLIC`, granted to `drover_app`.
 4. Writes one row to `sys.audit`: function, caller, time, row count.
@@ -229,13 +217,15 @@ Initial set:
 
 | Function | Purpose |
 | --- | --- |
-| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces |
+| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree. The lease is 45 seconds. |
 | `sys.claim_due_schedules(limit)` | Phase 1 |
-| `sys.find_user_for_sign_in(email)` | Return the user id and credential fields for one email |
-| `sys.memberships_for_user(user_id)` | Used once after sign-in, before a space is chosen |
+| `sys.find_user_for_sign_in(email)` | Return the user id for one email, compared by its normalized form, and nothing else. The caller then reads the user row in a transaction with `drover.user_id` set to that id, which the `users` policy allows. |
+| `sys.memberships_for_user()` | Used once after sign-in, before a space is chosen. Takes no argument: it answers for `sys.current_user_id()` only, so it can never list another person's spaces. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
 | `sys.resolve_oauth_state(state_hash)` | Map an OAuth callback to its space and user |
-| `sys.purge_expired(limit)` | Delete expired sessions, OAuth flows, and retired rows |
-| `sys.health()` | Counts for the status page: queued runs, oldest lease, no tenant data |
+| `sys.purge_expired(limit)` | Delete expired OAuth flows and destroyed sandboxes that no tool call mentions, at most `limit` of each. Session tables join it when they exist. |
+| `sys.health()` | Counts for the status page and the first-run check: queued, running, and waiting runs, expired leases, the oldest lease, and the number of users. No tenant data. |
+
+`effective_grants(bot_id)` is not a `sys` function: it lives in `public`, runs as the caller under row-level security, and is not on the manifest. `drover_system` is given column-level `SELECT` (and `UPDATE` on `runs` columns) limited to what its functions read, and `DELETE` on `oauth_flows` and `sandboxes`; it has no table-wide `SELECT` anywhere. The bootstrap gives it `USAGE` on `public`; a test lists exactly what it holds. `sys.audit` is written by the functions only.
 
 Observed: `drover_app` calling `sys.claim_runs` received runs from two spaces, while a direct `SELECT` on `runs` in space A's transaction saw only A's.
 
@@ -243,7 +233,9 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 
 ### Isolation test suite
 
-`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). Migrations are applied as `drover_owner`; tests connect as `drover_app`.
+`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). It makes a database of its own, runs `DatabaseBootstrap` with passwords generated for the run, applies migrations as `drover_owner`, and connects as `drover_app`. Roles belong to the server, so two runs against one server at once would reset each other's passwords.
+
+The class of each table comes from the EF Core model: `ISpaceOwned` (with `IAudienceScoped` for an audience), `IUserOwned`, or a line in `src/Drover.Data/GlobalTables.manifest`. `spaces` and `users` are global: their policies are special cases written out in the first migration and covered by `SpecialPolicyTests`. `__EFMigrationsHistory` is global with no entity, and the app role has no privilege on it. The Identity child tables are subclasses (`UserClaim`, `UserLogin`, `UserToken`) so that they can carry `IUserOwned`.
 
 **Catalog tests** read `pg_catalog`, so they cover tables the author forgot about:
 
@@ -251,16 +243,16 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 | --- | --- |
 | Every table has an ownership class | A table in `public` is not `ISpaceOwned`, `IUserOwned`, or listed in `GlobalTables.manifest` |
 | Row-level security is enabled and forced | `relrowsecurity` or `relforcerowsecurity` is false on a classed table |
-| Policies are complete | A classed table lacks a policy covering all commands with both `USING` and `WITH CHECK` |
+| Policies are complete | A classed table lacks a permissive `FOR ALL` policy with both `USING` and `WITH CHECK` that names its discriminator and the matching `sys` function, or, with an audience, a restrictive one for `audience_user_id`. A policy of `USING (true)` fails. |
 | The discriminator is not nullable | `space_id`, `audience_user_id`, or `user_id` allows null on a table of that class |
 | Audience is inherited | A table that references an audience table does not include `audience_user_id` in that foreign key |
 | Foreign keys stay inside a space | A foreign key between two space-owned tables does not include `space_id` |
-| The app role is weak | `drover_app` is superuser, has `BYPASSRLS`, owns any object, or can create in any schema |
-| The bypass surface is known | `sys` functions differ from the manifest |
+| The app role is weak | `drover_app` is superuser, has `BYPASSRLS`, `CREATEDB`, `CREATEROLE`, or `REPLICATION`, owns any object, can create in any schema or temporary tables in the database, or is a member of another role |
+| The bypass surface is known | `sys` functions, as `schema.name(argument types)`, differ from `SystemFunctions.manifest` |
 
 "A new table without a policy fails the build" is the second and third rows. Analyzer `DRV0006` reports the same problem earlier, at compile time, when an entity has a `DbSet` but no ownership interface.
 
-**Behavior tests** run once per table, generated from the EF Core model. Each entity registers a seeder; an entity without one fails a test. For spaces A and B:
+**Behavior tests** run once per table, found from the EF Core model, so a new table joins them without anyone listing it. Each entity that belongs to a space or a user registers a `TableSeeder<TEntity>` that gives the columns of one valid row; the suite sets `space_id`, `audience_user_id`, and `user_id` itself. An entity without a seeder fails `SeederCoverageTests`. Global tables need none. Every check first proves the row it cannot reach exists, so a check cannot pass by looking at an empty table. For spaces A and B:
 
 | Acting as A | Expect |
 | --- | --- |
@@ -271,11 +263,15 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 | Insert a row referencing B's parent row | Foreign key error |
 | Any statement with no tenant set | Zero rows, inserts rejected |
 
-Tables with an audience repeat the pattern with two users in one space: user 2 cannot select, update, or delete user 1's private rows, cannot insert a row addressed to user 1, and cannot give a child row a wider audience than its parent. A catalog test asserts that every child of an audience table carries the audience in its foreign key.
+Tables with an audience repeat the pattern with two users in one space: user 2 cannot select, update, or delete user 1's private rows, cannot insert a row addressed to user 1, and user 1 cannot hand a private row to user 2. A child cannot be inserted or updated to a wider audience than its parent, and sharing the topmost parent shares the child in one statement. A catalog test asserts that every child of an audience table carries the audience in its foreign key. User-owned tables repeat the pattern with two users and no space, and also show that a user's row is theirs in every space they work in.
 
-**Pooling test**: pool size one, alternate tenants across 1,000 transactions including rolled-back and faulted ones, assert no row ever appears for the wrong tenant.
+The real schema has no audience table until step 5, so the audience checks and the parent-reference check also run on a scratch parent and child (`scratch_parent`, `scratch_child`) made in a scratch database with the same migration helper. They are always part of the theory data, so those checks never go unrun.
 
-They run in pull request CI on hosted runners.
+**Scratch tests** break one rule at a time in a scratch database (a copy of a migrated template, dropped after the test) and show the audit or the generated check failing, then passing once the break is corrected: a table with no policy, no class, a policy that ignores the space, a nullable `space_id`, an entity with no seeder, a child foreign key that omits the audience or the space, a `sys` function with no manifest line, and an app role that can create or owns a table.
+
+**Pooling test**: pool size one with `No Reset On Close`, 1,000 transactions alternating seven tenants and four endings (committed, rolled back, failed on the server, refused by a policy). No transaction may see a space it does not belong to, and after each one the connection must hold no tenant setting.
+
+They run in pull request CI on hosted runners. The data test fixture appends its total time, database setup included, to the job summary when `GITHUB_STEP_SUMMARY` is set, and `dotnet test` prints the run duration in the log.
 
 ### How things are scoped
 
@@ -308,7 +304,7 @@ This is computed when a run assembles its tools and again when a tool is called,
 
 Writes are validated too: granting a child an effect above its parent's effective grant is rejected with a clear message ("raise it on Atlas first"). The read-time rule is the guarantee; the write-time rule keeps stored data honest.
 
-A `needs_review` grant counts as `ask` until a human confirms it.
+A `needs_review` grant counts as `ask` until a human confirms it. A bot whose own row (distance 0) is missing from `bot_ancestors` is not in the tree and gets no grants at all.
 
 Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQL function and the C# function are tested against the same table of cases.
 

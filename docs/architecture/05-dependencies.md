@@ -28,7 +28,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 
 Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see the simplicity rule in `AGENTS.md`.
 
-`Microsoft.Extensions.AI` deserves a note. Its abstractions are stable and are themselves a provider-neutral layer, so Drover does not wrap `IChatClient` a second time. `IModelClientProvider` hands the agent runtime an `IChatClient`, and `Drover.Agents` references no adapter, so the abstractions package (`Microsoft.Extensions.AI.Abstractions`, types only, no vendor code) is referenced by `Drover.Domain`, and `IChatClient` appears in `Domain` in that one interface and nowhere else. The packages that talk to a provider (`Microsoft.Extensions.AI.OpenAI` and the official `OpenAI` client under it) are confined to the model provider adapters. Both chat adapters speak the same wire protocol and neither may reference the other, so both reference those two packages. Messages are stored in Drover's own part schema and translated at the adapter.
+`Microsoft.Extensions.AI` stays inside the model SDK adapter and `Drover.Agents`. `IModelClientProvider` returns a Drover-owned `IModelChatClient`; requests, streaming updates, tool declarations, content, usage and citations use Domain records. This is a translation seam, not a replacement for agent sessions, orchestration or tool invocation. A Domain `CompatibleChatClientBuilder` delegate lets Venice compose the shared OpenAI protocol implementation without referencing another adapter. Only `Drover.Adapters.OpenAICompatible` references the OpenAI packages. The shared conversion source is compiled independently inside the two permitted boundary projects.
 
 ## Runtime dependencies
 
@@ -37,10 +37,12 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | ASP.NET Core, Minimal APIs, Identity, Data Protection, OpenAPI | MIT | Microsoft, part of .NET 10 LTS | Server, sign-in, key ring, API description | Direct. The platform. Data Protection sits behind `ISecretVault` only for secret storage. |
 | Entity Framework Core 10 | MIT | Microsoft | Data access, migrations | Direct. The platform. |
 | `Npgsql`, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.x | PostgreSQL License (permissive) | Npgsql team, the standard .NET driver | PostgreSQL driver and provider | Direct. PostgreSQL is a settled decision. |
+| `Microsoft.AspNetCore.OpenApi` | MIT | Microsoft | The OpenAPI description of the endpoints, served at `/openapi/v1.json` | Direct. The platform. |
+| `Microsoft.AspNetCore.Identity.EntityFrameworkCore` | MIT | Microsoft | The Identity stores on EF Core: the `users` table and its children | Direct. The platform. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
-| Microsoft Agent Framework: `Microsoft.Agents.AI`, `.Workflows`, `.Harness`, and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map and the list of experimental APIs in use are in [14-agent-framework.md](14-agent-framework.md). |
-| `Microsoft.Extensions.AI.Abstractions` | MIT | Microsoft, stable | `IChatClient` in the `IModelClientProvider` signature | Direct. It is the neutral layer. Referenced by `Drover.Domain` and the adapters. |
-| `Microsoft.Extensions.AI.OpenAI`, with the official `OpenAI` and `System.ClientModel` packages it brings | MIT | Microsoft and OpenAI, stable. 10.11.0 reads the `reasoning_content` field that Venice and several compatible servers send | Chat clients for the OpenAI protocol | Confined to `Drover.Adapters.OpenAICompatible` and `Drover.Adapters.Venice` |
+| Microsoft Agent Framework: `Microsoft.Agents.AI` 1.28.0 and `.Workflows` 1.28.0 in use; `.Harness` and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map is in [14-agent-framework.md](14-agent-framework.md); the experimental APIs in use are listed below. |
+| `Microsoft.Extensions.AI` 10.11.0 and its abstractions | MIT | Microsoft | Chat types at the agent boundary | Arrives with the framework in `Drover.Agents` and the SDK bridge in `OpenAICompatible`; never referenced by `Domain`. |
+| `Microsoft.Extensions.AI.OpenAI` 10.11.0, official `OpenAI` client and `System.ClientModel` | MIT | Microsoft and OpenAI | Compatible protocol serialization, tools, streaming and reasoning | Referenced only by `Drover.Adapters.OpenAICompatible`. Venice composes its Drover-owned transport delegate. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
 | Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
@@ -53,6 +55,17 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
 | Inter, JetBrains Mono (fonts) | SIL OFL 1.1 | Their respective projects | UI and monospace type, bundled | Assets |
+
+### Experimental APIs in use
+
+Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, by a `NoWarn` with a comment in the project file.
+
+| API | Diagnostic | Where | Why |
+| --- | --- | --- | --- |
+| `Microsoft.Agents.AI.AgentSessionStore` | MAAI001 | `Drover.Agents` (`PostgresAgentSessionStore`), `Drover.Adapters.Tests` | The framework's session store abstraction, implemented on `agent_sessions` |
+| `Microsoft.Agents.AI.AgentSessionStoreKey` | MAAI001 | Same | The key with space and audience partitions |
+
+The tool approval types (`ApprovalRequiredAIFunction`, `ToolApprovalRequestContent`, `ToolApprovalResponseContent`) were experimental when the design was written and are stable in `Microsoft.Extensions.AI` 10.11.0.
 
 Phase 1 and 2 additions, already checked:
 
@@ -72,6 +85,7 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | Dependency | License | Standing | Use |
 | --- | --- | --- | --- |
 | xUnit v3 | Apache-2.0 | xUnit project, active | Test framework |
+| `xunit.v3.extensibility.core` | Apache-2.0 | xunit project, active | Lets `Drover.Adapters.Conformance`, a library of abstract suites, use `[Fact]` without being a test executable (`xunit.v3` refuses a library) |
 | AwesomeAssertions | Apache-2.0 | Community fork, active | Assertions |
 | NSubstitute | BSD-3-Clause | Community, active | Test doubles |
 | Testcontainers, `Testcontainers.PostgreSql` | MIT | Active | Real PostgreSQL in tests |
@@ -79,7 +93,11 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | `Microsoft.AspNetCore.Mvc.Testing` | MIT | Microsoft | API tests |
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |
-| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers` |
+| `Microsoft.EntityFrameworkCore.Design`, `dotnet-ef` | MIT | Microsoft | Generate migrations. The design package is private to `Drover.Data`; the tool is pinned in `dotnet-tools.json`. |
+| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 4.14 for compiler compatibility; `Drover.Data` privately overrides CSharp and CSharp.Workspaces to 5.0.0 for EF Core design tooling |
+| `Microsoft.CodeAnalysis.CSharp.Workspaces` | MIT | Microsoft | Build `Drover.Analyzers.CodeFixes`. Kept out of `Drover.Analyzers` because the compiler hosts analyzers and must not load Workspaces (RS1038) |
+| `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing`, `.CSharp.CodeFix.Testing` | MIT | Microsoft (Roslyn SDK) | Run analyzers and code fixes over source samples in `Drover.Analyzers.Tests`. The xUnit verifier packages are v2 only, so the tests use the default verifier. Samples compile against the running runtime, so nothing is downloaded. They pull in `Microsoft.VisualStudio.Validation`, MIT by URL only, mapped in `licenses/url-mappings.json` |
+| `System.Security.Cryptography.Pkcs` | MIT | Microsoft | Not used directly. Pinned to 10.0.15 because the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities |
 
 ## Considered and rejected
 

@@ -16,8 +16,8 @@ public sealed class OpenAICompatibleTests
             TestContext.Current.CancellationToken);
 
         models.Select(model => model.Id).Should().Equal("local-model", "second-model");
-        models.Should().OnlyContain(model => model.Capabilities == ModelCapabilities.Conservative);
-        ModelCapabilities.Conservative.Should().BeEquivalentTo(new ModelCapabilities { ToolCalling = true });
+        models.Should().OnlyContain(model => model.Capabilities == new ModelCapabilities());
+        new ModelCapabilities().Should().BeEquivalentTo(new ModelCapabilities { ToolCalling = true });
     }
 
     [Fact]

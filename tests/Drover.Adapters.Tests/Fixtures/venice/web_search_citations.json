@@ -1,6 +1,6 @@
 {
   "provenance": "hand-written",
-  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available. venice_parameters.web_search_citations follows the documented response schema. One citation carries a javascript: address on purpose: only web addresses may become links.",
+  "note": "hand-written: official Venice streaming documentation requires include_search_results_in_stream=true; citations may appear on an empty-choices metadata chunk. Sources: https://docs.venice.ai/api-reference/endpoint/chat/model_feature_suffix and https://github.com/veniceai/skills/blob/main/skills/venice-chat/SKILL.md. Not a keyed capture.",
   "exchanges": [
     {
       "method": "POST",
@@ -45,6 +45,10 @@
               "title": "Climate of Paris",
               "url": "https://climate.example.test/paris",
               "content": "Temperate"
+            },
+            null,
+            {
+              "url": 17
             }
           ]
         }
@@ -69,27 +73,7 @@
               },
               "finish_reason": null
             }
-          ],
-          "venice_parameters": {
-            "web_search_citations": [
-              {
-                "title": "Paris weather today",
-                "url": "https://weather.example.test/paris",
-                "content": "Sunny, 21C",
-                "date": "2026-11-11"
-              },
-              {
-                "title": "Not a web page",
-                "url": "javascript:alert(1)",
-                "content": "ignored"
-              },
-              {
-                "title": "Climate of Paris",
-                "url": "https://climate.example.test/paris",
-                "content": "Temperate"
-              }
-            ]
-          }
+          ]
         },
         {
           "id": "chatcmpl-fixture-1",
@@ -118,6 +102,37 @@
               "finish_reason": "stop"
             }
           ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [],
+          "venice_parameters": {
+            "web_search_citations": [
+              {
+                "title": "Paris weather today",
+                "url": "https://weather.example.test/paris",
+                "content": "Sunny, 21C",
+                "date": "2026-11-11"
+              },
+              {
+                "title": "Not a web page",
+                "url": "javascript:alert(1)",
+                "content": "ignored"
+              },
+              {
+                "title": "Climate of Paris",
+                "url": "https://climate.example.test/paris",
+                "content": "Temperate"
+              },
+              null,
+              {
+                "url": 17
+              }
+            ]
+          }
         },
         "[DONE]"
       ]

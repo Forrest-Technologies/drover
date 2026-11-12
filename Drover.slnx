@@ -18,9 +18,14 @@
   <Folder Name="/tests/">
     <Project Path="tests/Drover.Adapters.Conformance/Drover.Adapters.Conformance.csproj" />
     <Project Path="tests/Drover.Adapters.Tests/Drover.Adapters.Tests.csproj" />
+    <Project Path="tests/Drover.Analyzers.Tests/Drover.Analyzers.Tests.csproj" />
+    <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
+    <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
+    <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj" />
     <Project Path="tools/Drover.Analyzers/Drover.Analyzers.csproj" />
   </Folder>
 </Solution>

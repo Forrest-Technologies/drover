@@ -13,6 +13,8 @@ public sealed class ModelProviderException(
 
     public TimeSpan? RetryAfter { get; } = retryAfter;
 
+    public IReadOnlyDictionary<string, string> ResponseHeaders { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     #endregion
 
     #region Public Methods

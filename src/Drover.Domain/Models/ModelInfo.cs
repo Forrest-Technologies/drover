@@ -1,8 +1,9 @@
 namespace Drover.Domain.Models;
 
-/// <summary>One model a connection offers. Traits are the provider's own picks, such as "default" or "default_code".</summary>
-public sealed record ModelInfo(
-    string Id,
-    string DisplayName,
-    ModelCapabilities Capabilities,
-    IReadOnlyList<string> Traits);
+/// <summary>A discovered model, with capabilities, pricing and privacy in Drover's own shape.</summary>
+public sealed record ModelInfo(string Id, string DisplayName, ModelCapabilities Capabilities, IReadOnlyList<string> Traits)
+{
+    public ModelPricing Pricing { get; init; } = new();
+
+    public PrivacyMode Privacy { get; init; } = PrivacyMode.Unknown;
+}

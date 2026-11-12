@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Directory.Build.props already runs both projects as analyzers over this project's own code.
+         The tests also instantiate them, so the same references are switched to reference the output. -->
+    <ProjectReference Update="..\..\tools\Drover.Analyzers\Drover.Analyzers.csproj" ReferenceOutputAssembly="true" />
+    <ProjectReference Update="..\..\tools\Drover.Analyzers.CodeFixes\Drover.Analyzers.CodeFixes.csproj" ReferenceOutputAssembly="true" />
+  </ItemGroup>
+
+</Project>

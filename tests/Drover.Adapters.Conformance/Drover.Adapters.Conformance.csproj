@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Abstract suites. Every adapter for an interface runs its suite from Drover.Adapters.Tests. -->
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="xunit.v3.extensibility.core" />

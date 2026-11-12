@@ -45,7 +45,24 @@
               "delta": {
                 "role": "assistant",
                 "content": "",
-                "reasoning_content": "[Some reasoning content is encrypted]"
+                "reasoning_content": "[Some reasoning "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "content is encrypted]"
               },
               "finish_reason": null
             }

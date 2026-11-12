@@ -6,6 +6,8 @@ namespace Drover.Adapters.Conformance;
 /// </summary>
 public static class ConformanceScenarios
 {
+    #region Properties
+
     public const string ListModels = "list_models";
 
     public const string TestConnection = "test_connection";
@@ -23,4 +25,6 @@ public static class ConformanceScenarios
     public const string RateLimited = "rate_limited";
 
     public const string InvalidKey = "invalid_key";
+
+    #endregion
 }

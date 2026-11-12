@@ -1,0 +1,114 @@
+# docker compose up --build
+# Builds Drover from source and starts it at http://localhost:8080. No file to edit, no secret to type.
+name: drover
+
+x-postgres-image: &postgres-image pgvector/pgvector:0.8.2-pg17-bookworm@sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
+
+services:
+  # Runs once. Creates each database password on the drover-secrets volume if it is not there yet, then exits.
+  # Later starts find the files and change nothing, so `down` then `up` keeps the same secrets.
+  init:
+    image: *postgres-image
+    user: "0:0"
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        umask 077
+        create() {
+          if [ ! -s "/secrets/$$1" ]; then
+            tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 48 > "/secrets/.$$1.new"
+            mv "/secrets/.$$1.new" "/secrets/$$1"
+          fi
+          chown "$$2" "/secrets/$$1"
+          chmod "$$3" "/secrets/$$1"
+        }
+        # Only db and the root initialization command receive these credentials.
+        create postgres_password 999:999 0400
+        create owner_password 0:0 0400
+        create app_password 1654:1654 0400
+        cp /secrets/app_password /app-secrets/app_password
+        chown 1654:1654 /app-secrets/app_password
+        chmod 0400 /app-secrets/app_password
+    volumes:
+      - drover-secrets:/secrets
+      - drover-app-secrets:/app-secrets
+
+  db:
+    image: *postgres-image
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - drover-db:/var/lib/postgresql/data
+      - drover-secrets:/run/secrets:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Over TCP, so it stays unhealthy while the image's first-start setup server (socket only) is running.
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  database-init:
+    build:
+      context: .
+    image: drover:local
+    user: "0:0"
+    restart: "no"
+    command: ["--initialize-database"]
+    environment:
+      Database__Host: db
+      Database__PasswordFile: /run/secrets/postgres_password
+      Database__OwnerPasswordFile: /run/secrets/owner_password
+      Database__AppPasswordFile: /run/secrets/app_password
+    volumes:
+      - drover-secrets:/run/secrets:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  drover:
+    build:
+      context: .
+    image: drover:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      Database__Host: db
+      Database__AppPasswordFile: /run/secrets/app_password
+      DataProtection__KeyPath: /var/lib/drover/keys
+    volumes:
+      - drover-app-secrets:/run/secrets:ro
+      - drover-keys:/var/lib/drover/keys
+      - drover-files:/var/lib/drover/files
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # The runtime image has no curl. This asks /health/ready over a plain socket with bash.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 &&
+          read -r status <&3 &&
+          [[ $$status == *' 200 '* ]]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  drover-db:
+  drover-secrets:
+  drover-app-secrets:
+  drover-keys:
+  drover-files:

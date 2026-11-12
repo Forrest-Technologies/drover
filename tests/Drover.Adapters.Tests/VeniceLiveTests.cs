@@ -14,7 +14,7 @@ public sealed class VeniceLiveTests
 
     private const string KeyVariable = "DROVER_TEST_VENICE_KEY";
 
-    private static readonly ModelConnection connection = new(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress);
+    private static readonly ModelEndpoint connection = new(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress);
 
     #endregion
 
@@ -75,9 +75,9 @@ public sealed class VeniceLiveTests
         var plain = models.First(model => model.Traits.Contains("default")).Id;
         var thinker = models.First(model => model.Traits.Contains("default_reasoning")).Id;
 
-        await Say(provider, plain, new ModelSettings(WebSearchMode.Off), null);
-        await Say(provider, plain, new ModelSettings(WebSearchMode.On), null);
-        await Say(provider, plain, new ModelSettings(WebSearchMode.Auto), null);
+        await Say(provider, plain, new ModelSettings { WebSearch = WebSearchMode.Off }, null);
+        await Say(provider, plain, new ModelSettings { WebSearch = WebSearchMode.On }, null);
+        await Say(provider, plain, new ModelSettings { WebSearch = WebSearchMode.Automatic }, null);
         await Say(provider, thinker, new ModelSettings(), new ReasoningOptions { Effort = ReasoningEffort.None });
         await Say(provider, thinker, new ModelSettings(), new ReasoningOptions { Effort = ReasoningEffort.Low });
     }
@@ -127,9 +127,10 @@ public sealed class VeniceLiveTests
     private static VeniceProvider BuildProvider()
     {
         var services = new ServiceCollection();
+        services.AddOpenAICompatibleProvider();
         services.AddVeniceProvider();
 
-        return new VeniceProvider(services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>());
+        return ProviderBuilders.Venice(services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>());
     }
 
     private static async Task Say(VeniceProvider provider, string modelId, ModelSettings settings, ReasoningOptions? reasoning)

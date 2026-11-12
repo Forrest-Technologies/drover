@@ -24,7 +24,9 @@ public static class ServiceCollectionExtensions
             })
             .SelectPipelineByAuthority();
 
-        services.AddSingleton<IModelClientProvider, OpenAICompatibleProvider>();
+        services.AddSingleton<OpenAICompatibleProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<CompatibleChatClientBuilder>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().CreateProtocolClient);
 
         return services;
     }

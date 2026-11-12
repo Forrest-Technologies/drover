@@ -53,5 +53,80 @@ jobs:
           path: "**/TestResults/**"
           if-no-files-found: ignore
 
-  # The compose job (build the image under a 2 GB memory limit, start it, wait for health)
-  # is added with the compose walking skeleton. Tracked in the Phase 0 tracking issue.
+  compose:
+    name: Compose builds and starts within budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate compose file
+        run: docker compose config --quiet
+      - name: Build image under the memory budget a small VPS has
+        # BuildKit ignores a memory flag on `docker build`, so the budget is set on the builder container
+        # that runs every build step. If a step needs more than 2 GB, the builder is killed and this step fails.
+        run: |
+          docker buildx create --name budget --driver docker-container \
+            --driver-opt memory=2g --driver-opt memory-swap=2g
+          start=$(date +%s)
+          docker buildx build --builder budget --load -t drover:local .
+          build_seconds=$(( $(date +%s) - start ))
+          image_bytes=$(docker image inspect drover:local --format '{{.Size}}')
+          builder=buildx_buildkit_budget0
+          pid=$(docker inspect --format '{{.State.Pid}}' "$builder")
+          cgroup="/sys/fs/cgroup$(cut -d: -f3 "/proc/$pid/cgroup")"
+          peak_bytes=$(cat "$cgroup/memory.peak" 2>/dev/null || echo unavailable)
+          oom_kills=$(awk '$1 == "oom_kill" { print $2 }' "$cgroup/memory.events" 2>/dev/null || echo unavailable)
+          {
+            echo "### Image build"
+            echo "| Measure | Value |"
+            echo "| --- | --- |"
+            echo "| Build time | ${build_seconds} s |"
+            echo "| Image size | ${image_bytes} bytes |"
+            echo "| Peak memory of the 2 GB builder, page cache included | ${peak_bytes} bytes |"
+            echo "| Out-of-memory kills | ${oom_kills} |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Start and wait for health
+        run: |
+          docker compose up -d --wait --wait-timeout 180 --no-build
+          curl --fail --silent --show-error http://localhost:8080/health/ready
+          curl --fail --silent --show-error http://localhost:8080/ | grep --quiet '<title>Drover</title>'
+      - name: The server runs as a non-root user
+        run: |
+          uid=$(docker compose exec -T drover id -u)
+          echo "uid=${uid}"
+          test "${uid}" != "0"
+      - name: The server can read only its application secret
+        run: |
+          docker compose exec -T drover sh -c 'test -r /run/secrets/app_password && test ! -e /run/secrets/postgres_password && test ! -e /run/secrets/owner_password'
+      - name: Secrets survive down and up
+        run: |
+          read_hashes() { docker compose run --rm --no-deps --entrypoint sha256sum database-init /run/secrets/postgres_password /run/secrets/owner_password /run/secrets/app_password; }
+          before=$(read_hashes)
+          docker compose down
+          docker compose up -d --wait --wait-timeout 180 --no-build
+          after=$(read_hashes)
+          test "${before}" = "${after}"
+          curl --fail --silent --show-error http://localhost:8080/health/ready
+      - name: Ready turns unhealthy when the database stops
+        run: |
+          docker compose stop db
+          for _ in $(seq 1 20); do
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8080/health/ready || true)
+            if [ "${code}" = "503" ]; then
+              echo "ready reported 503 with the database stopped"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "ready stayed at ${code} with the database stopped"
+          exit 1
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop
+        if: always()
+        run: docker compose down --volumes

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Drover.Data\Drover.Data.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />
+  </ItemGroup>
+
+  <!-- The two manifests the catalog tests compare with the database. They sit next to the test assembly. -->
+  <ItemGroup>
+    <None Include="SystemFunctions.manifest" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\Drover.Data\GlobalTables.manifest" Link="GlobalTables.manifest" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- The cases the SQL function and the C# rule must agree on. One file, read by both test projects. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\EffectiveGrantCases.cs" Link="Shared\EffectiveGrantCases.cs" />
+    <None Include="..\Shared\effective-grants.cases" Link="effective-grants.cases" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -11,7 +11,7 @@ Every table belongs to exactly one class. The class decides its row-level securi
 | Space-owned | `ISpaceOwned` | `space_id uuid not null` | Row visible and writable only when `space_id` equals the transaction's space |
 | Space-owned with an audience | `ISpaceOwned, IAudienceScoped` | plus `audience_user_id uuid not null` | As above, and the audience is "everyone in the space" or equals the transaction's user |
 | User-owned | `IUserOwned` | `user_id uuid not null` | Row visible only to that user |
-| Global | listed in the isolation manifest | none | App role has no direct access, or read-only reference data |
+| Global | listed in `GlobalTables.manifest` (`src/Drover.Data/`) | none | App role has no direct access, read-only reference data, or a policy written by hand and covered by a named test (`spaces`, `users`) |
 
 Every foreign key between two space-owned tables is composite, `(space_id, x_id)` referencing `(space_id, id)`. A row therefore cannot point at another space's row even if application code tries. Foreign key checks are not subject to row-level security, so this closes a gap the policies alone leave open.
 
@@ -34,9 +34,10 @@ What is shared by the whole space, and has no audience column: bots, grants, con
 
 | Table | Class | Key columns | Notes |
 | --- | --- | --- | --- |
-| `users` | Global, special policy | `id`, `email`, `display_name`, password and passkey fields from ASP.NET Core Identity | A user is visible to themself and to members of the current space. Sign-in lookups go through `sys.find_user_for_sign_in`. |
-| `spaces` | Space-owned (its `id` is the space) | `id`, `kind`, `name`, `slug`, `settings jsonb` | `kind` is `personal` or `shared`. Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
-| `memberships` | Space-owned, readable by own user | `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
+| `users` | Global, special policy | `id`, `email`, password and passkey fields from ASP.NET Core Identity | An authentication row is visible only to its user. Sign-in lookups go through `sys.find_user_for_sign_in`. |
+| `user_profiles` | Global, special policy | `user_id`, `display_name` | Self-only insert and update; no DELETE privilege. A member can read fellow members' profiles in the selected space. `User.DisplayName` delegates to its automatically loaded profile; there is no duplicate display name on `users`. |
+| `spaces` | Global, special policy: `id` is the space, so there is no `space_id` to mark it with | `id`, `kind`, `name`, `slug`, `settings jsonb` | `kind` is `personal` or `shared`. Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
+| `memberships` | Space-owned, readable by own user | `id`, `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
 | `user_sessions`, `push_subscriptions` | User-owned | `user_id`, device fields | A device belongs to a person, not to a space. |
 
 ### Roles
@@ -109,15 +110,15 @@ Notes:
 | `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null` |
 | `messages` | Space-owned with an audience, inherited from the thread | `id`, `thread_id`, `audience_user_id`, `position`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `parts jsonb`, `created_at` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at` |
-| `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq)` |
+| `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq, created_at)`, because PostgreSQL requires the partition column in every unique key |
 | `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
 | `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id`, `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost`, `currency`, `created_at` |
 
 Notes:
 
-- `agent_sessions` (space-owned with an audience, inherited from the thread): `thread_id`, `bot_id`, `state jsonb`, `framework_version`, `updated_at`. The agent framework's serialized session, including any pending approval. Opaque working state: if a framework update cannot read it, it is discarded and the session is rebuilt from `messages`.
-- `workflow_checkpoints` (same class, Phase 1): `run_id`, `checkpoint_id`, `parent_checkpoint_id null`, `state jsonb`, `framework_version`, `created_at`. Team runs resume from the latest one.
-- `messages.parts` is an ordered array of Drover's own part records: `text`, `reasoning`, `image`, `file`, `tool_call`, `tool_result`. This is Drover's schema, defined in `Drover.Contracts`. No vendor message type is ever serialized into it.
+- `agent_sessions` (space-owned with an audience, inherited from the thread): `thread_id`, `bot_id`, `state json`, `framework_version`, `updated_at`. The agent framework's serialized session, including any pending approval. `state` is `json`, not `jsonb`: the framework's polymorphic JSON needs its `"$type"` property kept first, and `jsonb` reorders object keys, which made a stored session fail to deserialize (found by the step 7 spike). The same holds for workflow checkpoints in Phase 1. Opaque working state: if a framework update cannot read it, it is discarded and the session is rebuilt from `messages`.
+- `workflow_checkpoints` (same class, Phase 1): `run_id`, `checkpoint_id`, `parent_checkpoint_id null`, `state json`, `framework_version`, `created_at`. Team runs resume from the latest one.
+- `messages.parts` is an ordered array of Drover's own part records: `text`, `reasoning`, `image`, `file`, `tool_call`, `tool_result`. This is Drover's schema, defined in `Drover.Domain`. No vendor message type is ever serialized into it. A `tool_call` and its `tool_result` carry two ids: `tool_call_id`, the `tool_calls` row, and `call_id`, the id the model gave the call, which pairs call and result when the history is sent back to a model. The row id is derived from the run and the model's call id, so every part of a run finds the same row without a lookup column. Approval requests and responses are not message parts: they are working state, kept in the agent session and in `tool_calls`.
 - `messages.position` orders a thread. It is assigned under a lock on the thread row.
 - `runs.principal_user_id` is the human the run acts for. A child run inherits it unchanged from its parent. Scheduled runs use the schedule's owner.
 - `runs.root_run_id` equals `id` for a root run. `last_event_seq` is used only on the root row.
@@ -126,6 +127,10 @@ Notes:
 - `tool_calls.arguments` and `result` are stored after redaction ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Large results go to a file and the row keeps a preview.
 - A thread is private to its owner by default. Sharing it with the space sets its audience to everyone, and the cascade carries that to its messages, events, and tool calls. A check constraint allows only two audiences for a thread, its owner or everyone, and the app role has no privilege to update `owner_user_id`, so one member cannot take over another's thread.
 - A delegated child run's thread inherits the audience of the root thread.
+- A foreign key to an audience table must carry `audience_user_id` (the isolation suite checks this), so a table with no audience column cannot have one. That is why these are plain `uuid` columns with no foreign key: `runs.thread_id`, `runs.trigger_message_id`, `runs.parent_tool_call_id` (runs are metadata with no audience), `tool_calls.result_file_id`, `model_connections.secret_id`, `sandboxes.access_secret_id`. The application sets them from rows it has just read inside the same space.
+- Sharing a thread is one `UPDATE threads SET audience_user_id = ...`. The audience is part of an alternate key, so EF Core refuses to change it through a tracked entity; the service uses `ExecuteUpdate` or SQL.
+- Settings and value records (`model_settings`, `memory_settings`, `sandbox_settings`, `build_limits`, `avatar`, `usage`, `error`, `capabilities`, `pricing`, `balance`, `oauth`, message `parts`) are records in `Drover.Domain`, stored as snake_case JSON. Message parts are defined in `Drover.Domain`, not `Drover.Contracts`. Open-shaped payloads (`input_schema`, `annotations`, tool `arguments` and `result`, event `data`, session `state`) are plain JSON.
+- Values of the status and kind columns this document does not list elsewhere: `model_connections.auth_kind` is `none`, `api_key`, or `sign_in`; connection `status` is `pending`, `ready`, `failed`, or `disabled`; `tool_connections.transport` is `streamable_http` or `sse`; `trust` is `trusted` or `untrusted`; `protocol_mode` is `automatic`, `stateless_only`, or `session_only`; credential `status` is `active`, `needs_reconnect`, or `expired`; `tools.sensitivity` is `read`, `write`, or `critical`; `bot_schedules.thread_mode` is `new_thread` or `same_thread`; `threads.origin` is `chat`, `schedule`, or `delegation`; `runs.trigger` is `message`, `schedule`, or `delegation`; `tool_calls.status` is `pending_approval`, `approved`, `denied`, `running`, `completed`, `failed`, or `interrupted`; `messages.role` is `system`, `user`, `assistant`, or `tool`. Each is a text column with a check constraint that lists its values.
 
 ## Sandboxes, files, secrets, audit
 
@@ -135,7 +140,7 @@ Notes:
 | `files` | Space-owned with an audience | `id`, `audience_user_id`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `created_by_user_id null`, `created_by_bot_id null` |
 | `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
 | `audit_log` | Space-owned, insert and select only | `id`, `actor_kind`, `actor_id`, `action`, `target_kind`, `target_id`, `data jsonb`, `created_at` |
-| `sys.audit` | Global | One row per call of a cross-tenant function |
+| `sys.audit` | Global, in schema `sys`, outside the model | One row per call of a cross-tenant function: `function_name`, `caller`, `called_at`, `row_count`. Created by the migration, written only by the `sys` functions. The application role has no privilege on it, and no entity maps it. |
 | `data_protection_keys` | Global, no app-role table access outside the key ring store | Key ring when stored in the database |
 
 `sandboxes.state` is `creating`, `running`, `paused`, `retiring`, or `destroyed`.
@@ -148,10 +153,14 @@ Phase 1 adds `memories` (space-owned with an audience, with a `vector` column) a
 | --- | --- |
 | `runs (status, lease_expires_at)` partial on non-terminal statuses | Job claiming and lease recovery |
 | `runs (space_id, root_run_id)` | Subtree cancel, cost roll-up, activity tree |
-| `run_events (space_id, root_run_id, seq)` primary key | Replay from a cursor |
+| `run_events (space_id, root_run_id, seq, created_at)` primary key | Replay from a cursor |
 | `tool_calls (space_id, status)` partial on `pending_approval` | Approval inbox |
 | `messages (space_id, thread_id, position)` unique | Thread paging |
 | `bot_ancestors (space_id, ancestor_bot_id)` and primary key `(space_id, descendant_bot_id, ancestor_bot_id)` | Hierarchy checks both directions |
 | `tools (space_id, tool_connection_id, name)` unique | Catalog upsert |
 
 `run_events` grows fastest. It is range-partitioned by month on `created_at` from the first migration, so old partitions can be detached or dropped without a table rewrite.
+
+The first migration creates fourteen monthly partitions, November 2026 to December 2027, and a default partition that takes any row outside them, so an insert never fails for want of a partition. Creating the next months ahead of time is a maintenance job that does not exist yet. The application role holds privileges on `run_events` only, never on a partition, so every read and write goes through the table's policies. Each partition also has row-level security enabled and forced with no policy, which denies everything if a privilege is ever granted by mistake.
+
+Because the key carries `created_at`, the database does not enforce that `(root_run_id, seq)` is unique. The lock on the root run row does: sequence numbers are only ever given out by the `UPDATE ... RETURNING` in [03-run-lifecycle.md](03-run-lifecycle.md).

@@ -1,4 +1,4 @@
 namespace Drover.Domain.Models;
 
-/// <summary>A remaining balance a provider reported, for example "usd" or "diem".</summary>
+/// <summary>A provider balance snapshot, for example "usd" or "diem". Venice reports the balance before the request.</summary>
 public sealed record ModelBalance(string Currency, decimal Amount);

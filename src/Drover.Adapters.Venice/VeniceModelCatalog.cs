@@ -35,7 +35,11 @@ internal static class VeniceModelCatalog
         var ownTraits = StringArray(spec, "traits");
         var traits = traitsByModel.TryGetValue(id, out var named) ? [.. ownTraits.Union(named)] : ownTraits;
 
-        return new ModelInfo(id, ReadString(spec, "name") ?? id, ToCapabilities(model, spec, capabilities), traits);
+        return new ModelInfo(id, ReadString(spec, "name") ?? id, ToCapabilities(model, spec, capabilities), traits)
+        {
+            Pricing = new ModelPricing { InputPerMillion = ReadPrice(spec, "input"), OutputPerMillion = ReadPrice(spec, "output") },
+            Privacy = ReadPrivacy(ReadString(spec, "privacy"), Flag(capabilities, "supportsTeeAttestation")),
+        };
     }
 
     private static ModelCapabilities ToCapabilities(JsonElement model, JsonElement spec, JsonElement capabilities) =>
@@ -51,9 +55,6 @@ internal static class VeniceModelCatalog
                 : [],
             StructuredOutput = Flag(capabilities, "supportsResponseSchema"),
             WebSearch = Flag(capabilities, "supportsWebSearch"),
-            InputPricePerMillion = ReadPrice(spec, "input"),
-            OutputPricePerMillion = ReadPrice(spec, "output"),
-            Privacy = ReadPrivacy(ReadString(spec, "privacy"), Flag(capabilities, "supportsTeeAttestation")),
         };
 
     private static PrivacyMode ReadPrivacy(string? privacy, bool attested) =>
@@ -69,7 +70,7 @@ internal static class VeniceModelCatalog
     {
         Dictionary<string, List<string>> byModel = [];
 
-        if (traits is not { } root || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+        if (traits is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
         {
             return byModel;
         }

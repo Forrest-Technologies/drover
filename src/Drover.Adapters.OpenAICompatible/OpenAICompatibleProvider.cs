@@ -6,7 +6,7 @@ namespace Drover.Adapters.OpenAICompatible;
 /// </summary>
 public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : IModelClientProvider
 {
-    #region Constants
+    #region Private Fields
 
     public const string ConnectionKind = "openai_compatible";
 
@@ -25,30 +25,20 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
     #region Interface Implementations
 
-    public IChatClient CreateChatClient(ModelConnection connection, string? apiKey, string modelId, ModelSettings settings)
-    {
-        var options = new OpenAIClientOptions
-        {
-            Endpoint = WithTrailingSlash(connection.BaseAddress),
-            Transport = new HttpClientPipelineTransport(httpClients.CreateClient(HttpClientName)),
+    public IModelChatClient CreateChatClient(ModelEndpoint connection, string? apiKey, string modelId, ModelSettings settings) =>
+        new ProtocolChatClient(httpClients.CreateClient(HttpClientName), connection, KeyOrPlaceholder(apiKey), modelId, settings, false);
 
-            // Retries belong to the resilience handler on the HttpClient, so they are not stacked.
-            RetryPolicy = new ClientRetryPolicy(0),
-        };
-
-        var client = new OpenAIClient(new ApiKeyCredential(KeyOrPlaceholder(apiKey)), options);
-
-        return new ErrorMappingChatClient(client.GetChatClient(modelId).AsIChatClient());
-    }
+    public IModelChatClient CreateProtocolClient(ModelEndpoint connection, string? apiKey, string modelId) =>
+        new ProtocolChatClient(httpClients.CreateClient($"drover-{connection.Kind.Replace('_', '-')}"), connection, KeyOrPlaceholder(apiKey), modelId, new ModelSettings(), true);
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
-        ModelConnection connection,
+        ModelEndpoint connection,
         string? apiKey,
         CancellationToken cancellation) =>
         await ReadModels(connection, apiKey, cancellation) ?? [];
 
     public async Task<ConnectionTestResult> TestConnection(
-        ModelConnection connection,
+        ModelEndpoint connection,
         string? apiKey,
         CancellationToken cancellation)
     {
@@ -72,7 +62,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
     /// <summary>Returns null when the endpoint has no model list, which is normal for some servers.</summary>
     private async Task<List<ModelInfo>?> ReadModels(
-        ModelConnection connection,
+        ModelEndpoint connection,
         string? apiKey,
         CancellationToken cancellation)
     {
@@ -95,7 +85,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
             if (!response.IsSuccessStatusCode)
             {
-                var retryAfter = ErrorMappingChatClient.ParseRetryAfter(
+                var retryAfter = ProtocolFailureMapping.ParseRetryAfter(
                     response.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null,
                     DateTimeOffset.UtcNow);
 
@@ -107,11 +97,11 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
             return ParseModels(document.RootElement);
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
-            throw ModelProviderException.FromNetwork(exception);
+            throw ModelProviderException.FromNetwork();
         }
-        catch (Exception exception) when (ErrorMappingChatClient.TryMap(exception, out var mapped))
+        catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
         {
             throw mapped;
         }
@@ -122,7 +112,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
             ? [.. data.EnumerateArray()
                 .Select(model => model.TryGetProperty("id", out var id) ? id.GetString() : null)
                 .OfType<string>()
-                .Select(id => new ModelInfo(id, id, ModelCapabilities.Conservative, []))]
+                .Select(id => new ModelInfo(id, id, new ModelCapabilities(), []))]
             : [];
 
     #endregion

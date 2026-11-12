@@ -19,7 +19,7 @@ public sealed class SolutionLayoutTests
         ["Drover.Adapters.Venice"] = ["Drover.Domain"],
         ["Drover.Adapters.Mcp"] = ["Drover.Domain"],
         ["Drover.Adapters.LocalFiles"] = ["Drover.Domain"],
-        ["Drover.Adapters.DataProtection"] = ["Drover.Domain"],
+        ["Drover.Adapters.DataProtection"] = ["Drover.Domain", "Drover.Data"],
         ["Drover.Client"] = ["Drover.Contracts"],
         ["Drover.Ui"] = ["Drover.Client", "Drover.Contracts"],
         ["Drover.Web"] = ["Drover.Ui"],
@@ -63,6 +63,26 @@ public sealed class SolutionLayoutTests
                 allowedReferences[name],
                 $"{name} may only reference what docs/architecture/01-solution-layout.md allows");
         }
+    }
+
+    [Fact]
+    public void Domain_never_references_model_vendor_packages_even_when_the_code_does_not_use_them()
+    {
+        var references = XDocument.Load(FindSourceProject("Drover.Domain"))
+            .Descendants("PackageReference")
+            .Select(reference => reference.Attribute("Include")?.Value ?? string.Empty);
+        references.Should().NotContain(reference => reference.StartsWith("Microsoft.Extensions.AI", StringComparison.Ordinal)
+            || reference.StartsWith("OpenAI", StringComparison.Ordinal)
+            || reference.StartsWith("Microsoft.Agents", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Only_the_compatible_protocol_adapter_references_the_openai_sdk()
+    {
+        var projects = FindSourceProjects().Where(project => XDocument.Load(project)
+            .Descendants("PackageReference")
+            .Any(reference => reference.Attribute("Include")?.Value is "OpenAI" or "Microsoft.Extensions.AI.OpenAI"));
+        projects.Select(ProjectName).Should().Equal("Drover.Adapters.OpenAICompatible");
     }
 
     [Fact]

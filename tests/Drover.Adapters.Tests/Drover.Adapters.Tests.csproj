@@ -2,22 +2,32 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!--
+      The agent framework proofs use the same experimental framework APIs as Drover.Agents, allowed by the owner's
+      decision to use the framework fully (docs/architecture/14-agent-framework.md, 05-dependencies.md).
+    -->
+    <NoWarn>$(NoWarn);MAAI001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Drover.Adapters.OpenAICompatible\Drover.Adapters.OpenAICompatible.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Data\Drover.Data.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Agents\Drover.Agents.csproj" />
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />
     <ProjectReference Include="..\Drover.Adapters.Conformance\Drover.Adapters.Conformance.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
   </ItemGroup>
 
 </Project>

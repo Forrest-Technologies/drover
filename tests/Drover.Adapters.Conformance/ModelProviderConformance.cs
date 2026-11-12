@@ -7,7 +7,7 @@ namespace Drover.Adapters.Conformance;
 /// </summary>
 public abstract class ModelProviderConformance
 {
-    #region Constants
+    #region Private Fields
 
     public const string GreetingPrompt = "Say hello.";
 
@@ -74,9 +74,9 @@ public abstract class ModelProviderConformance
     {
         var subject = Start(ConformanceScenarios.PlainReply);
 
-        var response = await subject.CreateChatClient().GetResponseAsync(GreetingPrompt);
+        var response = await subject.CreateChatClient().GetResponse(Prompt(GreetingPrompt));
 
-        response.Text.Should().NotBeNullOrWhiteSpace();
+        Text(response.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
         VendorTypesIn(response).Should().BeEmpty("no vendor object may leave the adapter");
     }
 
@@ -85,15 +85,15 @@ public abstract class ModelProviderConformance
     {
         var subject = Start(ConformanceScenarios.Streaming);
 
-        List<ChatResponseUpdate> updates = [];
+        List<ModelChatUpdate> updates = [];
 
-        await foreach (var update in subject.CreateChatClient().GetStreamingResponseAsync(GreetingPrompt))
+        await foreach (var update in subject.CreateChatClient().GetStreamingResponse(Prompt(GreetingPrompt)))
         {
             updates.Add(update);
         }
 
-        updates.Count(update => !string.IsNullOrEmpty(update.Text)).Should().BeGreaterThan(1);
-        updates.ToChatResponse().Text.Should().NotBeNullOrWhiteSpace();
+        updates.Count(update => !string.IsNullOrEmpty(Text(update.Contents))).Should().BeGreaterThan(1);
+        Text(updates.SelectMany(update => update.Contents)).Should().NotBeNullOrWhiteSpace();
         updates.SelectMany(update => VendorTypesIn(update)).Should().BeEmpty("no vendor object may leave the adapter");
     }
 
@@ -102,22 +102,22 @@ public abstract class ModelProviderConformance
     {
         var subject = Start(ConformanceScenarios.ToolCall);
         var client = subject.CreateChatClient();
-        var options = new ChatOptions { Tools = [AIFunctionFactory.Create(GetWeather, "get_weather")] };
-        List<ChatMessage> conversation = [new(ChatRole.User, WeatherPrompt)];
+        var options = new ModelChatOptions { Tools = [new ModelTool("get_weather", "Weather for a city", JsonSerializer.SerializeToElement(new { type = "object", properties = new { city = new { type = "string" } } }))] };
+        List<ModelChatMessage> conversation = [new("user", [new ModelText(WeatherPrompt)])];
 
-        var first = await client.GetResponseAsync(conversation, options);
-        var call = first.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Single();
+        var first = await client.GetResponse(new ModelChatRequest(conversation, options));
+        var call = first.Messages.SelectMany(message => message.Contents).OfType<ModelToolCall>().Single();
 
         call.Name.Should().Be("get_weather");
-        call.Arguments.Should().ContainKey("city");
-        call.Arguments!["city"]!.ToString().Should().Be("Paris");
+        call.Arguments.TryGetProperty("city", out _).Should().BeTrue();
+        call.Arguments.GetProperty("city").GetString().Should().Be("Paris");
 
         conversation.AddRange(first.Messages);
-        conversation.Add(new ChatMessage(ChatRole.Tool, [new FunctionResultContent(call.CallId, "Sunny, 21 degrees")]));
+        conversation.Add(new ModelChatMessage("tool", [new ModelToolResult(call.CallId, JsonSerializer.SerializeToElement("Sunny, 21 degrees"))]));
 
-        var second = await client.GetResponseAsync(conversation, options);
+        var second = await client.GetResponse(new ModelChatRequest(conversation, options));
 
-        second.Text.Should().NotBeNullOrWhiteSpace();
+        Text(second.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
 
         var chats = ChatRequests(subject);
         chats.Should().HaveCount(2);
@@ -140,11 +140,11 @@ public abstract class ModelProviderConformance
         }
 
         var subject = Start(ConformanceScenarios.StructuredOutput);
-        var schema = AIJsonUtilities.CreateJsonSchema(typeof(WeatherReport));
-        var options = new ChatOptions { ResponseFormat = ChatResponseFormat.ForJsonSchema(schema, "weather_report") };
+        var schema = JsonSerializer.SerializeToElement(new { type = "object", properties = new { city = new { type = "string" }, summary = new { type = "string" } } });
+        var options = new ModelChatOptions { ResponseFormat = "json", ResponseSchema = schema, ResponseSchemaName = "weather_report" };
 
-        var response = await subject.CreateChatClient().GetResponseAsync(StructuredPrompt, options);
-        var report = JsonSerializer.Deserialize<WeatherReport>(response.Text, JsonSerializerOptions.Web);
+        var response = await subject.CreateChatClient().GetResponse(Prompt(StructuredPrompt) with { Options = options });
+        var report = JsonSerializer.Deserialize<WeatherReport>(Text(response.Messages.SelectMany(message => message.Contents)), JsonSerializerOptions.Web);
 
         report.Should().NotBeNull();
         report!.City.Should().Be("Paris");
@@ -165,20 +165,20 @@ public abstract class ModelProviderConformance
         var subject = Start(ConformanceScenarios.ReasoningText);
         var client = subject.CreateChatClient();
 
-        var whole = await client.GetResponseAsync(ReasoningPrompt);
+        var whole = await client.GetResponse(Prompt(ReasoningPrompt));
 
         ReasoningText(whole.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
-        whole.Text.Should().NotBeNullOrWhiteSpace();
+        Text(whole.Messages.SelectMany(message => message.Contents)).Should().NotBeNullOrWhiteSpace();
 
-        List<ChatResponseUpdate> updates = [];
+        List<ModelChatUpdate> updates = [];
 
-        await foreach (var update in client.GetStreamingResponseAsync(ReasoningPrompt))
+        await foreach (var update in client.GetStreamingResponse(Prompt(ReasoningPrompt)))
         {
             updates.Add(update);
         }
 
         ReasoningText(updates.SelectMany(update => update.Contents)).Should().NotBeNullOrWhiteSpace();
-        updates.ToChatResponse().Text.Should().NotBeNullOrWhiteSpace();
+        Text(updates.SelectMany(update => update.Contents)).Should().NotBeNullOrWhiteSpace();
     }
 
     #endregion
@@ -191,7 +191,7 @@ public abstract class ModelProviderConformance
         var subject = Start(ConformanceScenarios.RateLimited);
 
         var failure = (await FluentActions
-            .Awaiting(() => subject.CreateChatClient().GetResponseAsync(GreetingPrompt))
+            .Awaiting(() => subject.CreateChatClient().GetResponse(Prompt(GreetingPrompt)))
             .Should().ThrowAsync<ModelProviderException>()).Which;
 
         failure.Failure.Should().Be(ModelFailure.RetryLater);
@@ -206,7 +206,7 @@ public abstract class ModelProviderConformance
         var subject = Start(ConformanceScenarios.RateLimited);
 
         var failure = (await FluentActions
-            .Awaiting(() => Drain(subject.CreateChatClient().GetStreamingResponseAsync(GreetingPrompt)))
+            .Awaiting(() => Drain(subject.CreateChatClient().GetStreamingResponse(Prompt(GreetingPrompt))))
             .Should().ThrowAsync<ModelProviderException>()).Which;
 
         failure.Failure.Should().Be(ModelFailure.RetryLater);
@@ -218,7 +218,7 @@ public abstract class ModelProviderConformance
         var subject = Start(ConformanceScenarios.InvalidKey);
 
         var failure = (await FluentActions
-            .Awaiting(() => subject.CreateChatClient().GetResponseAsync(GreetingPrompt))
+            .Awaiting(() => subject.CreateChatClient().GetResponse(Prompt(GreetingPrompt)))
             .Should().ThrowAsync<ModelProviderException>()).Which;
 
         failure.Failure.Should().Be(ModelFailure.InvalidKey);
@@ -246,19 +246,19 @@ public abstract class ModelProviderConformance
     private static List<WireRequest> ChatRequests(ProviderUnderTest subject) =>
         [.. subject.SentRequests().Where(request => request.Uri.AbsolutePath.EndsWith("/chat/completions"))];
 
-    /// <summary>Raw objects the vendor client attaches to what it returns. There must be none.</summary>
-    private static IEnumerable<object> VendorTypesIn(ChatResponse response) =>
-        new object?[] { response.RawRepresentation }
-            .Concat(response.Messages.Select(message => message.RawRepresentation))
-            .Concat(response.Messages.SelectMany(message => message.Contents).Select(content => content.RawRepresentation))
-            .OfType<object>();
+    private static ModelChatRequest Prompt(string text) => new([new ModelChatMessage("user", [new ModelText(text)])], new ModelChatOptions());
 
-    private static IEnumerable<object> VendorTypesIn(ChatResponseUpdate update) =>
-        new object?[] { update.RawRepresentation }
-            .Concat(update.Contents.Select(content => content.RawRepresentation))
-            .OfType<object>();
+    private static string Text(IEnumerable<ModelContent> contents) => string.Concat(contents.OfType<ModelText>().Select(content => content.Text));
 
-    private static async Task Drain(IAsyncEnumerable<ChatResponseUpdate> updates)
+    /// <summary>Inspects the owned content graph, not just a vendor's optional raw-object slot.</summary>
+    private static IEnumerable<object> VendorTypesIn(ModelChatResponse response) =>
+        response.Messages.SelectMany(message => message.Contents).Where(IsVendor);
+
+    private static IEnumerable<object> VendorTypesIn(ModelChatUpdate update) => update.Contents.Where(IsVendor);
+
+    private static bool IsVendor(object value) => value.GetType().Assembly != typeof(ModelContent).Assembly;
+
+    private static async Task Drain(IAsyncEnumerable<ModelChatUpdate> updates)
     {
         await foreach (var update in updates)
         {
@@ -266,10 +266,8 @@ public abstract class ModelProviderConformance
         }
     }
 
-    private static string ReasoningText(IEnumerable<AIContent> contents) =>
-        string.Concat(contents.OfType<TextReasoningContent>().Select(reasoning => reasoning.Text));
-
-    private static string GetWeather([Description("The city")] string city) => $"Sunny in {city}";
+    private static string ReasoningText(IEnumerable<ModelContent> contents) =>
+        string.Concat(contents.OfType<ModelReasoning>().Select(reasoning => reasoning.Text));
 
     private sealed record WeatherReport(string City, string Summary);
 

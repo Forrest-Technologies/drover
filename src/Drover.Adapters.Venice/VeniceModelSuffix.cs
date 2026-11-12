@@ -11,11 +11,17 @@ internal static class VeniceModelSuffix
     /// <summary>The provider's own system prompt is always switched off: a bot's instructions are fully the user's.</summary>
     public static string Build(string modelId, WebSearchMode webSearch, bool disableThinking)
     {
+        if (string.IsNullOrWhiteSpace(modelId) || modelId.Contains(':') || modelId.Contains('&') || modelId.Contains('='))
+        {
+            throw new ArgumentException("Use a plain model identifier without provider options.", nameof(modelId));
+        }
+
         List<string> options = ["include_venice_system_prompt=false"];
 
         if (WebSearchValue(webSearch) is { } search)
         {
             options.Add($"enable_web_search={search}");
+            options.Add("include_search_results_in_stream=true");
         }
 
         if (disableThinking)
@@ -34,7 +40,7 @@ internal static class VeniceModelSuffix
         mode switch
         {
             WebSearchMode.On => "on",
-            WebSearchMode.Auto => "auto",
+            WebSearchMode.Automatic => "auto",
             _ => null,
         };
 

@@ -1,7 +1,28 @@
 namespace Drover.Adapters.Tests.Support;
 
-/// <summary>Hands every adapter an HttpClient that talks to a recorded fixture.</summary>
+/// <summary>Builds factory-managed clients with a recorded handler instead of a network transport.</summary>
 public sealed class FixtureHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
 {
-    public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    #region Private Fields
+
+    private readonly IHttpClientFactory clients = Build(handler);
+
+    #endregion
+
+    #region Interface Implementations
+
+    public HttpClient CreateClient(string name) => clients.CreateClient(name);
+
+    #endregion
+
+    #region Private Methods
+
+    private static IHttpClientFactory Build(HttpMessageHandler handler)
+    {
+        var services = new ServiceCollection();
+        services.ConfigureHttpClientDefaults(builder => builder.ConfigurePrimaryHttpMessageHandler(() => handler));
+        return services.BuildServiceProvider().GetRequiredService<IHttpClientFactory>();
+    }
+
+    #endregion
 }

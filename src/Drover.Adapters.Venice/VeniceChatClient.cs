@@ -1,16 +1,9 @@
 namespace Drover.Adapters.Venice;
 
-/// <summary>
-/// Wraps the compatible chat client with what is particular to Venice: the model suffix, the reasoning
-/// placeholder, web-search citations, balance headers, and failures in Drover's terms.
-/// </summary>
-internal sealed class VeniceChatClient(
-    IChatClient inner,
-    string modelId,
-    ModelSettings settings,
-    VeniceHeaderCapture headers) : DelegatingChatClient(inner)
+/// <summary>Venice request policy and response metadata over the shared, Drover-owned protocol seam.</summary>
+internal sealed class VeniceChatClient(IModelChatClient inner, string modelId, ModelSettings settings) : IModelChatClient
 {
-    #region Constants
+    #region Private Fields
 
     private const string EncryptedReasoningPlaceholder = "[Some reasoning content is encrypted]";
 
@@ -18,270 +11,165 @@ internal sealed class VeniceChatClient(
 
     #region Interface Implementations
 
-    public override async Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
+    public async Task<ModelChatResponse> GetResponse(ModelChatRequest request, CancellationToken cancellation = default)
     {
         try
         {
-            var response = await base.GetResponseAsync(messages, ShapeOptions(options), cancellationToken);
+            var response = await inner.GetResponse(ShapeRequest(request), cancellation);
+            var messages = response.Messages.Select(message => message with { Contents = MapContents(message.Contents) }).ToList();
+            if (messages.Count > 0)
+            {
+                var last = messages[^1];
+                messages[^1] = last with { Contents = AddCitations(last.Contents, response.ProviderData) };
+            }
 
-            MapResponse(response);
-            StripVendorTypes(response);
-
-            return response;
+            return response with { Messages = messages, Balances = VeniceHeaders.ReadBalances(response.Headers), ProviderData = null };
         }
-        catch (Exception exception) when (TryMap(exception, out var mapped))
+        catch (ModelProviderException failure)
         {
-            throw mapped;
+            throw WithReset(failure);
         }
     }
 
-    public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<ModelChatUpdate> GetStreamingResponse(ModelChatRequest request, [EnumeratorCancellation] CancellationToken cancellation = default)
     {
-        await using var updates = base.GetStreamingResponseAsync(messages, ShapeOptions(options), cancellationToken)
-            .GetAsyncEnumerator(cancellationToken);
-
+        await using var updates = inner.GetStreamingResponse(ShapeRequest(request), cancellation).GetAsyncEnumerator(cancellation);
         var balancesReported = false;
-
+        var reasoningBuffer = string.Empty;
         while (true)
         {
-            bool hasNext;
-
+            var hasNext = false;
             try
             {
                 hasNext = await updates.MoveNextAsync();
             }
-            catch (Exception exception) when (TryMap(exception, out var mapped))
+            catch (ModelProviderException failure)
             {
-                throw mapped;
+                throw WithReset(failure);
             }
 
             if (!hasNext)
             {
+                if (reasoningBuffer.Length > 0)
+                {
+                    yield return new ModelChatUpdate([new ModelReasoning(reasoningBuffer)]);
+                }
+
                 yield break;
             }
 
             var update = updates.Current;
-
-            MapUpdate(update);
-            StripVendorTypes(update);
-
-            if (!balancesReported && headers.Balances.Count > 0)
+            List<ModelContent> contents = [];
+            foreach (var content in update.Contents)
             {
-                update.AdditionalProperties ??= [];
-                update.AdditionalProperties[ModelResponseKeys.Balances] = headers.Balances;
-                balancesReported = true;
+                if (content is ModelReasoning reasoning)
+                {
+                    reasoningBuffer = $"{reasoningBuffer}{reasoning.Text}";
+                    if (reasoningBuffer == EncryptedReasoningPlaceholder)
+                    {
+                        contents.Add(new ModelReasoning(string.Empty, true));
+                        reasoningBuffer = string.Empty;
+                    }
+                    else if (!EncryptedReasoningPlaceholder.StartsWith(reasoningBuffer, StringComparison.Ordinal))
+                    {
+                        contents.Add(new ModelReasoning(reasoningBuffer));
+                        reasoningBuffer = string.Empty;
+                    }
+                }
+                else
+                {
+                    contents.Add(content);
+                }
             }
 
-            yield return update;
+            var balances = balancesReported ? [] : VeniceHeaders.ReadBalances(update.Headers);
+            balancesReported |= balances.Count > 0;
+            yield return update with { Contents = AddCitations(contents, update.ProviderData), Balances = balances, ProviderData = null };
         }
     }
+
+    public void Dispose() => inner.Dispose();
 
     #endregion
 
-    #region Request Shaping
+    #region Private Methods
 
-    /// <summary>
-    /// Puts the provider options in the model name. The neutral reasoning setting "none" becomes the
-    /// documented switch that turns thinking off; every other effort is sent as the standard field.
-    /// </summary>
-    private ChatOptions ShapeOptions(ChatOptions? options)
+    private ModelChatRequest ShapeRequest(ModelChatRequest request)
     {
-        var shaped = options?.Clone() ?? new ChatOptions();
-        var disableThinking = shaped.Reasoning?.Effort == ReasoningEffort.None;
-
-        if (disableThinking)
+        var disableThinking = string.Equals(request.Options.ReasoningEffort ?? settings.ReasoningEffort, "None", StringComparison.OrdinalIgnoreCase);
+        return request with
         {
-            shaped.Reasoning = null;
-        }
-
-        shaped.ModelId = VeniceModelSuffix.Build(shaped.ModelId ?? modelId, settings.WebSearch, disableThinking);
-
-        return shaped;
-    }
-
-    #endregion
-
-    #region Response Mapping
-
-    private void MapResponse(ChatResponse response)
-    {
-        var contents = response.Messages.SelectMany(message => message.Contents).ToList();
-
-        MarkEncryptedReasoning(contents);
-
-        if (response.RawRepresentation is ChatCompletion completion)
-        {
-            AddCitations(response.Messages.LastOrDefault()?.Contents, ReadCitations(completion));
-        }
-
-        if (headers.Balances.Count > 0)
-        {
-            response.AdditionalProperties ??= [];
-            response.AdditionalProperties[ModelResponseKeys.Balances] = headers.Balances;
-        }
-    }
-
-    private static void MapUpdate(ChatResponseUpdate update)
-    {
-        MarkEncryptedReasoning(update.Contents);
-
-        if (update.RawRepresentation is StreamingChatCompletionUpdate chunk)
-        {
-            AddCitations(update.Contents, ReadCitations(chunk));
-        }
-    }
-
-    /// <summary>Models that hide their thinking send a fixed placeholder. That is "not available", not text.</summary>
-    private static void MarkEncryptedReasoning(IEnumerable<AIContent> contents)
-    {
-        foreach (var reasoning in contents.OfType<TextReasoningContent>())
-        {
-            if (reasoning.Text?.Trim() == EncryptedReasoningPlaceholder)
+            Options = request.Options with
             {
-                reasoning.Text = string.Empty;
-                reasoning.AdditionalProperties ??= [];
-                reasoning.AdditionalProperties[ModelResponseKeys.ReasoningNotAvailable] = true;
-            }
-        }
+                ModelId = VeniceModelSuffix.Build(request.Options.ModelId ?? modelId, settings.WebSearch, disableThinking),
+                ReasoningEffort = disableThinking ? null : request.Options.ReasoningEffort ?? settings.ReasoningEffort,
+                Temperature = request.Options.Temperature ?? (float?)settings.Temperature,
+                MaxOutputTokens = request.Options.MaxOutputTokens ?? settings.MaxOutputTokens,
+            },
+        };
     }
 
-    private static void AddCitations(IList<AIContent>? contents, List<CitationAnnotation> citations)
+    private static IReadOnlyList<ModelContent> MapContents(IReadOnlyList<ModelContent> contents) =>
+        [.. contents.Select(content => content is ModelReasoning reasoning && reasoning.Text.Trim() == EncryptedReasoningPlaceholder
+            ? new ModelReasoning(string.Empty, true)
+            : content)];
+
+    private static IReadOnlyList<ModelContent> AddCitations(IReadOnlyList<ModelContent> contents, JsonElement? data)
     {
-        if (contents is not null && citations.Count > 0)
+        if (data is not { ValueKind: JsonValueKind.Object } root
+            || !root.TryGetProperty("venice_parameters", out var parameters)
+            || parameters.ValueKind != JsonValueKind.Object
+            || !parameters.TryGetProperty("web_search_citations", out var citations)
+            || citations.ValueKind != JsonValueKind.Array)
         {
-            contents.Add(new TextContent(string.Empty) { Annotations = [.. citations] });
-        }
-    }
-
-    // The raw model keeps fields the typed API does not know. JsonPatch is the only way to read them,
-    // and it is marked experimental; the tests that read recorded responses guard against a change.
-#pragma warning disable SCME0001
-    private static List<CitationAnnotation> ReadCitations(ChatCompletion completion) =>
-        ParseCitations(completion.Patch.TryGetJson("$.venice_parameters.web_search_citations"u8, out var json)
-            ? json
-            : default);
-
-    private static List<CitationAnnotation> ReadCitations(StreamingChatCompletionUpdate chunk) =>
-        ParseCitations(chunk.Patch.TryGetJson("$.venice_parameters.web_search_citations"u8, out var json)
-            ? json
-            : default);
-#pragma warning restore SCME0001
-
-    /// <summary>Citations are untrusted text. Only web addresses become links.</summary>
-    private static List<CitationAnnotation> ParseCitations(ReadOnlyMemory<byte> json)
-    {
-        if (json.IsEmpty)
-        {
-            return [];
+            return contents;
         }
 
-        using var document = JsonDocument.Parse(json);
-
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        List<ModelCitation> links = [];
+        foreach (var citation in citations.EnumerateArray())
         {
-            return [];
-        }
-
-        List<CitationAnnotation> citations = [];
-
-        foreach (var citation in document.RootElement.EnumerateArray())
-        {
-            var address = citation.TryGetProperty("url", out var url) ? url.GetString() : null;
-
-            if (Uri.TryCreate(address, UriKind.Absolute, out var link) && link.Scheme is "http" or "https")
+            if (citation.ValueKind == JsonValueKind.Object
+                && citation.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+                && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var link) && link.Scheme is "http" or "https")
             {
-                var title = citation.TryGetProperty("title", out var name) ? name.GetString() : null;
-
-                citations.Add(new CitationAnnotation { Title = title, Url = link });
+                var title = citation.TryGetProperty("title", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : null;
+                links.Add(new ModelCitation(title, link));
             }
         }
 
-        return citations;
+        return links.Count > 0 ? [.. contents, new ModelText(string.Empty) { Citations = links }] : contents;
     }
 
-    #endregion
+    private static ModelProviderException WithReset(ModelProviderException failure) =>
+        new(failure.Failure, failure.Message, VeniceHeaders.WaitUntilReset(name => failure.ResponseHeaders.GetValueOrDefault(name), DateTimeOffset.UtcNow) ?? failure.RetryAfter);
 
-    #region Failure Mapping
-
-    /// <summary>
-    /// Finds the failure Drover understands anywhere in the exception chain. The vendor's own exception is not
-    /// kept as the inner exception, so no vendor type leaves the adapter.
-    /// </summary>
     internal static bool TryMap(Exception exception, out ModelProviderException mapped)
     {
+        if (exception is OperationCanceledException)
+        {
+            mapped = null!;
+            return false;
+        }
+
         for (var current = exception; current is not null; current = current.InnerException)
         {
-            var found = Describe(current);
-
+            var found = current switch
+            {
+                ModelProviderException failure => WithReset(failure),
+                BrokenCircuitException => ModelProviderException.FromCircuitOpen(),
+                TimeoutRejectedException => ModelProviderException.FromTimeout(),
+                HttpRequestException or HttpIOException => ModelProviderException.FromNetwork(),
+                _ => null,
+            };
             if (found is not null)
             {
                 mapped = found;
-
                 return true;
             }
         }
 
         mapped = null!;
-
         return false;
-    }
-
-    private static ModelProviderException? Describe(Exception exception) =>
-        exception switch
-        {
-            ClientResultException failure => ModelProviderException.FromStatus(failure.Status, ReadWait(failure)),
-            BrokenCircuitException => ModelProviderException.FromCircuitOpen(),
-            TimeoutRejectedException => ModelProviderException.FromTimeout(),
-            HttpRequestException or HttpIOException => ModelProviderException.FromNetwork(exception),
-            _ => null,
-        };
-
-    private static TimeSpan? ReadWait(ClientResultException failure) =>
-        failure.GetRawResponse() is { } response
-            ? VeniceHeaders.WaitUntilReset(
-                name => response.Headers.TryGetValue(name, out var value) ? value : null,
-                DateTimeOffset.UtcNow)
-            : null;
-
-    #endregion
-
-    #region Vendor Types
-
-    // The vendor client attaches its own objects to everything it returns. Nothing past this project may see them.
-    private static void StripVendorTypes(ChatResponse response)
-    {
-        response.RawRepresentation = null;
-
-        foreach (var message in response.Messages)
-        {
-            StripVendorTypes(message.Contents);
-            message.RawRepresentation = null;
-        }
-    }
-
-    private static void StripVendorTypes(ChatResponseUpdate update)
-    {
-        update.RawRepresentation = null;
-        StripVendorTypes(update.Contents);
-    }
-
-    private static void StripVendorTypes(IList<AIContent> contents)
-    {
-        foreach (var content in contents)
-        {
-            content.RawRepresentation = null;
-
-            foreach (var annotation in content.Annotations ?? [])
-            {
-                annotation.RawRepresentation = null;
-            }
-        }
     }
 
     #endregion
