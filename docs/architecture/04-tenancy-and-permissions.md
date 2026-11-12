@@ -87,10 +87,10 @@ User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.cur
 | `threads` | The two policies above, plus a check constraint `audience_user_id IN (sys.everyone(), owner_user_id)`, and no `UPDATE` privilege on `owner_user_id` for the app role |
 | `spaces` | `id = sys.current_space()`, all commands. A space is created in a transaction whose space is already the new id. |
 | `memberships` | `IsolateBySpace` (space match, all commands), plus a second policy for select only: `user_id = sys.current_user_id()`. Permissive policies combine with OR, so a user lists their own memberships before a space is chosen, and writes need the space. |
-| `users` | Select own row, or rows of users who are members of the current space. Insert and update own row only (`id = sys.current_user_id()`); the app role has no `DELETE` privilege. |
+| `users` | Select own row only. Insert and update own row only (`id = sys.current_user_id()`); the app role has no `DELETE` privilege. |
+| `user_profiles` | Self-only insert, update and own reads; no DELETE privilege, because every Identity user requires its profile. A SELECT-only policy additionally exposes profiles of members of the current space, provided the caller is also a member. Only `user_id` and `display_name` live here, never Identity credentials or contact details. |
 | `user_claims`, `user_logins`, `user_tokens` | The rest of the ASP.NET Core Identity tables, renamed. `IsolateByUser`: `user_id = sys.current_user_id()`. No passkey table until passkeys are offered (Phase 2). |
 
-Open point for the step that builds sign-in: the `users` policy lets a member of a shared space select the whole row of a fellow member, and the row includes `password_hash` and `security_stamp`. Row-level security cannot hide columns. Before shared spaces get a UI (Phase 2), either move the credential columns to a user-owned table or restrict the app role to a column list that the Identity stores can live with.
 | `audit_log` | Space match; `drover_app` has no `UPDATE` or `DELETE` privilege |
 
 In C# the helpers are extensions on `MigrationBuilder`, following the guide's preference for extension builders. They live in `Drover.Data.Tenancy`, not in the `Migrations` folder, because `.editorconfig` treats that folder as generated code:
@@ -173,7 +173,7 @@ thread.Title = title;
 await work.Commit(cancellationToken);
 ```
 
-`Begin` returns a `TenantWork`. `Commit` saves the tracked changes and then commits; disposing without committing rolls back. Scopes do not nest. The context also sets `AutoTransactionBehavior.Never`, so `SaveChanges` never opens a transaction of its own: only a `TenantScope` opens one, and a request that touches no tenant data opens none.
+`Begin` returns a `TenantWork`. `Commit` saves the tracked changes and then commits; disposing without committing rolls back and clears all tracked entities, including changes accepted by a prior SaveChanges in the rolled-back transaction. A failed commit is also uncommitted, so disposal clears its tracking before another scope reuses the context. Successful scopes retain tracking. Scopes do not nest. The context also sets `AutoTransactionBehavior.Never`, so `SaveChanges` never opens a transaction of its own: only a `TenantScope` opens one, and a request that touches no tenant data opens none.
 
 API endpoints get this from an endpoint filter that opens the scope before the handler and commits after it, so most handlers contain no transaction code. Streaming endpoints and workers open short scopes themselves.
 
