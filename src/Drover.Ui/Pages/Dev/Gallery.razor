@@ -71,6 +71,18 @@ else
             <EmptyState Title="No model yet" Cause="A bot needs a model to answer. None is connected." ActionLabel="Connect a model" ActionHref="/dev/gallery" />
         </GallerySection>
 
+        <GallerySection Title="Dialog, sheet, menu, tooltip, toast" Note="Escape closes each one and focus returns to the control that opened it.">
+            <OverlaySamples />
+        </GallerySection>
+
+        <GallerySection Title="Markdown" Note="Bot messages render through this. Raw HTML is dropped and a remote image waits for a click.">
+            <MarkdownView Text="@markdown" />
+        </GallerySection>
+
+        <GallerySection Title="Code block">
+            <CodeBlock Code="@command" Language="bash" />
+        </GallerySection>
+
         <GallerySection Title="Live states" Note="The four things that move. Each runs only while the work it reports is in progress; here they are held on as samples.">
             <div class="dv-gallery-state">
                 <span class="dv-gallery-dot dv-state-thinking"></span>
@@ -89,12 +101,31 @@ else
             </div>
         </GallerySection>
     </main>
+
+    <ToastHost />
 }
 
 @code {
     private static readonly TabItem[] tabs = [new("model", "Model"), new("tools", "Tools"), new("memory", "Memory")];
 
     private static readonly SegmentOption<string>[] access = [new("off", "Off"), new("ask", "Ask"), new("allow", "Allow")];
+
+    private const string markdown = """
+        ### Sample answer
+
+        A bot message with **bold**, `inline code`, and a [link](https://example.org).
+
+        - [x] Read the page
+        - [ ] Draft a reply
+
+        | Step | Result |
+        | --- | --- |
+        | Fetch | Done |
+
+        ![A sample image](https://example.org/sample.png)
+        """;
+
+    private const string command = "docker compose up --build";
 
     private string address = string.Empty;
 

@@ -52,6 +52,7 @@ public sealed class GalleryTests : BunitContext
     private IRenderedComponent<Gallery> RenderGallery(bool isDevelopment)
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
+        Services.AddDroverUi();
         Services.AddSingleton(new UiEnvironment(isDevelopment));
         return Render<Gallery>();
     }
