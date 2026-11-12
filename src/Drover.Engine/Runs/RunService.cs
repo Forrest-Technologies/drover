@@ -34,6 +34,8 @@ public sealed class RunService(
     TenantScope scope,
     RunSignal signal,
     RunEventHub hub,
+    UserSignalHub signals,
+    TenantContext tenant,
     TimeProvider time,
     ILogger<RunService> logger)
 {
@@ -113,6 +115,7 @@ public sealed class RunService(
 
         hub.Publish(run.RootRunId, appended);
         signal.Wake();
+        Tell(run, UserSignalKinds.ThreadChanged);
         logger.LogInformation("Message {MessageId} stored for thread {ThreadId}; run {RunId} answers it", message.Id, threadId, run.Id);
         return new MessagePost(message, run);
     }
@@ -176,9 +179,15 @@ public sealed class RunService(
         signal.Wake();
         hub.Publish(run.RootRunId, appended);
 
+        if (appended.Count > 0)
+        {
+            Tell(run, UserSignalKinds.RunFinished);
+        }
+
         if (next is not null)
         {
             hub.Publish(next.Run.RootRunId, next.Events);
+            Tell(next.Run, UserSignalKinds.ThreadChanged);
         }
 
         logger.LogInformation("Cancel requested for run {RunId}; status is now {Status}", runId, run.Status);
@@ -188,6 +197,15 @@ public sealed class RunService(
     #endregion
 
     #region Private Methods
+
+    /// <summary>Hints to the run's own person, on any of their screens, that the thread changed.</summary>
+    private void Tell(Run run, string kind)
+    {
+        if (tenant.SpaceId is { } spaceId)
+        {
+            signals.Publish(spaceId, run.PrincipalUserId, new UserSignal(kind, run.ThreadId, run.Id));
+        }
+    }
 
     private Message NewUserMessage(string text, Guid userId) => new()
     {

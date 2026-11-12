@@ -14,6 +14,7 @@ public sealed class RunExecutor(
     IEnumerable<BuiltinTool> builtins,
     RunEventHub hub,
     RunSignal signal,
+    UserSignalHub signals,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
@@ -154,6 +155,8 @@ public sealed class RunExecutor(
                 hub.Publish(next.Run.RootRunId, next.Events);
             }
         }
+
+        signals.Publish(run.SpaceId, run.PrincipalUserId, new UserSignal(UserSignalKinds.RunFinished, run.ThreadId, run.Id));
 
         logger.LogWarning("Run {RunId} ended as {Status} before it could start", run.Id, status);
     }
@@ -620,10 +623,18 @@ public sealed class RunExecutor(
         if (next is not null)
         {
             hub.Publish(next.Run.RootRunId, next.Events);
+            signals.Publish(next.Run.SpaceId, next.Run.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, next.Run.ThreadId, next.Run.Id));
         }
 
         // A slot is free and the thread can take its next message.
         signal.Wake();
+        signals.Publish(
+            session.Tenant.SpaceId,
+            session.Tenant.UserId,
+            new UserSignal(
+                status is RunStatus.Waiting ? UserSignalKinds.ApprovalWaiting : UserSignalKinds.RunFinished,
+                session.Thread.Id,
+                session.RunId));
     }
 
     /// <summary>

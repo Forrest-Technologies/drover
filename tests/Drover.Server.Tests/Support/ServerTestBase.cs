@@ -14,6 +14,8 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     private DroverFactory factory = null!; // set first thing in InitializeAsync
 
+    private ServerRelay? relay;
+
     #endregion
 
     #region Properties
@@ -46,6 +48,34 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     {
         database = await postgres.CreateDatabase();
         factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices);
+    }
+
+    /// <summary>
+    /// Stops the server as a deployment would and starts a new one over the same database and key ring. Clients made
+    /// before the restart belong to the old server; a relay made with <see cref="NewRelay"/> follows the new one.
+    /// </summary>
+    protected async Task RestartServer()
+    {
+        relay?.Detach();
+        await factory.DisposeAsync();
+        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices);
+        _ = factory.Services;
+        relay?.Attach(factory.Server.CreateHandler());
+    }
+
+    /// <summary>
+    /// An HTTP client for code under test (the typed API client), signed in as the person <paramref name="signedIn"/>
+    /// is. It reaches whichever server is running now, and fails like a dead network while none is.
+    /// </summary>
+    protected HttpClient NewRelay(ApiClient signedIn)
+    {
+        relay = new ServerRelay(signedIn);
+        relay.Attach(factory.Server.CreateHandler());
+
+        // The banned constructor guards outbound calls in the product. This client reaches only the in-process test server.
+#pragma warning disable RS0030
+        return new HttpClient(relay) { BaseAddress = new Uri("https://localhost/") };
+#pragma warning restore RS0030
     }
 
     public async ValueTask DisposeAsync()

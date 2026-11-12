@@ -26,6 +26,7 @@ public static class SpaceEndpoints
         root.MapBotEndpoints();
         root.MapThreadEndpoints();
         root.MapRunEndpoints();
+        root.MapRunStreamEndpoints();
         return api;
     }
 
