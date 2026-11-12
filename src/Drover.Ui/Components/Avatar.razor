@@ -1,44 +1,98 @@
 <span class="dv-avatar dv-avatar-@Size dv-hue-@(HueStep)" role="img" aria-label="@AccessibleName">
-    <span class="dv-avatar-ring @(State is AvatarState.Thinking ? "dv-state-thinking" : null)" aria-hidden="true"></span>
     @if (ImageUrl is not null)
     {
         <img class="dv-avatar-image" src="@ImageUrl" alt="" width="@Size" height="@Size" />
     }
     else
     {
-        <span class="dv-avatar-initials" aria-hidden="true">@Initials</span>
+        <svg class="dv-character" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+            <defs>
+                <clipPath id="@($"{id}-head")"><path d="@Look.Head" /></clipPath>
+                <clipPath id="@($"{id}-inner")"><path d="@Look.Head" transform="translate(32 32) scale(0.8) translate(-32 -32)" /></clipPath>
+                <clipPath id="@($"{id}-visor")">@((MarkupString)Look.Visor)</clipPath>
+            </defs>
+            <g transform="rotate(@Look.Tilt 32 36)">
+                @if (ShowsDetail)
+                {
+                    <g class="dv-character-top">@((MarkupString)Look.Top)</g>
+                }
+                <path class="dv-character-head" d="@Look.Head" />
+                <g clip-path="url(#@($"{id}-head"))">
+                    <rect class="dv-character-facet" width="32" height="64" />
+                    @if (ShowsDetail)
+                    {
+                        <g class="dv-character-mark">@((MarkupString)Look.Mark)</g>
+                    }
+                </g>
+                <g clip-path="url(#@($"{id}-inner"))">
+                    <g clip-path="url(#@($"{id}-visor"))">
+                        <rect class="dv-character-visor" width="64" height="64" />
+                        @switch (State)
+                        {
+                            case AvatarState.Thinking:
+                                <rect class="dv-character-lit dv-state-thinking" width="64" height="64" />
+                                break;
+                            case AvatarState.Writing:
+                                <rect class="dv-character-lit" width="64" height="64" />
+                                break;
+                            case AvatarState.Tool:
+                                <rect class="dv-character-lit dv-character-dim" width="64" height="64" />
+                                <rect class="dv-character-sweep dv-state-tool" width="16" height="64" />
+                                break;
+                            case AvatarState.Failed:
+                                <rect class="dv-character-failed" width="64" height="64" />
+                                break;
+                        }
+                    </g>
+                </g>
+            </g>
+        </svg>
     }
 </span>
 
 @code {
     private const int HueSteps = 12;
 
-    private const int SmallestSizeWithTwoInitials = 32;
+    private const int SmallestSizeWithDetail = 24;
+
+    private readonly string id = $"dv-avatar-{Guid.NewGuid():N}";
 
     /// <summary>The bot's name. It is the avatar's accessible name.</summary>
     [Parameter, EditorRequired]
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>The identity hue, one of twelve fixed steps. Any number is folded into range.</summary>
+    /// <summary>The identity hue, one of twelve fixed steps. Any number is folded into range. The head carries it.</summary>
     [Parameter]
     public int Hue { get; set; }
+
+    /// <summary>What picks the character's parts. The same seed always gives the same character.</summary>
+    [Parameter]
+    public uint? Seed { get; set; }
 
     /// <summary>The edge length in pixels: 20, 24, 32, 48, or 96.</summary>
     [Parameter]
     public int Size { get; set; } = 32;
 
+    /// <summary>An uploaded picture, shown in place of the character.</summary>
     [Parameter]
     public string? ImageUrl { get; set; }
 
     [Parameter]
     public AvatarState State { get; set; } = AvatarState.Rest;
 
-    private string AccessibleName => State is AvatarState.Thinking ? $"{Name}, thinking" : Name;
+    private BotLook Look => BotLook.From(Seed ?? BotLook.SeedFrom(Name, Hue));
+
+    // Below this size a top and a mark are noise: the head and the visor carry the character.
+    private bool ShowsDetail => Size >= SmallestSizeWithDetail;
+
+    private string AccessibleName => State switch
+    {
+        AvatarState.Thinking => $"{Name}, thinking",
+        AvatarState.Writing => $"{Name}, writing",
+        AvatarState.Tool => $"{Name}, running a tool",
+        AvatarState.Failed => $"{Name}, failed",
+        _ => Name,
+    };
 
     private int HueStep => ((Hue % HueSteps) + HueSteps) % HueSteps;
-
-    private string Initials => string.Concat(Name
-        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-        .Take(Size < SmallestSizeWithTwoInitials ? 1 : 2)
-        .Select(word => char.ToUpperInvariant(word[0])));
 }

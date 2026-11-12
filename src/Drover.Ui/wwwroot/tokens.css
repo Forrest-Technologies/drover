@@ -6,11 +6,11 @@
   color-scheme: dark;
 
   /* Surfaces and text */
-  --dv-bg-0: #0A0C10;
-  --dv-bg-1: #10141B;
-  --dv-bg-2: #171C26;
-  --dv-bg-3: #202735;
-  --dv-line: #2B3445;
+  --dv-bg-0: #05070A;
+  --dv-bg-1: #0B0E14;
+  --dv-bg-2: #121722;
+  --dv-bg-3: #1B2230;
+  --dv-line: #263042;
   --dv-text: #E9EDF5;
   --dv-text-2: #AEB7C7;
   --dv-text-3: #8791A5;
@@ -45,6 +45,24 @@
   --dv-hue-10: #C3A5F9;
   --dv-hue-11: #E39BDC;
 
+  /* Bot characters: the head in the bot's hue, the visor that lights while it works. The same in both themes. */
+  --dv-head-0: #904961;
+  --dv-head-1: #944B40;
+  --dv-head-2: #8C541F;
+  --dv-head-3: #796006;
+  --dv-head-4: #5C6B21;
+  --dv-head-5: #337344;
+  --dv-head-6: #007565;
+  --dv-head-7: #007283;
+  --dv-head-8: #1F6A96;
+  --dv-head-9: #4D5F9C;
+  --dv-head-10: #6C5594;
+  --dv-head-11: #834D7E;
+  --dv-on-head: #F4F6FA;
+  --dv-visor: #05070A;
+  --dv-visor-lit: #67E8F9;
+  --dv-visor-failed: #FFB3B3;
+
   /* Type */
   --dv-font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --dv-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -60,6 +78,7 @@
   --dv-weight-label: 500;
   --dv-weight-heading: 600;
   --dv-measure: 65ch;
+  --dv-tracking: 0.01em;
 
   /* Space, on a 4 px base */
   --dv-space-1: 4px;
@@ -79,6 +98,7 @@
   --dv-focus-width: 2px;
   --dv-focus-offset: 2px;
   --dv-cut: 10px;
+  --dv-cut-s: 6px;
 
   /* Sizes */
   --dv-target-touch: 44px;
@@ -90,6 +110,7 @@
   --dv-avatar-32: 32px;
   --dv-avatar-48: 48px;
   --dv-avatar-96: 96px;
+  --dv-mark: 22px;
   --dv-switch-width: 36px;
   --dv-switch-height: 20px;
   --dv-switch-thumb: 14px;
@@ -153,6 +174,22 @@
     --dv-hue-9: #4256A6;
     --dv-hue-10: #6A499B;
     --dv-hue-11: #853E80;
+    --dv-head-0: #904961;
+    --dv-head-1: #944B40;
+    --dv-head-2: #8C541F;
+    --dv-head-3: #796006;
+    --dv-head-4: #5C6B21;
+    --dv-head-5: #337344;
+    --dv-head-6: #007565;
+    --dv-head-7: #007283;
+    --dv-head-8: #1F6A96;
+    --dv-head-9: #4D5F9C;
+    --dv-head-10: #6C5594;
+    --dv-head-11: #834D7E;
+    --dv-on-head: #F4F6FA;
+    --dv-visor: #05070A;
+    --dv-visor-lit: #67E8F9;
+    --dv-visor-failed: #FFB3B3;
   }
 }
 
@@ -185,6 +222,22 @@
   --dv-hue-9: #4256A6;
   --dv-hue-10: #6A499B;
   --dv-hue-11: #853E80;
+  --dv-head-0: #904961;
+  --dv-head-1: #944B40;
+  --dv-head-2: #8C541F;
+  --dv-head-3: #796006;
+  --dv-head-4: #5C6B21;
+  --dv-head-5: #337344;
+  --dv-head-6: #007565;
+  --dv-head-7: #007283;
+  --dv-head-8: #1F6A96;
+  --dv-head-9: #4D5F9C;
+  --dv-head-10: #6C5594;
+  --dv-head-11: #834D7E;
+  --dv-on-head: #F4F6FA;
+  --dv-visor: #05070A;
+  --dv-visor-lit: #67E8F9;
+  --dv-visor-failed: #FFB3B3;
 }
 
 @media (prefers-reduced-motion: reduce) {
