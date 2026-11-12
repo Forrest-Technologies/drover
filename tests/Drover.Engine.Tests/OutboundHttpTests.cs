@@ -132,16 +132,21 @@ public sealed class OutboundHttpTests
         using var server = new TestWebServer(request => request.Contains("first.test", StringComparison.Ordinal)
             ? TestWebServer.Redirect($"http://second.test:{Port(request)}/")
             : TestWebServer.Ok("reached the second host"));
-        var addresses = new Dictionary<string, IPAddress> { ["first.test"] = loopback, ["second.test"] = otherLoopback };
+        List<string> resolvedHosts = [];
         using var client = new HttpClient(OutboundHttp.CreateHandler(
             DeploymentPolicy.Hosted,
-            (host, _) => Task.FromResult(new[] { addresses[host] }),
+            (host, _) =>
+            {
+                resolvedHosts.Add(host);
+                return Task.FromResult<IPAddress[]>([loopback]);
+            },
             _ => false));
 
         var body = await Get(client, $"http://first.test:{server.Port}/", everythingAllowed);
 
         body.Should().Be("reached the second host");
         server.Requests.Should().Be(2);
+        resolvedHosts.Should().Equal("first.test", "second.test");
     }
 
     [Theory]
