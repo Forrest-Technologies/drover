@@ -233,22 +233,24 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 
 `tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). It makes a database of its own, runs `DatabaseBootstrap` with passwords generated for the run, applies migrations as `drover_owner`, and connects as `drover_app`. Roles belong to the server, so two runs against one server at once would reset each other's passwords.
 
+The class of each table comes from the EF Core model: `ISpaceOwned` (with `IAudienceScoped` for an audience), `IUserOwned`, or a line in `src/Drover.Data/GlobalTables.manifest`. `spaces` and `users` are global: their policies are special cases written out in the first migration and covered by `SpecialPolicyTests`. `__EFMigrationsHistory` is global with no entity, and the app role has no privilege on it. The Identity child tables are subclasses (`UserClaim`, `UserLogin`, `UserToken`) so that they can carry `IUserOwned`.
+
 **Catalog tests** read `pg_catalog`, so they cover tables the author forgot about:
 
 | Test | Fails when |
 | --- | --- |
 | Every table has an ownership class | A table in `public` is not `ISpaceOwned`, `IUserOwned`, or listed in `GlobalTables.manifest` |
 | Row-level security is enabled and forced | `relrowsecurity` or `relforcerowsecurity` is false on a classed table |
-| Policies are complete | A classed table lacks a policy covering all commands with both `USING` and `WITH CHECK` |
+| Policies are complete | A classed table lacks a permissive `FOR ALL` policy with both `USING` and `WITH CHECK` that names its discriminator and the matching `sys` function, or, with an audience, a restrictive one for `audience_user_id`. A policy of `USING (true)` fails. |
 | The discriminator is not nullable | `space_id`, `audience_user_id`, or `user_id` allows null on a table of that class |
 | Audience is inherited | A table that references an audience table does not include `audience_user_id` in that foreign key |
 | Foreign keys stay inside a space | A foreign key between two space-owned tables does not include `space_id` |
-| The app role is weak | `drover_app` is superuser, has `BYPASSRLS`, owns any object, or can create in any schema |
-| The bypass surface is known | `sys` functions differ from the manifest |
+| The app role is weak | `drover_app` is superuser, has `BYPASSRLS`, `CREATEDB`, `CREATEROLE`, or `REPLICATION`, owns any object, can create in any schema or temporary tables in the database, or is a member of another role |
+| The bypass surface is known | `sys` functions, as `schema.name(argument types)`, differ from `SystemFunctions.manifest` |
 
 "A new table without a policy fails the build" is the second and third rows. Analyzer `DRV0006` reports the same problem earlier, at compile time, when an entity has a `DbSet` but no ownership interface.
 
-**Behavior tests** run once per table, generated from the EF Core model. Each entity registers a seeder; an entity without one fails a test. For spaces A and B:
+**Behavior tests** run once per table, found from the EF Core model, so a new table joins them without anyone listing it. Each entity that belongs to a space or a user registers a `TableSeeder<TEntity>` that gives the columns of one valid row; the suite sets `space_id`, `audience_user_id`, and `user_id` itself. An entity without a seeder fails `SeederCoverageTests`. Global tables need none. Every check first proves the row it cannot reach exists, so a check cannot pass by looking at an empty table. For spaces A and B:
 
 | Acting as A | Expect |
 | --- | --- |
@@ -259,11 +261,15 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 | Insert a row referencing B's parent row | Foreign key error |
 | Any statement with no tenant set | Zero rows, inserts rejected |
 
-Tables with an audience repeat the pattern with two users in one space: user 2 cannot select, update, or delete user 1's private rows, cannot insert a row addressed to user 1, and cannot give a child row a wider audience than its parent. A catalog test asserts that every child of an audience table carries the audience in its foreign key.
+Tables with an audience repeat the pattern with two users in one space: user 2 cannot select, update, or delete user 1's private rows, cannot insert a row addressed to user 1, and user 1 cannot hand a private row to user 2. A child cannot be inserted or updated to a wider audience than its parent, and sharing the topmost parent shares the child in one statement. A catalog test asserts that every child of an audience table carries the audience in its foreign key. User-owned tables repeat the pattern with two users and no space, and also show that a user's row is theirs in every space they work in.
 
-**Pooling test**: pool size one, alternate tenants across 1,000 transactions including rolled-back and faulted ones, assert no row ever appears for the wrong tenant.
+The real schema has no audience table until step 5, so the audience checks and the parent-reference check also run on a scratch parent and child (`scratch_parent`, `scratch_child`) made in a scratch database with the same migration helper. They are always part of the theory data, so those checks never go unrun.
 
-They run in pull request CI on hosted runners.
+**Scratch tests** break one rule at a time in a scratch database (a copy of a migrated template, dropped after the test) and show the audit or the generated check failing, then passing once the break is corrected: a table with no policy, no class, a policy that ignores the space, a nullable `space_id`, an entity with no seeder, a child foreign key that omits the audience or the space, a `sys` function with no manifest line, and an app role that can create or owns a table.
+
+**Pooling test**: pool size one with `No Reset On Close`, 1,000 transactions alternating seven tenants and four endings (committed, rolled back, failed on the server, refused by a policy). No transaction may see a space it does not belong to, and after each one the connection must hold no tenant setting.
+
+They run in pull request CI on hosted runners. The data test fixture appends its total time, database setup included, to the job summary when `GITHUB_STEP_SUMMARY` is set, and `dotnet test` prints the run duration in the log.
 
 ### How things are scoped
 

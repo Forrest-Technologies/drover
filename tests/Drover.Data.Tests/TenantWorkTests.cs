@@ -14,7 +14,7 @@ public sealed class TenantWorkTests(PostgresFixture postgres)
         var world = await TenantWorld.Seed(provider);
         await using var session = TenantSession.Create(provider);
         session.Tenant.Set(world.SpaceA, world.UserA1);
-        var claim = new Microsoft.AspNetCore.Identity.IdentityUserClaim<Guid> { UserId = world.UserA1, ClaimType = "abandoned" };
+        var claim = new UserClaim { UserId = world.UserA1, ClaimType = "abandoned" };
 
         await using (var work = await session.Scope.Begin(TestContext.Current.CancellationToken))
         {

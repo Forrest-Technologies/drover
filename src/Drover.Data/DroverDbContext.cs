@@ -1,6 +1,6 @@
 namespace Drover.Data;
 
-public sealed class DroverDbContext : IdentityUserContext<User, Guid>
+public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim, UserLogin, UserToken>
 {
     #region Constructors
 

@@ -27,6 +27,18 @@ public sealed record TenantWorld(Guid SpaceA, Guid SpaceB, Guid UserA1, Guid Use
         return world;
     }
 
+
+    /// <summary>A user row the way Identity would store one, with names that cannot collide.</summary>
+    public static User NewUser(Guid id) => new()
+    {
+        Id = id,
+        UserName = $"user-{id:N}",
+        NormalizedUserName = $"USER-{id:N}".ToUpperInvariant(),
+        Email = $"{id:N}@example.test",
+        NormalizedEmail = $"{id:N}@EXAMPLE.TEST".ToUpperInvariant(),
+        DisplayName = $"User {id:N}",
+    };
+
     #endregion
 
     #region Private Methods
@@ -60,16 +72,6 @@ public sealed record TenantWorld(Guid SpaceA, Guid SpaceB, Guid UserA1, Guid Use
         session.Db.Memberships.Add(new Membership { UserId = userId, Role = role });
         await session.Commit();
     }
-
-    private static User NewUser(Guid id) => new()
-    {
-        Id = id,
-        UserName = $"user-{id:N}",
-        NormalizedUserName = $"USER-{id:N}".ToUpperInvariant(),
-        Email = $"{id:N}@example.test",
-        NormalizedEmail = $"{id:N}@EXAMPLE.TEST".ToUpperInvariant(),
-        DisplayName = $"User {id:N}",
-    };
 
     #endregion
 }

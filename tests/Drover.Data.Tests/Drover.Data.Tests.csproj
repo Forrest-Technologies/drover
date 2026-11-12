@@ -15,4 +15,10 @@
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />
   </ItemGroup>
 
+  <!-- The two manifests the catalog tests compare with the database. They sit next to the test assembly. -->
+  <ItemGroup>
+    <None Include="SystemFunctions.manifest" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\Drover.Data\GlobalTables.manifest" Link="GlobalTables.manifest" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
