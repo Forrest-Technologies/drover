@@ -19,6 +19,10 @@ public static class DataServiceExtensions
         services.AddScoped<SpaceStampInterceptor>();
         services.AddScoped<AccountRepository>();
         services.AddScoped<SecretRepository>();
+        services.AddScoped<MessageRepository>();
+        services.AddScoped<AgentSessionRepository>();
+        services.AddScoped<ToolCallRepository>();
+        services.AddScoped<WorkflowCheckpointRepository>();
         services.AddDbContext<DroverDbContext>((provider, options) => options
             .UseDroverNpgsql(appConnectionString)
             .AddInterceptors(

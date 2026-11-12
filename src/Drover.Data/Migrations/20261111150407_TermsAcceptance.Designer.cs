@@ -792,9 +792,9 @@ namespace Drover.Data.Migrations
 
                     b.Property<JsonElement>("State")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
+                        .HasColumnType("json")
                         .HasColumnName("state")
-                        .HasDefaultValueSql("'{}'::jsonb");
+                        .HasDefaultValueSql("'{}'::json");
 
                     b.Property<Guid>("ThreadId")
                         .HasColumnType("uuid")

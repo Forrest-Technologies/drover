@@ -40,8 +40,8 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.AspNetCore.OpenApi` | MIT | Microsoft | The OpenAPI description of the endpoints, served at `/openapi/v1.json` | Direct. The platform. |
 | `Microsoft.AspNetCore.Identity.EntityFrameworkCore` | MIT | Microsoft | The Identity stores on EF Core: the `users` table and its children | Direct. The platform. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
-| Microsoft Agent Framework: `Microsoft.Agents.AI`, `.Workflows`, `.Harness`, and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map and the list of experimental APIs in use are in [14-agent-framework.md](14-agent-framework.md). |
-| `Microsoft.Extensions.AI`, `.OpenAI` | MIT | Microsoft, stable | Chat and embedding clients | Confined to adapters, as above |
+| Microsoft Agent Framework: `Microsoft.Agents.AI` 1.28.0 and `.Workflows` 1.28.0 in use; `.Harness` and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map is in [14-agent-framework.md](14-agent-framework.md); the experimental APIs in use are listed below. |
+| `Microsoft.Extensions.AI`, `.OpenAI` | MIT | Microsoft, stable | Chat and embedding clients | Confined to adapters and `Drover.Agents`, as above. `Microsoft.Extensions.AI` 10.11.0 arrives with the agent framework; analyzer DRV0007 keeps its namespace inside those projects. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
 | Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
@@ -54,6 +54,17 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
 | Inter, JetBrains Mono (fonts) | SIL OFL 1.1 | Their respective projects | UI and monospace type, bundled | Assets |
+
+### Experimental APIs in use
+
+Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, by a `NoWarn` with a comment in the project file.
+
+| API | Diagnostic | Where | Why |
+| --- | --- | --- | --- |
+| `Microsoft.Agents.AI.AgentSessionStore` | MAAI001 | `Drover.Agents` (`PostgresAgentSessionStore`), `Drover.Adapters.Tests` | The framework's session store abstraction, implemented on `agent_sessions` |
+| `Microsoft.Agents.AI.AgentSessionStoreKey` | MAAI001 | Same | The key with space and audience partitions |
+
+The tool approval types (`ApprovalRequiredAIFunction`, `ToolApprovalRequestContent`, `ToolApprovalResponseContent`) were experimental when the design was written and are stable in `Microsoft.Extensions.AI` 10.11.0.
 
 Phase 1 and 2 additions, already checked:
 

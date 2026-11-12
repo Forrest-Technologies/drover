@@ -8,6 +8,7 @@ global using System.Threading.Tasks;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Permissions;
 global using Drover.Contracts.Runs;
+global using Drover.Domain.Agents;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
 global using Drover.Domain.Models;

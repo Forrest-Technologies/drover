@@ -54,18 +54,18 @@ The model and tool loop is the agent framework's. Drover supplies storage and go
 1. **Build.** In a short transaction, load the bot, its effective grants, and its capabilities. Build the framework agent from that data: instructions, model client, the granted tools only, context providers for memory and skills, a compaction strategy. Close the transaction. No transaction is ever held across a model or tool call.
 2. **Load state.** The thread's saved session is read through `PostgresAgentSessionStore`. History comes from `messages` through `PostgresChatHistoryProvider`.
 3. **Run.** The agent runs with streaming on. Updates are translated to Drover events as they arrive.
-4. **Persist as it goes.** History is saved after every model call and every tool result (the framework's per-service-call persistence). Events, tool call rows, and usage are written in short transactions.
+4. **Persist as it goes.** History is saved after every model call (the framework's per-service-call persistence). The framework saves a tool result together with the model call that follows it, so the tool gate writes the result to the `tool_calls` row as soon as the tool returns, and reading the history repairs a result the history is missing from that row (see [Server restart mid-run](#server-restart-mid-run)). Events, tool call rows, and usage are written in short transactions.
 5. **Gate each tool call.** Function middleware hands every call to the tool gate:
 
    | Gate decision | When | Effect |
    | --- | --- | --- |
    | Run it | Effect is `allow` | A `tool_calls` row is saved as `running`, the tool runs, the redacted result is saved and returned to the model |
-   | Ask | Effect is `ask`, or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. |
+   | Ask | Effect is `ask`, or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. The wrapping happens when the agent is built: the framework can only stop for approval before it invokes a tool. A gate decision of `ask` for a tool that was not wrapped (a run that became tainted mid-step) is returned to the model as a refusal that says approval is needed; see open points in [14-agent-framework.md](14-agent-framework.md#results-of-the-step-7-spike). |
    | Refuse | No grant, bot paused, budget or loop check failed | A structured error result goes back to the model |
 
 6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. A step limit (default 50 model calls per run) stops a runaway loop.
 
-Read-only tools requested together run in parallel. Everything else runs in order.
+Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 
 ## The runtime boundary
 
@@ -83,7 +83,9 @@ public interface IAgentRuntime
 
 public interface IRunGovernor
 {
-    Task<ToolGateDecision> Decide(ToolCallRequest call, CancellationToken cancellationToken);
+    Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken);
+
+    Task<ToolOutcome> InvokeTool(ToolCallRequest toolCall, CancellationToken cancellationToken);
 
     Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken);
 
@@ -97,6 +99,12 @@ public sealed record RunExecution
 {
     public required Guid RunId { get; init; }
 
+    public required Guid SpaceId { get; init; }
+
+    public required Guid ThreadId { get; init; }
+
+    public required Guid PrincipalUserId { get; init; }
+
     public required BotDefinition Bot { get; init; }
 
     public required IReadOnlyList<ToolDefinition> Tools { get; init; }
@@ -105,7 +113,7 @@ public sealed record RunExecution
 }
 ```
 
-Every type in those signatures is Drover's. `Responses` carries answers to whatever the run was waiting on: an approval decision, or a reply to a workflow request.
+Every type in those signatures is Drover's. `Responses` carries answers to whatever the run was waiting on: an approval decision, or a reply to a workflow request. The runtime reads and writes the run's data as the principal in the run's space, so it needs the space, thread, and principal. `InvokeTool` is how a granted tool runs: the runtime never calls a tool itself, it hands the call, already approved by the gate, to the engine, which owns the tool sources. The runtime writes the `tool_calls` row and the thread's messages; the engine writes run status, events, and usage.
 
 `Drover.Agents` implements `IAgentRuntime` on the framework. The engine implements `IRunGovernor`. The interface exists so the run engine can be tested with a scripted runtime and no model; it is not a plan to replace the framework.
 
@@ -210,10 +218,12 @@ Nothing in memory is needed to continue.
 
    | State found | Action |
    | --- | --- |
-   | A model call was streaming | Append `step.discarded` and run the agent again. History already holds every model call and tool result that finished, so only the interrupted call repeats. Where the provider supports background responses, the call is resumed from its continuation token instead. |
-   | Tool call `running`, tool is read-only or idempotent by its definition | Run it again |
+   | A model call was streaming | Append `step.discarded` and run the agent again. History already holds every model call that finished, and every tool result is in its `tool_calls` row, so only the interrupted call repeats. Where the provider supports background responses, the call is resumed from its continuation token instead. |
+   | Tool call finished, history has no result for it | The result is taken from the `tool_calls` row and added to the history. The tool does not run again. |
+   | Tool call `running`, tool is read-only or idempotent by its definition | Run it again. Not built yet: the runtime treats it like the next row today. Step 9 decides how the engine re-runs it. |
    | Tool call `running`, tool may have side effects | Mark it `interrupted` and give the model the result "interrupted, outcome unknown". The model decides what to do; if the grant is `ask`, the retry asks the human again. |
    | Tool call `pending_approval` | Nothing; the run stays `waiting` and its session holds the request |
+   | Tool call approved and `running` when the process died | Mark it `interrupted`. The stale session makes the framework reject the approval on the next run; the `tool_calls` row wins over that result, so the model is told "interrupted, outcome unknown", not "rejected". |
    | A delegation was in progress | The delegation is requested again and resolves to the existing child run, which continues |
    | A team workflow was in progress | Resume from its latest checkpoint |
 
