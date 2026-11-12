@@ -1,0 +1,65 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "run.queued",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022queued\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:35.985859+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:36.022676+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1d109-6420-7cc2-976d-5f4795098b12\u0022}",
+    "createdAt": "2026-11-12T18:33:36.036058+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022test.write\u0022, \u0022effect\u0022: \u0022ask\u0022, \u0022toolName\u0022: \u0022test.write\u0022, \u0022arguments\u0022: \u0022{}\u0022, \u0022toolCallId\u0022: \u00220dafffda-4a8a-8042-9f6f-68ca193a7636\u0022}",
+    "createdAt": "2026-11-12T18:33:36.049627+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "tool.approval_requested",
+    "data": "{\u0022callId\u0022: \u0022c1\u0022, \u0022requestId\u0022: \u0022ficc_c1\u0022, \u0022toolCallId\u0022: \u00220dafffda-4a8a-8042-9f6f-68ca193a7636\u0022}",
+    "createdAt": "2026-11-12T18:33:36.055923+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-12T18:33:36.065076+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1d109-6420-7cc2-976d-5f4795098b12\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022test_write\u0022, \u0022arguments\u0022: \u0022{}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u00220dafffda-4a8a-8042-9f6f-68ca193a7636\u0022}], \u0022runId\u0022: \u002201a1d109-63ea-7775-9979-ed4f12559f8a\u0022, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1d109-63dc-76ed-abc1-f1d200599f49\u0022, \u0022createdAt\u0022: \u00222026-11-12T18:33:36.067823\u002B00:00\u0022}}",
+    "createdAt": "2026-11-12T18:33:36.133354+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "run.waiting",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 40, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5}, \u0022reason\u0022: \u0022awaiting_approval\u0022, \u0022status\u0022: \u0022waiting\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:36.143281+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1d109-63ea-7775-9979-ed4f12559f8a",
+    "type": "run.cancelled",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 40, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5}, \u0022reason\u0022: \u0022cancelled_by_user\u0022, \u0022status\u0022: \u0022cancelled\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:36.179105+00:00"
+  }
+]

@@ -13,11 +13,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Drover.Server\Drover.Server.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Conformance\Drover.Adapters.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Client\Drover.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
     <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
+    <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
   </ItemGroup>
 
 </Project>

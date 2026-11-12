@@ -12,11 +12,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Drover.Engine\Drover.Engine.csproj" />
+    <!-- The run engine is tested with the real agent runtime and the real vault, as the server composes them. -->
+    <ProjectReference Include="..\..\src\Drover.Agents\Drover.Agents.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.Conformance\Drover.Adapters.Conformance.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
     <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
+    <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
   </ItemGroup>
 
 </Project>

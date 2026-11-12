@@ -104,6 +104,8 @@ A database dump alone does not reveal secrets, because the keys are elsewhere. A
 | Logs | Structured logging only, as the guide requires. Secret-bearing types override `ToString` to print `[secret]`, and a log test scans captured output from the integration suite for seeded secret values. |
 | Sandbox environment | Secrets a command needs are passed per command, never written to the sandbox's persistent files by Drover |
 
+Built in step 9 for the secrets a run reveals, which today is the model connection's key: the engine's `Redactor` is applied to tool results before they are returned to the runtime, to tool arguments before they are stored in `tool_calls` and in the thread's messages, and to both before they are written to events. The token shapes it knows are provider keys that start `sk-`, GitHub and Slack tokens, AWS access key ids, JSON web tokens, bearer header values, and PEM private key blocks.
+
 The redactor is a seatbelt, not a guarantee: a tool that returns a secret in a transformed form (encoded, split) will not be caught. The primary control is that secrets do not enter tool arguments in the first place.
 
 ### Database credentials

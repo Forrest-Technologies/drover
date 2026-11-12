@@ -67,7 +67,7 @@ public sealed class AgentRuntime(
     }
 
     private AIAgent BuildAgent(RunContext run) =>
-        resolveChatClient(run.Execution.Bot).AsGovernedAgent(
+        resolveChatClient(run.Execution).AsGovernedAgent(
             run,
             new ChatClientAgentOptions
             {

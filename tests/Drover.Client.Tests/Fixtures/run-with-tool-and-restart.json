@@ -1,0 +1,128 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "run.queued",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022queued\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:34.744148+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:34.97066+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1d109-6089-7c9e-a928-b620ea82df1a\u0022}",
+    "createdAt": "2026-11-12T18:33:35.119933+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Let me look.\u0022, \u0022messageId\u0022: \u002201a1d109-6089-7c9e-a928-b620ea82df1a\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:35.228787+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022test.lookup\u0022, \u0022effect\u0022: \u0022allow\u0022, \u0022toolName\u0022: \u0022test.lookup\u0022, \u0022arguments\u0022: \u0022{\\\u0022q\\\u0022:\\\u0022answer\\\u0022}\u0022, \u0022toolCallId\u0022: \u00223bf0f07f-6c80-8305-81e9-389956f964e7\u0022}",
+    "createdAt": "2026-11-12T18:33:35.230822+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-12T18:33:35.326771+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1d109-6089-7c9e-a928-b620ea82df1a\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Let me look.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}, {\u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022test_lookup\u0022, \u0022arguments\u0022: \u0022{\\\u0022q\\\u0022: \\\u0022answer\\\u0022}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u00223bf0f07f-6c80-8305-81e9-389956f964e7\u0022}], \u0022runId\u0022: \u002201a1d109-5e7a-7bb8-b15c-bc7633354519\u0022, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1d109-5dda-747b-9240-5b6cb41e6476\u0022, \u0022createdAt\u0022: \u00222026-11-12T18:33:35.187923\u002B00:00\u0022}}",
+    "createdAt": "2026-11-12T18:33:35.38198+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "tool.started",
+    "data": "{\u0022toolCallId\u0022: \u00223bf0f07f-6c80-8305-81e9-389956f964e7\u0022}",
+    "createdAt": "2026-11-12T18:33:35.469736+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "tool.completed",
+    "data": "{\u0022isError\u0022: false, \u0022outcome\u0022: \u0022completed\u0022, \u0022preview\u0022: \u0022{\\\u0022answer\\\u0022:42}\u0022, \u0022durationMs\u0022: 9, \u0022toolCallId\u0022: \u00223bf0f07f-6c80-8305-81e9-389956f964e7\u0022}",
+    "createdAt": "2026-11-12T18:33:35.479024+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 2, \u0022messageId\u0022: \u002201a1d109-6216-7627-9ad8-edee572562d1\u0022}",
+    "createdAt": "2026-11-12T18:33:35.513951+00:00"
+  },
+  {
+    "seq": 11,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Partial \u0022, \u0022messageId\u0022: \u002201a1d109-6216-7627-9ad8-edee572562d1\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:35.620615+00:00"
+  },
+  {
+    "seq": 12,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 1}",
+    "createdAt": "2026-11-12T18:33:35.694667+00:00"
+  },
+  {
+    "seq": 13,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "step.discarded",
+    "data": "{\u0022step\u0022: 2, \u0022messageId\u0022: \u002201a1d109-6216-7627-9ad8-edee572562d1\u0022}",
+    "createdAt": "2026-11-12T18:33:35.696086+00:00"
+  },
+  {
+    "seq": 14,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 3, \u0022messageId\u0022: \u002201a1d109-62f2-7b70-a6b8-c0ee13e9a3e8\u0022}",
+    "createdAt": "2026-11-12T18:33:35.733881+00:00"
+  },
+  {
+    "seq": 15,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022It is 42.\u0022, \u0022messageId\u0022: \u002201a1d109-62f2-7b70-a6b8-c0ee13e9a3e8\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-12T18:33:35.74407+00:00"
+  },
+  {
+    "seq": 16,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 3, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-12T18:33:35.745405+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1d109-62f2-7b70-a6b8-c0ee13e9a3e8\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022It is 42.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}], \u0022runId\u0022: \u002201a1d109-5e7a-7bb8-b15c-bc7633354519\u0022, \u0022position\u0022: 4, \u0022threadId\u0022: \u002201a1d109-5dda-747b-9240-5b6cb41e6476\u0022, \u0022createdAt\u0022: \u00222026-11-12T18:33:35.748338\u002B00:00\u0022}}",
+    "createdAt": "2026-11-12T18:33:35.796931+00:00"
+  },
+  {
+    "seq": 18,
+    "runId": "01a1d109-5e7a-7bb8-b15c-bc7633354519",
+    "type": "run.completed",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 80, \u0022input\u0022: 20, \u0022cached\u0022: 0, \u0022output\u0022: 10}, \u0022reason\u0022: null, \u0022status\u0022: \u0022completed\u0022, \u0022attempt\u0022: 1}",
+    "createdAt": "2026-11-12T18:33:35.808678+00:00"
+  }
+]

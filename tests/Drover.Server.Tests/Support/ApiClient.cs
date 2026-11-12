@@ -18,11 +18,31 @@ public sealed class ApiClient(HttpClient http)
 
     public string? RemoteIp { get; set; }
 
+    /// <summary>The cookies as one request header, for a client that is not this one but acts as the same person.</summary>
+    public string CookieHeader => string.Join("; ", cookies.Select(cookie => $"{cookie.Key}={cookie.Value}"));
+
     #endregion
 
     #region Public Methods
 
     public Task<HttpResponseMessage> Get(string path) => Send(HttpMethod.Get, path, body: null, token: false);
+
+    /// <summary>Opens a response without reading its body, for a stream. The caller disposes it to disconnect.</summary>
+    public async Task<HttpResponseMessage> Open(string path, long? lastEventId = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        if (cookies.Count > 0)
+        {
+            request.Headers.Add("Cookie", CookieHeader);
+        }
+
+        if (lastEventId is { } seen)
+        {
+            request.Headers.Add("Last-Event-ID", seen.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        return await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+    }
 
     /// <summary>A state-changing request that carries the antiforgery token, fetching one first if there is none.</summary>
     public async Task<HttpResponseMessage> Post(string path, object? body = null)

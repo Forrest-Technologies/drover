@@ -19,6 +19,7 @@
     <Project Path="tests/Drover.Adapters.Conformance/Drover.Adapters.Conformance.csproj" />
     <Project Path="tests/Drover.Adapters.Tests/Drover.Adapters.Tests.csproj" />
     <Project Path="tests/Drover.Analyzers.Tests/Drover.Analyzers.Tests.csproj" />
+    <Project Path="tests/Drover.Client.Tests/Drover.Client.Tests.csproj" />
     <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
