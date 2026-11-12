@@ -17,7 +17,7 @@ Then open <http://localhost:8080>. The first start builds the image from source 
 ## Run what exists without Docker
 
 
-Requires the .NET 10 SDK.
+Requires the .NET 11 SDK.
 
 ```bash
 dotnet build Drover.slnx -warnaserror

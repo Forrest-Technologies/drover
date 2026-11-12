@@ -31,7 +31,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        serverConnection = new NpgsqlConnectionStringBuilder(await FindServer());
+        serverConnection = [with(await FindServer())];
         await ExecuteOnServer($"CREATE DATABASE {databaseName}");
         var admin = new NpgsqlConnectionStringBuilder(serverConnection.ConnectionString) { Database = databaseName };
         await DatabaseBootstrap.Run(admin.ConnectionString, ownerPassword, appPassword);

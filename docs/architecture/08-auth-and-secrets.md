@@ -13,7 +13,7 @@ ASP.NET Core Identity, used directly. It is the platform, it is maintained by Mi
 Decisions:
 
 - **Password hashing**: Identity's default hasher. No extra dependency. The alternatives checked were stale or carried an unsuitable license.
-- **Passkeys**: Identity has built-in passkey support on .NET 10 (verified). Offered in Phase 2 alongside external sign-in.
+- **Passkeys**: Identity has built-in passkey support on .NET 10 and later (verified). Offered in Phase 2 alongside external sign-in.
 - **External sign-in** (Phase 2): ASP.NET Core's OpenID Connect handler, as a client. For the MAUI app the flow runs in the system browser against the Drover server and ends with a one-time code handed back to the app through a registered link.
 - **No OAuth server inside Drover** until something needs one. If third-party clients ever need delegated access, OpenIddict (Apache-2.0) is the candidate.
 - **Rate limiting** on sign-in and token endpoints through ASP.NET Core's rate limiter. Today that is sign-in and first-run setup, per remote address: 10 attempts a minute, set by `Drover:SignInRateLimit` (`PermitLimit`, `Window`).

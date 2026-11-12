@@ -49,7 +49,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         elapsed.Start();
-        serverConnection = new NpgsqlConnectionStringBuilder(await FindServer());
+        serverConnection = [with(await FindServer())];
         await CreateDatabase();
         await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);

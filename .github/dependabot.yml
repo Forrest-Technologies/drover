@@ -19,12 +19,10 @@ updates:
         patterns: ["Microsoft.*", "System.*", "Npgsql*"]
         exclude-patterns: ["Microsoft.Agents.*", "Microsoft.Extensions.AI*"]
     ignore:
-      # Stay on the .NET 10 LTS line.
+      # Until the Npgsql EF Core provider for this major is generally available.
       - dependency-name: "Microsoft.EntityFrameworkCore*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "Microsoft.AspNetCore*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "Microsoft.Extensions.Http*"
+      - dependency-name: "Npgsql*"
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
