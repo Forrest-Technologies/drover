@@ -31,6 +31,9 @@ public sealed class GrantMutationTests(PostgresFixture postgres)
     [InlineData("UPDATE (action)")]
     [InlineData("DELETE")]
     [InlineData("TRUNCATE")]
+    [InlineData("TRIGGER")]
+    [InlineData("REFERENCES")]
+    [InlineData("REFERENCES (action)")]
     public async Task Extra_append_only_grants_fail_until_revoked(string privilege)
     {
         await using var scratch = await postgres.CreateScratchDatabase();

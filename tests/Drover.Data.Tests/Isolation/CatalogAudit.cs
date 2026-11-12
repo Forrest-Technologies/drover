@@ -194,7 +194,8 @@ public sealed class CatalogAudit(NpgsqlConnection connection, OwnershipMap owner
     public async Task<IReadOnlyList<string>> AppGrantDrift()
     {
         List<string> problems = [];
-        string[] privileges = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"];
+        string[] privileges = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"];
+        string[] columnPrivileges = ["UPDATE", "REFERENCES"];
         var present = await Shapes();
 
         foreach (var table in TenantTables())
@@ -216,14 +217,19 @@ public sealed class CatalogAudit(NpgsqlConnection connection, OwnershipMap owner
             var shape = present.Single(shape => shape.Name == table.Table);
             foreach (var column in shape.Columns)
             {
-                await using var command = new NpgsqlCommand(
-                    "SELECT has_column_privilege('drover_app', @table, @column, 'UPDATE')", connection);
-                command.Parameters.AddWithValue("table", $"public.\"{table.Table}\"");
-                command.Parameters.AddWithValue("column", column.Name);
-                var actual = (bool)(await command.ExecuteScalarAsync())!;
-                if (actual != expected.AllowsColumnUpdate(column.Name))
+                foreach (var privilege in columnPrivileges)
                 {
-                    problems.Add($"Column '{table.Table}.{column.Name}' has unexpected UPDATE privilege: {actual}.");
+                    await using var command = new NpgsqlCommand(
+                        "SELECT has_column_privilege('drover_app', @table, @column, @privilege)", connection);
+                    command.Parameters.AddWithValue("table", $"public.\"{table.Table}\"");
+                    command.Parameters.AddWithValue("column", column.Name);
+                    command.Parameters.AddWithValue("privilege", privilege);
+                    var actual = (bool)(await command.ExecuteScalarAsync())!;
+                    var allowed = privilege == "UPDATE" && expected.AllowsColumnUpdate(column.Name);
+                    if (actual != allowed)
+                    {
+                        problems.Add($"Column '{table.Table}.{column.Name}' has unexpected {privilege} privilege: {actual}.");
+                    }
                 }
             }
 
