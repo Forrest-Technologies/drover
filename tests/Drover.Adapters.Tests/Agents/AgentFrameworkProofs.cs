@@ -63,6 +63,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         var writes = new WriteCounter();
         string sessionId;
         string firstRequestId;
+        CheckpointInfo firstCheckpoint;
 
         await using (var first = postgres.NewServices().BuildServiceProvider())
         {
@@ -74,6 +75,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
             firstRequestId = asked.Request.RequestId;
             asked.Request.TryGetDataAs<ReviewRequest>(out var firstAsk).Should().BeTrue();
             firstAsk!.Draft.Should().Be("draft, written");
+            firstCheckpoint = await NextRequestCheckpoint(started);
 
             // Killed while the request is pending: the response is never sent in this process.
         }
@@ -82,6 +84,8 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         var resumedManager = CheckpointManager.CreateJson(new PostgresCheckpointStore(Database(second), world.UserId));
         var latest = await resumedManager.GetLatestCheckpointAsync(sessionId, TestContext.Current.CancellationToken)
             ?? throw new InvalidOperationException("No checkpoint was stored for the first process's run.");
+        latest.CheckpointId.Should().Be(firstCheckpoint.CheckpointId,
+            "the pending request checkpoint was committed before restart");
         await using var resumed = await InProcessExecution.ResumeStreamingAsync(
             ReviewWorkflow.Build(writes), latest, resumedManager, TestContext.Current.CancellationToken);
 
@@ -302,6 +306,25 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         }
 
         throw new InvalidOperationException("The workflow stopped without asking for anything.");
+    }
+
+    private static async Task<CheckpointInfo> NextRequestCheckpoint(StreamingRun run)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(patience);
+
+        await foreach (var workflowEvent in run.WatchStreamAsync(timeout.Token))
+        {
+            FailOnError(workflowEvent);
+
+            if (workflowEvent is SuperStepCompletedEvent { CompletionInfo.HasPendingRequests: true } completed)
+            {
+                return completed.CompletionInfo.Checkpoint
+                    ?? throw new InvalidOperationException("The pending request has no committed checkpoint.");
+            }
+        }
+
+        throw new InvalidOperationException("The workflow stopped before checkpointing its pending request.");
     }
 
     private static async Task<object?> NextOutput(StreamingRun run)
