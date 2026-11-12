@@ -250,10 +250,6 @@ dotnet_diagnostic.RS0030.severity = none
 [tests/Drover.Engine.Tests/OutboundHttpTests.cs]
 dotnet_diagnostic.RS0030.severity = none
 
-# The fake server is itself the handler, so a client built on it reaches nothing outside the test process.
-[tests/Drover.Ui.Tests/Support/FakeServer.cs]
-dotnet_diagnostic.RS0030.severity = none
-
 [**/obj/**/*.cs]
 # Build-generated files (for example the test entry point) are not ours to style
 generated_code = true

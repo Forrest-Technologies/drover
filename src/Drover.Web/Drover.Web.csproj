@@ -9,7 +9,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
     <ProjectReference Include="..\Drover.Ui\Drover.Ui.csproj" />
   </ItemGroup>
 

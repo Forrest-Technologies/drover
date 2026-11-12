@@ -10,7 +10,11 @@ public sealed class FakeServer : HttpMessageHandler
 
     private static readonly JsonSerializerOptions json = new(JsonSerializerDefaults.Web);
 
+    private const string ClientName = "fake-server";
+
     private readonly Dictionary<string, Func<HttpResponseMessage>> answers = [];
+
+    private ServiceProvider? clients;
 
     #endregion
 
@@ -61,11 +65,35 @@ public sealed class FakeServer : HttpMessageHandler
     public IEnumerable<string> Sent(string method, string path) =>
         Requests.Where(request => request.Method == method && request.Path == path).Select(request => request.Body);
 
-    public DroverApi CreateApi() => new(new HttpClient(this) { BaseAddress = new("https://drover.test/") });
+    /// <summary>
+    /// A client whose every request lands here. It comes from the client factory, as every client in Drover
+    /// does, with this fake as the one handler behind it.
+    /// </summary>
+    public DroverApi CreateApi()
+    {
+        clients ??= new ServiceCollection()
+            .AddHttpClient(ClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => this)
+            .Services
+            .BuildServiceProvider();
+        var client = clients.GetRequiredService<IHttpClientFactory>().CreateClient(ClientName);
+        client.BaseAddress = new("https://drover.test/");
+        return new(client);
+    }
 
     #endregion
 
     #region Interface Implementations
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            clients?.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
