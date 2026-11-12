@@ -44,7 +44,9 @@ public sealed class NoStringConcatenationAnalyzer : DiagnosticAnalyzer
     {
         var operation = (ICompoundAssignmentOperation)context.Operation;
 
-        if (operation.OperatorKind is BinaryOperatorKind.Add && operation.Type?.SpecialType is SpecialType.System_String)
+        if (operation.OperatorKind is BinaryOperatorKind.Add
+            && operation.OperatorMethod is null
+            && operation.Type?.SpecialType is SpecialType.System_String)
         {
             context.ReportDiagnostic(Diagnostic.Create(Rule, operation.Syntax.GetLocation()));
         }
@@ -52,6 +54,7 @@ public sealed class NoStringConcatenationAnalyzer : DiagnosticAnalyzer
 
     private static bool IsStringConcatenation(IBinaryOperation operation) =>
         operation.OperatorKind is BinaryOperatorKind.Add
+        && operation.OperatorMethod is null
         && operation.Type?.SpecialType is SpecialType.System_String
         && !operation.ConstantValue.HasValue;
 

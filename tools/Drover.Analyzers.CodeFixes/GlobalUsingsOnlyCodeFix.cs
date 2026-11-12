@@ -33,7 +33,19 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken);
         var diagnostic = context.Diagnostics[0];
 
-        if (root?.FindNode(diagnostic.Location.SourceSpan) is not UsingDirectiveSyntax directive)
+        if (root?.FindNode(diagnostic.Location.SourceSpan) is not UsingDirectiveSyntax directive
+            || directive.ContainsDirectives
+            || HasConditionalDirectives(root))
+        {
+            return;
+        }
+
+        var globalUsings = context.Document.Project.Documents
+            .FirstOrDefault(document => document.Name == GlobalUsingsFileName);
+
+        if (globalUsings is not null
+            && await globalUsings.GetSyntaxRootAsync(context.CancellationToken) is { } globalRoot
+            && HasConditionalDirectives(globalRoot))
         {
             return;
         }
@@ -59,6 +71,9 @@ public sealed class GlobalUsingsOnlyCodeFix : CodeFixProvider
     #endregion
 
     #region Private Methods
+
+    private static bool HasConditionalDirectives(SyntaxNode root) =>
+        root.DescendantTrivia().Any(trivia => trivia.IsKind(SyntaxKind.IfDirectiveTrivia));
 
     private static async Task<Solution> MoveToGlobalUsings(
         Document document,

@@ -158,5 +158,35 @@ public sealed class NoStringConcatenationTests
             }
             """);
 
+    [Fact]
+    public Task Allows_an_overloaded_addition_returning_string() =>
+        Verify.Analyzer<NoStringConcatenationAnalyzer>("""
+            public class Token
+            {
+                public static string operator +(Token token, string suffix) => "custom";
+                public string Build() => this + "suffix";
+            }
+            """);
+
+    [Theory]
+    [InlineData("token + \"suffix\"", "token + \"suffix\"")]
+    [InlineData("(token + \"suffix\")", "(token + \"suffix\")")]
+    public Task Fix_preserves_nested_overloaded_addition(string operand, string interpolation) =>
+        Verify.CodeFix<NoStringConcatenationAnalyzer, NoStringConcatenationCodeFix>(
+            $$"""
+            public class Token
+            {
+                public static string operator +(Token token, string suffix) => "custom";
+                public string Build(Token token) => {|DRV0004:{{operand}} + "!"|};
+            }
+            """,
+            $$"""
+            public class Token
+            {
+                public static string operator +(Token token, string suffix) => "custom";
+                public string Build(Token token) => $"{{{interpolation}}}!";
+            }
+            """);
+
     #endregion
 }
