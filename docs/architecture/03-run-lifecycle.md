@@ -166,15 +166,19 @@ The log closes what it opens. Every `step.started` is followed by that step's `m
 
 ## Streaming and resume
 
-`GET /api/runs/{rootRunId}/events?after={seq}` returns Server-Sent Events. Each frame's `id` is the `seq`.
+`GET /api/spaces/{spaceId}/runs/{rootRunId}/events?after={seq}` returns Server-Sent Events. The route carries the space, like every tenant route. Each frame's `id` is the `seq`, its `event` is the type, and its `data` is the event as `RunEventResponse`.
 
-1. The server replays stored events with `seq > after` in pages, each page in its own short transaction.
-2. When it reaches the end, it switches to the live feed. Because events are published after commit and are gapless, the handover check is a simple "next seq is last + 1"; on a gap it reads the missing rows from the table.
-3. When the root run is terminal and everything is sent, the server closes the stream.
+1. The server checks, in a short transaction as the caller, that the run is a root run of the space and that the caller may see its thread. Row-level security answers both: another member asking for a private thread's stream gets 404, and so does anyone outside the space.
+2. It subscribes to the live feed, then replays stored events with `seq > after` in pages of 200, each page in its own short transaction. No transaction lives as long as a stream.
+3. When it reaches the end, it switches to the live feed. Because events are published after commit and are gapless, the handover check is a simple "next seq is last + 1"; on a gap it reads the missing rows from the table.
+4. When nothing arrives for 15 seconds (`Runs:HeartbeatSeconds`) it sends a comment line, so proxies keep the stream open, and reads the table again. That read is also how a watcher on one server sees events another server wrote.
+5. When the root run is terminal and everything is sent, the server closes the stream. A client that had already seen everything gets a stream that closes at once. The server also closes its streams when it shuts down.
 
-On reconnect the client sends `Last-Event-ID`, or `?after=`. The phone locking, the tab closing, or the server restarting all look the same to the client: reconnect with the last number it saw.
+On reconnect the client sends `Last-Event-ID`, or `?after=`; the header wins when both are present. The phone locking, the tab closing, or the server restarting all look the same to the client: reconnect with the last number it saw.
 
-A second, lightweight stream, `GET /api/stream`, carries non-durable signals for the current user: "thread changed", "approval waiting", "run finished". It has no replay. On reconnect the client refetches lists. This keeps durable replay for the one thing that needs it.
+A second, lightweight stream, `GET /api/spaces/{spaceId}/stream`, carries non-durable signals for the current user in that space: `thread.changed`, `approval.waiting`, `run.finished`, each naming the thread and the run. It has no replay and is delivered only by the server that made the change. On reconnect the client refetches lists; the client library says `reconnected` itself each time it has to connect again. This keeps durable replay for the one thing that needs it.
+
+`Drover.Client` holds the other end: `DroverApi.WatchRun` reads the stream, reconnects with backoff (half a second, doubling to ten) and the last number it saw, and drops anything at or below that number, so a caller sees every event once and in order. `RunReducer.Apply` turns the events into the `RunView` a screen renders. It is a pure function and ignores an event it has already applied, so any prefix of a log followed by the rest ends in the same view as the whole log at once.
 
 Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 

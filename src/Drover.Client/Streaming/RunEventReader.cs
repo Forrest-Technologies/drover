@@ -45,6 +45,8 @@ public sealed class RunEventReader(HttpClient http, string runPath, Guid rootRun
                 yield break;
             }
 
+            // The server closed the stream before the run ended, as it does when it shuts down. Tell the screen too.
+            dropped?.Invoke(new IOException("The event stream ended before the run did."));
             await Task.Delay(backoff.Next(), cancellationToken);
         }
     }

@@ -26,7 +26,7 @@ Drover.slnx
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
     Drover.Adapters.LocalFiles       IFileStore on a volume
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
-    Drover.Client                 typed API client and SSE reader
+    Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model
     Drover.Ui                     Razor class library: every screen and component
     Drover.Web                    Blazor WebAssembly host for Drover.Ui
     Drover.Server                 ASP.NET Core host: API, SSE, auth, workers, composition root
@@ -41,6 +41,7 @@ Drover.slnx
     Drover.Adapters.Conformance   abstract suites every adapter must pass
     Drover.Adapters.Tests         each adapter run through its suite
     Drover.Server.Tests           API tests through WebApplicationFactory
+    Drover.Client.Tests           the reducer against event logs recorded from the engine
     Drover.Ui.Tests               component tests
     Drover.Analyzers.Tests
 
