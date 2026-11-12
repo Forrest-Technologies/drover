@@ -1,7 +1,7 @@
 namespace Drover.Server.Health;
 
 /// <summary>
-/// Where the database is. The password is never a setting: it is read from the file named here.
+/// Database location and file-based settings, plus the resolved application connection used by readiness.
 /// </summary>
 public sealed class DatabaseOptions
 {
@@ -13,7 +13,9 @@ public sealed class DatabaseOptions
 
     public string Database { get; set; } = "postgres";
 
-    public string Username { get; set; } = "postgres";
+    public string Username { get; set; } = "drover_app";
+
+    public string ConnectionString { get; set; } = string.Empty;
 
     public string PasswordFile { get; set; } = string.Empty;
 

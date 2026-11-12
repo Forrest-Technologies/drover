@@ -10,11 +10,12 @@ Goal: clone, `docker compose up`, open the browser, chat. No file to edit.
 | --- | --- | --- |
 | `init` | The same pinned PostgreSQL image as `db` | Runs once. Generates secrets onto the `drover-secrets` volume if absent, then exits. It uses the database image because that image is already pulled and has the shell tools needed; the `drover` image is built in the same `up` and cannot be ordered before it. |
 | `db` | The official PostgreSQL image with the `pgvector` extension, pinned by digest | Database. Reads its password from the secrets volume. |
-| `drover` | Built from source | Migrates, then serves API, web UI, streams, and background work on port 8080, bound to localhost. Until the migration step exists it serves the page and the health endpoints. |
+| `database-init` | Built from source | Runs `--initialize-database` once as root with bootstrap and owner secrets, then exits. |
+| `drover` | Built from source | Serves API and web UI on localhost port 8080 as non-root, using only the application role. |
 
 Optional services sit behind compose profiles and are off by default: `ntfy` for self-hosted Android push, and a reverse proxy example for HTTPS.
 
-Start order is expressed with `depends_on` conditions: `db` waits for `init` to complete successfully, `drover` waits for `db` to be healthy.
+Start order is expressed with `depends_on` conditions: `db` waits for `init` to complete successfully, `database-init` waits for `db` to be healthy, and `drover` waits for initialization to complete successfully.
 
 The project builds and hosts no images. `db` and the .NET base images are pulled from their publishers; `drover` is built locally.
 
@@ -24,24 +25,23 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 
 | File on `drover-secrets` | Used by |
 | --- | --- |
-| `postgres_password` | `db` through `POSTGRES_PASSWORD_FILE`; `drover` for first-time role creation only |
-| `owner_password` | `drover`, migration step |
+| `postgres_password` | `db` through `POSTGRES_PASSWORD_FILE`; `database-init` for role creation only |
+| `owner_password` | `database-init`, migration step |
 | `app_password` | `drover`, request serving |
-| `setup_code` | Shown in the log; asked by the setup screen for remote first-run |
 
-Until the setup screen exists, `init` creates the first three. Each file is written once and left alone on later starts, so `docker compose down` then `up` keeps the same secrets. The Data Protection key ring lives on a separate volume, `drover-keys`. Volumes: `drover-db`, `drover-secrets`, `drover-keys`, `drover-files`.
+`init` creates these three files. The application generates a temporary setup code and logs it when there are no users. Each password file is written once and left alone on later starts, so `docker compose down` then `up` keeps the same secrets. The Data Protection key ring lives on a separate volume, `drover-keys`. The runtime mounts only `drover-app-secrets`, containing a copy of the app password readable by uid 1654. It never mounts the bootstrap or owner secrets. Existing secret permissions are corrected on each start without rotating values. Volumes: `drover-db`, `drover-secrets`, `drover-app-secrets`, `drover-keys`, `drover-files`.
 
-### What `drover` does at start
+### Database initialization and application startup
 
-1. Wait for the database.
-2. First start only: connect as the PostgreSQL superuser, create the three roles and the database, hand ownership to `drover_owner`.
-3. Connect as `drover_owner` and apply EF Core migrations. Close that connection.
-4. Open the application pool as `drover_app` and start serving.
-5. If there are no users, log the setup address and code.
+1. The one-shot `database-init` command waits for database health, then calls `DatabaseBootstrap` as the PostgreSQL superuser to create or reconcile the roles and grants in the existing `postgres` database.
+2. It calls `DatabaseMigrator` as `drover_owner`, applying pending migrations, and exits. Bootstrap uses an advisory lock; EF Core serializes migrations with its migration lock. Both steps are safe to repeat.
+3. Only after successful initialization does the non-root application start. It builds its connection as `drover_app` from `Database:Host`, optional port/database/timeout settings, and `Database:AppPasswordFile`. It performs no role or schema changes.
+4. `ConnectionStrings:Drover` overrides the file-based connection for custom deployments and tests. Missing or empty credentials and connections naming another role fail startup. Custom deployments must initialize their database separately.
+5. Data Protection uses `DataProtection:KeyPath`, set to `/var/lib/drover/keys` in Compose. If there are no users, the server logs the setup address and code.
 
-A PostgreSQL advisory lock around steps 2 and 3 makes two instances starting together safe.
+The initializer additionally requires `Database:PasswordFile` and `Database:OwnerPasswordFile`. Run it only as the standalone `--initialize-database` command; never give its secrets to the request-serving process.
 
-Upgrading is `git pull` to the new tag and the same `docker compose up --build`. Migrations run in step 3. Migrations are forward-only and written to be safe to run while the previous version's data is in place; a release that needs a manual step says so in its notes and refuses to start until it is done.
+Upgrading is `git pull` to the new tag and the same `docker compose up --build`. The one-shot initialization command applies pending migrations before the application starts. Migrations are forward-only and written to be safe with existing data; a release that needs a manual step says so in its notes and refuses to start until it is done.
 
 ### First run in the browser
 
@@ -53,7 +53,7 @@ Everything optional stays off until configured. Each feature has a single "is it
 
 `/status` for admins, and `/health/live` and `/health/ready` for the container. Built on ASP.NET Core health checks, used directly.
 
-Until the status page exists, `/health/ready` runs one check: it can open a connection to PostgreSQL (`Database:Host`, `Database:PasswordFile`). It runs no query, because there is no schema yet. The `drover` container's compose health check asks this endpoint, with bash over a plain socket, since the runtime image has no `curl`.
+Until the status page exists, `/health/ready` opens a fresh PostgreSQL connection using the same resolved application connection as the server. It touches no tenant data. The `drover` container's compose health check asks this endpoint, with bash over a plain socket, since the runtime image has no `curl`.
 
 | Row | Check |
 | --- | --- |

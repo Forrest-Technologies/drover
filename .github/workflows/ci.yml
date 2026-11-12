@@ -99,9 +99,12 @@ jobs:
           uid=$(docker compose exec -T drover id -u)
           echo "uid=${uid}"
           test "${uid}" != "0"
+      - name: The server can read only its application secret
+        run: |
+          docker compose exec -T drover sh -c 'test -r /run/secrets/app_password && test ! -e /run/secrets/postgres_password && test ! -e /run/secrets/owner_password'
       - name: Secrets survive down and up
         run: |
-          read_hashes() { docker compose exec -T drover sha256sum /run/secrets/postgres_password /run/secrets/owner_password /run/secrets/app_password; }
+          read_hashes() { docker compose run --rm --no-deps --entrypoint sha256sum database-init /run/secrets/postgres_password /run/secrets/owner_password /run/secrets/app_password; }
           before=$(read_hashes)
           docker compose down
           docker compose up -d --wait --wait-timeout 180 --no-build
