@@ -22,7 +22,13 @@ public sealed record ToolDefinition
     /// Whether a call cut off by a restart may run again. Only a read-only tool may: anything else might already
     /// have happened, so the model is told the outcome is unknown.
     /// </summary>
-    public bool MayRunAgainAfterInterruption => Sensitivity is ToolSensitivity.Read;
+    public bool MayRunAgainAfterInterruption => Sensitivity is ToolSensitivity.Read && !DefinedByServer;
+
+    /// <summary>
+    /// The tool comes from a tool server, so "it only reads" is the server's claim and not something Drover knows.
+    /// Such a call is never repeated on the strength of that claim.
+    /// </summary>
+    public bool DefinedByServer { get; init; }
 
     #endregion
 }

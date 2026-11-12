@@ -13,6 +13,7 @@ global using System.Threading;
 global using System.Threading.RateLimiting;
 global using System.Threading.Tasks;
 global using Drover.Adapters.DataProtection;
+global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.Venice;
 global using Drover.Agents;

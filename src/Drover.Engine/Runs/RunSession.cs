@@ -7,7 +7,17 @@ public sealed class RunLimitException(string reason, string message) : Exception
 }
 
 /// <summary>A catalog tool as one run sees it: the row, the effective grant at the start, and the name the model uses.</summary>
-public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin);
+public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin, ToolConnection? Connection = null)
+{
+    /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
+    public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
+}
+
+/// <summary>
+/// The run has just read text from an untrusted source and its agent was built before that. The agent must be built
+/// again, with its consequential tools asking, before the model is called once more.
+/// </summary>
+public sealed class AgentRebuildRequiredException() : Exception("The run became tainted; its agent is built again before the next model call.");
 
 /// <summary>
 /// The state of one execution of one run, shared by its governor, its model client, and the executor: which step it
@@ -25,7 +35,8 @@ public sealed class RunSession(
     RunOptions options,
     TimeProvider time,
     int stepsSoFar,
-    IReadOnlyList<Guid> alreadyDelivered) : IAsyncDisposable
+    IReadOnlyList<Guid> alreadyDelivered,
+    bool escalateWhenTainted = true) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -86,6 +97,14 @@ public sealed class RunSession(
     public bool CancelledByUser { get; private set; }
 
     public bool LeaseLost { get; private set; }
+
+    public RunOptions Options => options;
+
+    /// <summary>The run has received a result from an untrusted source. It stays so until it ends.</summary>
+    public bool Tainted { get; private set; } = run.Tainted;
+
+    /// <summary>Whether the agent now running was built with the run already tainted.</summary>
+    public bool BuiltTainted { get; private set; } = run.Tainted;
 
     #endregion
 
@@ -213,6 +232,49 @@ public sealed class RunSession(
             .Where(message => delivered.Add(message.Id))
             .Select(message => RunEventWriter.Event(RunId, RunEventTypes.MessageDelivered, new MessageDelivered(message.ToResponse()))),
     ];
+
+    #endregion
+
+    #region Taint
+
+    /// <summary>
+    /// What the bot may do with the tool right now. In a tainted run, "allow" on a tool that can change something
+    /// behaves as "ask": text from an untrusted source must not lead to an unattended action.
+    /// </summary>
+    public GrantEffect EffectNow(RunTool tool, GrantEffect granted) =>
+        granted is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
+            ? GrantEffect.Ask
+            : granted;
+
+    /// <summary>
+    /// True when the run became tainted after its agent was built and the agent holds a tool that must now ask. The
+    /// framework can only stop for approval on tools marked for it when the agent is built.
+    /// </summary>
+    public bool NeedsRebuild =>
+        Tainted && !BuiltTainted && escalateWhenTainted
+        && tools.Any(tool => tool.Effect is GrantEffect.Allow && tool.Tool.Sensitivity is not ToolSensitivity.Read);
+
+    public void MarkBuilt() => BuiltTainted = Tainted;
+
+    /// <summary>Marks the run tainted, on the row as well, so a later execution starts tainted.</summary>
+    public async Task Taint()
+    {
+        if (Tainted)
+        {
+            return;
+        }
+
+        Tainted = true;
+        await tenant.Transact(
+            async services =>
+            {
+                if (await services.GetRequiredService<RunRepository>().GetRunForUpdate(RunId, CancellationToken.None) is { } row)
+                {
+                    row.Tainted = true;
+                }
+            },
+            CancellationToken.None);
+    }
 
     #endregion
 
