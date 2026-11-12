@@ -41,12 +41,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("concurrency_stamp");
 
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
-
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
@@ -110,6 +104,24 @@ namespace Drover.Data.Migrations
                         .HasDatabaseName("ix_users_normalized_user_name");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("display_name");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_user_profiles");
+
+                    b.ToTable("user_profiles", (string)null);
                 });
 
             modelBuilder.Entity("Drover.Domain.Spaces.Membership", b =>
@@ -273,6 +285,16 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithOne("Profile")
+                        .HasForeignKey("Drover.Data.Identity.UserProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_profiles_users_user_id");
+                });
+
             modelBuilder.Entity("Drover.Domain.Spaces.Membership", b =>
                 {
                     b.HasOne("Drover.Domain.Spaces.Space", null)
@@ -318,6 +340,12 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("Drover.Data.Identity.User", b =>
+                {
+                    b.Navigation("Profile")
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

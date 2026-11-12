@@ -16,6 +16,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid>
 
     #region Properties
 
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+
     public DbSet<Space> Spaces => Set<Space>();
 
     public DbSet<Membership> Memberships => Set<Membership>();
