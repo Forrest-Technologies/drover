@@ -2,6 +2,20 @@
 
 Remote HTTP servers first. The adapter is `Drover.Adapters.Mcp`, built on the official C# SDK 2.4 (Apache-2.0), which targets spec revision 2026-07-28 and falls back to older servers on its own (verified).
 
+## What is built
+
+Built and tested: the `IToolSource` interface and its conformance suite; the adapter with automatic protocol choice, the per-connection override, and both client lifetimes; no-auth and header connections; the catalog with definition pinning; per-principal credential lookup; the taint rule; the result size limit; the connections API at `/api/spaces/{spaceId}/tool-connections`.
+
+Not built yet, and described below as the design: OAuth and everything under it (discovery, the callback bridge, token cache, refresh, `needs_reconnect`); refreshing a catalog on its time-to-live, hourly, or on a server's notification (today it is listed when a connection is added and when an admin presses refresh); saving a result that was cut as a file; the connection's status after a failed call (a failed listing sets it; a failed call is reported to the model and logged); the connections screen.
+
+Details the first build settled:
+
+- **A header credential is one secret.** The header's name and value are stored together in the vault, so the row holds only a secret id and the API never returns either part. A connection may not set a header that belongs to the transport (`Host`, `Content-Length`, `Cookie`, the protocol's own headers, and the like), and an address with a user name or password in it is refused.
+- **Limits on what a server can make Drover keep.** At most 500 tools per connection; a description is stored up to 8,000 characters; a tool whose input schema is not an object, or is larger than 64 KB, is not stored. These are constants today and belong in the deployment policy before a shared server relies on them.
+- **A server's "read-only" is a claim.** It sets the sensitivity of a tool the first time the tool is seen. It never lowers the sensitivity of a tool already in the catalog, and it is never a reason to run a call again after a restart: only a built-in tool that Drover marks as reading is repeated.
+- **Tainted runs rebuild the agent.** The agent framework can stop for approval only on tools that were marked for it when the agent was built. When a run becomes tainted, it is stopped before its next model call and its agent is built again with every consequential `allow` tool marked to ask; the run then goes on from the stored conversation. No model call and no tool call is repeated. A consequential tool called in the same step as the untrusted read, before the rebuild, is refused with a message that it needs approval, and the model can ask again.
+- **A session's outbound rule is the one it was opened under.** A kept session of the older protocol generation makes its requests under the space's private-address rule as it was when the session was opened. A changed rule applies from the next session, at most ten idle minutes later.
+
 ## Two protocol generations, stateless preferred
 
 MCP has two generations in use. Drover supports both and prefers the newer one.
