@@ -10,4 +10,5 @@ global using Bunit;
 global using Drover.Ui.Components;
 global using Microsoft.AspNetCore.Components;
 global using Microsoft.AspNetCore.Components.Web;
+global using Microsoft.JSInterop;
 global using Xunit;

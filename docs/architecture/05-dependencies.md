@@ -45,7 +45,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.Extensions.AI.OpenAI` 10.11.0, official `OpenAI` client and `System.ClientModel` | MIT | Microsoft and OpenAI | Compatible protocol serialization, tools, streaming and reasoning | Referenced only by `Drover.Adapters.OpenAICompatible`. Venice composes its Drover-owned transport delegate. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
-| Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
+| Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownDocument`, which `MarkdownView` renders from. |
 | HtmlSanitizer, with AngleSharp | MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
 | `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency | Web Push and VAPID | **Wrapped** by `IPushChannel` |
 | Cronos | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct. One call site in the scheduler. |
