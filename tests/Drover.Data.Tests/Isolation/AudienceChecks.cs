@@ -41,8 +41,11 @@ public static class AudienceChecks
     public static async Task CannotDeleteAnotherMembersPrivateRows(IsolationHarness harness, string tableName)
     {
         var (table, world, mine, _) = await Arrange(harness, tableName);
+        var own = await harness.Seed(table, RowPlacement.Private(world.SpaceA, world.UserA2));
         await using (var asA2 = await harness.Open(world.SpaceA, world.UserA2))
         {
+            Expect.That(await harness.DeleteRow(asA2, table, own) == 1,
+                $"Control: A2 cannot delete their private row in '{tableName}'.");
             var deleted = await harness.DeleteRow(asA2, table, mine);
             Expect.That(deleted == 0, $"A2 deleted {deleted} private row(s) of A1 in '{tableName}'.");
             await asA2.Commit();

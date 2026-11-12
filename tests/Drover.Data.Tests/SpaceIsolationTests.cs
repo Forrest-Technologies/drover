@@ -44,5 +44,10 @@ public sealed class SpaceIsolationTests(IsolationFixture isolation) : IClassFixt
     public Task With_no_tenant_set_nothing_is_visible_and_inserts_fail(string table) =>
         SpaceChecks.SeesNothingWithNoTenantSet(isolation.For(table), table);
 
+    [Theory]
+    [MemberData(nameof(IsolationTables.Space), MemberType = typeof(IsolationTables))]
+    public Task The_app_cannot_truncate_a_tenant_table(string table) =>
+        SpaceChecks.CannotTruncate(isolation.For(table), table);
+
     #endregion
 }
