@@ -19,9 +19,10 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     [Fact]
     public async Task Hosted_with_a_key_ring_certificate_starts()
     {
-        var start = () => Boot(Hosted(withCertificate: true));
+        await using var server = await Boot(Hosted(withCertificate: true));
 
-        await start.Should().NotThrowAsync();
+        server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules
+            .Should().Be(DeploymentPolicy.Hosted);
     }
 
     [Theory]
@@ -82,7 +83,10 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     {
         var settings = Hosted(withCertificate: true);
 
-        var message = await StartupFailure(settings, useAdminConnection: true);
+        await using var database = await postgres.CreateDatabase();
+        settings["ConnectionStrings:Drover"] = database.AdminConnectionString;
+
+        var message = await StartupFailure<InvalidOperationException>(settings);
 
         message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer)).And.Contain("drover_app");
     }
@@ -92,9 +96,10 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     {
         var settings = SelfHosted();
 
-        var start = () => Boot(settings, useAdminConnection: true);
+        await using var server = await Boot(settings, useAdminConnection: true);
 
-        await start.Should().NotThrowAsync();
+        server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules
+            .AllowMigrationCredentialInServer.Should().BeTrue();
     }
 
     [Fact]
@@ -114,9 +119,10 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var settings = SelfHosted();
         settings["ConnectionStrings:DroverOwner"] = "Host=localhost;Username=drover_owner";
 
-        var start = () => Boot(settings);
+        await using var server = await Boot(settings);
 
-        await start.Should().NotThrowAsync();
+        server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules
+            .AllowMigrationCredentialInServer.Should().BeTrue();
     }
 
     [Fact]
@@ -136,9 +142,26 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var settings = SelfHosted();
         settings["Drover:Policy:Rules:AllowEverything"] = "true";
 
-        var message = await StartupFailure(settings);
+        var message = await StartupFailure<InvalidOperationException>(settings);
 
         message.Should().Contain("AllowEverything");
+    }
+
+    [Theory]
+    [InlineData("AllowEverything", "true")]
+    [InlineData("AllowPrivateAddresses", "not-a-boolean")]
+    [InlineData("KeyRingProtection", "not-a-protection")]
+    public void Invalid_rule_configuration_is_rejected_when_options_are_resolved(string rule, string setting)
+    {
+        var settings = SelfHosted();
+        settings[$"Drover:Policy:Rules:{rule}"] = setting;
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var services = new ServiceCollection();
+        services.AddDroverPolicy(configuration);
+        using var provider = services.BuildServiceProvider();
+        var resolve = () => provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value;
+
+        resolve.Should().ThrowExactly<InvalidOperationException>().Which.Message.Should().Contain(rule);
     }
 
     [Fact]
@@ -202,29 +225,21 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         return settings;
     }
 
-    // When a host fails to start, the test host sometimes loses the real exception to an ObjectDisposedException of
-    // its own, whichever of the two finishes first. That is the harness, not the server, so such an attempt is
-    // run again.
-    private async Task<string> StartupFailure(Dictionary<string, string?> settings, bool useAdminConnection = false)
-    {
-        for (var attempt = 0; attempt < 5; attempt++)
-        {
-            try
-            {
-                await using var server = await Boot(settings, useAdminConnection);
-                throw new InvalidOperationException("The server started, and it should not have.");
-            }
-            catch (Exception failure) when (failure is not InvalidOperationException { Message: "The server started, and it should not have." })
-            {
-                if (!failure.ToString().Contains("DeferredHost.StartAsync", StringComparison.Ordinal)
-                    || !failure.ToString().Contains("ObjectDisposedException", StringComparison.Ordinal))
-                {
-                    return failure.ToString();
-                }
-            }
-        }
+    private static Task<string> StartupFailure(Dictionary<string, string?> settings) =>
+        StartupFailure<OptionsValidationException>(settings);
 
-        throw new InvalidOperationException("The server never reported why it did not start.");
+    private static async Task<string> StartupFailure<TException>(Dictionary<string, string?> settings)
+        where TException : Exception
+    {
+        var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());
+        builder.Configuration.AddInMemoryCollection(settings);
+        builder.Services.AddDroverPolicy(builder.Configuration);
+        using var host = builder.Build();
+        var start = () => host.StartAsync(TestContext.Current.CancellationToken);
+
+        var failure = await start.Should().ThrowExactlyAsync<TException>();
+
+        return failure.Which.Message;
     }
 
     private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false)
