@@ -1,0 +1,31 @@
+.dv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--dv-space-2);
+  border: var(--dv-border) solid var(--dv-text-3);
+  border-radius: var(--dv-radius-full);
+  color: var(--dv-text-2);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  white-space: nowrap;
+}
+
+.dv-badge-live {
+  border-color: var(--dv-ion);
+  color: var(--dv-ion);
+}
+
+.dv-badge-ok {
+  border-color: var(--dv-ok);
+  color: var(--dv-ok);
+}
+
+.dv-badge-warn {
+  border-color: var(--dv-warn);
+  color: var(--dv-warn);
+}
+
+.dv-badge-danger {
+  border-color: var(--dv-danger);
+  color: var(--dv-danger);
+}

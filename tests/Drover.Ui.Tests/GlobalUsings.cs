@@ -8,6 +8,7 @@ global using System.Threading.Tasks;
 global using AwesomeAssertions;
 global using Bunit;
 global using Drover.Ui.Components;
+global using Drover.Ui.Icons;
 global using Microsoft.AspNetCore.Components;
 global using Microsoft.AspNetCore.Components.Web;
 global using Xunit;

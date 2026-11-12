@@ -1,0 +1,29 @@
+<button type="button" class="dv-icon-button" aria-label="@Label" title="@Label" disabled="@Disabled" @onclick="OnClick" @attributes="Attributes">
+    <Icon Name="Icon" Size="20" />
+</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public IconName Icon { get; set; }
+
+    /// <summary>What the control does, in words. It is the accessible name, so it is required.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(Label))
+        {
+            throw new InvalidOperationException($"{nameof(IconButton)} needs a {nameof(Label)}: an icon alone has no name.");
+        }
+    }
+}

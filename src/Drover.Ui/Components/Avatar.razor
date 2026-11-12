@@ -1,0 +1,42 @@
+<span class="dv-avatar dv-avatar-@Size dv-hue-@(HueStep)" role="img" aria-label="@AccessibleName">
+    <span class="dv-avatar-ring @(State is AvatarState.Thinking ? "dv-state-thinking" : null)" aria-hidden="true"></span>
+    @if (ImageUrl is not null)
+    {
+        <img class="dv-avatar-image" src="@ImageUrl" alt="" width="@Size" height="@Size" />
+    }
+    else
+    {
+        <span class="dv-avatar-initials" aria-hidden="true">@Initials</span>
+    }
+</span>
+
+@code {
+    private const int HueSteps = 12;
+
+    /// <summary>The bot's name. It is the avatar's accessible name.</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>The identity hue, one of twelve fixed steps. Any number is folded into range.</summary>
+    [Parameter]
+    public int Hue { get; set; }
+
+    /// <summary>The edge length in pixels: 20, 24, 32, 48, or 96.</summary>
+    [Parameter]
+    public int Size { get; set; } = 32;
+
+    [Parameter]
+    public string? ImageUrl { get; set; }
+
+    [Parameter]
+    public AvatarState State { get; set; } = AvatarState.Rest;
+
+    private string AccessibleName => State is AvatarState.Thinking ? $"{Name}, thinking" : Name;
+
+    private int HueStep => ((Hue % HueSteps) + HueSteps) % HueSteps;
+
+    private string Initials => string.Concat(Name
+        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2)
+        .Select(word => char.ToUpperInvariant(word[0])));
+}
