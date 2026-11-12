@@ -4,7 +4,18 @@ A self-hosted platform for running your own crew of AI bots: fully defined by yo
 
 **Status: early.** The design is written, the solution builds, and CI is live. There is nothing to use yet. Follow progress in the [roadmap](ROADMAP.md).
 
-## Run what exists
+## Quick start
+
+Requires Docker with Compose. No file to edit and no secret to type.
+
+```bash
+docker compose up --build
+```
+
+Then open <http://localhost:8080>. The first start builds the image from source and creates the database passwords on a volume; `docker compose down` then `up` keeps them. The server listens on localhost only.
+
+## Run what exists without Docker
+
 
 Requires the .NET 10 SDK.
 
