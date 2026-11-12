@@ -1,0 +1,164 @@
+@page "/setup/bot"
+@layout EntryLayout
+@inject DroverApi Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ILogger<MeetBot> Logger
+
+<PageTitle>Meet your first bot</PageTitle>
+
+<SessionGate>
+    <SetupSteps Current="3" />
+    <h1>Meet your first bot</h1>
+
+    @if (loadProblem is not null)
+    {
+        <StatusNote Kind="NoteKind.Danger" Text="@loadProblem" />
+        <Button Kind="ButtonKind.Primary" OnClick="Load">Try again</Button>
+    }
+    else if (!loaded)
+    {
+        <p class="dv-entry-lead" role="status">Asking the provider which models it has.</p>
+    }
+    else if (bot is not null)
+    {
+        <div class="dv-meet">
+            <Avatar Name="@bot.Name" Hue="BotIdentity.Hue(bot.Id)" Size="96" />
+            <p class="dv-meet-name">@bot.Name</p>
+            <p class="dv-meet-model"><code>@bot.Model</code></p>
+        </div>
+        <p class="dv-entry-lead">@bot.Name is ready. It answers with the model above and keeps each conversation as a thread.</p>
+        <a class="dv-meet-start" href="@Addresses.NewThread">Start a conversation</a>
+    }
+    else if (connection is null)
+    {
+        <EmptyState Title="No model is connected" Cause="A bot needs a model to think with, and this space has none yet."
+                    ActionLabel="Connect a model" ActionHref="@Addresses.SetupModel" />
+    }
+    else
+    {
+        <p class="dv-entry-lead">@StarterName is a general helper to start with. Choose the model it thinks with.</p>
+
+        <form class="dv-entry-form" @onsubmit="Create">
+            @if (models.Count > 0)
+            {
+                <Select Label="Model" @bind-Value="model" Disabled="busy">
+                    @foreach (var entry in models)
+                    {
+                        <option value="@entry.Model">@entry.DisplayName</option>
+                    }
+                </Select>
+            }
+            else
+            {
+                <Field Label="Model name" @bind-Value="model" name="model" autocomplete="off" spellcheck="false" required="true"
+                       Disabled="busy" Hint="@(listProblem ?? "This endpoint does not list its models. Type the name it expects.")" />
+            }
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? $"Creating {StarterName}" : $"Create {StarterName}")</Button>
+        </form>
+    }
+</SessionGate>
+
+@code {
+    #region Private Fields
+
+    private const string StarterName = "Atlas";
+
+    private const string StarterInstructions = "You are Atlas, a general helper. Answer plainly and keep it short unless asked for more.";
+
+    private const string DefaultTrait = "default";
+
+    private IReadOnlyList<ModelCatalogResponse> models = [];
+
+    private ModelConnectionSummary? connection;
+
+    private BotSummary? bot;
+
+    private string model = string.Empty;
+
+    private string? loadProblem;
+
+    private string? listProblem;
+
+    private string? problem;
+
+    private bool loaded;
+
+    private bool busy;
+
+    #endregion
+
+    #region Properties
+
+    private Guid SpaceId => Session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
+
+    #endregion
+
+    #region Private Methods
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await Session.Load() is not null)
+        {
+            await Load();
+        }
+    }
+
+    private async Task Load()
+    {
+        loadProblem = null;
+        try
+        {
+            bot = (await Api.ListBots(SpaceId)).FirstOrDefault();
+            connection = bot is null ? PickConnection(await Api.ListModelConnections(SpaceId)) : null;
+            if (connection is not null)
+            {
+                await ListModels(connection);
+            }
+
+            loaded = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(MeetBot));
+            loadProblem = Failures.Sentence(exception);
+        }
+    }
+
+    // The connection that last answered a test comes first: it is the one the person just set up.
+    private static ModelConnectionSummary? PickConnection(IReadOnlyList<ModelConnectionSummary> connections) =>
+        connections.OrderByDescending(candidate => candidate.Status is "connected").ThenByDescending(candidate => candidate.LastCheckedAt).FirstOrDefault();
+
+    private async Task ListModels(ModelConnectionSummary chosen)
+    {
+        var refresh = await Api.RefreshModels(SpaceId, chosen.Id);
+        models = [.. refresh.Models.Where(entry => entry.State is "available").OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
+        listProblem = refresh.Succeeded ? null : refresh.Message;
+        model = models.FirstOrDefault(entry => entry.Traits.Contains(DefaultTrait))?.Model
+            ?? chosen.DefaultModel
+            ?? models.FirstOrDefault()?.Model
+            ?? string.Empty;
+    }
+
+    private async Task Create()
+    {
+        busy = true;
+        problem = null;
+        try
+        {
+            bot = await Api.CreateBot(SpaceId, new(StarterName, StarterInstructions, connection!.Id, model.Trim()));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(MeetBot));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    #endregion
+}

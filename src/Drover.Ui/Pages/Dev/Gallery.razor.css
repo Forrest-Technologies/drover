@@ -46,3 +46,9 @@
   border-radius: var(--dv-radius-card);
   background: var(--dv-bg-2);
 }
+
+.dv-gallery-conversation {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}

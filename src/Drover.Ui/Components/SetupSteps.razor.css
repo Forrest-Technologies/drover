@@ -1,0 +1,31 @@
+.dv-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+}
+
+.dv-steps-count {
+  font-size: var(--dv-text-13);
+  color: var(--dv-text-3);
+}
+
+.dv-steps-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--dv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A bar per step. The count above says the same thing in words. */
+.dv-step {
+  height: var(--dv-focus-width);
+  border-radius: var(--dv-radius-full);
+  background: var(--dv-line);
+}
+
+.dv-step-reached {
+  background: var(--dv-text-2);
+}

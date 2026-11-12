@@ -34,6 +34,13 @@
   background: var(--dv-ember);
 }
 
+/* Nothing is lit at rest: the primary action takes its color when it can be taken. */
+.dv-button-primary:disabled {
+  border-color: var(--dv-line);
+  background: var(--dv-bg-3);
+  color: var(--dv-text-3);
+}
+
 .dv-button-danger {
   border-color: var(--dv-danger);
   color: var(--dv-danger);

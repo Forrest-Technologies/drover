@@ -1,0 +1,61 @@
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ILogger<SessionGate> Logger
+
+@if (Session.Current is not null)
+{
+    @ChildContent
+}
+else if (unreachable)
+{
+    <main class="dv-gate">
+        <h1 class="dv-visually-hidden">Drover</h1>
+        <EmptyState Title="The server did not answer" Cause="@Failures.Unreachable" ActionLabel="Try again" OnAction="Check" />
+    </main>
+}
+else
+{
+    <main class="dv-gate">
+        <h1 class="dv-visually-hidden">Drover</h1>
+        <p class="dv-gate-note" role="status">Checking who is signed in.</p>
+    </main>
+}
+
+@code {
+    #region Private Fields
+
+    private bool unreachable;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>Shown only to a signed-in person. Anyone else is sent to sign in, or to setup on a new server.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override Task OnInitializedAsync() => Check();
+
+    private async Task Check()
+    {
+        unreachable = false;
+        try
+        {
+            if (await Session.Load() is null)
+            {
+                Navigation.NavigateTo(await Session.FindEntryAddress(), replace: true);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SessionGate));
+            unreachable = true;
+        }
+    }
+
+    #endregion
+}

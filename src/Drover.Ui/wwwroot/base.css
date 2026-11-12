@@ -96,6 +96,11 @@ samp {
   outline-offset: var(--dv-focus-offset);
 }
 
+/* A page heading takes focus after navigation so the new page is announced. It is not a control. */
+h1[tabindex="-1"]:focus {
+  outline: none; /* design: allow focus-always-visible because the heading is focused by the router to announce the page, never by the person */
+}
+
 .dv-visually-hidden {
   position: absolute;
   width: var(--dv-border);
@@ -103,6 +108,15 @@ samp {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* What the host page shows until the app has loaded. */
+.dv-boot {
+  display: grid;
+  place-content: center;
+  min-height: 100dvh;
+  max-width: none;
+  color: var(--dv-text-2);
 }
 
 /* Live state: a bot is thinking. A slow breath, with light. */

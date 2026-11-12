@@ -1,6 +1,0 @@
-.dv-home {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dv-space-3);
-  padding: var(--dv-space-5) var(--dv-space-4);
-}
