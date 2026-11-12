@@ -6,9 +6,6 @@ public sealed class RunLimitException(string reason, string message) : Exception
     public string Reason => reason;
 }
 
-/// <summary>Another worker holds the run now. This one stops and writes nothing more.</summary>
-public sealed class LeaseLostException(Guid runId) : Exception($"The lease on run {runId} is no longer this worker's.");
-
 /// <summary>A catalog tool as one run sees it: the row, the effective grant at the start, and the name the model uses.</summary>
 public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin);
 
@@ -63,7 +60,8 @@ public sealed class RunSession(
 
     public int Attempt => run.Attempt;
 
-    public string WorkerId => workerId;
+    /// <summary>This execution's claim. Every write it makes is checked against it.</summary>
+    public RunFence Fence { get; } = new(workerId, run.Attempt);
 
     public ChatThread Thread => thread;
 
@@ -134,9 +132,23 @@ public sealed class RunSession(
         return started.MessageId;
     }
 
-    /// <summary>The model call finished. Its message is stored a moment later, and announced when it is.</summary>
-    public void EndStep()
+    /// <summary>
+    /// The model call finished. Its message is stored a moment later, and announced when it is. The runtime stores
+    /// that message itself, so the claim is checked first: an execution whose run was taken over stops here and
+    /// stores nothing.
+    /// </summary>
+    public async Task EndStep()
     {
+        var lease = await tenant.Transact(
+            services => services.GetRequiredService<RunRepository>().ReadLease(RunId, Fence, CancellationToken.None),
+            CancellationToken.None);
+
+        if (!lease.Held)
+        {
+            LoseLease();
+            throw new OperationCanceledException($"Run {RunId} was taken over during a model call.");
+        }
+
         unannounced = openStep;
         openStep = null;
     }

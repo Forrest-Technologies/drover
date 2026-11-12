@@ -34,8 +34,9 @@ public sealed class BotService(
         await bots.FindBot(id, cancellationToken) is { Status: not BotStatus.Removed } bot ? bot : null;
 
     /// <summary>
-    /// Creates a bot at the top of the tree. It is granted the built-in tools that only read, as allow, so it can use
-    /// them at once; every other tool stays off until a person grants it.
+    /// Creates a bot at the top of the tree. It is granted the tools named in
+    /// <see cref="BuiltinTools.GrantedToNewBots"/>, as allow, so it can use them at once; every other tool stays off
+    /// until a person grants it.
     /// </summary>
     public async Task<BotChange> Create(
         string name,
@@ -79,7 +80,7 @@ public sealed class BotService(
             CreatedByUserId = createdByUserId,
         };
         bots.AddRootBot(bot);
-        await GrantReadOnlyBuiltins(bot, createdByUserId, cancellationToken);
+        await GrantDefaultTools(bot, createdByUserId, cancellationToken);
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
     }
@@ -88,11 +89,11 @@ public sealed class BotService(
 
     #region Private Methods
 
-    private async Task GrantReadOnlyBuiltins(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
+    private async Task GrantDefaultTools(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
     {
         foreach (var tool in await catalog.EnsureBuiltins(cancellationToken))
         {
-            if (tool.Sensitivity is ToolSensitivity.Read)
+            if (BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
             {
                 tools.Add(new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = grantedByUserId });
             }

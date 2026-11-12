@@ -70,7 +70,8 @@ public sealed class RunWorld : IAsyncDisposable
     }
 
     /// <summary>A new server process that executes runs.</summary>
-    public EngineHost StartHost(Action<RunOptions>? configure = null) => NewHost(configure).Start();
+    public EngineHost StartHost(Action<RunOptions>? configure = null, Action<IServiceCollection>? replaceServices = null) =>
+        NewHost(configure, replaceServices).Start();
 
     public Task<T> Transact<T>(Func<IServiceProvider, Task<T>> work) => TransactAs(SpaceId, UserId, work);
 
@@ -233,9 +234,9 @@ public sealed class RunWorld : IAsyncDisposable
 
     #region Private Methods
 
-    private EngineHost NewHost(Action<RunOptions>? configure = null)
+    private EngineHost NewHost(Action<RunOptions>? configure = null, Action<IServiceCollection>? replaceServices = null)
     {
-        var host = new EngineHost(database.AppConnectionString, keyRing, Model, Tools.All, configure);
+        var host = new EngineHost(database.AppConnectionString, keyRing, Model, Tools.All, configure, replaceServices);
         hosts.Add(host);
         return host;
     }
@@ -279,6 +280,12 @@ public sealed class RunWorld : IAsyncDisposable
             change.Problem.Should().BeNull();
             return change.Bot!.Id;
         });
+
+        // A new bot gets only the tools on the default list. The read-only test tools are granted here, as a person would.
+        foreach (var tool in Tools.All.Where(tool => tool.Sensitivity is ToolSensitivity.Read))
+        {
+            await Grant(tool.Name, GrantEffect.Allow);
+        }
     }
 
     private static string Summary(MessagePart part) => part switch

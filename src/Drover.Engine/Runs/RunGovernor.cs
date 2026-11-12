@@ -43,10 +43,19 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             throw new InvalidOperationException("A tool was called inside a tenant transaction. Close the scope before the call.");
         }
 
-        await session.StartTool(toolCall.CallId);
-        var outcome = await Run(toolCall, cancellationToken);
-        await session.CompleteTool(toolCall.CallId, outcome);
-        return outcome;
+        try
+        {
+            await session.StartTool(toolCall.CallId);
+            var outcome = await Run(toolCall, cancellationToken);
+            await session.CompleteTool(toolCall.CallId, outcome);
+            return outcome;
+        }
+        catch (LeaseLostException taken)
+        {
+            // The run belongs to another claim now. Leaving as a cancellation keeps the runtime from recording an
+            // outcome for a call that the new claim has already settled.
+            throw new OperationCanceledException($"Run {session.RunId} was taken over during a tool call.", taken);
+        }
     }
 
     public Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken) =>

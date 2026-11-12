@@ -23,7 +23,7 @@ public static class RunEndpoints
     #region Endpoints
 
     private static async Task<Results<Ok<RunSummary>, NotFound>> GetRun(Guid runId, HttpContext context, RunService runs) =>
-        await runs.FindRun(runId, context.RequestAborted) is { } run
+        await runs.FindRun(runId, context.GetSpaceAccess().Role <= MembershipRole.Admin, context.RequestAborted) is { } run
             ? TypedResults.Ok(run.ToSummary())
             : TypedResults.NotFound();
 

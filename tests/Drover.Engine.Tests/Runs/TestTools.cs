@@ -14,6 +14,8 @@ public sealed class TestTools
 
     private readonly TaskCompletionSource paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    private readonly TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private readonly List<BuiltinTool> tools = [];
 
     #endregion
@@ -44,6 +46,17 @@ public sealed class TestTools
             await Task.Delay(Timeout.Infinite, cancellationToken);
             throw new UnreachableException();
         });
+
+    /// <summary>A tool that starts and waits, ignoring cancellation, until the test calls <see cref="OpenGate"/>.</summary>
+    public TestTools AddGated(string name, ToolSensitivity sensitivity, string resultJson = """{"ok":true}""") =>
+        Add(name, sensitivity, async (_, _) =>
+        {
+            paused.TrySetResult();
+            await gate.Task;
+            return JsonElement.Parse(resultJson);
+        });
+
+    public void OpenGate() => gate.TrySetResult();
 
     /// <summary>A tool that never finishes the first time it starts, and answers every time after that.</summary>
     public TestTools AddPausingOnce(string name, ToolSensitivity sensitivity, string resultJson)

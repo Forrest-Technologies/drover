@@ -55,6 +55,20 @@ public sealed class RedactorTests
     }
 
     [Fact]
+    public void Arguments_with_a_repeated_key_or_keys_that_redact_to_the_same_text_do_not_fail()
+    {
+        var secret = $"venice-{Convert.ToHexString(RandomNumberGenerator.GetBytes(12))}";
+        var redactor = new Redactor([secret]);
+
+        var repeated = redactor.Redact(JsonElement.Parse("""{"a":1,"a":2}"""));
+        var colliding = redactor.Redact(JsonElement.Parse(
+            """{"SECRET":"first","xSECRET":"kept","SECRET":"last"}""".Replace("SECRET", secret, StringComparison.Ordinal)));
+
+        repeated.GetRawText().Should().Be("""{"a":2}""", "the last of a repeated key wins");
+        colliding.GetRawText().Should().Be("""{"[redacted]":"last","x[redacted]":"kept"}""");
+    }
+
+    [Fact]
     public void Ordinary_text_and_short_values_are_left_alone()
     {
         var redactor = new Redactor(["abc"]);
