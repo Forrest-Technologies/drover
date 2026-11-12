@@ -1,0 +1,111 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<Menu> Logger
+
+<div class="dv-menu">
+    <button @ref="trigger" type="button" id="@triggerId" class="dv-menu-trigger" popovertarget="@ListId" aria-haspopup="menu" aria-controls="@ListId">@Label</button>
+    <div @ref="list" id="@ListId" class="dv-menu-list" role="menu" aria-labelledby="@triggerId" popover>
+        <CascadingValue Value="this" IsFixed="true">@ChildContent</CascadingValue>
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private const string ModulePath = "./_content/Drover.Ui/Components/Menu.razor.js";
+
+    private readonly string triggerId = $"dv-menu-trigger-{Guid.NewGuid():N}";
+
+    private readonly List<MenuItem> items = [];
+
+    private ElementReference trigger;
+
+    private ElementReference list;
+
+    private IJSObjectReference? module;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    internal string ListId { get; } = $"dv-menu-list-{Guid.NewGuid():N}";
+
+    #endregion
+
+    #region Public Methods
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            await module.DisposeAsync();
+        }
+    }
+
+    #endregion
+
+    #region Items
+
+    internal void Register(MenuItem item)
+    {
+        if (!items.Contains(item))
+        {
+            items.Add(item);
+        }
+    }
+
+    internal void Unregister(MenuItem item) => items.Remove(item);
+
+    internal bool OpensOn(MenuItem item) => items.FirstOrDefault(candidate => !candidate.Disabled) == item;
+
+    internal ValueTask ReturnFocusToTrigger() => trigger.FocusAsync();
+
+    internal async Task MoveFocus(MenuItem from, string key)
+    {
+        MenuItem[] enabled = [.. items.Where(item => !item.Disabled)];
+        var index = Array.IndexOf(enabled, from);
+        var target = key switch
+        {
+            "ArrowDown" => enabled[(index + 1) % enabled.Length],
+            "ArrowUp" => enabled[(index - 1 + enabled.Length) % enabled.Length],
+            "Home" => enabled[0],
+            "End" => enabled[^1],
+            _ => null,
+        };
+
+        if (target is not null)
+        {
+            await target.Focus();
+        }
+    }
+
+    // The items register again, in document order, each time this renders them.
+    protected override void OnParametersSet() => items.Clear();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            await module.InvokeVoidAsync("attach", list, trigger);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The menu script failed to attach to the menu");
+            throw;
+        }
+    }
+
+    #endregion
+}

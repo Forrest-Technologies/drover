@@ -15,6 +15,9 @@
   --dv-text-2: #AEB7C7;
   --dv-text-3: #8791A5;
 
+  /* The flat dim behind a modal dialog or sheet */
+  --dv-scrim: color-mix(in srgb, var(--dv-bg-0) 72%, transparent);
+
   /* The three accents, one meaning each */
   --dv-ember: #FFB454;
   --dv-ion: #67E8F9;
@@ -96,6 +99,7 @@
   --dv-toast-width: 360px;
   --dv-image-width: 480px;
   --dv-image-ratio: 16 / 9;
+  --dv-tooltip-width: 240px;
   --dv-grid-step: 16px;
   --dv-travel-width: 25%;
 

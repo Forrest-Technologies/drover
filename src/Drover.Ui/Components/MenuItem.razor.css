@@ -1,0 +1,36 @@
+.dv-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--dv-target-pointer);
+  padding: 0 var(--dv-space-3);
+  border: 0;
+  border-radius: var(--dv-radius-control);
+  background: transparent;
+  color: var(--dv-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background var(--dv-dur-1) var(--dv-ease);
+}
+
+.dv-menu-item:hover:not(:disabled),
+.dv-menu-item:focus-visible {
+  background: var(--dv-bg-3);
+}
+
+/* The ring would be clipped by the list's scroll box, so it is drawn inside the item. */
+.dv-menu-item:focus-visible {
+  outline-offset: calc(0px - var(--dv-focus-width));
+}
+
+.dv-menu-item:disabled {
+  color: var(--dv-text-3);
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .dv-menu-item {
+    min-height: var(--dv-target-touch);
+  }
+}
