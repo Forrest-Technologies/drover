@@ -15,7 +15,7 @@ public sealed class TokenContrastTests
 
     private const string SystemLightQuery = "prefers-color-scheme: light";
 
-    private const string LightSelector = """:root[data-theme="light"]""";
+    private const string LightSelector = """[data-theme="light"]""";
 
     private static readonly string[] surfaces = ["--dv-bg-0", "--dv-bg-1", "--dv-bg-2", "--dv-bg-3"];
 
@@ -37,7 +37,7 @@ public sealed class TokenContrastTests
         StyleSheet.Parse(File.ReadAllText(RepositoryFiles.TokensPath));
 
     private static readonly Dictionary<string, string> dark =
-        Declared(rule => rule.Selector is ":root" && rule.Context.Count == 0);
+        Declared(rule => rule.Selector.StartsWith(":root,", StringComparison.Ordinal) && rule.Context.Count == 0);
 
     private static readonly Dictionary<string, string> explicitLight =
         Declared(rule => rule.Selector == LightSelector && rule.Context.Count == 0);
