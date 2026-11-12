@@ -14,6 +14,7 @@ public sealed class RunExecutor(
     IEnumerable<BuiltinTool> builtins,
     RunEventHub hub,
     RunSignal signal,
+    UserSignalHub signals,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
@@ -442,6 +443,13 @@ public sealed class RunExecutor(
 
         // A slot is free and the thread can take its next message.
         signal.Wake();
+        signals.Publish(
+            session.Tenant.SpaceId,
+            session.Tenant.UserId,
+            new UserSignal(
+                status is RunStatus.Waiting ? UserSignalKinds.ApprovalWaiting : UserSignalKinds.RunFinished,
+                session.Thread.Id,
+                session.RunId));
     }
 
     private async Task FinishWithoutEvents(RunSession session, RunError error)

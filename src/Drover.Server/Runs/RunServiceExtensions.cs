@@ -19,6 +19,7 @@ public static class RunServiceExtensions
             options.Workers = section.GetValue("Workers", options.Workers);
             options.StepLimit = section.GetValue("StepLimit", options.StepLimit);
             options.PollInterval = TimeSpan.FromSeconds(section.GetValue("PollSeconds", options.PollInterval.TotalSeconds));
+            options.HeartbeatInterval = TimeSpan.FromSeconds(section.GetValue("HeartbeatSeconds", options.HeartbeatInterval.TotalSeconds));
         });
         services.AddDroverAgents(execution => new ModelChatClientBridge(
             execution.Model ?? throw new InvalidOperationException("The engine starts every run with its model client.")));

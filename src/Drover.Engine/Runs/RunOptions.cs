@@ -26,5 +26,8 @@ public sealed class RunOptions
 
     public int DeltaFlushCharacters { get; set; } = 512;
 
+    /// <summary>How long an event stream stays silent before it sends a heartbeat and looks at the table again.</summary>
+    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
+
     #endregion
 }
