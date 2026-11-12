@@ -189,6 +189,58 @@ public sealed class CatalogAudit(NpgsqlConnection connection, OwnershipMap owner
 
     #endregion
 
+    #region Application Grants
+
+    public async Task<IReadOnlyList<string>> AppGrantDrift()
+    {
+        List<string> problems = [];
+        string[] privileges = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE"];
+        var present = await Shapes();
+
+        foreach (var table in TenantTables())
+        {
+            var expected = AppGrantContract.For(table.Table);
+            foreach (var privilege in privileges)
+            {
+                await using var command = new NpgsqlCommand(
+                    "SELECT has_table_privilege('drover_app', @table, @privilege)", connection);
+                command.Parameters.AddWithValue("table", $"public.\"{table.Table}\"");
+                command.Parameters.AddWithValue("privilege", privilege);
+                var actual = (bool)(await command.ExecuteScalarAsync())!;
+                if (actual != expected.AllowsTablePrivilege(privilege))
+                {
+                    problems.Add($"Table '{table.Table}' has unexpected {privilege} privilege: {actual}.");
+                }
+            }
+
+            var shape = present.Single(shape => shape.Name == table.Table);
+            foreach (var column in shape.Columns)
+            {
+                await using var command = new NpgsqlCommand(
+                    "SELECT has_column_privilege('drover_app', @table, @column, 'UPDATE')", connection);
+                command.Parameters.AddWithValue("table", $"public.\"{table.Table}\"");
+                command.Parameters.AddWithValue("column", column.Name);
+                var actual = (bool)(await command.ExecuteScalarAsync())!;
+                if (actual != expected.AllowsColumnUpdate(column.Name))
+                {
+                    problems.Add($"Column '{table.Table}.{column.Name}' has unexpected UPDATE privilege: {actual}.");
+                }
+            }
+
+            foreach (var column in expected.UpdateColumns ?? [])
+            {
+                if (shape.Column(column) is null)
+                {
+                    problems.Add($"Table '{table.Table}' is missing expected UPDATE column '{column}'.");
+                }
+            }
+        }
+
+        return problems;
+    }
+
+    #endregion
+
     #region Policy Requirements
 
     private static IEnumerable<PolicyRequirement> RequirementsFor(OwnershipClass tableClass)

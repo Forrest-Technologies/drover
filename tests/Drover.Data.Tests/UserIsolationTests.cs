@@ -44,5 +44,10 @@ public sealed class UserIsolationTests(IsolationFixture isolation) : IClassFixtu
     public Task With_no_tenant_set_nothing_is_visible_and_inserts_fail(string table) =>
         UserChecks.SeesNothingWithNoTenantSet(isolation.For(table), table);
 
+    [Theory]
+    [MemberData(nameof(IsolationTables.User), MemberType = typeof(IsolationTables))]
+    public Task The_app_cannot_truncate_a_user_table(string table) =>
+        SpaceChecks.CannotTruncate(isolation.For(table), table);
+
     #endregion
 }
