@@ -227,7 +227,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
         var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
         var file = Guid.CreateVersion7();
         var call = Guid.CreateVersion7();
-        var arguments = JsonDocument.Parse("""{"query":"weather"}""").RootElement.Clone();
+        var arguments = JsonElement.Parse("""{"query":"weather"}""");
         var message = CoreRows.NewMessage(thread, 1, "unused");
         message.Parts =
         [

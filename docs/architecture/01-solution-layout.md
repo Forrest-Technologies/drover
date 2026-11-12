@@ -123,9 +123,9 @@ One MSBuild property, `DroverEnableApple`, default `false`, defined in `Director
 
 ```xml
 <PropertyGroup>
-  <TargetFrameworks>net10.0-android</TargetFrameworks>
-  <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
-  <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+  <TargetFrameworks>net11.0-android</TargetFrameworks>
+  <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+  <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
 </PropertyGroup>
 ```
 
@@ -141,7 +141,7 @@ Revisit in Phase 2 with a thin Avalonia window hosting a web view pointed at the
 
 | File | Purpose |
 | --- | --- |
-| `Directory.Build.props` | `net10.0`, nullable, `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, analyzer references, `DroverEnableApple`. See [10-tooling.md](10-tooling.md). |
+| `Directory.Build.props` | `net11.0`, nullable, `TreatWarningsAsErrors`, `EnforceCodeStyleInBuild`, analyzer references, `DroverEnableApple`. See [10-tooling.md](10-tooling.md). |
 | `Directory.Packages.props` | Central package management with transitive pinning. Every version in one file. No lock files; see [10-tooling.md](10-tooling.md). |
 | `global.json` | Pins the SDK feature band so local, CI, and the Docker build agree. |
 | `nuget.config` | `nuget.org` only, with package source mapping. |

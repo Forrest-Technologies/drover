@@ -17,7 +17,7 @@ The guide is the authority. The tools are configured to match it. Where no stock
 
 ### Tested
 
-`.editorconfig` and `BannedSymbols.txt` were run on SDK 10.0.115 against two files: one written to the guide, one breaking it on purpose.
+`.editorconfig` and `BannedSymbols.txt` were run on SDK 11.0.100 against two files: one written to the guide, one breaking it on purpose.
 
 | Result | Detail |
 | --- | --- |
@@ -80,7 +80,7 @@ Each rule has tests with compliant and non-compliant samples, and a code fix whe
 ```xml
 <Project>
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -184,4 +184,5 @@ One tool per area. All are free for a public repository and either open source o
 - **The gitleaks project is in maintenance mode** (security fixes only), and its author has started a successor. The CLI is feature-complete for this use. Revisit when the successor ships an official action.
 - **License tool and central package management.** The tool's documentation does not mention central package management. It reads resolved packages after restore, so it should work; Phase 0 step 1 confirms it, and `dependency-review` is the backstop for new packages either way.
 - **Scorecard and runtime hardening of runners** were considered and left out for now. They add signal later, once the repository is public and has contributors.
+- **Dependabot and major versions.** Dependabot takes new .NET majors for ASP.NET Core, `Microsoft.Extensions.*` and the Docker images. It ignores major bumps of `Microsoft.EntityFrameworkCore*` and `Npgsql*` until the Npgsql EF Core provider for that major is generally available. The AI libraries are tracked at their latest release (see [ADR 0013](../adr/0013-track-the-newest-generally-available-dotnet.md)).
 - **Dependabot and `global.json`.** There are reports of project discovery failing when `global.json` pins an SDK the updater does not have. Pin a feature band with `rollForward: latestFeature`, not an exact patch.

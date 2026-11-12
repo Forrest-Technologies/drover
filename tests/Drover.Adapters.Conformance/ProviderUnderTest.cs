@@ -4,7 +4,7 @@ namespace Drover.Adapters.Conformance;
 public sealed record WireRequest(string Method, Uri Uri, string Body)
 {
     /// <summary>The JSON body, or a default element when the request had none.</summary>
-    public JsonElement Json => string.IsNullOrEmpty(Body) ? default : JsonDocument.Parse(Body).RootElement;
+    public JsonElement Json => string.IsNullOrEmpty(Body) ? default : JsonElement.Parse(Body);
 }
 
 /// <summary>

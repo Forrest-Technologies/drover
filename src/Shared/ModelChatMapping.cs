@@ -204,7 +204,7 @@ internal static class ModelChatMapping
         TotalTokenCount = usage.TotalTokens,
         CachedInputTokenCount = usage.CachedInputTokens,
         ReasoningTokenCount = usage.ReasoningTokens,
-        AdditionalCounts = usage.AdditionalCounts is { } counts ? new AdditionalPropertiesDictionary<long>(counts.ToDictionary(pair => pair.Key, pair => pair.Value)) : null,
+        AdditionalCounts = usage.AdditionalCounts is { } counts ? [with(counts)] : null,
     };
 
     private static JsonElement ToJson(object? value) => value is JsonElement element ? element.Clone() : JsonSerializer.SerializeToElement(value, AIJsonUtilities.DefaultOptions);

@@ -5,7 +5,7 @@ public static class CoreRows
 {
     #region Public Methods
 
-    public static JsonElement EmptyJson() => JsonDocument.Parse("{}").RootElement.Clone();
+    public static JsonElement EmptyJson() => JsonElement.Parse("{}");
 
     public static ModelConnection NewConnection() => new()
     {

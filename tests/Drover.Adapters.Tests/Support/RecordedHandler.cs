@@ -4,7 +4,7 @@ namespace Drover.Adapters.Tests.Support;
 public sealed record SentRequest(HttpMethod Method, Uri Uri, IReadOnlyDictionary<string, string> Headers, string Body)
 {
     /// <summary>The JSON body, or an empty object when the request had none.</summary>
-    public JsonElement Json => string.IsNullOrEmpty(Body) ? default : JsonDocument.Parse(Body).RootElement;
+    public JsonElement Json => string.IsNullOrEmpty(Body) ? default : JsonElement.Parse(Body);
 }
 
 /// <summary>

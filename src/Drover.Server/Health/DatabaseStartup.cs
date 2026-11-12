@@ -9,7 +9,7 @@ public static class DatabaseStartup
         var explicitConnection = configuration.GetConnectionString("Drover");
         var connection = explicitConnection is null
             ? Connection(configuration, "drover_app", "Database:AppPasswordFile")
-            : new NpgsqlConnectionStringBuilder(explicitConnection);
+            : [with(explicitConnection)];
 
         if ((!allowCustomRole && connection.Username is not "drover_app") || string.IsNullOrWhiteSpace(connection.Username)
             || string.IsNullOrWhiteSpace(connection.Host)
