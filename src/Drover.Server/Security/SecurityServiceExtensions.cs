@@ -71,8 +71,9 @@ public static class SecurityServiceExtensions
         options.Cookie.HttpOnly = true;
 
         // Not "Always": antiforgery refuses to answer a plain-HTTP request under that setting, which breaks
-        // http://localhost. The cookie is still always Secure: the cookie policy stamps it on every cookie.
-        options.Cookie.SecurePolicy = CookieSecurePolicy.None;
+        // http://localhost. The cookie is still always Secure: over HTTPS this sets it, and over plain HTTP the
+        // cookie policy stamps Secure on every cookie the server sends.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.Path = "/";
     }
