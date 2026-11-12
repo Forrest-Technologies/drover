@@ -45,8 +45,8 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.Extensions.AI.OpenAI` 10.11.0, official `OpenAI` client and `System.ClientModel` | MIT | Microsoft and OpenAI | Compatible protocol serialization, tools, streaming and reasoning | Referenced only by `Drover.Adapters.OpenAICompatible`. Venice composes its Drover-owned transport delegate. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
-| Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
-| HtmlSanitizer, with AngleSharp | MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
+| Markdig 1.6.0 | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
+| HtmlSanitizer 11.0.26, with AngleSharp and AngleSharp.Css | MIT, MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
 | `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency | Web Push and VAPID | **Wrapped** by `IPushChannel` |
 | Cronos | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct. One call site in the scheduler. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
@@ -54,7 +54,8 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.Extensions.Logging` | MIT | Microsoft | Logging, as the guide requires | Direct. No third-party logger. |
 | .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
-| Inter, JetBrains Mono (fonts) | SIL OFL 1.1 | Their respective projects | UI and monospace type, bundled | Assets |
+| Inter 4.1 (variable), JetBrains Mono 2.304 (regular, medium) | SIL OFL 1.1, the one license outside the code list, accepted for fonts only | Their respective projects | UI and monospace type, bundled as WOFF2 in `Drover.Ui/wwwroot/fonts` with each license file beside them. Nothing loads from another host. | Assets |
+| Lucide icons 0.468.0, twenty shapes copied into `Drover.Ui/Icons` | ISC | Lucide contributors, active | The one icon set, drawn inline by the `Icon` component. The license file sits beside the shapes. | Assets. No package reference. |
 
 ### Experimental APIs in use
 
@@ -90,7 +91,7 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | AwesomeAssertions | Apache-2.0 | Community fork, active | Assertions |
 | NSubstitute | BSD-3-Clause | Community, active | Test doubles |
 | Testcontainers, `Testcontainers.PostgreSql` | MIT | Active | Real PostgreSQL in tests |
-| bUnit | MIT | Egil Hansen, active | Blazor component tests |
+| bUnit 2.15.2 | MIT | Egil Hansen, active | Blazor component tests in `Drover.Ui.Tests` |
 | `Microsoft.AspNetCore.Mvc.Testing` | MIT | Microsoft | API tests |
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |

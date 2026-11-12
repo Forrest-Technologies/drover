@@ -1,7 +1,8 @@
 /* Drover design tokens. The only file that holds raw values.
    Specified in docs/architecture/09-design-direction.md. Dark is primary. */
 
-:root {
+:root,
+[data-theme="dark"] {
   color-scheme: dark;
 
   /* Surfaces and text */
@@ -146,7 +147,7 @@
   }
 }
 
-:root[data-theme="light"] {
+[data-theme="light"] {
   color-scheme: light;
   --dv-bg-0: #F6F7FA;
   --dv-bg-1: #FFFFFF;

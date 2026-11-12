@@ -13,6 +13,8 @@
 @code {
     private const int HueSteps = 12;
 
+    private const int SmallestSizeWithTwoInitials = 32;
+
     /// <summary>The bot's name. It is the avatar's accessible name.</summary>
     [Parameter, EditorRequired]
     public string Name { get; set; } = string.Empty;
@@ -37,6 +39,6 @@
 
     private string Initials => string.Concat(Name
         .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-        .Take(2)
+        .Take(Size < SmallestSizeWithTwoInitials ? 1 : 2)
         .Select(word => char.ToUpperInvariant(word[0])));
 }

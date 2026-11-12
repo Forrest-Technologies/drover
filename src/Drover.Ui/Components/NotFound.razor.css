@@ -1,0 +1,7 @@
+.dv-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-3);
+  padding: var(--dv-space-5) var(--dv-space-4);
+}

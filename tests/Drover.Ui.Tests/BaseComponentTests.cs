@@ -147,6 +147,16 @@ public sealed class BaseComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_small_avatar_shows_one_initial_so_it_fits()
+    {
+        var avatar = Render<Avatar>(parameters => parameters
+            .Add(component => component.Name, "Sample bot")
+            .Add(component => component.Size, 24));
+
+        avatar.Find("[role=img]").TextContent.Trim().Should().Be("S");
+    }
+
+    [Fact]
     public void A_thinking_avatar_says_so_in_its_name_and_carries_the_live_state()
     {
         var avatar = Render<Avatar>(parameters => parameters

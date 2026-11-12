@@ -1,0 +1,48 @@
+.dv-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-7);
+  max-width: calc(var(--dv-dialog-width) * 2 + var(--dv-space-7));
+  margin: 0 auto;
+  padding: var(--dv-space-6) var(--dv-space-4);
+}
+
+.dv-gallery-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+}
+
+.dv-gallery-header p {
+  color: var(--dv-text-2);
+}
+
+.dv-gallery-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+}
+
+.dv-gallery-dot {
+  width: var(--dv-space-3);
+  height: var(--dv-space-3);
+  border-radius: var(--dv-radius-full);
+  background: currentColor;
+}
+
+.dv-gallery-line {
+  width: var(--dv-space-7);
+  height: var(--dv-focus-width);
+  background: currentColor;
+}
+
+.dv-gallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  padding: var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-card);
+  background: var(--dv-bg-2);
+}
