@@ -1,0 +1,35 @@
+@typeparam TValue
+
+<fieldset class="dv-segmented">
+    <legend class="dv-visually-hidden">@Label</legend>
+    @foreach (var option in Options)
+    {
+        <label class="dv-segment">
+            <input class="dv-segment-input" type="radio" name="@name" checked="@IsChosen(option)" disabled="@Disabled"
+                   @onchange="() => ValueChanged.InvokeAsync(option.Value)" />
+            <span class="dv-segment-label">@option.Label</span>
+        </label>
+    }
+</fieldset>
+
+@code {
+    private readonly string name = $"dv-segmented-{Guid.NewGuid():N}";
+
+    /// <summary>What is being chosen. Read to assistive technology as the group's name.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<SegmentOption<TValue>> Options { get; set; } = [];
+
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue> ValueChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    private bool IsChosen(SegmentOption<TValue> option) => EqualityComparer<TValue>.Default.Equals(option.Value, Value);
+}

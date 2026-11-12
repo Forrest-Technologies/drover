@@ -1,0 +1,34 @@
+.dv-gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+.dv-gallery-note {
+  color: var(--dv-text-2);
+}
+
+.dv-gallery-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--dv-sheet-width) - var(--dv-space-7))), 1fr));
+  gap: var(--dv-space-4);
+}
+
+.dv-gallery-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--dv-space-4);
+  min-width: 0;
+  padding: var(--dv-space-4);
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-card);
+}
+
+.dv-gallery-theme-name {
+  flex-basis: 100%;
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  color: var(--dv-text-3);
+}

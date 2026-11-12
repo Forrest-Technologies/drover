@@ -1,0 +1,137 @@
+@page "/dev/gallery"
+@inject UiEnvironment Environment
+
+@if (!Environment.IsDevelopment)
+{
+    <NotFound />
+}
+else
+{
+    <PageTitle>Component gallery</PageTitle>
+
+    <main class="dv-gallery">
+        <header class="dv-gallery-header">
+            <h1>Component gallery</h1>
+            <p>Every component in both themes. All names, text, and values on this page are samples.</p>
+            <Badge>Sample content</Badge>
+        </header>
+
+        <GallerySection Title="Button" Note="Primary is the one thing a person came to do. One per view.">
+            <Button Kind="ButtonKind.Primary">Connect a model</Button>
+            <Button>Test connection</Button>
+            <Button Kind="ButtonKind.Danger">Remove bot</Button>
+            <Button Disabled="true">Save</Button>
+        </GallerySection>
+
+        <GallerySection Title="Icon button" Note="Each has a name that says what it does.">
+            <IconButton Icon="IconName.Plus" Label="Add a bot" />
+            <IconButton Icon="IconName.Settings" Label="Open settings" />
+            <IconButton Icon="IconName.Close" Label="Close panel" />
+            <IconButton Icon="IconName.Remove" Label="Remove bot" Disabled="true" />
+        </GallerySection>
+
+        <GallerySection Title="Field">
+            <Field Label="Base address" Placeholder="https://" Hint="Where the model answers." @bind-Value="address" />
+            <Field Label="Key" Type="password" Value="sample" Error="The key was rejected. Check it and try again." />
+        </GallerySection>
+
+        <GallerySection Title="Select, switch, segmented control">
+            <Select Label="Model" @bind-Value="model">
+                <option value="a">Sample model A</option>
+                <option value="b">Sample model B</option>
+            </Select>
+            <Switch Label="Remember threads" @bind-Value="remember" />
+            <SegmentedControl TValue="string" Label="Tool access" Options="access" @bind-Value="chosenAccess" />
+        </GallerySection>
+
+        <GallerySection Title="Avatar" Note="The ring is the bot's hue at rest. It takes the live color and breathes only while the bot thinks.">
+            <Avatar Name="Sample bot" Hue="0" Size="96" />
+            <Avatar Name="Sample bot" Hue="3" Size="48" />
+            <Avatar Name="Sample bot" Hue="6" Size="32" />
+            <Avatar Name="Sample bot" Hue="8" Size="24" />
+            <Avatar Name="Sample bot" Hue="10" Size="20" />
+            <Avatar Name="Sample bot" Hue="6" Size="48" State="AvatarState.Thinking" />
+        </GallerySection>
+
+        <GallerySection Title="Badge" Note="The words carry the state. Color only adds to them.">
+            <Badge>Idle</Badge>
+            <Badge Kind="BadgeKind.Live">Thinking</Badge>
+            <Badge Kind="BadgeKind.Ok">Done</Badge>
+            <Badge Kind="BadgeKind.Warn">Waiting for you</Badge>
+            <Badge Kind="BadgeKind.Danger">Failed</Badge>
+        </GallerySection>
+
+        <GallerySection Title="Tabs">
+            <Tabs Label="Sample sections" Items="tabs">
+                <p>Sample panel for @context.Label.</p>
+            </Tabs>
+        </GallerySection>
+
+        <GallerySection Title="Empty state" Note="It always says why it is empty and offers one thing to do.">
+            <EmptyState Title="No model yet" Cause="A bot needs a model to answer. None is connected." ActionLabel="Connect a model" ActionHref="/dev/gallery" />
+        </GallerySection>
+
+        <GallerySection Title="Dialog, sheet, menu, tooltip, toast" Note="Escape closes each one and focus returns to the control that opened it.">
+            <OverlaySamples />
+        </GallerySection>
+
+        <GallerySection Title="Markdown" Note="Bot messages render through this. Raw HTML is dropped and a remote image waits for a click.">
+            <MarkdownView Text="@markdown" />
+        </GallerySection>
+
+        <GallerySection Title="Code block">
+            <CodeBlock Code="@command" Language="bash" />
+        </GallerySection>
+
+        <GallerySection Title="Live states" Note="The four things that move. Each runs only while the work it reports is in progress; here they are held on as samples.">
+            <div class="dv-gallery-state">
+                <span class="dv-gallery-dot dv-state-thinking"></span>
+                <span>Thinking</span>
+            </div>
+            <div class="dv-gallery-state">
+                <span class="dv-state-streaming">Text arrives</span>
+            </div>
+            <div class="dv-gallery-card dv-state-tool">
+                <code>sample_tool</code>
+                <span>Running a tool</span>
+            </div>
+            <div class="dv-gallery-state">
+                <span class="dv-gallery-line dv-state-delegation"></span>
+                <span>Work passes between bots</span>
+            </div>
+        </GallerySection>
+    </main>
+
+    <ToastHost />
+}
+
+@code {
+    private static readonly TabItem[] tabs = [new("model", "Model"), new("tools", "Tools"), new("memory", "Memory")];
+
+    private static readonly SegmentOption<string>[] access = [new("off", "Off"), new("ask", "Ask"), new("allow", "Allow")];
+
+    private const string markdown = """
+        ### Sample answer
+
+        A bot message with **bold**, `inline code`, and a [link](https://example.org).
+
+        - [x] Read the page
+        - [ ] Draft a reply
+
+        | Step | Result |
+        | --- | --- |
+        | Fetch | Done |
+
+        ![A sample image](https://example.org/sample.png)
+        """;
+
+    private const string command = "docker compose up --build";
+
+    private string address = string.Empty;
+
+    private string model = "a";
+
+    private bool remember = true;
+
+    private string chosenAccess = "ask";
+}

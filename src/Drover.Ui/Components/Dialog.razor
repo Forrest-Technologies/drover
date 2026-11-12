@@ -1,0 +1,119 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<Dialog> Logger
+
+<dialog @ref="element" class="dv-dialog" aria-labelledby="@titleId" @onclose="SyncClosed">
+    <header class="dv-dialog-header">
+        <h2 id="@titleId" class="dv-dialog-title">@Title</h2>
+        <button type="button" class="dv-dialog-close" @onclick="Close">Close</button>
+    </header>
+    @if (Open)
+    {
+        <div class="dv-dialog-body">@ChildContent</div>
+        @if (Actions is not null)
+        {
+            <footer class="dv-dialog-actions">@Actions</footer>
+        }
+    }
+</dialog>
+
+@code {
+    #region Private Fields
+
+    private const string ModulePath = "./_content/Drover.Ui/Components/Dialog.razor.js";
+
+    private readonly string titleId = $"dv-dialog-title-{Guid.NewGuid():N}";
+
+    private ElementReference element;
+
+    private Task<IJSObjectReference>? module;
+
+    private bool applied;
+
+    private bool shown;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter]
+    public bool Open { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    #endregion
+
+    #region Public Methods
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is null)
+        {
+            return;
+        }
+
+        if (shown)
+        {
+            await Call("close");
+        }
+
+        var loaded = await module;
+        await loaded.DisposeAsync();
+    }
+
+    #endregion
+
+    #region Native Dialog Sync
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Open == applied)
+        {
+            return;
+        }
+
+        applied = Open;
+        if (Open != shown)
+        {
+            shown = Open;
+            await Call(Open ? "open" : "close");
+        }
+    }
+
+    private Task Close() => Call("close");
+
+    // The browser closed the dialog: Escape, the close button, or this component's own request.
+    // Only a later change of Open opens it again, so Escape always wins.
+    private Task SyncClosed()
+    {
+        shown = false;
+        return OpenChanged.InvokeAsync(false);
+    }
+
+    private async Task Call(string function)
+    {
+        try
+        {
+            module ??= JS.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            var loaded = await module;
+            await loaded.InvokeVoidAsync(function, element);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The dialog script failed to {Function} the dialog", function);
+            throw;
+        }
+    }
+
+    #endregion
+}

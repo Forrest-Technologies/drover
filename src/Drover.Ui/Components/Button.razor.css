@@ -1,0 +1,46 @@
+.dv-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-pointer);
+  padding: 0 var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-text-3);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-2);
+  color: var(--dv-text);
+  font: inherit;
+  font-weight: var(--dv-weight-label);
+  cursor: pointer;
+  transition: background var(--dv-dur-1) var(--dv-ease);
+}
+
+.dv-button:hover:not(:disabled) {
+  background: var(--dv-bg-3);
+}
+
+.dv-button:disabled {
+  color: var(--dv-text-3);
+  cursor: not-allowed;
+}
+
+.dv-button-primary {
+  border-color: var(--dv-ember);
+  background: var(--dv-ember);
+  color: var(--dv-on-accent);
+}
+
+.dv-button-primary:hover:not(:disabled) {
+  background: var(--dv-ember);
+}
+
+.dv-button-danger {
+  border-color: var(--dv-danger);
+  color: var(--dv-danger);
+}
+
+@media (pointer: coarse) {
+  .dv-button {
+    min-height: var(--dv-target-touch);
+  }
+}

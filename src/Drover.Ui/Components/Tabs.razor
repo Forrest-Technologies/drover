@@ -1,0 +1,76 @@
+<div class="dv-tabs">
+    <div class="dv-tablist" role="tablist" aria-label="@Label" @onkeydown="MoveFocus">
+        @foreach (var item in Items)
+        {
+            <button type="button" class="dv-tab" role="tab" id="@TabId(item)" aria-selected="@(IsActive(item) ? "true" : "false")"
+                    aria-controls="@PanelId(item)" tabindex="@(IsActive(item) ? 0 : -1)"
+                    @ref="tabs[item.Id]" @onclick="() => Activate(item)">
+                @item.Label
+            </button>
+        }
+    </div>
+    @if (ActiveItem is { } active)
+    {
+        <div class="dv-tabpanel" role="tabpanel" id="@PanelId(active)" aria-labelledby="@TabId(active)" tabindex="0">
+            @ChildContent(active)
+        </div>
+    }
+</div>
+
+@code {
+    private readonly string id = $"dv-tabs-{Guid.NewGuid():N}";
+
+    private readonly Dictionary<string, ElementReference> tabs = [];
+
+    /// <summary>What the tabs switch between. Read to assistive technology as the tab list's name.</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<TabItem> Items { get; set; } = [];
+
+    /// <summary>The content for the tab that is showing.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment<TabItem> ChildContent { get; set; } = _ => _ => { };
+
+    /// <summary>The id of the tab that is showing. The first tab shows when this is not set.</summary>
+    [Parameter]
+    public string? Active { get; set; }
+
+    [Parameter]
+    public EventCallback<string> ActiveChanged { get; set; }
+
+    private TabItem? ActiveItem => Items.FirstOrDefault(item => item.Id == Active) ?? Items.FirstOrDefault();
+
+    private bool IsActive(TabItem item) => item == ActiveItem;
+
+    private string TabId(TabItem item) => $"{id}-tab-{item.Id}";
+
+    private string PanelId(TabItem item) => $"{id}-panel-{item.Id}";
+
+    private Task Activate(TabItem item)
+    {
+        Active = item.Id;
+        return ActiveChanged.InvokeAsync(item.Id);
+    }
+
+    private async Task MoveFocus(KeyboardEventArgs key)
+    {
+        if (ActiveItem is not { } active || NextIndex(key.Key, Items.ToList().IndexOf(active)) is not { } next)
+        {
+            return;
+        }
+
+        await Activate(Items[next]);
+        await tabs[Items[next].Id].FocusAsync();
+    }
+
+    private int? NextIndex(string key, int current) => key switch
+    {
+        "ArrowRight" => (current + 1) % Items.Count,
+        "ArrowLeft" => (current - 1 + Items.Count) % Items.Count,
+        "Home" => 0,
+        "End" => Items.Count - 1,
+        _ => null,
+    };
+}

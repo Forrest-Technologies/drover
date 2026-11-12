@@ -1,0 +1,62 @@
+.dv-code {
+  min-width: 0;
+  max-width: 100%;
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-card);
+  background: var(--dv-bg-2);
+  color: var(--dv-text);
+  overflow: hidden;
+}
+
+.dv-code-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+  padding: var(--dv-space-1) var(--dv-space-1) var(--dv-space-1) var(--dv-space-3);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-code-language {
+  color: var(--dv-text-2);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  overflow-wrap: anywhere;
+}
+
+.dv-code-status {
+  margin-inline-start: auto;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-12);
+}
+
+.dv-code-copy {
+  min-height: var(--dv-target-pointer);
+  padding: 0 var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-text-3);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-2);
+  color: var(--dv-text);
+  font: inherit;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  cursor: pointer;
+  transition: background var(--dv-dur-1) var(--dv-ease);
+}
+
+.dv-code-copy:hover {
+  background: var(--dv-bg-3);
+}
+
+.dv-code-body {
+  margin: 0;
+  padding: var(--dv-space-3);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+@media (pointer: coarse) {
+  .dv-code-copy {
+    min-height: var(--dv-target-touch);
+  }
+}

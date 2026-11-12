@@ -1,0 +1,61 @@
+<div class="dv-field">
+    <label class="dv-field-label" for="@id">@Label</label>
+    <input class="dv-field-input" id="@id" type="@Type" value="@Value" placeholder="@Placeholder" disabled="@Disabled"
+           aria-invalid="@(Error is null ? null : "true")" aria-describedby="@DescribedBy"
+           @oninput="Changed" @attributes="Attributes" />
+    @if (Hint is not null)
+    {
+        <p class="dv-field-hint" id="@hintId">@Hint</p>
+    }
+    @if (Error is not null)
+    {
+        <p class="dv-field-error" id="@errorId">@Error</p>
+    }
+</div>
+
+@code {
+    private readonly string id = $"dv-field-{Guid.NewGuid():N}";
+
+    private string hintId => $"{id}-hint";
+
+    private string errorId => $"{id}-error";
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter]
+    public string Type { get; set; } = "text";
+
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>One line that helps fill the field in.</summary>
+    [Parameter]
+    public string? Hint { get; set; }
+
+    /// <summary>What is wrong and what to do about it. Shown in words, never by color alone.</summary>
+    [Parameter]
+    public string? Error { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    private string? DescribedBy => (Hint, Error) switch
+    {
+        (not null, not null) => $"{hintId} {errorId}",
+        (not null, null) => hintId,
+        (null, not null) => errorId,
+        _ => null,
+    };
+
+    private Task Changed(ChangeEventArgs change) => ValueChanged.InvokeAsync(change.Value?.ToString() ?? string.Empty);
+}

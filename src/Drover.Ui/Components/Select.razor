@@ -1,0 +1,31 @@
+<div class="dv-select">
+    <label class="dv-select-label" for="@id">@Label</label>
+    <select class="dv-select-input" id="@id" value="@Value" disabled="@Disabled" @onchange="Changed" @attributes="Attributes">
+        @ChildContent
+    </select>
+</div>
+
+@code {
+    private readonly string id = $"dv-select-{Guid.NewGuid():N}";
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>The choices, as plain option elements.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    private Task Changed(ChangeEventArgs change) => ValueChanged.InvokeAsync(change.Value?.ToString() ?? string.Empty);
+}

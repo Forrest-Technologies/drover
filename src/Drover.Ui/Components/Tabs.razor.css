@@ -1,0 +1,47 @@
+.dv-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-4);
+  min-width: 0;
+}
+
+.dv-tablist {
+  display: flex;
+  gap: var(--dv-space-4);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+  overflow-x: auto;
+}
+
+.dv-tab {
+  flex: none;
+  min-height: var(--dv-target-pointer);
+  padding: 0;
+  border: 0;
+  border-bottom: var(--dv-focus-width) solid transparent;
+  background: transparent;
+  color: var(--dv-text-2);
+  font: inherit;
+  font-weight: var(--dv-weight-label);
+  cursor: pointer;
+}
+
+/* The showing tab is marked by an underline and by weight. */
+.dv-tab[aria-selected="true"] {
+  border-bottom-color: var(--dv-text);
+  color: var(--dv-text);
+  font-weight: var(--dv-weight-heading);
+}
+
+.dv-tab:focus-visible {
+  outline-offset: calc(var(--dv-focus-offset) * -1);
+}
+
+.dv-tabpanel {
+  min-width: 0;
+}
+
+@media (pointer: coarse) {
+  .dv-tab {
+    min-height: var(--dv-target-touch);
+  }
+}

@@ -23,6 +23,7 @@
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
+    <Project Path="tests/Drover.Ui.Tests/Drover.Ui.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj" />

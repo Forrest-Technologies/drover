@@ -1,0 +1,45 @@
+/* A sheet is the dialog, placed at an edge. The wrapper only carries the scope for these rules. */
+.dv-sheet {
+  display: contents;
+}
+
+.dv-sheet ::deep dialog.dv-dialog {
+  width: min(var(--dv-sheet-width), 100%);
+  max-width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0 0 0 auto;
+  border-width: 0 0 0 var(--dv-border);
+  border-radius: var(--dv-radius-sheet) 0 0 var(--dv-radius-sheet);
+}
+
+.dv-sheet ::deep dialog.dv-dialog[open] {
+  translate: none;
+  transition:
+    opacity var(--dv-dur-2) var(--dv-ease),
+    translate var(--dv-dur-2) var(--dv-ease);
+}
+
+@starting-style {
+  .dv-sheet ::deep dialog.dv-dialog[open] {
+    translate: 100% 0;
+  }
+}
+
+/* Narrow screens get a bottom sheet. A media query cannot read a token, so the breakpoint is written here. */
+@media (max-width: 40em) {
+  .dv-sheet ::deep dialog.dv-dialog {
+    width: 100%;
+    height: fit-content;
+    max-height: calc(100dvh - var(--dv-space-7));
+    margin: auto 0 0;
+    border-width: var(--dv-border) 0 0;
+    border-radius: var(--dv-radius-sheet) var(--dv-radius-sheet) 0 0;
+  }
+
+  @starting-style {
+    .dv-sheet ::deep dialog.dv-dialog[open] {
+      translate: 0 100%;
+    }
+  }
+}

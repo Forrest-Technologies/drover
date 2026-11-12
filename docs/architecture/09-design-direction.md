@@ -2,7 +2,7 @@
 
 The one-page version of this section, written for anyone building a screen, is [`/DESIGN.md`](../../DESIGN.md). It also holds the list of habits Drover's interface never falls into and which of them the build checks.
 
-Working name for the look: **Night Yard**. A dark, calm workspace where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something.
+Working name for the look: **Night Yard**. A dark workspace, calm at rest, where the bots are the lit things. Human intent is warm, bot activity is cool, and nothing glows unless it is doing something. What is working is turned up: it carries light (bloom), not only color. The owner chose this charged look over a flat one on 2026-11-12.
 
 ## Principles
 
@@ -38,31 +38,33 @@ One file, `Drover.Ui/wwwroot/tokens.css`, as CSS custom properties. Web and the 
 
 | Token | Value |
 | --- | --- |
-| `--dv-bg-0`, `-1`, `-2` | `#F6F7FA`, `#FFFFFF`, `#EEF0F5` |
+| `--dv-bg-0`, `-1`, `-2`, `-3` | `#F6F7FA`, `#FFFFFF`, `#EEF0F5`, `#E2E6EE` |
 | `--dv-line` | `#D5DAE3` |
 | `--dv-text`, `-2`, `-3` | `#12151C`, `#414B5E`, `#5D6779` |
-| `--dv-ember`, `--dv-ion`, `--dv-violet` | `#9A5B00`, `#0B6E82`, `#5B3FD6` |
+| `--dv-ember`, `--dv-ion`, `--dv-violet` | `#8F5400`, `#0B6E82`, `#5B3FD6` |
 | `--dv-ok`, `--dv-warn`, `--dv-danger` | `#15703A`, `#7A5A00`, `#B3261E` |
 
 ### Contrast, computed
 
 Ratios against the WCAG formula, calculated for these exact values:
 
-| Foreground | Dark, on `bg-0` to `bg-3` | Light, on `bg-0` to `bg-2` |
+| Foreground | Dark, on `bg-0` to `bg-3` | Light, on `bg-0` to `bg-3` |
 | --- | --- | --- |
-| `text` | 16.7 to 12.8 | 17.0 to 16.0 |
-| `text-2` | 9.7 to 7.4 | 8.2 to 7.7 |
-| `text-3` | 6.2 to 4.7 | 5.3 to 5.0 |
-| `ember` | 11.1 to 8.5 | 5.1 to 4.8 |
-| `ion` | 13.5 to 10.3 | 5.5 to 5.2 |
-| `violet` | 8.8 to 6.7 | 6.3 to 5.9 |
-| `ok`, `warn`, `danger` | 7.8 or higher on `bg-0`, 5.9 or higher on `bg-3` | 5.4 or higher |
+| `text` | 16.7 to 12.8 | 4.5 or higher on every surface; the lowest pair is `text-3` on `bg-3` at 4.56 |
+| `text-2` | 9.7 to 7.4 | |
+| `text-3` | 6.2 to 4.7 | |
+| `ember` | 11.1 to 8.5 | 4.89 at lowest |
+| `ion` | 13.5 to 10.3 | 4.71 at lowest |
+| `violet` | 8.8 to 6.7 | 5.37 at lowest |
+| `ok`, `warn`, `danger` | 7.8 or higher on `bg-0`, 5.9 or higher on `bg-3` | 4.92 at lowest |
+
+Light `bg-3` was missing from the first version of this table. Adding it put the first light `ember` (`#9A5B00`) at 4.34 on that surface, so light `ember` is `#8F5400`.
 
 Every text and status color clears 4.5:1 on every surface in both themes. `--dv-line` is about 1.5:1 and is decorative only; any border that conveys a control's edge or state uses `--dv-text-3` or a status color, which clear the 3:1 needed for interface elements. A unit test recomputes this table from `tokens.css` and fails if a change drops a pair below its threshold.
 
 ### Bot identity color
 
-Each bot gets a hue derived from its id, shown as a ring on its avatar and as its lane color in the activity view and tree. The hue is picked from twelve fixed steps tuned to clear 4.5:1 on `bg-2`. Color is never the only signal: the bot's name or initials always accompany it.
+Each bot gets a hue derived from its id, shown as a ring on its avatar and as its lane color in the activity view and tree. The hue is picked from twelve fixed steps, `--dv-hue-0` to `--dv-hue-11`, thirty degrees apart at one lightness and chroma per theme, and every step clears 4.5:1 on every surface (7.1 or higher in dark, 4.6 or higher in light). Color is never the only signal: the bot's name or initials always accompany it.
 
 ### Type
 
@@ -92,10 +94,24 @@ Both fonts are bundled (SIL OFL 1.1). Nothing loads from a third-party host, whi
 | `--dv-dur-2` | 220 ms | Panels, sheets, list insertions |
 | `--dv-dur-3` | 420 ms | Delegation handoff, tree layout changes |
 | `--dv-ease` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | Everything that moves |
+| `--dv-dur-breath`, `--dv-dur-travel` | 2600 ms, 1300 ms | One cycle of the thinking breath and of the tool line. These loop only while the state lasts. |
+
+### Light
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--dv-bloom-ion` | An 8 px soft light in `ion` | Around a thinking bot and a running tool's line |
+| `--dv-bloom-violet` | The same in `violet` | Around a handoff pulse |
+
+Bloom is used only inside the four state classes below. It is never used for depth, hover, or emphasis.
+
+### Theme scope
+
+The dark values sit on `:root` and on any element marked `data-theme="dark"`; the light values on `data-theme="light"` and, when the person's system asks for light and no theme is forced, on `:root`. A subtree can therefore show the other theme, which is how the gallery shows both at once.
 
 ## Motion rules
 
-1. **Motion shows state, nothing else.** The four states that earn motion:
+1. **Motion shows state, nothing else.** The four states that earn motion, each a class in `base.css` (`dv-state-thinking`, `dv-state-streaming`, `dv-state-tool`, `dv-state-delegation`):
 
    | State | Motion |
    | --- | --- |
@@ -172,6 +188,10 @@ Required for every component, and tested:
 | Utility stylesheet (Tailwind v4, MIT) | Works with a standalone binary and no Node. Adds a build step and a tool download to the Docker build, and long class lists to every component. | No. Tokens as custom properties give the same consistency with no build step. |
 | Headless primitives package | One credible candidate exists (Apache-2.0, active, single maintainer). Useful for hard widgets: combobox, menu, popover positioning. | Not at the start. Adopt for a specific widget only if building it accessibly costs more than a day. |
 | **Own components, plain CSS** | Full control of the aesthetic. No dependency to restyle or outgrow. Uses native elements that are accessible by default: `dialog`, the popover attribute, `details`, real buttons and inputs. | **Yes.** |
+
+Icons are one set at one stroke weight (1.75 on a 24 unit grid), drawn as inline SVG by the `Icon` component from shapes held in `Drover.Ui/Icons` (Lucide, ISC). An icon-only control is an `IconButton`, which refuses to render without a label.
+
+The gallery is the page `/dev/gallery`. It renders only when the host reports a development environment (`UiEnvironment`); a published build, which is what the compose deployment runs, shows the not-found page there.
 
 The set is small: Button, IconButton, Field, Select, Switch, SegmentedControl, Dialog, Sheet, Menu, Tooltip, Toast, Avatar, Badge, Tabs, Tree, Timeline, MarkdownView, CodeBlock, EmptyState. Each has component tests and a page in an in-app gallery (development builds only) that doubles as the visual reference.
 
