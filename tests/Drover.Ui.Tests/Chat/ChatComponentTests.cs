@@ -54,6 +54,16 @@ public sealed class ChatComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_message_the_bot_has_not_read_yet_says_so_in_words()
+    {
+        var list = RenderMessages([new("1", true, "Hello"), new("2", true, "One more thing", Pending: true)]);
+
+        var messages = list.FindAll("article");
+        messages[0].QuerySelectorAll(".dv-message-pending").Should().BeEmpty();
+        messages[1].QuerySelector(".dv-message-pending")!.TextContent.Should().Be("Sent. Sample bot reads it at its next step.");
+    }
+
+    [Fact]
     public void A_reply_that_is_still_arriving_is_marked_busy()
     {
         var list = RenderMessages([new("1", true, "Hello"), new("2", false, "Thinking about", Streaming: true)]);
@@ -153,19 +163,31 @@ public sealed class ChatComponentTests : BunitContext
     public void While_a_run_is_active_stop_takes_the_place_of_send()
     {
         var stopped = 0;
-        List<string> sent = [];
-        var composer = RenderComposer(running: true, onSend: sent.Add, onCancel: () => stopped++);
+        var composer = RenderComposer(running: true, onCancel: () => stopped++);
 
         var buttons = composer.FindAll("button");
         buttons.Select(button => button.TextContent.Trim()).Should().Equal("Stop");
         buttons[0].GetAttribute("type").Should().Be("button");
 
-        composer.Find("textarea").Input("Typed while it works");
-        composer.Find("form").Submit();
         buttons[0].Click();
 
-        sent.Should().BeEmpty("a message cannot be sent while the bot is working");
         stopped.Should().Be(1);
+    }
+
+    [Fact]
+    public void A_message_written_while_the_bot_works_can_be_sent_and_stop_stays()
+    {
+        List<string> sent = [];
+        var composer = RenderComposer(running: true, onSend: sent.Add);
+
+        composer.Find("textarea").Input("Use the shorter name");
+
+        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop", "Send");
+
+        composer.Find("form").Submit();
+
+        sent.Should().Equal("Use the shorter name");
+        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
     }
 
     #endregion

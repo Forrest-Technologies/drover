@@ -33,6 +33,14 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void A_message_the_bot_has_not_taken_yet_is_shown_as_pending()
+    {
+        var waiting = Message("user", false, new PartView("text", "One more thing")) with { IsPending = true };
+
+        new[] { waiting }.ToChatMessages().Single().Pending.Should().BeTrue();
+    }
+
+    [Fact]
     public void A_bot_is_thinking_while_it_works_and_has_said_nothing()
     {
         var working = RunView.Start(Guid.CreateVersion7()) with { Status = "running" };

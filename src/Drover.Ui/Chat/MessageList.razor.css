@@ -48,6 +48,11 @@
   white-space: pre-wrap;
 }
 
+.dv-message-pending {
+  font-size: var(--dv-text-12);
+  color: var(--dv-text-3);
+}
+
 .dv-message-from {
   display: flex;
   align-items: center;

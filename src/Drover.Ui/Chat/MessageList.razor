@@ -17,6 +17,10 @@
             {
                 <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
                     <p class="dv-message-bubble">@message.Text</p>
+                    @if (message.Pending)
+                    {
+                        <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
+                    }
                 </article>
             }
             else

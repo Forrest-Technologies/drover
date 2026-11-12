@@ -26,7 +26,7 @@ public static class Conversations
     [
         .. messages
             .Where(message => message.Role is PersonRole or BotRole)
-            .Select(message => new ChatMessage(message.Id.ToString(), message.Role is PersonRole, Words(message), message.IsStreaming))
+            .Select(message => new ChatMessage(message.Id.ToString(), message.Role is PersonRole, Words(message), message.IsStreaming, message.IsPending))
             .Where(message => message.Text.Length > 0),
     ];
 
@@ -43,7 +43,7 @@ public static class Conversations
     public static string? Notice(this RunView run) => run.Status switch
     {
         "cancelled" => "You stopped this reply.",
-        "waiting" => "The bot asked for an approval, and this version cannot give one yet. Stop the reply to carry on.",
+        "waiting" => "The bot is waiting for your approval to use a tool. This screen cannot show the request yet. Stop the reply to carry on.",
         _ => null,
     };
 

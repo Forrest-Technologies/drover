@@ -12,7 +12,7 @@
             Stop
         </Button>
     }
-    else
+    @if (!Running || !string.IsNullOrWhiteSpace(text))
     {
         <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(Disabled || Sending || string.IsNullOrWhiteSpace(text))">
             <Icon Name="IconName.Send" />
@@ -39,7 +39,10 @@
     [Parameter, EditorRequired]
     public string BotName { get; set; } = string.Empty;
 
-    /// <summary>True while a run is active. Stop then takes the place of Send.</summary>
+    /// <summary>
+    /// True while a run is active. Stop then takes the place of Send, and Send comes back beside it once there
+    /// is something written: a message sent now reaches the bot at its next step.
+    /// </summary>
     [Parameter]
     public bool Running { get; set; }
 
@@ -100,7 +103,7 @@
 
     private async Task Send()
     {
-        if (Running || Disabled || Sending || string.IsNullOrWhiteSpace(text))
+        if (Disabled || Sending || string.IsNullOrWhiteSpace(text))
         {
             return;
         }

@@ -179,6 +179,32 @@ public sealed class ThreadsTests : ScreenTest
     }
 
     [Fact]
+    public async Task A_message_sent_while_the_bot_works_waits_as_pending_and_takes_its_place_when_delivered()
+    {
+        var events = RunStarts();
+        var page = RenderThread();
+        page.WaitForElement("article");
+        await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Another sample question" });
+        await page.Find("form").SubmitAsync();
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop"));
+
+        var steering = Said("user", "Keep it short") with { Position = null, Steers = true };
+        Server.Answer("POST", $"{space}/threads/{threadId}/messages", new SendMessageResponse(steering, Run("running")), HttpStatusCode.Accepted);
+        await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Keep it short" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-message-pending").TextContent.Should().Be("Sent. Atlas reads it at its next step."));
+        page.FindAll(".dv-message-bubble")[^1].TextContent.Should().Be("Keep it short");
+        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop", "the run is still the same one");
+
+        await events.Send(Event(2, RunEventTypes.MessageDelivered, new MessageDelivered(steering with { Position = 3 })));
+
+        page.WaitForAssertion(() => page.FindAll(".dv-message-pending").Should().BeEmpty());
+        page.FindAll(".dv-message-bubble").Select(bubble => bubble.TextContent).Should().Equal("Sample question", "Another sample question", "Keep it short");
+    }
+
+    [Fact]
     public async Task A_run_that_fails_says_why_in_an_alert()
     {
         var events = RunStarts();

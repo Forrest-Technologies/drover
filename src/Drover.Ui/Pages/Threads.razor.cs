@@ -222,7 +222,11 @@ public sealed partial class Threads(
             stored = [.. stored, sent.Message];
             thread = thread with { Title = thread.Title ?? text, ActiveRunId = sent.Run.Id };
             Remember(thread);
-            Watch(sent.Run.Id);
+            if (run is not { IsActive: true } || run.RunId != sent.Run.Id)
+            {
+                Watch(sent.Run.Id);
+            }
+
             await ShowNewest();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -319,8 +323,14 @@ public sealed partial class Threads(
             (run, problem, notice) = (view, view.Problem(), view.Notice());
             if (thread?.Id == threadId)
             {
-                thread = thread with { ActiveRunId = null };
+                // A message sent just as the run ended is answered by a run of its own, which is followed next.
+                thread = await api.GetThread(SpaceId, threadId, cancellationToken);
                 Remember(thread);
+                if (thread.ActiveRunId is { } next && next != runId)
+                {
+                    Watch(next);
+                    return;
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
