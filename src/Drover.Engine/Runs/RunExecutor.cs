@@ -30,6 +30,8 @@ public sealed class RunExecutor(
 
     private static readonly string[] toolEventTypes = [RunEventTypes.ToolRequested, RunEventTypes.ToolCompleted];
 
+    private static readonly string[] approvalEventTypes = [RunEventTypes.ToolApprovalRequested, RunEventTypes.RunWaiting];
+
     private readonly ILogger logger = loggers.CreateLogger<RunExecutor>();
 
     #endregion
@@ -128,13 +130,20 @@ public sealed class RunExecutor(
         run.LeaseExpiresAt = null;
         run.FinishedAt = time.GetUtcNow();
 
-        if (await services.GetRequiredService<ThreadRepository>().FindThread(run.ThreadId, CancellationToken.None) is { } thread)
+        if (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(run.ThreadId, CancellationToken.None) is { } thread)
         {
             var changed = new RunStatusChanged(status.ToWireName(), reason, error is null ? null : new RunProblem(error.Code, error.Message), run.Attempt, run.Usage.ToTotals());
             var stored = await services.GetRequiredService<RunEventRepository>()
                 .Append(run.RootRunId, thread, [RunEventWriter.Event(run.Id, EventTypeFor(status), changed)], CancellationToken.None);
             hub.Publish(run.RootRunId, stored);
+
+            if (await services.GetRequiredService<ThreadLine>().RunEnded(run, thread, CancellationToken.None) is { } next)
+            {
+                hub.Publish(next.Run.RootRunId, next.Events);
+            }
         }
+
+        signals.Publish(run.SpaceId, run.PrincipalUserId, new UserSignal(UserSignalKinds.RunFinished, run.ThreadId, run.Id));
 
         logger.LogWarning("Run {RunId} ended as {Status} before it could start", run.Id, status);
     }
@@ -162,9 +171,13 @@ public sealed class RunExecutor(
             ? await services.GetRequiredService<MessageRepository>().FindMessage(open.MessageId, cancellationToken)
             : null;
         var unsettled = ReadUnsettledCalls(await events.ListEventsOfRun(runId, toolEventTypes, cancellationToken));
-        var rows = await services.GetRequiredService<ToolCallRepository>().ListToolCalls(unsettled, cancellationToken);
+        var toolCalls = services.GetRequiredService<ToolCallRepository>();
+        var rows = await toolCalls.ListToolCalls(unsettled, cancellationToken);
+        var asked = ReadLastApprovalRequests(await events.ListEventsOfRun(runId, approvalEventTypes, cancellationToken));
+        var answers = ToAnswers(asked, await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
+        var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)]);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -235,6 +248,41 @@ public sealed class RunExecutor(
         return requested;
     }
 
+    /// <summary>
+    /// The approval requests the run last went to wait on. A run that waits saves its session with those requests in
+    /// it, and the session is saved again only when the run next stops, so until then every execution must hand the
+    /// answers over: the first one after the answers arrive, and any that takes over from it after a crash.
+    /// </summary>
+    private static List<ToolApprovalRequested> ReadLastApprovalRequests(IReadOnlyList<RunEvent> events)
+    {
+        List<ToolApprovalRequested> beforeLastWait = [];
+        List<ToolApprovalRequested> since = [];
+
+        foreach (var stored in events)
+        {
+            if (stored.Type == RunEventTypes.ToolApprovalRequested)
+            {
+                since.Add(RunEventTypes.Read<ToolApprovalRequested>(stored.Data.GetRawText()));
+            }
+            else
+            {
+                beforeLastWait = since;
+                since = [];
+            }
+        }
+
+        return beforeLastWait;
+    }
+
+    /// <summary>A request is answered "no" when its row says denied, and "yes" when the row is anything a yes leads to.</summary>
+    private static List<PendingResponse> ToAnswers(IReadOnlyList<ToolApprovalRequested> asked, IReadOnlyList<ToolCall> rows) =>
+    [
+        .. asked
+            .Select(request => (Request: request, Row: rows.FirstOrDefault(row => row.Id == request.ToolCallId)))
+            .Where(pair => pair.Row is { Status: not ToolCallStatus.PendingApproval })
+            .Select(pair => new ToolApproval(pair.Request.RequestId, pair.Request.CallId, pair.Row!.Status is not ToolCallStatus.Denied)),
+    ];
+
     private RunSession NewSession(LoadedRun loaded, RunTenant tenant, string workerId)
     {
         // A run whose thread its person can no longer see fails before it writes an event, so the writer is never used then.
@@ -268,7 +316,8 @@ public sealed class RunExecutor(
             new Redactor([loaded.Key]),
             options.Value,
             time,
-            loaded.Steps.Count);
+            loaded.Steps.Count,
+            loaded.Delivered);
     }
 
     #endregion
@@ -286,7 +335,10 @@ public sealed class RunExecutor(
             return;
         }
 
-        await session.Writer.Write(null, [.. RecoveryEvents(session, loaded)]);
+        var placed = await session.Tenant.Transact(
+            services => services.GetRequiredService<ThreadLine>().PlaceMessagesOf(loaded.Run, loaded.Thread, CancellationToken.None),
+            CancellationToken.None);
+        await session.Writer.Write(null, [.. RecoveryEvents(session, loaded), .. session.Delivered(placed)]);
 
         if (FindReasonNotToStart(loaded) is { } refusal)
         {
@@ -380,6 +432,7 @@ public sealed class RunExecutor(
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(ToDefinition)],
         Model = model,
+        Responses = loaded.Answers,
     };
 
     private static ToolDefinition ToDefinition(RunTool tool) => new()
@@ -433,6 +486,8 @@ public sealed class RunExecutor(
                 continue;
             }
 
+            // The runtime may report this call's result once more as it goes on; the log has its end from here.
+            session.MarkSettled(callId);
             yield return RunEventWriter.Event(run.Id, RunEventTypes.ToolCompleted, Settled(session, callId, row));
         }
     }
@@ -535,10 +590,21 @@ public sealed class RunExecutor(
         }
 
         var changed = new RunStatusChanged(status.ToWireName(), reason, error is null ? null : new RunProblem(error.Code, error.Message), session.Attempt, session.Usage.ToTotals());
+        (Run Run, ChatThread Thread)? ended = null;
+        QueuedRun? next = null;
         await session.Writer.Write(
-            services => SetStatus(services, session, status, reason, error),
-            [.. closing, RunEventWriter.Event(session.RunId, EventTypeFor(status), changed)]);
+            async services => ended = await SetStatus(services, session, status, reason, error),
+            [.. closing, RunEventWriter.Event(session.RunId, EventTypeFor(status), changed)],
+            async services => next = ended is { } over && status is not RunStatus.Waiting
+                ? await services.GetRequiredService<ThreadLine>().RunEnded(over.Run, over.Thread, CancellationToken.None)
+                : null);
         logger.LogInformation("Run {RunId} is {Status} ({Reason})", session.RunId, status, reason);
+
+        if (next is not null)
+        {
+            hub.Publish(next.Run.RootRunId, next.Events);
+            signals.Publish(next.Run.SpaceId, next.Run.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, next.Run.ThreadId, next.Run.Id));
+        }
 
         // A slot is free and the thread can take its next message.
         signal.Wake();
@@ -551,7 +617,11 @@ public sealed class RunExecutor(
                 session.RunId));
     }
 
-    private async Task SetStatus(IServiceProvider services, RunSession session, RunStatus status, string? reason, RunError? error)
+    /// <summary>
+    /// The fenced status change. Returns the run and its thread, both locked, or null when the run's person cannot
+    /// see the thread any more. The run row is locked first and the thread second, as everywhere a run is ended.
+    /// </summary>
+    private async Task<(Run Run, ChatThread Thread)?> SetStatus(IServiceProvider services, RunSession session, RunStatus status, string? reason, RunError? error)
     {
         var run = await services.GetRequiredService<RunRepository>().GetRunForUpdate(session.RunId, CancellationToken.None);
 
@@ -574,10 +644,13 @@ public sealed class RunExecutor(
             run.FinishedAt = now;
         }
 
-        if (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(run.ThreadId, CancellationToken.None) is { } thread)
+        if (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(run.ThreadId, CancellationToken.None) is not { } thread)
         {
-            thread.LastActivityAt = now;
+            return null;
         }
+
+        thread.LastActivityAt = now;
+        return (run, thread);
     }
 
     private Task ReleaseLease(RunSession session)
@@ -701,7 +774,9 @@ public sealed class RunExecutor(
         StepState Steps,
         Message? OpenStepMessage,
         IReadOnlyList<Guid> UnsettledCalls,
-        IReadOnlyList<ToolCall> UnsettledRows);
+        IReadOnlyList<ToolCall> UnsettledRows,
+        IReadOnlyList<PendingResponse> Answers,
+        IReadOnlyList<Guid> Delivered);
 
     #endregion
 }

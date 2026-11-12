@@ -33,7 +33,26 @@ One transaction, opened by the API endpoint in the caller's tenant scope:
 
 The endpoint returns the run id immediately. The client opens the event stream.
 
-A thread runs one root run at a time. A message sent while a run is active (queued, running, or waiting) is refused with 409 and is not stored: the person waits for the run, or cancels it and sends again. Posting takes a lock on the thread row first, so two posts to one thread take turns. This keeps message order unambiguous. Queueing a message behind an active run is not built.
+A thread runs one root run at a time. Posting takes a lock on the thread row first, so two posts to one thread take turns, and "is a run active" has one answer.
+
+### A message sent while the bot is working
+
+A message is never refused for arriving while a run is active (queued, running, or waiting). It is stored at once as **pending**: `position` is null, so it is not yet part of the conversation the model reads. The endpoint returns it with the run under way. The request says what should happen to it, in `whenBusy`:
+
+| `whenBusy` | What happens |
+| --- | --- |
+| `steer` (the default) | The run under way takes the message at its next step. It is handed to the model after that step's own input, so after any tool results and never between a tool call and its result, and it gets its position in the same transaction that stores the step's reply. |
+| `queue` | The message waits until the run has ended, then starts the next run. |
+
+Rules that hold for both:
+
+- **A run takes instructions only from the person it acts for.** A run uses its principal's authority, so in a shared thread another member's message never steers it: it is stored as `queue` whatever was asked, and is answered by a run that acts for its own author.
+- **A pending message always gets a run.** When a root run ends for any reason (completed, failed, cancelled), the transaction that ends it queues the next run for the oldest pending message, as that message's author. A steering message that arrived after the run's last step is answered this way. The ending run takes the thread lock, the same lock a post takes, so a message cannot slip between "the run ended" and "nothing was pending".
+- **A run that starts takes all of its person's pending messages**, in the order they were sent, and answers them together. Other members' messages wait for the run after it.
+- `message.delivered` in the run's log says a pending message has its position, so a client can move it from "waiting" into the conversation.
+- A steering message sent while the run waits for an approval stays pending until the approval is answered: the run has no step to take it at before then.
+
+Stored order is the order things happened in. A run stopped in the middle of a tool call leaves that call without a result, and the result is stored later, after whatever was said in between. The history given to a model is therefore always put in call order first: every tool result directly after the message that made its call.
 
 ## Workers
 
@@ -51,7 +70,7 @@ A run that cannot even be loaded (its model key unreadable, say) does not loop: 
 
 A server that shuts down cleanly releases the leases of the runs it was executing, so the next server takes them over at once. That still counts as an attempt.
 
-A claimable run is a root run that is `queued`, or `running` with an expired lease, or `waiting` with every pending request answered.
+A claimable run is a root run that is `queued`, or `running` with an expired lease, or `waiting` with every pending request answered, or `waiting` with a cancel request (so a worker can end it; see Cancel a subtree).
 
 ## Executing a run
 
@@ -157,9 +176,10 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `step.started`, `step.discarded` | Step number and the step's message id. `step.discarded` tells clients to drop the partial output of a step whose model call was cut off: its message was never stored. |
 | `message.delta` | Message id, part index, text chunk, part kind (`text` or `reasoning`) |
 | `message.completed` | The final message as stored. Written for each model reply, once the runtime has stored it: before the reply's first tool is decided, before the next step, or when the run ends. |
+| `message.delivered` | A message that was pending, as stored now that it has its position. Written when a run starts with pending messages, and before the `message.completed` of a step a message steered. |
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name |
-| `tool.approved`, `tool.denied` | Tool call id, who decided. Arrive with the decision endpoint. |
+| `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, while the run waits. |
 | `tool.started`, `tool.output`, `tool.completed` | Tool call id, incremental output for long commands, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
 | `delegation.started`, `delegation.completed` | Tool call id, child run id, child bot id, result summary |
 | `usage.recorded` | Tokens and cost for one model call |
@@ -188,14 +208,17 @@ Why Server-Sent Events and not a socket library: resume from a cursor is the bui
 
 ## Approval
 
-Phase 0 state: a run whose tool is granted as `ask` stops and becomes `waiting` with `awaiting_approval`, and the log holds `tool.approval_requested`. The decision endpoint, and passing the answer to the resumed run, arrive with the approval prompt (step 13). Until then a waiting run can only be cancelled.
+1. The gate saves the tool call as `pending_approval`. The framework ends the run with an approval request, and the pending state is part of the saved session. The run becomes `waiting` with `awaiting_approval`, and the log holds `tool.approval_requested`.
+2. The principal gets a signal on the space's stream and, if they are away, a push (push arrives with notifications).
+3. They approve or deny through `POST /api/spaces/{spaceId}/tool-calls/{id}/decision`, with `approved` and an optional `reason`. The route carries the space, like every tenant route. The caller must be able to see the call, and of those who can, must be the run's principal or a space admin. So an admin answers a call in a shared thread, and cannot answer one in a private thread that is not theirs: nobody approves a call whose arguments they cannot read. A member who is not the principal cannot approve what a bot does with another member's authority. A call is answered once; a second answer gets 409.
+4. The answer is stored on the `tool_calls` row (`approved`, or `denied` with the reason as the call's result, plus who decided and when) and appended to the log as `tool.approved` or `tool.denied`, in one transaction.
+5. The run becomes claimable once every call it waits on is answered. The worker that takes it reads which requests the run last went to wait on from the log, reads their answers from the rows, and runs the agent again with them. Approved: the framework invokes the tool, through the gate. Denied: the model is told the person declined, with their reason.
 
-1. The gate saves the tool call as `pending_approval`. The framework ends the run with an approval request, and the pending state is part of the saved session. The run becomes `waiting`.
-2. The principal gets a signal on `/api/stream` and, if they are away, a push.
-3. They approve or deny through `POST /api/tool-calls/{id}/decision`. The endpoint checks that the caller is the run's principal or a space admin.
-4. The run becomes claimable. A worker loads the session and runs the agent again with the response. Approved: the framework invokes the tool, through the gate. Denied: the model is told the user declined.
+The server can restart any number of times between steps 1 and 5. The session that holds the requests is saved again only when the run next stops, so an execution that takes over after a crash hands the same answers over again; the `tool_calls` row then decides what happens, and a call that had started is reported as interrupted, never run a second time.
 
-The server can restart any number of times between steps 1 and 4. An approval that nobody answers expires (default 24 hours) as denied.
+A run that ends while a call still waits (it was cancelled) denies that call, with the reason that the run ended.
+
+Not built yet: an approval that nobody answers is meant to expire (default 24 hours) as denied. Until then it waits until it is answered or the run is cancelled.
 
 "Always allow" in the prompt changes the bot's grant from `ask` to `allow` when the user is permitted to do that, so the decision is visible in the bot editor and obeys the hierarchy rule. "Allow for this conversation" uses the framework's own approval rules, which are stored in the session.
 
@@ -229,7 +252,7 @@ Because every run in the tree shares `root_run_id`:
 
 - The activity view shows the whole chain from one query and one stream.
 - **Cost rolls up.** Each `usage_records` row carries `root_run_id`. When a run finishes, its usage is added to `subtree_usage` on each ancestor run. Per-bot totals are sums over `usage_records`; "this bot and everything it started" is a sum over its runs' `subtree_usage`.
-- **Cancel a subtree.** `POST /api/spaces/{spaceId}/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. The route carries the space, like every tenant route: a run cannot be found without knowing its tenant. The run's own principal may cancel, and so may a space admin. The worker executing the run is told at once when it is on the same server, and otherwise sees the flag on its next look at the run row (once a second); it cancels the model call, tool, or workflow, and writes `run.cancelled`. Queued and waiting runs are cancelled directly by the endpoint when the caller can see the run's thread. An admin who cannot see a private thread cannot write its events, so their cancel of a queued run takes effect when a worker claims it, and of a waiting run when its approval is answered or expires. The parent of a cancelled child receives a "cancelled" tool result and continues, unless it was cancelled too.
+- **Cancel a subtree.** `POST /api/spaces/{spaceId}/runs/{id}/cancel` sets `cancel_requested_at` on that run and every descendant run in one statement. The route carries the space, like every tenant route: a run cannot be found without knowing its tenant. The run's own principal may cancel, and so may a space admin. The worker executing the run is told at once when it is on the same server, and otherwise sees the flag on its next look at the run row (once a second); it cancels the model call, tool, or workflow, and writes `run.cancelled`. Queued and waiting runs are cancelled directly by the endpoint when the caller can see the run's thread. An admin who cannot see a private thread cannot write its events, so a worker ends the run for them, acting as the run's own principal: a cancel request makes a waiting run claimable at once, without waiting for an answer to its approval, and a queued run is claimable anyway. The parent of a cancelled child receives a "cancelled" tool result and continues, unless it was cancelled too.
 
 ## Server restart mid-run
 

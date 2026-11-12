@@ -18,11 +18,11 @@ public sealed class ApiClient(HttpClient http)
 
     public string? RemoteIp { get; set; }
 
-    /// <summary>Headers a proxy would add, sent with every request.</summary>
-    public Dictionary<string, string> ForwardedHeaders { get; } = [];
-
     /// <summary>The cookies as one request header, for a client that is not this one but acts as the same person.</summary>
     public string CookieHeader => string.Join("; ", cookies.Select(cookie => $"{cookie.Key}={cookie.Value}"));
+
+    /// <summary>Headers a proxy would add, sent with every request.</summary>
+    public Dictionary<string, string> ForwardedHeaders { get; } = [];
 
     #endregion
 

@@ -47,16 +47,26 @@ public sealed record RunView
 /// <summary>
 /// One message as a screen shows it. <see cref="IsStreaming"/> is true while its text is still arriving; a streamed
 /// message is replaced by the stored one when it completes, and dropped if its step is discarded.
+/// <see cref="IsPending"/> is true for a message sent while the bot was working that no run has taken yet, and
+/// <see cref="Steers"/> says it joins at the working run's next step and not after the run.
 /// </summary>
 public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> Parts, bool IsStreaming, int? Step)
 {
+    public bool IsPending { get; init; }
+
+    public bool Steers { get; init; }
+
     public static MessageView From(MessageResponse stored) =>
         new(
             stored.Id,
             stored.Role,
             [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError))],
             IsStreaming: false,
-            Step: null);
+            Step: null)
+        {
+            IsPending = stored.Position is null,
+            Steers = stored.Steers,
+        };
 }
 
 
@@ -75,8 +85,8 @@ public sealed record PartView(
 
 
 /// <summary>
-/// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, running, completed,
-/// failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
+/// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, approved, denied, running,
+/// completed, failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
 /// </summary>
 public sealed record ToolCallView(
     Guid ToolCallId,

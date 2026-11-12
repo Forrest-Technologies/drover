@@ -150,9 +150,63 @@ public sealed class RunReducerTests
         RunReducer.Apply(view, unknown).Should().Be(view with { LastSeq = unknown.Seq });
     }
 
+    [Fact]
+    public void An_answered_approval_shows_as_approved_or_denied_until_the_call_ends()
+    {
+        var log = Load(Approval);
+        var waiting = log.FindIndex(stored => stored.Type == RunEventTypes.RunWaiting);
+        var paused = RunReducer.Apply(Start(log), log.Take(waiting + 1));
+        var call = paused.ToolCalls.Single().ToolCallId;
+        var decided = new ToolDecided(call, Guid.CreateVersion7());
+
+        var approved = RunReducer.Apply(paused, After(paused, RunEventTypes.ToolApproved, decided));
+        var denied = RunReducer.Apply(paused, After(paused, RunEventTypes.ToolDenied, decided));
+        var ended = RunReducer.Apply(denied, After(denied, RunEventTypes.ToolCompleted, new ToolCompleted(call, "denied", true, "declined", 0)));
+
+        approved.ToolCalls.Single().State.Should().Be("approved");
+        denied.ToolCalls.Single().State.Should().Be("denied");
+        ended.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "denied" && tool.IsError && tool.Preview == "declined");
+    }
+
+    [Fact]
+    public void A_delivered_message_joins_the_runs_messages_once_and_is_no_longer_pending()
+    {
+        var log = Load(Restart);
+        var view = RunReducer.Apply(Start(log), log);
+        var steer = Pending(steers: true) with { Position = 7 };
+        var delivered = After(view, RunEventTypes.MessageDelivered, new MessageDelivered(steer));
+
+        var once = RunReducer.Apply(view, delivered);
+        var twice = RunReducer.Apply(once, delivered);
+
+        once.Messages.Should().HaveCount(view.Messages.Count + 1);
+        once.Messages[^1].Should().Match<MessageView>(message => message.Id == steer.Id && message.Role == "user" && !message.IsPending);
+        twice.Should().Be(once);
+    }
+
     #endregion
 
     #region Timeline
+
+    [Fact]
+    public void A_pending_message_is_listed_last_until_the_run_delivers_it_and_then_where_the_run_put_it()
+    {
+        var log = Load(Restart);
+        var view = RunReducer.Apply(Start(log), log);
+        var first = new MessageResponse(Guid.CreateVersion7(), Guid.CreateVersion7(), 1, "user", null, [new MessagePartResponse("text") { Text = "First" }], DateTimeOffset.UnixEpoch);
+        var waiting = Pending(steers: false);
+        var steer = Pending(steers: true);
+        var afterDelivery = RunReducer.Apply(view, After(view, RunEventTypes.MessageDelivered, new MessageDelivered(steer with { Position = 9 })));
+
+        var before = ChatTimeline.Merge([waiting, steer, first], view);
+        var after = ChatTimeline.Merge([waiting, steer, first], afterDelivery);
+
+        before.Select(message => message.Id).Should().Equal([first.Id, .. view.Messages.Select(message => message.Id), waiting.Id, steer.Id]);
+        before[^1].Should().Match<MessageView>(message => message.IsPending && message.Steers);
+        before[^2].Should().Match<MessageView>(message => message.IsPending && !message.Steers);
+        after.Select(message => message.Id).Should().Equal([first.Id, .. view.Messages.Select(message => message.Id), steer.Id, waiting.Id]);
+        after.Single(message => message.Id == steer.Id).IsPending.Should().BeFalse("the run's log says it was delivered, whatever the fetched list still says");
+    }
 
     [Fact]
     public void The_timeline_lists_stored_messages_then_what_the_run_has_not_stored_yet_each_once()
@@ -179,6 +233,21 @@ public sealed class RunReducerTests
         JsonSerializer.Deserialize<List<RunEventResponse>>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture)), json)!;
 
     private static RunView Start(List<RunEventResponse> log) => RunView.Start(log[0].RunId);
+
+    /// <summary>The next event of the view's run, as the server would write it.</summary>
+    private static RunEventResponse After(RunView view, string type, object payload) =>
+        new(view.LastSeq + 1, view.RunId, type, RunEventTypes.Write(payload), DateTimeOffset.UnixEpoch);
+
+    private static MessageResponse Pending(bool steers) =>
+        new(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            null,
+            "user",
+            null,
+            [new MessagePartResponse("text") { Text = "Sent while the bot worked" }],
+            DateTimeOffset.UnixEpoch,
+            steers);
 
     /// <summary>The whole view as text, so two views are compared by everything in them.</summary>
     private static string Snapshot(RunView view) => JsonSerializer.Serialize(view, json);

@@ -55,9 +55,9 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
     }
 
     [Fact]
-    public async Task A_thread_shows_its_active_run_and_refuses_another_message_until_it_ends()
+    public async Task A_thread_shows_its_active_run_and_keeps_a_message_sent_meanwhile_for_the_next_run()
     {
-        script = new ScriptedModel([new TextOutput("Thinking"), new PauseOutput()]);
+        script = new ScriptedModel([new TextOutput("Thinking"), new PauseOutput()], [new TextOutput("Second answer.")]);
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
@@ -66,18 +66,67 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         await script.Paused.WaitAsync(patience, Token);
 
         var during = await GetFor<ThreadSummary>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}");
-        var second = await client.Post($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("Second"));
+        var second = await PostFor<SendMessageResponse>(
+            client,
+            $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages",
+            new SendMessageRequest("Second", BusyModes.Queue),
+            HttpStatusCode.Accepted);
+        var unknownMode = await client.Post($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("Third", "later"));
+        var pending = await GetFor<List<MessageResponse>>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages");
         var cancelled = await client.Post($"{Space(alice.SpaceId)}/runs/{first.Run.Id}/cancel");
         var run = await WaitForRun(client, alice.SpaceId, first.Run.Id, "cancelled", "completed", "failed");
+        var next = await WaitForNextRun(client, alice.SpaceId, thread.Id, first.Run.Id);
+        await WaitForRun(client, alice.SpaceId, next, "completed", "failed");
         var after = await GetFor<ThreadSummary>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}");
+        var messages = await GetFor<List<MessageResponse>>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages");
 
         during.ActiveRunId.Should().Be(first.Run.Id);
         during.Title.Should().Be("Plans", "a title the person gave is kept");
-        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        second.Run.Id.Should().Be(first.Run.Id, "the answer names the run under way");
+        second.Message.Position.Should().BeNull("the message is stored and waits");
+        unknownMode.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        pending[^1].Should().Match<MessageResponse>(message => message.Id == second.Message.Id && message.Position == null && !message.Steers);
         cancelled.StatusCode.Should().Be(HttpStatusCode.OK);
         run.Status.Should().Be("cancelled");
         run.StatusReason.Should().Be("cancelled_by_user");
         after.ActiveRunId.Should().BeNull();
+        messages.Should().OnlyContain(message => message.Position != null);
+        messages[^1].Parts.Should().ContainSingle(part => part.Text == "Second answer.");
+    }
+
+    [Fact]
+    public async Task A_person_answers_an_approval_through_the_api_and_the_run_goes_on()
+    {
+        script = new ScriptedModel([new ToolCallOutput("c1", "time_now")], [new TextOutput("It is noon.")]);
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var client = await SignIn(alice);
+        var asMember = NewClient();
+        await asMember.SignIn(member.Email, member.Password);
+        var bot = await CreateBot(client, alice.SpaceId);
+        await AskBeforeEveryTool(alice.SpaceId, alice.UserId, bot.Id);
+        var thread = await PostFor<ThreadSummary>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest(null), HttpStatusCode.Created);
+        var sent = await PostFor<SendMessageResponse>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("What time is it?"), HttpStatusCode.Accepted);
+        var waiting = await WaitForRun(client, alice.SpaceId, sent.Run.Id, "waiting", "completed", "failed");
+        var asked = (await GetFor<List<MessageResponse>>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages"))
+            .SelectMany(message => message.Parts).Single(part => part.Kind == "tool_call");
+
+        var byMember = await asMember.Post($"{Space(alice.SpaceId)}/tool-calls/{asked.ToolCallId}/decision", new ToolDecisionRequest(true));
+        var unsigned = await client.PostWithoutToken($"{Space(alice.SpaceId)}/tool-calls/{asked.ToolCallId}/decision", new ToolDecisionRequest(true));
+        var unknown = await client.Post($"{Space(alice.SpaceId)}/tool-calls/{Guid.CreateVersion7()}/decision", new ToolDecisionRequest(true));
+        var approved = await client.Post($"{Space(alice.SpaceId)}/tool-calls/{asked.ToolCallId}/decision", new ToolDecisionRequest(true));
+        var again = await client.Post($"{Space(alice.SpaceId)}/tool-calls/{asked.ToolCallId}/decision", new ToolDecisionRequest(false));
+        var run = await WaitForRun(client, alice.SpaceId, sent.Run.Id, "completed", "failed");
+
+        waiting.Should().Match<RunSummary>(found => found.Status == "waiting" && found.StatusReason == "awaiting_approval");
+        byMember.StatusCode.Should().Be(HttpStatusCode.NotFound, "a member cannot see a call in another member's private thread");
+        unsigned.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a state-changing request needs the antiforgery token");
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        approved.StatusCode.Should().Be(HttpStatusCode.OK);
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict, "a call is answered once");
+        run.Status.Should().Be("completed", run.Error?.Message);
+        (await GetFor<List<MessageResponse>>(client, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages"))
+            .SelectMany(message => message.Parts).Should().ContainSingle(part => part.Kind == "tool_result" && !part.IsError);
     }
 
     [Fact]
@@ -218,6 +267,38 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         var response = await client.Get(path);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
         return (await response.Content.ReadFromJsonAsync<T>(Token))!;
+    }
+
+    /// <summary>Changes every grant of the bot to "ask", as a person would in the bot editor.</summary>
+    private async Task AskBeforeEveryTool(Guid spaceId, Guid userId, Guid botId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var changed = await scope.ServiceProvider.GetRequiredService<DroverDbContext>().ToolGrants
+            .Where(grant => grant.BotId == botId)
+            .ExecuteUpdateAsync(grant => grant.SetProperty(row => row.Effect, GrantEffect.Ask), Token);
+        changed.Should().BeGreaterThan(0);
+        await work.Commit(Token);
+    }
+
+    /// <summary>The thread's next active run after <paramref name="previous"/>, which a message that waited starts.</summary>
+    private static async Task<Guid> WaitForNextRun(ApiClient client, Guid spaceId, Guid threadId, Guid previous)
+    {
+        var watch = Stopwatch.StartNew();
+
+        while (true)
+        {
+            var thread = await GetFor<ThreadSummary>(client, $"{Space(spaceId)}/threads/{threadId}");
+
+            if (thread.ActiveRunId is { } next && next != previous)
+            {
+                return next;
+            }
+
+            (watch.Elapsed < patience).Should().BeTrue("the message that waited should start the next run");
+            await Task.Delay(25, Token);
+        }
     }
 
     private static async Task<RunSummary> WaitForRun(ApiClient client, Guid spaceId, Guid runId, params string[] statuses)

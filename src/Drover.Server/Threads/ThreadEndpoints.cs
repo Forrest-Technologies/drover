@@ -2,8 +2,9 @@ namespace Drover.Server.Threads;
 
 /// <summary>
 /// Threads and messages. Reads run under the tenant scope filter, where row-level security hides another person's
-/// private thread, so it is simply not found. Posting a message starts a run and tells the workers after the commit,
-/// so that endpoint sits outside the filter and the service opens its own scope.
+/// private thread, so it is simply not found. Posting a message starts a run, or hands the message to the one under
+/// way, and tells the workers after the commit, so that endpoint sits outside the filter and the service opens its
+/// own scope.
 /// </summary>
 public static class ThreadEndpoints
 {
@@ -17,7 +18,7 @@ public static class ThreadEndpoints
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
-            .WithSummary("Stores the message and starts the run that answers it. Refused with 409 while a run is active in the thread.");
+            .WithSummary("Stores the message and returns the run that answers it. While a run is active the message is pending: it steers that run or waits for it to end, as whenBusy says.");
         return space;
     }
 
@@ -47,14 +48,19 @@ public static class ThreadEndpoints
         HttpContext context,
         RunService runs)
     {
+        if (request.WhenBusy is not (null or BusyModes.Steer or BusyModes.Queue))
+        {
+            return TypedResults.Problem(title: $"whenBusy is '{BusyModes.Steer}' or '{BusyModes.Queue}'.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var access = context.GetSpaceAccess();
-        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, access.UserId, context.RequestAborted);
+        var steer = request.WhenBusy is not BusyModes.Queue;
+        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, steer, access.UserId, context.RequestAborted);
 
         return post.Problem switch
         {
             PostProblem.NotFound => TypedResults.NotFound(),
             PostProblem.Invalid => TypedResults.Problem(title: post.Detail, statusCode: StatusCodes.Status400BadRequest),
-            PostProblem.Busy => TypedResults.Problem(title: post.Detail, statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Accepted(
                 $"/api/spaces/{access.SpaceId}/runs/{post.Run!.Id}",
                 new SendMessageResponse(post.Message!.ToResponse(), post.Run.ToSummary())),
