@@ -63,9 +63,9 @@ Two small Roslyn projects in `tools/`, referenced by every project through `Dire
 | Id | Rule | Notes |
 | --- | --- | --- |
 | DRV0001 | No `Async` suffix | Exempt: overrides, explicit and implicit interface implementations of members declared outside Drover (an assembly named `Drover` or `Drover.*` counts as Drover), and methods with a synchronous twin, meaning a method of the name without the suffix in the same type. An explicit implementation of a Drover interface is reported on the interface member, not on itself |
-| DRV0002 | No local `using` directives | Exempt: `GlobalUsings.cs`, and `using X = Y;` aliases |
+| DRV0002 | No local `using` directives | Exempt: `GlobalUsings.cs`, and `using X = Y;` aliases. The code fix declines files with conditional directives in the source or target, and imports carrying directives, to preserve preprocessing semantics. |
 | DRV0003 | Regions | A type is non-trivial when it has more than one kind of member or more than three members. Interfaces, enums, and positional records are exempt. Checks names against the standard order, allowing descriptively named groups after the public section. A non-trivial type must have every member inside a region. Any type that has regions is checked for order and for the blank lines. |
-| DRV0004 | No `+` on strings | Constant-folded concatenations are exempt. `+=` on a string is reported too. A chain is reported once. |
+| DRV0004 | No `+` on strings | Constant-folded concatenations and user-defined operators are exempt. `+=` on a string is reported too. A chain is reported once. |
 | DRV0005 | No silent `catch` | A catch block must log (a call on `ILogger` or `LoggerExtensions`, or a `[LoggerMessage]` method), throw, or return a value built from the exception. A `throw` inside a lambda in the catch does not count. |
 | DRV0006 | Tenancy shape | An entity exposed as a `DbSet` must implement `ISpaceOwned` or `IUserOwned`, or be listed in `GlobalTables.manifest` |
 | DRV0007 | Vendor containment | A vendor namespace (from a list in the analyzer's configuration) may be referenced only by its adapter project |

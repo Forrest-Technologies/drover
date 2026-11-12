@@ -290,5 +290,34 @@ public sealed class GlobalUsingsOnlyTests
                 }
                 """));
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public Task Fix_declines_conditional_imports(bool enabled, bool nested)
+    {
+        var definition = enabled ? "#define FEATURE\n" : string.Empty;
+        var opening = nested ? "#if FEATURE\n#if FEATURE\n" : "#if FEATURE\n";
+        var closing = nested ? "#endif\n#endif\n" : "#endif\n";
+        var import = enabled ? "{|DRV0002:using System.Text;|}" : "using System.Text;";
+        var source = $"{definition}{opening}{import}\n{closing}public class Worker {{ }}\n";
+
+        return Verify.CodeFix<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(source, source);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task Fix_declines_a_conditional_target_import(bool enabled)
+    {
+        var definition = enabled ? "#define FEATURE\n" : string.Empty;
+        var globals = $"{definition}#if FEATURE\nglobal using System.Text;\n#endif\n";
+        var source = "{|DRV0002:using System.Text;|}\npublic class Worker { }\n";
+
+        return Verify.CodeFixWithGlobalUsings<GlobalUsingsOnlyAnalyzer, GlobalUsingsOnlyCodeFix>(
+            (globals, globals), (source, source));
+    }
+
     #endregion
 }

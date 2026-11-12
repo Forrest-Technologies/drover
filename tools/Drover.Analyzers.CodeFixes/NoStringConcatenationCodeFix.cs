@@ -78,7 +78,12 @@ public sealed class NoStringConcatenationCodeFix : CodeFixProvider
 
     private static bool IsStringConcatenation(ExpressionSyntax expression, SemanticModel model, CancellationToken token) =>
         expression.IsKind(SyntaxKind.AddExpression)
-        && model.GetTypeInfo(expression, token).Type?.SpecialType is SpecialType.System_String;
+        && model.GetOperation(expression, token) is IBinaryOperation
+        {
+            OperatorKind: BinaryOperatorKind.Add,
+            OperatorMethod: null,
+            Type.SpecialType: SpecialType.System_String,
+        };
 
     private static string RenderPart(ExpressionSyntax part)
     {
