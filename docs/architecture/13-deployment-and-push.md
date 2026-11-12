@@ -8,9 +8,9 @@ Goal: clone, `docker compose up`, open the browser, chat. No file to edit.
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `init` | Built from source (same image as `drover`) | Runs once. Generates secrets onto the `drover-secrets` volume if absent, then exits. |
+| `init` | The same pinned PostgreSQL image as `db` | Runs once. Generates secrets onto the `drover-secrets` volume if absent, then exits. It uses the database image because that image is already pulled and has the shell tools needed; the `drover` image is built in the same `up` and cannot be ordered before it. |
 | `db` | The official PostgreSQL image with the `pgvector` extension, pinned by digest | Database. Reads its password from the secrets volume. |
-| `drover` | Built from source | Migrates, then serves API, web UI, streams, and background work on port 8080 |
+| `drover` | Built from source | Migrates, then serves API, web UI, streams, and background work on port 8080, bound to localhost. Until the migration step exists it serves the page and the health endpoints. |
 
 Optional services sit behind compose profiles and are off by default: `ntfy` for self-hosted Android push, and a reverse proxy example for HTTPS.
 
@@ -29,7 +29,7 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 | `app_password` | `drover`, request serving |
 | `setup_code` | Shown in the log; asked by the setup screen for remote first-run |
 
-The Data Protection key ring lives on a separate volume, `drover-keys`. Volumes: `drover-db`, `drover-secrets`, `drover-keys`, `drover-files`.
+Until the setup screen exists, `init` creates the first three. Each file is written once and left alone on later starts, so `docker compose down` then `up` keeps the same secrets. The Data Protection key ring lives on a separate volume, `drover-keys`. Volumes: `drover-db`, `drover-secrets`, `drover-keys`, `drover-files`.
 
 ### What `drover` does at start
 
@@ -53,6 +53,8 @@ Everything optional stays off until configured. Each feature has a single "is it
 
 `/status` for admins, and `/health/live` and `/health/ready` for the container. Built on ASP.NET Core health checks, used directly.
 
+Until the status page exists, `/health/ready` runs one check: it can open a connection to PostgreSQL (`Database:Host`, `Database:PasswordFile`). It runs no query, because there is no schema yet. The `drover` container's compose health check asks this endpoint, with bash over a plain socket, since the runtime image has no `curl`.
+
 | Row | Check |
 | --- | --- |
 | Database | Connects as `drover_app`; confirms the role cannot bypass row-level security |
@@ -74,10 +76,10 @@ The image is built on the self-hoster's machine, so the build must fit a modest 
 - The Docker build compiles `Drover.Server` and its references only. Tests, analyzers' tests, the AppHost, and the MAUI shell are not in the build context's project graph.
 - No ahead-of-time compilation of the WebAssembly client, so no extra workload download. The client is trimmed.
 - No Node, no CSS build tool.
-- Restore is a separate layer keyed on the lock files, so a rebuild after a small change skips it.
+- Restore is a separate layer keyed on `Directory.Packages.props` and the project files, so a rebuild after a small change skips it. (There are no lock files.)
 - The build server and parallelism are limited inside the Dockerfile (`-maxcpucount:1`, shared compilation off) to cap peak memory at the cost of some time.
 
-**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time and image size on every run. These are budgets to hold, not measurements; there is no code to measure yet. Phase 0 step 15 records the first real numbers in the README. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
+**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time, image size, and the builder's peak memory on every run. BuildKit ignores a memory flag on `docker build`, so CI sets the limit on the builder container (`docker buildx create --driver-opt memory=2g`), which runs every build step; the peak is read from that container's cgroup and includes page cache. These are budgets to hold, not measurements; there is no code to measure yet. Phase 0 step 15 records the first real numbers in the README. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
 
 ### Local development
 
