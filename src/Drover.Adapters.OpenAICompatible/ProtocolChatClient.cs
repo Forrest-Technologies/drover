@@ -11,7 +11,7 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
         using var client = CreateClient(headers);
         try
         {
-            var response = await client.GetResponseAsync(request.Messages.Select(ModelChatMapping.ToChatMessage), ModelChatMapping.ToChatOptions(WithDefaults(request.Options)), cancellation);
+            var response = await client.GetResponseAsync(request.Messages.Select(ModelChatMapping.ToChatMessage), ToChatOptions(request.Options), cancellation);
             return ModelChatMapping.ToModelResponse(response) with
             {
                 Headers = headers.Headers,
@@ -28,7 +28,7 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
     {
         var headers = new ProtocolHeaderCapture();
         using var client = CreateClient(headers);
-        await using var updates = client.GetStreamingResponseAsync(request.Messages.Select(ModelChatMapping.ToChatMessage), ModelChatMapping.ToChatOptions(WithDefaults(request.Options)), cancellation).GetAsyncEnumerator(cancellation);
+        await using var updates = client.GetStreamingResponseAsync(request.Messages.Select(ModelChatMapping.ToChatMessage), ToChatOptions(request.Options), cancellation).GetAsyncEnumerator(cancellation);
         while (true)
         {
             var hasNext = false;
@@ -67,6 +67,26 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
         MaxOutputTokens = options.MaxOutputTokens ?? settings.MaxOutputTokens,
         ReasoningEffort = options.ReasoningEffort ?? settings.ReasoningEffort,
     };
+
+    private ChatOptions ToChatOptions(ModelChatOptions options)
+    {
+        var effective = WithDefaults(options);
+        var effort = effective.ReasoningEffort?.ToLowerInvariant();
+        if (effort is not ("max" or "minimal"))
+        {
+            return ModelChatMapping.ToChatOptions(effective);
+        }
+
+        var mapped = ModelChatMapping.ToChatOptions(effective with { ReasoningEffort = null });
+        // The SDK's extensible effort preserves provider values missing from the framework enum; wire tests pin it.
+#pragma warning disable OPENAI001
+        mapped.RawRepresentationFactory = _ => new OpenAI.Chat.ChatCompletionOptions
+        {
+            ReasoningEffortLevel = new OpenAI.Chat.ChatReasoningEffortLevel(effort),
+        };
+#pragma warning restore OPENAI001
+        return mapped;
+    }
 
     private IChatClient CreateClient(ProtocolHeaderCapture headers)
     {

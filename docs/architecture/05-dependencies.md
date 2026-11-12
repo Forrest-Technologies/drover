@@ -58,12 +58,13 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 
 ### Experimental APIs in use
 
-Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, by a `NoWarn` with a comment in the project file.
+Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, with a comment explaining either the project allowance or a locally scoped pragma.
 
 | API | Diagnostic | Where | Why |
 | --- | --- | --- | --- |
 | `Microsoft.Agents.AI.AgentSessionStore` | MAAI001 | `Drover.Agents` (`PostgresAgentSessionStore`), `Drover.Adapters.Tests` | The framework's session store abstraction, implemented on `agent_sessions` |
 | `Microsoft.Agents.AI.AgentSessionStoreKey` | MAAI001 | Same | The key with space and audience partitions |
+| `OpenAI.Chat.ChatCompletionOptions.ReasoningEffortLevel`, `ChatReasoningEffortLevel` | OPENAI001 | `Drover.Adapters.OpenAICompatible` (`ProtocolChatClient`), locally scoped pragma | Preserves provider `max` and `minimal` effort values missing from the framework enum. Exact whole/streamed request fixtures pin this SDK seam. |
 
 The tool approval types (`ApprovalRequiredAIFunction`, `ToolApprovalRequestContent`, `ToolApprovalResponseContent`) were experimental when the design was written and are stable in `Microsoft.Extensions.AI` 10.11.0.
 

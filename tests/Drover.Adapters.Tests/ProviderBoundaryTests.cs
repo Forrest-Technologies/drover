@@ -120,6 +120,48 @@ public sealed class ProviderBoundaryTests
         rig.Handler.Requests.Single().Json.GetProperty("reasoning_effort").GetString().Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("[]", false)]
+    [InlineData("[]", true)]
+    [InlineData("{", false)]
+    [InlineData("{", true)]
+    public async Task Malformed_provider_tool_arguments_never_reach_the_framework(string arguments, bool streaming)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ToolReply(arguments, streaming)));
+        using var client = VeniceClient(handler);
+        var act = async () =>
+        {
+            if (streaming)
+            {
+                await client.StreamToEnd("use the tool");
+            }
+            else
+            {
+                await client.Ask("use the tool");
+            }
+        };
+        var failure = (await act.Should().ThrowAsync<ModelProviderException>()).Which;
+        failure.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Message.Should().Be("The provider returned invalid tool arguments.");
+        failure.InnerException.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Valid_no_argument_tool_calls_still_reach_the_framework(bool streaming)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ToolReply("{}", streaming)));
+        using var client = VeniceClient(handler);
+        var response = streaming
+            ? (await client.StreamToEnd("use the tool")).ToChatResponse()
+            : await client.Ask("use the tool");
+        var call = response.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Single();
+        call.Name.Should().Be("no_arguments");
+        call.Arguments.Should().BeEmpty();
+        call.Exception.Should().BeNull();
+    }
+
     #endregion
 
     #region Response Isolation
@@ -253,6 +295,49 @@ public sealed class ProviderBoundaryTests
     private static IModelChatClient VeniceClient(HttpMessageHandler handler) =>
         ProviderBuilders.Venice(new FixtureHttpClientFactory(handler)).CreateChatClient(
             new ModelEndpoint(VeniceProvider.ConnectionKind, VeniceProvider.BaseAddress), TestKeys.Generate(), "m", new ModelSettings());
+
+    private static HttpResponseMessage ToolReply(string arguments, bool streaming)
+    {
+        var function = new { name = "no_arguments", arguments };
+        if (!streaming)
+        {
+            var body = JsonSerializer.Serialize(new
+            {
+                id = "c",
+                @object = "chat.completion",
+                created = 1,
+                model = "m",
+                choices = new[]
+                {
+                    new { index = 0, finish_reason = "tool_calls", message = new
+                    {
+                        role = "assistant", tool_calls = new[] { new { id = "call-1", type = "function", function } },
+                    } },
+                },
+            });
+            return ScriptedHandler.Json(HttpStatusCode.OK, body);
+        }
+
+        var chunk = JsonSerializer.Serialize(new
+        {
+            id = "c",
+            @object = "chat.completion.chunk",
+            created = 1,
+            model = "m",
+            choices = new[]
+            {
+                new { index = 0, finish_reason = "tool_calls", delta = new
+                {
+                    role = "assistant", tool_calls = new[] { new { index = 0, id = "call-1", type = "function", function } },
+                } },
+            },
+        });
+        var stream = $"data: {chunk}\n\ndata: [DONE]\n\n";
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(stream)))),
+        };
+    }
 
     private static HttpResponseMessage Reply(string? balance)
     {

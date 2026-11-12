@@ -108,6 +108,45 @@ public sealed class VeniceRequestTests
         body.GetProperty("model").GetString().Should().NotContain("disable_thinking");
     }
 
+    [Theory]
+    [InlineData("max", false)]
+    [InlineData("max", true)]
+    [InlineData("minimal", false)]
+    [InlineData("minimal", true)]
+    public async Task Preserves_provider_efforts_missing_from_the_framework_enum(string effort, bool streaming)
+    {
+        var rig = VeniceRig.Start(streaming ? ConformanceScenarios.Streaming : ConformanceScenarios.PlainReply);
+        using var client = rig.Subject.Provider.CreateChatClient(
+            rig.Subject.Connection,
+            rig.Subject.ApiKey,
+            rig.Subject.ModelId,
+            new ModelSettings { ReasoningEffort = effort, Temperature = 0.25, MaxOutputTokens = 64, WebSearch = WebSearchMode.On });
+        var options = new ChatOptions
+        {
+            TopP = 0.9f,
+            Tools = [AIFunctionFactory.Create(() => "Sunny", "get_weather")],
+            ResponseFormat = ChatResponseFormat.ForJsonSchema(AIJsonUtilities.CreateJsonSchema(typeof(string)), "answer"),
+        };
+
+        if (streaming)
+        {
+            await client.StreamToEnd("Say hello.", options);
+        }
+        else
+        {
+            await client.Ask("Say hello.", options);
+        }
+
+        var body = rig.Handler.Requests.Single(IsChat).Json;
+        body.GetProperty("reasoning_effort").GetString().Should().Be(effort);
+        body.GetProperty("model").GetString().Should().Be("kimi-k3:include_venice_system_prompt=false&enable_web_search=on&include_search_results_in_stream=true");
+        body.GetProperty("temperature").GetSingle().Should().Be(0.25f);
+        body.GetProperty("max_completion_tokens").GetInt32().Should().Be(64);
+        body.GetProperty("top_p").GetSingle().Should().Be(0.9f);
+        body.GetProperty("tools")[0].GetProperty("function").GetProperty("name").GetString().Should().Be("get_weather");
+        body.GetProperty("response_format").GetProperty("json_schema").GetProperty("name").GetString().Should().Be("answer");
+    }
+
     #endregion
 
     #region Keys

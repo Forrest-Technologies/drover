@@ -148,6 +148,8 @@ internal static class ModelChatMapping
         {
             TextContent text => (ModelContent)new ModelText(text.Text),
             TextReasoningContent reasoning => new ModelReasoning(reasoning.Text ?? string.Empty, ProtectedData: reasoning.ProtectedData),
+            FunctionCallContent { Exception: not null } => throw new ModelProviderException(
+                ModelFailure.Rejected, "The provider returned invalid tool arguments."),
             FunctionCallContent call => new ModelToolCall(call.CallId, call.Name, ToJson(call.Arguments)),
             FunctionResultContent resultContent => new ModelToolResult(resultContent.CallId, ToJson(resultContent.Result), resultContent.Exception is not null),
             DataContent data => new ModelData(data.Data.ToArray(), data.MediaType),
