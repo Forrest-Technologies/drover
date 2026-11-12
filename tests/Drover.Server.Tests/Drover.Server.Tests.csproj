@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
@@ -21,6 +22,7 @@
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
     <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
     <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
+    <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
   </ItemGroup>
 
 </Project>

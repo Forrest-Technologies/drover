@@ -24,6 +24,11 @@ public static class RunServiceExtensions
         services.AddDroverAgents(execution => new ModelChatClientBridge(
             execution.Model ?? throw new InvalidOperationException("The engine starts every run with its model client.")));
         services.AddMcpToolSource();
+
+        // A tool server is reached through the checked outbound client, and each request carries the space's rule
+        // on private addresses. A request that says nothing is refused a private address.
+        services.TryAddTransient<SpaceOutboundHandler>();
+        services.AddHttpClient(McpToolSource.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
         return services;
     }

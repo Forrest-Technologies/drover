@@ -1,4 +1,4 @@
-namespace Drover.Adapters.Tests.Mcp;
+namespace Drover.Tests.Common;
 
 /// <summary>
 /// A tool server built on the protocol library's own server, listening on a loopback port, so the adapter is tested
