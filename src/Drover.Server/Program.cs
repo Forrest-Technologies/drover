@@ -44,7 +44,9 @@ builder.Services.AddHostedService<SetupCodeAnnouncer>();
 
 var app = builder.Build();
 
+app.UseTrustedProxies();
 app.UseSecurityHeaders();
+app.UseCookiePolicy();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 app.UseRouting();
