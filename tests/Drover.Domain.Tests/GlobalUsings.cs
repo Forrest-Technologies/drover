@@ -4,4 +4,8 @@ global using System.IO;
 global using System.Linq;
 global using System.Xml.Linq;
 global using AwesomeAssertions;
+global using Drover.Contracts.Permissions;
+global using Drover.Domain.Bots;
+global using Drover.Domain.Permissions;
+global using Drover.Tests.Common;
 global using Xunit;

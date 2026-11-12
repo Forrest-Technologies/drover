@@ -71,9 +71,11 @@ public static class UserChecks
 
     public static async Task CannotDeleteAnotherUsersRows(IsolationHarness harness, string tableName)
     {
-        var (table, world, _, other) = await Arrange(harness, tableName);
+        var (table, world, own, other) = await Arrange(harness, tableName);
         await using (var asA = await harness.Open(null, world.UserA1))
         {
+            Expect.That(await harness.DeleteRow(asA, table, own) == 1,
+                $"Control: user A1 cannot delete their own row in '{tableName}'.");
             var deleted = await harness.DeleteRow(asA, table, other);
             Expect.That(deleted == 0, $"User A1 deleted {deleted} row(s) of user B1 in '{tableName}'.");
             await asA.Commit();

@@ -40,7 +40,7 @@ public static class DatabaseBootstrap
 
         REVOKE ALL ON SCHEMA public FROM PUBLIC;
         GRANT USAGE, CREATE ON SCHEMA public TO drover_owner;
-        GRANT USAGE ON SCHEMA public TO drover_app;
+        GRANT USAGE ON SCHEMA public TO drover_app, drover_system;
 
         CREATE SCHEMA IF NOT EXISTS sys AUTHORIZATION drover_owner;
         ALTER SCHEMA sys OWNER TO drover_owner;

@@ -110,7 +110,7 @@ Notes:
 | `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null` |
 | `messages` | Space-owned with an audience, inherited from the thread | `id`, `thread_id`, `audience_user_id`, `position`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `parts jsonb`, `created_at` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at` |
-| `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq)` |
+| `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq, created_at)`, because PostgreSQL requires the partition column in every unique key |
 | `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
 | `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id`, `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost`, `currency`, `created_at` |
 
@@ -127,6 +127,10 @@ Notes:
 - `tool_calls.arguments` and `result` are stored after redaction ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Large results go to a file and the row keeps a preview.
 - A thread is private to its owner by default. Sharing it with the space sets its audience to everyone, and the cascade carries that to its messages, events, and tool calls. A check constraint allows only two audiences for a thread, its owner or everyone, and the app role has no privilege to update `owner_user_id`, so one member cannot take over another's thread.
 - A delegated child run's thread inherits the audience of the root thread.
+- A foreign key to an audience table must carry `audience_user_id` (the isolation suite checks this), so a table with no audience column cannot have one. That is why these are plain `uuid` columns with no foreign key: `runs.thread_id`, `runs.trigger_message_id`, `runs.parent_tool_call_id` (runs are metadata with no audience), `tool_calls.result_file_id`, `model_connections.secret_id`, `sandboxes.access_secret_id`. The application sets them from rows it has just read inside the same space.
+- Sharing a thread is one `UPDATE threads SET audience_user_id = ...`. The audience is part of an alternate key, so EF Core refuses to change it through a tracked entity; the service uses `ExecuteUpdate` or SQL.
+- Settings and value records (`model_settings`, `memory_settings`, `sandbox_settings`, `build_limits`, `avatar`, `usage`, `error`, `capabilities`, `pricing`, `balance`, `oauth`, message `parts`) are records in `Drover.Domain`, stored as snake_case JSON. Message parts are defined in `Drover.Domain`, not `Drover.Contracts`. Open-shaped payloads (`input_schema`, `annotations`, tool `arguments` and `result`, event `data`, session `state`) are plain JSON.
+- Values of the status and kind columns this document does not list elsewhere: `model_connections.auth_kind` is `none`, `api_key`, or `sign_in`; connection `status` is `pending`, `ready`, `failed`, or `disabled`; `tool_connections.transport` is `streamable_http` or `sse`; `trust` is `trusted` or `untrusted`; `protocol_mode` is `automatic`, `stateless_only`, or `session_only`; credential `status` is `active`, `needs_reconnect`, or `expired`; `tools.sensitivity` is `read`, `write`, or `critical`; `bot_schedules.thread_mode` is `new_thread` or `same_thread`; `threads.origin` is `chat`, `schedule`, or `delegation`; `runs.trigger` is `message`, `schedule`, or `delegation`; `tool_calls.status` is `pending_approval`, `approved`, `denied`, `running`, `completed`, `failed`, or `interrupted`; `messages.role` is `system`, `user`, `assistant`, or `tool`. Each is a text column with a check constraint that lists its values.
 
 ## Sandboxes, files, secrets, audit
 
@@ -136,7 +140,7 @@ Notes:
 | `files` | Space-owned with an audience | `id`, `audience_user_id`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `created_by_user_id null`, `created_by_bot_id null` |
 | `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
 | `audit_log` | Space-owned, insert and select only | `id`, `actor_kind`, `actor_id`, `action`, `target_kind`, `target_id`, `data jsonb`, `created_at` |
-| `sys.audit` | Global | One row per call of a cross-tenant function |
+| `sys.audit` | Global, in schema `sys`, outside the model | One row per call of a cross-tenant function: `function_name`, `caller`, `called_at`, `row_count`. Created by the migration, written only by the `sys` functions. The application role has no privilege on it, and no entity maps it. |
 | `data_protection_keys` | Global, no app-role table access outside the key ring store | Key ring when stored in the database |
 
 `sandboxes.state` is `creating`, `running`, `paused`, `retiring`, or `destroyed`.
@@ -149,10 +153,14 @@ Phase 1 adds `memories` (space-owned with an audience, with a `vector` column) a
 | --- | --- |
 | `runs (status, lease_expires_at)` partial on non-terminal statuses | Job claiming and lease recovery |
 | `runs (space_id, root_run_id)` | Subtree cancel, cost roll-up, activity tree |
-| `run_events (space_id, root_run_id, seq)` primary key | Replay from a cursor |
+| `run_events (space_id, root_run_id, seq, created_at)` primary key | Replay from a cursor |
 | `tool_calls (space_id, status)` partial on `pending_approval` | Approval inbox |
 | `messages (space_id, thread_id, position)` unique | Thread paging |
 | `bot_ancestors (space_id, ancestor_bot_id)` and primary key `(space_id, descendant_bot_id, ancestor_bot_id)` | Hierarchy checks both directions |
 | `tools (space_id, tool_connection_id, name)` unique | Catalog upsert |
 
 `run_events` grows fastest. It is range-partitioned by month on `created_at` from the first migration, so old partitions can be detached or dropped without a table rewrite.
+
+The first migration creates fourteen monthly partitions, November 2026 to December 2027, and a default partition that takes any row outside them, so an insert never fails for want of a partition. Creating the next months ahead of time is a maintenance job that does not exist yet. The application role holds privileges on `run_events` only, never on a partition, so every read and write goes through the table's policies. Each partition also has row-level security enabled and forced with no policy, which denies everything if a privilege is ever granted by mistake.
+
+Because the key carries `created_at`, the database does not enforce that `(root_run_id, seq)` is unique. The lock on the root run row does: sequence numbers are only ever given out by the `UPDATE ... RETURNING` in [03-run-lifecycle.md](03-run-lifecycle.md).

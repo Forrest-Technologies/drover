@@ -30,6 +30,7 @@ public sealed class CatalogTests(PostgresFixture postgres)
             new("user_tokens", OwnershipClass.User),
             new("spaces", OwnershipClass.Global),
             new("users", OwnershipClass.Global),
+            new("user_profiles", OwnershipClass.Global),
             new("__EFMigrationsHistory", OwnershipClass.Global),
         ]);
     }
@@ -80,6 +81,29 @@ public sealed class CatalogTests(PostgresFixture postgres)
         var problems = await Audit(audit => audit.ForeignKeysWithoutAudience());
 
         problems.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Application Grants
+
+    [Theory]
+    [InlineData("SELECT", true)]
+    [InlineData("INSERT", true)]
+    [InlineData("UPDATE", true)]
+    [InlineData("DELETE", false)]
+    [InlineData("TRUNCATE", false)]
+    [InlineData("REFERENCES", false)]
+    [InlineData("TRIGGER", false)]
+    public void Profile_grants_allow_only_read_insert_and_update(string privilege, bool allowed)
+    {
+        AppGrantContract.For("user_profiles").AllowsTablePrivilege(privilege).Should().Be(allowed);
+    }
+
+    [Fact]
+    public async Task Tenant_table_grants_match_the_declared_contract()
+    {
+        (await Audit(audit => audit.AppGrantDrift())).Should().BeEmpty();
     }
 
     #endregion
