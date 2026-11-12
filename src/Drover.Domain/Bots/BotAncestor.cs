@@ -6,6 +6,8 @@ namespace Drover.Domain.Bots;
 /// </summary>
 public sealed class BotAncestor : ISpaceOwned
 {
+    #region Properties
+
     public Guid SpaceId { get; set; }
 
     public Guid AncestorBotId { get; set; }
@@ -13,4 +15,6 @@ public sealed class BotAncestor : ISpaceOwned
     public Guid DescendantBotId { get; set; }
 
     public int Distance { get; set; }
+
+    #endregion
 }

@@ -3,6 +3,8 @@ namespace Drover.Domain.Bots;
 /// <summary>One bot in a space's tree. Its permissions are grants, narrowed by its ancestors' grants.</summary>
 public sealed class Bot : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -41,4 +43,6 @@ public sealed class Bot : ISpaceOwned
     public Guid? CreatedByUserId { get; set; }
 
     public Guid? CreatedByBotId { get; set; }
+
+    #endregion
 }

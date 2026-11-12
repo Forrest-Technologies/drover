@@ -6,6 +6,8 @@ namespace Drover.Domain.Runs;
 /// </summary>
 public sealed class AgentSession : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -21,4 +23,6 @@ public sealed class AgentSession : ISpaceOwned, IAudienceScoped
     public required string FrameworkVersion { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    #endregion
 }

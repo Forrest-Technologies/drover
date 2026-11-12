@@ -6,6 +6,8 @@ namespace Drover.Domain.Runs;
 /// </summary>
 public sealed class ToolCall : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -42,4 +44,6 @@ public sealed class ToolCall : ISpaceOwned, IAudienceScoped
     public DateTimeOffset? StartedAt { get; set; }
 
     public DateTimeOffset? FinishedAt { get; set; }
+
+    #endregion
 }

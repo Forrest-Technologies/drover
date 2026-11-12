@@ -6,6 +6,8 @@ namespace Drover.Domain.Models;
 /// </summary>
 public sealed class ModelConnection : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -30,4 +32,6 @@ public sealed class ModelConnection : ISpaceOwned
     public ConnectionBalance? Balance { get; set; }
 
     public DateTimeOffset? LastCheckedAt { get; set; }
+
+    #endregion
 }

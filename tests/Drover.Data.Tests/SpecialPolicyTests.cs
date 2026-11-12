@@ -7,15 +7,36 @@ public sealed class SpecialPolicyTests(PostgresFixture postgres)
     #region Users
 
     [Fact]
-    public async Task A_user_sees_themselves_and_the_members_of_the_current_space_only()
+    public async Task A_fellow_member_cannot_read_identity_credentials()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        await using (var owner = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var user = await owner.Db.Users.SingleAsync(TestContext.Current.CancellationToken);
+            user.PasswordHash = Guid.NewGuid().ToString();
+            user.SecurityStamp = Guid.NewGuid().ToString();
+            user.PhoneNumber = Guid.NewGuid().ToString();
+            await owner.Commit();
+        }
+
+        await using var other = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
+        var rows = await other.Db.Database.SqlQuery<int>(
+            $"SELECT 1 AS \"Value\" FROM users WHERE id = {world.UserA2} AND password_hash IS NOT NULL AND security_stamp IS NOT NULL AND phone_number IS NOT NULL")
+            .ToListAsync(TestContext.Current.CancellationToken);
+        rows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Identity_rows_are_visible_only_to_their_owner()
     {
         await using var provider = postgres.BuildServices();
         var world = await TenantWorld.Seed(provider);
 
         (await VisibleUsers(provider, world.SpaceA, world.UserA1))
-            .Should().BeEquivalentTo([world.UserA1, world.UserA2, world.Traveler]);
+            .Should().Equal(world.UserA1);
         (await VisibleUsers(provider, world.SpaceB, world.UserB1))
-            .Should().BeEquivalentTo([world.UserB1, world.Traveler]);
+            .Should().Equal(world.UserB1);
     }
 
     [Fact]
@@ -36,10 +57,10 @@ public sealed class SpecialPolicyTests(PostgresFixture postgres)
 
         var otherUpdated = await session.Db.Users
             .Where(user => user.Id == world.UserA2)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.DisplayName, "taken over"), TestContext.Current.CancellationToken);
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Email, "taken over"), TestContext.Current.CancellationToken);
         var ownUpdated = await session.Db.Users
             .Where(user => user.Id == world.UserA1)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.DisplayName, "renamed"), TestContext.Current.CancellationToken);
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.Email, "renamed"), TestContext.Current.CancellationToken);
 
         otherUpdated.Should().Be(0);
         ownUpdated.Should().Be(1);

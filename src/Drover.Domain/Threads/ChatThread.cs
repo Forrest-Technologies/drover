@@ -7,6 +7,8 @@ namespace Drover.Domain.Threads;
 /// </summary>
 public sealed class ChatThread : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -26,4 +28,6 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
     public DateTimeOffset LastActivityAt { get; set; }
 
     public DateTimeOffset? ArchivedAt { get; set; }
+
+    #endregion
 }

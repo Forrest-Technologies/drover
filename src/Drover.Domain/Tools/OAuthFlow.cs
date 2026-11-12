@@ -6,6 +6,8 @@ namespace Drover.Domain.Tools;
 /// </summary>
 public sealed class OAuthFlow : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public required string StateHash { get; set; }
 
     public Guid SpaceId { get; set; }
@@ -15,4 +17,6 @@ public sealed class OAuthFlow : ISpaceOwned, IAudienceScoped
     public Guid ToolConnectionId { get; set; }
 
     public DateTimeOffset ExpiresAt { get; set; }
+
+    #endregion
 }

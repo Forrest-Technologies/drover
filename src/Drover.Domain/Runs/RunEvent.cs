@@ -7,6 +7,8 @@ namespace Drover.Domain.Runs;
 /// </summary>
 public sealed class RunEvent : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid SpaceId { get; set; }
 
     public Guid RootRunId { get; set; }
@@ -24,4 +26,6 @@ public sealed class RunEvent : ISpaceOwned, IAudienceScoped
     public required string Type { get; set; }
 
     public JsonElement Data { get; set; }
+
+    #endregion
 }
