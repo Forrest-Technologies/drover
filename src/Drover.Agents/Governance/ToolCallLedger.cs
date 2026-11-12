@@ -46,6 +46,21 @@ public sealed class ToolCallLedger(RunContext run)
             },
             cancellationToken);
 
+    /// <summary>
+    /// True when the call's row records a person's approval: someone decided it, and not with a no. A row that moved
+    /// on after the approval (it started, or finished) still counts, so a call a restart cut off reaches
+    /// <see cref="Claim"/>, which then refuses to run it twice.
+    /// </summary>
+    public Task<bool> WasApprovedByAPerson(string callId, CancellationToken cancellationToken) =>
+        run.Database.Transact(
+            async services =>
+            {
+                var row = await services.GetRequiredService<ToolCallRepository>()
+                    .GetToolCall(ToolCallIds.For(run.Execution.RunId, callId), cancellationToken);
+                return row is { DecidedByUserId: not null, Status: not (ToolCallStatus.PendingApproval or ToolCallStatus.Denied) };
+            },
+            cancellationToken);
+
     public Task Finish(
         ToolCallRequest request,
         Guid toolId,
