@@ -84,6 +84,16 @@ public sealed class CatalogTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Application Grants
+
+    [Fact]
+    public async Task Tenant_table_grants_match_the_declared_contract()
+    {
+        (await Audit(audit => audit.AppGrantDrift())).Should().BeEmpty();
+    }
+
+    #endregion
+
     #region Roles And Functions
 
     [Fact]

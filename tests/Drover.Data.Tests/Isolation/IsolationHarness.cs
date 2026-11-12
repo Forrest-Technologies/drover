@@ -6,6 +6,8 @@ public sealed record TableUnderTest(string Name, TableShape Shape, TableOwnershi
     public string Quoted => $"\"{Name}\"";
 
     public OwnershipClass Class => Ownership.Class;
+
+    public AppGrantContract Grants => AppGrantContract.For(Name);
 }
 
 /// <summary>
@@ -155,6 +157,13 @@ public sealed class IsolationHarness : IAsyncDisposable
     {
         var (predicate, parameters) = KeyPredicate(table, row);
         return session.Count($"SELECT count(*) FROM {table.Quoted} WHERE {predicate}", parameters);
+    }
+
+    public Task<IReadOnlyDictionary<string, object?>> Snapshot(TenantSession session, TableUnderTest table, SeededRow row)
+    {
+        var (predicate, parameters) = KeyPredicate(table, row);
+        return session.Returning(
+            $"SELECT row_to_json(t)::text AS contents FROM {table.Quoted} t WHERE {predicate}", parameters);
     }
 
     /// <summary>Updates the row to its own key, which changes nothing but still needs the right to update it.</summary>

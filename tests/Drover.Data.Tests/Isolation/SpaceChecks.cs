@@ -45,6 +45,12 @@ public static class SpaceChecks
     public static async Task CannotUpdateAnotherSpacesRows(IsolationHarness harness, string tableName)
     {
         var (table, world, own, other) = await Arrange(harness, tableName);
+        if (table.Grants.AppendOnly)
+        {
+            await RefuseMutation(harness, table, world, own, other, harness.TouchRow);
+            return;
+        }
+
         await using var asB = await harness.Open(world.SpaceB, world.UserB1);
         await using var asA = await harness.Open(world.SpaceA, world.UserA1);
 
@@ -56,9 +62,17 @@ public static class SpaceChecks
 
     public static async Task CannotDeleteAnotherSpacesRows(IsolationHarness harness, string tableName)
     {
-        var (table, world, _, other) = await Arrange(harness, tableName);
+        var (table, world, own, other) = await Arrange(harness, tableName);
+        if (table.Grants.AppendOnly)
+        {
+            await RefuseMutation(harness, table, world, own, other, harness.DeleteRow);
+            return;
+        }
+
         await using (var asA = await harness.Open(world.SpaceA, world.UserA1))
         {
+            Expect.That(await harness.DeleteRow(asA, table, own) == 1,
+                $"Control: space A cannot delete its own row in '{tableName}'.");
             var deleted = await harness.DeleteRow(asA, table, other);
             Expect.That(deleted == 0, $"Space A deleted {deleted} row(s) of space B in '{tableName}'.");
             await asA.Commit();
@@ -93,6 +107,17 @@ public static class SpaceChecks
 
     #endregion
 
+    #region Truncation
+
+    public static async Task CannotTruncate(IsolationHarness harness, string tableName)
+    {
+        var (table, world, own, other) = await Arrange(harness, tableName);
+        await RefuseMutation(harness, table, world, own, other,
+            (session, target, _) => session.Execute($"TRUNCATE {target.Quoted}"));
+    }
+
+    #endregion
+
     #region Parents
 
     /// <summary>Only for a table with a space-owned parent: a row in space A may not point at space B's parent row.</summary>
@@ -118,6 +143,32 @@ public static class SpaceChecks
     #endregion
 
     #region Private Methods
+
+    private static async Task RefuseMutation(
+        IsolationHarness harness,
+        TableUnderTest table,
+        TenantWorld world,
+        SeededRow own,
+        SeededRow other,
+        Func<TenantSession, TableUnderTest, SeededRow, Task<int>> mutate)
+    {
+        await using var asA = await harness.Open(world.SpaceA, world.UserA1);
+        await using var asB = await harness.Open(world.SpaceB, world.UserB1);
+        var ownBefore = await harness.Snapshot(asA, table, own);
+        var otherBefore = await harness.Snapshot(asB, table, other);
+        Expect.That(ownBefore.Count == 1 && otherBefore.Count == 1, $"Control: missing rows in '{table.Name}'.");
+
+        SeededRow[] rows = [own, other];
+        foreach (var row in rows)
+        {
+            await using var attempt = await harness.Open(world.SpaceA, world.UserA1);
+            await Expect.Refused($"Mutating append-only or truncating table '{table.Name}'", "42501",
+                () => mutate(attempt, table, row));
+        }
+
+        (await harness.Snapshot(asA, table, own)).Should().BeEquivalentTo(ownBefore);
+        (await harness.Snapshot(asB, table, other)).Should().BeEquivalentTo(otherBefore);
+    }
 
     private static async Task<(TableUnderTest Table, TenantWorld World, SeededRow Own, SeededRow Other)> Arrange(
         IsolationHarness harness,
