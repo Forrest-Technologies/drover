@@ -6,6 +6,8 @@ namespace Drover.Domain.Models;
 /// </summary>
 public sealed record ModelCapabilities
 {
+    #region Properties
+
     public int? ContextTokens { get; init; }
 
     public int? MaxOutputTokens { get; init; }
@@ -23,4 +25,6 @@ public sealed record ModelCapabilities
     public bool StructuredOutput { get; init; }
 
     public bool WebSearch { get; init; }
+
+    #endregion
 }

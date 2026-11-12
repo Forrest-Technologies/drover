@@ -6,6 +6,8 @@ namespace Drover.Domain.Tools;
 /// </summary>
 public sealed class Tool : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -34,4 +36,6 @@ public sealed class Tool : ISpaceOwned
     public DateTimeOffset FirstSeenAt { get; set; }
 
     public DateTimeOffset LastSeenAt { get; set; }
+
+    #endregion
 }

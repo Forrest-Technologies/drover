@@ -3,6 +3,8 @@ namespace Drover.Domain.Agents;
 /// <summary>Everything the runtime needs to run one step of a run, all in Drover's own types.</summary>
 public sealed record RunExecution
 {
+    #region Properties
+
     public required Guid RunId { get; init; }
 
     public required Guid SpaceId { get; init; }
@@ -19,4 +21,6 @@ public sealed record RunExecution
 
     /// <summary>Answers to whatever the run was waiting on.</summary>
     public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
+
+    #endregion
 }

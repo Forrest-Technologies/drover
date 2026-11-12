@@ -3,6 +3,8 @@ namespace Drover.Domain.Threads;
 /// <summary>One message of a thread. The audience is inherited from the thread through the foreign key.</summary>
 public sealed class Message : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -25,4 +27,6 @@ public sealed class Message : ISpaceOwned, IAudienceScoped
     public IReadOnlyList<MessagePart> Parts { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; }
+
+    #endregion
 }

@@ -6,6 +6,8 @@ namespace Drover.Domain.Secrets;
 /// </summary>
 public sealed class Secret : ISpaceOwned, IAudienceScoped
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -21,4 +23,6 @@ public sealed class Secret : ISpaceOwned, IAudienceScoped
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset? LastUsedAt { get; set; }
+
+    #endregion
 }

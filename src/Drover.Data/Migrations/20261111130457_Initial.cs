@@ -49,7 +49,6 @@ namespace Drover.Data.Migrations
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
-                    display_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     user_name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     normalized_user_name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     email = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
@@ -68,6 +67,24 @@ namespace Drover.Data.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_users", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "user_profiles",
+                columns: table => new
+                {
+                    user_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    display_name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_user_profiles", x => x.user_id);
+                    table.ForeignKey(
+                        name: "fk_user_profiles_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -217,17 +234,33 @@ namespace Drover.Data.Migrations
             migrationBuilder.Sql(
                 """
                 CREATE POLICY user_visibility ON users FOR SELECT
-                  USING (
-                    id = sys.current_user_id()
-                    OR EXISTS (
-                      SELECT 1 FROM memberships
-                      WHERE memberships.user_id = users.id AND memberships.space_id = sys.current_space()));
+                  USING (id = sys.current_user_id());
                 CREATE POLICY user_insert_self ON users FOR INSERT
                   WITH CHECK (id = sys.current_user_id());
                 CREATE POLICY user_update_self ON users FOR UPDATE
                   USING (id = sys.current_user_id())
                   WITH CHECK (id = sys.current_user_id());
                 GRANT SELECT, INSERT, UPDATE ON users TO drover_app;
+                """);
+
+            migrationBuilder.EnableForcedSecurity("user_profiles");
+            migrationBuilder.Sql(
+                """
+                CREATE POLICY profile_self ON user_profiles FOR ALL
+                  USING (user_id = sys.current_user_id())
+                  WITH CHECK (user_id = sys.current_user_id());
+                GRANT SELECT, INSERT, UPDATE ON user_profiles TO drover_app;
+                CREATE POLICY member_profiles ON user_profiles FOR SELECT
+                  USING (
+                    sys.current_user_id() IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1 FROM memberships AS caller
+                      WHERE caller.user_id = sys.current_user_id()
+                        AND caller.space_id = sys.current_space())
+                    AND EXISTS (
+                      SELECT 1 FROM memberships AS member
+                      WHERE member.user_id = user_profiles.user_id
+                        AND member.space_id = sys.current_space()));
                 """);
 
             migrationBuilder.IsolateByUser("user_claims");
@@ -238,6 +271,8 @@ namespace Drover.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(name: "user_profiles");
+
             migrationBuilder.DropTable(
                 name: "memberships");
 

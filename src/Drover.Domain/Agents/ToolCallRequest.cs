@@ -6,6 +6,8 @@ namespace Drover.Domain.Agents;
 /// </summary>
 public sealed record ToolCallRequest
 {
+    #region Properties
+
     public required Guid RunId { get; init; }
 
     public required string CallId { get; init; }
@@ -17,4 +19,6 @@ public sealed record ToolCallRequest
     public required JsonElement Arguments { get; init; }
 
     public bool Approved { get; init; }
+
+    #endregion
 }

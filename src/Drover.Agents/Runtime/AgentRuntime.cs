@@ -11,13 +11,6 @@ public sealed class AgentRuntime(
     CapabilityResolver resolveCapabilities,
     ILoggerFactory loggerFactory) : IAgentRuntime
 {
-    #region Telemetry
-
-    /// <summary>The trace source agents report to. Traces leave the server only if the operator sets an endpoint.</summary>
-    public const string TelemetrySource = "Drover.Agents";
-
-    #endregion
-
     #region Private Fields
 
     private readonly ILogger logger = loggerFactory.CreateLogger<AgentRuntime>();
@@ -50,6 +43,13 @@ public sealed class AgentRuntime(
         logger.LogInformation("Run {RunId} step finished, waiting: {Waiting}", execution.RunId, translator.Waiting);
         yield return new RunFinished(translator.Waiting ? RunOutcome.Waiting : RunOutcome.Completed);
     }
+
+    #endregion
+
+    #region Telemetry
+
+    /// <summary>The trace source agents report to. Traces leave the server only if the operator sets an endpoint.</summary>
+    public const string TelemetrySource = "Drover.Agents";
 
     #endregion
 

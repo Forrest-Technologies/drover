@@ -3,6 +3,8 @@ namespace Drover.Domain.Tools;
 /// <summary>A remote tool server. Its tools are rows in <c>tools</c>.</summary>
 public sealed class ToolConnection : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -33,4 +35,6 @@ public sealed class ToolConnection : ISpaceOwned
     public DateTimeOffset? LastListedAt { get; set; }
 
     public string? LastError { get; set; }
+
+    #endregion
 }

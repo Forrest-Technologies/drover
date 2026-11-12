@@ -6,7 +6,9 @@ public sealed class UserMapping : IEntityTypeConfiguration<User>
 
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.Property(user => user.DisplayName).HasMaxLength(200);
+        builder.Ignore(user => user.DisplayName);
+        builder.HasOne(user => user.Profile).WithOne().HasForeignKey<UserProfile>(profile => profile.UserId);
+        builder.Navigation(user => user.Profile).AutoInclude();
         builder.HasIndex(user => user.NormalizedEmail).HasDatabaseName("ix_users_normalized_email");
         builder.HasIndex(user => user.NormalizedUserName).HasDatabaseName("ix_users_normalized_user_name");
     }

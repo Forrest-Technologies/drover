@@ -7,6 +7,8 @@ namespace Drover.Domain.Runs;
 /// </summary>
 public sealed class Run : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -57,4 +59,6 @@ public sealed class Run : ISpaceOwned
     public DateTimeOffset? StartedAt { get; set; }
 
     public DateTimeOffset? FinishedAt { get; set; }
+
+    #endregion
 }

@@ -3,6 +3,8 @@ namespace Drover.Domain.Agents;
 /// <summary>A granted tool as the runtime offers it to the model.</summary>
 public sealed record ToolDefinition
 {
+    #region Properties
+
     public required Guid ToolId { get; init; }
 
     public required string Name { get; init; }
@@ -15,4 +17,6 @@ public sealed record ToolDefinition
 
     /// <summary>The effective grant is <c>ask</c>: the run stops for a human before the tool runs.</summary>
     public bool RequiresApproval { get; init; }
+
+    #endregion
 }

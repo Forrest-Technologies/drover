@@ -11,17 +11,6 @@ namespace Drover.Agents.Sessions;
 /// </remarks>
 public sealed class PostgresAgentSessionStore(RunContext run, ILogger logger) : AgentSessionStore
 {
-    #region Partition Names
-
-    public const string SpacePartition = "space";
-
-    public const string AudiencePartition = "audience";
-
-    public const string ExpiredApproval =
-        "The approval request expired: the run's saved state could not be read after an update. Ask again if it is still needed.";
-
-    #endregion
-
     #region Properties
 
     public static string FrameworkVersion { get; } =
@@ -93,6 +82,17 @@ public sealed class PostgresAgentSessionStore(RunContext run, ILogger logger) : 
                 .DeleteSession(run.Thread.Id, run.Execution.Bot.BotId, cancellationToken),
             cancellationToken);
     }
+
+    #endregion
+
+    #region Partition Names
+
+    public const string SpacePartition = "space";
+
+    public const string AudiencePartition = "audience";
+
+    public const string ExpiredApproval =
+        "The approval request expired: the run's saved state could not be read after an update. Ask again if it is still needed.";
 
     #endregion
 

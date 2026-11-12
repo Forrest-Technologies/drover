@@ -13,8 +13,14 @@ public sealed class ChatThreadSeeder : PlainSeeder<ChatThread>
 
 public sealed class MessageSeeder : PlainSeeder<Message>
 {
+    #region Private Fields
+
     // A thread's positions are unique, and the suite may put several rows under one parent, so each row takes the next.
     private static int position;
+
+    #endregion
+
+    #region Public Methods
 
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
     {
@@ -27,6 +33,8 @@ public sealed class MessageSeeder : PlainSeeder<Message>
         ["run_id"] = seed.Parent("runs"),
         ["parts"] = """[{"type":"text","text":"hello"}]""",
     };
+
+    #endregion
 }
 
 public sealed class RunSeeder : PlainSeeder<Run>

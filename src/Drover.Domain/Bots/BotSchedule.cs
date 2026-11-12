@@ -3,6 +3,8 @@ namespace Drover.Domain.Bots;
 /// <summary>A prompt a bot is sent on a cron schedule, for its owner. The scheduler loop is Phase 1.</summary>
 public sealed class BotSchedule : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -22,4 +24,6 @@ public sealed class BotSchedule : ISpaceOwned
     public bool Enabled { get; set; } = true;
 
     public DateTimeOffset? NextRunAt { get; set; }
+
+    #endregion
 }
