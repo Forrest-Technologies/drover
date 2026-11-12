@@ -9,7 +9,9 @@ public sealed class AgentSessionMapping : IEntityTypeConfiguration<AgentSession>
         builder.ToTable("agent_sessions");
         builder.HasKey(session => session.Id);
         builder.Property(session => session.Id).ValueGeneratedNever();
-        builder.Property(session => session.State).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
+        // json, not jsonb: the framework's polymorphic JSON needs its "$type" property kept first, and jsonb reorders
+        // object keys. The blob is opaque, so nothing is lost by not indexing it.
+        builder.Property(session => session.State).HasColumnType("json").HasDefaultValueSql("'{}'::json");
         builder.Property(session => session.FrameworkVersion).HasMaxLength(64);
         builder.Property(session => session.UpdatedAt).HasDefaultValueSql("now()");
         builder.WithinSpace<AgentSession, ChatThread>(nameof(AgentSession.ThreadId), audience: true);

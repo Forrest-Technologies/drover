@@ -11,17 +11,18 @@ if (initializeDatabase)
     return;
 }
 
+var policy = new DeploymentPolicySetup(builder.Configuration).Resolve();
 var connectionString = string.Empty;
 try
 {
-    connectionString = DatabaseStartup.ApplicationConnection(builder.Configuration);
+    connectionString = DatabaseStartup.ApplicationConnection(builder.Configuration, policy.Rules.AllowMigrationCredentialInServer);
 }
 catch (Exception exception) when (exception is InvalidOperationException or ArgumentException
     or IOException or UnauthorizedAccessException)
 {
     using var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole());
     var logger = loggerFactory.CreateLogger("Drover.Startup");
-    logger.LogCritical("Database configuration is invalid. Configure the drover_app connection and its credentials.");
+    logger.LogCritical("Database configuration is invalid. Configure a valid application database connection and its credentials.");
     Environment.ExitCode = 1;
     return;
 }
@@ -33,7 +34,8 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
-builder.Services.AddDroverSecretVault(keyRingPath);
+builder.Services.AddDroverPolicy(builder.Configuration);
+builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
@@ -51,6 +53,8 @@ app.UseMiddleware<SpaceMembershipMiddleware>();
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();
 api.MapAccountEndpoints();
+api.MapRegistrationEndpoints();
+api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
 api.MapFallback(() => Results.NotFound());
 

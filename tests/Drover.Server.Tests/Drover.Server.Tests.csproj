@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
+    <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
   </ItemGroup>
 
 </Project>

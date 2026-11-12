@@ -38,9 +38,9 @@ Collected from the rest of this document. Each is a typed property on the `Deplo
 | Local-process (stdio) MCP servers | Inside a sandbox only | Inside a sandbox only | Never on the host, in any mode |
 | Subscription sign-in adapters, per provider | On where the provider permits self-hosted use | Off unless the operator has that provider's approval for hosted use, recorded per provider | Provider terms differ for hosted apps |
 | Model providers available | All | A list the operator sets, after reading each provider's terms for hosted use | Same |
-| Open registration | Off after the first account | Operator's choice, with email verification required | Abuse control |
+| Open registration (`OpenRegistration`) | Off after the first account | Off; the operator may turn it on, and then email verification and acceptance of terms are required | Abuse control |
 | Acceptance of terms of service and privacy notice at sign-up | Off | Required, with the version accepted recorded | Legal, and some providers require their terms to flow down to end users |
-| First-run setup code | Required for remote setup | Not applicable; provisioning is the operator's | Prevents claiming an empty server |
+| First-run setup code (`RequireSetupCode`) | Required for every request | Required for every request; provisioning is the operator's, so the screen is rarely used | Prevents claiming an empty server. No address proves a request is local, because a proxy or tunnel on the same host makes a remote request look local. |
 | Per-space quotas: bots, runs per day, concurrent runs, storage, sandbox minutes | Unlimited by default | Set by plan | Fair use and cost |
 | Tainted-run escalation ([06-mcp.md](06-mcp.md)) | On, a space may turn it off per bot | On, cannot be turned off | Limits what a hostile tool result can cause |
 | Remote images in bot output load automatically | Off, a space may turn it on | Off, cannot be turned on | Data can leak through an image address |
@@ -53,18 +53,46 @@ Collected from the rest of this document. Each is a typed property on the `Deplo
 
 A new feature that could harm other tenants, cost the operator money without limit, or break a provider's terms on a shared server ships with a rule here.
 
+### Rule names and enforcement today
+
+Each rule is a property of `DeploymentPolicy` with the name below. A rule marked "enforced" is checked at the point of action now; a rule marked "later" has its value and appears on the status listing, and the work named will enforce it.
+
+| Rule | `self_hosted` | `hosted` | Enforced |
+| --- | --- | --- | --- |
+| `AllowPrivateAddresses` | `true` | `false` | Enforced: every outbound connection |
+| `SandboxAdapters` | `All` | `HardBoundaryOnly` | Later: sandbox adapter registration (Phase 1) |
+| `AllowHostStdioMcp` | `false` | `false` | Later: MCP tool servers (Phase 1) |
+| `SubscriptionSignIn` | `WhereProviderPermits` | `OnlyWithOperatorApproval` | Later: model providers |
+| `ModelProviders` | `All` | `OperatorList` | Later: model providers |
+| `OpenRegistration` | `false` | `false` (operator may set `true`) | Enforced: `POST /api/register` |
+| `RequireEmailVerification` | `false` | `true` | Enforced: `POST /api/register` answers 501 until the server can send email |
+| `RequireTermsAcceptance` | `false` | `true` | Enforced: `POST /api/register`, and the version is recorded on the user |
+| `RequireSetupCode` | `true` | `true` | Enforced: `POST /api/setup` |
+| `SpaceQuotas` | `Unlimited` | `SetByOperator` | Later: quotas |
+| `SpaceMayDisableTaintedRunEscalation` | `true` | `false` | Later: tainted-run escalation (Phase 1) |
+| `SpaceMayAutoLoadRemoteImages` | `true` | `false` | Later: chat rendering |
+| `KeyRingProtection` | `FilePermissions` | `CertificateOrKeyService` | Enforced: server start |
+| `AllowMigrationCredentialInServer` | `true` | `false` | Enforced: server start |
+| `AuditRetention` | `OperatorChoice` | `MinimumEnforced` | Later: audit retention |
+| `AllowDisablingDataRights` | `true` | `false` | Later: export and deletion endpoints |
+| `AllowTelemetryContent` | `false` | `false` | Later: telemetry export |
+| `AllowOperatorContentAccess` | `false` | `false` | Later: support access, if it is ever added |
+
+`OpenRegistration` is the one rule the operator of a hosted service may loosen: the table's "operator's choice". Every other rule is locked to its preset. The sign-in rate limit, the key ring path, and quota amounts are configuration, not rules.
+
 ## Mechanics
 
 | Piece | Design |
 | --- | --- |
-| Type | `DeploymentPolicy`, a record in `Drover.Domain` with one typed property per rule. No string keys in feature code. |
-| Presets | Two static values, `DeploymentPolicy.SelfHosted` and `DeploymentPolicy.Hosted`, built with extension methods in the guide's builder style |
-| Loading | Bound from configuration at start through the platform's options system, validated once. An invalid or loosened hosted policy stops the server with a message naming the rule. |
-| Reading | `PolicyService` in `Drover.Engine` returns the effective value for a space or bot: the deployment rule narrowed by the space's policy |
-| Space policy | Stored in `spaces.settings` as a record of the same shape, restricted to rules a space may narrow |
-| Enforcement | At the point of action, on the server: the outbound HTTP handler, adapter registration, the tool gate, the registration endpoint. Never only in the UI. |
-| Visibility | The status page lists the active preset and every rule with its value. The UI hides or explains what a rule forbids: "Not available on this server." |
-| Tests | A matrix test starts the server under each preset and asserts each rule's behavior, including that a space setting cannot loosen it. Adding a property to `DeploymentPolicy` without a row in the matrix fails the build. |
+| Type | `DeploymentPolicy`, a record in `Drover.Domain` with one typed property per rule. No string keys in feature code. `DeploymentPolicy.Rules` is the table of rules (name, value, how loose it is, where it is enforced). |
+| Presets | Two static values, `DeploymentPolicy.SelfHosted` and `DeploymentPolicy.Hosted`, the second built from the first with extension methods in the guide's builder style (`AsHosted`) |
+| Loading | `DeploymentPolicySetup` in `Drover.Server` builds `DeploymentPolicyOptions` through the platform's options system. `DROVER_POLICY` (or `Drover:Policy:Preset`) names the preset, `Drover:Policy:Rules:<Rule>` tightens one rule, and `Drover:Policy:TermsVersion` names the terms people accept. It is validated when the host starts: a rule set looser than the preset, a key that names no rule, an unknown preset, an enum rule whose number is not one of its values, a hosted server without a key ring certificate, a migration credential (`ConnectionStrings:DroverOwner`) in a server that forbids it, or open registration that asks for terms with no version stops the server. Where the migration credential is forbidden, the server also asks the database who the request connection is at start (`DatabaseRoleGuard`) and refuses unless it is `drover_app` with no superuser or row-level-security bypass. Each requirement is checked when the preset asks for the strict value, whatever the configured value is. Each refusal names the rule. |
+| Reading | `PolicyService` in `Drover.Engine` returns the effective value for a space: the deployment rule narrowed by the space's settings. It is the only place that computes one. |
+| Space policy | Stored in `spaces.settings` (`SpaceSettings`), restricted to rules a space may narrow: `AllowPrivateAddresses`, `TaintedRunEscalation`, `AutoLoadRemoteImages`. A space can forbid private addresses; it cannot allow them where the deployment forbids. It can turn off tainted-run escalation or turn on remote images only where the deployment rule says a space may. Bot settings do not narrow policy yet. |
+| Enforcement | At the point of action, on the server: `OutboundHttp` (below), `POST /api/setup`, `POST /api/register`, and server start. Adapter registration and the tool gate join when those features exist. Never only in the UI. |
+| Outbound requests | `OutboundHttp.CreateHandler` is the primary handler of every `IHttpClientFactory` client (set once with `ConfigureHttpClientDefaults`). A request may reach a private address only when the deployment allows it and the request says so: the caller puts the space's effective value on the request with `ForSpace`, and a request that says nothing is treated as forbidden. Forbidden requests resolve the host, are refused if any returned address is private, link-local, loopback, shared, IPv4-mapped, or a NAT64/6to4 form of one, and connect to the address they checked, so the answer cannot change between check and connect. The check runs on every new connection, so a redirect to another host is checked again. Allowed and forbidden requests use separate connection pools. HTTP/3 is refused, since it skips the connection check, and a request is not left free to upgrade to it. A guarded request does not use an outbound proxy. `BannedSymbols.txt` bans `new HttpClient(...)`, `SocketsHttpHandler` and `HttpClientHandler` construction; only the policy code, the browser client, and the handler's own tests are exempt (in `.editorconfig`). |
+| Visibility | `GET /api/status` (signed-in people) lists the active preset and every rule with its setting and where it is enforced. The UI hides or explains what a rule forbids: "Not available on this server." |
+| Tests | `PolicyMatrix` in `Drover.Server.Tests` has a row per rule. A test fails when a property of `DeploymentPolicy` has no row, and the matrix tests start the server under each preset and check the status listing and each enforced rule. `PolicyServiceTests` in `Drover.Engine.Tests` covers narrowing, including that a space cannot loosen. A source scan in `Drover.Domain.Tests` fails on a source file outside the policy types that names or compares a preset. |
 
 `hosted` is a preset, not a separate product. Everything it does is in the open source repository and a self-hoster running a server for their community can select it too.
 
@@ -76,4 +104,6 @@ A new feature that could harm other tenants, cost the operator money without lim
 
 ## Phase
 
-Phase 0 builds the type, the two presets, loading, the status listing, and the matrix test, with the rules that already have something to guard: outbound address checks, the setup code, and registration. Each later feature adds its own rule when it is built.
+Phase 0 builds the type, the two presets, loading, the status listing, and the matrix test, with the rules that already have something to guard: outbound address checks, the setup code, registration and acceptance of terms, the migration credential, and key ring protection. Each later feature adds its own rule when it is built.
+
+Two things are not done yet: the server cannot send the email that email verification needs, so `POST /api/register` answers 501 where verification is required; and it does not read forwarded headers, so per-address rate limits and the "same machine" check see the proxy's address.

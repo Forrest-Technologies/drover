@@ -51,18 +51,47 @@ public sealed class AccountService(
             return new SetupResult(SetupOutcome.Closed, Guid.Empty, []);
         }
 
-        var user = NewUser(userId, email, displayName);
-        var created = await users.CreateAsync(user, password);
+        var result = await AddAccount(NewUser(userId, email, displayName), password, spaceId);
 
-        if (!created.Succeeded)
+        if (result.Status is SetupOutcome.Created)
         {
-            return new SetupResult(SetupOutcome.Invalid, Guid.Empty, [.. created.Errors.Select(error => error.Description)]);
+            await work.Commit(cancellationToken);
         }
 
-        accounts.Add(PersonalSpace(spaceId, displayName));
-        accounts.Add(new Membership { SpaceId = spaceId, UserId = userId, Role = MembershipRole.Owner });
-        await work.Commit(cancellationToken);
-        return new SetupResult(SetupOutcome.Created, userId, [], await users.GetSecurityStampAsync(user));
+        return result;
+    }
+
+    /// <summary>
+    /// Creates an account for someone who registered themselves, with a personal space of their own, and records
+    /// the version of the terms they accepted. The caller has already checked the deployment allows registration.
+    /// </summary>
+    public async Task<SetupResult> Register(
+        string email,
+        string displayName,
+        string password,
+        string? acceptedTermsVersion,
+        CancellationToken cancellationToken)
+    {
+        if (await FindUserId(email, cancellationToken) is not null)
+        {
+            return new SetupResult(SetupOutcome.Invalid, Guid.Empty, ["That email cannot be used to register."]);
+        }
+
+        var userId = Guid.CreateVersion7();
+        var spaceId = Guid.CreateVersion7();
+        tenant.Set(spaceId, userId);
+        await using var work = await scope.Begin(cancellationToken);
+        var user = NewUser(userId, email, displayName);
+        user.TermsVersion = acceptedTermsVersion;
+        user.TermsAcceptedAt = acceptedTermsVersion is null ? null : DateTimeOffset.UtcNow;
+        var result = await AddAccount(user, password, spaceId);
+
+        if (result.Status is SetupOutcome.Created)
+        {
+            await work.Commit(cancellationToken);
+        }
+
+        return result;
     }
 
     /// <summary>Checks an email and password, counting failures and locking the account as Identity is set to.</summary>
@@ -120,6 +149,20 @@ public sealed class AccountService(
     #endregion
 
     #region Private Methods
+
+    private async Task<SetupResult> AddAccount(User user, string password, Guid spaceId)
+    {
+        var created = await users.CreateAsync(user, password);
+
+        if (!created.Succeeded)
+        {
+            return new SetupResult(SetupOutcome.Invalid, Guid.Empty, [.. created.Errors.Select(error => error.Description)]);
+        }
+
+        accounts.Add(PersonalSpace(spaceId, user.DisplayName));
+        accounts.Add(new Membership { SpaceId = spaceId, UserId = user.Id, Role = MembershipRole.Owner });
+        return new SetupResult(SetupOutcome.Created, user.Id, [], await users.GetSecurityStampAsync(user));
+    }
 
     private async Task<Guid?> FindUserId(string email, CancellationToken cancellationToken)
     {

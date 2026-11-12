@@ -30,10 +30,11 @@ public static class AnalyzerHarness
     public static async Task<ImmutableArray<Diagnostic>> Run(
         DiagnosticAnalyzer analyzer,
         string source,
-        string? manifest = null)
+        string? manifest = null,
+        string assemblyName = "Sample")
     {
         var compilation = CSharpCompilation.Create(
-            "Sample",
+            assemblyName,
             [CSharpSyntaxTree.ParseText(Stubs), CSharpSyntaxTree.ParseText(source)],
             LoadReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));

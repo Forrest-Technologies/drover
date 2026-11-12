@@ -82,6 +82,15 @@ namespace Drover.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("security_stamp");
 
+                    b.Property<DateTimeOffset?>("TermsAcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("terms_accepted_at");
+
+                    b.Property<string>("TermsVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("terms_version");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("two_factor_enabled");
@@ -780,9 +789,9 @@ namespace Drover.Data.Migrations
 
                     b.Property<JsonElement>("State")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
+                        .HasColumnType("json")
                         .HasColumnName("state")
-                        .HasDefaultValueSql("'{}'::jsonb");
+                        .HasDefaultValueSql("'{}'::json");
 
                     b.Property<Guid>("ThreadId")
                         .HasColumnType("uuid")

@@ -41,9 +41,13 @@ Not signed in: 401. Not a member, or no such space: 404, the same body for both,
 
 The setup screen appears only while the `users` table is empty, checked through `sys.health()`. Creating the owner account, the first space, and the membership is one transaction. After that the setup endpoints return 404 for good.
 
-On a server reachable from the internet, an empty instance could be claimed by whoever finds it first. The server prints a one-time setup code to its log at first start, and the setup screen always asks for it. There is no exemption for a request from the same machine: a reverse proxy or an SSH tunnel on the same host makes a remote request look local, so the address proves nothing. The code is not stored: a restart while the instance is still empty prints a new one.
+On a server reachable from the internet, an empty instance could be claimed by whoever finds it first. The server prints a one-time setup code to its log at first start, and the setup screen always asks for it (the `RequireSetupCode` deployment rule, which both presets set; [16-deployment-policies.md](16-deployment-policies.md)). There is no exemption for a request from the same machine: a reverse proxy or an SSH tunnel on the same host makes a remote request look local, so the address proves nothing. The code is not stored: a restart while the instance is still empty prints a new one.
 
 `GET /api/setup` answers 200 while setup is open (and says the code is required), and `POST /api/setup` creates the account and signs the owner in. Two requests at once take turns on a PostgreSQL advisory lock and count users again after getting it, so exactly one account is created.
+
+### Registration
+
+Other people join through `POST /api/register` only where the deployment policy opens it (the `OpenRegistration` rule, off in both presets). The endpoints answer 404 while the policy leaves registration closed and until the first account exists. Where `RequireTermsAcceptance` is on, `GET /api/register` names the version of the terms (`Drover:Policy:TermsVersion`), the request must carry that version, and `users.terms_version` and `users.terms_accepted_at` record what was accepted. Where `RequireEmailVerification` is on, registration answers 501 until the server can send the email. A new account gets a personal space, as the first account does. Registration shares the sign-in rate limit.
 
 ## Secrets
 
@@ -66,7 +70,7 @@ public interface ISecretVault
 }
 ```
 
-`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the two inbound forms a person fills in with their own password (`SignInRequest`, `SetupRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
+`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the inbound forms a person fills in with their own password (`SignInRequest`, `SetupRequest`, `RegisterRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
 
 Every vault method runs inside a tenant scope the caller opened and commits, and the vault never opens one. `Reveal` throws `KeyNotFoundException` for a secret that does not exist or that row-level security hides, and `CryptographicException` for a ciphertext that does not belong to its row.
 
@@ -84,7 +88,9 @@ Why Data Protection and not hand-written encryption: the library rule. It is the
 | Deployment | Key ring | Protected by |
 | --- | --- | --- |
 | Self-hosted compose | Files on the `drover-keys` volume, separate from the database volume. The server reads the path from `DataProtection:KeyPath`, and without it uses `drover/keys` under the user's local application data. The directory is created readable by its owner only, and at every start, on Unix, a key ring that is open to the group or others is tightened to 0700 (files 0600), with a warning in the log if that fails. | File permissions; optionally a certificate the operator supplies |
-| Hosted | Database or object storage | A certificate or a cloud key service, through Data Protection's own key-encryption options |
+| Hosted | Database or object storage | A certificate or a cloud key service, through Data Protection's own key-encryption options. The server refuses to start without one (the `KeyRingProtection` rule). |
+
+A certificate is given as PEM files: `DataProtection:CertificatePath`, and `DataProtection:CertificateKeyPath` when the key is in a separate file. With either preset, setting a certificate encrypts the keys at rest. A cloud key service will be its own adapter when the hosted service needs it; today only a certificate satisfies the rule.
 
 A database dump alone does not reveal secrets, because the keys are elsewhere. A backup needs both volumes, and losing the key volume loses every stored secret. The status page and the README say so, and the status page warns when the key ring has never been backed up to a second location the operator has confirmed.
 
@@ -104,7 +110,7 @@ The redactor is a seatbelt, not a guarantee: a tool that returns a secret in a t
 
 | Credential | Held by | Notes |
 | --- | --- | --- |
-| `drover_owner` password | The migrator step | Used at start to apply migrations, then the connection is closed |
+| `drover_owner` password | The migrator step | Used at start to apply migrations, then the connection is closed. If the serving process is given it (`ConnectionStrings:DroverOwner`), the `AllowMigrationCredentialInServer` rule decides whether the server may start. |
 | `drover_app` password | The running server | The only credential request handling ever uses |
 
 In the single-container compose deployment both passwords sit on the same secrets volume, because one process migrates and then serves. The separation still does its main job: no code path in the running server holds a connection that can bypass row-level security. On the hosted service, migration is a separate job with its own credential, and the server never sees the owner password.

@@ -21,6 +21,11 @@ public sealed record ImagePart(Guid FileId, string MediaType, string? AltText = 
 
 public sealed record FilePart(Guid FileId, string Name, string MediaType) : MessagePart;
 
-public sealed record ToolCallPart(Guid ToolCallId, string ToolName, JsonElement Arguments) : MessagePart;
+/// <summary>
+/// <see cref="ToolCallId"/> is the <c>tool_calls</c> row. <see cref="CallId"/> is the id the model gave the call; it
+/// pairs the call with its result when the history is sent back to a model.
+/// </summary>
+public sealed record ToolCallPart(Guid ToolCallId, string CallId, string ToolName, JsonElement Arguments)
+    : MessagePart;
 
-public sealed record ToolResultPart(Guid ToolCallId, bool IsError, JsonElement Result) : MessagePart;
+public sealed record ToolResultPart(Guid ToolCallId, string CallId, bool IsError, JsonElement Result) : MessagePart;

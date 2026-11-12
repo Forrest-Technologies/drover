@@ -4,17 +4,18 @@ public static class DatabaseStartup
 {
     #region Public Methods
 
-    public static string ApplicationConnection(IConfiguration configuration)
+    public static string ApplicationConnection(IConfiguration configuration, bool allowCustomRole = false)
     {
         var explicitConnection = configuration.GetConnectionString("Drover");
         var connection = explicitConnection is null
             ? Connection(configuration, "drover_app", "Database:AppPasswordFile")
             : new NpgsqlConnectionStringBuilder(explicitConnection);
 
-        if (connection.Username is not "drover_app" || string.IsNullOrWhiteSpace(connection.Host)
+        if ((!allowCustomRole && connection.Username is not "drover_app") || string.IsNullOrWhiteSpace(connection.Username)
+            || string.IsNullOrWhiteSpace(connection.Host)
             || string.IsNullOrWhiteSpace(connection.Database) || string.IsNullOrWhiteSpace(connection.Password))
         {
-            throw new InvalidOperationException("Drover requires a database connection for the drover_app role.");
+            throw new InvalidOperationException("Drover requires a complete database connection permitted by the deployment policy.");
         }
 
         return connection.ConnectionString;

@@ -34,20 +34,22 @@ public static class AccountEndpoints
 
     private static async Task<Results<Ok<SetupStatus>, NotFound>> GetSetupStatus(
         HttpContext context,
-        AccountService accounts)
+        AccountService accounts,
+        PolicyService policy)
     {
         if (!await accounts.IsSetupOpen(context.RequestAborted))
         {
             return TypedResults.NotFound();
         }
 
-        return TypedResults.Ok(new SetupStatus(RequiresCode: true));
+        return TypedResults.Ok(new SetupStatus(RequiresCode: policy.Deployment.RequireSetupCode));
     }
 
     private static async Task<Results<Created<SessionResponse>, NotFound, ProblemHttpResult>> CreateFirstAccount(
         SetupRequest request,
         HttpContext context,
         AccountService accounts,
+        PolicyService policy,
         SetupCode code,
         IAntiforgery antiforgery)
     {
@@ -56,7 +58,7 @@ public static class AccountEndpoints
             return TypedResults.NotFound();
         }
 
-        if (!code.Matches(request.SetupCode))
+        if (policy.Deployment.RequireSetupCode && !code.Matches(request.SetupCode))
         {
             return TypedResults.Problem(
                 title: "The setup code is required. It is printed in the server log.",
@@ -130,7 +132,7 @@ public static class AccountEndpoints
 
     #region Private Methods
 
-    private static async Task<SessionResponse> StartSession(
+    internal static async Task<SessionResponse> StartSession(
         HttpContext context,
         AccountService accounts,
         IAntiforgery antiforgery,

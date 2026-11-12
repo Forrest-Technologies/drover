@@ -1,0 +1,29 @@
+global using System;
+global using System.Collections.Generic;
+global using System.IO;
+global using System.Linq;
+global using System.Net;
+global using System.Net.Http;
+global using System.Net.Sockets;
+global using System.Security.Cryptography;
+global using System.Text;
+global using System.Threading;
+global using System.Threading.Tasks;
+global using AwesomeAssertions;
+global using Drover.Data;
+global using Drover.Data.Bootstrap;
+global using Drover.Data.Identity;
+global using Drover.Data.Tenancy;
+global using Drover.Domain.Policy;
+global using Drover.Domain.Spaces;
+global using Drover.Engine;
+global using Drover.Engine.Policy;
+global using Drover.Tests.Common;
+global using Microsoft.AspNetCore.Identity;
+global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Options;
+global using Npgsql;
+global using Testcontainers.PostgreSql;
+global using Xunit;
+
+[assembly: AssemblyFixture(typeof(PostgresServer))]

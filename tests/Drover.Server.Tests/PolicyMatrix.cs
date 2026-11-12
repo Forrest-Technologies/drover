@@ -1,0 +1,48 @@
+namespace Drover.Server.Tests;
+
+/// <summary>One row per rule of <see cref="DeploymentPolicy"/>: its setting under each preset.</summary>
+public sealed record PolicyMatrixRow(string Rule, string SelfHosted, string Hosted)
+{
+    public string For(string preset) => preset == DeploymentPolicy.HostedName ? Hosted : SelfHosted;
+}
+
+/// <summary>
+/// The table the matrix tests run from. Adding a property to <see cref="DeploymentPolicy"/> without a row here
+/// fails <c>Every_rule_of_the_policy_has_a_row_in_the_matrix</c>, so no rule ships without a stated value for
+/// both presets and a test that starts the server under each.
+/// </summary>
+public static class PolicyMatrix
+{
+    #region Properties
+
+    public static IReadOnlyList<PolicyMatrixRow> Rows { get; } =
+    [
+        new(nameof(DeploymentPolicy.AllowPrivateAddresses), "true", "false"),
+        new(nameof(DeploymentPolicy.SandboxAdapters), "All", "HardBoundaryOnly"),
+        new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
+        new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
+        new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
+        new(nameof(DeploymentPolicy.OpenRegistration), "false", "false"),
+        new(nameof(DeploymentPolicy.RequireEmailVerification), "false", "true"),
+        new(nameof(DeploymentPolicy.RequireTermsAcceptance), "false", "true"),
+        new(nameof(DeploymentPolicy.RequireSetupCode), "true", "true"),
+        new(nameof(DeploymentPolicy.SpaceQuotas), "Unlimited", "SetByOperator"),
+        new(nameof(DeploymentPolicy.SpaceMayDisableTaintedRunEscalation), "true", "false"),
+        new(nameof(DeploymentPolicy.SpaceMayAutoLoadRemoteImages), "true", "false"),
+        new(nameof(DeploymentPolicy.KeyRingProtection), "FilePermissions", "CertificateOrKeyService"),
+        new(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), "true", "false"),
+        new(nameof(DeploymentPolicy.AuditRetention), "OperatorChoice", "MinimumEnforced"),
+        new(nameof(DeploymentPolicy.AllowDisablingDataRights), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowTelemetryContent), "false", "false"),
+        new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
+    ];
+
+    #endregion
+
+    #region Public Methods
+
+    public static string Setting(string rule, string preset) =>
+        Rows.Single(row => row.Rule == rule).For(preset);
+
+    #endregion
+}

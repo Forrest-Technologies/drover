@@ -22,5 +22,10 @@ public sealed class User : IdentityUser<Guid>
         set => Profile.DisplayName = value;
     }
 
+    /// <summary>The version of the terms of service this person accepted at sign-up, or null when none was asked.</summary>
+    public string? TermsVersion { get; set; }
+
+    public DateTimeOffset? TermsAcceptedAt { get; set; }
+
     #endregion
 }

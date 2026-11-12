@@ -26,6 +26,8 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     protected IServiceProvider Services => factory.Services;
 
+    protected string KeyRingPath => keyRing;
+
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
     /// <summary>Configuration for the server under test. The sign-in rate limit is out of the way unless a test asks.</summary>
