@@ -37,6 +37,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | ASP.NET Core, Minimal APIs, Identity, Data Protection, OpenAPI | MIT | Microsoft, part of .NET 10 LTS | Server, sign-in, key ring, API description | Direct. The platform. Data Protection sits behind `ISecretVault` only for secret storage. |
 | Entity Framework Core 10 | MIT | Microsoft | Data access, migrations | Direct. The platform. |
 | `Npgsql`, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.x | PostgreSQL License (permissive) | Npgsql team, the standard .NET driver | PostgreSQL driver and provider | Direct. PostgreSQL is a settled decision. |
+| `Microsoft.AspNetCore.Identity.EntityFrameworkCore` | MIT | Microsoft | The Identity stores on EF Core: the `users` table and its children | Direct. The platform. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
 | Microsoft Agent Framework: `Microsoft.Agents.AI`, `.Workflows`, `.Harness`, and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map and the list of experimental APIs in use are in [14-agent-framework.md](14-agent-framework.md). |
 | `Microsoft.Extensions.AI`, `.OpenAI` | MIT | Microsoft, stable | Chat and embedding clients | Confined to adapters, as above |
@@ -78,7 +79,8 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | `Microsoft.AspNetCore.Mvc.Testing` | MIT | Microsoft | API tests |
 | coverlet | MIT | .NET Foundation | Coverage |
 | `Microsoft.CodeAnalysis.BannedApiAnalyzers` | MIT | Microsoft | Enforce the banned calls in `CODE_STYLE.md` |
-| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 4.14, so the analyzers load in any current compiler, including Visual Studio's |
+| `Microsoft.EntityFrameworkCore.Design`, `dotnet-ef` | MIT | Microsoft | Generate migrations. The design package is private to `Drover.Data`; the tool is pinned in `dotnet-tools.json`. |
+| `Microsoft.CodeAnalysis.CSharp` | MIT | Microsoft | Build `Drover.Analyzers`. Version 4.14 for compiler compatibility; `Drover.Data` privately overrides CSharp and CSharp.Workspaces to 5.0.0 for EF Core design tooling |
 | `Microsoft.CodeAnalysis.CSharp.Workspaces` | MIT | Microsoft | Build `Drover.Analyzers.CodeFixes`. Kept out of `Drover.Analyzers` because the compiler hosts analyzers and must not load Workspaces (RS1038) |
 | `Microsoft.CodeAnalysis.CSharp.Analyzer.Testing`, `.CSharp.CodeFix.Testing` | MIT | Microsoft (Roslyn SDK) | Run analyzers and code fixes over source samples in `Drover.Analyzers.Tests`. The xUnit verifier packages are v2 only, so the tests use the default verifier. Samples compile against the running runtime, so nothing is downloaded. They pull in `Microsoft.VisualStudio.Validation`, MIT by URL only, mapped in `licenses/url-mappings.json` |
 | `System.Security.Cryptography.Pkcs` | MIT | Microsoft | Not used directly. Pinned to 10.0.15 because the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities |

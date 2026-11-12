@@ -16,6 +16,7 @@
     <Project Path="src/Drover.Web/Drover.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Analyzers.Tests/Drover.Analyzers.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
