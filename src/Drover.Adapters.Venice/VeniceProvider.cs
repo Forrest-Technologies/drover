@@ -20,6 +20,8 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
 
     public string Kind => ConnectionKind;
 
+    public Uri? FixedAddress => BaseAddress;
+
     #endregion
 
     #region Interface Implementations

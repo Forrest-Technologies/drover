@@ -11,7 +11,8 @@ public sealed class DroverFactory(
     AdjustableTimeProvider time,
     HashCounter hashes,
     IReadOnlyDictionary<string, string?> settings,
-    bool useAppConnection = true) : WebApplicationFactory<Program>
+    bool useAppConnection = true,
+    Action<IServiceCollection>? configure = null) : WebApplicationFactory<Program>
 {
     #region Constants
 
@@ -46,6 +47,7 @@ public sealed class DroverFactory(
             services.AddSingleton<TimeProvider>(time);
             services.AddSingleton(hashes);
             services.AddSingleton<IPasswordHasher<User>, CountingPasswordHasher>();
+            configure?.Invoke(services);
         });
     }
 

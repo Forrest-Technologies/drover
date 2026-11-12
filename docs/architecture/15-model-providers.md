@@ -6,7 +6,22 @@ Facts in this section were read from each provider's own documentation and live 
 
 A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a `ModelEndpoint` into a Drover-owned `IModelChatClient` and lists/tests the connection. `ModelConnection` remains the space-owned persistence entity, with no credentials in either shape. Embeddings remain future work. One adapter project per kind.
 
-The implemented foundation is not yet wired to server connection endpoints, secret retrieval, or the hosted outbound-address policy. Those remain prerequisites before exposing arbitrary compatible endpoints to hosted users. No tenant transaction is held across these provider calls. The server composition root must register `AddOpenAICompatibleProvider()` before `AddVeniceProvider()` and bridge returned clients with `ModelChatClientBridge`. Both adapters use factory-managed, named HTTP clients; hosted-policy wiring is still required for those names.
+Both providers are wired into the server by `AddDroverModels` (`Drover.Server`), which registers the compatible transport before Venice and bridges returned clients with `ModelChatClientBridge`. Every provider call uses a named HTTP client from `IHttpClientFactory`, so the checked outbound handler of the deployment policy applies to model connections. An adapter builds its own requests and knows nothing of policy, so the caller wraps the adapter call in `OutboundAttempt.Begin(effectivePolicy)` and `SpaceOutboundHandler` puts the space's `AllowPrivateAddresses` value on each request made inside it; a request made outside any attempt says nothing and is treated as forbidden. When the handler refuses an address, the attempt keeps its message, and the connection test shows it instead of the generic "could not be reached". No tenant transaction is held across these provider calls.
+
+## Connections in a space
+
+A connection is created and managed under `/api/spaces/{spaceId}/model-connections`. Antiforgery applies to every state-changing request.
+
+| Route | Who | What |
+| --- | --- | --- |
+| `GET /` | member | The space's connections. A connection says `hasKey`; the key is never returned. |
+| `POST /` | admin | Create. `kind` is a registered provider kind. A fixed-address kind (Venice) takes no address; a compatible endpoint needs an `http`/`https` address with no credentials, query, or fragment. The key is optional and goes to `ISecretVault` as a `model_key`. |
+| `PUT /{id}/key` | admin | Store a new key as a new secret and delete the old one, then return the connection to `pending`. |
+| `POST /{id}/test` | admin | Ask the provider whether the connection works. Records `ready` or `failed`, the time, and any balances. A rate-limit answer leaves the status alone. |
+| `GET /{id}/models` | member | The stored catalog (`model_catalog`), in Drover's own shape. |
+| `POST /{id}/models/refresh` | admin | Discover the provider's models and upsert the catalog. A model that is no longer listed keeps its row, marked `missing`. An empty list marks nothing missing. If the provider cannot answer, the stored catalog is returned with the reason. |
+
+Create, replace-key, and the two reads run under the tenant scope filter. Test and refresh wait on the provider, so they sit outside the filter and `ModelConnectionService` opens its own scopes: one to read the connection, reveal the key, and work out the space's rule; then the provider call with no scope open; then a new scope to write. If the key or address changed while the provider was answering, the answer is not written. Balances are stored on the connection as a list (Venice reports both `usd` and `diem`), each a snapshot from before the request; `RecordBalances` is the call a run uses after a reply.
 
 The boundary preserves text, images, reasoning (including opaque protected reasoning), function declarations/calls/results, structured output, streaming, citations, and usage including cached/reasoning counts. Function results retain their JSON value shape; exception objects are replaced by a safe failure indication. Tool calls with an SDK argument-parse failure are rejected with a fixed message before the agent framework can execute them; a valid no-argument call remains valid. Unknown content/tool kinds, non-object tool arguments, background/continuation options and provider-specific option objects fail explicitly rather than disappearing. Agent history, approvals, tool invocation and orchestration continue to use Microsoft Agent Framework inside `Drover.Agents`.
 

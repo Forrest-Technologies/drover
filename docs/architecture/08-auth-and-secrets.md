@@ -70,7 +70,7 @@ public interface ISecretVault
 }
 ```
 
-`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the inbound forms a person fills in with their own password (`SignInRequest`, `SetupRequest`, `RegisterRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
+`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the inbound forms a person fills in with their own password or model key (`SignInRequest`, `SetupRequest`, `RegisterRequest`, `CreateModelConnectionRequest`, `UpdateModelKeyRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
 
 Every vault method runs inside a tenant scope the caller opened and commits, and the vault never opens one. `Reveal` throws `KeyNotFoundException` for a secret that does not exist or that row-level security hides, and `CryptographicException` for a ciphertext that does not belong to its row.
 
