@@ -70,11 +70,11 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     {
     }
 
-    protected ApiClient NewClient(string? remoteIp = null)
+    protected ApiClient NewClient(string? remoteIp = null, string scheme = "https")
     {
         var http = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
-            BaseAddress = new Uri("https://localhost"),
+            BaseAddress = new Uri($"{scheme}://localhost"),
             HandleCookies = false,
             AllowAutoRedirect = false,
         });
