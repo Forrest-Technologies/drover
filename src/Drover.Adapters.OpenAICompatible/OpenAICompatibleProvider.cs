@@ -75,7 +75,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
         try
         {
-            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, cancellation);
+            using var response = await httpClients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
 
             if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed
                 or HttpStatusCode.NotImplemented)
@@ -92,14 +92,13 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
                 throw ModelProviderException.FromStatus((int)response.StatusCode, retryAfter);
             }
 
-            await using var body = await response.Content.ReadAsStreamAsync(cancellation);
-            using var document = await JsonDocument.ParseAsync(body, cancellationToken: cancellation);
+            using var document = await BoundedResponse.ReadJson(response.Content, connection.Limits.MaxBytes, "model list", cancellation);
 
             return ParseModels(document.RootElement);
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
         {
-            throw ModelProviderException.FromNetwork();
+            throw ModelProviderException.FromMalformedResponse();
         }
         catch (Exception exception) when (ProtocolFailureMapping.TryMap(exception, out var mapped))
         {

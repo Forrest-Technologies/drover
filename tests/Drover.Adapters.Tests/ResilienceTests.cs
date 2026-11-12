@@ -212,6 +212,178 @@ public sealed class ResilienceTests
 
     #endregion
 
+    #region Policy Refusals
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task A_policy_refusal_is_one_attempt_and_a_clear_failure_that_is_not_retried(string adapter)
+    {
+        var handler = new ScriptedHandler((_, _, _) => throw new OutboundBlockedException("This server does not allow requests to private addresses."));
+        var client = Build(adapter, handler).Client;
+        var started = DateTimeOffset.UtcNow;
+
+        var failure = await Failing(client);
+
+        failure.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Message.Should().Contain("private addresses");
+        handler.Count.Should().Be(1);
+        (DateTimeOffset.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task A_refused_read_is_one_attempt_and_names_the_policy(string adapter)
+    {
+        var handler = new ScriptedHandler((_, _, _) => throw new OutboundBlockedException("This server does not allow requests to private addresses."));
+        var rig = Build(adapter, handler);
+
+        var failure = await FluentActions
+            .Awaiting(() => rig.Provider.ListModels(rig.Connection, null, TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<ModelProviderException>();
+
+        failure.Which.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Which.Message.Should().Contain("private addresses");
+        handler.Count.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task Thirty_refusals_do_not_pause_an_allowed_call_to_the_same_host(string adapter)
+    {
+        var refuse = true;
+        var handler = new ScriptedHandler((request, _, _) => refuse
+            ? throw new OutboundBlockedException("This server does not allow requests to private addresses.")
+            : Task.FromResult(ScriptedHandler.Json(
+                HttpStatusCode.OK,
+                request.RequestUri!.AbsolutePath.EndsWith("/traits") ? """{"data":{}}""" : ScriptedHandler.ModelList)));
+        var rig = Build(adapter, handler, options => EagerBreaker(options));
+
+        for (var call = 0; call < 30; call++)
+        {
+            var refused = await FluentActions
+                .Awaiting(() => rig.Provider.ListModels(rig.Connection, null, TestContext.Current.CancellationToken))
+                .Should().ThrowAsync<ModelProviderException>();
+
+            refused.Which.Message.Should().NotContain("paused");
+        }
+
+        refuse = false;
+        var models = await rig.Provider.ListModels(rig.Connection, null, TestContext.Current.CancellationToken);
+
+        models.Select(model => model.Id).Should().Equal("m");
+    }
+
+    #endregion
+
+    #region Discovery Limits
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task Refuses_a_model_list_that_announces_more_bytes_than_the_limit(string adapter)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ScriptedHandler.Json(HttpStatusCode.OK, Padded(1000))));
+        var rig = Build(adapter, handler);
+
+        var failure = await FluentActions
+            .Awaiting(() => rig.Provider.ListModels(rig.Connection with { Limits = new DiscoveryLimits(200, 10) }, null, TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<ModelProviderException>();
+
+        failure.Which.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Which.Message.Should().Contain("larger than this server accepts");
+    }
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task Refuses_a_model_list_that_streams_past_the_limit_without_announcing_its_size(string adapter)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(Padded(1000))))),
+        }));
+        var rig = Build(adapter, handler);
+
+        var failure = await FluentActions
+            .Awaiting(() => rig.Provider.ListModels(rig.Connection with { Limits = new DiscoveryLimits(200, 10) }, null, TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<ModelProviderException>();
+
+        failure.Which.Message.Should().Contain("larger than this server accepts");
+    }
+
+    [Theory]
+    [InlineData(Compatible)]
+    [InlineData(Venice)]
+    public async Task Reads_a_model_list_that_fits_the_limit(string adapter)
+    {
+        var handler = new ScriptedHandler((request, _, _) => Task.FromResult(ScriptedHandler.Json(
+            HttpStatusCode.OK,
+            request.RequestUri!.AbsolutePath.EndsWith("/traits") ? """{"data":{}}""" : ScriptedHandler.ModelList)));
+        var rig = Build(adapter, handler);
+
+        var models = await rig.Provider.ListModels(rig.Connection with { Limits = new DiscoveryLimits(4096, 10) }, null, TestContext.Current.CancellationToken);
+
+        models.Select(model => model.Id).Should().Equal("m");
+    }
+
+    private static string Padded(int length) => $$"""{"data":[{"id":"m","pad":"{{new string('x', length)}}"}]}""";
+
+    #endregion
+
+    #region Malformed Answers
+
+    [Theory]
+    [InlineData("""{"data":"nope"}""")]
+    [InlineData("""{}""")]
+    [InlineData("""[]""")]
+    [InlineData("not json")]
+    public async Task Venice_reports_a_key_check_it_cannot_read_as_rejected(string body)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ScriptedHandler.Json(HttpStatusCode.OK, body)));
+        var rig = Build(Venice, handler);
+
+        var result = await rig.Provider.TestConnection(rig.Connection, TestKeys.Generate(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Failure.Should().Be(ModelFailure.Rejected);
+    }
+
+    [Fact]
+    public async Task Venice_leaves_out_a_balance_that_is_not_a_number_it_can_hold()
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ScriptedHandler.Json(
+            HttpStatusCode.OK,
+            """{"data":{"balances":{"USD":1e999,"DIEM":2.5,"NOTE":"text"}}}""")));
+        var rig = Build(Venice, handler);
+
+        var result = await rig.Provider.TestConnection(rig.Connection, TestKeys.Generate(), TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeTrue();
+        result.Balances.Should().ContainSingle().Which.Should().Be(new ModelBalance("diem", 2.5m));
+    }
+
+    [Theory]
+    [InlineData(Compatible, "not json")]
+    [InlineData(Venice, "not json")]
+    [InlineData(Venice, """{"data":[{"id":"no-spec"}]}""")]
+    [InlineData(Venice, """{"data":[1,2]}""")]
+    public async Task A_model_list_it_cannot_read_is_rejected_with_a_mapped_error(string adapter, string body)
+    {
+        var handler = new ScriptedHandler((_, _, _) => Task.FromResult(ScriptedHandler.Json(HttpStatusCode.OK, body)));
+        var rig = Build(adapter, handler);
+
+        var failure = await FluentActions
+            .Awaiting(() => rig.Provider.ListModels(rig.Connection, null, TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<ModelProviderException>();
+
+        failure.Which.Failure.Should().Be(ModelFailure.Rejected);
+    }
+
+    #endregion
+
     #region Timeouts
 
     [Theory]

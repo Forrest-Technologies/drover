@@ -8,6 +8,7 @@ public static class DeploymentPolicyExtensions
     public static DeploymentPolicy AsHosted(this DeploymentPolicy policy) =>
         policy
             .WithoutPrivateAddresses()
+            .WithBoundedModelDiscovery()
             .WithHardBoundarySandboxesOnly()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
@@ -20,6 +21,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
+
+    public static DeploymentPolicy WithBoundedModelDiscovery(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxModelListBytes = DeploymentPolicy.HostedMaxModelListBytes,
+            MaxModelsPerConnection = DeploymentPolicy.HostedMaxModelsPerConnection,
+        };
 
     public static DeploymentPolicy WithHardBoundarySandboxesOnly(this DeploymentPolicy policy) =>
         policy with { SandboxAdapters = SandboxAdapterSet.HardBoundaryOnly };

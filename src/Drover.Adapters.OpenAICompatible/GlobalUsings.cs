@@ -13,6 +13,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 global using Drover.Domain.Bots;
 global using Drover.Domain.Models;
+global using Drover.Domain.Policy;
 global using Drover.ModelTransport;
 global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;

@@ -11,6 +11,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 global using Drover.Domain.Bots;
 global using Drover.Domain.Models;
+global using Drover.Domain.Policy;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Http.Resilience;
 global using Microsoft.Extensions.Logging;

@@ -84,6 +84,28 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
+    public void A_limit_of_zero_or_less_is_not_a_value_the_rule_has()
+    {
+        var problems = (DeploymentPolicy.SelfHosted with { MaxModelListBytes = 0, MaxModelsPerConnection = -1 }).FindProblems(
+            DeploymentPolicy.SelfHostedName,
+            DeploymentPolicy.SelfHosted,
+            null,
+            new ServerFacts(KeyRingProtectedByCertificate: false, HoldsMigrationCredential: false));
+
+        problems.Should().Contain(problem => problem.StartsWith(nameof(DeploymentPolicy.MaxModelListBytes), StringComparison.Ordinal));
+        problems.Should().Contain(problem => problem.StartsWith(nameof(DeploymentPolicy.MaxModelsPerConnection), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_limit_looser_than_the_hosted_preset_is_reported_as_loosened()
+    {
+        var loosened = DeploymentPolicy.Hosted with { MaxModelListBytes = DeploymentPolicy.SelfHostedMaxModelListBytes };
+
+        loosened.FindLoosenedRules(DeploymentPolicy.Hosted).Should().Equal(nameof(DeploymentPolicy.MaxModelListBytes));
+        (DeploymentPolicy.Hosted with { MaxModelListBytes = 1024 }).FindLoosenedRules(DeploymentPolicy.Hosted).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Open_registration_is_the_one_rule_an_operator_of_a_hosted_server_may_open()
     {
         var open = DeploymentPolicy.Hosted with { OpenRegistration = true };

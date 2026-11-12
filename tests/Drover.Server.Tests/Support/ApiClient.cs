@@ -35,6 +35,16 @@ public sealed class ApiClient(HttpClient http)
         return await Send(HttpMethod.Post, path, body, token: true);
     }
 
+    public async Task<HttpResponseMessage> Put(string path, object? body = null)
+    {
+        if (Cookie("XSRF-TOKEN") is null)
+        {
+            (await Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        }
+
+        return await Send(HttpMethod.Put, path, body, token: true);
+    }
+
     /// <summary>A state-changing request with no antiforgery token at all.</summary>
     public Task<HttpResponseMessage> PostWithoutToken(string path, object? body = null) =>
         Send(HttpMethod.Post, path, body, token: false);

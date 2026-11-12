@@ -46,6 +46,18 @@ public sealed record PolicyRule(
             policy => Enum.IsDefined(read(policy)));
 
     /// <summary>
+    /// A numeric limit. A higher value is looser; <paramref name="strictest"/> is the value the hosted preset sets,
+    /// so it counts as looseness zero. A limit of zero or less is not a value the rule has.
+    /// </summary>
+    public static PolicyRule Limit(
+        string name,
+        Func<DeploymentPolicy, int> read,
+        int strictest,
+        Enforcement enforcement,
+        bool isLocked = true) =>
+        new(name, policy => read(policy), policy => read(policy) - strictest, enforcement, isLocked, policy => read(policy) > 0);
+
+    /// <summary>
     /// False for a choice whose value is not one of the declared members, which configuration binding accepts for
     /// a number such as -1. Such a value is never read as stricter than the preset.
     /// </summary>
