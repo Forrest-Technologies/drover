@@ -1,0 +1,71 @@
+/* Sign-in and setup: one narrow column, one thing to do. */
+.dv-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-5);
+  width: min(var(--dv-entry-width), 100%);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: var(--dv-space-5) var(--dv-space-4) var(--dv-space-7);
+}
+
+.dv-wordmark {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  color: var(--dv-text);
+}
+
+.dv-entry-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-4);
+}
+
+.dv-entry-panel ::deep h1 {
+  font-size: var(--dv-text-20);
+}
+
+.dv-entry-panel ::deep .dv-entry-lead {
+  color: var(--dv-text-2);
+}
+
+.dv-entry-panel ::deep .dv-entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-4);
+}
+
+/* The provider choice spans the form, each choice the same width. */
+.dv-entry-panel ::deep .dv-entry-form .dv-segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.dv-entry-panel ::deep .dv-entry-form .dv-segment-label {
+  flex: 1;
+  justify-content: center;
+}
+
+.dv-entry-panel ::deep .dv-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2);
+}
+
+.dv-entry-panel ::deep .dv-entry-actions > * {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 600px) {
+  .dv-entry {
+    padding-top: var(--dv-space-7);
+  }
+
+  .dv-entry-panel {
+    padding: var(--dv-space-5);
+    border: var(--dv-border) solid var(--dv-line);
+    border-radius: var(--dv-radius-card);
+    background: var(--dv-bg-1);
+  }
+}

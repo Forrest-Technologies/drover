@@ -1,0 +1,137 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<MessageList> Logger
+
+<div @ref="scroller" class="dv-messages" tabindex="0" role="group" aria-label="Conversation with @BotName">
+    <div class="dv-messages-column">
+        @if (Messages.Count == 0 && !Thinking)
+        {
+            <div class="dv-messages-start">
+                <Avatar Name="@BotName" Hue="BotHue" Size="48" />
+                <p>Nothing said yet. Write to @BotName below.</p>
+            </div>
+        }
+        @foreach (var message in Messages)
+        {
+            if (message.FromPerson)
+            {
+                <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
+                    <p class="dv-message-bubble">@message.Text</p>
+                    @if (message.Pending)
+                    {
+                        <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
+                    }
+                </article>
+            }
+            else
+            {
+                <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
+                    <header class="dv-message-from">
+                        <Avatar Name="@BotName" Hue="BotHue" Size="24" />
+                        <span aria-hidden="true">@BotName</span>
+                    </header>
+                    <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
+                </article>
+            }
+        }
+        @if (Thinking)
+        {
+            <div class="dv-message dv-message-bot">
+                <div class="dv-message-from">
+                    <Avatar Name="@BotName" Hue="BotHue" Size="24" State="AvatarState.Thinking" />
+                    <span aria-hidden="true">@BotName</span>
+                    <span class="dv-message-state" aria-hidden="true">Thinking</span>
+                </div>
+            </div>
+        }
+        <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+        <StatusNote Text="@Notice" />
+    </div>
+</div>
+<div class="dv-visually-hidden" aria-live="polite">@spoken</div>
+
+@code {
+    #region Private Fields
+
+    private const string ModulePath = "./_content/Drover.Ui/Chat/MessageList.razor.js";
+
+    private readonly SentenceAnnouncer announcer = new();
+
+    private ElementReference scroller;
+
+    private Task<IJSObjectReference>? module;
+
+    private string? spoken;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ChatMessage> Messages { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    [Parameter]
+    public int BotHue { get; set; }
+
+    /// <summary>True while the bot is working and has not started to answer.</summary>
+    [Parameter]
+    public bool Thinking { get; set; }
+
+    /// <summary>Why the last reply failed and what to do, when it did.</summary>
+    [Parameter]
+    public string? Problem { get; set; }
+
+    /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
+    [Parameter]
+    public string? Notice { get; set; }
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>
+    /// Brings the newest message into view. For when the person sends: they want to see what they wrote,
+    /// wherever they had scrolled to. Replies do not call this, so reading further up is never interrupted.
+    /// </summary>
+    public async Task ShowNewest()
+    {
+        try
+        {
+            module ??= JS.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            var loaded = await module;
+            await loaded.InvokeVoidAsync("showNewest", scroller);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The message list script failed to show the newest message");
+            throw;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            var loaded = await module;
+            await loaded.DisposeAsync();
+        }
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page.
+    protected override void OnParametersSet()
+    {
+        if (Messages is [.., { FromPerson: false } newest])
+        {
+            spoken = announcer.Next(newest.Key, newest.Text, newest.Streaming) ?? spoken;
+        }
+    }
+
+    #endregion
+}

@@ -1,0 +1,26 @@
+@* The region is always present: a live region added together with its first message is not announced. *@
+<div class="dv-note-region" role="@(Kind is NoteKind.Danger ? "alert" : "status")">
+    @if (!string.IsNullOrWhiteSpace(Text))
+    {
+        <p class="dv-note dv-note-@Kind.ToString().ToLowerInvariant()">
+            <Icon Name="KindIcon" />
+            <span>@Text</span>
+        </p>
+    }
+</div>
+
+@code {
+    /// <summary>What happened and what to do, in a sentence. Nothing is shown while this is empty.</summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    [Parameter]
+    public NoteKind Kind { get; set; } = NoteKind.Info;
+
+    private IconName KindIcon => Kind switch
+    {
+        NoteKind.Ok => IconName.Check,
+        NoteKind.Danger => IconName.Warning,
+        _ => IconName.Info,
+    };
+}

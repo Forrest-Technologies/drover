@@ -1,0 +1,60 @@
+@inject SessionState Session
+@inject ThemeService Theme
+@inject ToastService Toasts
+@inject NavigationManager Navigation
+@inject ILogger<AccountMenu> Logger
+
+<Menu Label="@(Session.Current?.DisplayName ?? "Account")">
+    @foreach (var (choice, name) in themes)
+    {
+        <MenuItem OnSelect="() => Theme.Choose(choice)">
+            <span class="dv-account-choice">@name</span>
+            @if (Theme.Choice == choice)
+            {
+                <Icon Name="IconName.Check" />
+                <span class="dv-visually-hidden">, in use</span>
+            }
+        </MenuItem>
+    }
+    <MenuItem OnSelect="SignOut">Sign out</MenuItem>
+</Menu>
+
+@code {
+    #region Private Fields
+
+    private static readonly (ThemeChoice Choice, string Name)[] themes =
+    [
+        (ThemeChoice.System, "Match this device"),
+        (ThemeChoice.Dark, "Dark theme"),
+        (ThemeChoice.Light, "Light theme"),
+    ];
+
+    #endregion
+
+    #region Private Methods
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Theme.Load();
+            StateHasChanged();
+        }
+    }
+
+    private async Task SignOut()
+    {
+        try
+        {
+            await Session.End();
+            Navigation.NavigateTo(Addresses.SignIn);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AccountMenu));
+            Toasts.Show($"You are still signed in. {Failures.Sentence(exception)}", ToastKind.Error);
+        }
+    }
+
+    #endregion
+}

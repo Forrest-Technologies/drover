@@ -1,0 +1,4 @@
+.dv-account-choice {
+  flex: 1;
+  padding-inline-end: var(--dv-space-3);
+}

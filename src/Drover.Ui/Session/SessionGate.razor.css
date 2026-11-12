@@ -1,0 +1,10 @@
+.dv-gate {
+  display: grid;
+  place-content: center;
+  min-height: 100dvh;
+  padding: var(--dv-space-4);
+}
+
+.dv-gate-note {
+  color: var(--dv-text-2);
+}

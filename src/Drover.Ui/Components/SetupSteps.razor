@@ -1,0 +1,23 @@
+<nav class="dv-steps" aria-label="Setup steps">
+    <p class="dv-steps-count">Step @Current of @names.Length</p>
+    <ol class="dv-steps-list">
+        @for (var number = 1; number <= names.Length; number++)
+        {
+            <li class="dv-step @StateClass(number)" aria-current="@(number == Current ? "step" : null)">
+                <span class="dv-visually-hidden">@names[number - 1]@StateWords(number)</span>
+            </li>
+        }
+    </ol>
+</nav>
+
+@code {
+    private static readonly string[] names = ["Create your account", "Connect a model", "Meet your first bot"];
+
+    /// <summary>The step on screen, counted from one.</summary>
+    [Parameter, EditorRequired]
+    public int Current { get; set; }
+
+    private string StateClass(int number) => number <= Current ? "dv-step-reached" : "dv-step-ahead";
+
+    private string StateWords(int number) => number < Current ? ", done" : number == Current ? ", this step" : ", not started";
+}

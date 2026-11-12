@@ -79,6 +79,31 @@ else
             <MarkdownView Text="@markdown" />
         </GallerySection>
 
+        <GallerySection Title="Status note" Note="What happened and what to do, said in a sentence. Failures are announced at once.">
+            <StatusNote Kind="NoteKind.Ok" Text="Connected. The sample endpoint lists 2 models." />
+            <StatusNote Kind="NoteKind.Danger" Text="The sample provider rejected the key. Check the key and test again." />
+            <StatusNote Text="A sample note with nothing to act on." />
+        </GallerySection>
+
+        <GallerySection Title="Setup steps">
+            <SetupSteps Current="2" />
+        </GallerySection>
+
+        <GallerySection Title="Thread list" Note="The open thread is marked. A ring breathes on a thread whose bot is working.">
+            <ThreadList Threads="threads" SelectedId="threads[0].Id" />
+        </GallerySection>
+
+        <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
+            <div class="dv-gallery-conversation">
+                <MessageList Messages="messages" BotName="Sample bot" BotHue="6" Thinking="true" />
+            </div>
+        </GallerySection>
+
+        <GallerySection Title="Composer" Note="One field. Send is the primary action; Stop takes its place while a run is active.">
+            <Composer BotName="Sample bot" />
+            <Composer BotName="Sample bot" Running="true" />
+        </GallerySection>
+
         <GallerySection Title="Code block">
             <CodeBlock Code="@command" Language="bash" />
         </GallerySection>
@@ -126,6 +151,20 @@ else
         """;
 
     private const string command = "docker compose up --build";
+
+    private static readonly ThreadListItem[] threads =
+    [
+        new(Guid.Parse("00000000-0000-7000-8000-000000000001"), "Sample thread, open", "Sample bot", 6, false),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000002"), "Sample thread with a bot at work", "Sample bot", 6, true),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample thread with a title long enough to be cut short", "Other sample bot", 2, false),
+    ];
+
+    private static readonly ChatMessage[] messages =
+    [
+        new("sample-1", true, "A sample question from a person."),
+        new("sample-2", false, "A sample answer with **bold** text and `code`.\n\n- A sample point\n- Another sample point"),
+        new("sample-3", true, "A sample follow-up."),
+    ];
 
     private string address = string.Empty;
 

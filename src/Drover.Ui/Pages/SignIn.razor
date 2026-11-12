@@ -1,0 +1,79 @@
+@page "/sign-in"
+@layout EntryLayout
+@inject DroverApi Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ILogger<SignIn> Logger
+
+<PageTitle>Sign in to Drover</PageTitle>
+
+<h1>Sign in</h1>
+<p class="dv-entry-lead">Use the account you made on this server.</p>
+
+<form class="dv-entry-form" @onsubmit="Submit">
+    <Field Label="Email" Type="email" @bind-Value="email" name="email" autocomplete="username" required="true"
+           Disabled="busy" />
+    <Field Label="Password" Type="password" @bind-Value="password" name="password" autocomplete="current-password"
+           required="true" Disabled="busy" />
+    <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+    <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? "Signing in" : "Sign in")</Button>
+</form>
+
+@code {
+    #region Private Fields
+
+    private string email = string.Empty;
+
+    private string password = string.Empty;
+
+    private string? problem;
+
+    private bool busy;
+
+    #endregion
+
+    #region Private Methods
+
+    // Someone already signed in has no use for this page, and a new server needs setup first.
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (await Session.Load() is not null)
+            {
+                Navigation.NavigateTo(Addresses.Home, replace: true);
+            }
+            else if (await Session.FindEntryAddress() is Addresses.Setup)
+            {
+                Navigation.NavigateTo(Addresses.Setup, replace: true);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SignIn));
+            problem = Failures.Sentence(exception);
+        }
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        problem = null;
+        try
+        {
+            Session.Begin(await Api.SignIn(new(email.Trim(), password)));
+            Navigation.NavigateTo(Addresses.Home);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SignIn));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    #endregion
+}

@@ -1,0 +1,35 @@
+.dv-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--dv-space-2);
+  width: min(var(--dv-measure), 100%);
+  margin: 0 auto;
+  padding: var(--dv-space-3) var(--dv-space-4) max(var(--dv-space-3), env(safe-area-inset-bottom));
+}
+
+.dv-composer-field {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--dv-target-pointer);
+  max-height: var(--dv-composer-lines);
+  padding: var(--dv-space-2) var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-text-3);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-1);
+  color: var(--dv-text);
+  font: inherit;
+  field-sizing: content;
+  resize: none;
+}
+
+.dv-composer-field::placeholder {
+  color: var(--dv-text-3);
+}
+
+@media (pointer: coarse) {
+  .dv-composer-field {
+    min-height: var(--dv-target-touch);
+    padding-block: var(--dv-space-3);
+    font-size: var(--dv-text-16);
+  }
+}

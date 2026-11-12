@@ -100,6 +100,9 @@
   --dv-image-width: 480px;
   --dv-image-ratio: 16 / 9;
   --dv-tooltip-width: 240px;
+  --dv-entry-width: 400px;
+  --dv-list-width: 288px;
+  --dv-composer-lines: 8lh;
   --dv-grid-step: 16px;
   --dv-travel-width: 25%;
 
