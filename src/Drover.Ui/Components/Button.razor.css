@@ -1,48 +1,56 @@
 .dv-button {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--dv-space-2);
   min-height: var(--dv-target-pointer);
-  padding: 0 var(--dv-space-3);
-  border: var(--dv-border) solid var(--dv-text-3);
-  border-radius: var(--dv-radius-control);
-  background: var(--dv-bg-2);
+  padding: 0 var(--dv-space-4);
   color: var(--dv-text);
   font: inherit;
   font-weight: var(--dv-weight-label);
   cursor: pointer;
-  transition: background var(--dv-dur-1) var(--dv-ease);
 }
 
 .dv-button:hover:not(:disabled) {
-  background: var(--dv-bg-3);
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-2);
 }
 
 .dv-button:disabled {
+  --dv-facet-edge: var(--dv-line);
   color: var(--dv-text-3);
   cursor: not-allowed;
 }
 
+/* The one thing a person came to do, in the color of their intent. */
 .dv-button-primary {
-  border-color: var(--dv-ember);
-  background: var(--dv-ember);
+  --dv-facet-edge: var(--dv-ember);
+  --dv-facet-fill: var(--dv-ember);
   color: var(--dv-on-accent);
+  font-weight: var(--dv-weight-heading);
 }
 
 .dv-button-primary:hover:not(:disabled) {
-  background: var(--dv-ember);
+  --dv-facet-edge: var(--dv-text);
+  --dv-facet-fill: var(--dv-ember);
 }
 
 /* Nothing is lit at rest: the primary action takes its color when it can be taken. */
 .dv-button-primary:disabled {
-  border-color: var(--dv-line);
-  background: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-2);
   color: var(--dv-text-3);
 }
 
+.dv-button-primary:focus-visible {
+  box-shadow: inset 0 0 0 var(--dv-focus-width) var(--dv-on-accent);
+}
+
 .dv-button-danger {
-  border-color: var(--dv-danger);
+  --dv-facet-edge: var(--dv-danger);
   color: var(--dv-danger);
 }
 

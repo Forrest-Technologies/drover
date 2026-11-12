@@ -12,11 +12,11 @@
 }
 
 .dv-field-input {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-0);
   min-height: var(--dv-target-pointer);
   padding: 0 var(--dv-space-3);
-  border: var(--dv-border) solid var(--dv-text-3);
-  border-radius: var(--dv-radius-control);
-  background: var(--dv-bg-1);
   color: var(--dv-text);
   font: inherit;
 }
@@ -26,7 +26,7 @@
 }
 
 .dv-field-input[aria-invalid="true"] {
-  border-color: var(--dv-danger);
+  --dv-facet-edge: var(--dv-danger);
 }
 
 .dv-field-input:disabled {
@@ -48,4 +48,8 @@
   .dv-field-input {
     min-height: var(--dv-target-touch);
   }
+}
+
+.dv-field-input:focus-visible {
+  --dv-facet-edge: var(--dv-ember);
 }

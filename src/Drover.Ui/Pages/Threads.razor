@@ -8,10 +8,10 @@
     <div class="dv-shell @(AtList ? "dv-shell-at-list" : "dv-shell-at-thread")">
         <div class="dv-shell-list">
             <header class="dv-shell-list-header">
-                <span class="dv-wordmark">Drover</span>
+                <span class="dv-wordmark"><DroverMark />Drover</span>
                 @if (Bot is not null)
                 {
-                    <a class="dv-shell-new" href="@Addresses.NewThread">
+                    <a class="dv-shell-new dv-facet" href="@Addresses.NewThread">
                         <Icon Name="IconName.Plus" />
                         New thread
                     </a>
@@ -39,7 +39,7 @@
                 <AccountMenu />
             </footer>
         </div>
-        <main class="dv-shell-main">
+        <main class="dv-shell-main dv-yard">
             @if (NotReady is not null)
             {
                 <div class="dv-shell-center">@NotReady</div>
@@ -59,6 +59,7 @@
                     </a>
                     <Avatar Name="@ShownBot.Name" Hue="BotIdentity.Hue(ShownBot.Id)" Size="32"
                             State="@(Working ? AvatarState.Thinking : AvatarState.Rest)" />
+                    <span class="dv-shell-bot dv-mono">@ShownBot.Name</span>
                     @if (AtList)
                     {
                         <h2 class="dv-shell-title">@ThreadName</h2>

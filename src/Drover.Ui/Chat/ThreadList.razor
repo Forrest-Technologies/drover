@@ -2,7 +2,7 @@
     @foreach (var thread in Threads)
     {
         <li @key="thread.Id">
-            <a class="dv-thread" href="@Addresses.Thread(thread.Id)" aria-current="@(thread.Id == SelectedId ? "page" : null)">
+            <a class="dv-thread dv-facet" href="@Addresses.Thread(thread.Id)" aria-current="@(thread.Id == SelectedId ? "page" : null)">
                 <Avatar Name="@thread.BotName" Hue="thread.BotHue" Size="24"
                         State="@(thread.Working ? AvatarState.Thinking : AvatarState.Rest)" />
                 <span class="dv-thread-title">@thread.Title</span>
