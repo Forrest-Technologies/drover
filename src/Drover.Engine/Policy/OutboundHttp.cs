@@ -1,8 +1,5 @@
 namespace Drover.Engine.Policy;
 
-/// <summary>Raised when an outbound request is refused because it would reach a private address.</summary>
-public sealed class OutboundBlockedException(string message) : HttpRequestException(message);
-
 /// <summary>
 /// The one handler every outbound client uses. A request is allowed to reach private addresses only when the
 /// deployment allows it and the request says so: the caller that knows the space puts the space's effective value on

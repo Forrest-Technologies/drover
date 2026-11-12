@@ -28,6 +28,8 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     protected string KeyRingPath => keyRing;
 
+    protected string AppConnectionString => database.AppConnectionString;
+
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
     /// <summary>Configuration for the server under test. The sign-in rate limit is out of the way unless a test asks.</summary>
@@ -43,7 +45,7 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         database = await postgres.CreateDatabase();
-        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings);
+        factory = new DroverFactory(database, keyRing, Logs, Time, Hashes, Settings, configure: ConfigureServices);
     }
 
     public async ValueTask DisposeAsync()
@@ -62,6 +64,11 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
     #endregion
 
     #region Helpers
+
+    /// <summary>Lets a test replace or add services in the server under test.</summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
+    }
 
     protected ApiClient NewClient(string? remoteIp = null)
     {

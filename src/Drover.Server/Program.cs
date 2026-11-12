@@ -35,6 +35,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
+builder.Services.AddDroverModels();
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddSingleton<SetupCode>();

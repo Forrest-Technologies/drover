@@ -67,6 +67,14 @@ public sealed record DeploymentPolicy
 
     public const string HostedName = "hosted";
 
+    public const int SelfHostedMaxModelListBytes = 8 * 1024 * 1024;
+
+    public const int HostedMaxModelListBytes = 2 * 1024 * 1024;
+
+    public const int SelfHostedMaxModelsPerConnection = 5000;
+
+    public const int HostedMaxModelsPerConnection = 1000;
+
     #endregion
 
     #region Presets
@@ -93,6 +101,12 @@ public sealed record DeploymentPolicy
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
+
+    /// <summary>The most bytes of a provider's model list Drover reads.</summary>
+    public int MaxModelListBytes { get; init; } = SelfHostedMaxModelListBytes;
+
+    /// <summary>The most models Drover accepts from one provider connection.</summary>
+    public int MaxModelsPerConnection { get; init; } = SelfHostedMaxModelsPerConnection;
 
     public SubscriptionSignInMode SubscriptionSignIn { get; init; } = SubscriptionSignInMode.WhereProviderPermits;
 
@@ -143,6 +157,16 @@ public sealed record DeploymentPolicy
             nameof(AllowPrivateAddresses),
             policy => policy.AllowPrivateAddresses,
             Enforcement.Now("OutboundHttp, on every outbound connection")),
+        PolicyRule.Limit(
+            nameof(MaxModelListBytes),
+            policy => policy.MaxModelListBytes,
+            HostedMaxModelListBytes,
+            Enforcement.Now("Model discovery, in each provider adapter")),
+        PolicyRule.Limit(
+            nameof(MaxModelsPerConnection),
+            policy => policy.MaxModelsPerConnection,
+            HostedMaxModelsPerConnection,
+            Enforcement.Now("Model discovery, in ModelConnectionService")),
         PolicyRule.Choice(
             nameof(SandboxAdapters),
             policy => policy.SandboxAdapters,
