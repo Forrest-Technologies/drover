@@ -7,6 +7,60 @@ namespace Drover.Domain.Policy;
 /// </summary>
 public sealed record DeploymentPolicy
 {
+    #region Public Methods
+
+    /// <summary>The rules whose value is looser than the preset allows. A rule the operator may set freely never counts.</summary>
+    public IReadOnlyList<string> FindLoosenedRules(DeploymentPolicy preset) =>
+    [
+        .. Rules
+            .Where(rule => rule.IsLocked && rule.Looseness(this) > rule.Looseness(preset))
+            .Select(rule => rule.Name),
+    ];
+
+    /// <summary>
+    /// Every reason this policy cannot run on this server, each naming its rule. Empty means the server may start.
+    /// </summary>
+    public IReadOnlyList<string> FindProblems(
+        string presetName,
+        DeploymentPolicy preset,
+        string? termsVersion,
+        ServerFacts facts)
+    {
+        List<string> problems =
+        [
+            .. Rules
+                .Where(rule => !rule.HasDefinedValue(this))
+                .Select(rule => $"{rule.Name} is not one of the values this rule has."),
+            .. FindLoosenedRules(preset).Select(name => $"{name} is set looser than the '{presetName}' preset allows."),
+        ];
+
+        // Each requirement is checked when either the preset or the policy asks for the strict value, so no
+        // configured value, however odd, switches a check off.
+        if ((preset.KeyRingProtection is KeyRingProtection.CertificateOrKeyService
+            || KeyRingProtection != KeyRingProtection.FilePermissions)
+            && !facts.KeyRingProtectedByCertificate)
+        {
+            problems.Add(
+                $"{nameof(KeyRingProtection)} requires a certificate: set DataProtection:CertificatePath and DataProtection:CertificateKeyPath.");
+        }
+
+        if ((!preset.AllowMigrationCredentialInServer || !AllowMigrationCredentialInServer) && facts.HoldsMigrationCredential)
+        {
+            problems.Add(
+                $"{nameof(AllowMigrationCredentialInServer)} is off, so ConnectionStrings:DroverOwner must not be set on the serving process. Migrate in a separate job.");
+        }
+
+        if (OpenRegistration && (preset.RequireTermsAcceptance || RequireTermsAcceptance) && string.IsNullOrWhiteSpace(termsVersion))
+        {
+            problems.Add(
+                $"{nameof(RequireTermsAcceptance)} is on with open registration, so Drover:Policy:TermsVersion must name the version people accept.");
+        }
+
+        return problems;
+    }
+
+    #endregion
+
     #region Constants
 
     public const string SelfHostedName = "self_hosted";
@@ -162,57 +216,4 @@ public sealed record DeploymentPolicy
 
     #endregion
 
-    #region Public Methods
-
-    /// <summary>The rules whose value is looser than the preset allows. A rule the operator may set freely never counts.</summary>
-    public IReadOnlyList<string> FindLoosenedRules(DeploymentPolicy preset) =>
-    [
-        .. Rules
-            .Where(rule => rule.IsLocked && rule.Looseness(this) > rule.Looseness(preset))
-            .Select(rule => rule.Name),
-    ];
-
-    /// <summary>
-    /// Every reason this policy cannot run on this server, each naming its rule. Empty means the server may start.
-    /// </summary>
-    public IReadOnlyList<string> FindProblems(
-        string presetName,
-        DeploymentPolicy preset,
-        string? termsVersion,
-        ServerFacts facts)
-    {
-        List<string> problems =
-        [
-            .. Rules
-                .Where(rule => !rule.HasDefinedValue(this))
-                .Select(rule => $"{rule.Name} is not one of the values this rule has."),
-            .. FindLoosenedRules(preset).Select(name => $"{name} is set looser than the '{presetName}' preset allows."),
-        ];
-
-        // Each requirement is checked when either the preset or the policy asks for the strict value, so no
-        // configured value, however odd, switches a check off.
-        if ((preset.KeyRingProtection is KeyRingProtection.CertificateOrKeyService
-            || KeyRingProtection != KeyRingProtection.FilePermissions)
-            && !facts.KeyRingProtectedByCertificate)
-        {
-            problems.Add(
-                $"{nameof(KeyRingProtection)} requires a certificate: set DataProtection:CertificatePath and DataProtection:CertificateKeyPath.");
-        }
-
-        if ((!preset.AllowMigrationCredentialInServer || !AllowMigrationCredentialInServer) && facts.HoldsMigrationCredential)
-        {
-            problems.Add(
-                $"{nameof(AllowMigrationCredentialInServer)} is off, so ConnectionStrings:DroverOwner must not be set on the serving process. Migrate in a separate job.");
-        }
-
-        if (OpenRegistration && (preset.RequireTermsAcceptance || RequireTermsAcceptance) && string.IsNullOrWhiteSpace(termsVersion))
-        {
-            problems.Add(
-                $"{nameof(RequireTermsAcceptance)} is on with open registration, so Drover:Policy:TermsVersion must name the version people accept.");
-        }
-
-        return problems;
-    }
-
-    #endregion
 }

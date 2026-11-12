@@ -6,6 +6,8 @@ namespace Drover.Domain.Spaces;
 /// </summary>
 public sealed record SpaceSettings
 {
+    #region Properties
+
     public int? MaxBotDepth { get; init; }
 
     public int? MaxChildrenPerBot { get; init; }
@@ -20,4 +22,6 @@ public sealed record SpaceSettings
 
     /// <summary>True turns remote images on where the deployment lets a space. Null leaves them off.</summary>
     public bool? AutoLoadRemoteImages { get; init; }
+
+    #endregion
 }

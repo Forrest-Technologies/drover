@@ -6,6 +6,25 @@ public sealed class GrantMutationTests(PostgresFixture postgres)
     #region Public Methods
 
     [Theory]
+    [InlineData("DELETE")]
+    [InlineData("TRUNCATE")]
+    [InlineData("REFERENCES")]
+    [InlineData("REFERENCES (user_id)")]
+    [InlineData("TRIGGER")]
+    public async Task Extra_profile_grants_fail_until_revoked(string privilege)
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await scratch.Run($"GRANT {privilege} ON user_profiles TO drover_app");
+
+        (await scratch.Audit(OwnershipMap.Current, audit => audit.AppGrantDrift()))
+            .Should().ContainMatch("*user_profiles*");
+
+        await scratch.Run($"REVOKE {privilege} ON user_profiles FROM drover_app");
+
+        (await scratch.Audit(OwnershipMap.Current, audit => audit.AppGrantDrift())).Should().BeEmpty();
+    }
+
+    [Theory]
     [InlineData("SELECT")]
     [InlineData("INSERT")]
     [InlineData("UPDATE")]

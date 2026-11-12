@@ -6,6 +6,8 @@ namespace Drover.Domain.Permissions;
 /// </summary>
 public sealed class ToolGrant : ISpaceOwned
 {
+    #region Properties
+
     public Guid SpaceId { get; set; }
 
     public Guid BotId { get; set; }
@@ -19,4 +21,6 @@ public sealed class ToolGrant : ISpaceOwned
     public Guid? GrantedByUserId { get; set; }
 
     public Guid? GrantedByBotId { get; set; }
+
+    #endregion
 }

@@ -19,6 +19,56 @@ public sealed class OutboundHttpTests
     #region Public Methods
 
     [Fact]
+    public async Task A_failed_checked_address_is_followed_by_the_next_checked_address()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("fallback"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(
+            DeploymentPolicy.Hosted,
+            (_, _) => Task.FromResult<IPAddress[]>([IPAddress.IPv6Loopback, loopback]),
+            _ => false));
+
+        (await Get(client, $"http://fallback.test:{server.Port}/", privateForbidden)).Should().Be("fallback");
+        server.Requests.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Failed_checked_addresses_preserve_the_last_socket_failure()
+    {
+        using var listener = new TcpListener(loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        using var client = new HttpClient(OutboundHttp.CreateHandler(
+            DeploymentPolicy.Hosted,
+            (_, _) => Task.FromResult<IPAddress[]>([IPAddress.IPv6Loopback, loopback]),
+            _ => false));
+
+        var attempt = () => Get(client, $"http://unreachable.test:{port}/", privateForbidden);
+
+        var failure = await attempt.Should().ThrowAsync<HttpRequestException>();
+        var socketFailure = failure.Which.GetBaseException().Should().BeOfType<SocketException>().Which;
+        socketFailure.SocketErrorCode.Should().Be(SocketError.ConnectionRefused);
+        failure.Which.ToString().Should().Contain("None of the addresses for the host could be reached.");
+    }
+
+    [Fact]
+    public async Task Cancellation_remains_cancellation_when_connecting_to_checked_addresses()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Ok("unused"));
+        using var client = new HttpClient(OutboundHttp.CreateHandler(
+            DeploymentPolicy.Hosted,
+            (_, _) => Task.FromResult<IPAddress[]>([loopback]),
+            _ => false));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var attempt = () => client.GetStringAsync($"http://cancelled.test:{server.Port}/", cancellation.Token);
+
+        await attempt.Should().ThrowAsync<OperationCanceledException>();
+        server.Requests.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Private_addresses_are_reachable_when_the_deployment_and_the_space_allow_them()
     {
         using var server = new TestWebServer(_ => TestWebServer.Ok("hello"));

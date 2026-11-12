@@ -3,6 +3,8 @@ namespace Drover.Domain.Sandboxes;
 /// <summary>A sandbox owned by one bot. Access by other bots follows the sandbox policy.</summary>
 public sealed class Sandbox : ISpaceOwned
 {
+    #region Properties
+
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     public Guid SpaceId { get; set; }
@@ -25,4 +27,6 @@ public sealed class Sandbox : ISpaceOwned
     public DateTimeOffset? ExpiresAt { get; set; }
 
     public DateTimeOffset? RetireAfter { get; set; }
+
+    #endregion
 }

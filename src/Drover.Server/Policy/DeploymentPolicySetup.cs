@@ -9,14 +9,6 @@ namespace Drover.Server.Policy;
 public sealed class DeploymentPolicySetup(IConfiguration configuration)
     : IConfigureOptions<DeploymentPolicyOptions>, IValidateOptions<DeploymentPolicyOptions>
 {
-    #region Constants
-
-    public const string PresetVariable = "DROVER_POLICY";
-
-    private const string Section = "Drover:Policy";
-
-    #endregion
-
     #region Interface Implementations
 
     public void Configure(DeploymentPolicyOptions options)
@@ -45,6 +37,14 @@ public sealed class DeploymentPolicySetup(IConfiguration configuration)
         var problems = options.Rules.FindProblems(options.Preset, preset, options.TermsVersion, facts);
         return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
+
+    #endregion
+
+    #region Constants
+
+    public const string PresetVariable = "DROVER_POLICY";
+
+    private const string Section = "Drover:Policy";
 
     #endregion
 }

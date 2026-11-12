@@ -9,7 +9,7 @@ public sealed class AdjustableTimeProvider : TimeProvider
 
     #endregion
 
-    #region Overrides
+    #region Public Methods
 
     public override DateTimeOffset GetUtcNow() => now;
 
@@ -25,11 +25,23 @@ public sealed class AdjustableTimeProvider : TimeProvider
 /// <summary>How many times a password was checked against a hash.</summary>
 public sealed class HashCounter
 {
+    #region Private Fields
+
     private int checks;
+
+    #endregion
+
+    #region Properties
 
     public int Checks => Volatile.Read(ref checks);
 
+    #endregion
+
+    #region Public Methods
+
     public void Add() => Interlocked.Increment(ref checks);
+
+    #endregion
 }
 
 /// <summary>Identity's default hasher, counting each check.</summary>

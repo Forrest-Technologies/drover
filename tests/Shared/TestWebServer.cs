@@ -63,10 +63,13 @@ public sealed class TestWebServer : IDisposable
                 _ = Answer(client);
             }
         }
+        // Dispose stops the listener to end this test-only accept loop; shutdown has no failure to propagate.
+#pragma warning disable DRV0005
         catch (Exception failure) when (failure is ObjectDisposedException or SocketException)
         {
             // The test finished and stopped the listener.
         }
+#pragma warning restore DRV0005
     }
 
     private async Task Answer(TcpClient client)

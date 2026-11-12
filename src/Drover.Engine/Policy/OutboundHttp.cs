@@ -79,29 +79,42 @@ public static class OutboundHttp
 
         foreach (var address in addresses)
         {
-            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            var connection = await TryConnect(address, port, cancellationToken);
+            if (connection.Stream is not null)
+            {
+                return connection.Stream;
+            }
 
-            try
-            {
-                await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch (SocketException failure)
-            {
-                socket.Dispose();
-                lastFailure = failure;
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
-            }
+            lastFailure = connection.Failure;
         }
 
         throw new HttpRequestException(
             HttpRequestError.ConnectionError,
             "None of the addresses for the host could be reached.",
             lastFailure);
+    }
+
+    private static async ValueTask<(Stream? Stream, SocketException? Failure)> TryConnect(
+        IPAddress address,
+        int port,
+        CancellationToken cancellationToken)
+    {
+        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        try
+        {
+            await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
+            return (new NetworkStream(socket, ownsSocket: true), null);
+        }
+        catch (SocketException failure)
+        {
+            socket.Dispose();
+            return (null, failure);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
     }
 
     #endregion
@@ -114,9 +127,15 @@ public static class OutboundHttp
     /// </summary>
     private sealed class RoutingHandler(SocketsHttpHandler guarded, SocketsHttpHandler? open) : HttpMessageHandler
     {
+        #region Private Fields
+
         private readonly HttpMessageInvoker guardedInvoker = new(guarded);
 
         private readonly HttpMessageInvoker? openInvoker = open is null ? null : new(open);
+
+        #endregion
+
+        #region Public Methods
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -152,6 +171,8 @@ public static class OutboundHttp
 
             base.Dispose(disposing);
         }
+
+        #endregion
     }
 
     #endregion

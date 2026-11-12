@@ -3,6 +3,8 @@ namespace Drover.Domain.Models;
 /// <summary>What is known about one model of one connection, in Drover's own shape.</summary>
 public sealed class ModelCatalogEntry : ISpaceOwned
 {
+    #region Properties
+
     public Guid SpaceId { get; set; }
 
     public Guid ModelConnectionId { get; set; }
@@ -23,4 +25,6 @@ public sealed class ModelCatalogEntry : ISpaceOwned
     public AvailabilityState State { get; set; } = AvailabilityState.Available;
 
     public DateTimeOffset LastSeenAt { get; set; }
+
+    #endregion
 }

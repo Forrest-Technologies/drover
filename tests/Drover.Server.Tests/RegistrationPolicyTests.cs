@@ -6,7 +6,7 @@ namespace Drover.Server.Tests;
 /// </summary>
 public sealed class RegistrationPolicyTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
-    #region Constants
+    #region Private Fields
 
     private const string Terms = "2026-11";
 

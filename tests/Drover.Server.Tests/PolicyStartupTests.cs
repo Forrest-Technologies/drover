@@ -273,7 +273,13 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
 
     private sealed class RunningServer(DroverFactory factory, TestDatabase database, string keyRing) : IAsyncDisposable
     {
+        #region Properties
+
         public IServiceProvider Services => factory.Services;
+
+        #endregion
+
+        #region Interface Implementations
 
         public async ValueTask DisposeAsync()
         {
@@ -285,6 +291,8 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
                 Directory.Delete(keyRing, recursive: true);
             }
         }
+
+        #endregion
     }
 
     #endregion
