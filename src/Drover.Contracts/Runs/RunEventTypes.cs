@@ -56,6 +56,12 @@ public static class RunEventTypes
 
     public const string ToolCompleted = "tool.completed";
 
+    public const string ToolApproved = "tool.approved";
+
+    public const string ToolDenied = "tool.denied";
+
+    public const string MessageDelivered = "message.delivered";
+
     public const string UsageRecorded = "usage.recorded";
 
     #endregion

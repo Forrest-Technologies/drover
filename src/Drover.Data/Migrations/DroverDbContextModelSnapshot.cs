@@ -170,6 +170,24 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_logins", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("display_name");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_user_profiles");
+
+                    b.ToTable("user_profiles", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1500,7 +1518,7 @@ namespace Drover.Data.Migrations
                         .HasColumnName("parts")
                         .HasDefaultValueSql("'[]'::jsonb");
 
-                    b.Property<int>("Position")
+                    b.Property<int?>("Position")
                         .HasColumnType("integer")
                         .HasColumnName("position");
 
@@ -1517,6 +1535,10 @@ namespace Drover.Data.Migrations
                     b.Property<Guid>("SpaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
+
+                    b.Property<bool>("Steers")
+                        .HasColumnType("boolean")
+                        .HasColumnName("steers");
 
                     b.Property<Guid>("ThreadId")
                         .HasColumnType("uuid")
@@ -1848,6 +1870,16 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_logins_users_user_id");
+                });
+
+            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithOne("Profile")
+                        .HasForeignKey("Drover.Data.Identity.UserProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_profiles_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>
@@ -2292,33 +2324,6 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tool_connection_credentials_secrets_space_id_secret_id_audi");
-                });
-            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
-                {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("display_name");
-
-                    b.HasKey("UserId")
-                        .HasName("pk_user_profiles");
-
-                    b.ToTable("user_profiles", (string)null);
-                });
-
-            modelBuilder.Entity("Drover.Data.Identity.UserProfile", b =>
-                {
-                    b.HasOne("Drover.Data.Identity.User", null)
-                        .WithOne("Profile")
-                        .HasForeignKey("Drover.Data.Identity.UserProfile", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_user_profiles_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Data.Identity.User", b =>

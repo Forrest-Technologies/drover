@@ -8,6 +8,10 @@ public sealed class ToolCallRepository(DroverDbContext db)
     public async Task<ToolCall?> GetToolCall(Guid id, CancellationToken cancellationToken) =>
         await db.ToolCalls.SingleOrDefaultAsync(call => call.Id == id, cancellationToken);
 
+    /// <summary>The tracked row, locked until the transaction ends, so two answers to one approval take turns.</summary>
+    public async Task<ToolCall?> GetToolCallForUpdate(Guid id, CancellationToken cancellationToken) =>
+        (await db.ToolCalls.FromSql($"SELECT * FROM tool_calls WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault();
+
     public async Task<IReadOnlyList<ToolCall>> ListToolCalls(
         IReadOnlyCollection<Guid> ids,
         CancellationToken cancellationToken) =>

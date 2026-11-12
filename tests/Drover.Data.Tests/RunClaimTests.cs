@@ -76,7 +76,9 @@ public sealed class RunClaimTests(PostgresFixture postgres)
 
         var claimed = await Claim(scratch.AppConnectionString, "worker-1", 100);
 
-        claimed.Select(run => run.RunId).Should().BeEquivalentTo([set.Queued.Id, set.ExpiredLease.Id, set.AnsweredWaiting.Id]);
+        claimed.Select(run => run.RunId).Should().BeEquivalentTo(
+            [set.Queued.Id, set.ExpiredLease.Id, set.AnsweredWaiting.Id, set.StoppedWaiting.Id],
+            "a waiting run somebody asked to stop is claimed so a worker can end it, answer or no answer");
         await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
         var runs = await session.Db.Runs.ToDictionaryAsync(run => run.Id, TestContext.Current.CancellationToken);
 
@@ -189,17 +191,20 @@ public sealed class RunClaimTests(PostgresFixture postgres)
             ExpiredLease: Leased(CoreRows.NewRun(bot, world.UserA1, RunStatus.Running), DateTimeOffset.UtcNow.AddMinutes(-5)),
             PendingApproval: CoreRows.NewRun(bot, world.UserA1, RunStatus.Waiting),
             AnsweredWaiting: CoreRows.NewRun(bot, world.UserA1, RunStatus.Waiting),
+            StoppedWaiting: CoreRows.NewRun(bot, world.UserA1, RunStatus.Waiting),
             Completed: CoreRows.NewRun(bot, world.UserA1, RunStatus.Completed),
             Child: CoreRows.NewRun(bot, world.UserA1));
         set.ExpiredLease.Attempt = 1;
         set.AnsweredWaiting.StatusReason = "awaiting_approval";
+        set.StoppedWaiting.CancelRequestedAt = DateTimeOffset.UtcNow;
         set.Child.ParentRunId = set.Queued.Id;
         set.Child.RootRunId = set.Queued.Id;
-        session.Db.Runs.AddRange(set.Queued, set.LiveLease, set.ExpiredLease, set.PendingApproval, set.AnsweredWaiting, set.Completed);
+        session.Db.Runs.AddRange(set.Queued, set.LiveLease, set.ExpiredLease, set.PendingApproval, set.AnsweredWaiting, set.StoppedWaiting, set.Completed);
         await session.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
         session.Db.Runs.Add(set.Child);
         session.Db.ToolCalls.AddRange(
             NewToolCall(set.PendingApproval, thread, tool, ToolCallStatus.PendingApproval),
+            NewToolCall(set.StoppedWaiting, thread, tool, ToolCallStatus.PendingApproval),
             NewToolCall(set.AnsweredWaiting, thread, tool, ToolCallStatus.Approved));
         await session.Commit();
         return set;
@@ -235,6 +240,7 @@ public sealed class RunClaimTests(PostgresFixture postgres)
         Run ExpiredLease,
         Run PendingApproval,
         Run AnsweredWaiting,
+        Run StoppedWaiting,
         Run Completed,
         Run Child);
 
