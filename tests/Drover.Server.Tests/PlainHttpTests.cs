@@ -104,6 +104,20 @@ public sealed class TrustedProxyTests(PostgresServer postgres) : ServerTestBase(
     }
 
     [Fact]
+    public async Task Asking_whether_setup_or_registration_is_open_does_not_spend_the_sign_in_allowance()
+    {
+        var client = NewClient("192.0.2.50");
+
+        for (var ask = 0; ask < 6; ask++)
+        {
+            (await client.Get("/api/setup")).StatusCode.Should().Be(HttpStatusCode.OK);
+            (await client.Get("/api/register")).StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
+        }
+
+        (await client.SignIn("nobody@example.test", "not-the-password-1")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task An_address_forwarded_by_anyone_else_is_ignored_so_the_limit_cannot_be_dodged()
     {
         var statuses = new List<HttpStatusCode>();
@@ -117,6 +131,64 @@ public sealed class TrustedProxyTests(PostgresServer postgres) : ServerTestBase(
 
         statuses.Take(2).Should().AllBeEquivalentTo(HttpStatusCode.Unauthorized);
         statuses.Skip(2).Should().AllBeEquivalentTo(HttpStatusCode.TooManyRequests);
+    }
+
+    #endregion
+}
+
+/// <summary>What the forwarded-headers options hold before any request arrives.</summary>
+public sealed class TrustedProxyConfigurationTests
+{
+    #region Public Methods
+
+    [Fact]
+    public void With_no_proxy_named_no_forwarded_header_is_read_by_anything()
+    {
+        var options = Configure([]);
+
+        options.ForwardedHeaders.Should().Be(ForwardedHeaders.None);
+        options.KnownProxies.Should().BeEmpty();
+        options.KnownIPNetworks.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_named_proxy_is_the_only_one_trusted_and_for_one_hop()
+    {
+        var options = Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = "203.0.113.9" });
+
+        options.ForwardedHeaders.Should().Be(ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto);
+        options.KnownProxies.Should().Equal(IPAddress.Parse("203.0.113.9"));
+        options.KnownIPNetworks.Should().BeEmpty();
+        options.ForwardLimit.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("true")]
+    [InlineData("True")]
+    public void The_server_does_not_start_with_the_hosts_own_forwarded_headers_switch_on(string value)
+    {
+        var configure = () => Configure(new() { [TrustedProxies.HostSwitch] = value });
+
+        configure.Should().Throw<InvalidOperationException>().WithMessage("*ASPNETCORE_FORWARDEDHEADERS_ENABLED*");
+    }
+
+    [Fact]
+    public void An_entry_that_is_not_an_address_or_a_network_stops_the_server()
+    {
+        var configure = () => Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = "proxy.example.test" });
+
+        configure.Should().Throw<InvalidOperationException>().WithMessage("*proxy.example.test*");
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static ForwardedHeadersOptions Configure(Dictionary<string, string?> settings)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        using var provider = new ServiceCollection().AddTrustedProxies(configuration).BuildServiceProvider();
+        return provider.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
     }
 
     #endregion

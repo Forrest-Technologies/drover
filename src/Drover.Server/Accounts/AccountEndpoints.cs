@@ -10,9 +10,13 @@ public static class AccountEndpoints
             .WithName("GetAntiforgeryToken")
             .WithSummary("Sets the XSRF-TOKEN cookie to send back in the X-XSRF-TOKEN header on every state-changing request.");
 
-        var setup = api.MapGroup("/setup").RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit);
+        // Only the attempt is limited. Asking whether setup is open costs nothing to answer, and limiting it
+        // would let anyone spend the sign-in allowance of everyone behind the same address.
+        var setup = api.MapGroup("/setup");
         setup.MapGet("/", GetSetupStatus).WithName("GetSetupStatus");
-        setup.MapPost("/", CreateFirstAccount).WithName("CreateFirstAccount");
+        setup.MapPost("/", CreateFirstAccount)
+            .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithName("CreateFirstAccount");
 
         api.MapPost("/sign-in", SignIn)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)

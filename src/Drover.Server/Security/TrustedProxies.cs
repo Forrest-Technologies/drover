@@ -17,10 +17,14 @@ public static class TrustedProxies
     public static IServiceCollection AddTrustedProxies(this IServiceCollection services, IConfiguration configuration)
     {
         var entries = configuration.GetSection(Section).Get<TrustedProxyOptions>()?.TrustedAddresses ?? [];
+        RefuseTheHostSwitch(configuration);
         services.Configure<TrustedProxyOptions>(options => options.TrustedAddresses = entries);
         services.Configure<ForwardedHeadersOptions>(options =>
         {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            // With no proxy named, no header is read by anything that uses these options.
+            options.ForwardedHeaders = entries.Count == 0
+                ? ForwardedHeaders.None
+                : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
             options.ForwardLimit = 1;
 
             // The defaults trust loopback. Nothing is trusted here unless the operator names it.
@@ -37,7 +41,15 @@ public static class TrustedProxies
     public static IApplicationBuilder UseTrustedProxies(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetRequiredService<IOptions<TrustedProxyOptions>>().Value;
-        return options.TrustedAddresses.Count == 0 ? app : app.UseForwardedHeaders();
+        if (options.TrustedAddresses.Count > 0)
+        {
+            return app.UseForwardedHeaders();
+        }
+
+        app.ApplicationServices.GetRequiredService<ILoggerFactory>().CreateLogger("Drover.Startup").LogInformation(
+            "No reverse proxy is trusted. Behind one, set {Setting} to its address or network, or every person shares its address for the sign-in limit",
+            $"{Section}:TrustedAddresses");
+        return app;
     }
 
     #endregion
@@ -46,9 +58,24 @@ public static class TrustedProxies
 
     public const string Section = "Drover:Proxy";
 
+    public const string HostSwitch = "ForwardedHeaders_Enabled";
+
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// The host's own switch adds a second forwarded-headers step that this configuration would leave trusting
+    /// every address. The server does not start with it on.
+    /// </summary>
+    private static void RefuseTheHostSwitch(IConfiguration configuration)
+    {
+        if (string.Equals(configuration[HostSwitch], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"ASPNETCORE_FORWARDEDHEADERS_ENABLED is on. Turn it off and name the proxy in {Section}:TrustedAddresses instead.");
+        }
+    }
 
     private static void Trust(this ForwardedHeadersOptions options, string entry)
     {
