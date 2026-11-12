@@ -85,6 +85,29 @@ public sealed class RunToolServerTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task An_asked_server_tool_survives_a_restart_while_it_waits_and_runs_exactly_once_after_approval()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "notes__save")], [new TextOutput("Saved.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        world.Server.Offer("save", "Saves a note.", readOnly: false, """{"saved":true}""");
+        await world.Connect("Notes", TrustLevel.Trusted);
+        await world.Grant("save", GrantEffect.Ask);
+        var first = world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Save this");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
+
+        await first.Kill();
+        world.StartHost();
+        world.Server.Count("save").Should().Be(0, "nothing runs before a person says yes");
+        await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Server.Count("save").Should().Be(1);
+        script.Requests[1].Should().Contain(new SeenMessage("tool", """c1 = {"saved":true}"""));
+    }
+
+    [Fact]
     public async Task A_tool_the_server_stops_listing_is_marked_missing_keeps_its_grant_and_is_not_offered()
     {
         var script = new ScriptedModel([new TextOutput("Nothing to do.")]);
