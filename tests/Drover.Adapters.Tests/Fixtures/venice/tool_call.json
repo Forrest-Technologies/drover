@@ -1,0 +1,68 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "tool_calls",
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_weather_1",
+                  "type": "function",
+                  "function": {
+                    "name": "get_weather",
+                    "arguments": "{\"city\": \"Paris\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "It is sunny in Paris, 21 degrees."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        }
+      }
+    }
+  ]
+}

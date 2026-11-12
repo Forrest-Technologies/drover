@@ -1,0 +1,38 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available. Body follows the documented example for GET /api_keys/rate_limits.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/api_keys/rate_limits",
+      "status": 200,
+      "body": {
+        "data": {
+          "accessPermitted": true,
+          "apiTier": {
+            "id": "paid",
+            "isCharged": true
+          },
+          "balances": {
+            "USD": 50.23,
+            "DIEM": 100.023,
+            "BUNDLED_CREDITS": 25
+          },
+          "keyExpiration": null,
+          "nextEpochBegins": "2026-11-12T00:00:00.000Z",
+          "rateLimits": [
+            {
+              "apiModelId": "kimi-k3",
+              "rateLimits": [
+                {
+                  "amount": 100,
+                  "type": "RPM"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

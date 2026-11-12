@@ -12,6 +12,8 @@ global using AwesomeAssertions;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Contracts.Runs;
 global using Drover.Domain.Agents;
+global using Drover.Domain.Bots;
+global using Drover.Domain.Models;
 global using Drover.Domain.Runs;
 global using Drover.Domain.Secrets;
 global using Drover.Domain.Threads;

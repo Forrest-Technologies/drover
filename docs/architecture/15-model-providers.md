@@ -4,7 +4,11 @@ Facts in this section were read from each provider's own documentation and live 
 
 ## Shape
 
-A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a connection into chat and embedding clients for the agent runtime. One adapter project per kind.
+A **model connection** is data: a kind, an address, a way to authenticate, and what was learned about its models. `IModelClientProvider` turns a `ModelEndpoint` into a Drover-owned `IModelChatClient` and lists/tests the connection. `ModelConnection` remains the space-owned persistence entity, with no credentials in either shape. Embeddings remain future work. One adapter project per kind.
+
+The implemented foundation is not yet wired to server connection endpoints, secret retrieval, or the hosted outbound-address policy. Those remain prerequisites before exposing arbitrary compatible endpoints to hosted users. No tenant transaction is held across these provider calls. The server composition root must register `AddOpenAICompatibleProvider()` before `AddVeniceProvider()` and bridge returned clients with `ModelChatClientBridge`. Both adapters use factory-managed, named HTTP clients; hosted-policy wiring is still required for those names.
+
+The boundary preserves text, images, reasoning (including opaque protected reasoning), function declarations/calls/results, structured output, streaming, citations, and usage including cached/reasoning counts. Function results retain their JSON value shape; exception objects are replaced by a safe failure indication. Tool calls with an SDK argument-parse failure are rejected with a fixed message before the agent framework can execute them; a valid no-argument call remains valid. Unknown content/tool kinds, non-object tool arguments, background/continuation options and provider-specific option objects fail explicitly rather than disappearing. Agent history, approvals, tool invocation and orchestration continue to use Microsoft Agent Framework inside `Drover.Agents`.
 
 | Kind | Auth | Adapter | Phase |
 | --- | --- | --- | --- |
@@ -30,13 +34,13 @@ Venice is supported as a named provider with its own adapter, not as "a compatib
 | Model discovery | Reads the public model list and traits. No key needed, so the model picker works before the key is saved. Refreshed daily and on demand. | The list endpoint is keyless and returns capabilities, context sizes, prices, privacy mode, and traits |
 | Capability record | Filled from the list: tool calling, vision, reasoning with its effort options, structured output, web search, context and output limits, prices in dollars. | Fields exist per model |
 | Defaults | The starter bot uses the provider's own "default" trait. Other traits (reasoning, code, vision, most capable) are offered as one-tap choices. | Traits endpoint |
-| Chat | The OpenAI-compatible chat endpoint through `Microsoft.Extensions.AI.OpenAI`. Streaming, tools, parallel tool calls, structured output, images. | "Any OpenAI SDK works" |
+| Chat | The OpenAI-compatible chat endpoint through the shared protocol transport in `Drover.Adapters.OpenAICompatible`. Streaming, tools, parallel tool calls, structured output, images. | "Any OpenAI SDK works" |
 | Provider options | Sent with the documented model suffix form, `model:key=value&key=value`, so no custom request body is needed. | Documented suffix syntax |
 | **System prompt** | The provider's own system prompt is switched **off** on every request. A Drover bot's instructions are fully the user's; nothing is prepended. | Default is on unless disabled |
 | Reasoning | Reasoning text arrives in a non-standard field. The adapter maps it to Drover's `reasoning` message part. For models that return an encrypted placeholder, the part is marked "not available". Effort maps from the bot's provider-neutral `reasoning_effort`. | Field and placeholder documented |
 | Built-in web search | A per-bot model setting: off, on, or automatic, with citations. Citations returned by the provider become source links on the message. This is separate from, and can be used alongside, Drover's own `IWebSearch` tool. | Three-state option; citations returned |
 | Privacy mode | Each model's mode (private, anonymized, or attested) is shown as a badge in the model picker, in the provider's own terms, with a link to its explanation. A space setting can restrict bots to private or attested models only. | Published per model |
-| Balance and limits | Balance headers on responses feed the status page ("Venice balance: ..."). Rate-limit headers drive backoff. A low-balance or limit error becomes a plain message on the run. | Headers documented |
+| Balance and limits | Response-specific balance headers are pre-request snapshots, not post-charge balances. Rate-limit headers drive backoff. A low-balance or limit error becomes a plain message on the run. | Headers documented |
 | Cost | Calculated from token usage and the listed prices. Not read from billing, which needs an admin key. | Prices per model in the list |
 
 ### One key, several features
@@ -61,10 +65,14 @@ So a self-hoster with only a Venice key gets chat, memory, search, and later voi
 | The provider's own MCP server | It is a local process. Like every local-process server it runs only inside a sandbox, Phase 2. |
 | Wallet-based key creation | Out of scope. The user brings a key. |
 
-### To verify in the first sitting
+### Verification and remaining live gate
 
-- That the compatible client surfaces the non-standard reasoning field. If it does not, the adapter adds a small response-reading step at the HTTP pipeline. The conformance suite has a test for reasoning text either way.
-- That every option the adapter sets is accepted in suffix form, including the system prompt switch.
+- **Offline behavior is pinned.** Recorded fixtures and deterministic generated responses cover whole/streamed text, tool round trips, structured output, reasoning, fragmented encrypted placeholders, citations on empty-choices stream chunks, response-isolated balances, safe retries, cancellation and sanitized failures. The SDK still owns the wire protocol.
+- **Documented options.** The [suffix guide](https://docs.venice.ai/api-reference/endpoint/chat/model_feature_suffix) documents `include_venice_system_prompt=false`, `enable_web_search=on|auto`, `include_search_results_in_stream=true`, and `disable_thinking=true`. Search requests enable streaming search results so citations are available on metadata chunks. `reasoning_effort` remains a body field. Provider values `max` and `minimal`, which the framework enum lacks, are preserved through the OpenAI SDK's extensible request option inside the protocol adapter. Some mandatory-reasoning models may still compute and bill reasoning tokens when thinking output is disabled.
+- **Documented metadata.** The [rate-limit guide](https://docs.venice.ai/api-reference/rate-limiting) uses Unix milliseconds. The adapter validates timestamp ranges and waits for the latest valid request/token reset, including the failed-request reset when present. The [response-header reference](https://docs.venice.ai/api-reference/api-spec#response-headers-reference) documents USD/DIEM balance headers as pre-request snapshots. The [reasoning guide](https://docs.venice.ai/guides/features/reasoning-models) documents `[Some reasoning content is encrypted]`.
+- **Connection testing.** The documented `GET /api_keys/rate_limits` accepts inference or admin keys and does not make a billed model call. Drover asks only for an inference key.
+- **Timeout ownership.** SDK retries and its separate network timeout are disabled. The named HTTP client's resilience pipeline owns retry/timeout policy; POSTs are not replayed after an ambiguous server error or timeout. A pipeline test verifies the resolved SDK timeout without waiting for it.
+- **Keyed verification remains a gate.** Hand-written fixtures say so and never claim to be captures. Explicit `Live` tests are excluded from normal and PR runs. The owner must run the keyed tests before production wiring/deployment; no keyed inference was performed to validate this change. Public model/trait discovery is a separate, keyless test.
 
 ### Terms to read before the hosted service
 

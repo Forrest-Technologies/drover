@@ -28,7 +28,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 
 Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see the simplicity rule in `AGENTS.md`.
 
-`Microsoft.Extensions.AI` deserves a note. Its abstractions are stable and are themselves a provider-neutral layer, so Drover does not wrap `IChatClient` a second time. It is confined to `Drover.Agents` and the model provider adapters and never appears in `Domain`, `Engine`, `Contracts`, or the database. Messages are stored in Drover's own part schema and translated at the adapter.
+`Microsoft.Extensions.AI` stays inside the model SDK adapter and `Drover.Agents`. `IModelClientProvider` returns a Drover-owned `IModelChatClient`; requests, streaming updates, tool declarations, content, usage and citations use Domain records. This is a translation seam, not a replacement for agent sessions, orchestration or tool invocation. A Domain `CompatibleChatClientBuilder` delegate lets Venice compose the shared OpenAI protocol implementation without referencing another adapter. Only `Drover.Adapters.OpenAICompatible` references the OpenAI packages. The shared conversion source is compiled independently inside the two permitted boundary projects.
 
 ## Runtime dependencies
 
@@ -41,7 +41,8 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.AspNetCore.Identity.EntityFrameworkCore` | MIT | Microsoft | The Identity stores on EF Core: the `users` table and its children | Direct. The platform. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
 | Microsoft Agent Framework: `Microsoft.Agents.AI` 1.28.0 and `.Workflows` 1.28.0 in use; `.Harness` and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map is in [14-agent-framework.md](14-agent-framework.md); the experimental APIs in use are listed below. |
-| `Microsoft.Extensions.AI`, `.OpenAI` | MIT | Microsoft, stable | Chat and embedding clients | Confined to adapters and `Drover.Agents`, as above. `Microsoft.Extensions.AI` 10.11.0 arrives with the agent framework; analyzer DRV0007 keeps its namespace inside those projects. |
+| `Microsoft.Extensions.AI` 10.11.0 and its abstractions | MIT | Microsoft | Chat types at the agent boundary | Arrives with the framework in `Drover.Agents` and the SDK bridge in `OpenAICompatible`; never referenced by `Domain`. |
+| `Microsoft.Extensions.AI.OpenAI` 10.11.0, official `OpenAI` client and `System.ClientModel` | MIT | Microsoft and OpenAI | Compatible protocol serialization, tools, streaming and reasoning | Referenced only by `Drover.Adapters.OpenAICompatible`. Venice composes its Drover-owned transport delegate. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
 | Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
@@ -57,12 +58,13 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 
 ### Experimental APIs in use
 
-Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, by a `NoWarn` with a comment in the project file.
+Each experimental API Drover uses, so one that changes is easy to find. The diagnostic is allowed only in the projects named, with a comment explaining either the project allowance or a locally scoped pragma.
 
 | API | Diagnostic | Where | Why |
 | --- | --- | --- | --- |
 | `Microsoft.Agents.AI.AgentSessionStore` | MAAI001 | `Drover.Agents` (`PostgresAgentSessionStore`), `Drover.Adapters.Tests` | The framework's session store abstraction, implemented on `agent_sessions` |
 | `Microsoft.Agents.AI.AgentSessionStoreKey` | MAAI001 | Same | The key with space and audience partitions |
+| `OpenAI.Chat.ChatCompletionOptions.ReasoningEffortLevel`, `ChatReasoningEffortLevel` | OPENAI001 | `Drover.Adapters.OpenAICompatible` (`ProtocolChatClient`), locally scoped pragma | Preserves provider `max` and `minimal` effort values missing from the framework enum. Exact whole/streamed request fixtures pin this SDK seam. |
 
 The tool approval types (`ApprovalRequiredAIFunction`, `ToolApprovalRequestContent`, `ToolApprovalResponseContent`) were experimental when the design was written and are stable in `Microsoft.Extensions.AI` 10.11.0.
 

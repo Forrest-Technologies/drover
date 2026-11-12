@@ -1,0 +1,21 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public OpenAI chat completions format. The host is a placeholder; no real server produced this. 429 with Retry-After in seconds.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 429,
+      "headers": {
+        "Retry-After": "7"
+      },
+      "body": {
+        "error": {
+          "message": "Rate limit reached",
+          "type": "rate_limit_error",
+          "code": "rate_limit_exceeded"
+        }
+      }
+    }
+  ]
+}

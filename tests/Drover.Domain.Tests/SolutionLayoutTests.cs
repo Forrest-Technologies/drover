@@ -66,6 +66,26 @@ public sealed class SolutionLayoutTests
     }
 
     [Fact]
+    public void Domain_never_references_model_vendor_packages_even_when_the_code_does_not_use_them()
+    {
+        var references = XDocument.Load(FindSourceProject("Drover.Domain"))
+            .Descendants("PackageReference")
+            .Select(reference => reference.Attribute("Include")?.Value ?? string.Empty);
+        references.Should().NotContain(reference => reference.StartsWith("Microsoft.Extensions.AI", StringComparison.Ordinal)
+            || reference.StartsWith("OpenAI", StringComparison.Ordinal)
+            || reference.StartsWith("Microsoft.Agents", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Only_the_compatible_protocol_adapter_references_the_openai_sdk()
+    {
+        var projects = FindSourceProjects().Where(project => XDocument.Load(project)
+            .Descendants("PackageReference")
+            .Any(reference => reference.Attribute("Include")?.Value is "OpenAI" or "Microsoft.Extensions.AI.OpenAI"));
+        projects.Select(ProjectName).Should().Equal("Drover.Adapters.OpenAICompatible");
+    }
+
+    [Fact]
     public void Engine_never_references_an_adapter_or_the_agent_runtime()
     {
         var references = ReadProjectReferences(FindSourceProject("Drover.Engine"));

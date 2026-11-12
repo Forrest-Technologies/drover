@@ -1,0 +1,141 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: official Venice streaming documentation requires include_search_results_in_stream=true; citations may appear on an empty-choices metadata chunk. Sources: https://docs.venice.ai/api-reference/endpoint/chat/model_feature_suffix and https://github.com/veniceai/skills/blob/main/skills/venice-chat/SKILL.md. Not a keyed capture.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "It is sunny in Paris."
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        },
+        "venice_parameters": {
+          "enable_web_search": "on",
+          "include_venice_system_prompt": false,
+          "web_search_citations": [
+            {
+              "title": "Paris weather today",
+              "url": "https://weather.example.test/paris",
+              "content": "Sunny, 21C",
+              "date": "2026-11-11"
+            },
+            {
+              "title": "Not a web page",
+              "url": "javascript:alert(1)",
+              "content": "ignored"
+            },
+            {
+              "title": "Climate of Paris",
+              "url": "https://climate.example.test/paris",
+              "content": "Temperate"
+            },
+            null,
+            {
+              "url": 17
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "sse": [
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": ""
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "It is sunny in Paris."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [],
+          "venice_parameters": {
+            "web_search_citations": [
+              {
+                "title": "Paris weather today",
+                "url": "https://weather.example.test/paris",
+                "content": "Sunny, 21C",
+                "date": "2026-11-11"
+              },
+              {
+                "title": "Not a web page",
+                "url": "javascript:alert(1)",
+                "content": "ignored"
+              },
+              {
+                "title": "Climate of Paris",
+                "url": "https://climate.example.test/paris",
+                "content": "Temperate"
+              },
+              null,
+              {
+                "url": 17
+              }
+            ]
+          }
+        },
+        "[DONE]"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from Venice's public API documentation (chat completions, reasoning models, rate limits, error codes) on 2026-11-11. Not captured from the live API; no key was available. The placeholder text is the one the reasoning-models guide documents.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "body": {
+        "id": "chatcmpl-fixture-1",
+        "object": "chat.completion",
+        "created": 1794400000,
+        "model": "kimi-k3",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "It is 36.",
+              "reasoning_content": "[Some reasoning content is encrypted]"
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 9,
+          "total_tokens": 21
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/chat/completions",
+      "status": 200,
+      "sse": [
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "[Some reasoning "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "content is encrypted]"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "It is 36."
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        {
+          "id": "chatcmpl-fixture-1",
+          "object": "chat.completion.chunk",
+          "created": 1794400000,
+          "model": "kimi-k3",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "stop"
+            }
+          ]
+        },
+        "[DONE]"
+      ]
+    }
+  ]
+}

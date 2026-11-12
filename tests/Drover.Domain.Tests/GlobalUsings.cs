@@ -8,6 +8,7 @@ global using System.Xml.Linq;
 global using AwesomeAssertions;
 global using Drover.Contracts.Permissions;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Models;
 global using Drover.Domain.Permissions;
 global using Drover.Domain.Policy;
 global using Drover.Tests.Common;

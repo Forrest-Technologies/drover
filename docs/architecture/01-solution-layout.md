@@ -52,6 +52,8 @@ Drover.Apps.slnx
 
 Later adapters get their own projects in the same pattern: `Drover.Adapters.Docker`, `Drover.Adapters.Apns`, `Drover.Adapters.S3`, and so on.
 
+The model transport uses Drover-owned records and `IModelChatClient` in `Domain`. `OpenAICompatible` owns the sole OpenAI SDK reference; Venice receives the shared protocol builder through a Domain delegate, never a project reference. `Drover.Agents` bridges the transport to `IChatClient`. The conversion source in `src/Shared/ModelChatMapping.cs` is linked only into those two SDK/framework boundary projects; it does not create another assembly or change dependency direction.
+
 ## What each project owns
 
 | Project | Owns | Must not contain |
