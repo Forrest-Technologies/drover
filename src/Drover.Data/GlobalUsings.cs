@@ -14,6 +14,7 @@ global using Drover.Data.Bootstrap;
 global using Drover.Data.Identity;
 global using Drover.Data.Mappings;
 global using Drover.Data.Partitioning;
+global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;

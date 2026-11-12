@@ -1,0 +1,63 @@
+namespace Drover.Server.Spaces;
+
+public static class SpaceEndpoints
+{
+    #region Public Methods
+
+    /// <summary>
+    /// Everything under <c>/api/spaces/{spaceId}</c>. The group requires a signed-in person; the membership
+    /// middleware confirms they belong to the space; the filter then opens the tenant transaction.
+    /// </summary>
+    public static IEndpointRouteBuilder MapSpaceEndpoints(this RouteGroupBuilder api)
+    {
+        var space = api.MapGroup("/spaces/{spaceId:guid}")
+            .RequireAuthorization()
+            .WithMetadata(new SpaceScopedMetadata())
+            .AddEndpointFilter<TenantScopeFilter>();
+
+        space.MapGet("/", GetSpace).WithName("GetSpace");
+        space.MapGet("/secrets", ListSecrets).RequireSpaceRole(MembershipRole.Admin).WithName("ListSecrets");
+        return api;
+    }
+
+    #endregion
+
+    #region Endpoints
+
+    private static async Task<Results<Ok<SpaceResponse>, NotFound>> GetSpace(
+        HttpContext context,
+        SpaceService spaces)
+    {
+        var access = context.GetSpaceAccess();
+        var space = await spaces.GetSpace(access.SpaceId, context.RequestAborted);
+
+        if (space is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return TypedResults.Ok(new SpaceResponse(
+            space.Id,
+            space.Kind.ToString().ToLowerInvariant(),
+            space.Name,
+            space.Slug,
+            access.Role.ToString().ToLowerInvariant()));
+    }
+
+    /// <summary>Metadata only. The value of a secret is never returned by any endpoint.</summary>
+    private static async Task<Ok<List<SecretSummary>>> ListSecrets(HttpContext context, SpaceService spaces)
+    {
+        var secrets = await spaces.ListSecrets(context.RequestAborted);
+        return TypedResults.Ok(secrets
+            .Select(secret => new SecretSummary(
+                secret.Id,
+                secret.Kind.ToString(),
+                HasValue: true,
+                IsPrivate: secret.AudienceUserId != Audience.Everyone,
+                secret.CreatedAt,
+                secret.LastUsedAt))
+            .ToList());
+    }
+
+    #endregion
+}

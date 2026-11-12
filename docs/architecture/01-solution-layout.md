@@ -25,7 +25,7 @@ Drover.slnx
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
     Drover.Adapters.LocalFiles       IFileStore on a volume
-    Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection
+    Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client and SSE reader
     Drover.Ui                     Razor class library: every screen and component
     Drover.Web                    Blazor WebAssembly host for Drover.Ui
@@ -61,7 +61,7 @@ Later adapters get their own projects in the same pattern: `Drover.Adapters.Dock
 | `Drover.Data` | `DroverDbContext`, entity mappings, migrations, `TenantScope`, the row-level security migration helpers, the `sys` functions, and the **repositories**: every query in the product | Business rules |
 | `Drover.Engine` | The **services**. Everything that decides: run state machine, tool gate, effective grants, delegation, loop and budget checks, MCP catalog, scheduler, deployment policy | Vendor types, and queries. It reads and writes only through repositories. |
 | `Drover.Agents` | Everything built on the agent framework: building an agent from a bot, PostgreSQL history, session, and checkpoint stores, the tool gate middleware, `GovernedAgent`, team patterns. See [14-agent-framework.md](14-agent-framework.md). | Run lifecycle (claiming, leases, status), HTTP |
-| `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, database access |
+| `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, and database access of their own. An adapter whose store is a table (`Drover.Adapters.DataProtection`) reaches it only through a repository in `Drover.Data` and runs inside the caller's tenant scope. |
 | `Drover.Client` | `HttpClient`-based API client, SSE reader with resume, client-side run state reducer | UI |
 | `Drover.Ui` | Components, design tokens, markdown rendering, platform service interfaces (`IPushRegistration`, `ISecureStore`, `IFilePicker`, `IMicrophone`) | Direct `HttpClient` use; it goes through `Drover.Client` |
 | `Drover.Web` | WebAssembly entry point, web implementations of the platform services, service worker, PWA manifest | Screens |
@@ -84,7 +84,7 @@ Contracts  <-  Client  <-  Ui  <-  Web
 Rules, enforced by project references and by analyzer `DRV0007`:
 
 1. Arrows point one way. `Domain` references only `Contracts`. `Engine` never references an adapter.
-2. A vendor package is referenced by exactly one adapter project. Because `Engine`, `Data`, `Contracts`, and `Ui` do not reference it, a vendor type cannot appear in a contract, a column, or a component even by accident. `DRV0007` reports the attempt with a readable message before the compiler does.
+2. A vendor package is referenced by exactly one adapter project. An adapter references `Drover.Domain`, and `Drover.Data` only when its store is a table. Because `Engine`, `Data`, `Contracts`, and `Ui` do not reference it, a vendor type cannot appear in a contract, a column, or a component even by accident. `DRV0007` reports the attempt with a readable message before the compiler does.
 3. `Server` is the only project that references the engine together with `Agents` and the adapters. It is the composition root.
 4. Agent framework types are allowed in `Drover.Agents` and in `Server`'s wiring, and nowhere else. `Agents` is the one non-adapter project that holds a vendor's types, because the owner chose to build on that framework fully; it may read and write through `Drover.Data`.
 5. Client projects never reference `Domain`, `Data`, or `Engine`. The server owns the work.

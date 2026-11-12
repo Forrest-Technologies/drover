@@ -17,6 +17,8 @@ public static class DataServiceExtensions
         services.AddScoped<TenantTransactionInterceptor>();
         services.AddScoped<TenantGuardInterceptor>();
         services.AddScoped<SpaceStampInterceptor>();
+        services.AddScoped<AccountRepository>();
+        services.AddScoped<SecretRepository>();
         services.AddDbContext<DroverDbContext>((provider, options) => options
             .UseDroverNpgsql(appConnectionString)
             .AddInterceptors(
@@ -25,6 +27,10 @@ public static class DataServiceExtensions
                 provider.GetRequiredService<SpaceStampInterceptor>()));
         return services;
     }
+
+    /// <summary>Stores Identity's users in <see cref="DroverDbContext"/>, so the engine need not name the context.</summary>
+    public static IdentityBuilder AddDroverStores(this IdentityBuilder builder) =>
+        builder.AddEntityFrameworkStores<DroverDbContext>();
 
     /// <summary>The provider settings every Drover context shares: PostgreSQL, snake_case names, no retries.</summary>
     public static DbContextOptionsBuilder UseDroverNpgsql(this DbContextOptionsBuilder options, string connectionString)

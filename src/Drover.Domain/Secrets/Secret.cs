@@ -25,4 +25,10 @@ public sealed class Secret : ISpaceOwned, IAudienceScoped
     public DateTimeOffset? LastUsedAt { get; set; }
 
     #endregion
+
+    #region Public Methods
+
+    public override string ToString() => "[secret]";
+
+    #endregion
 }
