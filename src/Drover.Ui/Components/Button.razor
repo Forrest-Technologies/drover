@@ -1,0 +1,23 @@
+<button type="@Type" class="dv-button dv-button-@Kind.ToString().ToLowerInvariant()" disabled="@Disabled" @onclick="OnClick" @attributes="Attributes">
+    @ChildContent
+</button>
+
+@code {
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public ButtonKind Kind { get; set; } = ButtonKind.Quiet;
+
+    [Parameter]
+    public string Type { get; set; } = "button";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public EventCallback<MouseEventArgs> OnClick { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+}

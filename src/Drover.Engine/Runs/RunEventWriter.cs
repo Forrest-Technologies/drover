@@ -13,7 +13,8 @@ public sealed class RunEventWriter(
     RunEventHub hub,
     RunOptions options,
     TimeProvider time,
-    ILogger logger) : IAsyncDisposable
+    ILogger logger,
+    RunFence? fence = null) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -30,6 +31,13 @@ public sealed class RunEventWriter(
     private string? lastKind;
 
     private int partIndex;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>Called when a write finds the run held by another claim, before the write throws.</summary>
+    public Action? LeaseLost { get; set; }
 
     #endregion
 
@@ -69,14 +77,19 @@ public sealed class RunEventWriter(
     /// <summary>
     /// Writes the buffered delta and then the events, in one transaction. <paramref name="alongside"/> runs in that
     /// transaction first, so a status change and the event that reports it commit together or not at all.
+    /// <paramref name="afterwards"/> runs in it last, once the events are in: what it writes is not checked against
+    /// this run's claim, which the events before it were.
     /// </summary>
-    public async Task Write(Func<IServiceProvider, Task>? alongside, IReadOnlyList<NewRunEvent> events)
+    public async Task Write(
+        Func<IServiceProvider, Task>? alongside,
+        IReadOnlyList<NewRunEvent> events,
+        Func<IServiceProvider, Task>? afterwards = null)
     {
         await gate.WaitAsync();
 
         try
         {
-            await WriteLocked(alongside, events);
+            await WriteLocked(alongside, events, afterwards);
         }
         finally
         {
@@ -118,7 +131,10 @@ public sealed class RunEventWriter(
         return started;
     }
 
-    private async Task WriteLocked(Func<IServiceProvider, Task>? alongside, IReadOnlyList<NewRunEvent> events)
+    private async Task WriteLocked(
+        Func<IServiceProvider, Task>? alongside,
+        IReadOnlyList<NewRunEvent> events,
+        Func<IServiceProvider, Task>? afterwards = null)
     {
         List<NewRunEvent> writing = [];
 
@@ -137,21 +153,44 @@ public sealed class RunEventWriter(
             return;
         }
 
-        var stored = await tenant.Transact(
-            async services =>
-            {
-                if (alongside is not null)
-                {
-                    await alongside(services);
-                }
-
-                return await services.GetRequiredService<RunEventRepository>()
-                    .Append(rootRunId, thread, writing, CancellationToken.None);
-            },
-            CancellationToken.None);
+        var stored = await Store(alongside, writing, afterwards);
 
         buffer = null;
         hub.Publish(rootRunId, stored);
+    }
+
+    private async Task<IReadOnlyList<RunEvent>> Store(
+        Func<IServiceProvider, Task>? alongside,
+        List<NewRunEvent> writing,
+        Func<IServiceProvider, Task>? afterwards)
+    {
+        try
+        {
+            return await tenant.Transact(
+                async services =>
+                {
+                    if (alongside is not null)
+                    {
+                        await alongside(services);
+                    }
+
+                    var appended = await services.GetRequiredService<RunEventRepository>()
+                        .Append(rootRunId, thread, writing, CancellationToken.None, fence);
+
+                    if (afterwards is not null)
+                    {
+                        await afterwards(services);
+                    }
+
+                    return appended;
+                },
+                CancellationToken.None);
+        }
+        catch (LeaseLostException)
+        {
+            LeaseLost?.Invoke();
+            throw;
+        }
     }
 
     /// <summary>Writes the chunk when the flush interval passes, unless something wrote it first.</summary>
@@ -177,6 +216,10 @@ public sealed class RunEventWriter(
         catch (OperationCanceledException)
         {
             logger.LogTrace("The event writer of run {RunId} stopped before a timed flush", rootRunId);
+        }
+        catch (LeaseLostException)
+        {
+            logger.LogDebug("A timed flush of run {RunId} found the run taken over", rootRunId);
         }
         catch (Exception exception) when (exception is not ObjectDisposedException)
         {

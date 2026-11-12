@@ -1,0 +1,9 @@
+<span class="dv-badge dv-badge-@Kind.ToString().ToLowerInvariant()">@ChildContent</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public BadgeKind Kind { get; set; } = BadgeKind.Neutral;
+}

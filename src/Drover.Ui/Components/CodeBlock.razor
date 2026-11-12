@@ -1,0 +1,11 @@
+<div class="dv-code">
+    <div class="dv-code-bar">
+        @if (!string.IsNullOrWhiteSpace(Language))
+        {
+            <span class="dv-code-language">@Language</span>
+        }
+        <span class="dv-code-status" role="status">@status</span>
+        <button type="button" class="dv-code-copy" @onclick="Copy">Copy code</button>
+    </div>
+    <pre class="dv-code-body" tabindex="0" role="group" aria-label="Code"><code>@Code</code></pre>
+</div>

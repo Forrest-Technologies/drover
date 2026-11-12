@@ -35,6 +35,7 @@ global using Drover.Domain.Policy;
 global using Drover.Domain.Runs;
 global using Drover.Domain.Secrets;
 global using Drover.Domain.Spaces;
+global using Drover.Domain.Tenancy;
 global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
 global using Drover.Engine;

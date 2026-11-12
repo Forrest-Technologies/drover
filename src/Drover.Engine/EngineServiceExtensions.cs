@@ -48,7 +48,9 @@ public static class EngineServiceExtensions
         services.AddScoped<ToolCatalog>();
         services.AddScoped<BotService>();
         services.AddScoped<ThreadService>();
+        services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
+        services.AddScoped<ApprovalService>();
         return services;
     }
 

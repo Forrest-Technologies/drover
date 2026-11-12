@@ -55,7 +55,8 @@ public static class RunViews
             message.Role.ToString().ToLowerInvariant(),
             message.RunId,
             [.. message.Parts.Select(ToResponse)],
-            message.CreatedAt);
+            message.CreatedAt,
+            message.Steers);
 
     #endregion
 

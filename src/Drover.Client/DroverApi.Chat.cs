@@ -33,11 +33,18 @@ public sealed partial class DroverApi
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 
     /// <summary>
-    /// Stores the message and starts the run that answers it. Throws <see cref="DroverApiException"/> with 409 while
-    /// a run is still active in the thread.
+    /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
+    /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
+    /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it
+    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered.
     /// </summary>
-    public Task<SendMessageResponse> SendMessage(Guid spaceId, Guid threadId, string text, CancellationToken cancellationToken = default) =>
-        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text), cancellationToken);
+    public Task<SendMessageResponse> SendMessage(
+        Guid spaceId,
+        Guid threadId,
+        string text,
+        string? whenBusy = null,
+        CancellationToken cancellationToken = default) =>
+        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text, whenBusy), cancellationToken);
 
     #endregion
 
@@ -48,6 +55,19 @@ public sealed partial class DroverApi
 
     public Task<RunSummary> CancelRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
         Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/cancel", null, cancellationToken);
+
+    /// <summary>
+    /// Answers a tool call that waits for approval (<see cref="ToolCallView.State"/> is awaiting_approval). The
+    /// reason is told to the bot when the call is denied. Throws <see cref="DroverApiException"/> with 409 when the
+    /// call was already answered.
+    /// </summary>
+    public Task<RunSummary> DecideToolCall(
+        Guid spaceId,
+        Guid toolCallId,
+        bool approved,
+        string? reason = null,
+        CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/decision", new ToolDecisionRequest(approved, reason), cancellationToken);
 
     /// <summary>
     /// The events of a run, from after <paramref name="afterSeq"/> to its end, each once and in order. The stream

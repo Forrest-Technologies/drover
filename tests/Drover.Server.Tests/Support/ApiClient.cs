@@ -21,6 +21,9 @@ public sealed class ApiClient(HttpClient http)
     /// <summary>The cookies as one request header, for a client that is not this one but acts as the same person.</summary>
     public string CookieHeader => string.Join("; ", cookies.Select(cookie => $"{cookie.Key}={cookie.Value}"));
 
+    /// <summary>Headers a proxy would add, sent with every request.</summary>
+    public Dictionary<string, string> ForwardedHeaders { get; } = [];
+
     #endregion
 
     #region Public Methods
@@ -98,6 +101,11 @@ public sealed class ApiClient(HttpClient http)
         if (RemoteIp is not null)
         {
             request.Headers.Add(DroverFactory.RemoteIpHeader, RemoteIp);
+        }
+
+        foreach (var (name, value) in ForwardedHeaders)
+        {
+            request.Headers.Add(name, value);
         }
 
         var response = await http.SendAsync(request);

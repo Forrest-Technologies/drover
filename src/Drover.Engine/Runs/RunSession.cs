@@ -6,9 +6,6 @@ public sealed class RunLimitException(string reason, string message) : Exception
     public string Reason => reason;
 }
 
-/// <summary>Another worker holds the run now. This one stops and writes nothing more.</summary>
-public sealed class LeaseLostException(Guid runId) : Exception($"The lease on run {runId} is no longer this worker's.");
-
 /// <summary>A catalog tool as one run sees it: the row, the effective grant at the start, and the name the model uses.</summary>
 public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, BuiltinTool? Builtin);
 
@@ -27,7 +24,8 @@ public sealed class RunSession(
     Redactor redactor,
     RunOptions options,
     TimeProvider time,
-    int stepsSoFar) : IAsyncDisposable
+    int stepsSoFar,
+    IReadOnlyList<Guid> alreadyDelivered) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -39,7 +37,11 @@ public sealed class RunSession(
 
     private readonly ConcurrentDictionary<Guid, bool> reruns = new();
 
+    private readonly ConcurrentDictionary<Guid, bool> settled = new();
+
     private readonly SemaphoreSlim announcing = new(1, 1);
+
+    private readonly HashSet<Guid> delivered = [.. alreadyDelivered];
 
     private int step = stepsSoFar;
 
@@ -63,7 +65,8 @@ public sealed class RunSession(
 
     public int Attempt => run.Attempt;
 
-    public string WorkerId => workerId;
+    /// <summary>This execution's claim. Every write it makes is checked against it.</summary>
+    public RunFence Fence { get; } = new(workerId, run.Attempt);
 
     public ChatThread Thread => thread;
 
@@ -134,9 +137,23 @@ public sealed class RunSession(
         return started.MessageId;
     }
 
-    /// <summary>The model call finished. Its message is stored a moment later, and announced when it is.</summary>
-    public void EndStep()
+    /// <summary>
+    /// The model call finished. Its message is stored a moment later, and announced when it is. The runtime stores
+    /// that message itself, so the claim is checked first: an execution whose run was taken over stops here and
+    /// stores nothing.
+    /// </summary>
+    public async Task EndStep()
     {
+        var lease = await tenant.Transact(
+            services => services.GetRequiredService<RunRepository>().ReadLease(RunId, Fence, CancellationToken.None),
+            CancellationToken.None);
+
+        if (!lease.Held)
+        {
+            LoseLease();
+            throw new OperationCanceledException($"Run {RunId} was taken over during a model call.");
+        }
+
         unannounced = openStep;
         openStep = null;
     }
@@ -160,21 +177,40 @@ public sealed class RunSession(
                 return;
             }
 
-            var stored = await tenant.Transact(
-                services => services.GetRequiredService<MessageRepository>().FindMessage(pending.MessageId, CancellationToken.None),
+            var (stored, taken) = await tenant.Transact(
+                async services =>
+                {
+                    var messages = services.GetRequiredService<MessageRepository>();
+                    return (
+                        await messages.FindMessage(pending.MessageId, CancellationToken.None),
+                        await messages.ListDeliveredMessages(thread.Id, RunId, CancellationToken.None));
+                },
                 CancellationToken.None);
             unannounced = null;
 
             // A model call that produced nothing to store has no message; its step is closed as discarded instead.
-            await (stored is null
-                ? writer.Append(RunId, RunEventTypes.StepDiscarded, pending)
-                : writer.Append(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse())));
+            // Messages that steered the call were stored just before its reply, so they are announced before it.
+            var closed = stored is null
+                ? RunEventWriter.Event(RunId, RunEventTypes.StepDiscarded, pending)
+                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()));
+            await writer.Write(null, [.. Delivered(taken), closed]);
         }
         finally
         {
             announcing.Release();
         }
     }
+
+    /// <summary>
+    /// <c>message.delivered</c> for each message this run took that the log has not announced yet: a pending message
+    /// now has its place in the conversation.
+    /// </summary>
+    public IReadOnlyList<NewRunEvent> Delivered(IReadOnlyList<Message> taken) =>
+    [
+        .. taken
+            .Where(message => delivered.Add(message.Id))
+            .Select(message => RunEventWriter.Event(RunId, RunEventTypes.MessageDelivered, new MessageDelivered(message.ToResponse()))),
+    ];
 
     #endregion
 
@@ -191,6 +227,9 @@ public sealed class RunSession(
     public void ExpectRerun(Guid toolCallId) => reruns[toolCallId] = true;
 
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
+
+    /// <summary>A call an earlier execution left open, whose end this one has just written to the log.</summary>
+    public void MarkSettled(Guid toolCallId) => settled[toolCallId] = true;
 
     /// <summary>Emits <c>tool.requested</c> once for a call the model asked for, with its arguments redacted.</summary>
     public async Task RequestTool(string callId, string modelName, JsonElement arguments)
@@ -225,7 +264,7 @@ public sealed class RunSession(
     {
         var call = Call(callId);
 
-        if (!call.TryMarkCompleted())
+        if (!call.TryMarkCompleted() || settled.ContainsKey(ToolCallIds.For(RunId, callId)))
         {
             return;
         }

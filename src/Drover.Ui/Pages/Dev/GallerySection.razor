@@ -1,0 +1,31 @@
+<section class="dv-gallery-section" aria-labelledby="@id">
+    <h2 id="@id">@Title</h2>
+    @if (Note is not null)
+    {
+        <p class="dv-gallery-note">@Note</p>
+    }
+    <div class="dv-gallery-themes">
+        <div class="dv-gallery-panel" data-theme="dark">
+            <p class="dv-gallery-theme-name">Dark</p>
+            @ChildContent
+        </div>
+        <div class="dv-gallery-panel" data-theme="light">
+            <p class="dv-gallery-theme-name">Light</p>
+            @ChildContent
+        </div>
+    </div>
+</section>
+
+@code {
+    private readonly string id = $"dv-gallery-{Guid.NewGuid():N}";
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Note { get; set; }
+
+    /// <summary>The samples. Rendered twice, once in each theme.</summary>
+    [Parameter, EditorRequired]
+    public RenderFragment? ChildContent { get; set; }
+}

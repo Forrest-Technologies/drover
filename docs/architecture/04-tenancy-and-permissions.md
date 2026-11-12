@@ -217,7 +217,7 @@ Initial set:
 
 | Function | Purpose |
 | --- | --- |
-| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree. The lease is 45 seconds. |
+| `sys.claim_runs(worker, limit)` | Lease runnable runs across spaces. Claimable: a root run that is `queued`, or `running` with an expired lease (its `attempt` goes up by one), or `waiting` with no `pending_approval` tool call anywhere in its tree, or `waiting` with a cancel request. The lease is 45 seconds. For the last case the function reads one more column, `runs.cancel_requested_at`, and `drover_system` is granted `SELECT` on that column and nothing else new. |
 | `sys.claim_due_schedules(limit)` | Phase 1 |
 | `sys.find_user_for_sign_in(email)` | Return the user id for one email, compared by its normalized form, and nothing else. The caller then reads the user row in a transaction with `drover.user_id` set to that id, which the `users` policy allows. |
 | `sys.memberships_for_user()` | Used once after sign-in, before a space is chosen. Takes no argument: it answers for `sys.current_user_id()` only, so it can never list another person's spaces. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
@@ -316,7 +316,7 @@ Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQ
 | A bot | Its strict descendants only | Built-in management tools, each needing its own grant |
 | A bot | Its siblings, ancestors, or unrelated bots | Nothing. The check is one lookup in `bot_ancestors`. |
 
-Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. One default, set when a person creates a bot through the API: the bot is granted the built-in tools that only read (today `time.now`) as `allow`. That is a grant row like any other, visible and removable; nothing that writes is ever granted by default.
+Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. One default, set when a person creates a bot through the API: the bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`. That is a grant row like any other, visible and removable. The list is by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should.
 
 | Tool | Does | Suggested default when a human turns it on |
 | --- | --- | --- |

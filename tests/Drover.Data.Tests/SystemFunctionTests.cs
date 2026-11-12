@@ -238,7 +238,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             "no table-wide SELECT or UPDATE anywhere");
         columns.Select(row => (string)row[0]!).Should().BeEquivalentTo(
         [
-            .. Columns("runs", "SELECT", "id space_id parent_run_id root_run_id principal_user_id status attempt lease_expires_at started_at"),
+            .. Columns("runs", "SELECT", "id space_id parent_run_id root_run_id principal_user_id status attempt lease_expires_at started_at cancel_requested_at"),
             .. Columns("runs", "UPDATE", "status status_reason attempt lease_owner lease_expires_at started_at"),
             .. Columns("tool_calls", "SELECT", "space_id run_id status sandbox_id"),
             .. Columns("users", "SELECT", "id normalized_email"),

@@ -39,12 +39,18 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Interface">
+    <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />
+    <PackageVersion Include="Markdig" Version="1.6.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Server">
     <PackageVersion Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
+    <PackageVersion Include="bunit" Version="2.15.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="11.0.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />

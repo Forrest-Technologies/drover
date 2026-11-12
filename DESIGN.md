@@ -16,13 +16,13 @@ This file holds design facts: identity, palette, type, motion, and what the inte
 
 ## Personality
 
-Calm, exact, a little ahead of its time. Confident enough to stay quiet. It shows the work instead of describing it.
+Calm at rest, charged when working, a little ahead of its time. Confident enough to stay quiet until something is happening. It shows the work instead of describing it.
 
 Not: playful, loud, decorative, corporate, or "AI-themed".
 
-**Dial: ENERGY 2 / RHYTHM 2 / MOTION 2**
+**Dial: ENERGY 3 / RHYTHM 2 / MOTION 2**
 
-- Energy 2: restrained chrome, with two places allowed to be bold, the bot tree and the live activity timeline.
+- Energy 3: restrained chrome at rest. Live things are turned up: they carry light, not only color. Two places are allowed to be bold, the bot tree and the live activity timeline.
 - Rhythm 2: consistent structure, broken only where a screen's job needs it.
 - Motion 2: transitions and state indicators. No scroll effects, no choreography.
 
@@ -33,6 +33,7 @@ Not: playful, loud, decorative, corporate, or "AI-themed".
 - Warm (`ember`) is a person's intent: the primary action, the focus ring, send.
 - Cool (`ion`) is a bot working: thinking, streaming, a tool running.
 - Violet is work passing between bots.
+- A live thing blooms: a soft light in its own accent color, around the thing that is working and nothing else.
 - If nothing is happening, nothing glows and nothing moves.
 
 This is the identity motif. It is why a screenshot of Drover is recognizable without a logo.
@@ -46,12 +47,12 @@ Dark is primary. Light is supported and must be as good.
 | App background | `--dv-bg-0` | `#0A0C10` | `#F6F7FA` |
 | Panel | `--dv-bg-1` | `#10141B` | `#FFFFFF` |
 | Card | `--dv-bg-2` | `#171C26` | `#EEF0F5` |
-| Hover, selected | `--dv-bg-3` | `#202735` | |
+| Hover, selected | `--dv-bg-3` | `#202735` | `#E2E6EE` |
 | Decorative line | `--dv-line` | `#2B3445` | `#D5DAE3` |
 | Text | `--dv-text` | `#E9EDF5` | `#12151C` |
 | Secondary text | `--dv-text-2` | `#AEB7C7` | `#414B5E` |
 | Captions | `--dv-text-3` | `#8791A5` | `#5D6779` |
-| Human intent | `--dv-ember` | `#FFB454` | `#9A5B00` |
+| Human intent | `--dv-ember` | `#FFB454` | `#8F5400` |
 | Bot activity | `--dv-ion` | `#67E8F9` | `#0B6E82` |
 | Delegation | `--dv-violet` | `#B4A0FF` | `#5B3FD6` |
 | Success, attention, failure | `--dv-ok`, `--dv-warn`, `--dv-danger` | `#4ADE80`, `#FACC15`, `#FF7A7A` | `#15703A`, `#7A5A00`, `#B3261E` |
@@ -75,6 +76,8 @@ Three accent colors is the limit, and each has one meaning. No gradients as deco
 - Spacing on a 4 px base: 4, 8, 12, 16, 24, 32, 48.
 - Radius: 6 for controls, 10 for cards, 16 for sheets, full for avatars and pills. Nothing else.
 - Depth comes from a lighter surface and a 1 px line. Two levels. No soft drop shadows, no blur panels.
+- Light is not depth. Bloom belongs to the four live states and is never used to lift a surface.
+- The two bold screens sit on a dot grid, and their bot cards have two cut corners, echoing the faceted bot heads. Nowhere else.
 - Touch targets 44 px, pointer targets 32 px.
 
 ## Motion
@@ -151,7 +154,7 @@ These are the habits that make an interface look generated. Each one is checked 
 | Choice | Why |
 | --- | --- |
 | Dark by default | Owner's decision. A tool kept open all day, used beside editors and terminals. Light is fully supported. |
-| A glowing ring, a traveling line, a pulse | Each reports a live state and stops when the state ends. That is the product's central idea, not decoration. |
+| A glowing ring, a traveling line, a pulse, each with bloom | Each reports a live state and stops when the state ends. That is the product's central idea, not decoration. The owner chose the charged look over the flat one on 2026-11-12. |
 | A loop while a bot thinks | It runs only while work is in progress. Nothing loops at rest. |
 | A uniform spacing scale and consistent structure | This is a tool. Predictability is the point. Variety is spent on the two bold screens. |
 | Monospace beyond code blocks | It marks machine activity as distinct from conversation. |

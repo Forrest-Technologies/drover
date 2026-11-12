@@ -1,0 +1,44 @@
+<span class="dv-tooltip @(dismissed ? "dv-tooltip-dismissed" : null)" @onkeydown="DismissOnEscape" @onfocusout="Restore" @onpointerleave="Restore">
+    @ChildContent(id)
+    <span id="@id" class="dv-tooltip-popup" role="tooltip">
+        <span class="dv-tooltip-text">@Text</span>
+    </span>
+</span>
+
+@code {
+    #region Private Fields
+
+    private readonly string id = $"dv-tooltip-{Guid.NewGuid():N}";
+
+    private bool dismissed;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The control the tooltip describes. The value passed in is the tooltip's id: put it in the
+    /// control's <c>aria-describedby</c>.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public RenderFragment<string> ChildContent { get; set; } = _ => _ => { };
+
+    #endregion
+
+    #region Private Methods
+
+    private void DismissOnEscape(KeyboardEventArgs args)
+    {
+        if (args.Key is "Escape")
+        {
+            dismissed = true;
+        }
+    }
+
+    private void Restore() => dismissed = false;
+
+    #endregion
+}

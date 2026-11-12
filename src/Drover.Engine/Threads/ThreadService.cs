@@ -66,11 +66,14 @@ public sealed class ThreadService(
             : new ThreadView(thread, (await runs.FindActiveRun(threadId, cancellationToken))?.Id);
     }
 
-    /// <summary>The thread's messages in order, or null when the caller may not see the thread.</summary>
+    /// <summary>
+    /// The thread's messages, or null when the caller may not see the thread: the conversation in order, then the
+    /// messages still pending in the order they were sent.
+    /// </summary>
     public async Task<IReadOnlyList<Message>?> ListMessages(Guid threadId, CancellationToken cancellationToken) =>
         await threads.FindThread(threadId, cancellationToken) is null
             ? null
-            : await messages.ListMessages(threadId, cancellationToken);
+            : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];

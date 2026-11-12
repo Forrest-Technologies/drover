@@ -1,0 +1,193 @@
+/* Drover design tokens. The only file that holds raw values.
+   Specified in docs/architecture/09-design-direction.md. Dark is primary. */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surfaces and text */
+  --dv-bg-0: #0A0C10;
+  --dv-bg-1: #10141B;
+  --dv-bg-2: #171C26;
+  --dv-bg-3: #202735;
+  --dv-line: #2B3445;
+  --dv-text: #E9EDF5;
+  --dv-text-2: #AEB7C7;
+  --dv-text-3: #8791A5;
+
+  /* The flat dim behind a modal dialog or sheet */
+  --dv-scrim: color-mix(in srgb, var(--dv-bg-0) 72%, transparent);
+
+  /* The three accents, one meaning each */
+  --dv-ember: #FFB454;
+  --dv-ion: #67E8F9;
+  --dv-violet: #B4A0FF;
+
+  /* Status */
+  --dv-ok: #4ADE80;
+  --dv-warn: #FACC15;
+  --dv-danger: #FF7A7A;
+
+  /* Text placed on a filled accent or status surface */
+  --dv-on-accent: #0A0C10;
+
+  /* Bot identity, twelve fixed steps */
+  --dv-hue-0: #F696B4;
+  --dv-hue-1: #FB9989;
+  --dv-hue-2: #EFA464;
+  --dv-hue-3: #D5B455;
+  --dv-hue-4: #ADC367;
+  --dv-hue-5: #7CCD8E;
+  --dv-hue-6: #4AD0BA;
+  --dv-hue-7: #3ECCE2;
+  --dv-hue-8: #69C1FC;
+  --dv-hue-9: #99B3FF;
+  --dv-hue-10: #C3A5F9;
+  --dv-hue-11: #E39BDC;
+
+  /* Type */
+  --dv-font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --dv-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --dv-text-12: 0.75rem;
+  --dv-text-13: 0.8125rem;
+  --dv-text-14: 0.875rem;
+  --dv-text-16: 1rem;
+  --dv-text-20: 1.25rem;
+  --dv-text-28: 1.75rem;
+  --dv-leading-text: 1.5;
+  --dv-leading-heading: 1.25;
+  --dv-weight-body: 400;
+  --dv-weight-label: 500;
+  --dv-weight-heading: 600;
+  --dv-measure: 65ch;
+
+  /* Space, on a 4 px base */
+  --dv-space-1: 4px;
+  --dv-space-2: 8px;
+  --dv-space-3: 12px;
+  --dv-space-4: 16px;
+  --dv-space-5: 24px;
+  --dv-space-6: 32px;
+  --dv-space-7: 48px;
+
+  /* Shape */
+  --dv-radius-control: 6px;
+  --dv-radius-card: 10px;
+  --dv-radius-sheet: 16px;
+  --dv-radius-full: 999px;
+  --dv-border: 1px;
+  --dv-focus-width: 2px;
+  --dv-focus-offset: 2px;
+  --dv-cut: 10px;
+
+  /* Sizes */
+  --dv-target-touch: 44px;
+  --dv-target-pointer: 32px;
+  --dv-icon-16: 16px;
+  --dv-icon-20: 20px;
+  --dv-avatar-20: 20px;
+  --dv-avatar-24: 24px;
+  --dv-avatar-32: 32px;
+  --dv-avatar-48: 48px;
+  --dv-avatar-96: 96px;
+  --dv-switch-width: 36px;
+  --dv-switch-height: 20px;
+  --dv-switch-thumb: 14px;
+  --dv-dialog-width: 480px;
+  --dv-sheet-width: 400px;
+  --dv-menu-width: 200px;
+  --dv-toast-width: 360px;
+  --dv-image-width: 480px;
+  --dv-image-ratio: 16 / 9;
+  --dv-tooltip-width: 240px;
+  --dv-grid-step: 16px;
+  --dv-travel-width: 25%;
+
+  /* Motion */
+  --dv-dur-1: 120ms;
+  --dv-dur-2: 220ms;
+  --dv-dur-3: 420ms;
+  --dv-dur-breath: 2600ms;
+  --dv-dur-travel: 1300ms;
+  --dv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Light for live things only. Never applied to anything at rest. */
+  --dv-bloom-ion: 0 0 var(--dv-space-2) var(--dv-ion);
+  --dv-bloom-violet: 0 0 var(--dv-space-2) var(--dv-violet);
+
+  /* Layers */
+  --dv-layer-menu: 10;
+  --dv-layer-toast: 20;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --dv-bg-0: #F6F7FA;
+    --dv-bg-1: #FFFFFF;
+    --dv-bg-2: #EEF0F5;
+    --dv-bg-3: #E2E6EE;
+    --dv-line: #D5DAE3;
+    --dv-text: #12151C;
+    --dv-text-2: #414B5E;
+    --dv-text-3: #5D6779;
+    --dv-ember: #8F5400;
+    --dv-ion: #0B6E82;
+    --dv-violet: #5B3FD6;
+    --dv-ok: #15703A;
+    --dv-warn: #7A5A00;
+    --dv-danger: #B3261E;
+    --dv-on-accent: #FFFFFF;
+    --dv-hue-0: #95385B;
+    --dv-hue-1: #993A2E;
+    --dv-hue-2: #904700;
+    --dv-hue-3: #7A5800;
+    --dv-hue-4: #556700;
+    --dv-hue-5: #067132;
+    --dv-hue-6: #007460;
+    --dv-hue-7: #006F86;
+    --dv-hue-8: #00649E;
+    --dv-hue-9: #4256A6;
+    --dv-hue-10: #6A499B;
+    --dv-hue-11: #853E80;
+  }
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --dv-bg-0: #F6F7FA;
+  --dv-bg-1: #FFFFFF;
+  --dv-bg-2: #EEF0F5;
+  --dv-bg-3: #E2E6EE;
+  --dv-line: #D5DAE3;
+  --dv-text: #12151C;
+  --dv-text-2: #414B5E;
+  --dv-text-3: #5D6779;
+  --dv-ember: #8F5400;
+  --dv-ion: #0B6E82;
+  --dv-violet: #5B3FD6;
+  --dv-ok: #15703A;
+  --dv-warn: #7A5A00;
+  --dv-danger: #B3261E;
+  --dv-on-accent: #FFFFFF;
+  --dv-hue-0: #95385B;
+  --dv-hue-1: #993A2E;
+  --dv-hue-2: #904700;
+  --dv-hue-3: #7A5800;
+  --dv-hue-4: #556700;
+  --dv-hue-5: #067132;
+  --dv-hue-6: #007460;
+  --dv-hue-7: #006F86;
+  --dv-hue-8: #00649E;
+  --dv-hue-9: #4256A6;
+  --dv-hue-10: #6A499B;
+  --dv-hue-11: #853E80;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dv-dur-1: 0ms;
+    --dv-dur-2: 0ms;
+    --dv-dur-3: 0ms;
+  }
+}

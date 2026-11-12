@@ -13,7 +13,7 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
     {
         var messageId = await BeginStep();
         var response = await inner.GetResponse(request, cancellation);
-        session.EndStep();
+        await session.EndStep();
         await RecordBalances(response.Balances);
         return response with { Messages = [.. response.Messages.Select(message => message with { Id = messageId })] };
     }
@@ -35,7 +35,7 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
             yield return update with { MessageId = messageId };
         }
 
-        session.EndStep();
+        await session.EndStep();
         await RecordBalances(balances);
     }
 

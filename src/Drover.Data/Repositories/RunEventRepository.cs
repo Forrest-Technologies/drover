@@ -15,33 +15,56 @@ public sealed class RunEventRepository(DroverDbContext db)
     /// <summary>
     /// Appends the events in order and returns them as stored. Pending tracked changes are saved first, so the rows
     /// the events point at exist. The time of each event is the database's clock after the lock is held, so it
-    /// follows commit order too.
+    /// follows commit order too. An execution passes its <paramref name="fence"/>: if the run belongs to another
+    /// claim by now, nothing is appended and <see cref="LeaseLostException"/> is thrown, so the caller's transaction
+    /// rolls back with it.
     /// </summary>
     public async Task<IReadOnlyList<RunEvent>> Append(
         Guid rootRunId,
         ChatThread thread,
         IReadOnlyList<NewRunEvent> events,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RunFence? fence = null)
     {
         if (events.Count == 0)
         {
             return [];
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-        var last = await db.Database
-            .SqlQuery<long>(
+        // An execution's claim is checked before anything else of the transaction is written: the status change that
+        // travels with a final event clears the lease, and must not be mistaken for a lost one. A request has no
+        // claim, and its new run row must exist before its first event can count against it.
+        if (fence is null)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var fenced = fence is not null;
+        var last = await (fence is null
+            ? db.Database.SqlQuery<long>(
                 $"""
                 UPDATE runs SET last_event_seq = last_event_seq + {events.Count}
                 WHERE id = {rootRunId} RETURNING last_event_seq AS "Value"
                 """)
+            : db.Database.SqlQuery<long>(
+                $"""
+                UPDATE runs SET last_event_seq = last_event_seq + {events.Count}
+                WHERE id = {rootRunId} AND lease_owner = {fence.Worker} AND attempt = {fence.Attempt} AND status = 'running'
+                RETURNING last_event_seq AS "Value"
+                """))
             .ToListAsync(cancellationToken);
+
+        if (last.Count != 1 && fenced)
+        {
+            throw new LeaseLostException(rootRunId);
+        }
 
         if (last.Count != 1)
         {
             throw new InvalidOperationException($"Root run {rootRunId} is not visible, so nothing can be appended to its events.");
         }
 
+        await db.SaveChangesAsync(cancellationToken);
         var seq = last[0] - events.Count;
         List<RunEvent> stored = [];
 

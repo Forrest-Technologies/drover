@@ -176,7 +176,7 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
         using var ownStream = await client.Open(Events(spaceId, runId));
 
         memberStream.StatusCode.Should().Be(HttpStatusCode.NotFound, "a private thread's events are its owner's alone");
-        memberRun.StatusCode.Should().Be(HttpStatusCode.OK, "the run row itself is metadata any member may see");
+        memberRun.StatusCode.Should().Be(HttpStatusCode.NotFound, "a run id tells a member nothing about another member's private thread");
         outsiderStream.StatusCode.Should().Be(HttpStatusCode.NotFound);
         outsiderOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound, "a run id from another space finds nothing in one's own");
         signedOut.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.NotFound);
@@ -270,9 +270,23 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
         var space = $"/api/spaces/{Person.SpaceId}";
         var connection = await PostFor<ModelConnectionSummary>(client, $"{space}/model-connections", new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
         var bot = await PostFor<BotSummary>(client, $"{space}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null));
+        await GrantGate(bot.Id);
         var thread = await PostFor<ThreadSummary>(client, $"{space}/bots/{bot.Id}/threads", new CreateThreadRequest(null));
         var sent = await PostFor<SendMessageResponse>(client, $"{space}/threads/{thread.Id}/messages", new SendMessageRequest(text));
         return (client, Person.SpaceId, sent.Run.Id);
+    }
+
+    /// <summary>A new bot gets only the tools on the default list. The gate is granted here, as a person would in the bot editor.</summary>
+    private async Task GrantGate(Guid botId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(Person.SpaceId, Person.UserId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        var gateTool = await db.Tools.SingleAsync(tool => tool.Name == "test.gate", Token);
+        db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = gateTool.Id, Effect = GrantEffect.Allow, GrantedByUserId = Person.UserId });
+        await db.SaveChangesAsync(Token);
+        await work.Commit(Token);
     }
 
     private static async Task<T> PostFor<T>(ApiClient client, string path, object body)

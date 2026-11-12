@@ -38,24 +38,36 @@ public sealed partial class Redactor(IEnumerable<string?> revealedSecrets)
     }
 
     /// <summary>The same JSON with every string in it, keys included, redacted.</summary>
-    public JsonElement Redact(JsonElement value)
-    {
-        var node = JsonNode.Parse(value.GetRawText());
-        return JsonSerializer.SerializeToElement(Redact(node));
-    }
+    public JsonElement Redact(JsonElement value) => JsonSerializer.SerializeToElement(RedactNode(value));
 
     #endregion
 
     #region Private Methods
 
-    private JsonNode? Redact(JsonNode? node) => node switch
+    private JsonNode? RedactNode(JsonElement value) => value.ValueKind switch
     {
-        JsonObject found => new JsonObject(found.Select(property =>
-            new KeyValuePair<string, JsonNode?>(Redact(property.Key), Redact(property.Value?.DeepClone())))),
-        JsonArray found => new JsonArray([.. found.Select(item => Redact(item?.DeepClone()))]),
-        JsonValue found when found.TryGetValue<string>(out var text) => JsonValue.Create(Redact(text)),
-        _ => node,
+        JsonValueKind.Object => RedactObject(value),
+        JsonValueKind.Array => new JsonArray([.. value.EnumerateArray().Select(RedactNode)]),
+        JsonValueKind.String => JsonValue.Create(Redact(value.GetString() ?? string.Empty)),
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        _ => JsonNode.Parse(value.GetRawText()),
     };
+
+    /// <summary>
+    /// Keys are assigned, not added. Model-written arguments can repeat a key, and two keys can redact to the same
+    /// text; neither may fail the run, so the last one wins, as it does for most readers of JSON.
+    /// </summary>
+    private JsonObject RedactObject(JsonElement value)
+    {
+        var redacted = new JsonObject();
+
+        foreach (var property in value.EnumerateObject())
+        {
+            redacted[Redact(property.Name)] = RedactNode(property.Value);
+        }
+
+        return redacted;
+    }
 
     // Provider keys, GitHub and Slack tokens, AWS access key ids, JSON web tokens, bearer headers, PEM private keys.
     [GeneratedRegex(
