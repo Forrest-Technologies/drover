@@ -1,0 +1,13 @@
+global using System;
+global using System.Collections.Generic;
+global using System.Globalization;
+global using System.IO;
+global using System.Linq;
+global using System.Text.RegularExpressions;
+global using System.Threading.Tasks;
+global using AwesomeAssertions;
+global using Bunit;
+global using Drover.Ui.Components;
+global using Microsoft.AspNetCore.Components;
+global using Microsoft.AspNetCore.Components.Web;
+global using Xunit;

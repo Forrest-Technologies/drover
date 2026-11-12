@@ -1,0 +1,190 @@
+/* Fonts, page defaults, focus, and the four live-state classes.
+   Every value comes from tokens.css. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--dv-bg-0);
+  color: var(--dv-text);
+  font-family: var(--dv-font-ui);
+  font-size: 100%;
+  line-height: var(--dv-leading-text);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-size: var(--dv-text-14);
+  font-weight: var(--dv-weight-body);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: var(--dv-weight-heading);
+  line-height: var(--dv-leading-heading);
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--dv-text-28);
+}
+
+h2 {
+  font-size: var(--dv-text-20);
+}
+
+h3 {
+  font-size: var(--dv-text-16);
+}
+
+p {
+  margin: 0;
+  max-width: var(--dv-measure);
+}
+
+a {
+  color: var(--dv-ember);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-13);
+}
+
+:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+.dv-visually-hidden {
+  position: absolute;
+  width: var(--dv-border);
+  height: var(--dv-border);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Live state: a bot is thinking. A slow breath, with light. */
+.dv-state-thinking {
+  color: var(--dv-ion);
+  filter: drop-shadow(var(--dv-bloom-ion));
+  animation: dv-breath var(--dv-dur-breath) ease-in-out infinite;
+}
+
+/* Live state: text is streaming. The newest characters fade in. */
+.dv-state-streaming {
+  animation: dv-arrive var(--dv-dur-1) var(--dv-ease);
+}
+
+/* Live state: a tool is running. A line travels the top edge. */
+.dv-state-tool {
+  position: relative;
+  overflow: hidden;
+}
+
+.dv-state-tool::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--dv-travel-width);
+  height: var(--dv-focus-width);
+  background: var(--dv-ion);
+  box-shadow: var(--dv-bloom-ion);
+  animation: dv-travel var(--dv-dur-travel) linear infinite;
+}
+
+/* Live state: work passes between bots. One pulse, out and back. */
+.dv-state-delegation {
+  color: var(--dv-violet);
+  filter: drop-shadow(var(--dv-bloom-violet));
+  animation: dv-pulse var(--dv-dur-3) var(--dv-ease) 2 alternate;
+}
+
+@keyframes dv-breath {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes dv-arrive {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dv-travel {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes dv-pulse {
+  from {
+    opacity: 0.35;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-state-thinking,
+  .dv-state-streaming,
+  .dv-state-delegation {
+    animation: none;
+  }
+
+  .dv-state-tool::before {
+    animation: none;
+    width: 100%;
+  }
+}
