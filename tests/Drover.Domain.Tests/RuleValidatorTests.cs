@@ -38,6 +38,7 @@ public sealed class RuleValidatorTests
         { "a tool condition on a reply", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["x"] }], "belongs to a rule about a tool" },
         { "no tool named", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs }], "Name at least one tool" },
         { "an argument on a result", RuleCheckpoint.AfterTool, RuleEffect.Block, [Holds() with { Argument = "body" }], "only before a tool is used" },
+        { "a list whose input names are only commas", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["email.send"] }, new() { Kind = RuleConditionKind.NotInList, Argument = " , ", Entries = ["x"] }], "Name the input" },
         { "a list that names an input and no tool", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["x"] }], "name the tools" },
         { "a blank entry", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", " "] }], "no blank entry" },
         { "a long list", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = [.. Enumerable.Range(0, 51).Select(number => $"v{number}")] }], "Keep it to 50" },

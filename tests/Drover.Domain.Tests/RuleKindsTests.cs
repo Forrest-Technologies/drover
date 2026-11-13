@@ -15,7 +15,8 @@ public sealed class RuleKindsTests
 
     private static readonly DateTimeOffset tuesdayNight = new(2026, 11, 10, 23, 30, 0, TimeSpan.Zero);
 
-    private static readonly TimeSpan slack = TimeSpan.FromMilliseconds(500);
+    // The stated bound for one evaluation, whatever it is given: the wall-clock backstop and a second for the rest.
+    private static readonly TimeSpan bound = RuleBudget.Backstop + TimeSpan.FromSeconds(1);
 
     private static readonly int[] primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 1009, 7919];
 
@@ -90,85 +91,134 @@ public sealed class RuleKindsTests
     #region One Budget, One Cap
 
     [Fact]
-    public void A_long_sample_against_many_card_rules_costs_no_more_than_the_budget()
+    public void Many_rules_that_ask_the_same_thing_of_a_long_text_search_it_once()
     {
-        var watch = Stopwatch.StartNew();
+        var text = Cards(20_000);
+        var budget = new RuleBudget(RuleBudget.MaxWork);
 
-        RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.BeforeReply), Reply(Digits(20_000)));
+        var outcome = RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.BeforeReply), Reply(text), budget)!;
 
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack, "this took 7.3 seconds");
+        outcome.RedactedText.Should().Contain(RuleEvaluator.Redaction).And.NotContain("4111", "every card in the sample is found");
+        budget.Spent.Should().BeLessThan(text.Length * 20L, "five hundred conditions that ask for a card are one search of the text, one check each, and one rewrite");
     }
 
     [Fact]
-    public void A_long_tool_result_against_many_card_rules_costs_no_more_than_the_budget()
+    public void A_long_tool_result_with_cards_in_it_is_searched_within_the_budget()
     {
-        var subject = new RuleSubject { Checkpoint = RuleCheckpoint.AfterTool, ToolName = "web.fetch", ToolKind = ToolSensitivity.Read, Json = JsonSerializer.SerializeToElement(new { page = Digits(100_000) }), Now = tuesdayNight };
-        var watch = Stopwatch.StartNew();
+        var page = Cards(100_000);
+        var subject = new RuleSubject { Checkpoint = RuleCheckpoint.AfterTool, ToolName = "web.fetch", ToolKind = ToolSensitivity.Read, Json = JsonSerializer.SerializeToElement(new { page }), Now = tuesdayNight };
+        var budget = new RuleBudget(RuleBudget.MaxWork);
 
-        RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.AfterTool), subject);
+        var outcome = RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.AfterTool), subject, budget)!;
 
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack, "this took 36 seconds");
+        outcome.Effect.Should().Be(RuleEffect.Redact);
+        outcome.RedactedJson!.Value.GetRawText().Should().NotContain("4111");
+        budget.Spent.Should().BeLessThan(page.Length * 20L);
+    }
+
+    [Fact]
+    public void Work_is_counted_so_the_same_input_always_gets_the_same_answer()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Block, Contains("zebra"));
+        var text = new string('a', 10_000);
+        var enough = new RuleBudget(RuleBudget.MaxWork);
+
+        RuleEvaluator.Evaluate([rule], Reply(text), enough).Should().BeNull();
+        var needed = enough.Spent;
+        needed.Should().BeGreaterThanOrEqualTo(text.Length, "reading a text is work");
+
+        RuleEvaluator.Evaluate([rule], Reply(text), new RuleBudget(needed)).Should().BeNull("exactly the work it takes is enough, every time");
+        var lacking = RuleEvaluator.Evaluate([rule], Reply(text), new RuleBudget(needed - 1));
+        lacking.Should().NotBeNull("one unit less is not, every time");
+        lacking!.Why.Should().Contain("could not be checked");
     }
 
     [Fact]
     public void A_text_over_the_cap_is_not_searched_and_takes_each_rules_effect()
     {
-        var text = new string('a', RuleBudget.MaxCharacters + 1);
-        var watch = Stopwatch.StartNew();
+        var budget = new RuleBudget(RuleBudget.MaxWork);
 
-        var outcome = RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.BeforeReply), Reply(text));
+        var outcome = RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.BeforeReply), Reply(new string('a', RuleBudget.MaxCharacters + 1)), budget);
 
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack, "a megabyte took 300 seconds and then ran out of memory");
         outcome.Should().NotBeNull("what could not be checked is not let through");
         outcome!.Effect.Should().Be(RuleEffect.Block, "a rule that removes text cannot say what is left of a text it did not read");
         outcome.Why.Should().Contain("too much to check");
+        budget.Spent.Should().Be(0, "a text over the cap is not read at all");
     }
 
     [Fact]
-    public void Very_many_small_pieces_cost_no_more_than_the_budget()
+    public void Very_many_small_pieces_are_too_much_to_check()
     {
         var subject = new RuleSubject { Checkpoint = RuleCheckpoint.AfterTool, ToolName = "db.query", ToolKind = ToolSensitivity.Read, Json = JsonSerializer.SerializeToElement(Enumerable.Repeat("ok", 200_000)), Now = tuesdayNight };
-        var watch = Stopwatch.StartNew();
 
         var outcome = RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.AfterTool), subject);
 
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack, "200,000 tiny leaves took 9.2 seconds");
-        outcome.Should().NotBeNull("more leaves than an evaluation looks at is too much to check");
-    }
-
-    [Fact]
-    public void A_long_text_in_another_script_costs_no_more_than_the_budget()
-    {
-        var watch = Stopwatch.StartNew();
-
-        RuleEvaluator.Evaluate(ManyCardRules(RuleCheckpoint.BeforeReply), Reply(new string('é', RuleBudget.MaxCharacters)));
-
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack, "a million characters outside ASCII took 37 seconds");
-    }
-
-    [Fact]
-    public void A_slow_pattern_on_a_short_text_costs_no_more_than_the_budget()
-    {
-        RuleCondition[] slow = [.. Enumerable.Repeat(Matches("a+b|a"), 10)];
-        ActiveRule[] rules = [.. Enumerable.Range(0, 50).Select(_ => Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, slow))];
-        var watch = Stopwatch.StartNew();
-
-        var outcome = RuleEvaluator.Evaluate(rules, Reply(new string('a', 4096)));
-
-        watch.Elapsed.Should().BeLessThan(RuleBudget.Default + slack);
         outcome.Should().NotBeNull();
+        outcome!.Why.Should().Contain("too much to check");
     }
 
     [Fact]
-    public void A_rule_that_ran_out_of_time_says_so_and_does_not_blame_the_name_of_an_input()
+    public void A_rule_that_ran_out_of_work_says_so_and_does_not_blame_the_name_of_an_input()
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Redact, Contains("zebra"));
         var subject = new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = "note.write", ToolKind = ToolSensitivity.Write, Json = JsonSerializer.SerializeToElement(new { note = "hello" }), Now = tuesdayNight };
 
-        var outcome = RuleEvaluator.Evaluate([rule], subject, new RuleBudget(TimeSpan.Zero))!;
+        var outcome = RuleEvaluator.Evaluate([rule], subject, new RuleBudget(0))!;
 
         outcome.Effect.Should().Be(RuleEffect.Block);
-        outcome.Why.Should().Contain("in time").And.NotContain("name of an input");
+        outcome.Why.Should().Contain("could not be checked").And.NotContain("name of an input");
+    }
+
+    #endregion
+
+    #region No Condition Outruns The Budget
+
+    public static TheoryData<RuleConditionKind, bool> EveryKind
+    {
+        get
+        {
+            TheoryData<RuleConditionKind, bool> kinds = [];
+
+            foreach (var kind in Enum.GetValues<RuleConditionKind>())
+            {
+                kinds.Add(kind, false);
+            }
+
+            // A list has two forms: on named inputs, and on every address anywhere in the input.
+            kinds.Add(RuleConditionKind.NotInList, true);
+            return kinds;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void No_condition_kind_takes_longer_than_the_bound_on_any_hostile_input(RuleConditionKind kind, bool anywhere)
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Redact, [ToolIs("sample.tool"), .. Enumerable.Repeat(Hostile(kind, anywhere), 10)]) with { Effect = kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds ? RuleEffect.Redact : RuleEffect.Block };
+        ActiveRule[] rules = [.. Enumerable.Repeat(rule, 50)];
+
+        foreach (var (shape, arguments) in HostileInputs())
+        {
+            var subject = new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = "sample.tool", ToolKind = ToolSensitivity.Write, Json = arguments, Now = tuesdayNight, ToolCalls = 1_000_000 };
+            var watch = Stopwatch.StartNew();
+
+            RuleEvaluator.Evaluate(rules, subject);
+
+            watch.Elapsed.Should().BeLessThan(bound, $"fifty rules of ten {kind} conditions on {shape} must end within the bound");
+        }
+    }
+
+    [Fact]
+    public void One_address_rule_on_a_long_run_of_at_signs_is_one_pass_and_does_not_let_it_through()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] });
+        var text = new string('@', 200_000);
+        var budget = new RuleBudget(RuleBudget.MaxWork);
+
+        var outcome = RuleEvaluator.Evaluate([rule], Call("note.write", JsonSerializer.Serialize(new { note = text })), budget);
+
+        outcome.Should().NotBeNull("this took 108 seconds and then passed");
+        budget.Spent.Should().BeLessThan(text.Length * 4L, "the text is read once and tokenised once");
     }
 
     #endregion
@@ -203,32 +253,47 @@ public sealed class RuleKindsTests
     #region Addresses Anywhere: A Pattern
 
     [Theory]
-    [InlineData("mallory%40evil.test")]
+    [InlineData("mallory@evil.test")]
     [InlineData("mallory!@evil.test")]
-    [InlineData("\\\"mal lory\\\"@evil.test")]
     [InlineData("mallory@[203.0.113.5]")]
-    [InlineData("mallory@evil。test")]
-    [InlineData("mallory@еvil.test")]
+    [InlineData("mallory@evil\u3002test")]
+    [InlineData("mallory@\u0435vil.test")]
     [InlineData("see https://example.org/?next=mallory@evil.test")]
-    public void An_address_off_the_list_is_found_in_the_forms_people_use_to_hide_one(string value)
+    [InlineData("ann\u200B@example.org")]
+    [InlineData("git@github.com:org/repo")]
+    [InlineData("npm i @types/node@20.1.0")]
+    public void A_token_with_an_at_sign_that_is_not_a_listed_address_or_host_is_off_the_list(string value)
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] });
 
-        RuleEvaluator.Evaluate([rule], Call("email.send", $$"""{"note":"{{value}}"}""")).Should().NotBeNull();
+        RuleEvaluator.Evaluate([rule], Call("shell.run", JsonSerializer.Serialize(new { command = value }))).Should().NotBeNull("anything with an @ in it has to be listed: to let one through, list its host");
     }
 
     [Theory]
-    [InlineData("npm i @types/node@20.1.0")]
+    [InlineData("ann@example.org")]
+    [InlineData("ANN@Example.ORG")]
+    [InlineData("100% done, mail ann@example.org")]
+    [InlineData("mailto:ann@example.org")]
     [InlineData("https://example.org/?to=ann@example.org")]
     [InlineData("Ann Example <ann@example.org>")]
     [InlineData("git log --author=ann@mail.example.org")]
-    [InlineData("user@host:~/work$ ls")]
-    [InlineData("an @mention and a price @ 4.50")]
-    public void What_is_not_an_address_or_is_a_listed_one_inside_other_text_raises_no_alarm(string value)
+    [InlineData("Write to ann@example.org.")]
+    [InlineData("no address here, 50% off")]
+    public void A_listed_address_inside_other_text_raises_no_alarm(string value)
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] });
 
         RuleEvaluator.Evaluate([rule], Call("shell.run", JsonSerializer.Serialize(new { command = value }))).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_listed_address_lists_that_address_and_no_other_at_its_host()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["sam@example.org"] });
+
+        RuleEvaluator.Evaluate([rule], Call("email.send", """{"note":"mailto:Sam@Example.org"}""")).Should().BeNull();
+        RuleEvaluator.Evaluate([rule], Call("email.send", """{"note":"x.sam@example.org"}""")).Should().NotBeNull();
+        RuleEvaluator.Evaluate([rule], Call("email.send", """{"note":"ann@example.org"}""")).Should().NotBeNull();
     }
 
     #endregion
@@ -272,6 +337,30 @@ public sealed class RuleKindsTests
         outcome.Effect.Should().Be(RuleEffect.Block);
         outcome.Why.Should().Contain("not text");
         outcome.RedactedJson!.Value.GetRawText().Should().NotContain(RuleEvaluator.Redaction);
+    }
+
+    [Fact]
+    public void Inputs_that_share_a_name_cannot_be_rewritten_so_a_rule_that_would_blocks()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Redact, Contains("zebra"));
+
+        var outcome = RuleEvaluator.Evaluate([rule], Call("note.write", """{"a":"zebra","a":"keep"}"""))!;
+
+        outcome.Effect.Should().Be(RuleEffect.Block, "rewriting would keep only one of the two");
+        outcome.Why.Should().Contain("share a name");
+        outcome.RedactedJson!.Value.GetRawText().Should().NotContain("zebra");
+    }
+
+    [Fact]
+    public void A_rule_that_blocks_on_a_secret_in_a_name_keeps_nothing_of_the_call()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, Holds(BuiltinPattern.Key));
+
+        var outcome = RuleEvaluator.Evaluate([rule], Call("note.write", """{"sk-sample0000000000000000":"hello"}"""))!;
+
+        outcome.Effect.Should().Be(RuleEffect.Block);
+        outcome.RedactedJson.Should().NotBeNull("a name cannot be removed from a call, so the stored copy of the call is emptied");
+        outcome.RedactedJson!.Value.GetRawText().Should().NotContain("sk-sample");
     }
 
     [Fact]
@@ -325,23 +414,64 @@ public sealed class RuleKindsTests
     private static RuleSubject Call(string tool, string arguments) =>
         new() { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = tool, ToolKind = ToolSensitivity.Write, Json = JsonElement.Parse(arguments), Now = tuesdayNight };
 
-    // Groups of digits parted by single spaces: the shape that costs a card search the most.
-    private static string Digits(int length)
+    // Card after card, each standing alone, so every one of them is found.
+    private static string Cards(int length)
     {
         var text = new StringBuilder(length);
 
         while (text.Length < length)
         {
-            text.Append("4111 1111 1111 1111 ");
+            text.Append("4111 1111 1111 1111 and ");
         }
 
-        return text.ToString(0, length);
+        return text.ToString(0, length - (length % 24));
+    }
+
+    // A condition of each kind, written to be as costly as that kind can be. A kind that is not here fails the test.
+    private static RuleCondition Hostile(RuleConditionKind kind, bool anywhere) => kind switch
+    {
+        RuleConditionKind.ToolIs => ToolIs("sample.tool"),
+        RuleConditionKind.ToolKind => new() { Kind = kind, ToolKinds = [ToolSensitivity.Write] },
+        RuleConditionKind.TextContains => Contains("@", "%", ".", "4", "a", "\"", "<", " ", "aa", "@a"),
+        RuleConditionKind.TextMatches => Matches("a+b|a|@+%|4+5"),
+        RuleConditionKind.TextHolds => Holds(BuiltinPattern.CardNumber),
+        RuleConditionKind.NotInList => new() { Kind = kind, Argument = anywhere ? null : "text, list, deep", Entries = ["example.org"] },
+        RuleConditionKind.TimeIs => new() { Kind = kind, From = "00:00", To = "23:59", TimeZone = "UTC" },
+        RuleConditionKind.RunExceeds => new() { Kind = kind, Counter = RunCounter.ToolCalls, Limit = 1 },
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Add the new condition kind to the hostile inputs test."),
+    };
+
+    // Inputs built to make a scanner do the most work: one character repeated, pairs, deep nesting, tiny leaves.
+    private static IEnumerable<(string Shape, JsonElement Arguments)> HostileInputs()
+    {
+        int[] sizes = [1_000, 60_000, RuleBudget.MaxCharacters - 16];
+        string[] units = ["@", "%", ".", "4", "a", "\"", "<", " ", "@a", "4 ", "a@", "%4", "4111 "];
+
+        foreach (var size in sizes)
+        {
+            foreach (var unit in units)
+            {
+                var text = string.Concat(Enumerable.Repeat(unit, size / unit.Length));
+                yield return ($"{size:N0} characters of '{unit}'", JsonSerializer.SerializeToElement(new { text }));
+            }
+        }
+
+        yield return ("many tiny leaves", JsonSerializer.SerializeToElement(new { list = Enumerable.Repeat("a@", RuleBudget.MaxLeaves - 8) }));
+        yield return ("more leaves than the cap", JsonSerializer.SerializeToElement(new { list = Enumerable.Repeat("4", 200_000) }));
+        yield return ("deep nesting", JsonElement.Parse($"{{\"deep\":{new string('[', 60)}\"a@4%\"{new string(']', 60)}}}"));
     }
 
     // One piece of ordinary data of a kind, from a seeded source, so the rates are the same on every run.
     private static string Ordinary(string kind, Random random)
     {
         string Number(int digits) => string.Concat(Enumerable.Range(0, digits).Select(place => (char)('0' + random.Next(place == 0 ? 1 : 0, 10))));
+        string Uuid()
+        {
+            var bytes = new byte[16];
+            random.NextBytes(bytes);
+            return new Guid(bytes).ToString();
+        }
+
         string Date() => $"{random.Next(2019, 2031)}-{random.Next(1, 13):00}-{random.Next(1, 29):00}";
         string Clock() => $"{random.Next(0, 24):00}:{random.Next(0, 60):00}:{random.Next(0, 60):00}";
         string Price() => $"{random.Next(1, 5000)}.{random.Next(0, 100):00}";
@@ -362,7 +492,7 @@ public sealed class RuleKindsTests
             "phone numbers" => Phone(),
             "two phone numbers" => $"{Phone()} {Phone()}",
             "coordinates" => $"{random.Next(-89, 90)}.{Number(6)}, {random.Next(-179, 180)}.{Number(6)} {random.Next(-89, 90)}.{Number(6)} {random.Next(-179, 180)}.{Number(6)}",
-            "ids" => $"{Guid.CreateVersion7()} #{Number(random.Next(4, 13))} order-{Number(6)}-{Number(4)} {Number(10)} {Number(12)}",
+            "ids" => $"{Uuid()} #{Number(random.Next(4, 13))} order-{Number(6)}-{Number(4)} {Number(10)} {Number(12)}",
             "csv rows" => string.Join(random.Next(0, 2) == 0 ? "," : " ", Enumerable.Range(0, 8).Select(_ => random.Next(0, 10_000).ToString(CultureInfo.InvariantCulture))),
             "primes" => string.Join(' ', Enumerable.Range(0, 12).Select(_ => primes[random.Next(0, primes.Length)])),
             _ => $"{random.Next(1, 10)}.{Number(14)} * {random.Next(2, 99)} = {random.Next(1, 999)}.{Number(12)}",

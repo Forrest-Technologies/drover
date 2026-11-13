@@ -79,27 +79,30 @@ public static partial class RulePatterns
     }
 
     /// <summary>
-    /// Every place in the text where the expression matches, as start and length. A search that runs out of the
-    /// evaluation's budget gives the whole text: the rule applies and, if it redacts, nothing of the text is let
-    /// through. So does an expression that was given a time limit of its own and ran out of it.
+    /// Every place in the text where the expression matches, as start and length, or null when the budget could not
+    /// pay for the search: one reading of the text, and each match by how far it moved on. An expression that was
+    /// given a time limit of its own and ran out of it could not be searched either.
     /// </summary>
-    public static List<(int Start, int Length)> Find(Regex expression, string text, RuleBudget budget)
+    public static List<(int Start, int Length)>? Find(Regex expression, string text, RuleBudget budget)
     {
-        if (text.Length == 0)
+        if (!budget.TrySpend(text.Length))
         {
-            return [];
+            return null;
         }
 
         try
         {
             List<(int, int)> found = [];
+            var from = 0;
 
             for (var match = expression.Match(text); match.Success; match = match.NextMatch())
             {
-                if (budget.IsSpent)
+                if (!budget.TrySpend(match.Index + match.Length - from + 1))
                 {
-                    return [(0, text.Length)];
+                    return null;
                 }
+
+                from = match.Index + match.Length;
 
                 if (match.Length > 0)
                 {
@@ -107,20 +110,21 @@ public static partial class RulePatterns
                 }
             }
 
-            return budget.IsSpent ? [(0, text.Length)] : found;
+            return found;
         }
         catch (RegexMatchTimeoutException ranOut)
         {
-            // The whole text, by its own length: what the exception carries of the input can be empty.
-            return [(0, Math.Max(text.Length, ranOut.Input.Length))];
+            // The text was not searched to its end, so it could not be checked. Only a limit that is not one could
+            // mean otherwise, and there is none.
+            return ranOut.MatchTimeout == Timeout.InfiniteTimeSpan ? [] : null;
         }
     }
 
-    public static List<(int Start, int Length)> Find(BuiltinPattern builtin, string text, RuleBudget budget) => builtin switch
+    public static List<(int Start, int Length)>? Find(BuiltinPattern builtin, string text, RuleBudget budget) => builtin switch
     {
         BuiltinPattern.EmailAddress => Find(email, text, budget),
         BuiltinPattern.Key => Find(key, text, budget),
-        _ => FindCards(text),
+        _ => FindCards(text, budget),
     };
 
     /// <summary>What a built-in pattern finds, in words for a sentence: "a card number".</summary>
@@ -141,8 +145,14 @@ public static partial class RulePatterns
     // sides. It has to begin the way a card network's numbers begin, have a length that network uses, and pass
     // Luhn. Other spellings (dots, double spaces, single digits) are not looked for: looking for them takes
     // dates, prices, and rows of numbers for cards.
-    private static List<(int Start, int Length)> FindCards(string text)
+    private static List<(int Start, int Length)>? FindCards(string text, RuleBudget budget)
     {
+        // One pass over the text. A group of four looks a bounded way ahead, so the pass stays one reading.
+        if (!budget.TrySpend(text.Length))
+        {
+            return null;
+        }
+
         List<(int Start, int Length)> found = [];
 
         for (var index = 0; index < text.Length;)

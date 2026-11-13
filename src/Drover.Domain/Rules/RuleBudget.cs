@@ -1,23 +1,39 @@
 namespace Drover.Domain.Rules;
 
 /// <summary>
-/// What one evaluation may spend: a length of time that covers everything it does (reading the text into its plain
-/// form, every search, every rewrite), and a size it will look at. The clock starts when the budget is made. Once
-/// the time is spent, or when there is more than the size, what is still to be decided cannot be checked, and a
-/// rule that could not be checked applies.
+/// What one evaluation may spend. Work is counted, not timed: every loop that looks at text spends units from the
+/// one budget of its evaluation (a unit is a character examined, or one piece looked at), so the same input gets
+/// the same answer on a busy server and an idle one. There is no way to search text without a budget. When the
+/// budget is spent, what is still to be decided could not be checked, and a rule that could not be checked
+/// applies. A clock runs as well, as a backstop only, for the one cost units cannot see: what a written pattern
+/// does inside the expression engine.
 /// </summary>
-public sealed class RuleBudget(TimeSpan limit)
+public sealed class RuleBudget(long work, TimeSpan backstop)
 {
     #region Private Fields
 
     private readonly Stopwatch running = Stopwatch.StartNew();
 
+    private bool spent;
+
+    #endregion
+
+    #region Constructors
+
+    public RuleBudget(long work)
+        : this(work, Backstop)
+    {
+    }
+
     #endregion
 
     #region Properties
 
-    /// <summary>What one evaluation gets. A person's own patterns finish in far less; this stops the ones built not to.</summary>
-    public static TimeSpan Default { get; } = TimeSpan.FromSeconds(1);
+    /// <summary>The work one evaluation gets: about a hundred readings of the most text it will look at.</summary>
+    public static long MaxWork => 50_000_000;
+
+    /// <summary>The longest one evaluation may run, whatever its work comes to.</summary>
+    public static TimeSpan Backstop { get; } = TimeSpan.FromSeconds(2);
 
     /// <summary>The most characters one evaluation looks at, over all its pieces of text. More is too much to check.</summary>
     public static int MaxCharacters => 500_000;
@@ -25,7 +41,31 @@ public sealed class RuleBudget(TimeSpan limit)
     /// <summary>The most pieces of text (strings, numbers, flags, names) one evaluation looks at.</summary>
     public static int MaxLeaves => 20_000;
 
-    public bool IsSpent => running.Elapsed >= limit;
+    /// <summary>The units of work spent so far.</summary>
+    public long Spent { get; private set; }
+
+    /// <summary>Whether work was refused. Once it was, the evaluation could not check everything.</summary>
+    public bool IsSpent => spent;
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>
+    /// Takes units of work before the work is done. False when the budget does not have them, or the backstop has
+    /// run out: the caller then does not do the work and treats its subject as not checked.
+    /// </summary>
+    public bool TrySpend(long units)
+    {
+        if (spent || units > work - Spent || running.Elapsed >= backstop)
+        {
+            spent = true;
+            return false;
+        }
+
+        Spent += units;
+        return true;
+    }
 
     #endregion
 }

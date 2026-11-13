@@ -25,7 +25,7 @@ public sealed class RuleText
 
     #region Constructors
 
-    public RuleText(string original)
+    private RuleText(string original)
     {
         Original = original;
 
@@ -87,6 +87,12 @@ public sealed class RuleText
     #endregion
 
     #region Public Methods
+
+    /// <summary>
+    /// The text in its plain form, paid for from the evaluation's budget, or null when the budget cannot pay for
+    /// reading it.
+    /// </summary>
+    public static RuleText? Read(string original, RuleBudget budget) => budget.TrySpend(original.Length) ? new RuleText(original) : null;
 
     /// <summary>Where a stretch of the plain form lies in the text as written.</summary>
     public (int Start, int Length) InOriginal(int start, int length)

@@ -261,6 +261,24 @@ public sealed class RuleEvaluatorTests
 
 
 
+    [Theory]
+    [InlineData("sam@example.org", "sam@example.org", false)]
+    [InlineData("example.org", "ann@example.org", false)]
+    [InlineData("example.org", "ann@mail.example.org", false)]
+    [InlineData("example.org", "mallory@evil.test, ann@example.org", true)]
+    [InlineData("example.org", "mallory@evil.test ann@example.org", true)]
+    [InlineData("example.org", "https://evil.test/?next=example.org", true)]
+    [InlineData("example.org", "https://evil.test/?next=.example.org", true)]
+    [InlineData("sam@example.org", "x.sam@example.org", true)]
+    [InlineData("sam@example.org", "mallory@sam@example.org", true)]
+    [InlineData("example.org", "ann@notexample.org", true)]
+    public void A_value_is_on_a_list_only_as_one_whole_address_or_host(string listed, string value, bool applies)
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = [listed] });
+
+        (RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = value })) is not null).Should().Be(applies);
+    }
+
     [Fact]
     public void A_list_rule_applies_when_the_input_it_names_is_not_there()
     {
@@ -281,12 +299,12 @@ public sealed class RuleEvaluatorTests
 
 
     [Fact]
-    public void A_match_that_runs_out_of_time_counts_as_the_whole_text()
+    public void A_match_that_runs_out_of_time_could_not_be_searched_and_the_rule_applies()
     {
         var slow = new Regex("a+b|a", RegexOptions.NonBacktracking, TimeSpan.FromTicks(1));
         var text = new string('a', 200_000);
 
-        RulePatterns.Find(slow, text, new RuleBudget(TimeSpan.FromHours(1))).Should().Equal([(0, text.Length)], "a search that cannot finish applies, and removes everything if it redacts");
+        RulePatterns.Find(slow, text, new RuleBudget(long.MaxValue)).Should().BeNull("a search that did not finish found nothing it can vouch for: null is \"could not be checked\", never \"no match\"");
     }
 
     [Theory]
@@ -300,7 +318,7 @@ public sealed class RuleEvaluatorTests
 
         foreach (var condition in conditions)
         {
-            var outcome = RuleEvaluator.Evaluate([Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, condition)], Reply(text), new RuleBudget(TimeSpan.Zero));
+            var outcome = RuleEvaluator.Evaluate([Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, condition)], Reply(text), new RuleBudget(0));
 
             outcome.Should().NotBeNull();
             outcome!.RedactedText.Should().Be(RuleEvaluator.Redaction);

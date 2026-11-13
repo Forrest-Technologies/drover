@@ -80,6 +80,11 @@ public static class RuleValidator
             return "A condition can name an argument only before a tool is used. Elsewhere it looks at the whole text.";
         }
 
+        if (condition.Argument is { } named && RuleReading.Names(named).Length == 0)
+        {
+            return "Name the input the condition looks at, or several parted by commas.";
+        }
+
         if (condition.Argument is { } argument && (argument.Length == 0 || argument.Length > MaxValueLength))
         {
             return $"Name the argument in up to {MaxValueLength} characters.";
