@@ -1,0 +1,88 @@
+@* The form that adds a tool server. Secrets typed here are sent once and never shown again. *@
+<form class="dv-connect dv-facet" @onsubmit="() => OnAdd.InvokeAsync(draft)" aria-labelledby="@headingId">
+    <h2 class="dv-connect-title" id="@headingId">Add a tool server</h2>
+    <Field Label="Name" @bind-Value="draft.Name" autocomplete="off" maxlength="200" Disabled="Busy" Hint="What you call it, such as Calendar." />
+    <Field Label="Address" @bind-Value="draft.Url" Type="url" autocomplete="off" spellcheck="false" Disabled="Busy"
+           Placeholder="https://" Hint="The address of the server's MCP endpoint." />
+
+    <div class="dv-connect-choice">
+        <span class="dv-connect-label" aria-hidden="true">How Drover proves who is calling</span>
+        <SegmentedControl Label="How Drover proves who is calling" Options="kinds" @bind-Value="draft.AuthKind" Disabled="Busy" />
+    </div>
+
+    @if (draft.AuthKind is "header")
+    {
+        <div class="dv-connect-pair">
+            <Field Label="Header name" @bind-Value="draft.HeaderName" autocomplete="off" spellcheck="false" Disabled="Busy" />
+            <Field Label="Header value" @bind-Value="draft.HeaderValue" Type="password" autocomplete="new-password" Disabled="Busy"
+                   Hint="Stored encrypted. It is not shown again." />
+        </div>
+    }
+    else if (draft.AuthKind is "oauth")
+    {
+        <Select Label="Whose sign-in" @bind-Value="draft.SignInScope" Disabled="Busy">
+            <option value="per_user">Each person signs in as themselves</option>
+            <option value="space">One sign-in for the whole space</option>
+        </Select>
+        <p class="dv-connect-hint">@ScopeMeaning</p>
+        <Switch Label="Use a client I registered with the server" @bind-Value="draft.OwnClient" Disabled="Busy" />
+        @if (draft.OwnClient)
+        {
+            <div class="dv-connect-pair">
+                <Field Label="Client id" @bind-Value="draft.ClientId" autocomplete="off" spellcheck="false" Disabled="Busy" />
+                <Field Label="Client secret" @bind-Value="draft.ClientSecret" Type="password" autocomplete="new-password" Disabled="Busy"
+                       Hint="Leave empty for a public client. It is not shown again." />
+            </div>
+            <Field Label="Sign-in service address" @bind-Value="draft.Issuer" Type="url" autocomplete="off" spellcheck="false" Disabled="Busy"
+                   Placeholder="https://" Hint="The service that gave out the client id. The id is sent nowhere else." />
+        }
+        else
+        {
+            <p class="dv-connect-hint">Without one, Drover introduces itself to the server when someone first signs in.</p>
+        }
+    }
+
+    <details class="dv-connect-more">
+        <summary class="dv-connect-more-name">More choices</summary>
+        <div class="dv-connect-more-body">
+            <Switch Label="Trust what this server's tools return" @bind-Value="draft.Trusted" Disabled="Busy" />
+            <p class="dv-connect-hint">Leave this off unless you run the server. A run that has read an untrusted result asks before it changes anything.</p>
+            <Select Label="Protocol" @bind-Value="draft.ProtocolMode" Disabled="Busy">
+                <option value="automatic">Chosen by Drover</option>
+                <option value="stateless_only">Without sessions only</option>
+                <option value="session_only">With sessions only</option>
+            </Select>
+        </div>
+    </details>
+
+    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+    <div class="dv-connect-actions">
+        <Button OnClick="() => OnCancel.InvokeAsync()" Disabled="Busy">Cancel</Button>
+        <Button Kind="ButtonKind.Primary" Type="submit" Disabled="Busy">@(Busy ? "Adding the server" : "Add server")</Button>
+    </div>
+</form>
+
+@code {
+    private static readonly SegmentOption<string>[] kinds = [new("none", "Nothing"), new("header", "A header"), new("oauth", "A sign-in")];
+
+    private readonly string headingId = $"dv-connect-{Guid.NewGuid():N}";
+
+    private readonly ConnectionDraft draft = new();
+
+    /// <summary>What the server said was wrong with the last attempt.</summary>
+    [Parameter]
+    public string? Problem { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback<ConnectionDraft> OnAdd { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private string ScopeMeaning => draft.SignInScope is "space"
+        ? "Every bot run in the space acts as the one account an owner or admin signs in with."
+        : "A bot run acts as the person it runs for, and can use this server once that person has signed in.";
+}
