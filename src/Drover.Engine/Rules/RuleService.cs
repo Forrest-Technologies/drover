@@ -7,7 +7,15 @@ public sealed record RuleChange(InheritedRule? Rule, string? Problem)
 }
 
 /// <summary>What trying a sample found. With a problem, the sample or the draft could not be read.</summary>
-public sealed record RuleTrial(RuleOutcome? Outcome, string? Problem, bool BotMissing = false);
+public sealed record RuleTrial(RuleOutcome? Outcome, string? Problem, bool BotMissing = false)
+{
+    #region Properties
+
+    /// <summary>Whether a rule tried at this moment looks for something in text, whether or not any rule applied.</summary>
+    public bool TriedAPattern { get; init; }
+
+    #endregion
+}
 
 /// <summary>
 /// A bot's rules: reading the ones it follows, changing its own, and trying a sample against them. A rule is
@@ -200,7 +208,10 @@ public sealed class RuleService(
             Text = atATool ? null : request.Text ?? string.Empty,
             Now = time.GetUtcNow(),
         };
-        return new RuleTrial(RuleEvaluator.Evaluate(active, subject), null);
+        return new RuleTrial(RuleEvaluator.Evaluate(active, subject), null)
+        {
+            TriedAPattern = active.Any(rule => rule.Checkpoint == checkpoint && rule.Conditions.Any(condition => condition.IsPattern)),
+        };
     }
 
     #endregion

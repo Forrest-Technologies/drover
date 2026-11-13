@@ -215,6 +215,23 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
     }
 
     [Fact]
+    public async Task A_trial_says_when_rules_that_look_for_something_in_text_were_tried_also_when_none_applied()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Exact", true, "before_tool", "ask", [new("tool_kind") { ToolKinds = ["write"] }])), HttpStatusCode.Created);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Pattern", true, "before_reply", "block", [new("text_holds") { Builtin = "card_number" }])), HttpStatusCode.Created);
+
+        var clean = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, "Nothing to see.")), HttpStatusCode.OK);
+        var tool = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_tool", "time.now", "{}", null)), HttpStatusCode.OK);
+
+        clean.Effect.Should().BeNull();
+        clean.CatchesCommonForms.Should().BeTrue("a rule that looks for something in text was tried, and finding nothing is not proof");
+        tool.CatchesCommonForms.Should().BeFalse("only exact conditions are checked before a tool here");
+    }
+
+    [Fact]
     public async Task A_sample_too_long_to_try_is_refused_in_words_before_any_rule_is_run()
     {
         var alice = await SeedPerson("alice");

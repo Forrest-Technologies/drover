@@ -172,10 +172,11 @@ public static class RuleStarters
                 "ask",
                 [new RuleConditionBody("tool_kind") { ToolKinds = ["write", "critical"] }]),
         ]),
-        new("Never send a card number or key",
+        // These look for something in text, so their names say what they are and promise nothing more.
+        new("Block common forms of a card number or key",
         [
-            new BotRuleBody("Never send a card number", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "card_number" }]),
-            new BotRuleBody("Never send a key", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "key" }]),
+            new BotRuleBody("Block a card number (common forms)", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "card_number" }]),
+            new BotRuleBody("Block a key (common forms)", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "key" }]),
         ]),
         new("Quiet hours",
         [

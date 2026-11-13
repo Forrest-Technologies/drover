@@ -49,11 +49,11 @@ public static class RuleWords
 
     /// <summary>What the built-in kinds find and do not, said where a person chooses one.</summary>
     public static string NotCaughtHeld =>
-        "Catches common forms, and is not a guarantee. A card number is found in one piece or in the groups it is printed in, parted by single spaces or hyphens. Written another way, or joined to other digits, it is not.";
+        "Catches common forms, and is not a guarantee. A card number is found in one piece or in the groups it is printed in, parted by single spaces or hyphens. Written another way, beside another group of four digits, or joined to other digits, it is not. A number that only looks like a card, such as a sixteen-digit id, can be taken for one.";
 
     /// <summary>What the address list finds and does not.</summary>
     public static string NotCaughtAddresses =>
-        "Catches common forms, and is not a guarantee. Looks for anything shaped like an email address anywhere in the tool's input, also inside links and names. An address split across two items is not caught. To be exact about recipients, use a list on named inputs.";
+        "Catches common forms, and is not a guarantee. Anything with an @ in it, anywhere in the tool's input, has to be a listed address or at a listed host. That also catches a package version or a repository address until its host is listed. A percent-encoded @ and an address split across two items are not caught. To be exact about recipients, use a list on named inputs.";
 
     /// <summary>What makes a list on named inputs exact, and what it needs.</summary>
     public static string ListIsExact =>
@@ -133,13 +133,15 @@ public static class RuleWords
     /// <summary>What a trial found, as a sentence. The server decided; this only words it.</summary>
     public static string Trial(TryRulesResponse found)
     {
+        const string Tried = "Some of the rules tried look for something in text: they catch common forms";
+
         if (found.Effect is null || found.RuleName is null)
         {
-            return "No rule applies to this sample.";
+            return found.CatchesCommonForms ? $"No rule applies to this sample. {Tried}, so this is not proof that nothing is there." : "No rule applies to this sample.";
         }
 
         var answer = $"The rule \"{found.RuleName}\" would {Would(found.Effect)}: {found.Why}.";
-        return found.CatchesCommonForms ? $"{answer} It looks for something in text, so it catches common forms and is not a guarantee." : answer;
+        return found.CatchesCommonForms ? $"{answer} {Tried} and are not a guarantee." : answer;
     }
 
     /// <summary>

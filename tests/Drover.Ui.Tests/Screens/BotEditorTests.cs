@@ -306,7 +306,7 @@ public sealed class BotEditorTests : ScreenTest
         page.FindAll(".dv-disclosure-open .dv-disclosure-body button").Select(button => Words(button.TextContent)).Should().Equal(
             "Write a rule",
             "Ask before anything that writes",
-            "Never send a card number or key",
+            "Block common forms of a card number or key",
             "Quiet hours");
         page.Find(".dv-rule-form legend").TextContent.Should().Be("Starters. Each adds a rule you can then change.");
         page.FindAll(".dv-rule-try").Should().BeEmpty("there is nothing to try yet");
@@ -405,7 +405,7 @@ public sealed class BotEditorTests : ScreenTest
         await page.Find(".dv-rule-try .dv-button").ClickAsync(new MouseEventArgs());
 
         page.WaitForAssertion(() => Words(page.Find(".dv-rule-trial").TextContent).Should().Be(
-            "The rule \"Sample rule\" would block this: the text holds a card number. It looks for something in text, so it catches common forms and is not a guarantee."));
+            "The rule \"Sample rule\" would block this: the text holds a card number. Some of the rules tried look for something in text: they catch common forms and are not a guarantee."));
     }
 
     [Fact]

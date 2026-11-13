@@ -242,7 +242,7 @@ public static class BotEditorEndpoints
             outcome?.RedactedJson?.GetRawText(),
             [.. (outcome?.Applied ?? []).Select(rule => rule.Name)])
         {
-            CatchesCommonForms = outcome?.Rule.Conditions.Any(condition => condition.IsPattern) ?? false,
+            CatchesCommonForms = trial.TriedAPattern,
         });
     }
 

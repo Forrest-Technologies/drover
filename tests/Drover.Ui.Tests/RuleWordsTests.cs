@@ -46,8 +46,11 @@ public sealed class RuleWordsTests
 
         RuleWords.Trial(exact).Should().Be("The rule \"Sample rule\" would block this: the tool writes.");
         RuleWords.Trial(exact with { CatchesCommonForms = true }).Should().Be(
-            "The rule \"Sample rule\" would block this: the tool writes. It looks for something in text, so it catches common forms and is not a guarantee.");
-        RuleWords.Trial(new TryRulesResponse(null, null, null, null, null, null, [])).Should().Be("No rule applies to this sample.");
+            "The rule \"Sample rule\" would block this: the tool writes. Some of the rules tried look for something in text: they catch common forms and are not a guarantee.");
+        var none = new TryRulesResponse(null, null, null, null, null, null, []);
+        RuleWords.Trial(none).Should().Be("No rule applies to this sample.");
+        RuleWords.Trial(none with { CatchesCommonForms = true }).Should().Be(
+            "No rule applies to this sample. Some of the rules tried look for something in text: they catch common forms, so this is not proof that nothing is there.");
     }
 
     [Fact]
@@ -134,6 +137,19 @@ public sealed class RuleWordsTests
         var body = RuleDraft.Of(saved, "UTC").ToBody();
 
         body.Should().BeEquivalentTo(new BotRuleBody("Sample rule", false, RuleWords.BeforeTool, "block", saved.Conditions));
+    }
+
+    [Fact]
+    public void A_starter_that_looks_for_something_in_text_says_so_in_its_name_and_in_its_rules_names()
+    {
+        foreach (var starter in RuleStarters.For("UTC"))
+        {
+            var pattern = starter.Rules.Any(rule => rule.Conditions!.Any(RuleWords.IsPattern));
+
+            starter.Label.Contains("common forms", StringComparison.Ordinal).Should().Be(pattern, starter.Label);
+            starter.Label.Should().NotContainAny("Never", "Always", "never", "always");
+            starter.Rules.Where(rule => rule.Conditions!.Any(RuleWords.IsPattern)).Should().OnlyContain(rule => rule.Name!.Contains("common forms", StringComparison.Ordinal));
+        }
     }
 
     [Fact]

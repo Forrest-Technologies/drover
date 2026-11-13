@@ -93,8 +93,9 @@ public sealed record TryRulesResponse(
     #region Properties
 
     /// <summary>
-    /// Whether the rule that decided looks for something in text. Such a condition catches the common forms and is
-    /// not a guarantee, and the editor says so beside the answer.
+    /// Whether any rule tried at this moment looks for something in text, whether or not a rule applied. Such a
+    /// condition catches the common forms and is not a guarantee, so "no rule applies" is not proof that nothing is
+    /// there, and the editor says so beside the answer.
     /// </summary>
     public bool CatchesCommonForms { get; init; }
 
