@@ -588,6 +588,78 @@ public sealed class RunRuleTests(PostgresServer postgres)
         received.Should().HaveCount(2).And.OnlyContain(arguments => !arguments.Contains(Card));
     }
 
+    [Fact]
+    public async Task A_call_id_the_model_uses_twice_is_ruled_on_each_time()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup", """{"note":"nothing here"}""")],
+            [new ToolCallOutput("c1", "test_lookup", $$"""{"note":"card {{Card}}"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await AddRule(world, "No card numbers", RuleCheckpoint.BeforeTool, RuleEffect.Redact, Holds(BuiltinPattern.CardNumber));
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Look twice");
+
+        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.ReadEvents(runId)).Should().OnlyContain(stored => !stored.Data.Contains(Card));
+        (await world.ReadMessages(threadId)).Should().OnlyContain(message => !JsonSerializer.Serialize(message.Parts).Contains(Card));
+        script.Requests.Should().OnlyContain(request => request.All(seen => !seen.Summary.Contains(Card)));
+    }
+
+    [Fact]
+    public async Task A_call_to_a_tool_that_does_not_exist_is_stored_as_the_rules_leave_it_too()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "no_such_tool", $$"""{"note":"card {{Card}}"}""")], [new TextOutput("Done.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        await AddRule(world, "No card numbers", RuleCheckpoint.BeforeTool, RuleEffect.Redact, Holds(BuiltinPattern.CardNumber));
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Call something");
+
+        await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+        (await world.ReadEvents(runId)).Should().OnlyContain(stored => !stored.Data.Contains(Card));
+        (await world.ReadMessages(threadId)).Should().OnlyContain(message => !JsonSerializer.Serialize(message.Parts).Contains(Card));
+        script.Requests.Should().OnlyContain(request => request.All(seen => !seen.Summary.Contains(Card)));
+    }
+
+    [Fact]
+    public async Task A_message_placed_by_an_execution_that_was_cut_off_before_checking_it_is_still_checked()
+    {
+        var script = new ScriptedModel([new TextOutput("Never said.")], [new TextOutput("It is sunny.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        await AddRule(world, "No launch codes", RuleCheckpoint.MessageArrives, RuleEffect.Block, Contains("launch codes"));
+        var threadId = await world.NewThread();
+        var runId = await world.Post(threadId, "Hello");
+
+        // What a cut-off execution leaves behind: a second message of the run, already given its place, never checked.
+        await world.Read(async db =>
+        {
+            var first = await db.Messages.SingleAsync(message => message.ThreadId == threadId, RunWorld.Token);
+            db.Messages.Add(new Message
+            {
+                ThreadId = threadId,
+                AudienceUserId = first.AudienceUserId,
+                Position = first.Position + 1,
+                Role = MessageRole.User,
+                AuthorUserId = world.UserId,
+                RunId = runId,
+                Parts = [new TextPart("And the launch codes")],
+            });
+            return true;
+        });
+        world.StartHost();
+
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Error?.Code.Should().Be(RunRules.BlockedByRule);
+        script.Requests.Should().BeEmpty("the model is never given the message");
+        (await world.ReadMessages(threadId)).Should().ContainSingle(message => message.Withheld);
+    }
+
     #endregion
 
     #region Private Methods

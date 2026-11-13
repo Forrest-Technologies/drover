@@ -132,7 +132,7 @@ public sealed class RuleEvaluatorTests
         var block = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block) with { Name = "block" };
         var blockToo = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block) with { Name = "block too" };
         var stop = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Stop) with { Name = "stop" };
-        var subject = Tool("any.tool", new { text = "x" });
+        var subject = Tool("any.tool", new { note = "x" });
 
         RuleEvaluator.Evaluate([redact, ask, block, blockToo, stop], subject)!.Rule.Name.Should().Be("stop");
         RuleEvaluator.Evaluate([redact, ask, block, blockToo], subject)!.Rule.Name.Should().Be("block");
