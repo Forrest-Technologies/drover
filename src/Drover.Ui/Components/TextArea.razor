@@ -1,0 +1,48 @@
+<div class="dv-textarea">
+    <label class="dv-textarea-label" for="@id">@Label</label>
+    <textarea class="dv-textarea-input dv-facet @(Machine ? "dv-textarea-machine" : null)" id="@id" rows="@Rows" value="@Value"
+              placeholder="@Placeholder" disabled="@Disabled" aria-describedby="@(Hint is null ? null : hintId)"
+              @oninput="Changed" @attributes="Attributes"></textarea>
+    @if (Hint is not null)
+    {
+        <p class="dv-textarea-hint" id="@hintId">@Hint</p>
+    }
+</div>
+
+@code {
+    private readonly string id = $"dv-textarea-{Guid.NewGuid():N}";
+
+    private string hintId => $"{id}-hint";
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>How many lines are shown before the text scrolls.</summary>
+    [Parameter]
+    public int Rows { get; set; } = 4;
+
+    [Parameter]
+    public string? Placeholder { get; set; }
+
+    /// <summary>One line that helps fill the field in.</summary>
+    [Parameter]
+    public string? Hint { get; set; }
+
+    /// <summary>The text is read by a machine, such as host names or a prompt, and is set in the machine typeface.</summary>
+    [Parameter]
+    public bool Machine { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    private Task Changed(ChangeEventArgs change) => ValueChanged.InvokeAsync(change.Value?.ToString() ?? string.Empty);
+}

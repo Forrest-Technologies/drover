@@ -1,0 +1,135 @@
+@page "/bots/{BotId:guid}"
+@layout WorkLayout
+
+<PageTitle>@(saved is null ? "Bot · Drover" : $"{saved.Name} · Drover")</PageTitle>
+
+<SessionGate>
+    <a class="dv-editor-back" href="@Addresses.Bots"><Icon Name="IconName.ArrowLeft" />Bots</a>
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load this bot" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (notPermitted)
+    {
+        <EmptyState Title="You cannot change this bot" Cause="Owners and admins of this space change its bots. You can still talk to them."
+                    ActionLabel="Back to threads" ActionHref="@Addresses.Home" />
+    }
+    else if (missing)
+    {
+        <EmptyState Title="This bot is not here" Cause="It was removed, or it belongs to another space."
+                    ActionLabel="See the bots" ActionHref="@Addresses.Bots" />
+    }
+    else if (saved is null || draft is null)
+    {
+        <p class="dv-editor-hint" role="status">Loading the bot.</p>
+    }
+    else
+    {
+        <NavigationLock ConfirmExternalNavigation="Dirty" OnBeforeInternalNavigation="ConfirmLeaving" />
+
+        <form class="dv-editor" @onsubmit="Save">
+            <header class="dv-editor-identity">
+                @* The character's own controls, re-roll and part swapping, take their place beside it here. *@
+                <div class="dv-editor-look">
+                    <Avatar Name="@ShownName" Hue="BotIdentity.Hue(saved.Id)" Size="96" />
+                </div>
+                <div class="dv-editor-names">
+                    <h1 class="dv-visually-hidden" tabindex="-1">Edit @saved.Name</h1>
+                    <Field Label="Name" Value="@draft.Name" ValueChanged="Rename" autocomplete="off" maxlength="200" />
+                    @if (editingHandle)
+                    {
+                        <Field Label="Handle" @bind-Value="draft.Handle" @bind-Value:after="Changed" autocomplete="off" spellcheck="false"
+                               autocapitalize="off" maxlength="100" Hint="Lower-case letters, digits, and hyphens. Other bots and people address it by this." />
+                    }
+                    else
+                    {
+                        <div class="dv-editor-handle">
+                            <span class="dv-mono">@@@draft.Handle</span>
+                            <IconButton Icon="IconName.Edit" Label="Change the handle" OnClick="() => editingHandle = true" />
+                            @if (saved.Status is "paused")
+                            {
+                                <Badge Kind="BadgeKind.Warn">Paused</Badge>
+                            }
+                        </div>
+                    }
+                </div>
+                <Menu Label="More">
+                    <MenuItem OnSelect="Duplicate">Duplicate</MenuItem>
+                    @if (saved.Status is "paused")
+                    {
+                        <MenuItem OnSelect="Resume">Resume</MenuItem>
+                    }
+                    else
+                    {
+                        <MenuItem OnSelect="Pause">Pause</MenuItem>
+                    }
+                    <MenuItem OnSelect="() => removing = true">Remove</MenuItem>
+                </Menu>
+            </header>
+
+            <StatusNote Kind="NoteKind.Danger" Text="@actionProblem" />
+
+            <TextArea Label="What this bot is for" Rows="2" @bind-Value="draft.DescriptionForBots" @bind-Value:after="Changed"
+                      Hint="Other bots read this to decide when to hand it work." />
+            <TextArea Label="Instructions" Rows="8" @bind-Value="draft.Instructions" @bind-Value:after="Changed"
+                      Hint="What it does and how it answers. The model reads this before every conversation." />
+
+            <div class="dv-editor-sections">
+                <Disclosure Title="Model" Summary="@BotSummaries.Model(draft, ConnectionName)" Open="@IsOpen(Model)" OpenChanged="open => Toggle(Model, open)">
+                    <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection" />
+                </Disclosure>
+                <Disclosure Title="Tools" Summary="@BotSummaries.Tools(tools, ModelCallsTools)" Open="@IsOpen(Tools)" OpenChanged="open => Toggle(Tools, open)">
+                    <ToolsSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" Tools="tools" Connections="toolConnections" ModelCallsTools="ModelCallsTools"
+                                  OnToolsChanged="changed => tools = changed" />
+                </Disclosure>
+                <Disclosure Title="Memory" Summary="@BotSummaries.Memory(draft)" Open="@IsOpen(Memory)" OpenChanged="open => Toggle(Memory, open)">
+                    <MemorySection Draft="draft" OnChanged="Changed" />
+                </Disclosure>
+                <Disclosure Title="Schedule" Summary="@BotSummaries.Schedules(schedules)" Open="@IsOpen(Schedule)" OpenChanged="open => Toggle(Schedule, open)">
+                    <ScheduleSection SpaceId="SpaceId" BotId="BotId" Schedules="schedules" OnSchedulesChanged="changed => schedules = changed" />
+                </Disclosure>
+                <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
+                    <SandboxSection Draft="draft" OtherBots="otherBots" OnChanged="Changed" />
+                </Disclosure>
+                <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
+                    <TeamSection Draft="draft" OnChanged="Changed" />
+                </Disclosure>
+            </div>
+
+            @* The words are always in the page, so a change of state is read out; the bar shows when there is something to act on. *@
+            <p class="dv-visually-hidden" role="status">@SaveWords</p>
+            @if (Dirty || saveProblem is not null)
+            {
+                <div class="dv-editor-save dv-facet">
+                    <div class="dv-editor-save-state">
+                        <StatusNote Kind="NoteKind.Danger" Text="@saveProblem" />
+                        <p class="dv-editor-save-words" aria-hidden="true">@SaveWords</p>
+                    </div>
+                    <Button OnClick="Discard" Disabled="@saving">Discard</Button>
+                    <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(!Dirty || saving)">@(saving ? "Saving" : "Save changes")</Button>
+                </div>
+            }
+        </form>
+
+        <Dialog Title="@($"Remove {saved.Name}")" @bind-Open="removing">
+            <ChildContent>
+                <p>Its threads and history are kept. It stops answering and leaves the list of bots.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => removing = false">Keep bot</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="Remove">Remove bot</Button>
+            </Actions>
+        </Dialog>
+
+        <Dialog Title="Leave without saving" @bind-Open="leaving">
+            <ChildContent>
+                <p>The changes to @saved.Name are not saved yet. Leaving drops them.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => leaving = false">Stay here</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="Leave">Leave</Button>
+            </Actions>
+        </Dialog>
+    }
+</SessionGate>

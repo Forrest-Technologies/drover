@@ -1,0 +1,33 @@
+@* The Memory section of the bot editor. *@
+<StatusNote Text="These settings are saved with the bot. This version of Drover does not yet shorten threads or keep memories, so they change nothing today." />
+
+<Switch Label="Remember across threads" @bind-Value="Draft.MemoryEnabled" @bind-Value:after="Changed" />
+
+<Select Label="When a thread grows long" @bind-Value="Draft.Compaction" @bind-Value:after="Changed">
+    @foreach (var strategy in strategies)
+    {
+        <option value="@strategy">@BotSummaries.Compaction(strategy)</option>
+    }
+</Select>
+
+@if (Draft.Compaction is not "none")
+{
+    <div class="dv-editor-pair">
+        <Field Label="Start at this many tokens" @bind-Value="Draft.CompactAtTokens" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+               Placeholder="The model's own limit" />
+        <Field Label="Always keep the newest messages" @bind-Value="Draft.KeepRecentMessages" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+               Placeholder="None kept apart" />
+    </div>
+}
+
+@code {
+    private static readonly string[] strategies = ["none", "sliding_window", "summarization", "tool_results", "truncation"];
+
+    [Parameter, EditorRequired]
+    public BotDraft Draft { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private Task Changed() => OnChanged.InvokeAsync();
+}

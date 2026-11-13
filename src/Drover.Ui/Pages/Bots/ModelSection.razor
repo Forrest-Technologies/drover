@@ -1,0 +1,111 @@
+@* The Model section of the bot editor: which model the bot thinks with, and only the settings that model has. *@
+<Select Label="Connection" Value="@Draft.ModelConnectionId.ToString()" ValueChanged="ChooseConnection">
+    @foreach (var connection in Connections)
+    {
+        <option value="@connection.Id">@connection.Name</option>
+    }
+</Select>
+
+@if (Models is null)
+{
+    <p class="dv-editor-hint" role="status">Loading the models of this connection.</p>
+}
+else if (Choices.Count > 0)
+{
+    <Select Label="Model" Value="@Draft.Model" ValueChanged="ChooseModel">
+        @if (!Choices.Any(entry => entry.Model == Draft.Model))
+        {
+            <option value="@Draft.Model">@Draft.Model</option>
+        }
+        @foreach (var entry in Choices)
+        {
+            <option value="@entry.Model">@entry.DisplayName</option>
+        }
+    </Select>
+}
+else
+{
+    <Field Label="Model name" Value="@Draft.Model" ValueChanged="ChooseModel" autocomplete="off" spellcheck="false"
+           Hint="This connection does not list its models. Type the name it expects." />
+}
+
+@if (Known is null && Models is not null)
+{
+    <p class="dv-editor-hint">Drover does not know what this model can do, so only the settings every model has are shown.</p>
+}
+
+@if (Known is { ReasoningEfforts.Count: > 0 } reasoning)
+{
+    <Select Label="Reasoning effort" @bind-Value="Draft.ReasoningEffort" @bind-Value:after="Changed">
+        <option value="">Left to the model</option>
+        @foreach (var effort in reasoning.ReasoningEfforts)
+        {
+            <option value="@effort">@effort</option>
+        }
+    </Select>
+}
+
+@if (Known is { WebSearch: true })
+{
+    <div class="dv-editor-choice">
+        <span class="dv-editor-choice-label" aria-hidden="true">Built-in web search</span>
+        <SegmentedControl Label="Built-in web search" Options="webSearch" @bind-Value="Draft.WebSearch" @bind-Value:after="Changed" />
+    </div>
+}
+
+@if (Known is { StructuredOutput: true })
+{
+    <Switch Label="Answer as a JSON object" @bind-Value="Draft.StructuredOutput" @bind-Value:after="Changed" />
+}
+
+<div class="dv-editor-pair">
+    <Field Label="Temperature" @bind-Value="Draft.Temperature" @bind-Value:after="Changed" inputmode="decimal" autocomplete="off"
+           Placeholder="Left to the model" Hint="0 is steady, 2 is loose." />
+    <Field Label="Longest answer, in tokens" @bind-Value="Draft.MaxOutputTokens" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="Left to the model" Hint="@(Known?.MaxOutputSize is { } most ? $"This model writes at most {most}." : null)" />
+</div>
+
+@code {
+    private static readonly SegmentOption<string>[] webSearch = [new("off", "Off"), new("automatic", "When needed"), new("on", "Always")];
+
+    [Parameter, EditorRequired]
+    public BotDraft Draft { get; set; } = new();
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ModelConnectionSummary> Connections { get; set; } = [];
+
+    /// <summary>The models the chosen connection lists, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<ModelCatalogResponse>? Models { get; set; }
+
+    /// <summary>Raised after the draft changed, so the page can show that there is something to save.</summary>
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    /// <summary>Raised when another connection is chosen, so the page can load that connection's models.</summary>
+    [Parameter]
+    public EventCallback<Guid> OnConnectionChosen { get; set; }
+
+    private IReadOnlyList<ModelCatalogResponse> Choices =>
+        [.. (Models ?? []).Where(entry => entry.State is "available").OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
+
+    private ModelCapabilitiesResponse? Known => Models?.FirstOrDefault(entry => entry.Model == Draft.Model)?.Capabilities;
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private async Task ChooseConnection(string id)
+    {
+        if (Guid.TryParse(id, out var connectionId) && connectionId != Draft.ModelConnectionId)
+        {
+            Draft.ModelConnectionId = connectionId;
+            await OnConnectionChosen.InvokeAsync(connectionId);
+        }
+    }
+
+    private Task ChooseModel(string model)
+    {
+        Draft.Model = model;
+        Draft.KeepWhatModelSupports(Known);
+        return Changed();
+    }
+}

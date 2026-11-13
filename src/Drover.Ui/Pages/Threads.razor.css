@@ -72,8 +72,28 @@
 }
 
 .dv-shell-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
   padding: var(--dv-space-3) var(--dv-space-4) max(var(--dv-space-3), env(safe-area-inset-bottom));
   border-top: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-shell-bots {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  padding: 0 var(--dv-space-2);
+  border-radius: var(--dv-radius-control);
+  color: var(--dv-text-2);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+}
+
+.dv-shell-bots:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
 }
 
 /* Links that act as the shell's two navigation controls. */

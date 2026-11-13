@@ -159,6 +159,11 @@ One page, sectioned, with progressive disclosure. Never a wall of settings.
 - **Sandbox** offers three choices in plain words (Private, Shared with its team, Shared with chosen bots) and states what sharing means.
 - **Team** holds the bot-building permissions and their caps, off by default.
 - Anything that needs setup says what is missing and links to it: "Add a sandbox provider to use this".
+- The definition (everything but tools and schedules) is saved together from a bar that appears once something has changed. A tool's grant and a schedule are saved as each is changed, because a grant takes effect at once.
+- A closed section's summary sits inside the button that opens it, so it is read out with the section's name.
+- A model the catalog knows cannot call tools replaces the Tools controls with the reason and where to change it.
+- In Tools, built-in tools come first, then one group for each tool connection, also one that has listed nothing. A tool whose definition changed says the bot asks before each use until the change is accepted, shows what was last reviewed beside what it says now, and offers to accept it for every bot. A tool its server no longer lists says so.
+- New bot makes a bot at once on the connection that last answered and opens it in the editor; there is no separate creation form.
 
 ### 4. Activity
 

@@ -155,6 +155,20 @@ public abstract class ModelProviderConformance
     }
 
     [Fact]
+    public async Task A_bot_set_to_structured_output_asks_for_a_json_object_and_any_other_bot_does_not()
+    {
+        var plain = Start(ConformanceScenarios.PlainReply);
+        var structured = Start(ConformanceScenarios.PlainReply);
+        var settings = new ModelSettings { StructuredOutput = true };
+
+        await plain.CreateChatClient().GetResponse(Prompt(GreetingPrompt));
+        await structured.Provider.CreateChatClient(structured.Connection, structured.ApiKey, structured.ModelId, settings).GetResponse(Prompt(GreetingPrompt));
+
+        ChatRequests(plain).Single().Json.TryGetProperty("response_format", out _).Should().BeFalse("a bot that was not set to it sends no response format");
+        ChatRequests(structured).Single().Json.GetProperty("response_format").GetProperty("type").GetString().Should().Be("json_object");
+    }
+
+    [Fact]
     public async Task Returns_reasoning_text_where_claimed()
     {
         if (!Claims.ReasoningText)

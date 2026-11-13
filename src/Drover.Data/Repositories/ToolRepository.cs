@@ -36,6 +36,27 @@ public sealed class ToolRepository(DroverDbContext db)
         db.Tools.Where(tool => tool.SourceKind == ToolSourceKind.Builtin).ToListAsync(cancellationToken);
 
     /// <summary>Every tool the bot has an effective grant for, whatever the effect.</summary>
+    /// <summary>The tools that tool connections of this space have listed, by connection and name.</summary>
+    public Task<List<Tool>> ListConnectionTools(CancellationToken cancellationToken) =>
+        db.Tools.AsNoTracking()
+            .Where(tool => tool.SourceKind != ToolSourceKind.Builtin)
+            .OrderBy(tool => tool.ToolConnectionId)
+            .ThenBy(tool => tool.Name)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// The rows a bot holds itself, tracked. This is what an editor shows and changes. It never decides access: a row
+    /// counts only as far as the path to the root allows, which is what <see cref="ListEffectiveGrants"/> answers.
+    /// </summary>
+    public Task<List<ToolGrant>> ListOwnGrants(Guid botId, CancellationToken cancellationToken) =>
+        db.ToolGrants.Where(grant => grant.BotId == botId).ToListAsync(cancellationToken);
+
+    public void Remove(ToolGrant grant) => db.ToolGrants.Remove(grant);
+
+    /// <summary>The names of these tools, by id, for records that must name a tool a person can recognize.</summary>
+    public Task<Dictionary<Guid, string>> ListToolNames(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
+        db.Tools.AsNoTracking().Where(tool => ids.Contains(tool.Id)).ToDictionaryAsync(tool => tool.Id, tool => tool.Name, cancellationToken);
+
     public async Task<List<GrantedTool>> ListGrantedTools(Guid botId, CancellationToken cancellationToken)
     {
         var grants = await ListEffectiveGrants(botId, cancellationToken);
@@ -48,11 +69,8 @@ public sealed class ToolRepository(DroverDbContext db)
     public async Task<GrantEffect?> FindEffectiveGrant(Guid botId, Guid toolId, CancellationToken cancellationToken) =>
         (await ListEffectiveGrants(botId, cancellationToken)).TryGetValue(toolId, out var effect) ? effect : null;
 
-    #endregion
-
-    #region Private Methods
-
-    private async Task<Dictionary<Guid, GrantEffect>> ListEffectiveGrants(Guid botId, CancellationToken cancellationToken)
+    /// <summary>What the bot may do with each tool once every bot above it is counted, by tool id.</summary>
+    public async Task<Dictionary<Guid, GrantEffect>> ListEffectiveGrants(Guid botId, CancellationToken cancellationToken)
     {
         var rows = await db.Database
             .SqlQuery<EffectiveGrantRow>($"SELECT tool_id, effect FROM effective_grants({botId})")

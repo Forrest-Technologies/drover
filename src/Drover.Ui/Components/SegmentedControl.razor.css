@@ -43,6 +43,16 @@
   font-weight: var(--dv-weight-heading);
 }
 
+/* A choice that cannot be taken is dimmed and struck through, so it is not told by color alone. */
+.dv-segment-input:disabled {
+  cursor: not-allowed;
+}
+
+.dv-segment-input:disabled:not(:checked) + .dv-segment-label {
+  color: var(--dv-text-3);
+  text-decoration: line-through;
+}
+
 .dv-segment-input:focus-visible + .dv-segment-label {
   outline: var(--dv-focus-width) solid var(--dv-ember);
   outline-offset: calc(var(--dv-focus-offset) * -1);

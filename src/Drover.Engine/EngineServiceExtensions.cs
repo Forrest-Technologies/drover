@@ -49,7 +49,10 @@ public static class EngineServiceExtensions
         services.AddScoped<ToolConnectionService>();
         services.AddSingleton<ToolSignIns>();
         services.AddSingleton<ToolSignInRenewal>();
+        services.AddScoped<AuditLog>();
         services.AddScoped<BotService>();
+        services.AddScoped<GrantService>();
+        services.AddScoped<ScheduleService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();

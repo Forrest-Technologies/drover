@@ -10,7 +10,8 @@ public sealed class AccountService(
     IPasswordHasher<User> hasher,
     AccountRepository accounts,
     TenantScope scope,
-    TenantContext tenant)
+    TenantContext tenant,
+    ToolCatalog catalog)
 {
     #region Private Fields
 
@@ -51,7 +52,7 @@ public sealed class AccountService(
             return new SetupResult(SetupOutcome.Closed, Guid.Empty, []);
         }
 
-        var result = await AddAccount(NewUser(userId, email, displayName), password, spaceId);
+        var result = await AddAccount(NewUser(userId, email, displayName), password, spaceId, cancellationToken);
 
         if (result.Status is SetupOutcome.Created)
         {
@@ -84,7 +85,7 @@ public sealed class AccountService(
         var user = NewUser(userId, email, displayName);
         user.TermsVersion = acceptedTermsVersion;
         user.TermsAcceptedAt = acceptedTermsVersion is null ? null : DateTimeOffset.UtcNow;
-        var result = await AddAccount(user, password, spaceId);
+        var result = await AddAccount(user, password, spaceId, cancellationToken);
 
         if (result.Status is SetupOutcome.Created)
         {
@@ -150,7 +151,7 @@ public sealed class AccountService(
 
     #region Private Methods
 
-    private async Task<SetupResult> AddAccount(User user, string password, Guid spaceId)
+    private async Task<SetupResult> AddAccount(User user, string password, Guid spaceId, CancellationToken cancellationToken)
     {
         var created = await users.CreateAsync(user, password);
 
@@ -161,6 +162,9 @@ public sealed class AccountService(
 
         accounts.Add(PersonalSpace(spaceId, user.DisplayName));
         accounts.Add(new Membership { SpaceId = spaceId, UserId = user.Id, Role = MembershipRole.Owner });
+
+        // A space starts with the built-in tools as rows, so its first bot's editor already lists them.
+        await catalog.EnsureBuiltins(cancellationToken);
         return new SetupResult(SetupOutcome.Created, user.Id, [], await users.GetSecurityStampAsync(user));
     }
 

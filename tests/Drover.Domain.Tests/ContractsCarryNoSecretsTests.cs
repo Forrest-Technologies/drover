@@ -55,6 +55,13 @@ public sealed class ContractsCarryNoSecretsTests
         ReachableProperties(typeof(WrapsALeak)).Should().NotBeEmpty();
     }
 
+    [Fact]
+    public void A_count_of_tokens_is_not_a_secret_and_text_under_the_same_name_still_is()
+    {
+        ReachableProperties(typeof(CountsTokens)).Should().BeEmpty();
+        ReachableProperties(typeof(HoldsTokens)).Should().Equal("HoldsTokens.RefreshTokens", "HoldsTokens.Token");
+    }
+
     #endregion
 
     #region Private Methods
@@ -73,7 +80,7 @@ public sealed class ContractsCarryNoSecretsTests
 
         foreach (var property in type.GetProperties())
         {
-            if (LooksLikeASecret(property.Name))
+            if (LooksLikeASecret(property))
             {
                 yield return $"{property.DeclaringType!.Name}.{property.Name}";
             }
@@ -95,10 +102,19 @@ public sealed class ContractsCarryNoSecretsTests
         return type.IsGenericType ? Unwrap(type.GetGenericArguments()[0]) : type;
     }
 
-    private static bool LooksLikeASecret(string name)
+    private static bool LooksLikeASecret(PropertyInfo property)
     {
-        var lower = name.ToLowerInvariant();
-        return !allowedWords.Contains(lower) && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
+        var lower = property.Name.ToLowerInvariant();
+        return !allowedWords.Contains(lower) && !IsATokenCount(property) && secretWords.Any(word => lower.Contains(word, StringComparison.Ordinal));
+    }
+
+    // "Tokens" also names what a model counts its text in. A whole number called "...Tokens" is such a count, a size
+    // and never a credential, and it keeps the name the data model gives it (max_output_tokens). The type is what
+    // makes it safe: text under the same name is still refused.
+    private static bool IsATokenCount(PropertyInfo property)
+    {
+        var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        return property.Name.EndsWith("Tokens", StringComparison.Ordinal) && (type == typeof(int) || type == typeof(long));
     }
 
     #endregion
@@ -106,6 +122,10 @@ public sealed class ContractsCarryNoSecretsTests
     #region Nested Types
 
     private sealed record LeakyResponse(string ApiKey);
+
+    private sealed record CountsTokens(int? MaxOutputTokens, long UsedTokens);
+
+    private sealed record HoldsTokens(string RefreshTokens, int Token);
 
     private sealed record WrapsALeak(List<LeakyResponse> Inner);
 
