@@ -6,7 +6,7 @@ namespace Drover.Engine.Tools;
 /// one space, so row-level security decides whose tokens come back. The text is the source's own and is not
 /// interpreted here, except to find the values that must be scrubbed from whatever the tool server returns.
 /// </summary>
-public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid audienceUserId)
+public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid audienceUserId, TimeProvider time)
 {
     #region Private Fields
 
@@ -50,6 +50,9 @@ public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid aud
                 NoteTokens(tokens);
                 var connections = services.GetRequiredService<ToolConnectionRepository>();
                 var vault = services.GetRequiredService<ISecretVault>();
+
+                // Two uses that both find no credential must not each add one.
+                await connections.LockCredential(connectionId, audienceUserId, cancellationToken);
                 var credential = await connections.GetCredential(connectionId, audienceUserId, cancellationToken);
 
                 if (credential is null)
@@ -68,6 +71,7 @@ public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid aud
                     credential.Status = CredentialStatus.Active;
                     credential.ExpiresAt = runsOutAt;
                     credential.RenewAttemptedAt = null;
+                    credential.RenewedAt = time.GetUtcNow();
                 }
             },
             cancellationToken);

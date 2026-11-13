@@ -1,0 +1,67 @@
+/* Status: one list per owner of the problem, the server's rows and then the space's, each saying what to do. */
+.dv-status-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+}
+
+.dv-status-title {
+  font-size: var(--dv-text-20);
+}
+
+.dv-status-hint {
+  color: var(--dv-text-2);
+}
+
+.dv-status-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+}
+
+.dv-status-group-title {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+}
+
+.dv-status-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::deep .dv-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  min-width: 0;
+  padding: var(--dv-space-3) 0;
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+::deep .dv-status-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-status-row-name {
+  font-weight: var(--dv-weight-label);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-status-row-summary {
+  color: var(--dv-text-2);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-status-row-time {
+  color: var(--dv-text-3);
+  font-size: var(--dv-text-13);
+}

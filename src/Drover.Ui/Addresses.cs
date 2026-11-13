@@ -23,6 +23,8 @@ public static class Addresses
 
     public const string Tools = "/tools";
 
+    public const string Status = "/status";
+
     #endregion
 
     #region Public Methods

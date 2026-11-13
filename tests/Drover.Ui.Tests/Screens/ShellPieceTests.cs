@@ -47,7 +47,7 @@ public sealed class ShellPieceTests : ScreenTest
     #region Account Menu
 
     [Fact]
-    public void The_account_menu_is_named_for_the_person_and_offers_the_themes_and_sign_out()
+    public void The_account_menu_is_named_for_the_person_and_offers_the_themes_the_status_page_and_sign_out()
     {
         Services.GetRequiredService<SessionState>().Begin(Person);
 
@@ -55,8 +55,30 @@ public sealed class ShellPieceTests : ScreenTest
 
         menu.Find("button.dv-menu-trigger").TextContent.Should().Be("Sam Sample");
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Dark theme", "Light theme", "Match this device", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Status", "Sign out"));
         menu.FindAll("[role=menuitem]")[0].TextContent.Should().Contain(", in use");
+    }
+
+    [Fact]
+    public void A_member_who_is_not_an_admin_is_not_offered_the_status_page()
+    {
+        Services.GetRequiredService<SessionState>().Begin(Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
+
+        var menu = Render<AccountMenu>();
+
+        menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Sign out"));
+    }
+
+    [Fact]
+    public void Choosing_status_opens_the_status_page()
+    {
+        Services.GetRequiredService<SessionState>().Begin(Person);
+        var menu = Render<AccountMenu>();
+
+        menu.FindAll("[role=menuitem]")[3].Click();
+
+        menu.WaitForAssertion(() => Address.Should().Be("status"));
     }
 
     [Fact]
@@ -79,7 +101,7 @@ public sealed class ShellPieceTests : ScreenTest
         Services.GetRequiredService<SessionState>().Begin(Person);
         var menu = Render<AccountMenu>();
 
-        menu.FindAll("[role=menuitem]")[3].Click();
+        menu.FindAll("[role=menuitem]")[4].Click();
 
         menu.WaitForAssertion(() => Address.Should().Be("sign-in"));
         Services.GetRequiredService<SessionState>().Current.Should().BeNull();
@@ -92,7 +114,7 @@ public sealed class ShellPieceTests : ScreenTest
         Services.GetRequiredService<SessionState>().Begin(Person);
         var menu = Render<AccountMenu>();
 
-        menu.FindAll("[role=menuitem]")[3].Click();
+        menu.FindAll("[role=menuitem]")[4].Click();
 
         var toasts = Services.GetRequiredService<ToastService>();
         menu.WaitForAssertion(() => toasts.Toasts.Single().Message.Should().StartWith("You are still signed in."));

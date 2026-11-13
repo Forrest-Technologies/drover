@@ -34,6 +34,8 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     private readonly ILogger logger = loggers.CreateLogger<McpToolSource>();
 
+    private readonly SdkLoggers sdkLoggers = new(loggers);
+
     #endregion
 
     #region Properties
@@ -124,8 +126,8 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
         // Set before any client is made, so every request of this use, and of a session opened by it, is bounded.
         var bound = ResponseLimit.Begin(endpoint.Limits.MaxResponseBytes);
-        var signIn = SignInAttempt.Begin(endpoint);
         await CloseIdleSessions();
+        var signIn = SignInAttempt.Begin(endpoint);
         var key = new SessionKey(endpoint.ConnectionId, endpoint.CredentialKey);
 
         // A use that may ask a person is a sign-in in progress, for a credential that may not exist yet. It gets a
@@ -167,7 +169,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 }
             }
 
-            var session = new Session(client, time.GetTimestamp());
+            var session = new Session(client, endpoint, time.GetTimestamp());
 
             if (!sessions.TryAdd(key, session))
             {
@@ -249,7 +251,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 OAuth = endpoint.SignIn is { } signIn ? ToOptions(signIn, endpoint) : null,
             },
             http.CreateClient(HttpClientName),
-            loggers,
+            sdkLoggers,
             ownsHttpClient: true);
         var options = new McpClientOptions
         {
@@ -264,7 +266,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
         try
         {
-            return await McpClient.CreateAsync(transport, options, loggers, cancellationToken);
+            return await McpClient.CreateAsync(transport, options, sdkLoggers, cancellationToken);
         }
         catch (Exception failure) when (endpoint.ProtocolMode is ProtocolMode.StatelessOnly && Failures.IsRefusalOfTheProtocol(failure))
         {
@@ -358,6 +360,15 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
             return;
         }
 
+        // Closing tells the server, and that request is the session's own connection's, whichever use is running
+        // when it is closed, or none: it goes out with that connection's credential, to that connection's server,
+        // on that connection's circuit. A use that closes its own session stays the use in progress: it may hold
+        // the turn to renew the credential's tokens, which a second use would wait for. This method is
+        // asynchronous, so a use set here ends with it and the caller's is untouched.
+        var closing = SignInAttempt.Current is { } use && new SessionKey(use.Endpoint.ConnectionId, use.Endpoint.CredentialKey) == key
+            ? null
+            : SignInAttempt.BeginClosing(session.Endpoint);
+
         try
         {
             await session.Client.DisposeAsync();
@@ -366,6 +377,10 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
         {
             // Only the kind of failure: its text is the library's, and may hold what the server sent.
             logger.LogDebug("Closing the session with tool connection {ConnectionId} failed: {Failure}", key.ConnectionId, failure.GetType().Name);
+        }
+        finally
+        {
+            closing?.Release();
         }
     }
 
@@ -409,7 +424,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     private sealed record SessionKey(Guid ConnectionId, Guid? CredentialKey);
 
-    private sealed class Session(McpClient client, long openedAt)
+    private sealed class Session(McpClient client, ToolEndpoint endpoint, long openedAt)
     {
         #region Private Fields
 
@@ -422,6 +437,9 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
         #region Properties
 
         public McpClient Client => client;
+
+        /// <summary>The endpoint the session was opened for. Its closing request is made as this one.</summary>
+        public ToolEndpoint Endpoint => endpoint;
 
         #endregion
 
