@@ -12,6 +12,8 @@ permissions: {}
 jobs:
   release:
     name: SBOM, attest, publish release
+    # The owner chooses the runner: see "What the release runner needs" in docs/maintainers.md and AGENTS.md section 11.
+    # A self-hosted runner is allowed here and not required. With none registered, this job waits and does nothing.
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 30
     environment: release

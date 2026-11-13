@@ -133,6 +133,8 @@ Notes:
 
 Every workflow uses `runs-on: ubuntu-latest` except `release.yml`.
 
+`release.yml` currently names a self-hosted runner, but the repository has none registered, and a release job would wait with nothing to run it. The owner chooses: register a self-hosted runner that has Linux x64, Docker, the `gh` CLI, and outbound access to GitHub, NuGet, and the attestation service, restricted to this workflow; or run the job on a GitHub-hosted runner, which already has Docker and `gh`. AGENTS.md section 11 allows the first and does not require it. See [maintainers](../maintainers.md#what-the-release-runner-needs).
+
 The repository is public, so two repository settings must be in place **before the workflows go live in Phase 0 step 1**, because they are the controls outside the workflow files:
 
 1. Actions settings: require approval for workflows from all outside contributors.
