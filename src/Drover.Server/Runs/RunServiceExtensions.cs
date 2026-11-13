@@ -25,6 +25,11 @@ public static class RunServiceExtensions
             execution.Model ?? throw new InvalidOperationException("The engine starts every run with its model client.")));
         services.AddMcpToolSource();
 
+        // Signing in to a tool server sends the person's browser away and back, so this server must know its own
+        // public address. Without it, connections that need a sign-in say what is missing.
+        services.Configure<ToolSignInOptions>(options =>
+            options.PublicUrl = Uri.TryCreate(configuration["Drover:PublicUrl"], UriKind.Absolute, out var address) ? address : null);
+
         // A tool server is reached through the checked outbound client, and each request carries the space's rule
         // on private addresses. A request that says nothing is refused a private address.
         services.TryAddTransient<SpaceOutboundHandler>();

@@ -7,6 +7,9 @@ namespace Drover.Contracts.Tools;
 /// what the server and Drover settled on, for a badge: it starts with "stateless" or "session-based".
 /// <see cref="Slug"/> prefixes the names a model sees for this connection's tools. A credential is never returned:
 /// a header connection has one, and that is all a response says.
+/// For a connection people sign in to (<c>oauth</c>), <see cref="CredentialScope"/> is per_user (each person signs
+/// in themself) or space (an admin signs in once for everyone), and <see cref="SignIn"/> says how the sign-in the
+/// caller would use stands: signed_in, needs_sign_in, or needs_reconnect. It is null for other connections.
 /// </summary>
 public sealed record ToolConnectionSummary(
     Guid Id,
@@ -19,7 +22,16 @@ public sealed record ToolConnectionSummary(
     string Status,
     string? NegotiatedProtocol,
     DateTimeOffset? LastListedAt,
-    string? LastError);
+    string? LastError)
+{
+    #region Properties
+
+    public string CredentialScope { get; init; } = "space";
+
+    public string? SignIn { get; init; }
+
+    #endregion
+}
 
 /// <summary>
 /// One tool a connection lists. <see cref="Name"/> is the server's name for it and <see cref="ModelName"/> the name
@@ -65,10 +77,21 @@ public sealed record CreateToolConnectionRequest(
     string? HeaderName = null,
     string? HeaderValue = null,
     string? Trust = null,
-    string? ProtocolMode = null)
+    string? ProtocolMode = null,
+    string? ClientId = null,
+    string? ClientSecret = null,
+    string? CredentialScope = null)
 {
     public override string ToString() => nameof(CreateToolConnectionRequest);
 }
+
+/// <summary>
+/// What asking to sign in to a tool server came to. <see cref="Step"/> is redirect (open
+/// <see cref="AuthorizationUrl"/> in the person's browser; the tool server sends them back to Drover when they are
+/// done), connected (nothing to do), or failed (<see cref="Problem"/> says why). The address is the tool server's:
+/// open it in a new browser tab or the system browser, never inside the app.
+/// </summary>
+public sealed record ToolSignInStart(string Step, string? AuthorizationUrl, string? Problem);
 
 /// <summary>Input only: a new header for a header connection. Never part of a response.</summary>
 public sealed record ReplaceToolHeaderRequest(string? HeaderName, string? HeaderValue)

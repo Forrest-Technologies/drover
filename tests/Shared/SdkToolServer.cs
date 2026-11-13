@@ -41,6 +41,9 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     public IReadOnlyList<string> ClientsSeen => desk?.ClientsSeen ?? [];
 
+    /// <summary>Every code and token the server's sign-in ever handed out.</summary>
+    public IReadOnlyList<string> IssuedSecrets => desk?.Issued ?? [];
+
     #endregion
 
     #region Public Methods

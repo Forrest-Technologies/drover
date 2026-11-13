@@ -15,6 +15,22 @@ public sealed record NewToolConnection(string? Name, string? Url)
 
     public ProtocolMode ProtocolMode { get; init; } = ProtocolMode.Automatic;
 
+    /// <summary>For a sign-in: a client id the tool server's operator gave out. Without one, this server names itself.</summary>
+    public string? ClientId { get; init; }
+
+    /// <summary>The secret that goes with <see cref="ClientId"/>, when there is one. It goes to the vault.</summary>
+    public string? ClientSecret { get; init; }
+
+    /// <summary>For a sign-in: whether each person signs in themself (the default) or one sign-in serves the whole space.</summary>
+    public CredentialScope? CredentialScope { get; init; }
+
+    #endregion
+
+    #region Overrides
+
+    /// <summary>Says nothing: a record would otherwise print the header value and the client secret.</summary>
+    public override string ToString() => nameof(NewToolConnection);
+
     #endregion
 }
 
@@ -33,7 +49,7 @@ public sealed record ToolConnectionChange(ToolConnection? Connection, string? Pr
 public sealed record ToolRefresh(ToolConnection Connection, IReadOnlyList<CatalogTool> Tools, ToolSourceFailure? Failure, string? Message, CatalogChange? Change);
 
 /// <summary>A tool server as one call reaches it, built from rows read as the caller. Null endpoint means it cannot be called, and why.</summary>
-public sealed record ResolvedToolEndpoint(ToolEndpoint? Endpoint, string? Problem, IReadOnlyList<string> Secrets);
+public sealed record ResolvedToolEndpoint(ToolEndpoint? Endpoint, string? Problem, IReadOnlyCollection<string> Secrets);
 
 /// <summary>
 /// Tool connections of a space: adding one, keeping its credential in the vault, asking the server for its tools,
@@ -48,6 +64,8 @@ public sealed class ToolConnectionService(
     PolicyService policy,
     TenantScope scope,
     TenantContext tenant,
+    IServiceScopeFactory scopes,
+    IOptions<ToolSignInOptions> signInOptions,
     TimeProvider time,
     ILogger<ToolConnectionService> logger)
 {
@@ -60,6 +78,10 @@ public sealed class ToolConnectionService(
     public const int MaxHeaderNameLength = 100;
 
     public const int MaxHeaderValueLength = 4096;
+
+    public const int MaxClientIdLength = 2048;
+
+    public const int MaxClientSecretLength = 4096;
 
     private const int MaxSlugLength = 24;
 
@@ -143,13 +165,19 @@ public sealed class ToolConnectionService(
         await using var work = await scope.Begin(cancellationToken);
         var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("No space is set for this request.");
 
-        // A header is a secret. Over http anyone on the way can read it, so it needs https. The one exception is a
-        // space that may reach private addresses, where a tool server on the same machine or network is the point.
-        if (request.AuthKind is ToolAuthKind.Header
+        // A header is a secret, and so is a token. Over http anyone on the way can read it, so it needs https. The
+        // one exception is a space that may reach private addresses, where a tool server on the same machine or
+        // network is the point.
+        if (request.AuthKind is not ToolAuthKind.None
             && new Uri(request.Url!.Trim()).Scheme is not "https"
             && !(await policy.GetEffective(spaceId, cancellationToken)).AllowPrivateAddresses)
         {
-            return ToolConnectionChange.Invalid("A connection with a header needs an address that starts with https://, so the header is not sent where others can read it.");
+            return ToolConnectionChange.Invalid("A connection with a header or a sign-in needs an address that starts with https://, so the credential is not sent where others can read it.");
+        }
+
+        if (request.AuthKind is ToolAuthKind.Oauth && signInOptions.Value.RedirectUrl is null)
+        {
+            return ToolConnectionChange.Invalid(ToolSignInOptions.MissingPublicUrl);
         }
 
         var connection = new ToolConnection
@@ -158,7 +186,7 @@ public sealed class ToolConnectionService(
             Slug = await FreeSlug(request.Name!, cancellationToken),
             Url = request.Url!.Trim(),
             AuthKind = request.AuthKind,
-            CredentialScope = CredentialScope.Space,
+            CredentialScope = request.AuthKind is ToolAuthKind.Oauth ? request.CredentialScope ?? CredentialScope.PerUser : CredentialScope.Space,
             Trust = request.Trust,
             ProtocolMode = request.ProtocolMode,
         };
@@ -167,6 +195,17 @@ public sealed class ToolConnectionService(
         if (request.AuthKind is ToolAuthKind.Header)
         {
             await StoreHeader(connection, request.HeaderName!, request.HeaderValue!, cancellationToken);
+        }
+
+        if (request.AuthKind is ToolAuthKind.Oauth && !string.IsNullOrWhiteSpace(request.ClientId))
+        {
+            connection.Oauth = new OAuthMetadata
+            {
+                ClientId = request.ClientId.Trim(),
+                ClientSecretId = string.IsNullOrEmpty(request.ClientSecret)
+                    ? null
+                    : await vault.Store(SecretKind.OauthClientSecret, request.ClientSecret, null, cancellationToken),
+            };
         }
 
         await work.Commit(cancellationToken);
@@ -241,7 +280,16 @@ public sealed class ToolConnectionService(
             return false;
         }
 
+        // The credentials this transaction can see: the space's and the caller's own. Another person's sign-in to a
+        // connection where each signs in themself is invisible here; it stays in the vault, and is of no use, since
+        // a removed connection is never resolved again.
         List<Guid> secrets = [.. (await connections.ListCredentials(connectionId, cancellationToken)).Select(credential => credential.SecretId)];
+
+        if (connection.Oauth?.ClientSecretId is { } clientSecretId)
+        {
+            secrets.Add(clientSecretId);
+        }
+
         await connections.Remove(connection, cancellationToken);
 
         foreach (var secretId in secrets)
@@ -285,6 +333,15 @@ public sealed class ToolConnectionService(
         // No scope is open from here until the answer is stored.
         var (listing, failure, message) = await Ask(connection, resolved, effective, cancellationToken);
 
+        return await Record(connectionId, listing, failure, message, cancellationToken);
+    }
+
+    /// <summary>
+    /// Stores what a tool server answered when asked for its tools: the catalog and the connection's state after a
+    /// listing, or why there is none. Opens its own tenant scope. Null when the connection is not in this space.
+    /// </summary>
+    public async Task<ToolRefresh?> Record(Guid connectionId, ToolListing? listing, ToolSourceFailure? failure, string? message, CancellationToken cancellationToken)
+    {
         await using var storing = await scope.Begin(cancellationToken);
         var row = await connections.GetConnection(connectionId, cancellationToken);
 
@@ -303,8 +360,9 @@ public sealed class ToolConnectionService(
             row.LastListedAt = time.GetUtcNow();
             row.LastError = null;
         }
-        else
+        else if (failure is not ToolSourceFailure.SignInRequired)
         {
+            // That one person has not signed in says nothing about the connection.
             row.Status = ConnectionStatus.Failed;
             row.LastError = message;
         }
@@ -360,9 +418,12 @@ public sealed class ToolConnectionService(
                 []);
         }
 
-        if (connection.AuthKind is not ToolAuthKind.Header)
+        if (connection.AuthKind is ToolAuthKind.Oauth)
         {
-            return new ResolvedToolEndpoint(null, $"The {connection.Name} connection uses a sign-in this server cannot do yet.", []);
+            var signIn = await SignInFor(connection, principalUserId, cancellationToken);
+            return signIn.SignIn is null
+                ? new ResolvedToolEndpoint(null, signIn.Problem, [])
+                : new ResolvedToolEndpoint(endpoint with { SignIn = signIn.SignIn, CredentialKey = credential.Id }, null, signIn.Secrets);
         }
 
         var (name, value) = HeaderSecret.Read(await vault.Reveal(credential.SecretId, cancellationToken));
@@ -370,6 +431,94 @@ public sealed class ToolConnectionService(
             endpoint with { Headers = new Dictionary<string, string> { [name] = value }, CredentialKey = credential.Id },
             null,
             [value]);
+    }
+
+    /// <summary>
+    /// What a tool source needs to act with the tokens of one credential of a sign-in connection: who this server is
+    /// to the tool server, and where the tokens are read and written. Must be called inside a tenant scope; the
+    /// reading and writing happen later, in short transactions of their own as <paramref name="actingUserId"/>, so
+    /// the database hands out that person's tokens or the space's and nobody else's. Nobody is asked to sign in.
+    /// </summary>
+    public async Task<(ToolSignIn? SignIn, string? Problem, IReadOnlyCollection<string> Secrets)> SignInFor(
+        ToolConnection connection,
+        Guid actingUserId,
+        CancellationToken cancellationToken)
+    {
+        if (signInOptions.Value.RedirectUrl is not { } redirect)
+        {
+            return (null, ToolSignInOptions.MissingPublicUrl, []);
+        }
+
+        var audience = connection.CredentialScope is CredentialScope.Space ? Audience.Everyone : actingUserId;
+        var kept = new KeptToolTokens(new RunTenant(scopes, connection.SpaceId, actingUserId), connection.Id, audience);
+        var clientSecret = connection.Oauth?.ClientSecretId is { } secretId ? await vault.Reveal(secretId, cancellationToken) : null;
+        kept.Note(clientSecret);
+        return (
+            new ToolSignIn(redirect, kept.Read, kept.Write)
+            {
+                ClientId = connection.Oauth?.ClientId,
+                ClientSecret = clientSecret,
+                ClientDocumentUrl = signInOptions.Value.ClientDocumentUrl,
+            },
+            null,
+            kept.Secrets);
+    }
+
+    /// <summary>
+    /// Records that a credential's tokens stopped working and could not be renewed, so the next use says "sign in
+    /// again" at once and does not try the dead tokens. Opens its own tenant scope, as the person the run acts for.
+    /// </summary>
+    public async Task MarkNeedsReconnect(Guid connectionId, Guid credentialId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var credential = (await connections.ListCredentials(connectionId, cancellationToken)).SingleOrDefault(found => found.Id == credentialId);
+
+        if (credential is not null)
+        {
+            credential.Status = CredentialStatus.NeedsReconnect;
+            await work.Commit(cancellationToken);
+            logger.LogInformation("The sign-in of tool connection {ConnectionId} needs to be made again", connectionId);
+        }
+    }
+
+    /// <summary>
+    /// Forgets the caller's sign-in to the connection, or the space's when one sign-in serves everyone: the tokens
+    /// are deleted from the vault. False when there was none.
+    /// </summary>
+    public async Task<bool> SignOut(Guid connectionId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var connection = await connections.FindConnection(connectionId, cancellationToken);
+        var userId = tenant.UserId ?? throw new InvalidOperationException("No user is set for this request.");
+        var credential = connection is { AuthKind: ToolAuthKind.Oauth }
+            ? await connections.GetCredential(connectionId, connection.CredentialScope is CredentialScope.Space ? Audience.Everyone : userId, cancellationToken)
+            : null;
+
+        if (credential is null)
+        {
+            return false;
+        }
+
+        connections.Remove(credential);
+        await vault.Delete(credential.SecretId, cancellationToken);
+        await work.Commit(cancellationToken);
+        logger.LogInformation("A sign-in of tool connection {ConnectionId} was removed", connectionId);
+        return true;
+    }
+
+    /// <summary>
+    /// For each sign-in connection, how the caller's own sign-in stands (or the space's, when one serves everyone).
+    /// A connection with no entry has none.
+    /// </summary>
+    public async Task<Dictionary<Guid, CredentialStatus>> ListSignIns(IReadOnlyCollection<ToolConnection> listed, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var userId = tenant.UserId ?? Audience.Everyone;
+        var signIns = listed.Where(connection => connection.AuthKind is ToolAuthKind.Oauth).ToDictionary(connection => connection.Id);
+        var credentials = await connections.ListCredentials([.. signIns.Keys], cancellationToken);
+        return credentials
+            .Where(credential => credential.AudienceUserId == (signIns[credential.ToolConnectionId].CredentialScope is CredentialScope.Space ? Audience.Everyone : userId))
+            .ToDictionary(credential => credential.ToolConnectionId, credential => credential.Status);
     }
 
     /// <summary>Calls the server with no transaction open, under the space's outbound rule.</summary>
@@ -381,7 +530,10 @@ public sealed class ToolConnectionService(
     {
         if (resolved.Endpoint is null || sources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp) is not { } source)
         {
-            return (null, ToolSourceFailure.Unauthorized, resolved.Problem ?? "This server has no adapter for tool connections.");
+            return (
+                null,
+                connection.AuthKind is ToolAuthKind.Oauth && resolved.Problem is not null ? ToolSourceFailure.SignInRequired : ToolSourceFailure.Unauthorized,
+                resolved.Problem ?? "This server has no adapter for tool connections.");
         }
 
         using var attempt = OutboundAttempt.Begin(effective);
@@ -425,8 +577,26 @@ public sealed class ToolConnectionService(
         {
             ToolAuthKind.None => null,
             ToolAuthKind.Header => ValidateHeader(request.HeaderName, request.HeaderValue),
-            _ => "Signing in to a tool server is not available yet. Use a header, or no credential.",
+            ToolAuthKind.Oauth => ValidateClient(request.ClientId, request.ClientSecret),
+            _ => "This server does not know that kind of credential.",
         };
+    }
+
+    private static string? ValidateClient(string? clientId, string? clientSecret)
+    {
+        if (clientId is { Length: > MaxClientIdLength } || clientId?.Any(char.IsControl) is true)
+        {
+            return $"Enter a client id of up to {MaxClientIdLength} characters, on one line, or leave it empty.";
+        }
+
+        if (!string.IsNullOrEmpty(clientSecret) && string.IsNullOrWhiteSpace(clientId))
+        {
+            return "A client secret needs the client id it belongs to.";
+        }
+
+        return clientSecret is { Length: > MaxClientSecretLength } || clientSecret?.Any(char.IsControl) is true
+            ? $"Enter a client secret of up to {MaxClientSecretLength} characters, on one line."
+            : null;
     }
 
     private static string? ValidateHeader(string? name, string? value)

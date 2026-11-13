@@ -47,6 +47,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
         services.AddScoped<ToolConnectionService>();
+        services.AddSingleton<ToolSignIns>();
         services.AddScoped<BotService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ThreadLine>();

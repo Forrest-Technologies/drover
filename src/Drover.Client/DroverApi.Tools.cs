@@ -49,6 +49,19 @@ public sealed partial class DroverApi
     public Task<ConnectionToolSummary> ConfirmToolReview(Guid spaceId, Guid connectionId, Guid toolId, CancellationToken cancellationToken = default) =>
         Post<ConnectionToolSummary>($"{Space(spaceId)}/tool-connections/{connectionId}/tools/{toolId}/review", null, cancellationToken);
 
+    /// <summary>
+    /// Starts the caller's sign-in to a connection that needs one (an admin's, where one sign-in serves the space).
+    /// When the step is "redirect", open <see cref="ToolSignInStart.AuthorizationUrl"/> in the system browser or a
+    /// new tab; the tool server sends the person back to Drover, and the connection's
+    /// <see cref="ToolConnectionSummary.SignIn"/> then reads "signed_in".
+    /// </summary>
+    public Task<ToolSignInStart> BeginToolSignIn(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
+        Post<ToolSignInStart>($"{Space(spaceId)}/tool-connections/{connectionId}/sign-in", null, cancellationToken);
+
+    /// <summary>Forgets the caller's sign-in to the connection (the space's, for an admin, where one serves everyone).</summary>
+    public Task RemoveToolSignIn(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/tool-connections/{connectionId}/sign-in", cancellationToken);
+
     /// <summary>Removes the connection, its tools, and every grant on them (admin only).</summary>
     public Task RemoveToolConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/tool-connections/{connectionId}", cancellationToken);

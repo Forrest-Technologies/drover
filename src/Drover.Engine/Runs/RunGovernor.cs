@@ -196,6 +196,18 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
                 toolCall.Arguments,
                 cancellationToken);
         }
+        catch (ToolSourceException failure) when (failure.Failure is ToolSourceFailure.SignInRequired && endpoint.CredentialKey is { } credentialId)
+        {
+            // The tokens stopped working and could not be renewed. Nobody can be asked from inside a run, so the
+            // credential is marked, the person sees "sign in again" on the connection, and the model is told why.
+            logger.LogInformation("Tool {ToolName} on connection {ConnectionId} needs a new sign-in in run {RunId}", tool.Tool.Name, connection.Id, session.RunId);
+            await session.Tenant.InScope(
+                services => services.GetRequiredService<ToolConnectionService>().MarkNeedsReconnect(connection.Id, credentialId, cancellationToken));
+            return Error(
+                connection.CredentialScope is CredentialScope.Space
+                    ? $"The {connection.Name} connection's sign-in has stopped working. An admin must sign in to it again."
+                    : $"The {connection.Name} connection needs you to sign in again.");
+        }
         catch (ToolSourceException failure)
         {
             logger.LogWarning("Tool {ToolName} on connection {ConnectionId} failed in run {RunId}: {Failure}", tool.Tool.Name, connection.Id, session.RunId, failure.Failure);

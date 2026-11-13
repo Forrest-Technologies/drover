@@ -19,6 +19,8 @@ public sealed class SignInDesk(ToolServerSignIn spec)
 
     private readonly ConcurrentQueue<string> clientsSeen = new();
 
+    private readonly ConcurrentQueue<string> issued = new();
+
     private int approvals;
 
     private int refreshes;
@@ -46,6 +48,9 @@ public sealed class SignInDesk(ToolServerSignIn spec)
     public int Registrations => Volatile.Read(ref registrations);
 
     public IReadOnlyList<string> ClientsSeen => [.. clientsSeen];
+
+    /// <summary>Every code and token this desk ever handed out, so a test can look for them where they must not be.</summary>
+    public IReadOnlyList<string> Issued => [.. issued];
 
     #endregion
 
@@ -102,7 +107,12 @@ public sealed class SignInDesk(ToolServerSignIn spec)
     private static Task Refuse(HttpContext context, string error) =>
         Write(context, StatusCodes.Status400BadRequest, new Dictionary<string, object> { ["error"] = error });
 
-    private static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+    private string NewToken()
+    {
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        issued.Enqueue(token);
+        return token;
+    }
 
     private static Task DescribeResource(HttpContext context) =>
         Write(
@@ -229,7 +239,8 @@ public sealed class SignInDesk(ToolServerSignIn spec)
         }
 
         using var request = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted);
-        var clientId = $"registered-{NewToken()}";
+        // A client id is a name, not a credential, so it is not among the secrets this desk remembers issuing.
+        var clientId = $"registered-{Guid.CreateVersion7():N}";
         clients[clientId] = true;
         Interlocked.Increment(ref registrations);
         await Write(
