@@ -54,6 +54,91 @@ public sealed class ToolSignInRenewalTests(PostgresServer postgres) : ToolServer
     }
 
     [Fact]
+    public async Task One_space_with_more_sign_ins_than_a_pass_holds_does_not_keep_another_spaces_sign_in_waiting()
+    {
+        await using var crowded = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
+        await using var other = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var admin = await SignIn(alice.Email, alice.Password);
+        var asBob = await SignIn(bob.Email, bob.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        await AllowPrivateAddresses(bob.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var bobs = $"/api/spaces/{bob.SpaceId}";
+        var toCrowded = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Mail", crowded.Url.ToString(), "oauth"))).Connection.Id;
+        var toOther = (await PostFor<ToolConnectionRefresh>(asBob, $"{bobs}/tool-connections", new CreateToolConnectionRequest("Calendar", other.Url.ToString(), "oauth"))).Connection.Id;
+
+        // Three sign-ins in one space, all running out before the one in the other space, and a pass holds two.
+        await SignInToServer(admin, crowded, space, toCrowded);
+
+        foreach (var name in (string[])["first", "second"])
+        {
+            var member = await SeedMember(alice.SpaceId, name, MembershipRole.Member);
+            await SignInToServer(await SignIn(member.Email, member.Password), crowded, space, toCrowded);
+        }
+
+        await SignInToServer(asBob, other, bobs, toOther);
+
+        var renewed = await Services.GetRequiredService<ToolSignInRenewal>().RenewDue(Token);
+
+        renewed.Should().Be(2);
+        other.Refreshes.Should().Be(1, "the first pass takes one sign-in from each space before it takes a second from any");
+        crowded.Refreshes.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_was_just_renewed_is_left_alone_until_the_lead_has_passed()
+    {
+        // Its tokens last less than the lead, so by its end alone it is due again the moment it is renewed.
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var id = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"))).Connection.Id;
+        await SignInToServer(admin, server, space, id);
+        var renewal = Services.GetRequiredService<ToolSignInRenewal>();
+
+        var first = await renewal.RenewDue(Token);
+        var askedByTheFirst = server.Requests;
+        Time.Advance(TimeSpan.FromMinutes(5));
+        var nextPass = await renewal.RenewDue(Token);
+        var askedByTheNext = server.Requests;
+        Time.Advance(TimeSpan.FromMinutes(11));
+        await renewal.RenewDue(Token);
+
+        first.Should().Be(1);
+        nextPass.Should().Be(0);
+        askedByTheNext.Should().Be(askedByTheFirst, "a sign-in renewed within the lead is not looked at, so its server is asked nothing");
+        server.Requests.Should().BeGreaterThan(askedByTheNext, "once the lead has passed it is looked at again");
+    }
+
+    [Fact]
+    public async Task A_renewal_that_failed_once_is_tried_again_before_the_sign_in_runs_out()
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var id = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"))).Connection.Id;
+        await SignInToServer(admin, server, space, id);
+        var renewal = Services.GetRequiredService<ToolSignInRenewal>();
+        server.FailRenewals(503);
+
+        var whileFailing = await renewal.RenewDue(Token);
+        var rightAway = await renewal.RenewDue(Token);
+        server.FailRenewals(null);
+        Time.Advance(TimeSpan.FromMinutes(6));
+        var later = await renewal.RenewDue(Token);
+
+        whileFailing.Should().Be(0);
+        rightAway.Should().Be(0, "one that just failed waits");
+        later.Should().Be(1, "but not longer than the lead, or a single failure would mean the sign-in runs out unrenewed");
+    }
+
+    [Fact]
     public async Task A_sign_in_that_cannot_be_prepared_fails_alone_and_the_rest_of_the_pass_goes_on()
     {
         await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });

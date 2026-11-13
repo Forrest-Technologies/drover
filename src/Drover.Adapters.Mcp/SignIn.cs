@@ -33,6 +33,12 @@ public sealed class SignInAttempt
     /// </summary>
     public bool HasRenewed { get; set; }
 
+    /// <summary>
+    /// False for the request that closes a kept session: tokens about to run out are sent as they are, and are not
+    /// renewed for the sake of a goodbye.
+    /// </summary>
+    public bool MayRenew { get; private init; } = true;
+
     /// <summary>Set when the server wanted a sign-in and nobody was there to give one.</summary>
     public bool WasRequired { get; private set; }
 
@@ -59,6 +65,14 @@ public sealed class SignInAttempt
     public static SignInAttempt Begin(ToolEndpoint endpoint)
     {
         var attempt = new SignInAttempt(endpoint);
+        current.Value = attempt;
+        return attempt;
+    }
+
+    /// <summary>Begins the closing of a kept session, as the endpoint the session was opened for.</summary>
+    public static SignInAttempt BeginClosing(ToolEndpoint endpoint)
+    {
+        var attempt = new SignInAttempt(endpoint) { MayRenew = false };
         current.Value = attempt;
         return attempt;
     }
@@ -152,8 +166,9 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
     {
         var tokens = await Read(cancellationToken);
 
-        // Outside a use (the listening stream of a kept session) nothing is renewed, so there is nothing to wait for.
-        if (tokens is null || SignInAttempt.Current is not { HasRenewed: false } attempt || !IsRunningOut(tokens, attempt))
+        // Outside a use (the listening stream of a kept session), and when a session is being closed, nothing is
+        // renewed, so there is nothing to wait for.
+        if (tokens is null || SignInAttempt.Current is not { HasRenewed: false, MayRenew: true } attempt || !IsRunningOut(tokens, attempt))
         {
             return tokens;
         }
