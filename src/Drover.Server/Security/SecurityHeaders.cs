@@ -8,6 +8,9 @@ public static class SecurityHeaders
 {
     #region Private Fields
 
+    // 180 days, no subdomains: the setting covers this name only.
+    private const string StrictTransportSecurity = "max-age=15552000";
+
     private const string ContentSecurityPolicy =
         "default-src 'self'; "
         + "script-src 'self' 'wasm-unsafe-eval'; "
@@ -34,6 +37,14 @@ public static class SecurityHeaders
                 headers["X-Content-Type-Options"] = "nosniff";
                 headers["Referrer-Policy"] = "no-referrer";
                 headers["X-Frame-Options"] = "DENY";
+
+                // Only over HTTPS: behind a trusted proxy the scheme is the one the person used. Plain HTTP on this
+                // machine never gets it, so http://localhost is not pinned to HTTPS.
+                if (context.Request.IsHttps)
+                {
+                    headers["Strict-Transport-Security"] = StrictTransportSecurity;
+                }
+
                 return Task.CompletedTask;
             });
             await next();
