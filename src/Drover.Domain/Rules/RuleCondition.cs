@@ -44,5 +44,13 @@ public sealed record RuleCondition
 
     public long? Limit { get; init; }
 
+    /// <summary>
+    /// Whether the condition looks for something in text. Such a condition catches the common forms and is not a
+    /// guarantee. Every other condition is exact: decided on structure (which tool, its kind, the time, a count,
+    /// the values of named inputs), and guaranteed.
+    /// </summary>
+    public bool IsPattern => Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds
+        || (Kind is RuleConditionKind.NotInList && Argument is null);
+
     #endregion
 }

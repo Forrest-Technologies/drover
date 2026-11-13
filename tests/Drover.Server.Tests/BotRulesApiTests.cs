@@ -172,6 +172,66 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
     #region Try It
 
     [Fact]
+    public async Task A_rule_that_names_a_tool_nobody_has_is_saved_and_says_so_until_there_is_one()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+
+        var saved = await Send<BotRuleResponse>(
+            client.Post($"{bot}/rules", new BotRuleBody("Typo", true, "before_tool", "block", [new("tool_is") { Tools = ["time.now", "emial.send"] }])),
+            HttpStatusCode.Created);
+
+        saved.Notes.Should().ContainSingle().Which.Should().Contain("emial.send").And.Contain("No tool has that name");
+        var listed = await Send<List<BotRuleResponse>>(client.Get($"{bot}/rules"), HttpStatusCode.OK);
+        listed.Single().Notes.Should().Equal(saved.Notes, "the rule keeps saying so while it is true");
+    }
+
+    [Fact]
+    public async Task A_list_rule_saved_before_it_had_to_name_its_tools_says_what_it_does_not_cover()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        var botId = Guid.Parse(bot.Split('/')[^1]);
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            db.BotRules.Add(new BotRule
+            {
+                BotId = botId,
+                Name = "Saved earlier",
+                Checkpoint = RuleCheckpoint.BeforeTool,
+                Effect = RuleEffect.Block,
+                Conditions = [new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] }],
+            });
+            await db.SaveChangesAsync(Token);
+            return true;
+        });
+
+        var listed = await Send<List<BotRuleResponse>>(client.Get($"{bot}/rules"), HttpStatusCode.OK);
+
+        listed.Single().Notes.Should().ContainSingle().Which.Should().Contain("does not apply when the input is missing");
+    }
+
+    [Fact]
+    public async Task A_trial_says_when_rules_that_look_for_something_in_text_were_tried_also_when_none_applied()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Exact", true, "before_tool", "ask", [new("tool_kind") { ToolKinds = ["write"] }])), HttpStatusCode.Created);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Pattern", true, "before_reply", "block", [new("text_holds") { Builtin = "card_number" }])), HttpStatusCode.Created);
+
+        var clean = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, "Nothing to see.")), HttpStatusCode.OK);
+        var tool = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_tool", "time.now", "{}", null)), HttpStatusCode.OK);
+
+        clean.Effect.Should().BeNull();
+        clean.CatchesCommonForms.Should().BeTrue("a rule that looks for something in text was tried, and finding nothing is not proof");
+        tool.CatchesCommonForms.Should().BeFalse("only exact conditions are checked before a tool here");
+    }
+
+    [Fact]
     public async Task A_sample_too_long_to_try_is_refused_in_words_before_any_rule_is_run()
     {
         var alice = await SeedPerson("alice");

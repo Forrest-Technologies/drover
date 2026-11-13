@@ -40,9 +40,28 @@ public static class RuleWords
 
     #region Properties
 
+    /// <summary>The mark of a condition that looks for something in text, wherever such a condition is named.</summary>
+    public const string CommonForms = "(catches common forms)";
+
     /// <summary>What a condition on text does not find, said where a person writes one.</summary>
     public static string NotCaught =>
-        "Characters that cannot be seen are ignored. Not caught: a letter from another alphabet that only looks the same, text split across two inputs or two items of a list, and a card number with other digits joined to it without a gap.";
+        "Catches common forms, and is not a guarantee. Characters that cannot be seen are ignored. Not caught: a letter from another alphabet that only looks the same, and text split across two inputs or two items of a list.";
+
+    /// <summary>What the built-in kinds find and do not, said where a person chooses one.</summary>
+    public static string NotCaughtHeld =>
+        "Catches common forms, and is not a guarantee. A card number is found in one piece or in the groups it is printed in, parted by single spaces or hyphens. Written another way, beside another group of four digits, or joined to other digits, it is not. A number that only looks like a card, such as a sixteen-digit id, can be taken for one.";
+
+    /// <summary>What the address list finds and does not.</summary>
+    public static string NotCaughtAddresses =>
+        "Catches common forms, and is not a guarantee. Anything with an @ in it, anywhere in the tool's input, has to be one plain address, standing on its own, that is listed or at a listed host. That also catches an address inside a link, a package version, and a repository address, whatever is listed. A percent-encoded @ and an address split across two items are not caught. To be exact about recipients, use a list on named inputs.";
+
+    /// <summary>What makes a list on named inputs exact, and what it needs.</summary>
+    public static string ListIsExact =>
+        "Exact. Every value of these inputs has to be on the list, whatever the case of their names. Name every input a recipient can be in. The rule also needs a condition that says which tools, and applies when none of these inputs is in a call.";
+
+    /// <summary>The first thing the section says: what a rule is, and which conditions are which.</summary>
+    public static string Intro =>
+        "The server checks a rule every time, whatever the bot's instructions say. Conditions about the tool, the time, counts, and named inputs are exact. Conditions that look for something in text catch common forms and are not a guarantee.";
 
     public static IReadOnlyList<RuleChoice> Checkpoints => checkpoints;
 
@@ -73,10 +92,12 @@ public static class RuleWords
         .. checkpoint is BeforeTool or AfterTool
             ? [new RuleChoice("tool_is", "The tool is one of"), new RuleChoice("tool_kind", "The tool is of a kind")]
             : Array.Empty<RuleChoice>(),
-        new("text_contains", $"{Capitalized(Subject(checkpoint))} contains"),
-        new("text_holds", $"{Capitalized(Subject(checkpoint))} holds"),
-        new("text_matches", $"{Capitalized(Subject(checkpoint))} matches a pattern"),
-        .. checkpoint is BeforeTool ? [new RuleChoice("not_in_list", "An address or an input is not on a list")] : Array.Empty<RuleChoice>(),
+        new("text_contains", $"{Capitalized(Subject(checkpoint))} contains {CommonForms}"),
+        new("text_holds", $"{Capitalized(Subject(checkpoint))} holds {CommonForms}"),
+        new("text_matches", $"{Capitalized(Subject(checkpoint))} matches a pattern {CommonForms}"),
+        .. checkpoint is BeforeTool
+            ? [new RuleChoice("not_in_list", "An input is not on a list"), new RuleChoice(AddressesNotInList, $"An email address is not on a list {CommonForms}")]
+            : Array.Empty<RuleChoice>(),
         new("time_is", "The time is between"),
         new("run_exceeds", "The run has used more than"),
     ];
@@ -85,7 +106,7 @@ public static class RuleWords
     public static string Sentence(string checkpoint, string effect, IReadOnlyList<RuleConditionBody> conditions)
     {
         var when = (checkpoints.FirstOrDefault(choice => choice.Value == checkpoint)?.Label ?? checkpoint).ToLowerInvariant();
-        var holds = string.Join(" and ", conditions.Select(condition => Condition(checkpoint, condition)));
+        var holds = string.Join(" and ", conditions.Select(condition => IsPattern(condition) ? $"{Condition(checkpoint, condition)} {CommonForms}" : Condition(checkpoint, condition)));
         return conditions.Count == 0 ? $"When {when}, {Then(checkpoint, effect)}." : $"When {when}, if {holds}, then {Then(checkpoint, effect)}.";
     }
 
@@ -110,10 +131,25 @@ public static class RuleWords
     }
 
     /// <summary>What a trial found, as a sentence. The server decided; this only words it.</summary>
-    public static string Trial(TryRulesResponse found) =>
-        found.Effect is null || found.RuleName is null
-            ? "No rule applies to this sample."
-            : $"The rule \"{found.RuleName}\" would {Would(found.Effect)}: {found.Why}.";
+    public static string Trial(TryRulesResponse found)
+    {
+        const string Tried = "Some of the rules tried look for something in text: they catch common forms";
+
+        if (found.Effect is null || found.RuleName is null)
+        {
+            return found.CatchesCommonForms ? $"No rule applies to this sample. {Tried}, so this is not proof that nothing is there." : "No rule applies to this sample.";
+        }
+
+        var answer = $"The rule \"{found.RuleName}\" would {Would(found.Effect)}: {found.Why}.";
+        return found.CatchesCommonForms ? $"{answer} {Tried} and are not a guarantee." : answer;
+    }
+
+    /// <summary>
+    /// Whether a condition looks for something in text. Such a condition catches the common forms and is not a
+    /// guarantee; every other condition is exact. A list is exact when it names its inputs.
+    /// </summary>
+    public static bool IsPattern(RuleConditionBody condition) =>
+        condition.Kind is "text_contains" or "text_holds" or "text_matches" || (condition.Kind is "not_in_list" && string.IsNullOrWhiteSpace(condition.Argument));
 
     #endregion
 
@@ -195,6 +231,9 @@ public static class RuleWords
     #endregion
 
     #region Checkpoints
+
+    /// <summary>The builder's own name for a list with no input named: every email address in the tool's input.</summary>
+    public const string AddressesNotInList = "addresses_not_in_list";
 
     public const string BeforeTool = "before_tool";
 

@@ -11,10 +11,10 @@ public sealed class RuleWordsTests
         { RuleWords.BeforeTool, "block", [new("tool_is") { Tools = ["sample.send", "sample.post"] }], "When a tool is about to run, if the tool is sample.send or sample.post, then do not run it." },
         { RuleWords.BeforeTool, "block", [new("not_in_list") { Argument = "to", Entries = ["example.org", "example.com"] }], "When a tool is about to run, if the input \"to\" is not one of example.org, example.com, then do not run it." },
         { RuleWords.BeforeTool, "block", [new("not_in_list") { Argument = "to, cc,bcc", Entries = ["example.org"] }], "When a tool is about to run, if any of the inputs \"to\", \"cc\", \"bcc\" is not one of example.org, then do not run it." },
-        { RuleWords.BeforeTool, "block", [new("not_in_list") { Entries = ["example.org"] }], "When a tool is about to run, if an email address anywhere in the tool's input is not one of example.org, then do not run it." },
-        { RuleWords.AfterTool, "redact", [new("text_holds") { Builtin = "card_number" }], "When a tool has answered, if the tool's answer holds a card number, then remove what matched." },
-        { RuleWords.AfterTool, "block", [new("text_matches") { Pattern = "INV-\\d+" }], "When a tool has answered, if the tool's answer matches the pattern INV-\\d+, then keep the answer from the bot." },
-        { RuleWords.BeforeReply, "block", [new("text_contains") { Entries = ["one", "two"] }], "When the bot is about to reply, if the reply contains \"one\" or \"two\", then do not send it." },
+        { RuleWords.BeforeTool, "block", [new("not_in_list") { Entries = ["example.org"] }], "When a tool is about to run, if an email address anywhere in the tool's input is not one of example.org (catches common forms), then do not run it." },
+        { RuleWords.AfterTool, "redact", [new("text_holds") { Builtin = "card_number" }], "When a tool has answered, if the tool's answer holds a card number (catches common forms), then remove what matched." },
+        { RuleWords.AfterTool, "block", [new("text_matches") { Pattern = "INV-\\d+" }], "When a tool has answered, if the tool's answer matches the pattern INV-\\d+ (catches common forms), then keep the answer from the bot." },
+        { RuleWords.BeforeReply, "block", [new("text_contains") { Entries = ["one", "two"] }], "When the bot is about to reply, if the reply contains \"one\" or \"two\" (catches common forms), then do not send it." },
         { RuleWords.MessageArrives, "block", [new("time_is") { From = "22:00", To = "07:00", TimeZone = "Europe/Berlin", Weekdays = ["saturday", "sunday"] }], "When a message arrives, if it is between 22:00 and 07:00 on Saturday, Sunday (Europe/Berlin), then do not give it to the bot." },
         { RuleWords.BeforeTool, "stop", [new("run_exceeds") { Counter = "tool_calls", Limit = 2000 }, new("tool_kind") { ToolKinds = ["read"] }], "When a tool is about to run, if the run has used more than 2,000 tool calls and the tool reads, then stop the run." },
         { RuleWords.BeforeReply, "stop", [], "When the bot is about to reply, stop the run." },
@@ -25,6 +25,33 @@ public sealed class RuleWordsTests
     [MemberData(nameof(Sentences))]
     public void A_rule_reads_back_as_one_sentence(string checkpoint, string effect, RuleConditionBody[] conditions, string expected) =>
         RuleWords.Sentence(checkpoint, effect, conditions).Should().Be(expected);
+
+    [Fact]
+    public void Every_choice_that_looks_for_something_in_text_says_it_catches_common_forms_and_no_exact_one_does()
+    {
+        var choices = RuleWords.Conditions(RuleWords.BeforeTool);
+
+        choices.Where(choice => choice.Label.EndsWith("(catches common forms)", StringComparison.Ordinal)).Select(choice => choice.Value)
+            .Should().BeEquivalentTo(["text_contains", "text_holds", "text_matches", "addresses_not_in_list"]);
+        choices.Select(choice => choice.Value).Should().Contain(["tool_is", "tool_kind", "not_in_list", "time_is", "run_exceeds"]);
+        RuleWords.IsPattern(new RuleConditionBody("not_in_list") { Argument = "to" }).Should().BeFalse("a list on named inputs is exact");
+        RuleWords.IsPattern(new RuleConditionBody("not_in_list")).Should().BeTrue();
+        RuleWords.IsPattern(new RuleConditionBody("tool_kind")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_trial_decided_by_a_pattern_says_that_patterns_are_not_a_guarantee()
+    {
+        var exact = new TryRulesResponse("block", Guid.CreateVersion7(), "Sample rule", "the tool writes", null, null, ["Sample rule"]);
+
+        RuleWords.Trial(exact).Should().Be("The rule \"Sample rule\" would block this: the tool writes.");
+        RuleWords.Trial(exact with { CatchesCommonForms = true }).Should().Be(
+            "The rule \"Sample rule\" would block this: the tool writes. Some of the rules tried look for something in text: they catch common forms and are not a guarantee.");
+        var none = new TryRulesResponse(null, null, null, null, null, null, []);
+        RuleWords.Trial(none).Should().Be("No rule applies to this sample.");
+        RuleWords.Trial(none with { CatchesCommonForms = true }).Should().Be(
+            "No rule applies to this sample. Some of the rules tried look for something in text: they catch common forms, so this is not proof that nothing is there.");
+    }
 
     [Fact]
     public void The_closed_section_says_how_many_rules_there_are_and_how_many_are_off()
@@ -85,7 +112,10 @@ public sealed class RuleWordsTests
         body.Argument.Should().BeNull();
         new ConditionDraft { Kind = "time_is", From = "22:00:00", To = "07:00", TimeZone = " UTC " }.ToBody()
             .Should().BeEquivalentTo(new RuleConditionBody("time_is") { From = "22:00", To = "07:00", TimeZone = "UTC" });
-        new ConditionDraft { Kind = "not_in_list", Argument = "  ", Entries = "example.org" }.ToBody().Argument.Should().BeNull("no input named means every address in the input");
+        new ConditionDraft { Kind = "addresses_not_in_list", Argument = "left over", Entries = "example.org" }.ToBody()
+            .Should().BeEquivalentTo(new RuleConditionBody("not_in_list") { Entries = ["example.org"] }, "the address form is the list with no input named");
+        new ConditionDraft { Kind = "not_in_list", Entries = "example.org" }.ToBody().Argument.Should().Be("to, cc, bcc", "a list starts on the fields a recipient can be in");
+        ConditionDraft.Of(new RuleConditionBody("not_in_list") { Entries = ["example.org"] }, "UTC").Kind.Should().Be("addresses_not_in_list");
         new ConditionDraft { Kind = "run_exceeds", Limit = "many" }.ToBody().Limit.Should().BeNull("the server says what is wrong with it");
     }
 
@@ -107,6 +137,19 @@ public sealed class RuleWordsTests
         var body = RuleDraft.Of(saved, "UTC").ToBody();
 
         body.Should().BeEquivalentTo(new BotRuleBody("Sample rule", false, RuleWords.BeforeTool, "block", saved.Conditions));
+    }
+
+    [Fact]
+    public void A_starter_that_looks_for_something_in_text_says_so_in_its_name_and_in_its_rules_names()
+    {
+        foreach (var starter in RuleStarters.For("UTC"))
+        {
+            var pattern = starter.Rules.Any(rule => rule.Conditions!.Any(RuleWords.IsPattern));
+
+            starter.Label.Contains("common forms", StringComparison.Ordinal).Should().Be(pattern, starter.Label);
+            starter.Label.Should().NotContainAny("Never", "Always", "never", "always");
+            starter.Rules.Where(rule => rule.Conditions!.Any(RuleWords.IsPattern)).Should().OnlyContain(rule => rule.Name!.Contains("common forms", StringComparison.Ordinal));
+        }
     }
 
     [Fact]

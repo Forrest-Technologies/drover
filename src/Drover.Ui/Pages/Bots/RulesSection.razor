@@ -8,7 +8,7 @@
 }
 else
 {
-    <p class="dv-editor-hint">A rule is checked by the server every time, whatever the bot's instructions say.</p>
+    <p class="dv-editor-hint">@RuleWords.Intro</p>
     <p class="dv-visually-hidden" role="status">@announcement</p>
 
     @if (Inherited.Count > 0)
@@ -20,6 +20,10 @@ else
                     <div class="dv-rule-text">
                         <span class="dv-rule-sentence">@RuleWords.Sentence(rule)</span>
                         <span class="dv-rule-name">@rule.Name · from @rule.BotName, changed there@(rule.Enabled ? null : " · off")</span>
+                        @foreach (var note in rule.Notes)
+                        {
+                            <span class="dv-rule-note">@note</span>
+                        }
                     </div>
                 </li>
             }
@@ -35,6 +39,10 @@ else
                     <div class="dv-rule-text">
                         <span class="dv-rule-sentence">@RuleWords.Sentence(rule)</span>
                         <span class="dv-rule-name">@rule.Name</span>
+                        @foreach (var note in rule.Notes)
+                        {
+                            <span class="dv-rule-note">@note</span>
+                        }
                     </div>
                     <div class="dv-rule-actions">
                         <Switch Label="On" About="@rule.Name" Value="rule.Enabled" ValueChanged="on => SwitchRule(rule, on)" Disabled="busy" />
@@ -134,7 +142,7 @@ else
                                     <option value="@choice.Value">@choice.Label</option>
                                 }
                             </Select>
-                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
+                            <p class="dv-editor-hint">@RuleWords.NotCaughtHeld</p>
                             break;
                         case "text_matches":
                             <Field Label="Pattern" @bind-Value="condition.Pattern" autocomplete="off" spellcheck="false"
@@ -142,14 +150,16 @@ else
                             <p class="dv-editor-hint">@RuleWords.NotCaught</p>
                             break;
                         case "not_in_list":
-                            <Field Label="Input names, or none" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
-                                   Hint="Leave empty to check every email address anywhere in the tool's input. Use that for recipients: it does not depend on which field they are in." />
-                            @if (!string.IsNullOrWhiteSpace(condition.Argument))
-                            {
-                                <p class="dv-editor-hint">Named inputs, parted by commas, have each of their values checked. The rule then needs a condition that says which tools, and applies when none of these inputs is in a call.</p>
-                            }
+                            <Field Label="Input names" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
+                                   Hint="Parted by commas, such as to, cc, bcc." />
+                            <p class="dv-editor-hint">@RuleWords.ListIsExact</p>
                             <TextArea Label="Allowed, one on each line" Rows="2" @bind-Value="condition.Entries"
                                       Hint="Each value has to be one whole entry, as written. A domain such as example.org allows its addresses and subdomains." />
+                            break;
+                        case RuleWords.AddressesNotInList:
+                            <TextArea Label="Allowed, one on each line" Rows="2" @bind-Value="condition.Entries"
+                                      Hint="A domain such as example.org allows its addresses and subdomains." />
+                            <p class="dv-editor-hint">@RuleWords.NotCaughtAddresses</p>
                             break;
                         case "time_is":
                             <div class="dv-editor-pair">
@@ -359,7 +369,7 @@ else
         return Send(async () =>
         {
             var saved = editedId is { } id ? await Api.UpdateBotRule(SpaceId, BotId, id, body) : await Api.CreateBotRule(SpaceId, BotId, body);
-            announcement = $"Rule saved. {RuleWords.Sentence(saved)}";
+            announcement = Said($"Rule saved. {RuleWords.Sentence(saved)}", saved);
             draft = null;
             return With(Rules!, saved);
         });
@@ -386,7 +396,7 @@ else
         Send(async () =>
         {
             var saved = await Api.UpdateBotRule(SpaceId, BotId, rule.Id, new BotRuleBody(rule.Name, on, rule.Checkpoint, rule.Effect, rule.Conditions));
-            announcement = $"Rule {(on ? "on" : "off")}. {RuleWords.Sentence(saved)}";
+            announcement = Said($"Rule {(on ? "on" : "off")}. {RuleWords.Sentence(saved)}", saved);
             return With(Rules!, saved);
         });
 
@@ -403,6 +413,9 @@ else
 
             return [.. Rules!.Where(other => other.Id != rule.Id)];
         });
+
+    // What is read out about a saved rule: what was done, and whatever the server notes about the rule.
+    private static string Said(string done, BotRuleResponse saved) => string.Join(' ', [done, .. saved.Notes]);
 
     // The bots above come first, as a run reads them; a bot's own rules keep their order.
     private static IReadOnlyList<BotRuleResponse> With(IReadOnlyList<BotRuleResponse> rules, BotRuleResponse saved) =>

@@ -2,17 +2,18 @@ namespace Drover.Domain.Rules;
 
 /// <summary>
 /// A piece of text as rules compare it: without characters that cannot be seen, and with full-width letters, digits
-/// of any script, and unusual spaces in their plain form, so a zero-width space inside a word does not hide the
-/// word. A letter of another alphabet that only looks the same is not made the same. Each character of the plain form remembers where it came from, so what matched can be removed
-/// from the text as it was written.
+/// of any script, unusual spaces, and full stops of other scripts in their plain form, so a zero-width space inside
+/// a word does not hide the word. A letter of another alphabet that only looks the same is not made the same. Each
+/// character of the plain form remembers where it came from, so what matched can be removed from the text as it
+/// was written.
 /// </summary>
 public sealed class RuleText
 {
     #region Private Fields
 
-    private const char FullWidthFirst = '\uFF01';
+    private const char FullWidthFirst = '！';
 
-    private const char FullWidthLast = '\uFF5E';
+    private const char FullWidthLast = '～';
 
     private const int FullWidthOffset = 0xFEE0;
 
@@ -24,7 +25,7 @@ public sealed class RuleText
 
     #region Constructors
 
-    public RuleText(string original)
+    private RuleText(string original)
     {
         Original = original;
 
@@ -36,29 +37,39 @@ public sealed class RuleText
         }
 
         var plain = new StringBuilder(original.Length);
-        List<int> from = [];
-        List<int> to = [];
+        var from = new int[original.Length];
+        var to = new int[original.Length];
 
         for (var index = 0; index < original.Length;)
         {
-            var length = char.IsHighSurrogate(original[index]) && index + 1 < original.Length && char.IsLowSurrogate(original[index + 1]) ? 2 : 1;
-            var piece = original.Substring(index, length);
+            var character = original[index];
+            var paired = char.IsHighSurrogate(character) && index + 1 < original.Length && char.IsLowSurrogate(original[index + 1]);
+            var length = paired ? 2 : 1;
 
-            if (!IsUnseen(piece))
+            if (paired)
             {
-                foreach (var character in Normal(piece))
+                var rune = new Rune(character, original[index + 1]);
+
+                if (Rune.IsDigit(rune))
                 {
-                    plain.Append(character);
-                    from.Add(index);
-                    to.Add(index + length);
+                    Keep(plain, from, to, (char)('0' + (int)Rune.GetNumericValue(rune)), index, length);
                 }
+                else if (!IsUnseen(Rune.GetUnicodeCategory(rune)))
+                {
+                    Keep(plain, from, to, character, index, length);
+                    Keep(plain, from, to, original[index + 1], index, length);
+                }
+            }
+            else if (!IsUnseen(char.GetUnicodeCategory(character)) && !(char.IsControl(character) && character is not ('\n' or '\r' or '\t')))
+            {
+                Keep(plain, from, to, Normal(character), index, length);
             }
 
             index += length;
         }
 
         Plain = plain.ToString();
-        (starts, ends) = ([.. from], [.. to]);
+        (starts, ends) = (from, to);
     }
 
     #endregion
@@ -77,10 +88,16 @@ public sealed class RuleText
 
     #region Public Methods
 
+    /// <summary>
+    /// The text in its plain form, paid for from the evaluation's budget, or null when the budget cannot pay for
+    /// reading it.
+    /// </summary>
+    public static RuleText? Read(string original, RuleBudget budget) => budget.TrySpend(original.Length) ? new RuleText(original) : null;
+
     /// <summary>Where a stretch of the plain form lies in the text as written.</summary>
     public (int Start, int Length) InOriginal(int start, int length)
     {
-        if (starts.Length == 0 || length == 0)
+        if (ReferenceEquals(Plain, Original) || length == 0)
         {
             return (start, length);
         }
@@ -98,7 +115,7 @@ public sealed class RuleText
     {
         foreach (var character in text)
         {
-            if (character > '\u007E' || (character < ' ' && character is not ('\n' or '\r' or '\t')))
+            if (character > '~' || (character < ' ' && character is not ('\n' or '\r' or '\t')))
             {
                 return false;
             }
@@ -107,37 +124,40 @@ public sealed class RuleText
         return true;
     }
 
-    // What cannot be seen: format characters (zero-width spaces and joiners, direction marks, the soft hyphen),
-    // marks that attach to the character before them (combining accents, variation selectors, the grapheme
-    // joiner), and controls other than line breaks and tabs.
-    private static bool IsUnseen(string piece) =>
-        CharUnicodeInfo.GetUnicodeCategory(piece, 0) is UnicodeCategory.Format or UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
-        || (piece.Length == 1 && char.IsControl(piece[0]) && piece[0] is not ('\n' or '\r' or '\t'));
+    // The plain form never has more characters than the text, so the place of each is kept by its index in it.
+    private static void Keep(StringBuilder plain, int[] from, int[] to, char character, int index, int length)
+    {
+        from[plain.Length] = index;
+        to[plain.Length] = index + length;
+        plain.Append(character);
+    }
+
+    // What cannot be seen: format characters (zero-width spaces and joiners, direction marks, the soft hyphen) and
+    // marks that attach to the character before them (combining accents, variation selectors, the grapheme joiner).
+    private static bool IsUnseen(UnicodeCategory category) =>
+        category is UnicodeCategory.Format or UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark;
 
     // The plain form of one character, worked out here because the server runs without the system's Unicode
     // tables: a full-width letter, digit, or sign becomes the ordinary one, a digit of any script becomes 0 to 9,
-    // and any space becomes a space. Letters of other alphabets that only look like these stay what they are.
-    private static string Normal(string piece)
+    // any space becomes a space, and a full stop of another script becomes a full stop.
+    private static char Normal(char character)
     {
-        if (piece.Length == 2)
-        {
-            var rune = Rune.GetRuneAt(piece, 0);
-            return Rune.IsDigit(rune) ? ((char)('0' + (int)Rune.GetNumericValue(rune))).ToString() : piece;
-        }
-
-        var character = piece[0];
-
         if (character is >= FullWidthFirst and <= FullWidthLast)
         {
-            return ((char)(character - FullWidthOffset)).ToString();
+            return (char)(character - FullWidthOffset);
         }
 
         if (char.IsDigit(character))
         {
-            return ((char)('0' + (int)char.GetNumericValue(character))).ToString();
+            return (char)('0' + (int)char.GetNumericValue(character));
         }
 
-        return char.IsWhiteSpace(character) && character is not ('\n' or '\r' or '\t') ? " " : piece;
+        if (character is '。' or '｡')
+        {
+            return '.';
+        }
+
+        return char.IsWhiteSpace(character) && character is not ('\n' or '\r' or '\t') ? ' ' : character;
     }
 
     #endregion
