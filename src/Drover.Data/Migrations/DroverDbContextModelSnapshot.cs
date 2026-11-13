@@ -1823,6 +1823,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<DateTimeOffset?>("RenewAttemptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("renew_attempted_at");
+
                     b.Property<Guid>("SecretId")
                         .HasColumnType("uuid")
                         .HasColumnName("secret_id");

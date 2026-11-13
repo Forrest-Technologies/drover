@@ -1,17 +1,17 @@
 namespace Drover.Server.Tools;
 
 /// <summary>
-/// Looks for tool server sign-ins that are running out, every few minutes, for as long as the server is up. All of
+/// Looks for tool server sign-ins that are running out, as often as the deployment policy says, for as long as the server is up. All of
 /// the work is in <c>Drover.Engine</c>. A look that fails is logged and the next one tries again.
 /// </summary>
-public sealed class ToolSignInRenewer(ToolSignInRenewal renewal, IOptions<ToolSignInOptions> options, TimeProvider time, ILogger<ToolSignInRenewer> logger)
+public sealed class ToolSignInRenewer(ToolSignInRenewal renewal, TimeProvider time, ILogger<ToolSignInRenewer> logger)
     : BackgroundService
 {
     #region Protected Methods
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(options.Value.RenewEvery, time);
+        using var timer = new PeriodicTimer(renewal.Interval, time);
 
         try
         {

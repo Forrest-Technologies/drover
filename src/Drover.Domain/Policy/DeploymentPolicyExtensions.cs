@@ -28,6 +28,7 @@ public static class DeploymentPolicyExtensions
         {
             MaxToolResponseBytes = DeploymentPolicy.HostedMaxToolResponseBytes,
             MaxToolsPerConnection = DeploymentPolicy.HostedMaxToolsPerConnection,
+            MaxToolSignInRenewalsPerPass = DeploymentPolicy.HostedMaxToolSignInRenewalsPerPass,
         };
 
     public static DeploymentPolicy WithBoundedModelDiscovery(this DeploymentPolicy policy) =>

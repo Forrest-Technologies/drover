@@ -83,6 +83,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxToolsPerConnection = 200;
 
+    public const int SelfHostedMaxToolSignInRenewalsPerPass = 50;
+
+    public const int HostedMaxToolSignInRenewalsPerPass = 20;
+
+    public const int ToolSignInRenewalPassesEachHour = 12;
+
+    public const int ToolSignInRenewalLeadMinutes = 15;
+
     #endregion
 
     #region Presets
@@ -121,6 +129,18 @@ public sealed record DeploymentPolicy
 
     /// <summary>The most tools Drover accepts from one tool connection.</summary>
     public int MaxToolsPerConnection { get; init; } = SelfHostedMaxToolsPerConnection;
+
+    /// <summary>
+    /// The most tool server sign-ins one background pass tries to renew. Each is a request to somebody else's
+    /// server made on this server's own initiative, so the number is bounded.
+    /// </summary>
+    public int MaxToolSignInRenewalsPerPass { get; init; } = SelfHostedMaxToolSignInRenewalsPerPass;
+
+    /// <summary>How many times an hour the server looks for tool server sign-ins that are running out.</summary>
+    public int MaxToolSignInRenewalPassesPerHour { get; init; } = ToolSignInRenewalPassesEachHour;
+
+    /// <summary>How many minutes before an access token runs out it is renewed in the background. More means renewing more often.</summary>
+    public int MaxToolSignInRenewalLeadMinutes { get; init; } = ToolSignInRenewalLeadMinutes;
 
     public SubscriptionSignInMode SubscriptionSignIn { get; init; } = SubscriptionSignInMode.WhereProviderPermits;
 
@@ -191,6 +211,21 @@ public sealed record DeploymentPolicy
             policy => policy.MaxToolsPerConnection,
             HostedMaxToolsPerConnection,
             Enforcement.Now("Tool listing, in the tool source adapter and the tool catalog")),
+        PolicyRule.Limit(
+            nameof(MaxToolSignInRenewalsPerPass),
+            policy => policy.MaxToolSignInRenewalsPerPass,
+            HostedMaxToolSignInRenewalsPerPass,
+            Enforcement.Now("Background renewal of tool server sign-ins, in ToolSignInRenewal")),
+        PolicyRule.Limit(
+            nameof(MaxToolSignInRenewalPassesPerHour),
+            policy => policy.MaxToolSignInRenewalPassesPerHour,
+            ToolSignInRenewalPassesEachHour,
+            Enforcement.Now("Background renewal of tool server sign-ins, in ToolSignInRenewer")),
+        PolicyRule.Limit(
+            nameof(MaxToolSignInRenewalLeadMinutes),
+            policy => policy.MaxToolSignInRenewalLeadMinutes,
+            ToolSignInRenewalLeadMinutes,
+            Enforcement.Now("Background renewal of tool server sign-ins, in ToolSignInRenewal")),
         PolicyRule.Choice(
             nameof(SandboxAdapters),
             policy => policy.SandboxAdapters,

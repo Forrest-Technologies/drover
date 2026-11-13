@@ -20,6 +20,13 @@ public sealed class ToolConnectionCredential : ISpaceOwned, IAudienceScoped
 
     public DateTimeOffset? ExpiresAt { get; set; }
 
+    /// <summary>
+    /// When the background renewal last tried this credential and did not renew it. Null when it never failed, or
+    /// was renewed since. A credential tried lately waits its turn, so one tool server that is down cannot take
+    /// every pass from the sign-ins that can be renewed.
+    /// </summary>
+    public DateTimeOffset? RenewAttemptedAt { get; set; }
+
     public CredentialStatus Status { get; set; } = CredentialStatus.Active;
 
     #endregion

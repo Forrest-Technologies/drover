@@ -11,9 +11,6 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
         ["Drover:PublicUrl"] = "https://drover.example.test",
-
-        // The test server's access tokens last an hour. Renewing two hours ahead makes every one of them due.
-        ["Drover:ToolSignIn:RenewAheadMinutes"] = "120",
     };
 
     #endregion
@@ -157,8 +154,9 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     public async Task Sign_ins_are_renewed_in_the_background_before_they_run_out_and_one_that_cannot_be_is_marked_before_a_run_finds_out()
     {
         Script = new ScriptedModel([new ToolCallOutput("c1", "calendar__echo", """{"text":"later"}""")], [new TextOutput("Done.")]);
-        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
-        await using var lapsing = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        // Tokens that last ten minutes are inside the fifteen the server renews ahead by, so they are due at once.
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
+        await using var lapsing = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
         var alice = await SeedPerson("alice");
         var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
         var admin = await SignIn(alice.Email, alice.Password);
@@ -185,12 +183,12 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         refreshesAfterOneLook.Should().Be(1);
         server.Approvals.Should().Be(1, "renewing asks nobody");
         server.Requests.Should().BeGreaterThan(requestsBefore);
-        server.Refreshes.Should().Be(1, "the run renewed nothing, its tokens being good for an hour, and a sign-in just renewed is not renewed again at once");
+        server.Refreshes.Should().Be(1, "the run renewed nothing, its tokens being good for minutes yet, and a sign-in just renewed is not renewed again at once");
         Summary(forMember, mine).SignIn.Should().Be("signed_in");
         Summary(forMember, shared).SignIn.Should().Be("needs_reconnect", "a sign-in that cannot be renewed says so before a run trips over it");
         run.Status.Should().Be("completed", run.Error?.Message);
         Script.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"echo: later\""), "the run uses the renewed tokens");
-        again.Should().Be(1, "the member's sign-in is looked at again; the marked one is left alone");
+        again.Should().Be(0, "a pass reports what it renewed, and the second one renewed nothing: one sign-in was renewed a moment ago and the other is marked");
         lapsing.Refreshes.Should().Be(0);
         string.Join('\n', forMember, string.Join('\n', Logs.Entries.Select(entry => entry.ToString())))
             .Should().NotContainAny(server.IssuedSecrets.Concat(lapsing.IssuedSecrets), "no token is in a response or a log");
@@ -204,7 +202,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
             [new TextOutput("I could not.")],
             [new ToolCallOutput("c2", "calendar__echo", """{"text":"back"}""")],
             [new TextOutput("Done.")]);
-        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = ShortLived });
         var alice = await SeedPerson("alice");
         var admin = await SignIn(alice.Email, alice.Password);
         await AllowPrivateAddresses(alice.SpaceId);
@@ -312,6 +310,8 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     #endregion
 
     #region Helpers
+
+    private static ToolServerSignIn ShortLived => new() { TokenLifetime = TimeSpan.FromMinutes(10) };
 
     private static string CallbackPath(SignInAnswer answer) =>
         $"/oauth/mcp/callback?code={Uri.EscapeDataString(answer.Code)}&state={Uri.EscapeDataString(answer.State ?? string.Empty)}&iss={Uri.EscapeDataString(answer.Issuer ?? string.Empty)}";
