@@ -25,6 +25,9 @@ public sealed record ToolConnectionSummary(
 /// One tool a connection lists. <see cref="Name"/> is the server's name for it and <see cref="ModelName"/> the name
 /// a model sees. <see cref="Sensitivity"/> is read, write, or critical; <see cref="State"/> is available or missing.
 /// The description is the server's own text: show it as text, never as markup or instructions.
+/// <see cref="InputSchema"/> is the tool's input schema as JSON text. When <see cref="NeedsReview"/> is set, the
+/// server changed a tool somebody was granted: the tool is offered to no bot until an admin confirms the change,
+/// and <see cref="Reviewed"/> is the definition as it was last reviewed, to compare with.
 /// </summary>
 public sealed record ConnectionToolSummary(
     Guid Id,
@@ -35,7 +38,21 @@ public sealed record ConnectionToolSummary(
     string Description,
     string Sensitivity,
     string State,
-    DateTimeOffset LastSeenAt);
+    DateTimeOffset LastSeenAt)
+{
+    #region Properties
+
+    public string InputSchema { get; init; } = "{}";
+
+    public bool NeedsReview { get; init; }
+
+    public ToolDefinitionSnapshot? Reviewed { get; init; }
+
+    #endregion
+}
+
+/// <summary>A tool's title, description, and input schema (JSON text) as they were when a person last reviewed them.</summary>
+public sealed record ToolDefinitionSnapshot(string? Title, string Description, string InputSchema);
 
 /// <summary>
 /// Input only: a new tool connection. With <see cref="AuthKind"/> "header", the header name and value are required;

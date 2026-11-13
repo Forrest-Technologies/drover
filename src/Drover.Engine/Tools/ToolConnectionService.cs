@@ -30,7 +30,7 @@ public sealed record ToolConnectionChange(ToolConnection? Connection, string? Pr
 /// What asking a tool server for its tools came to. With a failure, the catalog is as it was and
 /// <see cref="Message"/> says why in plain words.
 /// </summary>
-public sealed record ToolRefresh(ToolConnection Connection, IReadOnlyList<Tool> Tools, ToolSourceFailure? Failure, string? Message, CatalogChange? Change);
+public sealed record ToolRefresh(ToolConnection Connection, IReadOnlyList<CatalogTool> Tools, ToolSourceFailure? Failure, string? Message, CatalogChange? Change);
 
 /// <summary>A tool server as one call reaches it, built from rows read as the caller. Null endpoint means it cannot be called, and why.</summary>
 public sealed record ResolvedToolEndpoint(ToolEndpoint? Endpoint, string? Problem, IReadOnlyList<string> Secrets);
@@ -86,12 +86,42 @@ public sealed class ToolConnectionService(
     }
 
     /// <summary>The tools the connection has listed, or null when the connection is not in this space.</summary>
-    public async Task<List<Tool>?> ListTools(Guid connectionId, CancellationToken cancellationToken)
+    public async Task<List<CatalogTool>?> ListTools(Guid connectionId, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
-        return await connections.FindConnection(connectionId, cancellationToken) is null
+
+        if (await connections.FindConnection(connectionId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var tools = await connections.ListTools(connectionId, cancellationToken);
+        var waiting = await connections.ListToolsNeedingReview([.. tools.Select(tool => tool.Id)], cancellationToken);
+        return [.. tools.Select(tool => new CatalogTool(tool, waiting.Contains(tool.Id)))];
+    }
+
+    /// <summary>
+    /// A person has read a tool's changed definition and accepts it. Every grant on the tool counts as current again,
+    /// so the tool is offered to the bots that were granted it, and the definition kept for comparison is dropped.
+    /// Null when the tool is not one of this connection's.
+    /// </summary>
+    public async Task<CatalogTool?> ConfirmReview(Guid connectionId, Guid toolId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var tool = await connections.FindConnection(connectionId, cancellationToken) is null
             ? null
-            : await connections.ListTools(connectionId, cancellationToken);
+            : await connections.GetTool(connectionId, toolId, cancellationToken);
+
+        if (tool is null)
+        {
+            return null;
+        }
+
+        var confirmed = await connections.ConfirmReview(toolId, cancellationToken);
+        tool.ReviewedDefinition = null;
+        await work.Commit(cancellationToken);
+        logger.LogInformation("The changed definition of tool {ToolId} was reviewed; {Grants} grants are current again", toolId, confirmed);
+        return new CatalogTool(tool, false);
     }
 
     #endregion

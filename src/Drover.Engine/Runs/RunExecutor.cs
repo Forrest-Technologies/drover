@@ -179,8 +179,16 @@ public sealed class RunExecutor(
         var key = await RevealKey(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
         var granted = bot is null ? [] : await services.GetRequiredService<ToolRepository>().ListGrantedTools(bot.Id, cancellationToken);
-        var toolConnections = await services.GetRequiredService<ToolConnectionRepository>()
+        var toolConnectionRows = services.GetRequiredService<ToolConnectionRepository>();
+        var toolConnections = await toolConnectionRows
             .ListConnections([.. granted.Select(tool => tool.Tool.ToolConnectionId).OfType<Guid>().Distinct()], cancellationToken);
+
+        // A server's tool whose changed definition nobody has reviewed is left out of the run altogether: its new
+        // name, description, and schema are a stranger's text, and offering the tool would put them in front of the model.
+        var unreviewed = await toolConnectionRows.ListToolsNeedingReview(
+            [.. granted.Where(tool => tool.Tool.SourceKind is ToolSourceKind.Mcp).Select(tool => tool.Tool.Id)],
+            cancellationToken);
+        granted = [.. granted.Where(tool => !unreviewed.Contains(tool.Tool.Id))];
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
         var openMessage = steps.Open is { } open

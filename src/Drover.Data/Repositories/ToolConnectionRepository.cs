@@ -86,6 +86,32 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     public Task<List<Tool>> ListTools(Guid connectionId, CancellationToken cancellationToken) =>
         db.Tools.AsNoTracking().Where(tool => tool.ToolConnectionId == connectionId).OrderBy(tool => tool.Name).ToListAsync(cancellationToken);
 
+    public Task<Tool?> GetTool(Guid connectionId, Guid toolId, CancellationToken cancellationToken) =>
+        db.Tools.SingleOrDefaultAsync(tool => tool.Id == toolId && tool.ToolConnectionId == connectionId, cancellationToken);
+
+    /// <summary>Of the tools, the ones somebody was granted: a change to one of those is a change a person must look at.</summary>
+    public async Task<HashSet<Guid>> ListGrantedTools(IReadOnlyCollection<Guid> toolIds, CancellationToken cancellationToken) =>
+        [.. await db.ToolGrants.Where(grant => toolIds.Contains(grant.ToolId)).Select(grant => grant.ToolId).Distinct().ToListAsync(cancellationToken)];
+
+    /// <summary>
+    /// Of the tools, the ones with a grant still waiting for a person to review a changed definition. A grant of any
+    /// bot counts: the definition changed for all of them at once, and one review settles it for all.
+    /// </summary>
+    public async Task<HashSet<Guid>> ListToolsNeedingReview(IReadOnlyCollection<Guid> toolIds, CancellationToken cancellationToken) =>
+        [
+            .. await db.ToolGrants
+                .Where(grant => toolIds.Contains(grant.ToolId) && grant.ReviewState == ReviewState.NeedsReview)
+                .Select(grant => grant.ToolId)
+                .Distinct()
+                .ToListAsync(cancellationToken),
+        ];
+
+    /// <summary>A person has reviewed the tool's definition: every grant on it counts as current again.</summary>
+    public Task<int> ConfirmReview(Guid toolId, CancellationToken cancellationToken) =>
+        db.ToolGrants
+            .Where(grant => grant.ToolId == toolId && grant.ReviewState == ReviewState.NeedsReview)
+            .ExecuteUpdateAsync(grant => grant.SetProperty(row => row.ReviewState, ReviewState.Current), cancellationToken);
+
     /// <summary>
     /// Marks every grant on the tools as needing review, which makes each behave as "ask" until a person confirms
     /// it. Returns how many grants changed.

@@ -29,6 +29,13 @@ public sealed class Tool : ISpaceOwned
     /// <summary>A hash of the name, description, schema, and annotations. A change marks every grant for review.</summary>
     public required string DefinitionHash { get; set; }
 
+    /// <summary>
+    /// The definition as it was when a person last reviewed it, kept from the moment a tool server changes a tool
+    /// somebody was granted until a person confirms the change. It is what the new definition is compared with.
+    /// Null when nothing is waiting for review.
+    /// </summary>
+    public JsonElement? ReviewedDefinition { get; set; }
+
     public ToolSensitivity Sensitivity { get; set; } = ToolSensitivity.Write;
 
     public AvailabilityState State { get; set; } = AvailabilityState.Available;

@@ -19,8 +19,11 @@ public static class ToolViews
             connection.LastListedAt,
             connection.LastError);
 
-    public static ConnectionToolSummary ToSummary(this Tool tool, ToolConnection connection) =>
-        new(
+    public static ConnectionToolSummary ToSummary(this CatalogTool listed, ToolConnection connection)
+    {
+        var tool = listed.Tool;
+        var reviewed = listed.NeedsReview && tool.ReviewedDefinition is { } kept ? kept.Deserialize<ReviewedToolDefinition>() : null;
+        return new ConnectionToolSummary(
             tool.Id,
             connection.Id,
             tool.Name,
@@ -29,7 +32,13 @@ public static class ToolViews
             tool.Description,
             WireName(tool.Sensitivity),
             WireName(tool.State),
-            tool.LastSeenAt);
+            tool.LastSeenAt)
+        {
+            InputSchema = tool.InputSchema.GetRawText(),
+            NeedsReview = listed.NeedsReview,
+            Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
+        };
+    }
 
     public static ToolConnectionRefresh ToResponse(this ToolRefresh refresh) =>
         new(

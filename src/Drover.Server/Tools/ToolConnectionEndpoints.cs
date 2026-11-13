@@ -21,6 +21,8 @@ public static class ToolConnectionEndpoints
         connections.MapPut("/{connectionId:guid}/header", ReplaceHeader).RequireSpaceRole(MembershipRole.Admin).WithName("ReplaceToolHeader");
         connections.MapPost("/{connectionId:guid}/refresh", Refresh).RequireSpaceRole(MembershipRole.Admin).WithName("RefreshToolConnection")
             .WithSummary("Asks the server for its tools now. A changed tool definition marks its grants for review.");
+        connections.MapPost("/{connectionId:guid}/tools/{toolId:guid}/review", ConfirmReview).RequireSpaceRole(MembershipRole.Admin).WithName("ConfirmToolReview")
+            .WithSummary("Accepts a tool's changed definition after reading it. Until then the tool is offered to no bot.");
         connections.MapDelete("/{connectionId:guid}", RemoveConnection).RequireSpaceRole(MembershipRole.Admin).WithName("RemoveToolConnection");
         return space;
     }
@@ -119,6 +121,17 @@ public static class ToolConnectionEndpoints
         await connections.Refresh(connectionId, context.RequestAborted) is { } listed
             ? TypedResults.Ok(listed.ToResponse())
             : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ConnectionToolSummary>, NotFound>> ConfirmReview(
+        Guid connectionId,
+        Guid toolId,
+        HttpContext context,
+        ToolConnectionService connections)
+    {
+        var connection = await connections.FindConnection(connectionId, context.RequestAborted);
+        var tool = connection is null ? null : await connections.ConfirmReview(connectionId, toolId, context.RequestAborted);
+        return tool is null ? TypedResults.NotFound() : TypedResults.Ok(tool.ToSummary(connection!));
+    }
 
     private static async Task<Results<NoContent, NotFound>> RemoveConnection(Guid connectionId, HttpContext context, ToolConnectionService connections) =>
         await connections.Remove(connectionId, context.RequestAborted) ? TypedResults.NoContent() : TypedResults.NotFound();

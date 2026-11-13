@@ -1,5 +1,11 @@
 namespace Drover.Engine.Tools;
 
+/// <summary>A tool's title, description, and input schema (as JSON text) as a person last reviewed them.</summary>
+public sealed record ReviewedToolDefinition(string? Title, string Description, string InputSchema);
+
+/// <summary>A catalog row of a connection, and whether a changed definition of it still waits for a person's review.</summary>
+public sealed record CatalogTool(Tool Tool, bool NeedsReview);
+
 /// <summary>What folding a server's tool list into the catalog changed.</summary>
 public sealed record CatalogChange(int Added, int Changed, int Missing, int GrantsForReview);
 
@@ -56,8 +62,10 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
     /// <list type="bullet">
     /// <item>A new tool gets a row. No bot is granted it: a person grants it after reading it.</item>
     /// <item>A tool the server no longer lists is marked missing. Its grants stay, so it works again if it returns unchanged.</item>
-    /// <item>A tool whose definition changed is updated, and every grant on it is marked for review, which makes it
-    /// behave as "ask". A server cannot quietly turn a tool a person approved into something else.</item>
+    /// <item>A tool whose definition changed is updated, and every grant on it is marked for review. Until a person
+    /// confirms the change the tool is left out of every run, because the new text is a stranger's and a model
+    /// would read it; the definition the person last saw is kept beside the new one, so the two can be compared.
+    /// A server cannot quietly turn a tool a person approved into something else.</item>
     /// </list>
     /// A server's tool is stored as one that can change things, whatever the server says about it. "It only reads"
     /// is the server's claim: it is kept with the tool's annotations for a person to see, and it decides nothing.
@@ -72,6 +80,7 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
         var existing = (await connections.GetTools(connection.Id, cancellationToken)).ToDictionary(tool => tool.Name, StringComparer.Ordinal);
         var now = time.GetUtcNow();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var granted = await connections.ListGrantedTools([.. existing.Values.Select(tool => tool.Id)], cancellationToken);
         List<Guid> changed = [];
         var added = 0;
 
@@ -104,6 +113,10 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
             else if (row.DefinitionHash != hash)
             {
                 changed.Add(row.Id);
+
+                // The first change after a review keeps what was reviewed; later ones leave it, so the comparison
+                // is always with what a person actually saw. A tool nobody was granted has nothing to compare with.
+                row.ReviewedDefinition = granted.Contains(row.Id) ? row.ReviewedDefinition ?? Snapshot(row) : null;
             }
 
             row.Title = title;
@@ -129,6 +142,10 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
     #endregion
 
     #region Private Methods
+
+    /// <summary>The definition of a row as it stands, in the shape <see cref="ReviewedToolDefinition"/> reads.</summary>
+    private static JsonElement Snapshot(Tool row) =>
+        JsonSerializer.SerializeToElement(new ReviewedToolDefinition(row.Title, row.Description, row.InputSchema.GetRawText()));
 
     /// <summary>A tool this server will keep: it has a name that fits, and a schema that is an object of a size it accepts.</summary>
     private static bool IsStorable(ListedTool tool) =>

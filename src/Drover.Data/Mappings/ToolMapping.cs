@@ -14,6 +14,7 @@ public sealed class ToolMapping : IEntityTypeConfiguration<Tool>
         builder.Property(tool => tool.DefinitionHash).HasMaxLength(128);
         builder.Property(tool => tool.InputSchema).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
         builder.Property(tool => tool.Annotations).HasColumnType("jsonb");
+        builder.Property(tool => tool.ReviewedDefinition).HasColumnType("jsonb");
         builder.HasEnumColumn(tool => tool.SourceKind);
         builder.HasEnumColumn(tool => tool.Sensitivity);
         builder.HasEnumColumn(tool => tool.State);

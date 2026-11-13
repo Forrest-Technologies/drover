@@ -145,6 +145,52 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
     }
 
     [Fact]
+    public async Task A_changed_tool_shows_what_was_last_reviewed_and_only_an_admin_of_the_space_confirms_it()
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless));
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var outsider = await SeedPerson("outsider");
+        var client = await SignIn(alice.Email, alice.Password);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asOutsider = await SignIn(outsider.Email, outsider.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections", new CreateToolConnectionRequest("Notes", server.Url.ToString()));
+        var id = created.Connection.Id;
+        var echo = created.Tools.Single(tool => tool.Name == "echo");
+        var bot = await CreateBot(client, alice.SpaceId);
+        await Grant(alice.SpaceId, alice.UserId, bot.Id, "echo");
+        await PretendTheToolWasReviewedAs(alice.SpaceId, echo.Id, "Repeats text.");
+
+        var relisted = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections/{id}/refresh", new { });
+        var waiting = relisted.Tools.Single(tool => tool.Name == "echo");
+        var byMember = await asMember.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
+        var byOutsider = await asOutsider.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
+        var fromOwnSpace = await asOutsider.Post($"/api/spaces/{outsider.SpaceId}/tool-connections/{id}/tools/{echo.Id}/review", new { });
+        var stillWaiting = (await (await client.Get($"{space}/tool-connections/{id}/tools")).Content.ReadFromJsonAsync<List<ConnectionToolSummary>>(Token))!
+            .Single(tool => tool.Name == "echo");
+        var confirmed = await PostFor<ConnectionToolSummary>(client, $"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
+        var unknownTool = await client.Post($"{space}/tool-connections/{id}/tools/{Guid.CreateVersion7()}/review", new { });
+
+        relisted.Changed.Should().Be(1);
+        relisted.GrantsForReview.Should().Be(1);
+        waiting.NeedsReview.Should().BeTrue();
+        waiting.Description.Should().Be("Repeats the text it is given.");
+        waiting.InputSchema.Should().Contain("\"text\"");
+        waiting.Reviewed.Should().NotBeNull();
+        waiting.Reviewed!.Description.Should().Be("Repeats text.", "the definition a person last saw is kept beside the new one");
+        relisted.Tools.Where(tool => tool.Name != "echo").Should().OnlyContain(tool => !tool.NeedsReview && tool.Reviewed == null);
+        byMember.StatusCode.Should().Be(HttpStatusCode.Forbidden, "only an admin accepts a changed definition");
+        byOutsider.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Forbidden);
+        fromOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        stillWaiting.NeedsReview.Should().BeTrue("nobody who may confirm has confirmed");
+        confirmed.NeedsReview.Should().BeFalse();
+        confirmed.Reviewed.Should().BeNull();
+        unknownTool.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task A_credential_is_not_carried_to_wherever_a_tool_server_redirects()
     {
         var secret = NewPassword();
@@ -233,6 +279,23 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
         var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
         var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
         db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = userId });
+        await db.SaveChangesAsync(Token);
+        await work.Commit(Token);
+    }
+
+    /// <summary>
+    /// Leaves the catalog as if the tool had been listed, and reviewed, with other words, so the server's real
+    /// definition is a change the next time the connection is listed. The test server's definitions are fixed.
+    /// </summary>
+    private async Task PretendTheToolWasReviewedAs(Guid spaceId, Guid toolId, string description)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, Guid.CreateVersion7());
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        var tool = await db.Tools.SingleAsync(found => found.Id == toolId, Token);
+        tool.Description = description;
+        tool.DefinitionHash = "earlier";
         await db.SaveChangesAsync(Token);
         await work.Commit(Token);
     }

@@ -41,6 +41,14 @@ public sealed partial class DroverApi
     public Task<ToolConnectionRefresh> RefreshToolConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
         Post<ToolConnectionRefresh>($"{Space(spaceId)}/tool-connections/{connectionId}/refresh", null, cancellationToken);
 
+    /// <summary>
+    /// Accepts a tool's changed definition (admin only), after the person has compared
+    /// <see cref="ConnectionToolSummary.Reviewed"/> with the tool as it is now. Until this is called the tool is
+    /// offered to no bot.
+    /// </summary>
+    public Task<ConnectionToolSummary> ConfirmToolReview(Guid spaceId, Guid connectionId, Guid toolId, CancellationToken cancellationToken = default) =>
+        Post<ConnectionToolSummary>($"{Space(spaceId)}/tool-connections/{connectionId}/tools/{toolId}/review", null, cancellationToken);
+
     /// <summary>Removes the connection, its tools, and every grant on them (admin only).</summary>
     public Task RemoveToolConnection(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/tool-connections/{connectionId}", cancellationToken);
