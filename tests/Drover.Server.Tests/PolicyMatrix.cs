@@ -20,6 +20,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowPrivateAddresses), "true", "false"),
         new(nameof(DeploymentPolicy.MaxModelListBytes), "8388608", "2097152"),
         new(nameof(DeploymentPolicy.MaxModelsPerConnection), "5000", "1000"),
+        new(nameof(DeploymentPolicy.AllowToolConnections), "true", "false"),
         new(nameof(DeploymentPolicy.MaxToolResponseBytes), "8388608", "2097152"),
         new(nameof(DeploymentPolicy.MaxToolsPerConnection), "500", "200"),
         new(nameof(DeploymentPolicy.SandboxAdapters), "All", "HardBoundaryOnly"),

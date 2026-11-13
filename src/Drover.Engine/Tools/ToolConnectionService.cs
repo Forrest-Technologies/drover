@@ -93,9 +93,18 @@ public sealed class ToolConnectionService(
 
     private const int MaxErrorLength = 500;
 
+    /// <summary>What a tool connection answers with when the deployment has tool connections turned off. It names the rule.</summary>
+    public const string TurnedOff = "Tool connections are turned off on this server (deployment rule AllowToolConnections).";
+
+    // A request that says where it came from, as a proxy would. A tool server that trusts those would be lied to.
+    private const string ForwardedPrefix = "x-forwarded-";
+
     // Headers a connection may not set: they belong to the transport, or would redirect or disguise the request.
     private static readonly string[] reservedHeaders =
-        ["host", "content-length", "content-type", "transfer-encoding", "connection", "cookie", "accept", "mcp-session-id", "mcp-protocol-version"];
+    [
+        "host", "content-length", "content-type", "transfer-encoding", "connection", "cookie", "accept", "mcp-session-id", "mcp-protocol-version",
+        "proxy-authorization", "origin", "user-agent", "upgrade", "te", "expect", "last-event-id",
+    ];
 
     #endregion
 
@@ -163,6 +172,11 @@ public sealed class ToolConnectionService(
     /// </summary>
     public async Task<ToolConnectionChange> Create(NewToolConnection request, CancellationToken cancellationToken)
     {
+        if (!policy.Deployment.AllowToolConnections)
+        {
+            return ToolConnectionChange.Invalid(TurnedOff);
+        }
+
         if (Validate(request) is { } problem)
         {
             return ToolConnectionChange.Invalid(problem);
@@ -241,10 +255,18 @@ public sealed class ToolConnectionService(
             return ToolConnectionChange.Invalid("This connection does not use a header.");
         }
 
-        foreach (var old in await connections.ListCredentials(connectionId, cancellationToken))
+        var kept = await connections.ListCredentials(connectionId, cancellationToken);
+
+        foreach (var old in kept)
         {
             await vault.Replace(old.SecretId, HeaderSecret.Write(headerName!, headerValue!), cancellationToken);
             old.Status = CredentialStatus.Active;
+        }
+
+        if (kept.Count == 0)
+        {
+            // Nothing to replace: the connection lost its credential. A change that reports success stores one.
+            await StoreHeader(connection, headerName!, headerValue!, cancellationToken);
         }
 
         await work.Commit(cancellationToken);
@@ -252,8 +274,11 @@ public sealed class ToolConnectionService(
         return new ToolConnectionChange(connection, null);
     }
 
-    /// <summary>Changes how much the connection's results are trusted and which protocol generation it may use.</summary>
-    public async Task<ToolConnectionChange> Update(Guid connectionId, TrustLevel trust, ProtocolMode protocolMode, CancellationToken cancellationToken)
+    /// <summary>
+    /// Changes how much the connection's results are trusted and which protocol generation it may use. A setting
+    /// that is not given stays as it was.
+    /// </summary>
+    public async Task<ToolConnectionChange> Update(Guid connectionId, TrustLevel? trust, ProtocolMode? protocolMode, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
         var connection = await connections.GetConnection(connectionId, cancellationToken);
@@ -263,12 +288,12 @@ public sealed class ToolConnectionService(
             return ToolConnectionChange.NotFound;
         }
 
-        connection.Trust = trust;
+        connection.Trust = trust ?? connection.Trust;
 
-        if (connection.ProtocolMode != protocolMode)
+        if (protocolMode is { } wanted && connection.ProtocolMode != wanted)
         {
             // What was negotiated under the old setting says nothing about the new one.
-            connection.ProtocolMode = protocolMode;
+            connection.ProtocolMode = wanted;
             connection.NegotiatedProtocol = null;
         }
 
@@ -287,25 +312,19 @@ public sealed class ToolConnectionService(
             return false;
         }
 
-        // The credentials this transaction can see: the space's and the caller's own. Another person's sign-in to a
-        // connection where each signs in themself is invisible here; it stays in the vault, and is of no use, since
-        // a removed connection is never resolved again.
-        List<Guid> secrets = [.. (await connections.ListCredentials(connectionId, cancellationToken)).Select(credential => credential.SecretId)];
+        // Every sign-in to this connection goes, not only the ones this transaction can see: a person's own tokens
+        // are invisible to anybody else, so a function in schema sys deletes them and their secrets, in this space
+        // alone. It runs before the rows are read again, so nothing is deleted twice.
+        var forgotten = await connections.ForgetCredentials(connectionId, cancellationToken);
+        await connections.Remove(connection, cancellationToken);
 
         if (connection.Oauth?.ClientSecretId is { } clientSecretId)
         {
-            secrets.Add(clientSecretId);
-        }
-
-        await connections.Remove(connection, cancellationToken);
-
-        foreach (var secretId in secrets)
-        {
-            await vault.Delete(secretId, cancellationToken);
+            await vault.Delete(clientSecretId, cancellationToken);
         }
 
         await work.Commit(cancellationToken);
-        logger.LogInformation("Tool connection {ConnectionId} removed", connectionId);
+        logger.LogInformation("Tool connection {ConnectionId} removed, with {Credentials} sign-ins", connectionId, forgotten);
         return true;
     }
 
@@ -330,6 +349,13 @@ public sealed class ToolConnectionService(
             if (connection is null)
             {
                 return null;
+            }
+
+            if (!policy.Deployment.AllowToolConnections)
+            {
+                // Nothing is asked and nothing is recorded: the connection is as good as it was, only not in use.
+                var known = await connections.ListTools(connectionId, cancellationToken);
+                return new ToolRefresh(connection, [.. known.Select(tool => new CatalogTool(tool, false))], ToolSourceFailure.Blocked, TurnedOff, null);
             }
 
             resolved = await Resolve(connection, tenant.UserId ?? Audience.Everyone, cancellationToken);
@@ -394,6 +420,11 @@ public sealed class ToolConnectionService(
     /// </summary>
     public async Task<ResolvedToolEndpoint> Resolve(ToolConnection connection, Guid principalUserId, CancellationToken cancellationToken)
     {
+        if (!policy.Deployment.AllowToolConnections)
+        {
+            return new ResolvedToolEndpoint(null, TurnedOff, []);
+        }
+
         if (!Uri.TryCreate(connection.Url, UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https"))
         {
             return new ResolvedToolEndpoint(null, "The connection's address is not a web address.", []);
@@ -451,6 +482,11 @@ public sealed class ToolConnectionService(
         Guid actingUserId,
         CancellationToken cancellationToken)
     {
+        if (!policy.Deployment.AllowToolConnections)
+        {
+            return (null, TurnedOff, []);
+        }
+
         if (signInOptions.Value.RedirectUrl is not { } redirect)
         {
             return (null, ToolSignInOptions.MissingPublicUrl, []);
@@ -637,7 +673,8 @@ public sealed class ToolConnectionService(
     private static string? ValidateHeader(string? name, string? value)
     {
         if (string.IsNullOrWhiteSpace(name) || name.Length > MaxHeaderNameLength || !name.All(IsHeaderNameCharacter)
-            || reservedHeaders.Contains(name, StringComparer.OrdinalIgnoreCase))
+            || reservedHeaders.Contains(name, StringComparer.OrdinalIgnoreCase)
+            || name.StartsWith(ForwardedPrefix, StringComparison.OrdinalIgnoreCase))
         {
             return "Enter a header name such as Authorization or X-Api-Key.";
         }
@@ -656,13 +693,18 @@ public sealed class ToolConnectionService(
     private async Task<string> FreeSlug(string name, CancellationToken cancellationToken)
     {
         var letters = new string([.. name.Trim().ToLowerInvariant().Select(character => char.IsAsciiLetterOrDigit(character) ? character : '_')]);
-        var stem = letters.Trim('_');
-        stem = stem.Length == 0 ? "server" : stem[..Math.Min(stem.Length, MaxSlugLength)];
+        var stem = letters;
 
+        // Two underscores separate a connection from its tool in the name a model sees, so a slug never holds two
+        // in a row, at an end or in the middle, also not after it is cut to length or given a number.
         while (stem.Contains("__", StringComparison.Ordinal))
         {
             stem = stem.Replace("__", "_", StringComparison.Ordinal);
         }
+
+        stem = stem.Trim('_');
+        stem = stem[..Math.Min(stem.Length, MaxSlugLength)].Trim('_');
+        stem = stem.Length == 0 ? "server" : stem;
 
         var slug = stem;
 

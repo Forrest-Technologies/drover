@@ -116,6 +116,14 @@ public sealed record DeploymentPolicy
     /// <summary>The most models Drover accepts from one provider connection.</summary>
     public int MaxModelsPerConnection { get; init; } = SelfHostedMaxModelsPerConnection;
 
+    /// <summary>
+    /// Connections to remote tool servers. Off, none can be added, and none that exists is listed, signed in to,
+    /// renewed, or called: a switch an operator can pull without removing anything. Off in the hosted preset until
+    /// the work a shared server needs is done (renewal fairness, sign-ins across instances, revoking at the
+    /// provider); a self-hoster decides for their own server.
+    /// </summary>
+    public bool AllowToolConnections { get; init; } = true;
+
     /// <summary>The most bytes of one answer from a tool server Drover reads: a tool list page, or a tool's result.</summary>
     public int MaxToolResponseBytes { get; init; } = SelfHostedMaxToolResponseBytes;
 
@@ -181,6 +189,11 @@ public sealed record DeploymentPolicy
             policy => policy.MaxModelsPerConnection,
             HostedMaxModelsPerConnection,
             Enforcement.Now("Model discovery, in ModelConnectionService")),
+        PolicyRule.Permission(
+            nameof(AllowToolConnections),
+            policy => policy.AllowToolConnections,
+            Enforcement.Now("ToolConnectionService, wherever a tool server is added or reached")),
+
         PolicyRule.Limit(
             nameof(MaxToolResponseBytes),
             policy => policy.MaxToolResponseBytes,

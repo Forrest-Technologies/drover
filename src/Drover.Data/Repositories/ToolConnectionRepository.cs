@@ -41,7 +41,7 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     /// Removes a connection for good, as far as anyone can use it: every grant on its tools and every credential
     /// row is deleted, its tools are marked missing, and the connection is switched off. The connection and tool
     /// rows stay, because <c>tool_calls</c> points at them and the record of what a bot did is never rewritten.
-    /// The caller deletes the credentials' secrets from the vault.
+    /// The caller forgets the credentials first, with <see cref="ForgetCredentials"/>.
     /// </summary>
     public async Task Remove(ToolConnection connection, CancellationToken cancellationToken)
     {
@@ -49,7 +49,6 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
         await db.ToolGrants.Where(grant => toolIds.Contains(grant.ToolId)).ExecuteDeleteAsync(cancellationToken);
         await db.Tools.Where(tool => tool.ToolConnectionId == connection.Id)
             .ExecuteUpdateAsync(tool => tool.SetProperty(row => row.State, AvailabilityState.Missing), cancellationToken);
-        db.ToolConnectionCredentials.RemoveRange(await ListCredentials(connection.Id, cancellationToken));
         connection.Status = ConnectionStatus.Disabled;
         connection.LastError = null;
     }
@@ -82,6 +81,17 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
         db.ToolConnectionCredentials.AsNoTracking().Where(credential => connectionIds.Contains(credential.ToolConnectionId)).ToListAsync(cancellationToken);
 
     public void Remove(ToolConnectionCredential credential) => db.ToolConnectionCredentials.Remove(credential);
+
+    /// <summary>
+    /// Deletes every credential of the connection and the secret of each, whoever they belong to, and returns how
+    /// many. One person's credential is invisible in another's transaction, so this crosses audiences inside the
+    /// one space, through <c>sys.forget_tool_credentials</c>, which works on the transaction's own space only.
+    /// Call it before <see cref="Remove(ToolConnection, CancellationToken)"/>, in the same transaction.
+    /// </summary>
+    public async Task<int> ForgetCredentials(Guid connectionId, CancellationToken cancellationToken) =>
+        await db.Database
+            .SqlQuery<int>($"SELECT sys.forget_tool_credentials({connectionId}) AS \"Value\"")
+            .SingleAsync(cancellationToken);
 
     public void Add(OAuthFlow flow) => db.OAuthFlows.Add(flow);
 

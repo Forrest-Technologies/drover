@@ -103,7 +103,10 @@ public sealed record ReplaceToolHeaderRequest(string? HeaderName, string? Header
     public override string ToString() => nameof(ReplaceToolHeaderRequest);
 }
 
-/// <summary>How far the connection's results are trusted, and which protocol generation it may use.</summary>
+/// <summary>
+/// How far the connection's results are trusted, and which protocol generation it may use. A value that is left out
+/// (null) is not changed.
+/// </summary>
 public sealed record UpdateToolConnectionRequest(string? Trust, string? ProtocolMode);
 
 /// <summary>
