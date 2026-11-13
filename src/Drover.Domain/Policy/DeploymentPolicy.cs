@@ -75,6 +75,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxModelsPerConnection = 1000;
 
+    public const int SelfHostedMaxToolResponseBytes = 8 * 1024 * 1024;
+
+    public const int HostedMaxToolResponseBytes = 2 * 1024 * 1024;
+
+    public const int SelfHostedMaxToolsPerConnection = 500;
+
+    public const int HostedMaxToolsPerConnection = 200;
+
     #endregion
 
     #region Presets
@@ -107,6 +115,12 @@ public sealed record DeploymentPolicy
 
     /// <summary>The most models Drover accepts from one provider connection.</summary>
     public int MaxModelsPerConnection { get; init; } = SelfHostedMaxModelsPerConnection;
+
+    /// <summary>The most bytes of one answer from a tool server Drover reads: a tool list page, or a tool's result.</summary>
+    public int MaxToolResponseBytes { get; init; } = SelfHostedMaxToolResponseBytes;
+
+    /// <summary>The most tools Drover accepts from one tool connection.</summary>
+    public int MaxToolsPerConnection { get; init; } = SelfHostedMaxToolsPerConnection;
 
     public SubscriptionSignInMode SubscriptionSignIn { get; init; } = SubscriptionSignInMode.WhereProviderPermits;
 
@@ -167,6 +181,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxModelsPerConnection,
             HostedMaxModelsPerConnection,
             Enforcement.Now("Model discovery, in ModelConnectionService")),
+        PolicyRule.Limit(
+            nameof(MaxToolResponseBytes),
+            policy => policy.MaxToolResponseBytes,
+            HostedMaxToolResponseBytes,
+            Enforcement.Now("Every answer from a tool server, in the tool source adapter")),
+        PolicyRule.Limit(
+            nameof(MaxToolsPerConnection),
+            policy => policy.MaxToolsPerConnection,
+            HostedMaxToolsPerConnection,
+            Enforcement.Now("Tool listing, in the tool source adapter and the tool catalog")),
         PolicyRule.Choice(
             nameof(SandboxAdapters),
             policy => policy.SandboxAdapters,

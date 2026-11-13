@@ -11,6 +11,10 @@ if (initializeDatabase)
     return;
 }
 
+// The web host writes every request line to the log, query string included. A tool server's sign-in page sends the
+// person's browser back with a one-time code in the query, so request lines are not logged. Failures still are.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+
 var policy = new DeploymentPolicySetup(builder.Configuration).Resolve();
 var connectionString = string.Empty;
 try
@@ -61,6 +65,7 @@ api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
 api.MapFallback(() => Results.NotFound());
+app.MapToolSignInCallback();
 
 app.MapOpenApi();
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });

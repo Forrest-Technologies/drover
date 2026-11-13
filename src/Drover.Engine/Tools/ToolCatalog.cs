@@ -1,11 +1,31 @@
 namespace Drover.Engine.Tools;
 
+/// <summary>A tool's title, description, and input schema (as JSON text) as a person last reviewed them.</summary>
+public sealed record ReviewedToolDefinition(string? Title, string Description, string InputSchema);
+
+/// <summary>A catalog row of a connection, and whether a changed definition of it still waits for a person's review.</summary>
+public sealed record CatalogTool(Tool Tool, bool NeedsReview);
+
+/// <summary>What folding a server's tool list into the catalog changed.</summary>
+public sealed record CatalogChange(int Added, int Changed, int Missing, int GrantsForReview);
+
 /// <summary>
-/// Keeps a space's catalog rows for the built-in tools in step with what this server ships. A grant always points at
-/// a catalog row, so built-in tools are rows like any other. Runs in the tenant scope the caller opened.
+/// Keeps a space's catalog rows in step with the tools that exist: the built-in ones this server ships, and the ones
+/// a tool server lists. A grant always points at a catalog row, so every tool is a row. A run reads these rows and
+/// never asks a server what it offers, so a bot uses the definitions a person saw. Runs in the caller's tenant scope.
 /// </summary>
-public sealed class ToolCatalog(ToolRepository tools, IEnumerable<BuiltinTool> builtins, TimeProvider time)
+public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository connections, IEnumerable<BuiltinTool> builtins, TimeProvider time)
 {
+    #region Private Fields
+
+    public const int MaxDescriptionLength = 8000;
+
+    public const int MaxSchemaLength = 65_536;
+
+    private const int MaxNameLength = 200;
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>Adds the rows that are missing, refreshes the ones whose definition changed, and returns all of them.</summary>
@@ -36,6 +56,119 @@ public sealed class ToolCatalog(ToolRepository tools, IEnumerable<BuiltinTool> b
 
         return rows;
     }
+
+    /// <summary>
+    /// Folds what a tool server listed into the connection's catalog rows.
+    /// <list type="bullet">
+    /// <item>A new tool gets a row. No bot is granted it: a person grants it after reading it.</item>
+    /// <item>A tool the server no longer lists is marked missing. Its grants stay, so it works again if it returns unchanged.</item>
+    /// <item>A tool whose definition changed is updated, and every grant on it is marked for review. Until a person
+    /// confirms the change the tool is left out of every run, because the new text is a stranger's and a model
+    /// would read it; the definition the person last saw is kept beside the new one, so the two can be compared.
+    /// A server cannot quietly turn a tool a person approved into something else.</item>
+    /// </list>
+    /// A server's tool is stored as one that can change things, whatever the server says about it. "It only reads"
+    /// is the server's claim: it is kept with the tool's annotations for a person to see, and it decides nothing.
+    /// </summary>
+    public async Task<CatalogChange> FoldServerTools(
+        ToolConnection connection,
+        IReadOnlyList<ListedTool> listed,
+        int maxTools,
+        CancellationToken cancellationToken)
+    {
+        // Where each person signs in themself, a server may show one person fewer tools than another. The catalog
+        // is then every tool anybody was shown: a tool this listing lacks is not gone, only not this person's.
+        var unlistedAreGone = connection.CredentialScope is CredentialScope.Space;
+        await tools.LockCatalog(cancellationToken);
+        var existing = (await connections.GetTools(connection.Id, cancellationToken)).ToDictionary(tool => tool.Name, StringComparer.Ordinal);
+        var now = time.GetUtcNow();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var granted = await connections.ListGrantedTools([.. existing.Values.Select(tool => tool.Id)], cancellationToken);
+        List<Guid> changed = [];
+        var added = 0;
+
+        // A server chooses how many tools it lists; the deployment policy says how many this server keeps.
+        foreach (var tool in listed.Where(IsStorable).Take(maxTools))
+        {
+            if (!seen.Add(tool.Name))
+            {
+                continue;
+            }
+
+            var title = Shorten(tool.Title, MaxNameLength);
+            var description = Shorten(tool.Description, MaxDescriptionLength) ?? string.Empty;
+            var hash = HashOf(tool.Name, title, description, tool.InputSchema, tool.Annotations);
+
+            if (!existing.TryGetValue(tool.Name, out var row))
+            {
+                row = new Tool
+                {
+                    SourceKind = ToolSourceKind.Mcp,
+                    ToolConnectionId = connection.Id,
+                    Name = tool.Name,
+                    DefinitionHash = hash,
+                    Sensitivity = ToolSensitivity.Write,
+                    FirstSeenAt = now,
+                };
+                connections.Add(row);
+                added++;
+            }
+            else if (row.DefinitionHash != hash)
+            {
+                changed.Add(row.Id);
+
+                // The first change after a review keeps what was reviewed; later ones leave it, so the comparison
+                // is always with what a person actually saw. A tool nobody was granted has nothing to compare with.
+                row.ReviewedDefinition = granted.Contains(row.Id) ? row.ReviewedDefinition ?? Snapshot(row) : null;
+            }
+
+            row.Title = title;
+            row.Description = description;
+            row.InputSchema = tool.InputSchema;
+            row.Annotations = tool.Annotations;
+            row.DefinitionHash = hash;
+            row.State = AvailabilityState.Available;
+            row.LastSeenAt = now;
+        }
+
+        var missing = unlistedAreGone
+            ? existing.Values.Where(row => !seen.Contains(row.Name) && row.State is AvailabilityState.Available).ToList()
+            : [];
+
+        foreach (var row in missing)
+        {
+            row.State = AvailabilityState.Missing;
+        }
+
+        var forReview = changed.Count == 0 ? 0 : await connections.MarkGrantsForReview(changed, cancellationToken);
+        return new CatalogChange(added, changed.Count, missing.Count, forReview);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>The definition of a row as it stands, in the shape <see cref="ReviewedToolDefinition"/> reads.</summary>
+    private static JsonElement Snapshot(Tool row) =>
+        JsonSerializer.SerializeToElement(new ReviewedToolDefinition(row.Title, row.Description, row.InputSchema.GetRawText()));
+
+    /// <summary>A tool this server will keep: it has a name that fits, and a schema that is an object of a size it accepts.</summary>
+    private static bool IsStorable(ListedTool tool) =>
+        tool.Name.Length is > 0 and <= MaxNameLength
+        && tool.InputSchema.ValueKind is JsonValueKind.Object
+        && tool.InputSchema.GetRawText().Length <= MaxSchemaLength;
+
+    /// <summary>
+    /// The hash that any change of name, title, description, input schema, or annotations changes. It is taken over
+    /// the fields as they are stored and shown, written as one JSON array, so text cannot move from one field into
+    /// the next and leave the hash as it was.
+    /// </summary>
+    private static string HashOf(string name, string? title, string description, JsonElement inputSchema, JsonElement? annotations) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
+            new[] { name, title, description, inputSchema.GetRawText(), annotations?.GetRawText() })));
+
+    private static string? Shorten(string? text, int length) =>
+        text is null || text.Length <= length ? text : text[..length];
 
     #endregion
 }

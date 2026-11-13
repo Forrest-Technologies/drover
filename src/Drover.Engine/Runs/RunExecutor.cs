@@ -12,6 +12,7 @@ public sealed class RunExecutor(
     IAgentRuntime runtime,
     IEnumerable<IModelClientProvider> providers,
     IEnumerable<BuiltinTool> builtins,
+    IEnumerable<IToolSource> toolSources,
     RunEventHub hub,
     RunSignal signal,
     UserSignalHub signals,
@@ -178,6 +179,16 @@ public sealed class RunExecutor(
         var key = await RevealKey(services, connection, cancellationToken);
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
         var granted = bot is null ? [] : await services.GetRequiredService<ToolRepository>().ListGrantedTools(bot.Id, cancellationToken);
+        var toolConnectionRows = services.GetRequiredService<ToolConnectionRepository>();
+        var toolConnections = await toolConnectionRows
+            .ListConnections([.. granted.Select(tool => tool.Tool.ToolConnectionId).OfType<Guid>().Distinct()], cancellationToken);
+
+        // A server's tool whose changed definition nobody has reviewed is left out of the run altogether: its new
+        // name, description, and schema are a stranger's text, and offering the tool would put them in front of the model.
+        var unreviewed = await toolConnectionRows.ListToolsNeedingReview(
+            [.. granted.Where(tool => tool.Tool.SourceKind is ToolSourceKind.Mcp).Select(tool => tool.Tool.Id)],
+            cancellationToken);
+        granted = [.. granted.Where(tool => !unreviewed.Contains(tool.Tool.Id))];
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
         var openMessage = steps.Open is { } open
@@ -195,7 +206,7 @@ public sealed class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -316,15 +327,14 @@ public sealed class RunExecutor(
             time,
             loggers.CreateLogger<RunEventWriter>(),
             new RunFence(workerId, loaded.Run.Attempt));
+        // Two tools never share the name the model sees: the first keeps it, and a later one is left out.
         List<RunTool> tools =
         [
             .. loaded.Granted
                 .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
-                .Select(granted => new RunTool(
-                    granted.Tool,
-                    granted.Effect,
-                    BuiltinTool.ModelName(granted.Tool.Name),
-                    builtins.FirstOrDefault(builtin => builtin.Name == granted.Tool.Name))),
+                .Select(granted => ToRunTool(granted, loaded.ToolConnections))
+                .OfType<RunTool>()
+                .DistinctBy(tool => tool.ModelName, StringComparer.Ordinal),
         ];
         return new RunSession(
             loaded.Run,
@@ -337,7 +347,29 @@ public sealed class RunExecutor(
             options.Value,
             time,
             loaded.Steps.Count,
-            loaded.Delivered);
+            loaded.Delivered,
+            loaded.Policy.TaintedRunEscalation);
+    }
+
+    /// <summary>
+    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs its
+    /// connection, switched on, and is named for the model with the connection's own prefix, so no server can take
+    /// another's names or a built-in's.
+    /// </summary>
+    private RunTool? ToRunTool(GrantedTool granted, IReadOnlyList<ToolConnection> toolConnections)
+    {
+        if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
+        {
+            return new RunTool(
+                granted.Tool,
+                granted.Effect,
+                BuiltinTool.ModelName(granted.Tool.Name),
+                builtins.FirstOrDefault(builtin => builtin.Name == granted.Tool.Name));
+        }
+
+        return toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
+            ? new RunTool(granted.Tool, granted.Effect, ToolNames.ForModel(connection.Slug, granted.Tool.Name), null, connection)
+            : null;
     }
 
     #endregion
@@ -373,7 +405,12 @@ public sealed class RunExecutor(
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
-        var governor = new RunGovernor(session, bot, loaded.Pricing, loggers.CreateLogger<RunGovernor>());
+        var governor = new RunGovernor(
+            session,
+            bot,
+            loaded.Pricing,
+            toolSources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp),
+            loggers.CreateLogger<RunGovernor>());
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
             session,
@@ -386,7 +423,7 @@ public sealed class RunExecutor(
 
         try
         {
-            var outcome = await Drive(session, BuildExecution(session, loaded, model), governor, cancellation.Token);
+            var outcome = await DriveToAStop(session, loaded, model, governor, cancellation.Token);
             await (outcome is RunOutcome.Waiting
                 ? Finish(session, RunStatus.Waiting, RunReasons.AwaitingApproval, null)
                 : Finish(session, RunStatus.Completed, null, null));
@@ -395,6 +432,37 @@ public sealed class RunExecutor(
         {
             logger.LogDebug(exception, "Run {RunId} stopped before the agent finished", session.RunId);
             await FinishAfterFailure(session, exception, stopping);
+        }
+    }
+
+    /// <summary>
+    /// Runs the agent until it ends or waits. When the run becomes tainted part way, the agent is stopped before its
+    /// next model call and built again, this time with its consequential tools asking, and goes on from the stored
+    /// conversation. The answers a waiting run came back with are handed over once, to the first agent.
+    /// </summary>
+    private async Task<RunOutcome> DriveToAStop(
+        RunSession session,
+        LoadedRun loaded,
+        IModelChatClient model,
+        RunGovernor governor,
+        CancellationToken cancellationToken)
+    {
+        var answers = loaded.Answers;
+
+        while (true)
+        {
+            session.MarkBuilt();
+
+            try
+            {
+                return await Drive(session, BuildExecution(session, loaded, model) with { Responses = answers }, governor, cancellationToken);
+            }
+            catch (Exception rebuild) when (Find<AgentRebuildRequiredException>(rebuild) is not null && !cancellationToken.IsCancellationRequested)
+            {
+                logger.LogInformation("Run {RunId} read from an untrusted source; its agent is built again so its tools ask", session.RunId);
+                await session.Writer.Write(null, session.CloseOpenWork());
+                answers = [];
+            }
         }
     }
 
@@ -450,19 +518,19 @@ public sealed class RunExecutor(
             ModelConnectionId = loaded.Bot.ModelConnectionId,
             Model = loaded.Bot.Model,
         },
-        Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(ToDefinition)],
+        Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, tool))],
         Model = model,
-        Responses = loaded.Answers,
     };
 
-    private static ToolDefinition ToDefinition(RunTool tool) => new()
+    private static ToolDefinition ToDefinition(RunSession session, RunTool tool) => new()
     {
         ToolId = tool.Tool.Id,
         Name = tool.ModelName,
         Description = tool.Tool.Description,
         InputSchema = tool.Tool.InputSchema,
         Sensitivity = tool.Tool.Sensitivity,
-        RequiresApproval = tool.Effect is GrantEffect.Ask,
+        RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask,
+        DefinedByServer = tool.Builtin is null,
     };
 
     #endregion
@@ -499,7 +567,7 @@ public sealed class RunExecutor(
                 continue;
             }
 
-            if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { Tool.Sensitivity: ToolSensitivity.Read })
+            if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { IsKnownToOnlyRead: true })
             {
                 logger.LogInformation("Read-only tool call {ToolCallId} of run {RunId} was cut off and will run again", callId, run.Id);
                 session.ExpectRerun(callId);
@@ -797,7 +865,8 @@ public sealed class RunExecutor(
         IReadOnlyList<ToolCall> UnsettledRows,
         IReadOnlyList<PendingResponse> Answers,
         IReadOnlyList<Guid> Delivered,
-        IReadOnlyList<Guid> RequestedCalls);
+        IReadOnlyList<Guid> RequestedCalls,
+        IReadOnlyList<ToolConnection> ToolConnections);
 
     #endregion
 }

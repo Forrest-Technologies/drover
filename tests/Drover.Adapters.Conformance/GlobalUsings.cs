@@ -10,6 +10,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 global using AwesomeAssertions;
 global using Drover.Adapters.Conformance.Agents;
+global using Drover.Adapters.Conformance.Tools;
 global using Drover.Contracts.Runs;
 global using Drover.Domain.Agents;
 global using Drover.Domain.Bots;

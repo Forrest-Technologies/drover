@@ -11,5 +11,6 @@ sys.claim_runs(text, integer)        # A worker leases runnable root runs across
 sys.find_user_for_sign_in(text)      # Sign-in knows an email and no space; returns the user id only
 sys.memberships_for_user()           # After sign-in, before a space is chosen: the spaces of the transaction's own user
 sys.resolve_oauth_state(text)        # An OAuth callback has no tenant; maps the hash of its state to a space and user
+sys.tool_sign_ins_running_out(timestamp with time zone, integer)  # Renewing tool server sign-ins ahead of time has no tenant: finds active sign-ins about to run out in every space; returns ids only, never a secret id
 sys.purge_expired(integer)           # Deletes expired OAuth flows and destroyed, unreferenced sandboxes across spaces
 sys.health()                         # Counts for the status page and the first-run check; no tenant data
