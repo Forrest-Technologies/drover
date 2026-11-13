@@ -82,6 +82,14 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
             mayRepeat: false,
             cancellationToken);
 
+    public async Task Forget(Guid connectionId, CancellationToken cancellationToken)
+    {
+        foreach (var key in sessions.Keys.Where(key => key.ConnectionId == connectionId))
+        {
+            await Close(key);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var key in sessions.Keys)
@@ -212,7 +220,16 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 throw new ToolSourceException(ToolSourceFailure.TooLarge, "The tool server's answer was larger than this server accepts.", failure);
             }
 
-            throw Failures.Translate(failure, limit.IsCancellationRequested);
+            var translated = Failures.Translate(failure, limit.IsCancellationRequested);
+
+            if (translated.Failure is ToolSourceFailure.Unauthorized)
+            {
+                // A session the server refuses was opened with a credential that is no longer the right one. It is
+                // not kept, so the next use opens one with whatever credential it is given.
+                await Close(key);
+            }
+
+            throw translated;
         }
         finally
         {

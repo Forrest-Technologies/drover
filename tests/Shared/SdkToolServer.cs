@@ -20,6 +20,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private volatile bool callsForbidden;
 
+    private volatile string? headerValue = spec.HeaderValue;
+
     private readonly SignInDesk? desk = spec.SignIn is { } signIn ? new SignInDesk(signIn) : null;
 
     #endregion
@@ -86,6 +88,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     public void FailRenewals(int? status) => desk?.FailRenewals(status);
 
+    public void ExpectHeader(string value) => headerValue = value;
+
     public void ForbidCalls(bool forbidden) => callsForbidden = forbidden;
 
     public void ExpireAccessTokens() => desk?.ExpireAccessTokens();
@@ -150,7 +154,7 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
             return;
         }
 
-        if (spec.HeaderName is { } name && context.Request.Headers[name] != spec.HeaderValue)
+        if (spec.HeaderName is { } name && context.Request.Headers[name] != headerValue)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;

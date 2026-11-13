@@ -361,6 +361,33 @@ public sealed class RunToolServerTests(PostgresServer postgres)
 
     #endregion
 
+    #region Letting Go Of Kept Sessions
+
+    [Fact]
+    public async Task A_changed_credential_protocol_setting_or_a_removal_tells_the_source_to_let_go_of_the_connection_at_once()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing.")]));
+        world.Server.Offer("inbox", "Reads the inbox.", readOnly: true, "[]");
+        var connection = await world.Connect("Mail", TrustLevel.Trusted, "Authorization", RunWorld.NewModelKey());
+        var afterConnecting = world.Server.Forgotten.Count;
+
+        await world.WithService<ToolConnectionService, ToolConnectionChange>(service => service.ReplaceHeader(connection.Id, "Authorization", RunWorld.NewModelKey(), RunWorld.Token));
+        var afterNewHeader = world.Server.Forgotten.Count;
+        await world.WithService<ToolConnectionService, ToolConnectionChange>(service => service.Update(connection.Id, TrustLevel.Untrusted, ProtocolMode.Automatic, RunWorld.Token));
+        var afterTrustOnly = world.Server.Forgotten.Count;
+        await world.WithService<ToolConnectionService, ToolConnectionChange>(service => service.Update(connection.Id, TrustLevel.Untrusted, ProtocolMode.SessionOnly, RunWorld.Token));
+        var afterProtocol = world.Server.Forgotten.Count;
+        await world.WithService<ToolConnectionService, bool>(service => service.Remove(connection.Id, RunWorld.Token));
+
+        afterConnecting.Should().Be(0);
+        afterNewHeader.Should().Be(1, "a session opened with the old header must not serve another call");
+        afterTrustOnly.Should().Be(1, "how far results are trusted changes nothing about a session");
+        afterProtocol.Should().Be(2, "what was negotiated under the old setting says nothing about the new one");
+        world.Server.Forgotten.Should().HaveCount(3).And.OnlyContain(id => id == connection.Id);
+    }
+
+    #endregion
+
     #region Removal
 
     [Fact]
