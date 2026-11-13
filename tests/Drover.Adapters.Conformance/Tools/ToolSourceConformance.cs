@@ -2,7 +2,7 @@ namespace Drover.Adapters.Conformance.Tools;
 
 /// <summary>
 /// What every <see cref="IToolSource"/> must do, against tool servers of both protocol generations, with no
-/// credential and with a header credential. An adapter passes by deriving from this class and supplying its source
+/// credential, with a header credential, and with a sign-in. An adapter passes by deriving from this class and supplying its source
 /// and the servers.
 /// </summary>
 public abstract class ToolSourceConformance
@@ -27,6 +27,9 @@ public abstract class ToolSourceConformance
         { ServerGeneration.LegacySse, false },
         { ServerGeneration.LegacySse, true },
     };
+
+    public static TheoryData<ServerGeneration> EveryGeneration =>
+        [ServerGeneration.Stateless, ServerGeneration.SessionBased, ServerGeneration.Both, ServerGeneration.LegacySse];
 
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -290,6 +293,227 @@ public abstract class ToolSourceConformance
 
     #endregion
 
+    #region Sign-In
+
+    [Theory]
+    [MemberData(nameof(EveryGeneration))]
+    public async Task A_person_signs_in_once_and_later_uses_need_nobody(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var tokens = new KeptTokens();
+        var id = Guid.CreateVersion7();
+        var asked = 0;
+        var withPerson = new ToolEndpoint(id, server.Url)
+        {
+            SignIn = tokens.SignIn() with
+            {
+                AskPerson = async (prompt, _) =>
+                {
+                    asked++;
+                    return await server.Approve(prompt.AuthorizationUrl);
+                },
+            },
+        };
+        var alone = new ToolEndpoint(id, server.Url) { SignIn = tokens.SignIn(), CredentialKey = Guid.CreateVersion7() };
+
+        var listing = await source.Source.ListTools(withPerson, Token);
+        var afterSignIn = tokens.Value;
+        var call = await source.Source.CallTool(alone, "echo", Json("""{"text":"hello"}"""), Token);
+        var second = await source.Source.CallTool(alone, "echo", Json("""{"text":"again"}"""), Token);
+
+        listing.Tools.Should().NotBeEmpty();
+        asked.Should().Be(1);
+        afterSignIn.Should().NotBeNullOrEmpty("the tokens are handed to the caller to keep");
+        call.Result.GetString().Should().Be("echo: hello");
+        second.Result.GetString().Should().Be("echo: again");
+        server.Approvals.Should().Be(1, "kept tokens are used; nobody is asked again");
+        server.Registrations.Should().Be(1, "with no client id and no client document, the source registers itself, once");
+    }
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task With_no_tokens_and_nobody_to_ask_the_failure_is_that_a_sign_in_is_required(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var endpoint = new ToolEndpoint(Guid.CreateVersion7(), server.Url) { SignIn = new KeptTokens().SignIn(), CredentialKey = Guid.CreateVersion7() };
+
+        var listing = () => source.Source.ListTools(endpoint, Token);
+        var call = () => source.Source.CallTool(endpoint, "echo", Json("""{"text":"x"}"""), Token);
+
+        (await listing.Should().ThrowAsync<ToolSourceException>()).Which.Failure.Should().Be(ToolSourceFailure.SignInRequired);
+        (await call.Should().ThrowAsync<ToolSourceException>()).Which.Failure.Should().Be(ToolSourceFailure.SignInRequired);
+        server.Approvals.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task An_access_token_that_stopped_working_is_renewed_without_asking_anyone(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+        var before = tokens.Value;
+
+        server.ExpireAccessTokens();
+        var call = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"renewed"}"""), Token);
+
+        call.Result.GetString().Should().Be("echo: renewed");
+        server.Refreshes.Should().Be(1);
+        server.Approvals.Should().Be(1, "renewing is not signing in");
+        tokens.Value.Should().NotBe(before, "the new tokens are handed to the caller to keep");
+    }
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task When_consent_was_withdrawn_the_failure_is_that_a_sign_in_is_required_and_no_token_is_in_it(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+
+        server.WithdrawConsent();
+        var call = () => source.Source.CallTool(endpoint, "echo", Json("""{"text":"x"}"""), Token);
+
+        var refused = (await call.Should().ThrowAsync<ToolSourceException>()).Which;
+        refused.Failure.Should().Be(ToolSourceFailure.SignInRequired);
+        tokens.Secrets().Should().NotBeEmpty().And.AllSatisfy(secret => refused.ToString().Should().NotContain(secret, "a token is never part of a failure"));
+    }
+
+    [Fact]
+    public async Task One_persons_tokens_are_never_used_for_another_person_on_the_same_connection()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(ServerGeneration.SessionBased) { SignIn = new ToolServerSignIn() });
+        var first = await SignIn(source.Source, server, new KeptTokens());
+        await source.Source.CallTool(first, "echo", Json("""{"text":"open a session"}"""), Token);
+        var other = first with { SignIn = new KeptTokens().SignIn(), CredentialKey = Guid.CreateVersion7() };
+
+        var call = () => source.Source.CallTool(other, "echo", Json("""{"text":"x"}"""), Token);
+
+        (await call.Should().ThrowAsync<ToolSourceException>("a session opened with one person's tokens serves that person only"))
+            .Which.Failure.Should().Be(ToolSourceFailure.SignInRequired);
+    }
+
+    [Fact]
+    public async Task Two_uses_at_once_with_a_token_that_ran_out_renew_it_once_and_both_succeed()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { TokenLifetime = TimeSpan.FromSeconds(2) } });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+
+        await Task.Delay(TimeSpan.FromSeconds(2.5), Token);
+        var calls = await Task.WhenAll(
+            Enumerable.Range(0, 4).Select(number => source.Source.CallTool(endpoint, "echo", Json($$"""{"text":"{{number}}"}"""), Token)));
+
+        calls.Select(call => call.Result.GetString()).Should().BeEquivalentTo(["echo: 0", "echo: 1", "echo: 2", "echo: 3"]);
+        server.Refreshes.Should().Be(1, "a refresh token works once, so the uses must not each spend it");
+    }
+
+    [Fact]
+    public async Task A_use_that_starts_just_after_the_tokens_were_renewed_does_not_renew_them_again()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { TokenLifetime = TimeSpan.FromSeconds(2) } });
+        var endpoint = await SignIn(source.Source, server, new KeptTokens());
+
+        await Task.Delay(TimeSpan.FromSeconds(2.5), Token);
+        var first = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"first"}"""), Token);
+        var second = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"second"}"""), Token);
+
+        first.Result.GetString().Should().Be("echo: first");
+        second.Result.GetString().Should().Be("echo: second");
+        server.Refreshes.Should().Be(1, "new tokens are used, not spent on another renewal because a clock says they are short-lived");
+    }
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task Tokens_that_still_work_are_renewed_ahead_of_time_when_the_caller_asks_and_left_alone_when_it_does_not(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn { TokenLifetime = TimeSpan.FromHours(1) } });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+        var first = tokens.Value;
+        var firstRunsOut = tokens.RunsOutAt;
+
+        await source.Source.ListTools(endpoint with { SignIn = endpoint.SignIn! with { RenewBefore = DateTimeOffset.UtcNow.AddMinutes(10) } }, Token);
+        var afterNotDue = server.Refreshes;
+        await source.Source.ListTools(endpoint with { SignIn = endpoint.SignIn! with { RenewBefore = DateTimeOffset.UtcNow.AddHours(2) } }, Token);
+
+        firstRunsOut.Should().BeCloseTo(DateTimeOffset.UtcNow.AddHours(1), TimeSpan.FromMinutes(1), "the caller is told when the access token runs out");
+        afterNotDue.Should().Be(0, "a token that outlasts the moment asked for is not renewed");
+        server.Refreshes.Should().Be(1, "a token that runs out before the moment asked for is renewed now");
+        server.Approvals.Should().Be(1, "renewing asks nobody");
+        tokens.Value.Should().NotBe(first, "the new tokens are handed to the caller to keep");
+    }
+
+    [Fact]
+    public async Task A_client_id_an_admin_entered_is_used_and_nothing_is_registered()
+    {
+        await using var source = CreateSource();
+        var clientId = $"known-{Guid.CreateVersion7():N}";
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { KnownClientId = clientId, ReadsClientDocuments = true } });
+        var tokens = new KeptTokens();
+
+        await SignIn(source.Source, server, tokens, signIn => signIn with { ClientId = clientId, ClientDocumentUrl = new Uri("https://drover.example.test/oauth/client.json") });
+
+        server.ClientsSeen.Should().Equal(clientId);
+        server.Registrations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_client_document_is_used_before_registering_when_the_server_reads_them()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { ReadsClientDocuments = true } });
+        var document = new Uri("https://drover.example.test/oauth/client.json");
+
+        await SignIn(source.Source, server, new KeptTokens(), signIn => signIn with { ClientDocumentUrl = document });
+
+        server.ClientsSeen.Should().Equal(document.ToString());
+        server.Registrations.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task With_no_way_to_name_itself_the_source_fails_and_asks_nobody()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { RegistersClients = false } });
+        var asked = 0;
+        var endpoint = new ToolEndpoint(Guid.CreateVersion7(), server.Url)
+        {
+            SignIn = new KeptTokens().SignIn() with
+            {
+                AskPerson = (_, _) =>
+                {
+                    asked++;
+                    throw new InvalidOperationException("Nobody should be asked.");
+                },
+            },
+        };
+
+        var listing = () => source.Source.ListTools(endpoint, Token);
+
+        await listing.Should().ThrowAsync<ToolSourceException>();
+        asked.Should().Be(0);
+    }
+
+    #endregion
+
     #region For The Adapter
 
     /// <summary>The source under test, as the product builds it, and whatever must be disposed with it.</summary>
@@ -315,10 +539,67 @@ public abstract class ToolSourceConformance
         return (server, new ToolEndpoint(Guid.CreateVersion7(), server.Url) { Headers = headers });
     }
 
+    /// <summary>Signs a person in with the server approving, and returns the endpoint a later use has: the kept tokens and nobody to ask.</summary>
+    private static async Task<ToolEndpoint> SignIn(IToolSource source, IToolServer server, KeptTokens tokens, Func<ToolSignIn, ToolSignIn>? configure = null)
+    {
+        var signIn = (configure ?? (unchanged => unchanged))(tokens.SignIn());
+        var id = Guid.CreateVersion7();
+        await source.ListTools(
+            new ToolEndpoint(id, server.Url) { SignIn = signIn with { AskPerson = (prompt, _) => server.Approve(prompt.AuthorizationUrl) } },
+            Token);
+        return new ToolEndpoint(id, server.Url) { SignIn = signIn, CredentialKey = Guid.CreateVersion7() };
+    }
+
     /// <summary>A header value made for this run of the tests, so no credential is ever written in the code.</summary>
     private static string NewSecret() => $"key-{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
 
     private static JsonElement Json(string text) => JsonElement.Parse(text);
+
+    #endregion
+}
+
+/// <summary>One credential's tokens as a caller keeps them: text it stores and hands back, and does not read.</summary>
+public sealed class KeptTokens
+{
+    #region Properties
+
+    public string? Value { get; private set; }
+
+    /// <summary>When the source said the access token runs out, the last time it handed tokens over.</summary>
+    public DateTimeOffset? RunsOutAt { get; private set; }
+
+    #endregion
+
+    #region Public Methods
+
+    public ToolSignIn SignIn() =>
+        new(
+            new Uri("https://drover.example.test/oauth/mcp/callback"),
+            _ => Task.FromResult(Value),
+            (value, runsOutAt, _) =>
+            {
+                Value = value;
+                RunsOutAt = runsOutAt;
+                return Task.CompletedTask;
+            });
+
+    /// <summary>Every long string in the kept text: the tokens, whatever the source calls them.</summary>
+    public IReadOnlyList<string> Secrets()
+    {
+        List<string> found = [];
+
+        if (Value is not null)
+        {
+            using var document = JsonDocument.Parse(Value);
+            found.AddRange(
+                document.RootElement.EnumerateObject()
+                    .Where(property => property.Value.ValueKind is JsonValueKind.String && property.Name.Contains("token", StringComparison.OrdinalIgnoreCase))
+                    .Select(property => property.Value.GetString()!)
+                    .Where(value => value.Length >= 32));
+        }
+
+        return found;
+    }
 
     #endregion
 }

@@ -18,6 +18,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int requests;
 
+    private readonly SignInDesk? desk = spec.SignIn is { } signIn ? new SignInDesk(signIn) : null;
+
     #endregion
 
     #region Properties
@@ -30,6 +32,17 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     /// <summary>How many requests of any kind reached the server.</summary>
     public int Requests => Volatile.Read(ref requests);
+
+    public int Approvals => desk?.Approvals ?? 0;
+
+    public int Refreshes => desk?.Refreshes ?? 0;
+
+    public int Registrations => desk?.Registrations ?? 0;
+
+    public IReadOnlyList<string> ClientsSeen => desk?.ClientsSeen ?? [];
+
+    /// <summary>Every code and token the server's sign-in ever handed out.</summary>
+    public IReadOnlyList<string> IssuedSecrets => desk?.Issued ?? [];
 
     #endregion
 
@@ -64,6 +77,13 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     public async ValueTask DisposeAsync() => await ShutDown();
 
+    public Task<SignInAnswer> Approve(Uri authorizationUrl) =>
+        Task.FromResult((desk ?? throw new InvalidOperationException("This server signs nobody in.")).Approve(authorizationUrl));
+
+    public void ExpireAccessTokens() => desk?.ExpireAccessTokens();
+
+    public void WithdrawConsent() => desk?.WithdrawConsent();
+
     #endregion
 
     #region Private Methods
@@ -92,6 +112,7 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
             .WithTools(Tools());
         var built = builder.Build();
         built.Use(CheckHeaderAndCountHandshakes);
+        desk?.Map(built);
         built.MapMcp();
         await built.StartAsync(TestContext.Current.CancellationToken);
         port = new Uri(built.Urls.First()).Port;
@@ -106,6 +127,18 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
         {
             context.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
             context.Response.Headers.Location = elsewhere.ToString();
+            return;
+        }
+
+        if (desk is not null && SignInDesk.Owns(context.Request.Path))
+        {
+            await next(context);
+            return;
+        }
+
+        if (desk is not null && !desk.Admits(context.Request))
+        {
+            SignInDesk.Challenge(context);
             return;
         }
 

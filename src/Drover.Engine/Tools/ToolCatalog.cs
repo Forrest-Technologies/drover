@@ -76,6 +76,9 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
         int maxTools,
         CancellationToken cancellationToken)
     {
+        // Where each person signs in themself, a server may show one person fewer tools than another. The catalog
+        // is then every tool anybody was shown: a tool this listing lacks is not gone, only not this person's.
+        var unlistedAreGone = connection.CredentialScope is CredentialScope.Space;
         await tools.LockCatalog(cancellationToken);
         var existing = (await connections.GetTools(connection.Id, cancellationToken)).ToDictionary(tool => tool.Name, StringComparer.Ordinal);
         var now = time.GetUtcNow();
@@ -128,7 +131,9 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
             row.LastSeenAt = now;
         }
 
-        var missing = existing.Values.Where(row => !seen.Contains(row.Name) && row.State is AvailabilityState.Available).ToList();
+        var missing = unlistedAreGone
+            ? existing.Values.Where(row => !seen.Contains(row.Name) && row.State is AvailabilityState.Available).ToList()
+            : [];
 
         foreach (var row in missing)
         {

@@ -5,7 +5,11 @@ public static class ToolViews
 {
     #region Public Methods
 
-    public static ToolConnectionSummary ToSummary(this ToolConnection connection) =>
+    /// <summary>
+    /// <paramref name="signIn"/> is how the caller's own sign-in stands (or the space's, where one serves everyone),
+    /// from <see cref="ToolConnectionService.ListSignIns"/>; null means there is none.
+    /// </summary>
+    public static ToolConnectionSummary ToSummary(this ToolConnection connection, CredentialStatus? signIn = null) =>
         new(
             connection.Id,
             connection.Name,
@@ -17,7 +21,18 @@ public static class ToolViews
             WireName(connection.Status),
             connection.NegotiatedProtocol,
             connection.LastListedAt,
-            connection.LastError);
+            connection.LastError)
+        {
+            SignInScope = WireName(connection.CredentialScope),
+            SignIn = connection.AuthKind is not ToolAuthKind.Oauth
+                ? null
+                : signIn switch
+                {
+                    CredentialStatus.Active => "signed_in",
+                    null => "needs_sign_in",
+                    _ => "needs_reconnect",
+                },
+        };
 
     public static ConnectionToolSummary ToSummary(this CatalogTool listed, ToolConnection connection)
     {
@@ -40,9 +55,9 @@ public static class ToolViews
         };
     }
 
-    public static ToolConnectionRefresh ToResponse(this ToolRefresh refresh) =>
+    public static ToolConnectionRefresh ToResponse(this ToolRefresh refresh, CredentialStatus? signIn = null) =>
         new(
-            refresh.Connection.ToSummary(),
+            refresh.Connection.ToSummary(signIn),
             [.. refresh.Tools.Select(tool => tool.ToSummary(refresh.Connection))],
             refresh.Failure is null ? null : refresh.Message,
             refresh.Change?.Added ?? 0,

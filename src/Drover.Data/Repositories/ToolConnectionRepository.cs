@@ -77,6 +77,45 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
 
     #region Tools
 
+    /// <summary>The credentials of the connections that the transaction can see: the space's, and the caller's own.</summary>
+    public Task<List<ToolConnectionCredential>> ListCredentials(IReadOnlyCollection<Guid> connectionIds, CancellationToken cancellationToken) =>
+        db.ToolConnectionCredentials.AsNoTracking().Where(credential => connectionIds.Contains(credential.ToolConnectionId)).ToListAsync(cancellationToken);
+
+    public void Remove(ToolConnectionCredential credential) => db.ToolConnectionCredentials.Remove(credential);
+
+    public void Add(OAuthFlow flow) => db.OAuthFlows.Add(flow);
+
+    /// <summary>Forgets a sign-in in progress. Only the person who started it can see the row, so only they remove it.</summary>
+    public Task<int> RemoveFlow(string stateHash, CancellationToken cancellationToken) =>
+        db.OAuthFlows.Where(flow => flow.StateHash == stateHash).ExecuteDeleteAsync(cancellationToken);
+
+    /// <summary>
+    /// Whose sign-in a provider's callback belongs to. The callback has no space, so this goes through
+    /// <c>sys.resolve_oauth_state</c>, which returns ids only and nothing for a flow that has run out of time.
+    /// </summary>
+    public async Task<SignInInProgress?> ResolveFlow(string stateHash, CancellationToken cancellationToken) =>
+        (await db.Database
+            .SqlQuery<SignInInProgress>(
+                $"""
+                SELECT space_id, user_id, tool_connection_id
+                FROM sys.resolve_oauth_state({stateHash})
+                """)
+            .ToListAsync(cancellationToken)).SingleOrDefault();
+
+    /// <summary>
+    /// The sign-ins, in every space, whose access token runs out before the given moment. This crosses spaces, so
+    /// it goes through <c>sys.tool_sign_ins_running_out</c>, which returns ids only: the caller then works on each
+    /// one inside that space's own tenant scope, as the person the sign-in belongs to.
+    /// </summary>
+    public Task<List<SignInRunningOut>> ListSignInsRunningOut(DateTimeOffset before, int limit, CancellationToken cancellationToken) =>
+        db.Database
+            .SqlQuery<SignInRunningOut>(
+                $"""
+                SELECT space_id, audience_user_id, tool_connection_id, credential_id
+                FROM sys.tool_sign_ins_running_out({before}, {limit})
+                """)
+            .ToListAsync(cancellationToken);
+
     public void Add(Tool tool) => db.Tools.Add(tool);
 
     /// <summary>The tools a connection has listed, tracked, so the caller can bring them up to date.</summary>
@@ -123,3 +162,9 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
 
     #endregion
 }
+
+/// <summary>A sign-in to a tool server that is waiting for its callback: where it was started, by whom, and for which connection.</summary>
+public sealed record SignInInProgress(Guid SpaceId, Guid UserId, Guid ToolConnectionId);
+
+/// <summary>A sign-in whose access token is about to run out: ids only. The audience is the person it belongs to, or everyone.</summary>
+public sealed record SignInRunningOut(Guid SpaceId, Guid AudienceUserId, Guid ToolConnectionId, Guid CredentialId);

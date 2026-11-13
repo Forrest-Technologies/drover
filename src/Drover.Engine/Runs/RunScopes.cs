@@ -29,7 +29,11 @@ public sealed class RunScopes(IServiceScopeFactory scopes)
 }
 
 
-/// <summary>Short transactions as one person in one space.</summary>
+/// <summary>
+/// Short transactions as one person in one space. With <see cref="Audience.Everyone"/> for the person, they are the
+/// space's own, with no person set: row-level security then shows what belongs to everyone in the space and nothing
+/// that is one person's. Background work on a credential the whole space shares runs that way.
+/// </summary>
 public sealed class RunTenant(IServiceScopeFactory scopes, Guid spaceId, Guid userId)
 {
     #region Properties
@@ -45,7 +49,7 @@ public sealed class RunTenant(IServiceScopeFactory scopes, Guid spaceId, Guid us
     public async Task<T> Transact<T>(Func<IServiceProvider, Task<T>> work, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);
+        SetTenant(scope.ServiceProvider.GetRequiredService<TenantContext>());
         await using var transaction = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(cancellationToken);
         var result = await work(scope.ServiceProvider);
         await transaction.Commit(cancellationToken);
@@ -65,8 +69,24 @@ public sealed class RunTenant(IServiceScopeFactory scopes, Guid spaceId, Guid us
     public async Task InScope(Func<IServiceProvider, Task> work)
     {
         await using var scope = scopes.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);
+        SetTenant(scope.ServiceProvider.GetRequiredService<TenantContext>());
         await work(scope.ServiceProvider);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private void SetTenant(TenantContext tenant)
+    {
+        if (userId == Audience.Everyone)
+        {
+            tenant.SetSpace(spaceId);
+        }
+        else
+        {
+            tenant.Set(spaceId, userId);
+        }
     }
 
     #endregion

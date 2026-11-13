@@ -21,6 +21,32 @@ public sealed record ToolServerSpec(ServerGeneration Generation, string? HeaderN
 {
     /// <summary>When set, the server answers every request with a redirect to this address and does nothing else.</summary>
     public Uri? RedirectTo { get; init; }
+
+    /// <summary>When set, the server wants a sign-in: a request without an access token it issued gets 401 and a pointer to its sign-in.</summary>
+    public ToolServerSignIn? SignIn { get; init; }
+}
+
+/// <summary>
+/// How a test tool server signs people in. It always requires the proof key and returns the issuer with the code.
+/// A refresh token works once: using it gives a new one, and using an old one again is refused.
+/// </summary>
+public sealed record ToolServerSignIn
+{
+    #region Properties
+
+    /// <summary>Whether a client it has never seen may register itself.</summary>
+    public bool RegistersClients { get; init; } = true;
+
+    /// <summary>Whether it takes the address of a client document as a client id.</summary>
+    public bool ReadsClientDocuments { get; init; }
+
+    /// <summary>A client id the server already knows, as if an admin had registered one by hand.</summary>
+    public string? KnownClientId { get; init; }
+
+    /// <summary>How long an access token is good for.</summary>
+    public TimeSpan TokenLifetime { get; init; } = TimeSpan.FromHours(1);
+
+    #endregion
 }
 
 /// <summary>
@@ -40,6 +66,30 @@ public interface IToolServer : IAsyncDisposable
 
     /// <summary>How many calls to the <c>vanish</c> tool reached the server.</summary>
     int VanishedCalls { get; }
+
+    /// <summary>How many times a person approved a sign-in.</summary>
+    int Approvals { get; }
+
+    /// <summary>How many times a refresh token was exchanged for new tokens.</summary>
+    int Refreshes { get; }
+
+    /// <summary>How many clients registered themselves.</summary>
+    int Registrations { get; }
+
+    /// <summary>The client ids the server has seen at its approval page, oldest first.</summary>
+    IReadOnlyList<string> ClientsSeen { get; }
+
+    /// <summary>
+    /// Plays the person: opens the approval address as a browser would, approves, and returns what the browser
+    /// would carry back to the redirect address.
+    /// </summary>
+    Task<SignInAnswer> Approve(Uri authorizationUrl);
+
+    /// <summary>Forgets every access token, as if all had expired. Refresh tokens stay good.</summary>
+    void ExpireAccessTokens();
+
+    /// <summary>Forgets every token of both kinds, as if the person had withdrawn their consent.</summary>
+    void WithdrawConsent();
 
     /// <summary>Stops the server and starts it again on the same address, with every session forgotten.</summary>
     Task Restart();

@@ -9,12 +9,14 @@ public static class ServiceCollectionExtensions
     /// adapter gets, so the rule on private addresses applies to a tool server as to a model. A call is never
     /// repeated by the client: a tool may have acted already. Each server gets its own circuit, so one dead
     /// server pauses calls to itself only. Every answer is read through <see cref="ResponseLimitHandler"/>, so a
-    /// server cannot make this one hold more than the limit the caller states.
+    /// server cannot make this one hold more than the limit the caller states, and every request passes
+    /// <see cref="CredentialGuardHandler"/>, the sign-in requests the protocol library makes included.
     /// </summary>
     public static IServiceCollection AddMcpToolSource(this IServiceCollection services)
     {
         services.AddHttpClient(McpToolSource.HttpClientName)
             .AddHttpMessageHandler(() => new ResponseLimitHandler())
+            .AddHttpMessageHandler(() => new CredentialGuardHandler())
             .AddStandardResilienceHandler(options =>
             {
                 options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
