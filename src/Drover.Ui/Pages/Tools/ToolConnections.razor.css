@@ -1,0 +1,207 @@
+/* Tool connections: one frame for each server, saying whether it answers and what it needs. */
+.dv-connections-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+}
+
+.dv-connections-title {
+  font-size: var(--dv-text-20);
+}
+
+.dv-connections-hint {
+  color: var(--dv-text-2);
+}
+
+.dv-connections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::deep .dv-connection,
+::deep .dv-connect {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-4);
+}
+
+::deep .dv-connect {
+  --dv-facet-edge: var(--dv-text-3);
+  gap: var(--dv-space-4);
+}
+
+::deep .dv-connection-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-connection-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  flex: 1 1 var(--dv-column-min);
+  min-width: 0;
+}
+
+::deep .dv-connection-name,
+::deep .dv-connect-title {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-connection-text .dv-mono {
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-connection-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-connection-need {
+  flex: 1 1 var(--dv-column-min);
+  color: var(--dv-text);
+}
+
+::deep .dv-connection-hint,
+::deep .dv-connect-hint {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-connection-warn {
+  color: var(--dv-warn);
+  font-size: var(--dv-text-13);
+}
+
+::deep .dv-connection-tools,
+::deep .dv-connect-more {
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+::deep .dv-connection-tools-name,
+::deep .dv-connect-more-name {
+  display: flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  font-weight: var(--dv-weight-label);
+  cursor: pointer;
+}
+
+::deep .dv-connection-tools-name:focus-visible,
+::deep .dv-connect-more-name:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+::deep .dv-connection-tool-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::deep .dv-connection-tool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  padding: var(--dv-space-3) 0;
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+::deep .dv-connection-tool-title {
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-connection-review {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  padding-top: var(--dv-space-2);
+}
+
+::deep .dv-connection-compare {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--dv-space-2) var(--dv-space-3);
+  margin: 0;
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-connection-compare dt {
+  color: var(--dv-text-3);
+}
+
+::deep .dv-connection-compare dd {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+::deep .dv-connection-header,
+::deep .dv-connect-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+::deep .dv-connect-more-body {
+  padding-bottom: var(--dv-space-2);
+}
+
+::deep .dv-connection-legend,
+::deep .dv-connect-label {
+  padding: 0;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  color: var(--dv-text-2);
+}
+
+::deep .dv-connection-actions,
+::deep .dv-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2);
+}
+
+::deep .dv-connect-actions {
+  justify-content: flex-end;
+}
+
+::deep .dv-connect-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-1);
+}
+
+::deep .dv-connect-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dv-column-min)), 1fr));
+  gap: var(--dv-space-4);
+}

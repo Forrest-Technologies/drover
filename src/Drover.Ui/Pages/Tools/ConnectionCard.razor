@@ -1,0 +1,193 @@
+@* One tool server: whether it answers, what it needs from the reader, its tools, and what can be done with it. *@
+<li class="dv-connection dv-facet">
+    <div class="dv-connection-head">
+        <div class="dv-connection-text">
+            <h2 class="dv-connection-name">@Connection.Name</h2>
+            <span class="dv-connection-address dv-mono">@Connection.Url</span>
+            <span class="dv-mono">@ConnectionWords.Facts(Connection, Tools)</span>
+        </div>
+        <Badge Kind="@Status.Kind">@Status.Words</Badge>
+    </div>
+
+    @if (Connection.Status is "failed" && Connection.LastError is { Length: > 0 } error)
+    {
+        <StatusNote Kind="NoteKind.Danger" Text="@error" />
+    }
+
+    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+
+    @if (ConnectionWords.SignInNeed(Connection) is { } need)
+    {
+        <div class="dv-connection-ask">
+            <p class="dv-connection-need">@need</p>
+            @if (MaySignIn)
+            {
+                <Button Kind="ButtonKind.Primary" OnClick="() => OnSignIn.InvokeAsync(Connection)" Disabled="Busy">
+                    @(Connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in")
+                </Button>
+            }
+            else
+            {
+                <p class="dv-connection-hint">An owner or admin of the space signs in for everyone.</p>
+            }
+        </div>
+    }
+
+    @if (Tools is { Count: > 0 })
+    {
+        <details class="dv-connection-tools" open="@Tools.Any(tool => tool.NeedsReview)">
+            <summary class="dv-connection-tools-name">Tools</summary>
+            <ul class="dv-connection-tool-list">
+                @foreach (var tool in Tools)
+                {
+                    <li class="dv-connection-tool" @key="tool.Id">
+                        <span class="dv-connection-tool-title">@(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title)</span>
+                        <span class="dv-mono">@tool.Name</span>
+                        @if (tool.Description.Length > 0)
+                        {
+                            <p class="dv-connection-hint">@tool.Description</p>
+                        }
+                        @if (tool.State is "missing")
+                        {
+                            <p class="dv-connection-warn">The server no longer lists this tool, so no bot can use it.</p>
+                        }
+                        @if (tool.NeedsReview)
+                        {
+                            <div class="dv-connection-review">
+                                <Badge Kind="BadgeKind.Warn">Changed, needs review</Badge>
+                                <p class="dv-connection-hint">The server changed what this tool says it does. Bots that have it ask before each use until the change is accepted.</p>
+                                @if (tool.Reviewed is { } reviewed)
+                                {
+                                    <dl class="dv-connection-compare">
+                                        <dt>Reviewed</dt>
+                                        <dd>@(string.IsNullOrWhiteSpace(reviewed.Title) ? tool.Name : reviewed.Title)<br />@reviewed.Description</dd>
+                                        <dt>Now</dt>
+                                        <dd>@(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title)<br />@tool.Description</dd>
+                                    </dl>
+                                    @if (reviewed.Title == tool.Title && reviewed.Description == tool.Description)
+                                    {
+                                        <p class="dv-connection-hint">The words are the same. What the tool accepts as input changed.</p>
+                                    }
+                                }
+                                @if (CanEdit)
+                                {
+                                    <Button OnClick="() => OnAccept.InvokeAsync(tool)" Disabled="Busy">Accept the change to @(string.IsNullOrWhiteSpace(tool.Title) ? tool.Name : tool.Title)</Button>
+                                }
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        </details>
+    }
+    else if (Tools is { Count: 0 } && Connection.Status is "ready")
+    {
+        <p class="dv-connection-hint">The server answers and lists no tools.</p>
+    }
+
+    @if (replacingHeader)
+    {
+        <fieldset class="dv-connection-header">
+            <legend class="dv-connection-legend">Replace the header</legend>
+            <Field Label="Header name" @bind-Value="headerName" autocomplete="off" spellcheck="false" Disabled="Busy" />
+            <Field Label="Header value" @bind-Value="headerValue" Type="password" autocomplete="new-password" Disabled="Busy"
+                   Hint="Stored encrypted. It is not shown again." />
+            <div class="dv-connection-actions">
+                <Button OnClick="StopReplacing" Disabled="Busy">Cancel</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="ReplaceHeader" Disabled="Busy">Save header</Button>
+            </div>
+        </fieldset>
+    }
+
+    <div class="dv-connection-actions">
+        @if (CanEdit)
+        {
+            <Button OnClick="() => OnRefresh.InvokeAsync(Connection)" Disabled="Busy">@(Busy ? "Working" : "Check and list tools")</Button>
+            @if (Connection.AuthKind is "header" && !replacingHeader)
+            {
+                <Button OnClick="() => replacingHeader = true" Disabled="Busy">Replace header</Button>
+            }
+        }
+        @if (Connection.SignIn is "signed_in" && MaySignIn)
+        {
+            <Button OnClick="() => OnSignOut.InvokeAsync(Connection)" Disabled="Busy">Sign out of @Connection.Name</Button>
+        }
+        @if (CanEdit)
+        {
+            <Button Kind="ButtonKind.Danger" OnClick="() => OnRemove.InvokeAsync(Connection)" Disabled="Busy">Remove @Connection.Name</Button>
+        }
+    </div>
+</li>
+
+@code {
+    #region Private Fields
+
+    private bool replacingHeader;
+
+    private string headerName = "Authorization";
+
+    private string headerValue = string.Empty;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public ToolConnectionSummary Connection { get; set; } = null!;
+
+    /// <summary>The connection's tools, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<ConnectionToolSummary>? Tools { get; set; }
+
+    /// <summary>The reader is an owner or admin of the space. The server decides this again on every request.</summary>
+    [Parameter]
+    public bool CanEdit { get; set; }
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>What went wrong with the last thing done to this connection.</summary>
+    [Parameter]
+    public string? Problem { get; set; }
+
+    [Parameter]
+    public EventCallback<ToolConnectionSummary> OnRefresh { get; set; }
+
+    [Parameter]
+    public EventCallback<ToolConnectionSummary> OnSignIn { get; set; }
+
+    [Parameter]
+    public EventCallback<ToolConnectionSummary> OnSignOut { get; set; }
+
+    [Parameter]
+    public EventCallback<ToolConnectionSummary> OnRemove { get; set; }
+
+    [Parameter]
+    public EventCallback<ConnectionToolSummary> OnAccept { get; set; }
+
+    [Parameter]
+    public EventCallback<ReplaceToolHeaderRequest> OnReplaceHeader { get; set; }
+
+    private (BadgeKind Kind, string Words) Status => ConnectionWords.Status(Connection);
+
+    // One sign-in for the whole space is an owner's or admin's to give; a person's own sign-in is theirs.
+    private bool MaySignIn => Connection.SignInScope is "per_user" || CanEdit;
+
+    #endregion
+
+    #region Private Methods
+
+    private void StopReplacing()
+    {
+        replacingHeader = false;
+        headerValue = string.Empty;
+    }
+
+    private async Task ReplaceHeader()
+    {
+        await OnReplaceHeader.InvokeAsync(new ReplaceToolHeaderRequest(headerName.Trim(), headerValue));
+        StopReplacing();
+    }
+
+    #endregion
+}

@@ -21,6 +21,8 @@ public static class Addresses
 
     public const string Bots = "/bots";
 
+    public const string Tools = "/tools";
+
     #endregion
 
     #region Public Methods
@@ -28,6 +30,10 @@ public static class Addresses
     public static string Thread(Guid threadId) => $"/threads/{threadId}";
 
     public static string Bot(Guid botId) => $"/bots/{botId}";
+
+    /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
+    public static string ToolSignIn(string outcome, string? connectionId) =>
+        connectionId is null ? $"/tools?sign-in={outcome}" : $"/tools?sign-in={outcome}&connection={connectionId}";
 
     #endregion
 }
