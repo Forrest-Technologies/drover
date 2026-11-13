@@ -192,7 +192,7 @@ public sealed class BotEditorTests : ScreenTest
 
         page.WaitForAssertion(() => page.FindAll(".dv-editor-save").Should().BeEmpty());
         var sent = Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Subject;
-        sent.Should().Contain("\"name\":\"Scout\"").And.Contain("\"handle\":\"atlas\"").And.Contain("\"sandboxPolicy\":\"none\"").And.Contain("\"modelSettings\"");
+        sent.Should().Contain("\"name\":\"Scout\"").And.Contain("\"handle\":\"scout\"", "the handle follows the name until someone chooses it").And.Contain("\"sandboxPolicy\":\"none\"").And.Contain("\"modelSettings\"");
         page.Find("h1").TextContent.Should().Be("Edit Scout");
         page.FindAll("p[role=status]").Select(status => status.TextContent).Should().Contain("Saved");
     }

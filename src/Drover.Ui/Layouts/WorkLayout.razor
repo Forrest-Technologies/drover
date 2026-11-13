@@ -1,5 +1,7 @@
 @inherits LayoutComponentBase
 
+@* The bar names the person, so nothing of it is drawn until it is known who is signed in. *@
+<SessionGate>
 <div class="dv-work dv-yard">
     <header class="dv-work-header">
         <a class="dv-work-home" href="@Addresses.Home"><DroverMark />Drover</a>
@@ -13,3 +15,4 @@
         @Body
     </main>
 </div>
+</SessionGate>

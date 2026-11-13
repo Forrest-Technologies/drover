@@ -70,13 +70,13 @@ public sealed class BotDraft
         ModelConnectionId = bot.ModelConnectionId,
         Model = bot.Model,
         Temperature = Text(bot.ModelSettings.Temperature),
-        MaxOutputTokens = Text(bot.ModelSettings.MaxOutputTokens),
+        MaxOutputTokens = Text(bot.ModelSettings.MaxOutputSize),
         ReasoningEffort = bot.ModelSettings.ReasoningEffort ?? string.Empty,
         WebSearch = bot.ModelSettings.WebSearch,
         StructuredOutput = bot.ModelSettings.StructuredOutput,
         MemoryEnabled = bot.MemorySettings.Enabled,
         Compaction = bot.MemorySettings.Compaction,
-        CompactAtTokens = Text(bot.MemorySettings.CompactAtTokens),
+        CompactAtTokens = Text(bot.MemorySettings.CompactAtSize),
         KeepRecentMessages = Text(bot.MemorySettings.KeepRecentMessages),
         SandboxPolicy = bot.SandboxPolicy,
         Network = bot.SandboxSettings.Network,
@@ -86,6 +86,25 @@ public sealed class BotDraft
         MaxChildren = Text(bot.BuildLimits.MaxChildren),
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
     };
+
+    /// <summary>
+    /// Sets the name. While the handle is still the one made from the old name, it follows the new one, so a bot
+    /// that is renamed before anyone has chosen its handle is not left answering to the old name.
+    /// </summary>
+    public void Rename(string name)
+    {
+        if (Handle == Slug(Name) && Slug(name) is { Length: > 0 } follows)
+        {
+            Handle = follows;
+        }
+
+        Name = name;
+    }
+
+    /// <summary>A name as a handle: lower-case letters and digits, with a hyphen for each run of anything else.</summary>
+    public static string Slug(string name) =>
+        string.Join('-', new string([.. name.Trim().ToLowerInvariant().Select(letter => char.IsAsciiLetterOrDigit(letter) ? letter : ' ')])
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>What a number field holds that is not a number, as a sentence, or null when every one reads.</summary>
     public string? FindProblem()

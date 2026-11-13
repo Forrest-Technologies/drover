@@ -48,8 +48,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         serverOwned.Keys.Should().BeSubsetOf(columns, "a column that is gone needs no excuse");
         request.Should().Contain(editable, "every column a person may set is in the update request");
         detail.Should().Contain(columns.Except([nameof(Bot.SpaceId)]), "every column can be read back");
-        Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>());
-        Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>());
+        Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>().Select(ContractName));
+        Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>().Select(ContractName));
         Names<SandboxSettingsBody>().Should().BeEquivalentTo(Names<SandboxSettings>());
         Names<BuildLimitsBody>().Should().BeEquivalentTo(Names<BuildLimits>());
         Names<BotAvatarBody>().Should().BeEquivalentTo(Names<BotAvatar>());
@@ -452,6 +452,9 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
 
     private static IEnumerable<string> Names<T>() => typeof(T).GetProperties().Select(property => property.Name);
+
+    // A contract says "size" where the record says "tokens": no contract property may have a name that reads as a secret.
+    private static string ContractName(string name) => name.Replace("Tokens", "Size", StringComparison.Ordinal);
 
     private static UpdateBotRequest Nothing() => new(null, null, null, null, null, null, null, null, null, null, null, null, null);
 

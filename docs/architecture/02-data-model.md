@@ -71,6 +71,13 @@ Notes:
 - `bot_ancestors` is a closure table that includes each bot's row to itself at distance 0. "Is X beneath Y" is one primary key lookup; "everything beneath Y" is one indexed scan. It is plain relational data, needs no extension, and is rewritten only when the tree changes, which is rare.
 - `tool_grants.effect` is `allow`, `ask`, or `deny`. No row means the bot cannot see the tool. `review_state` is `current` or `needs_review`; see tool definition pinning in [06-mcp.md](06-mcp.md).
 - Model settings, memory settings, and sandbox settings are `jsonb` mapped to C# records owned by `Drover.Domain`. They are provider-neutral: `temperature`, `max_output_tokens`, `reasoning_effort`, not a vendor's option names.
+- `model_settings` holds `temperature`, `max_output_tokens`, `reasoning_effort`, `web_search` (`off`, `on`, `automatic`), and `structured_output`, which asks the model for a JSON object. The server refuses a setting the model's capability record says it lacks; a model the catalog does not know is taken on trust.
+- `memory_settings` holds `enabled`, `compaction` (`none`, `sliding_window`, `summarization`, `tool_results`, `truncation`), `compact_at_tokens`, and `keep_recent_messages`. They are stored and edited now; the runtime does not apply compaction yet.
+- `avatar` holds an optional `emoji` and `file_id`. With neither, the interface draws the bot's character from its name and id.
+- Every column of `bots` that a person may set has a path through the API, and a test walks the entity to hold that. `id`, `parent_bot_id`, `depth`, and the two `created_by` columns are set by the server; `status` changes through pause, resume, and remove, and remove is soft: the row and its history stay.
+- A schedule's `next_run_at` is computed when the schedule is saved, in UTC, from its cron expression and time zone. A schedule that is off has none.
+- Setting a tool to off in the editor deletes the bot's `tool_grants` row. Setting it is refused when it would exceed what the parent's `effective_grants` gives. A duplicated bot is a top-level bot holding the source's effective grants.
+- Bot, grant, and schedule changes each write one `audit_log` row in the same transaction: `actor_kind` `user`, the actor's id, an `action` such as `bot.updated` or `grant.changed`, `target_kind` `bot`, and `data.changes` holding only the values that changed, each with `before` and `after`.
 
 ### Skills, reserved shape
 

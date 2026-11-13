@@ -53,7 +53,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | HtmlSanitizer, with AngleSharp | MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
 >>>>>>> worktree-agent-aafd1c00ea159c3a2
 | `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency | Web Push and VAPID | **Wrapped** by `IPushChannel` |
-| Cronos | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct. One call site in the scheduler. |
+| Cronos 0.13.0 | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct, in `Drover.Engine`. One call site today, `ScheduleService`, which checks an expression and stores the next time it is due; the scheduler will be the second. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
 | `Microsoft.Extensions.Http` | MIT | Microsoft | The client factory, referenced directly by `Drover.Ui.Tests` so its fake server hands out a client the way every client in Drover is made. Already present everywhere else through the resilience package. | Direct. Test project only. |
 | OpenTelemetry .NET | Apache-2.0 | CNCF project | Traces and metrics, exported only if the operator configures an endpoint | Direct. Standard instrumentation. |

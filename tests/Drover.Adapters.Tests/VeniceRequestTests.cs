@@ -78,6 +78,28 @@ public sealed class VeniceRequestTests
         rig.Handler.Requests.Single(IsChat).Json.GetProperty("model").GetString().Should().Be(expectedModel);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Asks_for_a_json_object_only_when_the_bot_is_set_to_structured_output(bool structured)
+    {
+        var rig = VeniceRig.Start(ConformanceScenarios.PlainReply);
+        var client = rig.Subject.Provider.CreateChatClient(
+            rig.Subject.Connection,
+            rig.Subject.ApiKey,
+            rig.Subject.ModelId,
+            new ModelSettings { StructuredOutput = structured });
+
+        await client.Ask("Say hello.");
+
+        var request = rig.Handler.Requests.Single(IsChat).Json;
+        request.TryGetProperty("response_format", out var format).Should().Be(structured);
+        if (structured)
+        {
+            format.GetProperty("type").GetString().Should().Be("json_object");
+        }
+    }
+
     [Fact]
     public async Task Turns_the_neutral_setting_none_into_the_documented_thinking_switch()
     {

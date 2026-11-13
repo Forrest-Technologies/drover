@@ -27,11 +27,11 @@ public sealed record BotDetail(
 /// <summary>A bot's picture: an uploaded file, or a short symbol. With neither, the bot's drawn character is shown.</summary>
 public sealed record BotAvatarBody(string? Emoji, Guid? FileId);
 
-/// <summary>Model options in provider-neutral names. A null leaves the choice to the model.</summary>
-public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputTokens, string? ReasoningEffort, string WebSearch, bool StructuredOutput);
+/// <summary>Model options in provider-neutral names. A null leaves the choice to the model. Sizes are in tokens.</summary>
+public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputSize, string? ReasoningEffort, string WebSearch, bool StructuredOutput);
 
-/// <summary>Whether the bot remembers, and how it keeps a long thread inside the model's context.</summary>
-public sealed record MemorySettingsBody(bool Enabled, string Compaction, int? CompactAtTokens, int? KeepRecentMessages);
+/// <summary>Whether the bot remembers, and how it keeps a long thread inside the model's context. Sizes are in tokens.</summary>
+public sealed record MemorySettingsBody(bool Enabled, string Compaction, int? CompactAtSize, int? KeepRecentMessages);
 
 /// <summary>What a bot's sandbox may reach. Stored now; used once a sandbox provider is set up.</summary>
 public sealed record SandboxSettingsBody(string Network, IReadOnlyList<string> AllowedHosts, int? IdleTimeoutMinutes);

@@ -47,6 +47,23 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void A_handle_follows_the_name_until_someone_chooses_it()
+    {
+        var fresh = new BotDraft { Name = "New bot", Handle = "new-bot" };
+        var chosen = new BotDraft { Name = "New bot", Handle = "helper" };
+
+        fresh.Rename("Scout the 2nd!");
+        fresh.Rename("Scout");
+        chosen.Rename("Scout");
+        var emptied = new BotDraft { Name = "Atlas", Handle = "atlas" };
+        emptied.Rename(" ");
+
+        fresh.Handle.Should().Be("scout");
+        chosen.Handle.Should().Be("helper");
+        emptied.Handle.Should().Be("atlas", "a name that makes no handle leaves the one there is");
+    }
+
+    [Fact]
     public void Settings_the_chosen_model_lacks_are_cleared_and_an_unknown_model_keeps_them()
     {
         var draft = new BotDraft { ReasoningEffort = "high", WebSearch = "on", StructuredOutput = true };

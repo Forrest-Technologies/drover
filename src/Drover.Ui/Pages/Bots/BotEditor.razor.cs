@@ -129,6 +129,12 @@ public sealed partial class BotEditor(
 
     private void Changed() => justSaved = false;
 
+    private void Rename(string name)
+    {
+        draft!.Rename(name);
+        justSaved = false;
+    }
+
     private async Task Load()
     {
         (saved, draft, baseline, models, tools, schedules) = (null, null, null, null, null, null);
