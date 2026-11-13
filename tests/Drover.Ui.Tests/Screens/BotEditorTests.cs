@@ -349,6 +349,7 @@ public sealed class BotEditorTests : ScreenTest
         await page.FindAll(".dv-rule-form .dv-button").First(button => button.TextContent.Contains("Add a condition")).ClickAsync(new MouseEventArgs());
         Options(page, "If").Should().Equal("The reply contains", "The reply holds", "The reply matches a pattern", "The time is between", "The run has used more than");
         await page.Find(".dv-rule-condition textarea").InputAsync(new ChangeEventArgs { Value = "sample words" });
+        page.Find(".dv-rule-condition .dv-editor-hint").TextContent.Should().Be(RuleWords.NotCaught, "a person is told what a condition on text does not find");
         await Select(page, "Then").ChangeAsync(new ChangeEventArgs { Value = "redact" });
         await page.FindAll(".dv-rule-form input[type=text]")[^1].InputAsync(new ChangeEventArgs { Value = "Sample rule" });
         Words(page.Find(".dv-rule-preview").TextContent).Should().Be("Reads as When the bot is about to reply, if the reply contains \"sample words\", then remove what matched.");

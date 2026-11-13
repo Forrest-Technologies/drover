@@ -40,6 +40,10 @@ public static class RuleWords
 
     #region Properties
 
+    /// <summary>What a condition on text does not find, said where a person writes one.</summary>
+    public static string NotCaught =>
+        "Characters that cannot be seen are ignored. Not caught: a letter from another alphabet that only looks the same, and text split across two inputs or two items of a list.";
+
     public static IReadOnlyList<RuleChoice> Checkpoints => checkpoints;
 
     public static IReadOnlyList<RuleChoice> ToolKinds => toolKinds;
@@ -155,10 +159,22 @@ public static class RuleWords
             "text_contains" => $"{subject} contains {Either([.. (condition.Entries ?? []).Select(entry => $"\"{entry}\"")])}",
             "text_holds" => $"{subject} holds {Label(builtins, condition.Builtin)}",
             "text_matches" => $"{subject} matches the pattern {condition.Pattern}",
-            "not_in_list" => $"{subject} is not one of {string.Join(", ", condition.Entries ?? [])}",
+            "not_in_list" => $"{Inputs(condition.Argument)} not one of {string.Join(", ", condition.Entries ?? [])}",
             "time_is" => Time(condition),
             "run_exceeds" => $"the run has used more than {condition.Limit?.ToString("N0", CultureInfo.InvariantCulture)} {Label(counters, condition.Counter)}",
             _ => condition.Kind ?? string.Empty,
+        };
+    }
+
+    // A list rule names one input or several, parted by commas.
+    private static string Inputs(string? argument)
+    {
+        string[] names = [.. (argument ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(name => $"\"{name}\"")];
+        return names.Length switch
+        {
+            0 => "the input … is",
+            1 => $"the input {names[0]} is",
+            _ => $"any of the inputs {string.Join(", ", names)} is",
         };
     }
 

@@ -125,6 +125,7 @@ else
                             break;
                         case "text_contains":
                             <TextArea Label="Any of these, one on each line" Rows="2" @bind-Value="condition.Entries" />
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
                             break;
                         case "text_holds":
                             <Select Label="What" @bind-Value="condition.Builtin">
@@ -137,11 +138,13 @@ else
                         case "text_matches":
                             <Field Label="Pattern" @bind-Value="condition.Pattern" autocomplete="off" spellcheck="false"
                                    Hint="A regular expression. Lookarounds and backreferences are not accepted." />
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
                             break;
                         case "not_in_list":
-                            <Field Label="Input name" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false" Hint="The tool input to check, such as to." />
+                            <Field Label="Input names" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
+                                   Hint="The tool inputs to check, parted by commas, such as to, cc, bcc. When none of them is in a call, the rule applies." />
                             <TextArea Label="Allowed, one on each line" Rows="2" @bind-Value="condition.Entries"
-                                      Hint="A domain such as example.org allows its addresses and subdomains." />
+                                      Hint="Each value has to be one whole entry. A domain such as example.org allows its addresses and subdomains." />
                             break;
                         case "time_is":
                             <div class="dv-editor-pair">

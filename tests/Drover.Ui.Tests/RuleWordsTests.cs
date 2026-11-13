@@ -10,6 +10,7 @@ public sealed class RuleWordsTests
         { RuleWords.BeforeTool, "ask", [new("tool_kind") { ToolKinds = ["write", "critical"] }], "When a tool is about to run, if the tool writes or is critical, then ask a person first." },
         { RuleWords.BeforeTool, "block", [new("tool_is") { Tools = ["sample.send", "sample.post"] }], "When a tool is about to run, if the tool is sample.send or sample.post, then do not run it." },
         { RuleWords.BeforeTool, "block", [new("not_in_list") { Argument = "to", Entries = ["example.org", "example.com"] }], "When a tool is about to run, if the input \"to\" is not one of example.org, example.com, then do not run it." },
+        { RuleWords.BeforeTool, "block", [new("not_in_list") { Argument = "to, cc,bcc", Entries = ["example.org"] }], "When a tool is about to run, if any of the inputs \"to\", \"cc\", \"bcc\" is not one of example.org, then do not run it." },
         { RuleWords.AfterTool, "redact", [new("text_holds") { Builtin = "card_number" }], "When a tool has answered, if the tool's answer holds a card number, then remove what matched." },
         { RuleWords.AfterTool, "block", [new("text_matches") { Pattern = "INV-\\d+" }], "When a tool has answered, if the tool's answer matches the pattern INV-\\d+, then keep the answer from the bot." },
         { RuleWords.BeforeReply, "block", [new("text_contains") { Entries = ["one", "two"] }], "When the bot is about to reply, if the reply contains \"one\" or \"two\", then do not send it." },
