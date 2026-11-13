@@ -4,10 +4,22 @@ if (args.Contains("--initialize-database") && !initializeDatabase)
     throw new InvalidOperationException("Database initialization must run as a standalone command.");
 }
 
-var builder = WebApplication.CreateBuilder(initializeDatabase ? [] : args);
+var resetPassword = args is [PasswordResetCommand.Argument, var resetEmail] ? resetEmail : null;
+if (args.Contains(PasswordResetCommand.Argument) && resetPassword is null)
+{
+    throw new InvalidOperationException($"Usage: {PasswordResetCommand.Argument} person@example.com, as a standalone command.");
+}
+
+var builder = WebApplication.CreateBuilder(initializeDatabase || resetPassword is not null ? [] : args);
 if (initializeDatabase)
 {
     await DatabaseStartup.Initialize(builder.Configuration);
+    return;
+}
+
+if (resetPassword is not null)
+{
+    Environment.ExitCode = await PasswordResetCommand.Run(builder.Configuration, resetPassword);
     return;
 }
 

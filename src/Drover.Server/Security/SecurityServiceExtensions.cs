@@ -56,7 +56,7 @@ public static class SecurityServiceExtensions
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.Path = "/";
         options.SlidingExpiration = true;
-        options.ExpireTimeSpan = TimeSpan.FromDays(14);
+        options.ExpireTimeSpan = SessionService.IdleLimit;
 
         // An API answers with a status code, never a redirect to a sign-in page.
         options.Events.OnValidatePrincipal = SessionStamp.Validate;
