@@ -28,7 +28,13 @@ public static class RunServiceExtensions
         // Signing in to a tool server sends the person's browser away and back, so this server must know its own
         // public address. Without it, connections that need a sign-in say what is missing.
         services.Configure<ToolSignInOptions>(options =>
-            options.PublicUrl = Uri.TryCreate(configuration["Drover:PublicUrl"], UriKind.Absolute, out var address) ? address : null);
+        {
+            var section = configuration.GetSection("Drover:ToolSignIn");
+            options.PublicUrl = Uri.TryCreate(configuration["Drover:PublicUrl"], UriKind.Absolute, out var address) ? address : null;
+            options.RenewAhead = TimeSpan.FromMinutes(section.GetValue("RenewAheadMinutes", options.RenewAhead.TotalMinutes));
+            options.RenewEvery = TimeSpan.FromMinutes(section.GetValue("RenewEveryMinutes", options.RenewEvery.TotalMinutes));
+        });
+        services.AddHostedService<ToolSignInRenewer>();
 
         // A tool server is reached through the checked outbound client, and each request carries the space's rule
         // on private addresses. A request that says nothing is refused a private address.

@@ -27,6 +27,12 @@ public sealed class SignInAttempt
 
     public ToolEndpoint Endpoint { get; }
 
+    /// <summary>
+    /// Set once the tokens were renewed during this use, by it or by a use it waited for. It does not renew them a
+    /// second time: if they are already too old, the tool server will say so.
+    /// </summary>
+    public bool HasRenewed { get; set; }
+
     /// <summary>Set when the server wanted a sign-in and nobody was there to give one.</summary>
     public bool WasRequired { get; private set; }
 
@@ -112,31 +118,40 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
         var tokens = await Read(cancellationToken);
 
         // Outside a use (the listening stream of a kept session) nothing is renewed, so there is nothing to wait for.
-        if (tokens is null || !IsRunningOut(tokens) || SignInAttempt.Current is not { } attempt || attempt.Holds(gate))
+        if (tokens is null || SignInAttempt.Current is not { HasRenewed: false } attempt || !IsRunningOut(tokens, attempt))
         {
             return tokens;
         }
 
+        if (attempt.Holds(gate))
+        {
+            return AsRunOut(tokens);
+        }
+
+        var waitedWith = tokens.AccessToken;
         await gate.Enter(cancellationToken);
         tokens = await Read(cancellationToken);
 
-        if (tokens is null || !IsRunningOut(tokens))
+        if (tokens is null || tokens.AccessToken != waitedWith || !IsRunningOut(tokens, attempt))
         {
+            attempt.HasRenewed = tokens is not null && tokens.AccessToken != waitedWith;
+
             // Another use renewed them while this one waited.
             gate.Leave();
             return tokens;
         }
 
         attempt.Hold(gate);
-        return tokens;
+        return AsRunOut(tokens);
     }
 
     public async ValueTask StoreTokensAsync(TokenContainer tokens, CancellationToken cancellationToken)
     {
-        await signIn.WriteTokens(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), cancellationToken);
+        await signIn.WriteTokens(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), RunsOutAt(tokens), cancellationToken);
 
-        if (SignInAttempt.Current is { } attempt && attempt.Holds(gate))
+        if (SignInAttempt.Current is { } attempt)
         {
+            attempt.HasRenewed = true;
             attempt.Release();
         }
     }
@@ -150,8 +165,30 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
             ? JsonSerializer.Deserialize<TokenContainer>(stored, McpJsonUtilities.DefaultOptions)
             : null;
 
-    private bool IsRunningOut(TokenContainer tokens) =>
-        tokens.ExpiresIn is { } seconds && tokens.ObtainedAt.AddSeconds(seconds) - margin <= time.GetUtcNow();
+    private static DateTimeOffset? RunsOutAt(TokenContainer tokens) =>
+        tokens.ExpiresIn is { } seconds ? tokens.ObtainedAt.AddSeconds(seconds) : null;
+
+    /// <summary>Whether the access token has run out, is about to, or runs out before the moment this use wants it renewed by.</summary>
+    private bool IsRunningOut(TokenContainer tokens, SignInAttempt attempt)
+    {
+        var now = time.GetUtcNow();
+        var renewBefore = attempt.Endpoint.SignIn?.RenewBefore is { } wanted && wanted > now + margin ? wanted : now + margin;
+        // Without a refresh token nothing can be renewed: the access token is used for as long as the tool server takes it.
+        return !string.IsNullOrEmpty(tokens.RefreshToken)
+            && RunsOutAt(tokens) is { } runsOut
+            && runsOut <= renewBefore;
+    }
+
+    /// <summary>
+    /// The same tokens, dated so the library sees an access token that has already run out and renews it before
+    /// the request, instead of sending it. What is stored is untouched.
+    /// </summary>
+    private static TokenContainer AsRunOut(TokenContainer tokens)
+    {
+        var copy = JsonSerializer.Deserialize<TokenContainer>(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), McpJsonUtilities.DefaultOptions)!;
+        copy.ExpiresIn = 0;
+        return copy;
+    }
 
     #endregion
 }

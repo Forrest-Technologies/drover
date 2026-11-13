@@ -418,6 +418,29 @@ public abstract class ToolSourceConformance
         server.Refreshes.Should().Be(1, "a refresh token works once, so the uses must not each spend it");
     }
 
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task Tokens_that_still_work_are_renewed_ahead_of_time_when_the_caller_asks_and_left_alone_when_it_does_not(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn { TokenLifetime = TimeSpan.FromHours(1) } });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+        var first = tokens.Value;
+        var firstRunsOut = tokens.RunsOutAt;
+
+        await source.Source.ListTools(endpoint with { SignIn = endpoint.SignIn! with { RenewBefore = DateTimeOffset.UtcNow.AddMinutes(10) } }, Token);
+        var afterNotDue = server.Refreshes;
+        await source.Source.ListTools(endpoint with { SignIn = endpoint.SignIn! with { RenewBefore = DateTimeOffset.UtcNow.AddHours(2) } }, Token);
+
+        firstRunsOut.Should().BeCloseTo(DateTimeOffset.UtcNow.AddHours(1), TimeSpan.FromMinutes(1), "the caller is told when the access token runs out");
+        afterNotDue.Should().Be(0, "a token that outlasts the moment asked for is not renewed");
+        server.Refreshes.Should().Be(1, "a token that runs out before the moment asked for is renewed now");
+        server.Approvals.Should().Be(1, "renewing asks nobody");
+        tokens.Value.Should().NotBe(first, "the new tokens are handed to the caller to keep");
+    }
+
     [Fact]
     public async Task A_client_id_an_admin_entered_is_used_and_nothing_is_registered()
     {
@@ -525,6 +548,9 @@ public sealed class KeptTokens
 
     public string? Value { get; private set; }
 
+    /// <summary>When the source said the access token runs out, the last time it handed tokens over.</summary>
+    public DateTimeOffset? RunsOutAt { get; private set; }
+
     #endregion
 
     #region Public Methods
@@ -533,9 +559,10 @@ public sealed class KeptTokens
         new(
             new Uri("https://drover.example.test/oauth/mcp/callback"),
             _ => Task.FromResult(Value),
-            (value, _) =>
+            (value, runsOutAt, _) =>
             {
                 Value = value;
+                RunsOutAt = runsOutAt;
                 return Task.CompletedTask;
             });
 

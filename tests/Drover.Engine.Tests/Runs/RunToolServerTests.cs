@@ -340,12 +340,12 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         var (second, secondAccess, _) = NewTokenSet();
         var mine = new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId);
 
-        await mine.Write(first, RunWorld.Token);
+        await mine.Write(first, null, RunWorld.Token);
         var readBack = await mine.Read(RunWorld.Token);
         var theirOwn = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other).Read(RunWorld.Token);
         var mineAskedForByThem = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, world.UserId).Read(RunWorld.Token);
         var theSpaces = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, Audience.Everyone).Read(RunWorld.Token);
-        await mine.Write(second, RunWorld.Token);
+        await mine.Write(second, null, RunWorld.Token);
         var renewed = await mine.Read(RunWorld.Token);
         var rows = await world.Transact(services => services.GetRequiredService<DroverDbContext>().ToolConnectionCredentials.CountAsync(RunWorld.Token));
 

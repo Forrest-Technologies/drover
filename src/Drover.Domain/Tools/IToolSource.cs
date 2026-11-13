@@ -54,9 +54,10 @@ public sealed record ToolEndpoint(Guid ConnectionId, Uri Url)
 /// caller reads and writes them in the vault through <see cref="ReadTokens"/> and <see cref="WriteTokens"/>, as text
 /// only the source understands. A source sends an access token to the tool server's own origin and nowhere else,
 /// asks for a sign-in only through <see cref="AskPerson"/>, and when that is absent and the tokens no longer work
-/// fails with <see cref="ToolSourceFailure.SignInRequired"/>.
+/// fails with <see cref="ToolSourceFailure.SignInRequired"/>. <see cref="WriteTokens"/> is also told when the access
+/// token runs out, if the tool server said, so the caller can have it renewed in good time.
 /// </summary>
-public sealed record ToolSignIn(Uri RedirectUrl, Func<CancellationToken, Task<string?>> ReadTokens, Func<string, CancellationToken, Task> WriteTokens)
+public sealed record ToolSignIn(Uri RedirectUrl, Func<CancellationToken, Task<string?>> ReadTokens, Func<string, DateTimeOffset?, CancellationToken, Task> WriteTokens)
 {
     #region Properties
 
@@ -76,6 +77,12 @@ public sealed record ToolSignIn(Uri RedirectUrl, Func<CancellationToken, Task<st
     /// is there to ask, as in a run.
     /// </summary>
     public Func<SignInPrompt, CancellationToken, Task<SignInAnswer>>? AskPerson { get; init; }
+
+    /// <summary>
+    /// When set, an access token that runs out before this moment is renewed now, although it still works. For
+    /// renewing ahead of time, so a run that starts when nobody is there does not find a sign-in that lapsed.
+    /// </summary>
+    public DateTimeOffset? RenewBefore { get; init; }
 
     #endregion
 

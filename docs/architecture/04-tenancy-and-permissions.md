@@ -222,6 +222,7 @@ Initial set:
 | `sys.find_user_for_sign_in(email)` | Return the user id for one email, compared by its normalized form, and nothing else. The caller then reads the user row in a transaction with `drover.user_id` set to that id, which the `users` policy allows. |
 | `sys.memberships_for_user()` | Used once after sign-in, before a space is chosen. Takes no argument: it answers for `sys.current_user_id()` only, so it can never list another person's spaces. Returns each space's id, kind, name, slug, and the user's role, because a person cannot choose a space from ids. |
 | `sys.resolve_oauth_state(state_hash)` | Map an OAuth callback to its space and user |
+| `sys.tool_sign_ins_running_out(before, limit)` | Find active tool server sign-ins whose access token runs out before a moment, in every space, soonest first. Background renewal has no tenant. Returns the space, the audience, the connection, and the credential id; never a secret id. `drover_system` is granted `SELECT` on six columns of `tool_connection_credentials` and four of `tool_connections` for it, none of them a secret's. |
 | `sys.purge_expired(limit)` | Delete expired OAuth flows and destroyed sandboxes that no tool call mentions, at most `limit` of each. Session tables join it when they exist. |
 | `sys.health()` | Counts for the status page and the first-run check: queued, running, and waiting runs, expired leases, the oldest lease, and the number of users. No tenant data. |
 

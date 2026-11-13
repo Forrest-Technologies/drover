@@ -102,6 +102,20 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
                 """)
             .ToListAsync(cancellationToken)).SingleOrDefault();
 
+    /// <summary>
+    /// The sign-ins, in every space, whose access token runs out before the given moment. This crosses spaces, so
+    /// it goes through <c>sys.tool_sign_ins_running_out</c>, which returns ids only: the caller then works on each
+    /// one inside that space's own tenant scope, as the person the sign-in belongs to.
+    /// </summary>
+    public Task<List<SignInRunningOut>> ListSignInsRunningOut(DateTimeOffset before, int limit, CancellationToken cancellationToken) =>
+        db.Database
+            .SqlQuery<SignInRunningOut>(
+                $"""
+                SELECT space_id, audience_user_id, tool_connection_id, credential_id
+                FROM sys.tool_sign_ins_running_out({before}, {limit})
+                """)
+            .ToListAsync(cancellationToken);
+
     public void Add(Tool tool) => db.Tools.Add(tool);
 
     /// <summary>The tools a connection has listed, tracked, so the caller can bring them up to date.</summary>
@@ -151,3 +165,6 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
 
 /// <summary>A sign-in to a tool server that is waiting for its callback: where it was started, by whom, and for which connection.</summary>
 public sealed record SignInInProgress(Guid SpaceId, Guid UserId, Guid ToolConnectionId);
+
+/// <summary>A sign-in whose access token is about to run out: ids only. The audience is the person it belongs to, or everyone.</summary>
+public sealed record SignInRunningOut(Guid SpaceId, Guid AudienceUserId, Guid ToolConnectionId, Guid CredentialId);

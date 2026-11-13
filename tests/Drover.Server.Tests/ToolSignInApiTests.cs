@@ -11,6 +11,9 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
         ["Drover:PublicUrl"] = "https://drover.example.test",
+
+        // The test server's access tokens last an hour. Renewing two hours ahead makes every one of them due.
+        ["Drover:ToolSignIn:RenewAheadMinutes"] = "120",
     };
 
     #endregion
@@ -148,6 +151,49 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         mended.Status.Should().Be("completed", mended.Error?.Message);
         Script.Requests[3].Should().Contain(new SeenMessage("tool", "c2 = \"echo: two\""));
         server.Approvals.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Sign_ins_are_renewed_in_the_background_before_they_run_out_and_one_that_cannot_be_is_marked_before_a_run_finds_out()
+    {
+        Script = new ScriptedModel([new ToolCallOutput("c1", "calendar__echo", """{"text":"later"}""")], [new TextOutput("Done.")]);
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        await using var lapsing = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var admin = await SignIn(alice.Email, alice.Password);
+        var asMember = await SignIn(member.Email, member.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var mine = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"))).Connection.Id;
+        var shared = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Mail", lapsing.Url.ToString(), "oauth", SignInScope: "space"))).Connection.Id;
+        await SignInToServer(asMember, server, space, mine);
+        await SignInToServer(admin, lapsing, space, shared);
+        var renewal = Services.GetRequiredService<ToolSignInRenewal>();
+        var requestsBefore = server.Requests;
+
+        lapsing.WithdrawConsent();
+        var renewed = await renewal.RenewDue(Token);
+        var refreshesAfterOneLook = server.Refreshes;
+        var forMember = await (await asMember.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token);
+        var bot = await CreateBot(admin, alice.SpaceId);
+        await Grant(alice.SpaceId, alice.UserId, bot.Id, "echo", mine);
+        var run = await Ask(asMember, alice.SpaceId, bot.Id, "Use my calendar");
+        var again = await renewal.RenewDue(Token);
+
+        renewed.Should().Be(1, "the member's own sign-in, in their name; the shared one could not be");
+        refreshesAfterOneLook.Should().Be(1);
+        server.Approvals.Should().Be(1, "renewing asks nobody");
+        server.Requests.Should().BeGreaterThan(requestsBefore);
+        server.Refreshes.Should().Be(2, "the run in between renewed nothing: its tokens were good for an hour");
+        Summary(forMember, mine).SignIn.Should().Be("signed_in");
+        Summary(forMember, shared).SignIn.Should().Be("needs_reconnect", "a sign-in that cannot be renewed says so before a run trips over it");
+        run.Status.Should().Be("completed", run.Error?.Message);
+        Script.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"echo: later\""), "the run uses the renewed tokens");
+        again.Should().Be(1, "with two hours of lead and tokens that last one, the member's sign-in is always due; the marked one is left alone");
+        lapsing.Refreshes.Should().Be(0);
+        string.Join('\n', forMember, string.Join('\n', Logs.Entries.Select(entry => entry.ToString())))
+            .Should().NotContainAny(server.IssuedSecrets.Concat(lapsing.IssuedSecrets), "no token is in a response or a log");
     }
 
     [Fact]

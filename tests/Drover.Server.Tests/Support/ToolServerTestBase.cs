@@ -49,13 +49,13 @@ public abstract class ToolServerTestBase(PostgresServer postgres) : ServerTestBa
     }
 
     /// <summary>Grants the bot one of the connection's tools, as a person would in the bot editor.</summary>
-    protected async Task Grant(Guid spaceId, Guid userId, Guid botId, string toolName)
+    protected async Task Grant(Guid spaceId, Guid userId, Guid botId, string toolName, Guid? connectionId = null)
     {
         await using var scope = Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);
         await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
         var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
-        var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
+        var tool = await db.Tools.SingleAsync(found => found.Name == toolName && (connectionId == null || found.ToolConnectionId == connectionId), Token);
         db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = userId });
         await db.SaveChangesAsync(Token);
         await work.Commit(Token);

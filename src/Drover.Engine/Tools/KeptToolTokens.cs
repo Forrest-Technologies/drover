@@ -43,7 +43,7 @@ public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid aud
             },
             cancellationToken);
 
-    public Task Write(string tokens, CancellationToken cancellationToken) =>
+    public Task Write(string tokens, DateTimeOffset? runsOutAt, CancellationToken cancellationToken) =>
         tenant.Transact(
             async services =>
             {
@@ -59,12 +59,14 @@ public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid aud
                         tokens,
                         audienceUserId == Audience.Everyone ? null : audienceUserId,
                         cancellationToken);
-                    connections.Add(new ToolConnectionCredential { ToolConnectionId = connectionId, SecretId = secretId, AudienceUserId = audienceUserId });
+                    connections.Add(
+                        new ToolConnectionCredential { ToolConnectionId = connectionId, SecretId = secretId, AudienceUserId = audienceUserId, ExpiresAt = runsOutAt });
                 }
                 else
                 {
                     await vault.Replace(credential.SecretId, tokens, cancellationToken);
                     credential.Status = CredentialStatus.Active;
+                    credential.ExpiresAt = runsOutAt;
                 }
             },
             cancellationToken);

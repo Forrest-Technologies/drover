@@ -19,6 +19,15 @@ public sealed class ToolSignInOptions
 
     #region Properties
 
+    /// <summary>How far ahead of an access token running out it is renewed in the background.</summary>
+    public TimeSpan RenewAhead { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>How often the background renewal looks for sign-ins that are running out.</summary>
+    public TimeSpan RenewEvery { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>The most sign-ins one look renews. The rest wait for the next look.</summary>
+    public int RenewAtMost { get; set; } = 50;
+
     /// <summary>The address people open Drover at, such as <c>https://drover.example.com</c>.</summary>
     public Uri? PublicUrl { get; set; }
 
