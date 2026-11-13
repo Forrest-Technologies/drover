@@ -64,11 +64,11 @@ public sealed class StatusPageTests : ScreenTest
     public void While_loading_it_says_what_it_is_checking()
     {
         SignedIn();
-        Server.Answer("GET", path, new StatusReport(true, []));
+        Server.Stream(path);
 
         var page = Render<StatusPage>();
 
-        page.Markup.Should().Contain("Checking the server and the space's connections.");
+        page.WaitForAssertion(() => page.Find("p[role=status]").TextContent.Should().Be("Checking the server and the space's connections."));
     }
 
     [Fact]
