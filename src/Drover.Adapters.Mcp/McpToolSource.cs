@@ -30,6 +30,8 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     private readonly ConcurrentDictionary<SessionKey, Session> sessions = new();
 
+    private readonly ConcurrentDictionary<Guid, RefreshGate> gates = new();
+
     private readonly ILogger logger = loggers.CreateLogger<McpToolSource>();
 
     #endregion
@@ -86,6 +88,11 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
         {
             await Close(key);
         }
+
+        foreach (var gate in gates.Values)
+        {
+            gate.Dispose();
+        }
     }
 
     #endregion
@@ -109,12 +116,17 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
         // Set before any client is made, so every request of this use, and of a session opened by it, is bounded.
         var bound = ResponseLimit.Begin(endpoint.Limits.MaxResponseBytes);
+        var signIn = SignInAttempt.Begin(endpoint);
         await CloseIdleSessions();
         var key = new SessionKey(endpoint.ConnectionId, endpoint.CredentialKey);
 
+        // A use that may ask a person is a sign-in in progress, for a credential that may not exist yet. It gets a
+        // client of its own and leaves none behind, so no session is ever shared between two people signing in.
+        var keeps = endpoint.SignIn?.AskPerson is null;
+
         try
         {
-            if (sessions.TryGetValue(key, out var kept))
+            if (keeps && sessions.TryGetValue(key, out var kept))
             {
                 try
                 {
@@ -139,7 +151,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
             var client = await Connect(endpoint, limit.Token);
 
-            if (IsStateless(client))
+            if (!keeps || IsStateless(client))
             {
                 await using (client)
                 {
@@ -160,6 +172,12 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
             return await session.Use(work, time, limit.Token);
         }
+        catch (Exception failure) when (signIn.WasRequired && !cancellationToken.IsCancellationRequested)
+        {
+            // The session, if one was kept, was opened with tokens that no longer work.
+            await Close(key);
+            throw new ToolSourceException(ToolSourceFailure.SignInRequired, "This connection needs a sign-in before it can be used.", failure);
+        }
         catch (Exception failure) when (failure is not ToolSourceException && !cancellationToken.IsCancellationRequested)
         {
             // A kept session whose stream was cut for size is of no further use.
@@ -170,6 +188,10 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
             }
 
             throw Failures.Translate(failure, limit.IsCancellationRequested);
+        }
+        finally
+        {
+            signIn.Release();
         }
     }
 
@@ -182,6 +204,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 TransportMode = endpoint.Transport is ToolTransport.Sse ? HttpTransportMode.Sse : HttpTransportMode.AutoDetect,
                 AdditionalHeaders = new Dictionary<string, string>(endpoint.Headers),
                 ConnectionTimeout = endpoint.Timeout,
+                OAuth = endpoint.SignIn is { } signIn ? ToOptions(signIn, endpoint) : null,
             },
             http.CreateClient(HttpClientName),
             loggers,
@@ -209,6 +232,35 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 failure);
         }
     }
+
+    /// <summary>
+    /// The library does the sign-in: discovery, the proof key, the exchange, renewal. This says who this server is,
+    /// in the order the protocol asks for (a client id a person entered, else the client document, else registering
+    /// itself), where the tokens are kept, and how a person is asked. The person is found through the use in
+    /// progress and not through the endpoint that opened a session, so a kept session never asks anyone.
+    /// </summary>
+    private ClientOAuthOptions ToOptions(ToolSignIn signIn, ToolEndpoint endpoint) =>
+        new()
+        {
+            RedirectUri = signIn.RedirectUrl,
+            ClientId = signIn.ClientId,
+            ClientSecret = signIn.ClientSecret,
+            ClientMetadataDocumentUri = signIn.ClientId is null ? signIn.ClientDocumentUrl : null,
+            DynamicClientRegistration = new DynamicClientRegistrationOptions { ClientName = signIn.ClientName },
+            TokenCache = new KeptTokenCache(signIn, gates.GetOrAdd(endpoint.CredentialKey ?? endpoint.ConnectionId, _ => new RefreshGate()), time),
+            AuthorizationCallbackHandler = async (context, cancellationToken) =>
+            {
+                var attempt = SignInAttempt.Current;
+
+                if (attempt?.Endpoint.SignIn?.AskPerson is not { } ask)
+                {
+                    throw (attempt ?? SignInAttempt.Begin(endpoint)).Require();
+                }
+
+                var answer = await ask(new SignInPrompt(context.AuthorizationUri), cancellationToken);
+                return new AuthorizationResult { Code = answer.Code, State = answer.State, Iss = answer.Issuer };
+            },
+        };
 
     private static bool IsStateless(McpClient client) =>
         string.CompareOrdinal(client.NegotiatedProtocolVersion, StatelessRevision) >= 0 && client.SessionId is null;
