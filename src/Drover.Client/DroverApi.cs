@@ -34,9 +34,27 @@ public sealed partial class DroverApi(HttpClient http)
         return await Read<T>(response, cancellationToken);
     }
 
-    private async Task<T> Post<T>(string path, object? body, CancellationToken cancellationToken)
+    private Task<T> Post<T>(string path, object? body, CancellationToken cancellationToken) =>
+        Send<T>(HttpMethod.Post, path, body, cancellationToken);
+
+    private async Task<T> Send<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        using var request = NewRequest(method, path, body);
+        using var response = await http.SendAsync(request, cancellationToken);
+        return await Read<T>(response, cancellationToken);
+    }
+
+    /// <summary>Sends a request whose answer has no body.</summary>
+    private async Task Send(HttpMethod method, string path, CancellationToken cancellationToken)
+    {
+        using var request = NewRequest(method, path, null);
+        using var response = await http.SendAsync(request, cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
+    private HttpRequestMessage NewRequest(HttpMethod method, string path, object? body)
+    {
+        var request = new HttpRequestMessage(method, path);
 
         if (body is not null)
         {
@@ -48,8 +66,7 @@ public sealed partial class DroverApi(HttpClient http)
             request.Headers.Add(AntiforgeryHeader, token);
         }
 
-        using var response = await http.SendAsync(request, cancellationToken);
-        return await Read<T>(response, cancellationToken);
+        return request;
     }
 
     private static async Task<T> Read<T>(HttpResponseMessage response, CancellationToken cancellationToken)

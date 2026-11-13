@@ -1,0 +1,45 @@
+<section class="dv-disclosure dv-facet @(Open ? "dv-disclosure-open" : null)">
+    <h2 class="dv-disclosure-heading">
+        <button class="dv-disclosure-toggle" type="button" aria-expanded="@(Open ? "true" : "false")" aria-controls="@bodyId"
+                @onclick="() => OpenChanged.InvokeAsync(!Open)">
+            <span class="dv-disclosure-title">@Title</span>
+            @if (!Open && Summary is not null)
+            {
+                @* Read out between the title and the summary, so the two are heard as two things. *@
+                <span class="dv-visually-hidden">, </span>
+                <span class="dv-disclosure-summary dv-mono">@Summary</span>
+            }
+            <span class="dv-disclosure-mark"><Icon Name="@(Open ? IconName.ChevronDown : IconName.ChevronRight)" /></span>
+        </button>
+    </h2>
+    <div class="dv-disclosure-body" id="@bodyId" hidden="@(!Open)">
+        @if (Open)
+        {
+            @ChildContent
+        }
+    </div>
+</section>
+
+@code {
+    private readonly string bodyId = $"dv-disclosure-{Guid.NewGuid():N}";
+
+    /// <summary>What the section holds, in a word or two.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// One line that says what the section is set to. It is shown while the section is closed, inside the control
+    /// that opens it, so it is read out with the title.
+    /// </summary>
+    [Parameter]
+    public string? Summary { get; set; }
+
+    [Parameter]
+    public bool Open { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

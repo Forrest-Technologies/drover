@@ -1,0 +1,72 @@
+@page "/bots"
+@layout WorkLayout
+
+<PageTitle>Bots · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-bots-header">
+        <h1 class="dv-bots-title">Bots</h1>
+        @if (CanEdit && bots is { Count: > 0 } && connections is { Count: > 0 })
+        {
+            <Button Kind="ButtonKind.Primary" OnClick="Create" Disabled="creating">
+                <Icon Name="IconName.Plus" />
+                @(creating ? "Making a bot" : "New bot")
+            </Button>
+        }
+    </header>
+
+    <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load the bots" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (bots is null || connections is null)
+    {
+        <p class="dv-bots-hint" role="status">Loading the bots.</p>
+    }
+    else if (connections.Count == 0)
+    {
+        <EmptyState Title="No model is connected" Cause="A bot needs a model to think with, and this space has none yet."
+                    ActionLabel="Connect a model" ActionHref="@Addresses.SetupModel" />
+    }
+    else if (bots.Count == 0 && CanEdit)
+    {
+        <EmptyState Title="No bot yet" Cause="Make one, then give it a name, a purpose, and its tools."
+                    ActionLabel="@(creating ? "Making a bot" : "Make a bot")" OnAction="Create" />
+    }
+    else if (bots.Count == 0)
+    {
+        <p class="dv-bots-hint">This space has no bots yet. An owner or admin of the space can make one.</p>
+    }
+    else
+    {
+        @if (!CanEdit)
+        {
+            <p class="dv-bots-hint">Owners and admins of this space change its bots. You can see them and talk to them.</p>
+        }
+        <ul class="dv-bots" aria-label="Bots">
+            @foreach (var bot in bots)
+            {
+                <li class="dv-bot dv-facet" @key="bot.Id">
+                    <Avatar Name="@bot.Name" Hue="BotIdentity.Hue(bot.Id)" Size="48" />
+                    <div class="dv-bot-text">
+                        @if (CanEdit)
+                        {
+                            <a class="dv-bot-name" href="@Addresses.Bot(bot.Id)">@bot.Name</a>
+                        }
+                        else
+                        {
+                            <span class="dv-bot-name">@bot.Name</span>
+                        }
+                        <span class="dv-bot-facts dv-mono">@@@bot.Handle · @bot.Model</span>
+                    </div>
+                    @if (bot.Status is "paused")
+                    {
+                        <Badge Kind="BadgeKind.Warn">Paused</Badge>
+                    }
+                </li>
+            }
+        </ul>
+    }
+</SessionGate>

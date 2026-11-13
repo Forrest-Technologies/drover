@@ -1,0 +1,155 @@
+@* The Tools section of the bot editor: every tool of the space, each off, ask, or allow for this bot. *@
+@inject DroverApi Api
+@inject ILogger<ToolsSection> Logger
+
+@if (!ModelCallsTools)
+{
+    <StatusNote Text="@($"The model this bot uses cannot call tools, so its tools are not used. Choose a model with tool calling in the Model section to set them.")" />
+}
+else if (Tools is null)
+{
+    <p class="dv-editor-hint" role="status">Loading the tools.</p>
+}
+else
+{
+    <p class="dv-editor-hint">A change here applies at once, even to a run in progress. Ask means the bot waits for a person to approve each use.</p>
+    <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+    <p class="dv-visually-hidden" role="status">@announcement</p>
+
+    @foreach (var group in Groups)
+    {
+        <details class="dv-tools-group" open="@group.Builtin" @key="group.Name">
+            <summary class="dv-tools-group-name">
+                <span>@group.Name</span>
+                <span class="dv-mono">@Count(group.Tools)</span>
+            </summary>
+            <ul class="dv-tools">
+                @foreach (var tool in group.Tools)
+                {
+                    <li class="dv-tool" @key="tool.ToolId">
+                        <div class="dv-tool-text">
+                            <span class="dv-tool-title">@tool.Title</span>
+                            <span class="dv-mono">@tool.Name · @Sensitivity(tool)</span>
+                            @if (tool.Description.Length > 0)
+                            {
+                                <p class="dv-tool-description">@tool.Description</p>
+                            }
+                            @if (Limit(tool) is { } limit)
+                            {
+                                <p class="dv-tool-limit">@limit</p>
+                            }
+                        </div>
+                        <div class="dv-tool-control">
+                            @if (tool.NeedsReview)
+                            {
+                                <Badge Kind="BadgeKind.Warn">Changed, review it</Badge>
+                            }
+                            <SegmentedControl @key="@($"{tool.ToolId}-{version}")" Label="@($"{tool.Title} for {BotName}")" Options="OptionsFor(tool)" Value="@tool.Grant"
+                                              ValueChanged="(string grant) => Set(tool, grant)" Disabled="@(busy == tool.ToolId)" />
+                        </div>
+                    </li>
+                }
+            </ul>
+        </details>
+    }
+
+    @if (!Tools.Any(tool => tool.Source is "connection"))
+    {
+        <p class="dv-editor-hint">This space has no tool connections. Tools from a connection are listed here once one is added.</p>
+    }
+}
+
+@code {
+    #region Private Fields
+
+    private string? problem;
+
+    private string? announcement;
+
+    private Guid? busy;
+
+    // Bumped when the server refuses a change, so the control is drawn again showing the grant that still holds.
+    private int version;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public Guid SpaceId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Guid BotId { get; set; }
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The tools with this bot's grants, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotToolEntry>? Tools { get; set; }
+
+    /// <summary>False when the bot's model is known not to call tools. The controls are then replaced by the reason.</summary>
+    [Parameter]
+    public bool ModelCallsTools { get; set; } = true;
+
+    /// <summary>Raised with the tools as they are after a grant changed.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<BotToolEntry>> OnToolsChanged { get; set; }
+
+    private IEnumerable<(string Name, bool Builtin, List<BotToolEntry> Tools)> Groups =>
+        Tools!.GroupBy(tool => (tool.Source, tool.ConnectionName))
+            .Select(group => (group.Key.Source is "builtin" ? "Built in" : group.Key.ConnectionName ?? "Connection", group.Key.Source is "builtin", group.ToList()));
+
+    #endregion
+
+    #region Private Methods
+
+    private static string Count(List<BotToolEntry> tools) =>
+        $"{tools.Count(tool => tool.Grant is not "off")} of {tools.Count} on";
+
+    private static string Sensitivity(BotToolEntry tool) => tool.Sensitivity switch
+    {
+        "read" => "reads",
+        "write" => "changes things",
+        _ => tool.Sensitivity.Replace('_', ' '),
+    };
+
+    private static string? Limit(BotToolEntry tool) => (tool.CeilingBotName, tool.Ceiling) switch
+    {
+        ({ } parent, "off") => $"{parent} does not have this.",
+        ({ } parent, "ask") => $"{parent} has this set to ask, so this bot asks too.",
+        _ => null,
+    };
+
+    private static SegmentOption<string>[] OptionsFor(BotToolEntry tool) =>
+    [
+        new("off", "Off"),
+        new("ask", "Ask", Disabled: tool.Ceiling is "off"),
+        new("allow", "Allow", Disabled: tool.Ceiling is not "allow"),
+    ];
+
+    private async Task Set(BotToolEntry tool, string grant)
+    {
+        busy = tool.ToolId;
+        problem = null;
+
+        try
+        {
+            var changed = await Api.SetBotToolGrant(SpaceId, BotId, tool.ToolId, grant);
+            announcement = $"{changed.Title} is now {changed.Grant}.";
+            await OnToolsChanged.InvokeAsync([.. Tools!.Select(entry => entry.ToolId == changed.ToolId ? changed : entry)]);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSection));
+            problem = Failures.Sentence(exception);
+            version++;
+        }
+        finally
+        {
+            busy = null;
+        }
+    }
+
+    #endregion
+}

@@ -1,0 +1,19 @@
+@* The Team section of the bot editor: how far this bot may go when it builds bots of its own. *@
+<StatusNote Text="Bots cannot build bots in this version of Drover. These caps are saved for when they can." />
+
+<div class="dv-editor-pair">
+    <Field Label="Bots it may build" @bind-Value="Draft.MaxChildren" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="The space's cap" />
+    <Field Label="Levels beneath it" @bind-Value="Draft.MaxDepthBelow" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="The space's cap" />
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public BotDraft Draft { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private Task Changed() => OnChanged.InvokeAsync();
+}

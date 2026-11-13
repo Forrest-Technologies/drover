@@ -19,11 +19,15 @@ public static class Addresses
 
     public const string SetupBot = "/setup/bot";
 
+    public const string Bots = "/bots";
+
     #endregion
 
     #region Public Methods
 
     public static string Thread(Guid threadId) => $"/threads/{threadId}";
+
+    public static string Bot(Guid botId) => $"/bots/{botId}";
 
     #endregion
 }

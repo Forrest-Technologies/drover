@@ -1,0 +1,82 @@
+@* The Sandbox section of the bot editor: whether the bot has a place to run code and keep files, and who shares it. *@
+<StatusNote Text="No sandbox provider is set up on this server, so no bot has a sandbox to use yet. This choice is saved for when one is added." />
+
+<Select Label="Sandbox" @bind-Value="Draft.SandboxPolicy" @bind-Value:after="Changed">
+    @foreach (var policy in policies)
+    {
+        <option value="@policy">@BotSummaries.SandboxPolicy(policy)</option>
+    }
+</Select>
+<p class="dv-editor-hint">@Meaning</p>
+
+@if (Draft.SandboxPolicy is "named")
+{
+    @if (OtherBots.Count == 0)
+    {
+        <p class="dv-editor-hint">There is no other bot in this space to share with yet.</p>
+    }
+    else
+    {
+        <fieldset class="dv-editor-checks">
+            <legend class="dv-editor-checks-legend">Share with</legend>
+            @foreach (var bot in OtherBots)
+            {
+                <label class="dv-editor-check" @key="bot.Id">
+                    <input type="checkbox" checked="@Draft.SandboxSharedWith.Contains(bot.Id)" @onchange="change => Share(bot.Id, change.Value is true)" />
+                    <span>@bot.Name</span>
+                </label>
+            }
+        </fieldset>
+    }
+}
+
+@if (Draft.SandboxPolicy is not "none")
+{
+    <div class="dv-editor-choice">
+        <span class="dv-editor-choice-label" aria-hidden="true">Network</span>
+        <SegmentedControl Label="Sandbox network" Options="networks" @bind-Value="Draft.Network" @bind-Value:after="Changed" />
+    </div>
+
+    @if (Draft.Network is "allowlist")
+    {
+        <TextArea Label="Hosts it may reach" Machine="true" Rows="3" @bind-Value="Draft.AllowedHosts" @bind-Value:after="Changed"
+                  Hint="One host name to a line, such as example.com." spellcheck="false" autocapitalize="off" />
+    }
+
+    <Field Label="Stop after idle minutes" @bind-Value="Draft.IdleTimeoutMinutes" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="The provider's own limit" />
+}
+
+@code {
+    private static readonly string[] policies = ["none", "private", "subtree", "named"];
+
+    private static readonly SegmentOption<string>[] networks = [new("off", "Off"), new("allowlist", "Named hosts"), new("open", "Open")];
+
+    [Parameter, EditorRequired]
+    public BotDraft Draft { get; set; } = new();
+
+    /// <summary>The space's other bots, which a sandbox can be shared with.</summary>
+    [Parameter]
+    public IReadOnlyList<BotSummary> OtherBots { get; set; } = [];
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private string Meaning => Draft.SandboxPolicy switch
+    {
+        "private" => "Only this bot uses its sandbox. Nothing another bot does can touch its files.",
+        "subtree" => "This bot and every bot beneath it work in the same files and can change each other's work.",
+        "named" => "The bots you choose work in the same files as this one and can change its work.",
+        _ => "This bot runs no code and keeps no files of its own.",
+    };
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private Task Share(Guid botId, bool shared)
+    {
+        Draft.SandboxSharedWith = shared
+            ? [.. Draft.SandboxSharedWith.Append(botId).Distinct()]
+            : [.. Draft.SandboxSharedWith.Where(id => id != botId)];
+        return Changed();
+    }
+}

@@ -1,0 +1,234 @@
+@* The Schedule section of the bot editor: times at which the bot is sent a prompt. *@
+@inject DroverApi Api
+@inject ILogger<ScheduleSection> Logger
+
+<StatusNote Text="Schedules are saved and shown with the next time they are due. Nothing runs them in this version of Drover." />
+
+@if (Schedules is null)
+{
+    <p class="dv-editor-hint" role="status">Loading the schedules.</p>
+}
+else
+{
+    <p class="dv-visually-hidden" role="status">@announcement</p>
+
+    @if (Schedules.Count > 0)
+    {
+        <ul class="dv-schedules" aria-label="Schedules">
+            @foreach (var schedule in Schedules)
+            {
+                <li class="dv-schedule" @key="schedule.Id">
+                    <div class="dv-schedule-text">
+                        <span class="dv-schedule-when">@ScheduleWords.Describe(schedule.Cron)</span>
+                        <span class="dv-mono">@schedule.TimeZone · @(schedule.NextRunAt is { } next ? $"next {ScheduleWords.Moment(next)}" : "off")</span>
+                        <p class="dv-schedule-prompt">@schedule.Prompt</p>
+                    </div>
+                    <div class="dv-schedule-actions">
+                        <IconButton Icon="IconName.Edit" Label="@($"Change the schedule {ScheduleWords.Describe(schedule.Cron)}")" OnClick="() => Edit(schedule)" Disabled="busy" />
+                        <IconButton Icon="IconName.Remove" Label="@($"Remove the schedule {ScheduleWords.Describe(schedule.Cron)}")" OnClick="() => Remove(schedule)" Disabled="busy" />
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (!editing)
+    {
+        <div>
+            <Button OnClick="Add"><Icon Name="IconName.Plus" />Add a schedule</Button>
+        </div>
+    }
+    else
+    {
+        <fieldset class="dv-schedule-form">
+            <legend class="dv-editor-checks-legend">@(editedId is null ? "New schedule" : "Change schedule")</legend>
+            <div class="dv-editor-pair">
+                <Select Label="How often" Value="@rhythm.ToString()" ValueChanged="ChooseRhythm">
+                    <option value="@ScheduleRhythm.Daily">Every day</option>
+                    <option value="@ScheduleRhythm.Weekdays">Every weekday</option>
+                    <option value="@ScheduleRhythm.Weekly">Once a week</option>
+                    <option value="@ScheduleRhythm.Custom">A cron expression</option>
+                </Select>
+                @if (rhythm is ScheduleRhythm.Custom)
+                {
+                    <Field Label="Cron expression" @bind-Value="cron" autocomplete="off" spellcheck="false"
+                           Hint="Minute, hour, day of month, month, day of week." />
+                }
+                else
+                {
+                    <Field Label="At" Type="time" @bind-Value="time" />
+                }
+            </div>
+            @if (rhythm is ScheduleRhythm.Weekly)
+            {
+                <Select Label="On" Value="@day.ToString(CultureInfo.InvariantCulture)" ValueChanged="ChooseDay">
+                    @for (var index = 0; index < ScheduleWords.Days.Count; index++)
+                    {
+                        <option value="@index">@ScheduleWords.Days[index]</option>
+                    }
+                </Select>
+            }
+            <Field Label="Time zone" @bind-Value="timeZone" autocomplete="off" spellcheck="false" Hint="An IANA name, such as Europe/Berlin." />
+            <TextArea Label="What to ask the bot" Rows="3" @bind-Value="prompt" />
+            <div class="dv-editor-choice">
+                <span class="dv-editor-choice-label" aria-hidden="true">Where it answers</span>
+                <SegmentedControl Label="Where it answers" Options="threadModes" @bind-Value="threadMode" />
+            </div>
+            <Switch Label="On" @bind-Value="enabled" />
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            <div class="dv-schedule-form-actions">
+                <Button OnClick="Cancel" Disabled="busy">Cancel</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="Save" Disabled="busy">@(editedId is null ? "Add schedule" : "Save schedule")</Button>
+            </div>
+        </fieldset>
+    }
+}
+
+@code {
+    #region Private Fields
+
+    private static readonly SegmentOption<string>[] threadModes = [new("new_thread", "A new thread"), new("same_thread", "The same thread")];
+
+    private bool editing;
+
+    private Guid? editedId;
+
+    private ScheduleRhythm rhythm;
+
+    private string time = "09:00";
+
+    private int day = 1;
+
+    private string cron = string.Empty;
+
+    private string timeZone = string.Empty;
+
+    private string prompt = string.Empty;
+
+    private string threadMode = "new_thread";
+
+    private bool enabled = true;
+
+    private bool busy;
+
+    private string? problem;
+
+    private string? announcement;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public Guid SpaceId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Guid BotId { get; set; }
+
+    /// <summary>The bot's schedules, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotScheduleResponse>? Schedules { get; set; }
+
+    /// <summary>Raised with the schedules as they are after one was added, changed, or removed.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<BotScheduleResponse>> OnSchedulesChanged { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    private void Add()
+    {
+        editing = true;
+        editedId = null;
+        (rhythm, time, day) = (ScheduleRhythm.Daily, "09:00", 1);
+        cron = string.Empty;
+        timeZone = TimeZoneInfo.Local.HasIanaId ? TimeZoneInfo.Local.Id : "UTC";
+        prompt = string.Empty;
+        threadMode = "new_thread";
+        enabled = true;
+        problem = null;
+    }
+
+    private void Edit(BotScheduleResponse schedule)
+    {
+        editing = true;
+        editedId = schedule.Id;
+        (rhythm, time, day) = ScheduleWords.Read(schedule.Cron);
+        cron = schedule.Cron;
+        timeZone = schedule.TimeZone;
+        prompt = schedule.Prompt;
+        threadMode = schedule.ThreadMode;
+        enabled = schedule.Enabled;
+        problem = null;
+    }
+
+    private void Cancel() => editing = false;
+
+    private void ChooseRhythm(string chosen)
+    {
+        var previous = rhythm;
+        rhythm = Enum.Parse<ScheduleRhythm>(chosen);
+
+        // Switching to a cron expression starts from the one the simpler choice stood for.
+        if (rhythm is ScheduleRhythm.Custom && ScheduleWords.Cron(previous, time, day) is { } built)
+        {
+            cron = built;
+        }
+    }
+
+    private void ChooseDay(string chosen) => day = int.Parse(chosen, CultureInfo.InvariantCulture);
+
+    private async Task Save()
+    {
+        var expression = rhythm is ScheduleRhythm.Custom ? cron : ScheduleWords.Cron(rhythm, time, day);
+
+        if (expression is null)
+        {
+            problem = "Choose a time of day.";
+            return;
+        }
+
+        var body = new BotScheduleBody(expression, timeZone, prompt, threadMode, enabled);
+        await Send(async () =>
+        {
+            var saved = editedId is { } id
+                ? await Api.UpdateBotSchedule(SpaceId, BotId, id, body)
+                : await Api.CreateBotSchedule(SpaceId, BotId, body);
+            announcement = $"Schedule saved: {ScheduleWords.Describe(saved.Cron)}.";
+            editing = false;
+            return [.. Schedules!.Where(schedule => schedule.Id != saved.Id).Append(saved).OrderBy(schedule => schedule.Id)];
+        });
+    }
+
+    private Task Remove(BotScheduleResponse schedule) =>
+        Send(async () =>
+        {
+            await Api.RemoveBotSchedule(SpaceId, BotId, schedule.Id);
+            announcement = $"Schedule removed: {ScheduleWords.Describe(schedule.Cron)}.";
+            editing = editing && editedId != schedule.Id;
+            return [.. Schedules!.Where(other => other.Id != schedule.Id)];
+        });
+
+    private async Task Send(Func<Task<IReadOnlyList<BotScheduleResponse>>> change)
+    {
+        busy = true;
+        problem = null;
+
+        try
+        {
+            await OnSchedulesChanged.InvokeAsync(await change());
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ScheduleSection));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    #endregion
+}

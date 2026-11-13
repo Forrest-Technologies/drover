@@ -5,7 +5,7 @@
     @foreach (var option in Options)
     {
         <label class="dv-segment">
-            <input class="dv-segment-input" type="radio" name="@name" checked="@IsChosen(option)" disabled="@Disabled"
+            <input class="dv-segment-input" type="radio" name="@name" checked="@IsChosen(option)" disabled="@(Disabled || option.Disabled)"
                    @onchange="() => ValueChanged.InvokeAsync(option.Value)" />
             <span class="dv-segment-label">@option.Label</span>
         </label>

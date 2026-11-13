@@ -1,0 +1,68 @@
+/* A page of the workspace that is not the conversation: one column on the yard, under a plain bar. */
+.dv-work {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.dv-work-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2) var(--dv-space-4);
+  min-height: calc(var(--dv-target-touch) + var(--dv-space-3));
+  padding: var(--dv-space-2) var(--dv-space-4);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+  background: var(--dv-bg-1);
+}
+
+.dv-work-home {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-touch);
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  letter-spacing: var(--dv-tracking);
+  color: var(--dv-text);
+  text-decoration: none;
+}
+
+.dv-work-nav {
+  display: flex;
+  gap: var(--dv-space-1);
+  margin-right: auto;
+}
+
+.dv-work-nav ::deep .dv-work-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  padding: 0 var(--dv-space-3);
+  border-radius: var(--dv-radius-control);
+  color: var(--dv-text-2);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+}
+
+.dv-work-nav ::deep .dv-work-link:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+/* Where you are is marked by weight and an underline, not color alone. */
+.dv-work-nav ::deep .dv-work-link.active {
+  color: var(--dv-text);
+  font-weight: var(--dv-weight-heading);
+  text-decoration: underline;
+  text-underline-offset: var(--dv-space-1);
+}
+
+.dv-work-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-5);
+  width: min(var(--dv-work-width), 100%);
+  margin: 0 auto;
+  padding: var(--dv-space-5) var(--dv-space-4) var(--dv-space-7);
+}
