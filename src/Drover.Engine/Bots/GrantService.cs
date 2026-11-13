@@ -60,7 +60,7 @@ public sealed class GrantService(
         }
 
         var stored = (await tools.ListOwnGrants(botId, cancellationToken)).Find(grant => grant.ToolId == toolId);
-        var before = Word(stored?.Effect);
+        var before = Snapshot(stored);
 
         if (effect is null && stored is not null)
         {
@@ -69,12 +69,19 @@ public sealed class GrantService(
         }
         else if (effect is { } set && stored is null)
         {
-            stored = new ToolGrant { BotId = botId, ToolId = toolId, Effect = set, GrantedByUserId = actorUserId };
+            stored = new ToolGrant
+            {
+                BotId = botId,
+                ToolId = toolId,
+                Effect = set,
+                ReviewState = await ReviewStateForNewGrant(tool, cancellationToken),
+                GrantedByUserId = actorUserId,
+            };
             tools.Add(stored);
         }
-        else if (effect is { } changed && stored is not null)
+        else if (effect is { } changed && stored is not null && stored.Effect != changed)
         {
-            // A grant that waits for review keeps waiting: changing its effect is not reading the changed definition.
+            // The review state is never touched here: choosing an effect is not reading a changed definition.
             stored.Effect = changed;
             stored.GrantedByUserId = actorUserId;
             stored.GrantedByBotId = null;
@@ -82,7 +89,7 @@ public sealed class GrantService(
 
         var about = new JsonObject { ["tool_id"] = tool.Id, ["tool"] = tool.Name };
 
-        if (audit.Record(actorUserId, "grant.changed", AuditTargets.Bot, bot.Id, new JsonObject { ["grant"] = before }, new JsonObject { ["grant"] = Word(effect) }, about))
+        if (audit.Record(actorUserId, "grant.changed", AuditTargets.Bot, bot.Id, before, Snapshot(stored), about))
         {
             logger.LogInformation("Bot {BotId} has tool {ToolId} set to {Grant}", bot.Id, tool.Id, Word(effect));
         }
@@ -99,9 +106,28 @@ public sealed class GrantService(
         _ => "off",
     };
 
+    /// <summary>
+    /// A grant as the audit log keeps it: the stored effect and review state, so that a deny and no grant, which the
+    /// editor both shows as off, are told apart. No grant is both values absent.
+    /// </summary>
+    public static JsonObject Snapshot(ToolGrant? grant) => new()
+    {
+        ["effect"] = grant is null ? null : Words.Of(grant.Effect),
+        ["review_state"] = grant is null ? null : Words.Of(grant.ReviewState),
+    };
+
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// A first grant on a tool whose changed definition nobody has accepted waits for that review like every other
+    /// grant on it. Without this, taking a grant away and giving it back would be a way around the review.
+    /// </summary>
+    private async Task<ReviewState> ReviewStateForNewGrant(Tool tool, CancellationToken cancellationToken) =>
+        tool.ReviewedDefinition is not null || (await connections.ListToolsNeedingReview([tool.Id], cancellationToken)).Count > 0
+            ? ReviewState.NeedsReview
+            : ReviewState.Current;
 
     private static string? FindCeilingProblem(GrantEffect wanted, GrantEffect? ceiling, Bot parent)
     {

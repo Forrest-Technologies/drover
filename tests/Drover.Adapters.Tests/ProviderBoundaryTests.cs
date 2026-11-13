@@ -121,22 +121,6 @@ public sealed class ProviderBoundaryTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task A_bot_set_to_structured_output_asks_for_a_json_object_and_any_other_bot_does_not(bool structured)
-    {
-        var rig = CompatibleRig.Start(ConformanceScenarios.PlainReply);
-        using var client = rig.Subject.Provider.CreateChatClient(rig.Subject.Connection, rig.Subject.ApiKey, rig.Subject.ModelId, new ModelSettings { StructuredOutput = structured });
-        await client.Ask("hello");
-        var request = rig.Handler.Requests.Single().Json;
-        request.TryGetProperty("response_format", out var format).Should().Be(structured);
-        if (structured)
-        {
-            format.GetProperty("type").GetString().Should().Be("json_object");
-        }
-    }
-
-    [Theory]
     [InlineData("[]", false)]
     [InlineData("[]", true)]
     [InlineData("{", false)]

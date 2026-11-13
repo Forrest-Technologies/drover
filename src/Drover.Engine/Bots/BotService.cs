@@ -34,6 +34,14 @@ public sealed class BotService(
 
     private const double MaxTemperature = 2;
 
+    private const int MaxEffortLength = 32;
+
+    private const int MaxAnswerTokens = 1_000_000;
+
+    private const int MaxCompactAtTokens = 10_000_000;
+
+    private const int MaxKeptMessages = 10_000;
+
     #endregion
 
     #region Public Methods
@@ -92,8 +100,8 @@ public sealed class BotService(
             CreatedByUserId = createdByUserId,
         };
         bots.AddRootBot(bot);
-        await GrantDefaultTools(bot, createdByUserId, cancellationToken);
-        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, []));
+        var granted = await GrantDefaultTools(bot, createdByUserId, cancellationToken);
+        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted));
 
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
@@ -169,14 +177,9 @@ public sealed class BotService(
         bots.AddRootBot(copy);
         await bots.ReplaceSandboxShares(copy.Id, sharedWith, cancellationToken);
 
-        // The copy stands alone at the root, so it is given what the source may really do, never more.
-        foreach (var (toolId, effect) in await tools.ListEffectiveGrants(id, cancellationToken))
-        {
-            tools.Add(new ToolGrant { BotId = copy.Id, ToolId = toolId, Effect = effect, GrantedByUserId = actorUserId });
-        }
-
+        var granted = await CopyGrants(source, copy, actorUserId, cancellationToken);
         var about = new JsonObject { ["copied_from"] = source.Id };
-        audit.Record(actorUserId, "bot.duplicated", AuditTargets.Bot, copy.Id, null, Snapshot(copy, sharedWith), about);
+        audit.Record(actorUserId, "bot.duplicated", AuditTargets.Bot, copy.Id, null, Snapshot(copy, sharedWith, granted), about);
 
         logger.LogInformation("Bot {BotId} duplicated as {CopyId}", source.Id, copy.Id);
         return new BotChange(copy, null) { SandboxSharedWith = sharedWith };
@@ -190,12 +193,36 @@ public sealed class BotService(
         SetStatus(id, BotStatus.Active, "bot.resumed", actorUserId, cancellationToken);
 
     /// <summary>Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing.</summary>
-    public Task<BotChange> Remove(Guid id, Guid actorUserId, CancellationToken cancellationToken) =>
-        SetStatus(id, BotStatus.Removed, "bot.removed", actorUserId, cancellationToken);
+    public async Task<BotChange> Remove(Guid id, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var change = await SetStatus(id, BotStatus.Removed, "bot.removed", actorUserId, cancellationToken);
+
+        if (change.Bot is not null)
+        {
+            // A share that outlived its bot would name a bot no edit can keep, and make the other bot unsaveable.
+            await bots.RemoveSandboxSharesOf(id, cancellationToken);
+        }
+
+        return change;
+    }
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>A new bot as the audit log keeps it: its definition and the tools it was given, by name.</summary>
+    private static JsonObject Snapshot(Bot bot, IReadOnlyList<Guid> sharedWith, IReadOnlyList<(string Tool, ToolGrant Grant)> granted)
+    {
+        var snapshot = Snapshot(bot, sharedWith);
+        snapshot["grants"] = new JsonArray([.. granted.OrderBy(entry => entry.Tool, StringComparer.Ordinal).Select(entry =>
+        {
+            var grant = GrantService.Snapshot(entry.Grant);
+            grant["tool"] = entry.Tool;
+            grant["tool_id"] = entry.Grant.ToolId;
+            return (JsonNode)grant;
+        })]);
+        return snapshot;
+    }
 
     private static JsonObject Snapshot(Bot bot, IReadOnlyList<Guid> sharedWith) =>
         AuditLog.Snapshot(new
@@ -317,9 +344,15 @@ public sealed class BotService(
             return $"Temperature is between 0 and {MaxTemperature}.";
         }
 
-        if (settings.MaxOutputTokens is <= 0)
+        // These hold for every model, known or not: a setting is copied into the audit log each time it changes.
+        if (settings.MaxOutputTokens is <= 0 or > MaxAnswerTokens)
         {
-            return "The longest answer is a number of tokens above zero.";
+            return $"The longest answer is from 1 to {MaxAnswerTokens} tokens.";
+        }
+
+        if (settings.ReasoningEffort is { Length: > MaxEffortLength })
+        {
+            return $"A reasoning effort is one word of up to {MaxEffortLength} characters.";
         }
 
         // A model the catalog does not know is taken on trust; one it knows is held to what it can do.
@@ -360,13 +393,13 @@ public sealed class BotService(
             return "Choose how long threads are kept short: none, sliding_window, summarization, tool_results, or truncation.";
         }
 
-        if (memory.CompactAtTokens is <= 0)
+        if (memory.CompactAtTokens is <= 0 or > MaxCompactAtTokens)
         {
-            return "The size at which a thread is shortened is a number of tokens above zero.";
+            return $"The size at which a thread is shortened is above zero and at most {MaxCompactAtTokens} tokens.";
         }
 
-        return memory.KeepRecentMessages is < 0
-            ? "The number of recent messages to keep cannot be negative."
+        return memory.KeepRecentMessages is < 0 or > MaxKeptMessages
+            ? $"The number of recent messages to keep is at most {MaxKeptMessages} and cannot be negative."
             : null;
     }
 
@@ -392,9 +425,15 @@ public sealed class BotService(
             return $"A sandbox may reach at most {MaxAllowedHosts} named hosts.";
         }
 
-        if (settings.AllowedHosts.FirstOrDefault(host => Uri.CheckHostName(host.Trim()) is not UriHostNameType.Dns) is { } unreadable)
+        // A list in a request can hold a null where a name should be; that is refused like any other entry that is no host.
+        var unreadable = settings.AllowedHosts
+            .Select((host, index) => (Host: host, Index: index))
+            .FirstOrDefault(entry => string.IsNullOrWhiteSpace(entry.Host) || Uri.CheckHostName(entry.Host.Trim()) is not UriHostNameType.Dns, (Host: string.Empty, Index: -1));
+
+        if (unreadable.Index >= 0)
         {
-            return $"{unreadable} is not a host name. Write it like example.com, with no address scheme or path.";
+            var named = string.IsNullOrWhiteSpace(unreadable.Host) ? "A blank entry" : unreadable.Host;
+            return $"{named} is not a host name. Write it like example.com, with no address scheme or path.";
         }
 
         if (policy is not SandboxPolicy.Named)
@@ -419,15 +458,55 @@ public sealed class BotService(
             ? $"A build limit is a whole number from 0 to {MaxBuildLimit}."
             : null;
 
-    private async Task GrantDefaultTools(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
+    private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
     {
+        List<(string Tool, ToolGrant Grant)> granted = [];
+
         foreach (var tool in await catalog.EnsureBuiltins(cancellationToken))
         {
             if (BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
             {
-                tools.Add(new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = grantedByUserId });
+                var grant = new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = grantedByUserId };
+                tools.Add(grant);
+                granted.Add((tool.Name, grant));
             }
         }
+
+        return granted;
+    }
+
+    /// <summary>
+    /// Gives the copy the source's own grants, each with its review state, so a copy is never a way past a review.
+    /// The copy stands alone at the root, so a grant the source's parent holds lower, or not at all, is lowered or
+    /// left out: the copy never gets more than the source could really do.
+    /// </summary>
+    private async Task<List<(string Tool, ToolGrant Grant)>> CopyGrants(Bot source, Bot copy, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        var own = await tools.ListOwnGrants(source.Id, cancellationToken);
+        var ceilings = source.ParentBotId is { } parentId ? await tools.ListEffectiveGrants(parentId, cancellationToken) : null;
+        var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
+        List<(string Tool, ToolGrant Grant)> granted = [];
+
+        foreach (var held in own)
+        {
+            if (ceilings is not null && !ceilings.ContainsKey(held.ToolId))
+            {
+                continue;
+            }
+
+            var grant = new ToolGrant
+            {
+                BotId = copy.Id,
+                ToolId = held.ToolId,
+                Effect = ceilings is null ? held.Effect : GrantRules.Min(held.Effect, ceilings[held.ToolId]),
+                ReviewState = held.ReviewState,
+                GrantedByUserId = actorUserId,
+            };
+            tools.Add(grant);
+            granted.Add((names.GetValueOrDefault(held.ToolId, held.ToolId.ToString()), grant));
+        }
+
+        return granted;
     }
 
     private async Task<string> FindFreeHandle(string name, CancellationToken cancellationToken)

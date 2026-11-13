@@ -48,8 +48,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         serverOwned.Keys.Should().BeSubsetOf(columns, "a column that is gone needs no excuse");
         request.Should().Contain(editable, "every column a person may set is in the update request");
         detail.Should().Contain(columns.Except([nameof(Bot.SpaceId)]), "every column can be read back");
-        Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>().Select(ContractName));
-        Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>().Select(ContractName));
+        Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>());
+        Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>());
         Names<SandboxSettingsBody>().Should().BeEquivalentTo(Names<SandboxSettings>());
         Names<BuildLimitsBody>().Should().BeEquivalentTo(Names<BuildLimits>());
         Names<BotAvatarBody>().Should().BeEquivalentTo(Names<BotAvatar>());
@@ -169,6 +169,12 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "host with a scheme", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", ["https://example.com"], null) }, "is not a host name" },
             { "shared with a stranger", nothing with { SandboxPolicy = "named", SandboxSharedWith = [Guid.CreateVersion7()] }, "only with bots of this space" },
             { "negative build limit", nothing with { BuildLimits = new BuildLimitsBody(-1, null) }, "build limit" },
+            { "endless reasoning effort on a model nobody knows", nothing with { ModelSettings = new ModelSettingsBody(null, null, new string('x', 2_000_000), "off", false) }, "reasoning effort" },
+            { "an answer longer than any model writes", nothing with { ModelSettings = new ModelSettingsBody(null, int.MaxValue, null, "off", false) }, "longest answer" },
+            { "a threshold larger than any context", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", int.MaxValue, null) }, "at most" },
+            { "more kept messages than a thread holds", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", null, int.MaxValue) }, "at most" },
+            { "a host that is nothing", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [null!], null) }, "is not a host name" },
+            { "a blank host", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [" "], null) }, "is not a host name" },
         };
     }
 
@@ -207,6 +213,28 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         again.StatusCode.Should().Be(HttpStatusCode.NotFound);
         listed.Should().ContainSingle(found => found.Id == copy.Id);
         stored.Status.Should().Be(Contracts.Bots.BotStatus.Removed, "removing a bot keeps its row and its history");
+    }
+
+    [Fact]
+    public async Task Removing_a_bot_ends_the_sandbox_shares_with_it_and_the_bots_that_shared_stay_saveable()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var keeper = await CreateBot(client, alice.SpaceId, "Keeper");
+        var leaver = await CreateBot(client, alice.SpaceId, "Leaver");
+        var definition = $"{Space(alice.SpaceId)}/bots/{keeper.Id}/definition";
+        await PutFor<BotDetail>(client, definition, Nothing() with { SandboxPolicy = "named", SandboxSharedWith = [leaver.Id] });
+
+        (await client.Delete($"{Space(alice.SpaceId)}/bots/{leaver.Id}")).EnsureSuccessStatusCode();
+        var read = await GetFor<BotDetail>(client, definition);
+        var renamed = await client.Put(definition, Nothing() with { Name = "Still here" });
+        var whole = await client.Put(definition, new UpdateBotRequest(
+            "Still here", read.Handle, read.Avatar, read.DescriptionForBots, read.Instructions, read.ModelConnectionId, read.Model,
+            read.ModelSettings, read.MemorySettings, read.SandboxPolicy, read.SandboxSettings, read.SandboxSharedWith, read.BuildLimits));
+
+        read.SandboxSharedWith.Should().BeEmpty("a removed bot shares nothing");
+        renamed.StatusCode.Should().Be(HttpStatusCode.OK, await renamed.Content.ReadAsStringAsync(Token));
+        whole.StatusCode.Should().Be(HttpStatusCode.OK, "the editor sends back what it read");
     }
 
     #endregion
@@ -380,6 +408,67 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         effective.Should().Be(GrantEffect.Ask, "a grant that waits for review asks, whatever it is set to");
     }
 
+    [Fact]
+    public async Task No_write_in_the_editor_clears_a_waiting_review_and_each_one_is_in_the_audit_log()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var other = await CreateBot(client, alice.SpaceId, "Other");
+        var toolId = await SeedChangedServerTool(alice.SpaceId, alice.UserId, bot.Id);
+        var tools = $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools";
+
+        await PutFor<BotToolEntry>(client, $"{tools}/{toolId}", new SetToolGrantRequest("off"));
+        var again = await PutFor<BotToolEntry>(client, $"{tools}/{toolId}", new SetToolGrantRequest("allow"));
+        var elsewhere = await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{other.Id}/tools/{toolId}", new SetToolGrantRequest("allow"));
+        var copy = await PostFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/duplicate", HttpStatusCode.Created);
+        var copied = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{copy.Id}/tools")).Single(tool => tool.ToolId == toolId);
+        var rows = await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<DroverDbContext>().ToolGrants.AsNoTracking().Where(grant => grant.ToolId == toolId).ToListAsync(Token));
+        var entries = await Audit(alice, bot.Id);
+        var changes = entries.Where(entry => entry.Action == "grant.changed").ToList();
+
+        again.Should().Match<BotToolEntry>(found => found.Grant == "allow" && found.NeedsReview, "taking a grant away and giving it back is not a review");
+        elsewhere.NeedsReview.Should().BeTrue("a first grant on a tool that waits for review waits too");
+        copied.Should().Match<BotToolEntry>(found => found.Grant == "allow" && found.NeedsReview, "a copy carries the state of the grant it copies");
+        rows.Should().HaveCount(3).And.OnlyContain(grant => grant.Effect == GrantEffect.Allow && grant.ReviewState == ReviewState.NeedsReview);
+        changes.Should().HaveCount(2);
+        Fact(changes[0], "effect").Should().Be(("allow", null));
+        Fact(changes[0], "review_state").Should().Be(("needs_review", null));
+        Fact(changes[1], "effect").Should().Be((null, "allow"));
+        Fact(changes[1], "review_state").Should().Be((null, "needs_review"));
+    }
+
+    [Fact]
+    public async Task The_audit_log_names_the_tools_a_new_or_copied_bot_was_given_and_a_deny_that_was_taken_away()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var copy = await PostFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/duplicate", HttpStatusCode.Created);
+        await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<DroverDbContext>().ToolGrants.Where(grant => grant.BotId == bot.Id).ExecuteUpdateAsync(grant => grant.SetProperty(row => row.Effect, GrantEffect.Deny), Token));
+
+        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("off"));
+        var created = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "bot.created");
+        var duplicated = (await Audit(alice, copy.Id)).Single(entry => entry.Action == "bot.duplicated");
+        var taken = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "grant.changed");
+
+        listed.Grant.Should().Be("off", "a deny shows as off");
+        foreach (var entry in new[] { created, duplicated })
+        {
+            var grants = entry.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
+            grants.GetArrayLength().Should().Be(1);
+            grants[0].GetProperty("tool").GetString().Should().Be("time.now");
+            grants[0].GetProperty("effect").GetString().Should().Be("allow");
+            grants[0].GetProperty("review_state").GetString().Should().Be("current");
+        }
+
+        Fact(taken, "effect").Should().Be(("deny", null), "taking a deny away is a change, though both show as off");
+    }
+
     #endregion
 
     #region Schedules
@@ -459,10 +548,10 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         entries[0].ActorId.Should().Be(alice.UserId);
         updated.ActorId.Should().Be(admin.UserId, "the entry names who made the change");
         updated.Data.GetProperty("changes").EnumerateObject().Select(change => change.Name).Should().BeEquivalentTo(["name", "model_settings"], "only what changed is kept");
-        Change(updated, "name").Should().Be(("Helper", "Atlas"));
+        Fact(updated, "name").Should().Be(("Helper", "Atlas"));
         updated.Data.GetProperty("changes").GetProperty("model_settings").GetProperty("after").GetProperty("temperature").GetDouble().Should().Be(0.2);
         granted.Data.GetProperty("tool").GetString().Should().Be("time.now");
-        Change(granted, "grant").Should().Be(("allow", "ask"));
+        Fact(granted, "effect").Should().Be(("allow", "ask"));
         entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains(key, StringComparison.Ordinal), "no secret is written to the audit log");
         Logs.AllText().Should().NotContain(key);
     }
@@ -475,15 +564,18 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
 
     private static IEnumerable<string> Names<T>() => typeof(T).GetProperties().Select(property => property.Name);
 
-    // A contract says "size" where the record says "tokens": no contract property may have a name that reads as a secret.
-    private static string ContractName(string name) => name.Replace("Tokens", "Size", StringComparison.Ordinal);
-
     private static UpdateBotRequest Nothing() => new(null, null, null, null, null, null, null, null, null, null, null, null, null);
 
-    private static (string? Before, string? After) Change(AuditLogEntry entry, string name)
+    private Task<List<AuditLogEntry>> Audit((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid botId) =>
+        InSpace(person.SpaceId, person.UserId, services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(botId, Token));
+
+    // One changed value of an entry, where either side may be absent.
+    private static (string? Before, string? After) Fact(AuditLogEntry entry, string name)
     {
         var change = entry.Data.GetProperty("changes").GetProperty(name);
-        return (change.GetProperty("before").GetString(), change.GetProperty("after").GetString());
+        return (Word(change.GetProperty("before")), Word(change.GetProperty("after")));
+
+        static string? Word(JsonElement value) => value.ValueKind is JsonValueKind.Null ? null : value.GetString();
     }
 
     private static async Task<string?> Title(HttpResponseMessage response) =>

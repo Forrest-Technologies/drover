@@ -110,7 +110,7 @@ public static class BotViews
             ? new ModelSettings
             {
                 Temperature = body.Temperature,
-                MaxOutputTokens = body.MaxOutputSize,
+                MaxOutputTokens = body.MaxOutputTokens,
                 ReasoningEffort = string.IsNullOrWhiteSpace(body.ReasoningEffort) ? null : body.ReasoningEffort.Trim(),
                 WebSearch = webSearch,
                 StructuredOutput = body.StructuredOutput,
@@ -123,7 +123,7 @@ public static class BotViews
             {
                 Enabled = body.Enabled,
                 Compaction = compaction,
-                CompactAtTokens = body.CompactAtSize,
+                CompactAtTokens = body.CompactAtTokens,
                 KeepRecentMessages = body.KeepRecentMessages,
             }
             : null;

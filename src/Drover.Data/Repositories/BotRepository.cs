@@ -34,12 +34,19 @@ public sealed class BotRepository(DroverDbContext db)
     public Task<bool> FileExists(Guid fileId, CancellationToken cancellationToken) =>
         db.Files.AnyAsync(file => file.Id == fileId, cancellationToken);
 
+    /// <summary>The bots this bot's sandbox is shared with. A removed bot shares nothing, whatever rows remain.</summary>
     public Task<List<Guid>> ListSandboxShares(Guid botId, CancellationToken cancellationToken) =>
         db.BotSandboxShares.AsNoTracking()
             .Where(share => share.BotId == botId)
+            .Where(share => db.Bots.Any(bot => bot.Id == share.SharedWithBotId && bot.Status != BotStatus.Removed))
             .OrderBy(share => share.SharedWithBotId)
             .Select(share => share.SharedWithBotId)
             .ToListAsync(cancellationToken);
+
+    /// <summary>Ends every sandbox share the bot gives or was given. A removed bot has no sandbox to share.</summary>
+    public async Task RemoveSandboxSharesOf(Guid botId, CancellationToken cancellationToken) =>
+        db.BotSandboxShares.RemoveRange(
+            await db.BotSandboxShares.Where(share => share.BotId == botId || share.SharedWithBotId == botId).ToListAsync(cancellationToken));
 
     /// <summary>Makes the bots a sandbox is shared with exactly these, adding and removing only what differs.</summary>
     public async Task ReplaceSandboxShares(Guid botId, IReadOnlyCollection<Guid> sharedWith, CancellationToken cancellationToken)
