@@ -3,11 +3,13 @@
 (() => {
     try {
         const theme = localStorage.getItem("drover.theme");
-        if (theme === "dark" || theme === "light") {
-            document.documentElement.dataset.theme = theme;
+        if (theme !== "system") {
+            // Dark unless a person chose light or asked to follow the device.
+            document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
         }
     } catch {
-        // Storage can be turned off. The page then follows the system.
+        // Storage can be turned off. The page is then dark.
+        document.documentElement.dataset.theme = "dark";
     }
 
     if ("serviceWorker" in navigator) {

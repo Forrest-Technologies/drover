@@ -1,6 +1,6 @@
 <div class="dv-field">
     <label class="dv-field-label" for="@id">@Label</label>
-    <input class="dv-field-input" id="@id" type="@Type" value="@Value" placeholder="@Placeholder" disabled="@Disabled"
+    <input class="dv-field-input dv-facet" id="@id" type="@Type" value="@Value" placeholder="@Placeholder" disabled="@Disabled"
            aria-invalid="@(Error is null ? null : "true")" aria-describedby="@DescribedBy"
            @oninput="Changed" @attributes="Attributes" />
     @if (Hint is not null)

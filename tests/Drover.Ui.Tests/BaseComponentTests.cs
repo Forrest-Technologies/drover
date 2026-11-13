@@ -135,7 +135,7 @@ public sealed class BaseComponentTests : BunitContext
     #region Avatar And Badge
 
     [Fact]
-    public void An_avatar_is_an_image_named_for_the_bot()
+    public void An_avatar_is_an_image_named_for_the_bot_and_its_head_carries_the_hue()
     {
         var avatar = Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "Sample bot")
@@ -143,36 +143,77 @@ public sealed class BaseComponentTests : BunitContext
 
         avatar.GetAttribute("aria-label").Should().Be("Sample bot");
         avatar.ClassList.Should().Contain("dv-hue-2");
-        avatar.TextContent.Trim().Should().Be("SB");
+        avatar.QuerySelector("svg")!.GetAttribute("aria-hidden").Should().Be("true");
+        avatar.QuerySelectorAll(".dv-character-head").Should().ContainSingle();
     }
 
     [Fact]
-    public void A_small_avatar_shows_one_initial_so_it_fits()
+    public void The_same_seed_always_gives_the_same_character_and_seeds_spread_across_every_part()
+    {
+        var looks = Enumerable.Range(0, 2000).Select(seed => BotLook.From((uint)seed)).ToList();
+
+        BotLook.From(42).Should().Be(BotLook.From(42));
+        looks.Select(look => look.Head).Distinct().Should().HaveCount(6);
+        looks.Select(look => look.Visor).Distinct().Should().HaveCount(6);
+        looks.Select(look => look.Top).Distinct().Should().HaveCount(6);
+        looks.Select(look => look.Mark).Distinct().Should().HaveCount(6);
+        looks.Select(look => look.Tilt).Distinct().Should().HaveCount(3);
+        looks.Distinct().Count().Should().BeGreaterThan(1000);
+    }
+
+    [Fact]
+    public void Two_bots_with_different_names_get_different_seeds_and_one_bot_keeps_its_own()
+    {
+        BotLook.SeedFrom("Atlas", 3).Should().Be(BotLook.SeedFrom("Atlas", 3));
+        BotLook.SeedFrom("Atlas", 3).Should().NotBe(BotLook.SeedFrom("Scout", 3));
+    }
+
+    [Theory]
+    [InlineData(20, false)]
+    [InlineData(24, true)]
+    [InlineData(96, true)]
+    public void Below_24_pixels_the_top_and_the_mark_drop_out(int size, bool detailed)
     {
         var avatar = Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "Sample bot")
-            .Add(component => component.Size, 24));
+            .Add(component => component.Size, size));
 
-        avatar.Find("[role=img]").TextContent.Trim().Should().Be("S");
+        (avatar.FindAll(".dv-character-top").Count == 1).Should().Be(detailed);
+        (avatar.FindAll(".dv-character-mark").Count == 1).Should().Be(detailed);
+        avatar.FindAll(".dv-character-visor").Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(AvatarState.Thinking, "Sample bot, thinking")]
+    [InlineData(AvatarState.Writing, "Sample bot, writing")]
+    [InlineData(AvatarState.Tool, "Sample bot, running a tool")]
+    [InlineData(AvatarState.Failed, "Sample bot, failed")]
+    public void A_working_avatar_says_its_state_in_its_name(AvatarState state, string name)
+    {
+        var avatar = Render<Avatar>(parameters => parameters
+            .Add(component => component.Name, "Sample bot")
+            .Add(component => component.State, state));
+
+        avatar.Find("[role=img]").GetAttribute("aria-label").Should().Be(name);
     }
 
     [Fact]
-    public void A_thinking_avatar_says_so_in_its_name_and_carries_the_live_state()
+    public void A_thinking_avatar_lights_its_visor_with_the_thinking_state()
     {
         var avatar = Render<Avatar>(parameters => parameters
             .Add(component => component.Name, "Sample bot")
             .Add(component => component.State, AvatarState.Thinking));
 
-        avatar.Find("[role=img]").GetAttribute("aria-label").Should().Be("Sample bot, thinking");
-        avatar.Find(".dv-avatar-ring").ClassList.Should().Contain("dv-state-thinking");
+        avatar.Find(".dv-character-lit").ClassList.Should().Contain("dv-state-thinking");
     }
 
     [Fact]
-    public void An_avatar_at_rest_carries_no_live_state()
+    public void An_avatar_at_rest_has_a_dark_visor_and_nothing_lit()
     {
         var avatar = Render<Avatar>(parameters => parameters.Add(component => component.Name, "Sample bot"));
 
-        avatar.Find(".dv-avatar-ring").ClassList.Should().NotContain("dv-state-thinking");
+        avatar.FindAll(".dv-character-lit, .dv-character-sweep, .dv-character-failed").Should().BeEmpty();
+        avatar.Markup.Should().NotContain("dv-state-");
     }
 
     [Fact]

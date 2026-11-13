@@ -78,6 +78,13 @@ public sealed class TokenContrastTests
         AssertNone(Failures(["--dv-on-accent"], ["--dv-ember"], TextMinimum));
 
     [Fact]
+    public void A_bots_visor_clears_3_to_1_against_every_head_at_rest_lit_and_failed_in_both_themes() =>
+        AssertNone(Failures(
+            ["--dv-visor", "--dv-visor-lit", "--dv-visor-failed"],
+            [.. Enumerable.Range(0, 12).Select(step => $"--dv-head-{step}")],
+            BorderMinimum));
+
+    [Fact]
     public void The_light_theme_holds_every_color_the_dark_theme_does()
     {
         var colors = dark.Keys.Where(name => dark[name].StartsWith('#'));

@@ -55,7 +55,7 @@ public sealed class ShellPieceTests : ScreenTest
 
         menu.Find("button.dv-menu-trigger").TextContent.Should().Be("Sam Sample");
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Match this device", "Dark theme", "Light theme", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Sign out"));
         menu.FindAll("[role=menuitem]")[0].TextContent.Should().Contain(", in use");
     }
 
@@ -65,9 +65,9 @@ public sealed class ShellPieceTests : ScreenTest
         Services.GetRequiredService<SessionState>().Begin(Person);
         var menu = Render<AccountMenu>();
 
-        menu.FindAll("[role=menuitem]")[2].Click();
+        menu.FindAll("[role=menuitem]")[1].Click();
 
-        menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]")[2].TextContent.Should().Contain(", in use"));
+        menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]")[1].TextContent.Should().Contain(", in use"));
         Services.GetRequiredService<ThemeService>().Choice.Should().Be(ThemeChoice.Light);
         JSInterop.Invocations.Should().Contain(call => call.Identifier == "apply" && (string?)call.Arguments[0] == "light");
     }

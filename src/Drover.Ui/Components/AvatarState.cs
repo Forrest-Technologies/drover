@@ -1,10 +1,13 @@
 namespace Drover.Ui.Components;
 
 /// <summary>
-/// Whether the bot behind an avatar is working right now.
+/// What the bot behind an avatar is doing right now. The visor shows it.
 /// </summary>
 public enum AvatarState
 {
     Rest,
     Thinking,
+    Writing,
+    Tool,
+    Failed,
 }

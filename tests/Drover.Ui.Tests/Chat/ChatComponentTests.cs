@@ -76,7 +76,7 @@ public sealed class ChatComponentTests : BunitContext
     {
         var list = RenderMessages([new("1", true, "Hello")], thinking: true);
 
-        list.Find(".dv-avatar-ring").ClassList.Should().Contain("dv-state-thinking");
+        list.Find(".dv-character-lit").ClassList.Should().Contain("dv-state-thinking");
         list.Find("[role=img][aria-label$=thinking]").GetAttribute("aria-label").Should().Be("Sample bot, thinking");
         list.Find(".dv-message-state").TextContent.Should().Be("Thinking");
     }

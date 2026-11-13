@@ -19,11 +19,11 @@ One file, `Drover.Ui/wwwroot/tokens.css`, as CSS custom properties. Web and the 
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--dv-bg-0` | `#0A0C10` | App background |
-| `--dv-bg-1` | `#10141B` | Panels, sidebar |
-| `--dv-bg-2` | `#171C26` | Cards, message bubbles |
-| `--dv-bg-3` | `#202735` | Hover, selected |
-| `--dv-line` | `#2B3445` | Dividers, decorative borders |
+| `--dv-bg-0` | `#05070A` | App background |
+| `--dv-bg-1` | `#0B0E14` | Panels, sidebar |
+| `--dv-bg-2` | `#121722` | Cards, message bubbles |
+| `--dv-bg-3` | `#1B2230` | Hover, selected |
+| `--dv-line` | `#263042` | Dividers, decorative borders |
 | `--dv-text` | `#E9EDF5` | Primary text |
 | `--dv-text-2` | `#AEB7C7` | Secondary text |
 | `--dv-text-3` | `#8791A5` | Captions, timestamps |
@@ -64,7 +64,7 @@ Every text and status color clears 4.5:1 on every surface in both themes. `--dv-
 
 ### Bot identity color
 
-Each bot gets a hue derived from its id, shown as a ring on its avatar and as its lane color in the activity view and tree. The hue is picked from twelve fixed steps, `--dv-hue-0` to `--dv-hue-11`, thirty degrees apart at one lightness and chroma per theme, and every step clears 4.5:1 on every surface (7.1 or higher in dark, 4.6 or higher in light). Color is never the only signal: the bot's name or initials always accompany it.
+Each bot gets a hue derived from its id, carried by the head of its character (`--dv-head-0` to `--dv-head-11`, the same in both themes, each clearing 3:1 against the visor at rest, lit, and failed; a test recomputes it) and used as its lane color in the activity view and tree. The hue is picked from twelve fixed steps, `--dv-hue-0` to `--dv-hue-11`, thirty degrees apart at one lightness and chroma per theme, and every step clears 4.5:1 on every surface (7.1 or higher in dark, 4.6 or higher in light). Color is never the only signal: the bot's name or initials always accompany it.
 
 ### Type
 
@@ -115,7 +115,7 @@ The dark values sit on `:root` and on any element marked `data-theme="dark"`; th
 
    | State | Motion |
    | --- | --- |
-   | Bot thinking | A slow ion-colored breath on the bot's avatar ring. No bouncing dots. |
+   | Bot thinking | A slow breath of light across the bot's visor. No bouncing dots. |
    | Text streaming | Text appears as it arrives. The last few characters fade in over 120 ms so chunks do not flicker. No typewriter effect that delays text already received. |
    | Tool running | A thin ion line travels along the top edge of the tool card. It stops and turns green or red when the tool finishes. |
    | Delegation | A violet pulse travels the connector from parent to child in the tree and in the activity rail, once, when the handoff happens, and back when the result returns. |
