@@ -34,7 +34,7 @@ var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
 builder.Services.Configure<DatabaseOptions>(options => options.ConnectionString = connectionString);
-builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+builder.Services.AddDroverStatus(keyRingPath);
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
@@ -69,7 +69,7 @@ app.MapToolSignInCallback();
 
 app.MapOpenApi();
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
-app.MapHealthChecks("/health/ready");
+app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains(StatusChecks.Ready) });
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

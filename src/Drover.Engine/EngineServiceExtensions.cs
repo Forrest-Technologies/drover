@@ -25,6 +25,7 @@ public static class EngineServiceExtensions
             })
             .AddDroverStores();
         services.AddScoped<AccountService>();
+        services.AddScoped<ServerHealthService>();
         services.AddScoped<SpaceService>();
         return services;
     }

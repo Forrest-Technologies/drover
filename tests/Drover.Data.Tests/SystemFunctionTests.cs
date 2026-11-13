@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "purge_expired", "health", "applied_migration"];
 
     #endregion
 
@@ -239,6 +239,19 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         after.Should().ContainSingle().Which.Should().Equal(2L, 2L, 1L, 1L, 4L);
     }
 
+    [Fact]
+    public async Task The_applied_migration_is_the_newest_one_by_name_and_nothing_else()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var newestInThisBuild = scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database.GetMigrations().Last();
+
+        var applied = await Scalar<string>(scratch.AppConnectionString, "SELECT sys.applied_migration()");
+
+        applied.Should().Be(newestInThisBuild, "the test database is migrated to this build");
+    }
+
     #endregion
 
     #region Audit
@@ -260,6 +273,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
+            ("applied_migration", "SELECT sys.applied_migration()", 1, []),
         };
 
         foreach (var call in calls)
@@ -355,6 +369,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
+            .. Columns("__EFMigrationsHistory", "SELECT", "migration_id"),
         ]);
     }
 

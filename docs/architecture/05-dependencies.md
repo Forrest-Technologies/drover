@@ -51,6 +51,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | Cronos 0.13.0 | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct, in `Drover.Engine`. One call site today, `ScheduleService`, which checks an expression and stores the next time it is due; the scheduler will be the second. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
 | `Microsoft.Extensions.Http` | MIT | Microsoft | The client factory, referenced directly by `Drover.Ui.Tests` so its fake server hands out a client the way every client in Drover is made. Already present everywhere else through the resilience package. | Direct. Test project only. |
+| YamlDotNet 18.1.0 | MIT | Antoine Aubry; long-lived, regular releases | Read `compose.yaml` in `ComposeFileTests`, which asserts the hardening rules | Direct. Test project only (`Drover.Server.Tests`). Nothing that ships references it. |
 | OpenTelemetry .NET | Apache-2.0 | CNCF project | Traces and metrics, exported only if the operator configures an endpoint | Direct. Standard instrumentation. |
 | `Microsoft.Extensions.Logging` | MIT | Microsoft | Logging, as the guide requires | Direct. No third-party logger. |
 | .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |

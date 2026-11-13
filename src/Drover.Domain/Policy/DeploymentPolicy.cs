@@ -132,6 +132,13 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowToolConnections { get; init; } = true;
 
+    /// <summary>
+    /// Whether a space's admins see the state of the server itself on the status page: the database role, the
+    /// schema version, the key ring, the public address, and how much work is queued across all spaces. On a
+    /// server shared by strangers that is the operator's business, so the hosted preset shows a space its own rows only.
+    /// </summary>
+    public bool AllowServerStatusInSpaces { get; init; } = true;
+
     /// <summary>The most bytes of one answer from a tool server Drover reads: a tool list page, or a tool's result.</summary>
     public int MaxToolResponseBytes { get; init; } = SelfHostedMaxToolResponseBytes;
 
@@ -213,6 +220,10 @@ public sealed record DeploymentPolicy
             nameof(AllowToolConnections),
             policy => policy.AllowToolConnections,
             Enforcement.Now("ToolConnectionService, wherever a tool server is added or reached")),
+        PolicyRule.Permission(
+            nameof(AllowServerStatusInSpaces),
+            policy => policy.AllowServerStatusInSpaces,
+            Enforcement.Now("The status report of a space, in StatusEndpoints")),
 
         PolicyRule.Limit(
             nameof(MaxToolResponseBytes),

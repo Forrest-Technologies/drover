@@ -2,15 +2,25 @@
 # Builds Drover from source and starts it at http://localhost:8080. No file to edit, no secret to type.
 name: drover
 
+# Every service gets these: a read-only root filesystem, no capability it does not list, and no way to gain one.
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+
 x-postgres-image: &postgres-image pgvector/pgvector:0.8.2-pg17-bookworm@sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
 
 services:
   # Runs once. Creates each database password on the drover-secrets volume if it is not there yet, then exits.
   # Later starts find the files and change nothing, so `down` then `up` keeps the same secrets.
   init:
+    <<: *hardening
     image: *postgres-image
     user: "0:0"
     restart: "no"
+    cap_drop: [ALL]
+    # Root with nothing else: change a file's owner and mode, and read a file it made for another user.
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -36,8 +46,15 @@ services:
       - drover-app-secrets:/app-secrets
 
   db:
+    <<: *hardening
     image: *postgres-image
     restart: unless-stopped
+    cap_drop: [ALL]
+    # What the image's entrypoint needs to own its data directory and step down from root to postgres.
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETGID, SETUID]
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql:uid=999,gid=999,mode=0775
     environment:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     volumes:
@@ -57,10 +74,16 @@ services:
   database-init:
     build:
       context: .
+    <<: *hardening
     image: drover:local
     user: "0:0"
     restart: "no"
     command: ["--initialize-database"]
+    cap_drop: [ALL]
+    # Root with nothing else: read the password files, which belong to other users.
+    cap_add: [DAC_READ_SEARCH]
+    tmpfs:
+      - /tmp
     environment:
       Database__Host: db
       Database__PasswordFile: /run/secrets/postgres_password
@@ -75,14 +98,23 @@ services:
   drover:
     build:
       context: .
+    <<: *hardening
     image: drover:local
     restart: unless-stopped
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp
     ports:
+      # This machine only. To reach Drover from another device, put a reverse proxy in front: see compose.proxy.yaml.
       - "127.0.0.1:8080:8080"
     environment:
       Database__Host: db
       Database__AppPasswordFile: /run/secrets/app_password
       DataProtection__KeyPath: /var/lib/drover/keys
+      # The address people open Drover at, when it is not http://localhost:8080. Sign-ins to tool servers need it.
+      Drover__PublicUrl: ${DROVER_PUBLIC_URL:-}
+      # A reverse proxy of your own in front of Drover: its address, or its network such as 10.0.0.0/8.
+      Drover__Proxy__TrustedAddresses__0: ${DROVER_TRUSTED_PROXY:-}
     volumes:
       - drover-app-secrets:/run/secrets:ro
       - drover-keys:/var/lib/drover/keys

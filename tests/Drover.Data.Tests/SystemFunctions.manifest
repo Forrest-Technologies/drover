@@ -15,3 +15,4 @@ sys.tool_sign_ins_running_out(timestamp with time zone, timestamp with time zone
 sys.forget_tool_credentials(uuid)    # Removing a tool connection takes every sign-in to it: deletes the credential rows and their secrets of one connection, in the caller's own space only, across audiences; returns a count
 sys.purge_expired(integer)           # Deletes expired OAuth flows and destroyed, unreferenced sandboxes across spaces
 sys.health()                         # Counts for the status page and the first-run check; no tenant data
+sys.applied_migration()              # The status page says whether the database is at this build's version; the app role may not read the migration history, so this returns the newest applied migration's name and nothing else

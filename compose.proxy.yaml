@@ -1,0 +1,58 @@
+# HTTPS in front of Drover, so it can be reached from another device:
+#
+#   DROVER_PUBLIC_URL=https://drover.example.com \
+#     docker compose -f compose.yaml -f compose.proxy.yaml up --build
+#
+# The name must point at this machine and ports 80 and 443 must be reachable from the internet; the proxy then gets
+# a certificate by itself. With https://localhost, or a name only your network knows, it signs its own certificate
+# and browsers warn until you trust it. This is an example: any reverse proxy works if Drover is told its address.
+name: drover
+
+services:
+  proxy:
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # Listen on ports 80 and 443.
+    cap_add: [NET_BIND_SERVICE]
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - ${DROVER_PUBLIC_URL:?Set DROVER_PUBLIC_URL to the https address people will open, such as https://drover.example.com}
+      - --to
+      - drover:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - drover-proxy-data:/data
+      - drover-proxy-config:/config
+    networks:
+      edge:
+        ipv4_address: 172.31.250.2
+    depends_on:
+      drover:
+        condition: service_healthy
+
+  drover:
+    environment:
+      # Drover believes forwarded headers from this one address and from nowhere else.
+      Drover__Proxy__TrustedAddresses__0: 172.31.250.2
+    networks:
+      - default
+      - edge
+
+networks:
+  # Holds Drover and the proxy only. The proxy's address is fixed so that Drover can name it.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/29
+
+volumes:
+  drover-proxy-data:
+  drover-proxy-config:

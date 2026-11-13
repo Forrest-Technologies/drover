@@ -30,6 +30,7 @@ global using Drover.Contracts.Policy;
 global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Secrets;
+global using Drover.Contracts.Status;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
 global using Drover.Data;
@@ -78,5 +79,7 @@ global using ModelContextProtocol.Server;
 global using Npgsql;
 global using Testcontainers.PostgreSql;
 global using Xunit;
+global using YamlDotNet.Core;
+global using YamlDotNet.RepresentationModel;
 
 [assembly: AssemblyFixture(typeof(PostgresServer))]

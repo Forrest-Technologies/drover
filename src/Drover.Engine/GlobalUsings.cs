@@ -46,6 +46,7 @@ global using Drover.Domain.Tools;
 global using Drover.Engine.Accounts;
 global using Drover.Engine.Audit;
 global using Drover.Engine.Bots;
+global using Drover.Engine.Health;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;

@@ -11,6 +11,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedModelDiscovery()
             .WithBoundedToolServers()
             .WithoutToolConnections()
+            .WithoutServerStatusInSpaces()
             .WithHardBoundarySandboxesOnly()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
@@ -26,6 +27,9 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithoutToolConnections(this DeploymentPolicy policy) =>
         policy with { AllowToolConnections = false };
+
+    public static DeploymentPolicy WithoutServerStatusInSpaces(this DeploymentPolicy policy) =>
+        policy with { AllowServerStatusInSpaces = false };
 
     public static DeploymentPolicy WithBoundedToolServers(this DeploymentPolicy policy) =>
         policy with

@@ -163,6 +163,36 @@ public sealed class TrustedProxyConfigurationTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void An_entry_left_empty_names_no_proxy(string entry)
+    {
+        // The compose file passes DROVER_TRUSTED_PROXY through, and it is empty unless a person sets it.
+        var options = Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = entry });
+
+        options.ForwardedHeaders.Should().Be(ForwardedHeaders.None);
+        options.KnownProxies.Should().BeEmpty();
+        options.KnownIPNetworks.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("https://drover.example.test", null, "https://drover.example.test/")]
+    [InlineData(null, "https://drover.example.test", "https://drover.example.test/")]
+    [InlineData("", "https://drover.example.test", "https://drover.example.test/")]
+    [InlineData("https://named.example.test", "https://other.example.test", "https://named.example.test/")]
+    [InlineData("", "", null)]
+    [InlineData("drover.example.test", null, null)]
+    public void The_public_address_is_the_setting_or_else_the_environment_variable_and_must_be_a_whole_address(string? setting, string? variable, string? expected)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Drover:PublicUrl"] = setting, ["DROVER_PUBLIC_URL"] = variable })
+            .Build();
+
+        PublicAddress.Read(configuration)?.ToString().Should().Be(expected);
+        (PublicAddress.Read(configuration) is null).Should().Be(expected is null);
+    }
+
+    [Theory]
     [InlineData("true")]
     [InlineData("True")]
     public void The_server_does_not_start_with_the_hosts_own_forwarded_headers_switch_on(string value)

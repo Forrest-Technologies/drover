@@ -29,7 +29,7 @@ public static class RunServiceExtensions
         // public address. Without it, connections that need a sign-in say what is missing.
         services.Configure<ToolSignInOptions>(options =>
         {
-            options.PublicUrl = Uri.TryCreate(configuration["Drover:PublicUrl"], UriKind.Absolute, out var address) ? address : null;
+            options.PublicUrl = PublicAddress.Read(configuration);
         });
         services.AddHostedService<ToolSignInRenewer>();
 

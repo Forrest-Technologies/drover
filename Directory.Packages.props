@@ -60,6 +60,7 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
     <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.3" />
     <!-- Transitive pin: the Roslyn testing packages ask for 9.0.6, which has known vulnerabilities. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />

@@ -17,6 +17,7 @@ public static class SpaceEndpoints
 
         space.MapGet("/", GetSpace).WithName("GetSpace");
         space.MapGet("/secrets", ListSecrets).RequireSpaceRole(MembershipRole.Admin).WithName("ListSecrets");
+        root.MapStatusEndpoints();
 
         // Model connections choose their own filter: testing one waits on the provider and must not hold a scope.
         root.MapModelConnectionEndpoints();

@@ -16,7 +16,11 @@ public static class TrustedProxies
 
     public static IServiceCollection AddTrustedProxies(this IServiceCollection services, IConfiguration configuration)
     {
-        var entries = configuration.GetSection(Section).Get<TrustedProxyOptions>()?.TrustedAddresses ?? [];
+        // An entry left empty names no proxy: a deployment file can pass a variable through that nobody set.
+        List<string> entries =
+        [
+            .. (configuration.GetSection(Section).Get<TrustedProxyOptions>()?.TrustedAddresses ?? []).Where(entry => !string.IsNullOrWhiteSpace(entry)),
+        ];
         RefuseTheHostSwitch(configuration);
         services.Configure<TrustedProxyOptions>(options => options.TrustedAddresses = entries);
         services.Configure<ForwardedHeadersOptions>(options =>
