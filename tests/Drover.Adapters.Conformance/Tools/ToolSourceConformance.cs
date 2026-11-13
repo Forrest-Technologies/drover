@@ -386,6 +386,127 @@ public abstract class ToolSourceConformance
         tokens.Secrets().Should().NotBeEmpty().And.AllSatisfy(secret => refused.ToString().Should().NotContain(secret, "a token is never part of a failure"));
     }
 
+    [Theory]
+    [InlineData(ServerGeneration.Stateless, 503)]
+    [InlineData(ServerGeneration.SessionBased, 503)]
+    [InlineData(ServerGeneration.Stateless, 429)]
+    [InlineData(ServerGeneration.Stateless, 500)]
+    public async Task A_sign_in_service_that_is_down_is_not_a_sign_in_that_ended(ServerGeneration generation, int status)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var tokens = new KeptTokens();
+        var endpoint = await SignIn(source.Source, server, tokens);
+        var kept = tokens.Value;
+
+        server.ExpireAccessTokens();
+        server.FailRenewals(status);
+        var whileDown = () => source.Source.CallTool(endpoint, "echo", Json("""{"text":"x"}"""), Token);
+        var failure = (await whileDown.Should().ThrowAsync<ToolSourceException>()).Which.Failure;
+        server.FailRenewals(null);
+        var afterwards = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"back"}"""), Token);
+
+        failure.Should().NotBe(ToolSourceFailure.SignInRequired, "the refresh token was not refused: the service could not answer, and the sign-in is as good as before");
+        failure.Should().BeOneOf(ToolSourceFailure.ServerError, ToolSourceFailure.Unreachable, ToolSourceFailure.TimedOut);
+        afterwards.Result.GetString().Should().Be("echo: back", "the same sign-in works once the service is back");
+        tokens.Value.Should().NotBe(kept, "and it was renewed then");
+        server.Approvals.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task A_tool_the_signed_in_account_may_not_use_is_refused_and_the_sign_in_stays(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(generation) { SignIn = new ToolServerSignIn() });
+        var endpoint = await SignIn(source.Source, server, new KeptTokens());
+
+        server.ForbidCalls(true);
+        var forbidden = () => source.Source.CallTool(endpoint, "echo", Json("""{"text":"x"}"""), Token);
+        var failure = (await forbidden.Should().ThrowAsync<ToolSourceException>()).Which.Failure;
+        server.ForbidCalls(false);
+        var afterwards = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"allowed"}"""), Token);
+
+        failure.Should().Be(ToolSourceFailure.Unauthorized, "the account is signed in and may not do this one thing; that is not a sign-in that ended");
+        afterwards.Result.GetString().Should().Be("echo: allowed");
+        server.Approvals.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Every_use_reads_and_writes_the_tokens_through_its_own_functions_even_on_a_kept_session()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(ServerGeneration.SessionBased) { SignIn = new ToolServerSignIn() });
+        var tokens = new KeptTokens();
+        var opening = await SignIn(source.Source, server, tokens);
+        await source.Source.CallTool(opening, "echo", Json("""{"text":"open a session"}"""), Token);
+        var sessionsOpened = server.Handshakes;
+        var reads = 0;
+        var writes = 0;
+        var later = opening with
+        {
+            SignIn = opening.SignIn! with
+            {
+                ReadTokens = cancellation =>
+                {
+                    reads++;
+                    return opening.SignIn.ReadTokens(cancellation);
+                },
+                WriteTokens = (value, runsOutAt, cancellation) =>
+                {
+                    writes++;
+                    return opening.SignIn.WriteTokens(value, runsOutAt, cancellation);
+                },
+            },
+        };
+
+        await source.Source.CallTool(later, "echo", Json("""{"text":"second"}"""), Token);
+        var sessionsAfterSecondUse = server.Handshakes;
+        server.ExpireAccessTokens();
+        await source.Source.CallTool(later, "echo", Json("""{"text":"third"}"""), Token);
+
+        sessionsAfterSecondUse.Should().Be(sessionsOpened, "the second use was served by the session the first one opened");
+        reads.Should().BeGreaterThan(0, "a caller learns which tokens were sent only if its own function read them, so it can scrub them from the result");
+        writes.Should().Be(1, "renewed tokens are stored by the use that renewed them, as the person it acts for");
+    }
+
+    [Fact]
+    public async Task A_sign_in_pinned_to_one_service_sends_nothing_to_another_the_tool_server_names()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var asked = 0;
+        var elsewhere = new ToolEndpoint(Guid.CreateVersion7(), server.Url)
+        {
+            SignIn = new KeptTokens().SignIn() with
+            {
+                Issuer = new Uri("https://sign-in.example.test"),
+                AskPerson = (_, _) =>
+                {
+                    asked++;
+                    throw new InvalidOperationException("Nobody should be asked.");
+                },
+            },
+        };
+
+        var listing = () => source.Source.ListTools(elsewhere, Token);
+        (await listing.Should().ThrowAsync<ToolSourceException>()).Which.Failure.Should().Be(ToolSourceFailure.Blocked);
+        var registrationsWhenRefused = server.Registrations;
+        var tokenRequestsWhenRefused = server.TokenRequests;
+        var pinnedToTheRightOne = await SignIn(
+            source.Source,
+            server,
+            new KeptTokens(),
+            signIn => signIn with { Issuer = new Uri(server.Url.GetLeftPart(UriPartial.Authority)) });
+        var call = await source.Source.CallTool(pinnedToTheRightOne, "echo", Json("""{"text":"pinned"}"""), Token);
+
+        asked.Should().Be(0);
+        registrationsWhenRefused.Should().Be(0, "nothing is registered with a service the connection was not set up for");
+        tokenRequestsWhenRefused.Should().Be(0, "no code, proof key, client secret, or refresh token goes to it");
+        call.Result.GetString().Should().Be("echo: pinned");
+    }
+
     [Fact]
     public async Task One_persons_tokens_are_never_used_for_another_person_on_the_same_connection()
     {

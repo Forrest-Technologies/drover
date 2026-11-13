@@ -16,6 +16,12 @@ public sealed record OAuthMetadata
 
     public Guid? ClientSecretId { get; init; }
 
+    /// <summary>
+    /// The sign-in service the client id was given out by. A connection with a client id signs in with this
+    /// service only, whatever the tool server later says.
+    /// </summary>
+    public string? Issuer { get; init; }
+
     public IReadOnlyList<string> Scopes { get; init; } = [];
 
     #endregion

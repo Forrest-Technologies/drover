@@ -27,6 +27,10 @@ public sealed class SignInDesk(ToolServerSignIn spec)
 
     private int registrations;
 
+    private int tokenRequests;
+
+    private int failRenewalsWith;
+
     private static readonly string[] scopes = ["tools"];
 
     private static readonly string[] grantTypes = ["authorization_code", "refresh_token"];
@@ -46,6 +50,8 @@ public sealed class SignInDesk(ToolServerSignIn spec)
     public int Refreshes => Volatile.Read(ref refreshes);
 
     public int Registrations => Volatile.Read(ref registrations);
+
+    public int TokenRequests => Volatile.Read(ref tokenRequests);
 
     public IReadOnlyList<string> ClientsSeen => [.. clientsSeen];
 
@@ -73,6 +79,8 @@ public sealed class SignInDesk(ToolServerSignIn spec)
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         context.Response.Headers.WWWAuthenticate = $"Bearer resource_metadata=\"{Origin(context.Request)}/.well-known/oauth-protected-resource\"";
     }
+
+    public void FailRenewals(int? status) => Volatile.Write(ref failRenewalsWith, status ?? 0);
 
     public void ExpireAccessTokens() => accessTokens.Clear();
 
@@ -180,8 +188,16 @@ public sealed class SignInDesk(ToolServerSignIn spec)
 
     private async Task IssueTokens(HttpContext context)
     {
+        Interlocked.Increment(ref tokenRequests);
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         var clientId = form["client_id"].ToString();
+
+        if (form["grant_type"] == "refresh_token" && Volatile.Read(ref failRenewalsWith) is var failing and not 0)
+        {
+            // Down, not refusing: the refresh token is not spent and is as good afterwards as before.
+            context.Response.StatusCode = failing;
+            return;
+        }
 
         switch (form["grant_type"].ToString())
         {

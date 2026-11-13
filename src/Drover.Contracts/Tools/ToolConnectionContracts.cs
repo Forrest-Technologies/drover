@@ -30,6 +30,9 @@ public sealed record ToolConnectionSummary(
 
     public string? SignIn { get; init; }
 
+    /// <summary>The sign-in service the connection is pinned to, when an admin entered a client id. Not a secret.</summary>
+    public string? Issuer { get; init; }
+
     #endregion
 }
 
@@ -80,7 +83,8 @@ public sealed record CreateToolConnectionRequest(
     string? ProtocolMode = null,
     string? ClientId = null,
     string? ClientSecret = null,
-    string? SignInScope = null)
+    string? SignInScope = null,
+    string? Issuer = null)
 {
     public override string ToString() => nameof(CreateToolConnectionRequest);
 }
