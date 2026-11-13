@@ -60,29 +60,38 @@ public sealed class RunRules(RunSession session, ILogger logger)
     }
 
     /// <summary>
-    /// Checks a person's messages before the model sees them. A rule that blocks or stops ends the run and marks the
-    /// message withheld, so no later run reads it either. The sentence the run fails with is returned, or null when
-    /// every message may pass.
+    /// Checks a person's messages before the model sees them. Every message is checked, also after one was refused:
+    /// each that a rule blocks or stops is marked withheld, so no later run reads it either, and the run ends. The
+    /// sentence the run fails with is returned, or null when every message may pass.
     /// </summary>
     public async Task<string?> CheckArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
+        string? refusal = null;
+        var stopped = false;
+
         foreach (var message in messages.Where(message => !message.Withheld))
         {
             var text = string.Join('\n', message.Parts.OfType<TextPart>().Select(part => part.Text));
             var outcome = await Check(new RuleSubject { Checkpoint = RuleCheckpoint.MessageArrives, Text = text }, null, cancellationToken);
 
-            if (outcome is not null)
+            if (outcome is null)
             {
-                await session.Tenant.Transact(
-                    services => services.GetRequiredService<MessageRepository>().MarkWithheld(message.Id, CancellationToken.None),
-                    CancellationToken.None);
-                var why = $"The rule \"{outcome.Rule.Name}\" did not let this message through: {outcome.Why}.";
-                session.EndByRule(outcome.Effect is RuleEffect.Stop ? StoppedByRule : BlockedByRule, why);
-                return why;
+                continue;
             }
+
+            await session.Tenant.Transact(
+                services => services.GetRequiredService<MessageRepository>().MarkWithheld(message.Id, CancellationToken.None),
+                CancellationToken.None);
+            refusal ??= $"The rule \"{outcome.Rule.Name}\" did not let this message through: {outcome.Why}.";
+            stopped |= outcome.Effect is RuleEffect.Stop;
         }
 
-        return null;
+        if (refusal is not null)
+        {
+            session.EndByRule(stopped ? StoppedByRule : BlockedByRule, refusal);
+        }
+
+        return refusal;
     }
 
     #endregion

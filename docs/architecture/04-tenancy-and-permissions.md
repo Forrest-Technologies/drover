@@ -355,7 +355,8 @@ A grant says whether a bot may use a tool. A rule is a further limit a person wr
 
 - **Rules only narrow.** A rule has no effect that allows. At the tool gate the grant is decided first, and a call it refuses is not shown to a rule; a milder rule never lowers a grant that asks to one that runs. A rule cannot loosen a deployment or space policy, because it never reaches one.
 - **A child follows every ancestor's rules** as well as its own, ancestors first. Only a bot's own rules can be edited on that bot; an inherited rule is shown with the bot it comes from and has no route that changes it from below.
-- **When several rules apply, the strictest effect wins**: stop, then block, then ask, then redact. When redaction wins, every applying rule's matches are removed.
+- **When several rules apply, the strictest effect decides**: stop, then block, then ask, then redact. Every applying rule that redacts is carried out whichever rule decides, so a child's rule that asks cannot let through what a parent's rule removes.
+- **A list is strict.** "Not on a list" passes a value only when it is one whole listed entry, or one address or host under a listed domain. Two addresses in one value, an address inside a link, and a longer name that only ends like a listed one do not pass. The rule names the inputs it checks, one or several; when none of them is in the call it applies, so sending by another input is not a way around it.
 - **Only owners and admins of the space edit rules.** Every change is an audit entry (`rule.added`, `rule.changed`, `rule.removed`).
 - **Bounds are enforced at save**: fifty rules a bot, ten conditions a rule, and a cap on every list and pattern. A pattern that cannot be compiled without backtracking is refused with the reason.
 - **"Try it" is the run's evaluator.** `POST .../rules/try` evaluates a sample with `RuleEvaluator.Evaluate`, the same call a run makes, so what the editor shows is what a run would do.
