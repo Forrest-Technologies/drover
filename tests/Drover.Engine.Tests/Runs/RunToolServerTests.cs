@@ -361,6 +361,72 @@ public sealed class RunToolServerTests(PostgresServer postgres)
 
     #endregion
 
+    #region A Header With No Credential Row
+
+    [Fact]
+    public async Task Replacing_the_header_of_a_connection_that_lost_its_credential_stores_one()
+    {
+        var replacement = RunWorld.NewModelKey();
+        var script = new ScriptedModel([new ToolCallOutput("c1", "mail__inbox")], [new TextOutput("Read.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        world.Server.Offer("inbox", "Reads the inbox.", readOnly: true, "[]");
+        var connection = await world.Connect("Mail", TrustLevel.Trusted, "Authorization", RunWorld.NewModelKey());
+        await world.Grant("inbox", GrantEffect.Allow);
+        await world.Transact(async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            db.ToolConnectionCredentials.RemoveRange(await db.ToolConnectionCredentials.Where(found => found.ToolConnectionId == connection.Id).ToListAsync(RunWorld.Token));
+            return true;
+        });
+
+        var change = await world.WithService<ToolConnectionService, ToolConnectionChange>(service => service.ReplaceHeader(connection.Id, "Authorization", replacement, RunWorld.Token));
+        var stored = await world.Transact(services => services.GetRequiredService<DroverDbContext>().ToolConnectionCredentials.CountAsync(found => found.ToolConnectionId == connection.Id, RunWorld.Token));
+        world.StartHost();
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Read my mail"), RunStatus.Completed, RunStatus.Failed);
+
+        change.Connection.Should().NotBeNull();
+        stored.Should().Be(1, "a change that says it worked has stored the header");
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Server.Calls.Should().ContainSingle().Which.Endpoint.Headers["Authorization"].Should().Be(replacement);
+    }
+
+    #endregion
+
+    #region Forgetting Every Sign-In
+
+    [Fact]
+    public async Task Removing_a_connection_each_person_signs_in_to_takes_every_persons_tokens_with_it()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing.")]));
+        world.Server.Offer("inbox", "Reads the inbox.", readOnly: true, "[]");
+        var connection = await world.Connect("Mail", TrustLevel.Trusted);
+        var other = await world.AddMember(MembershipRole.Member);
+        var scopes = await world.Transact(services => Task.FromResult(services.GetRequiredService<IServiceScopeFactory>()));
+        await world.Transact(async services =>
+        {
+            (await services.GetRequiredService<DroverDbContext>().ToolConnections.SingleAsync(found => found.Id == connection.Id, RunWorld.Token)).CredentialScope = CredentialScope.PerUser;
+            return true;
+        });
+        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId)
+            .Write("""{"access_token":"mine-00000000000000000000"}""", null, RunWorld.Token);
+        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other)
+            .Write("""{"access_token":"theirs-0000000000000000"}""", null, RunWorld.Token);
+        // Counted in the other person's own transaction: row-level security hides their rows from everybody else,
+        // which is the reason the remover cannot delete them and a function in schema sys must.
+        var theirsBefore = await world.TransactAs(world.SpaceId, other, services => Count(services, other));
+
+        var removed = await world.WithService<ToolConnectionService, bool>(service => service.Remove(connection.Id, RunWorld.Token));
+
+        theirsBefore.Should().Be((1, 1), "the other person has a sign-in of their own, and a secret holding its tokens");
+        removed.Should().BeTrue();
+        var mine = await world.TransactAs(world.SpaceId, world.UserId, services => Count(services, world.UserId));
+        var theirs = await world.TransactAs(world.SpaceId, other, services => Count(services, other));
+        mine.Should().Be((0, 0));
+        theirs.Should().Be((0, 0), "no sign-in to the removed connection is left, not the other person's, and neither is the secret that held their tokens");
+    }
+
+    #endregion
+
     #region Letting Go Of Kept Sessions
 
     [Fact]
@@ -459,6 +525,15 @@ public sealed class RunToolServerTests(PostgresServer postgres)
     #endregion
 
     #region Private Methods
+
+    /// <summary>How many sign-ins and token secrets of one person the database shows that person's own transaction.</summary>
+    private static async Task<(int Credentials, int Secrets)> Count(IServiceProvider services, Guid person)
+    {
+        var db = services.GetRequiredService<DroverDbContext>();
+        return (
+            await db.ToolConnectionCredentials.CountAsync(credential => credential.AudienceUserId == person, RunWorld.Token),
+            await db.Secrets.CountAsync(secret => secret.Kind == SecretKind.OauthTokens && secret.AudienceUserId == person, RunWorld.Token));
+    }
 
     /// <summary>A token set shaped like a tool source's, with tokens made for this run of the tests.</summary>
     private static (string Stored, string Access, string Refresh) NewTokenSet()

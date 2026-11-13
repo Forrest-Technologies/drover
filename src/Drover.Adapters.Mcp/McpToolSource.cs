@@ -364,7 +364,8 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
-            logger.LogDebug(failure, "Closing the session with tool connection {ConnectionId} failed", key.ConnectionId);
+            // Only the kind of failure: its text is the library's, and may hold what the server sent.
+            logger.LogDebug("Closing the session with tool connection {ConnectionId} failed: {Failure}", key.ConnectionId, failure.GetType().Name);
         }
     }
 

@@ -4,7 +4,7 @@ namespace Drover.Adapters.Tests.Mcp;
 /// The protocol library is referenced by the adapter and by nothing else that ships, and none of its types appears
 /// in anything the adapter shows the rest of Drover.
 /// </summary>
-public sealed class McpBoundaryTests
+public sealed partial class McpBoundaryTests
 {
     #region Private Fields
 
@@ -53,6 +53,38 @@ public sealed class McpBoundaryTests
 
         reachable.Should().NotContain(type => type.Namespace != null && type.Namespace.StartsWith(Library, StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void No_log_call_in_the_adapter_is_handed_a_failure_which_may_hold_what_a_tool_server_sent()
+    {
+        var folder = Path.Combine(RepositoryRoot(), "src", "Drover.Adapters.Mcp");
+        var offenders = Directory.EnumerateFiles(folder, "*.cs", SearchOption.TopDirectoryOnly)
+            .SelectMany(file => File.ReadAllLines(file).Select((line, index) => (File: Path.GetFileName(file), Line: index + 1, Text: line)))
+            .Where(line => LogCallWithFailure().IsMatch(line.Text))
+            .Select(line => $"{line.File}:{line.Line}")
+            .ToList();
+
+        offenders.Should().BeEmpty("a failure from the protocol library can carry the server's own text, or a header; only its type is logged");
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static string RepositoryRoot()
+    {
+        var folder = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "Drover.slnx")))
+        {
+            folder = folder.Parent;
+        }
+
+        return folder?.FullName ?? throw new InvalidOperationException("The repository root was not found above the test binaries.");
+    }
+
+    [GeneratedRegex(@"\.Log(Trace|Debug|Information|Warning|Error|Critical)\(\s*(failure|exception|error|gone|\w*Exception)\s*,")]
+    private static partial Regex LogCallWithFailure();
 
     #endregion
 }

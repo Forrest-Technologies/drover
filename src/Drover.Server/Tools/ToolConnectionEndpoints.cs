@@ -216,7 +216,12 @@ public static class ToolConnectionEndpoints
             return TypedResults.Problem(title: "One of the connection's settings has a value this server does not know.", statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var change = await connections.Update(connectionId, trust, mode, context.RequestAborted);
+        // A setting that was left out is not changed.
+        var change = await connections.Update(
+            connectionId,
+            string.IsNullOrWhiteSpace(request.Trust) ? null : trust,
+            string.IsNullOrWhiteSpace(request.ProtocolMode) ? null : mode,
+            context.RequestAborted);
         return change.Connection is { } connection
             ? TypedResults.Ok(connection.ToSummary(SignInOf(await connections.ListSignIns([connection], context.RequestAborted), connection)))
             : TypedResults.NotFound();
