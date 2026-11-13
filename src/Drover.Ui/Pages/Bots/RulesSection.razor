@@ -1,0 +1,460 @@
+@* The Rules section of the bot editor: limits a person writes as "when, if, then" and the server enforces. *@
+@inject DroverApi Api
+@inject ILogger<RulesSection> Logger
+
+@if (Rules is null)
+{
+    <p class="dv-editor-hint" role="status">Loading the rules.</p>
+}
+else
+{
+    <p class="dv-editor-hint">A rule is checked by the server every time, whatever the bot's instructions say.</p>
+    <p class="dv-visually-hidden" role="status">@announcement</p>
+
+    @if (Inherited.Count > 0)
+    {
+        <ul class="dv-rules" aria-label="Rules from the bots above">
+            @foreach (var rule in Inherited)
+            {
+                <li class="dv-rule" @key="rule.Id">
+                    <div class="dv-rule-text">
+                        <span class="dv-rule-sentence">@RuleWords.Sentence(rule)</span>
+                        <span class="dv-rule-name">@rule.Name · from @rule.BotName, changed there@(rule.Enabled ? null : " · off")</span>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (Own.Count > 0)
+    {
+        <ul class="dv-rules" aria-label="Rules">
+            @foreach (var rule in Own)
+            {
+                <li class="dv-rule" @key="rule.Id">
+                    <div class="dv-rule-text">
+                        <span class="dv-rule-sentence">@RuleWords.Sentence(rule)</span>
+                        <span class="dv-rule-name">@rule.Name</span>
+                    </div>
+                    <div class="dv-rule-actions">
+                        <Switch Label="On" About="@rule.Name" Value="rule.Enabled" ValueChanged="on => SwitchRule(rule, on)" Disabled="busy" />
+                        <IconButton Icon="IconName.Edit" Label="@($"Change the rule {rule.Name}")" OnClick="() => Edit(rule)" Disabled="busy" />
+                        <IconButton Icon="IconName.Remove" Label="@($"Remove the rule {rule.Name}")" OnClick="() => Remove(rule)" Disabled="busy" />
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (draft is null)
+    {
+        <div class="dv-rule-starts">
+            <Button OnClick="Add" Disabled="busy"><Icon Name="IconName.Plus" />Write a rule</Button>
+        </div>
+        <fieldset class="dv-rule-form">
+            <legend class="dv-editor-checks-legend">Starters. Each adds a rule you can then change.</legend>
+            <div class="dv-rule-starts">
+                @foreach (var starter in starters)
+                {
+                    <Button OnClick="() => AddStarter(starter)" Disabled="busy">@starter.Label</Button>
+                }
+            </div>
+        </fieldset>
+        <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+    }
+    else
+    {
+        <fieldset class="dv-rule-form">
+            <legend class="dv-editor-checks-legend">@(editedId is null ? "New rule" : "Change rule")</legend>
+
+            <Select Label="When" Value="@draft.Checkpoint" ValueChanged="draft.MoveTo">
+                @foreach (var choice in RuleWords.Checkpoints)
+                {
+                    <option value="@choice.Value">@choice.Label</option>
+                }
+            </Select>
+
+            @for (var index = 0; index < draft.Conditions.Count; index++)
+            {
+                var condition = draft.Conditions[index];
+                var number = index + 1;
+                <fieldset class="dv-rule-condition">
+                    <legend class="dv-visually-hidden">Condition @number</legend>
+                    <div class="dv-rule-condition-head">
+                        <Select Label="@(number == 1 ? "If" : "And if")" Value="@condition.Kind" ValueChanged="kind => condition.Kind = kind">
+                            @foreach (var choice in RuleWords.Conditions(draft.Checkpoint))
+                            {
+                                <option value="@choice.Value">@choice.Label</option>
+                            }
+                        </Select>
+                        <IconButton Icon="IconName.Remove" Label="@($"Remove condition {number}")" OnClick="() => draft.Conditions.Remove(condition)" />
+                    </div>
+                    @switch (condition.Kind)
+                    {
+                        case "tool_is":
+                            @if (ToolNames.Count == 0)
+                            {
+                                <p class="dv-editor-hint">This bot has no tools yet. Give it one in the Tools section first.</p>
+                            }
+                            else
+                            {
+                                <fieldset class="dv-editor-checks">
+                                    <legend class="dv-editor-checks-legend">Tools</legend>
+                                    @foreach (var tool in ToolNames)
+                                    {
+                                        <label class="dv-editor-check" @key="tool">
+                                            <input type="checkbox" checked="@condition.Tools.Contains(tool)" @onchange="change => Check(condition.Tools, tool, change.Value is true)" />
+                                            <span class="dv-mono">@tool</span>
+                                        </label>
+                                    }
+                                </fieldset>
+                            }
+
+                            break;
+                        case "tool_kind":
+                            <fieldset class="dv-editor-checks">
+                                <legend class="dv-editor-checks-legend">The tool</legend>
+                                @foreach (var kind in RuleWords.ToolKinds)
+                                {
+                                    <label class="dv-editor-check" @key="kind.Value">
+                                        <input type="checkbox" checked="@condition.ToolKinds.Contains(kind.Value)" @onchange="change => Check(condition.ToolKinds, kind.Value, change.Value is true)" />
+                                        <span>@kind.Label</span>
+                                    </label>
+                                }
+                            </fieldset>
+                            break;
+                        case "text_contains":
+                            <TextArea Label="Any of these, one on each line" Rows="2" @bind-Value="condition.Entries" />
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
+                            break;
+                        case "text_holds":
+                            <Select Label="What" @bind-Value="condition.Builtin">
+                                @foreach (var choice in RuleWords.Builtins)
+                                {
+                                    <option value="@choice.Value">@choice.Label</option>
+                                }
+                            </Select>
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
+                            break;
+                        case "text_matches":
+                            <Field Label="Pattern" @bind-Value="condition.Pattern" autocomplete="off" spellcheck="false"
+                                   Hint="A regular expression. Lookarounds and backreferences are not accepted." />
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
+                            break;
+                        case "not_in_list":
+                            <Field Label="Input names, or none" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
+                                   Hint="Leave empty to check every email address anywhere in the tool's input. Use that for recipients: it does not depend on which field they are in." />
+                            @if (!string.IsNullOrWhiteSpace(condition.Argument))
+                            {
+                                <p class="dv-editor-hint">Named inputs, parted by commas, have each of their values checked. The rule then needs a condition that says which tools, and applies when none of these inputs is in a call.</p>
+                            }
+                            <TextArea Label="Allowed, one on each line" Rows="2" @bind-Value="condition.Entries"
+                                      Hint="Each value has to be one whole entry, as written. A domain such as example.org allows its addresses and subdomains." />
+                            break;
+                        case "time_is":
+                            <div class="dv-editor-pair">
+                                <Field Label="From" Type="time" @bind-Value="condition.From" />
+                                <Field Label="To" Type="time" @bind-Value="condition.To" />
+                            </div>
+                            <Field Label="Time zone" @bind-Value="condition.TimeZone" autocomplete="off" spellcheck="false" Hint="An IANA name, such as Europe/Berlin." />
+                            <fieldset class="dv-editor-checks">
+                                <legend class="dv-editor-checks-legend">Only on these days. None chosen means every day.</legend>
+                                <div class="dv-rule-days">
+                                    @foreach (var weekday in RuleWords.Weekdays)
+                                    {
+                                        <label class="dv-editor-check" @key="weekday.Value">
+                                            <input type="checkbox" checked="@condition.Weekdays.Contains(weekday.Value)" @onchange="change => Check(condition.Weekdays, weekday.Value, change.Value is true)" />
+                                            <span>@weekday.Label</span>
+                                        </label>
+                                    }
+                                </div>
+                            </fieldset>
+                            break;
+                        default:
+                            <div class="dv-editor-pair">
+                                <Field Label="More than" Type="number" @bind-Value="condition.Limit" inputmode="numeric" min="0" />
+                                <Select Label="Of" @bind-Value="condition.Counter">
+                                    @foreach (var choice in RuleWords.Counters)
+                                    {
+                                        <option value="@choice.Value">@choice.Label</option>
+                                    }
+                                </Select>
+                            </div>
+                            break;
+                    }
+                </fieldset>
+            }
+
+            <div>
+                <Button OnClick="AddCondition"><Icon Name="IconName.Plus" />@(draft.Conditions.Count == 0 ? "Add a condition" : "Add another condition")</Button>
+            </div>
+
+            <Select Label="Then" @bind-Value="draft.Effect">
+                @foreach (var choice in RuleWords.Effects(draft.Checkpoint))
+                {
+                    <option value="@choice.Value">@choice.Label</option>
+                }
+            </Select>
+
+            <Field Label="Name" @bind-Value="draft.Name" autocomplete="off" Hint="Shown in the run when the rule applies." />
+            <Switch Label="On" @bind-Value="draft.Enabled" />
+
+            <p class="dv-rule-preview"><span class="dv-rule-name">Reads as</span> @RuleWords.Sentence(draft.Checkpoint, draft.Effect, draft.ToBody().Conditions!)</p>
+
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            <div class="dv-schedule-form-actions">
+                <Button OnClick="Cancel" Disabled="busy">Cancel</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="Save" Disabled="busy">@(editedId is null ? "Add rule" : "Save rule")</Button>
+            </div>
+        </fieldset>
+    }
+
+    @if (Rules.Count > 0 || draft is not null)
+    {
+        <fieldset class="dv-rule-form dv-rule-try">
+            <legend class="dv-editor-checks-legend">Try it</legend>
+            <p class="dv-editor-hint">The server checks a sample against these rules, the way a run would. Nothing is run or saved.@(draft is not null && editedId is null ? " The rule being written is tried too." : null)</p>
+            <div class="dv-editor-pair">
+                <Select Label="As if" @bind-Value="tryCheckpoint">
+                    @foreach (var choice in RuleWords.Checkpoints)
+                    {
+                        <option value="@choice.Value">@choice.Label</option>
+                    }
+                </Select>
+                @if (TryOnTool && ToolNames.Count > 0)
+                {
+                    <Select Label="Tool" Value="@TryTool" ValueChanged="tool => tryTool = tool">
+                        @foreach (var tool in ToolNames)
+                        {
+                            <option value="@tool">@tool</option>
+                        }
+                    </Select>
+                }
+            </div>
+            <TextArea Label="@(TryOnTool ? "Sample, as JSON" : "Sample text")" Rows="3" Machine="TryOnTool" @bind-Value="trySample" />
+            <div>
+                <Button OnClick="Try" Disabled="trying">Try the rules</Button>
+            </div>
+            <StatusNote Kind="NoteKind.Danger" Text="@tryProblem" />
+            <div class="dv-rule-trial" role="status">
+                @if (trial is not null)
+                {
+                    <p>@RuleWords.Trial(trial)</p>
+                    @if ((trial.RedactedJson ?? trial.RedactedText) is { } left)
+                    {
+                        <p class="dv-rule-name">What would be left</p>
+                        <pre class="dv-rule-left dv-mono">@left</pre>
+                    }
+                }
+            </div>
+        </fieldset>
+    }
+}
+
+@code {
+    #region Private Fields
+
+    private IReadOnlyList<RuleStarter> starters = [];
+
+    private RuleDraft? draft;
+
+    private Guid? editedId;
+
+    private bool busy;
+
+    private string? problem;
+
+    private string? announcement;
+
+    private string tryCheckpoint = RuleWords.BeforeTool;
+
+    private string tryTool = string.Empty;
+
+    private string trySample = string.Empty;
+
+    private bool trying;
+
+    private string? tryProblem;
+
+    private TryRulesResponse? trial;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public Guid SpaceId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Guid BotId { get; set; }
+
+    /// <summary>Every rule the bot follows, the ones from the bots above it included, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotRuleResponse>? Rules { get; set; }
+
+    /// <summary>The bot's tools, so a rule can name one. Null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotToolEntry>? Tools { get; set; }
+
+    /// <summary>Raised with the rules as they are after one was added, changed, or removed.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<BotRuleResponse>> OnRulesChanged { get; set; }
+
+    private List<BotRuleResponse> Inherited => [.. Rules!.Where(rule => rule.Inherited)];
+
+    private List<BotRuleResponse> Own => [.. Rules!.Where(rule => !rule.Inherited)];
+
+    private List<string> ToolNames => [.. (Tools ?? []).Where(tool => tool.Grant != "off").Select(tool => tool.Name).Order(StringComparer.Ordinal)];
+
+    private string? TryTool => ToolNames.Contains(tryTool) ? tryTool : ToolNames.FirstOrDefault();
+
+    private bool TryOnTool => tryCheckpoint is RuleWords.BeforeTool or RuleWords.AfterTool;
+
+    private static string TimeZone => TimeZoneInfo.Local.HasIanaId ? TimeZoneInfo.Local.Id : "UTC";
+
+    #endregion
+
+    #region Lifecycle
+
+    protected override void OnInitialized() => starters = RuleStarters.For(TimeZone);
+
+    #endregion
+
+    #region Private Methods
+
+    private void Add()
+    {
+        draft = new RuleDraft();
+        draft.Conditions.Add(new ConditionDraft { Kind = "tool_kind", TimeZone = TimeZone });
+        editedId = null;
+        problem = null;
+    }
+
+    private void Edit(BotRuleResponse rule)
+    {
+        draft = RuleDraft.Of(rule, TimeZone);
+        editedId = rule.Id;
+        problem = null;
+    }
+
+    private void Cancel() => draft = null;
+
+    private void AddCondition() => draft!.Conditions.Add(new ConditionDraft { TimeZone = TimeZone });
+
+    private static void Check(HashSet<string> chosen, string value, bool on)
+    {
+        if (on)
+        {
+            chosen.Add(value);
+        }
+        else
+        {
+            chosen.Remove(value);
+        }
+    }
+
+    private Task Save()
+    {
+        var body = draft!.ToBody();
+        return Send(async () =>
+        {
+            var saved = editedId is { } id ? await Api.UpdateBotRule(SpaceId, BotId, id, body) : await Api.CreateBotRule(SpaceId, BotId, body);
+            announcement = $"Rule saved. {RuleWords.Sentence(saved)}";
+            draft = null;
+            return With(Rules!, saved);
+        });
+    }
+
+    private Task AddStarter(RuleStarter starter) =>
+        Send(async () =>
+        {
+            var rules = Rules!;
+            List<string> sentences = [];
+
+            foreach (var body in starter.Rules)
+            {
+                var saved = await Api.CreateBotRule(SpaceId, BotId, body);
+                rules = With(rules, saved);
+                sentences.Add(RuleWords.Sentence(saved));
+            }
+
+            announcement = $"{(sentences.Count == 1 ? "Rule added." : $"{sentences.Count} rules added.")} {string.Join(' ', sentences)}";
+            return rules;
+        });
+
+    private Task SwitchRule(BotRuleResponse rule, bool on) =>
+        Send(async () =>
+        {
+            var saved = await Api.UpdateBotRule(SpaceId, BotId, rule.Id, new BotRuleBody(rule.Name, on, rule.Checkpoint, rule.Effect, rule.Conditions));
+            announcement = $"Rule {(on ? "on" : "off")}. {RuleWords.Sentence(saved)}";
+            return With(Rules!, saved);
+        });
+
+    private Task Remove(BotRuleResponse rule) =>
+        Send(async () =>
+        {
+            await Api.RemoveBotRule(SpaceId, BotId, rule.Id);
+            announcement = $"Rule removed: {rule.Name}.";
+
+            if (editedId == rule.Id)
+            {
+                draft = null;
+            }
+
+            return [.. Rules!.Where(other => other.Id != rule.Id)];
+        });
+
+    // The bots above come first, as a run reads them; a bot's own rules keep their order.
+    private static IReadOnlyList<BotRuleResponse> With(IReadOnlyList<BotRuleResponse> rules, BotRuleResponse saved) =>
+        [.. rules.Where(rule => rule.Id != saved.Id).Append(saved).OrderByDescending(rule => rule.Inherited).ThenBy(rule => rule.Inherited ? 0 : rule.Position)];
+
+    private async Task Send(Func<Task<IReadOnlyList<BotRuleResponse>>> change)
+    {
+        busy = true;
+        problem = null;
+
+        try
+        {
+            await OnRulesChanged.InvokeAsync(await change());
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSection));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task Try()
+    {
+        trying = true;
+        tryProblem = null;
+        trial = null;
+
+        try
+        {
+            var tool = TryOnTool ? TryTool : null;
+            var sample = new TryRulesRequest(
+                tryCheckpoint,
+                tool,
+                TryOnTool ? trySample : null,
+                TryOnTool ? null : trySample,
+                draft is not null && editedId is null ? draft.ToBody() : null);
+            trial = await Api.TryBotRules(SpaceId, BotId, sample);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSection));
+            tryProblem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            trying = false;
+        }
+    }
+
+    #endregion
+}

@@ -54,4 +54,25 @@ public sealed partial class DroverApi
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", cancellationToken);
 
     #endregion
+
+    #region Rules
+
+    /// <summary>The rules the bot follows: those of the bots above it first, then its own, in order.</summary>
+    public Task<List<BotRuleResponse>> ListBotRules(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<List<BotRuleResponse>>($"{Space(spaceId)}/bots/{botId}/rules", cancellationToken);
+
+    public Task<BotRuleResponse> CreateBotRule(Guid spaceId, Guid botId, BotRuleBody rule, CancellationToken cancellationToken = default) =>
+        Post<BotRuleResponse>($"{Space(spaceId)}/bots/{botId}/rules", rule, cancellationToken);
+
+    public Task<BotRuleResponse> UpdateBotRule(Guid spaceId, Guid botId, Guid ruleId, BotRuleBody rule, CancellationToken cancellationToken = default) =>
+        Send<BotRuleResponse>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/rules/{ruleId}", rule, cancellationToken);
+
+    public Task RemoveBotRule(Guid spaceId, Guid botId, Guid ruleId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/rules/{ruleId}", cancellationToken);
+
+    /// <summary>What the bot's rules would do with a sample. The server decides, with the evaluator a run uses.</summary>
+    public Task<TryRulesResponse> TryBotRules(Guid spaceId, Guid botId, TryRulesRequest sample, CancellationToken cancellationToken = default) =>
+        Post<TryRulesResponse>($"{Space(spaceId)}/bots/{botId}/rules/try", sample, cancellationToken);
+
+    #endregion
 }

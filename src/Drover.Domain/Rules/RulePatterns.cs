@@ -66,7 +66,8 @@ public static partial class RulePatterns
         }
         catch (NotSupportedException unsupported)
         {
-            return (null, $"That pattern looks ahead, looks behind, or refers back to a group. Rules run patterns in a way that cannot stall, and those cannot run that way. Write it without them. ({unsupported.Message})");
+            // The engine says which construct it met; a person is told that in plain words, not in the engine's.
+            return (null, $"That pattern {(unsupported.Message.Contains("backreference", StringComparison.OrdinalIgnoreCase) ? "refers back to a group" : "looks ahead or looks behind")}. Rules run patterns in a way that cannot stall, and such a pattern cannot run that way. Write it without that.");
         }
         catch (ArgumentException unreadable)
         {

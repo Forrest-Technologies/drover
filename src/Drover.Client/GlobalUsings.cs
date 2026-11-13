@@ -18,6 +18,7 @@ global using Drover.Client.Streaming;
 global using Drover.Contracts.Auth;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Models;
+global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Status;
 global using Drover.Contracts.Threads;
