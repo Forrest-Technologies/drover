@@ -16,6 +16,10 @@
             }
         </MenuItem>
     }
+    @if (Session.Space?.Role is "owner" or "admin")
+    {
+        <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Status)">Status</MenuItem>
+    }
     <MenuItem OnSelect="SignOut">Sign out</MenuItem>
 </Menu>
 

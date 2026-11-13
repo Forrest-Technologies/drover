@@ -1,0 +1,62 @@
+@page "/status"
+@layout WorkLayout
+
+<PageTitle>Status · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-status-header">
+        <h1 class="dv-status-title">Status</h1>
+        @if (report is not null)
+        {
+            <Button OnClick="Load" Disabled="loading">Check again</Button>
+        }
+    </header>
+
+    @if (!CanSee)
+    {
+        <p class="dv-status-hint">An owner or admin of the space can see its status.</p>
+    }
+    else if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load the status" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (report is null)
+    {
+        <p class="dv-status-hint" role="status">Checking the server and the space's connections.</p>
+    }
+    else
+    {
+        @if (report.ServerRowsShown)
+        {
+            <section class="dv-status-group" aria-labelledby="dv-status-server">
+                <h2 id="dv-status-server" class="dv-status-group-title">This server</h2>
+                <ul class="dv-status-rows" aria-labelledby="dv-status-server">
+                    @foreach (var row in ServerRows)
+                    {
+                        <StatusLine Row="row" />
+                    }
+                </ul>
+            </section>
+        }
+
+        <section class="dv-status-group" aria-labelledby="dv-status-space">
+            <h2 id="dv-status-space" class="dv-status-group-title">This space</h2>
+            @if (SpaceRows.Count == 0)
+            {
+                <p class="dv-status-hint">
+                    No model or tool connection yet. <a href="@Addresses.SetupModel">Add a model connection</a> or
+                    <a href="@Addresses.Tools">a tool server</a> and it is listed here.
+                </p>
+            }
+            else
+            {
+                <ul class="dv-status-rows" aria-labelledby="dv-status-space">
+                    @foreach (var row in SpaceRows)
+                    {
+                        <StatusLine Row="row" />
+                    }
+                </ul>
+            }
+        </section>
+    }
+</SessionGate>

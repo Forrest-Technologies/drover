@@ -19,7 +19,8 @@ public static class DeploymentPolicyExtensions
             .WithProtectedKeyRing()
             .WithoutMigrationCredential()
             .WithEnforcedAuditRetention()
-            .WithGuaranteedDataRights();
+            .WithGuaranteedDataRights()
+            .WithServerStatusForTheOperatorOnly();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -72,6 +73,9 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithGuaranteedDataRights(this DeploymentPolicy policy) =>
         policy with { AllowDisablingDataRights = false };
+
+    public static DeploymentPolicy WithServerStatusForTheOperatorOnly(this DeploymentPolicy policy) =>
+        policy with { SpaceAdminsSeeServerStatus = false };
 
     #endregion
 }

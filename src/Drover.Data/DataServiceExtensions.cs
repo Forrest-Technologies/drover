@@ -18,6 +18,7 @@ public static class DataServiceExtensions
         services.AddScoped<TenantGuardInterceptor>();
         services.AddScoped<SpaceStampInterceptor>();
         services.AddScoped<AccountRepository>();
+        services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();
         services.AddScoped<MessageRepository>();

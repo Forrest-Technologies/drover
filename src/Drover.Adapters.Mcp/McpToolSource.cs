@@ -34,6 +34,8 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     private readonly ILogger logger = loggers.CreateLogger<McpToolSource>();
 
+    private readonly SdkLoggers sdkLoggers = new(loggers);
+
     #endregion
 
     #region Properties
@@ -249,7 +251,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 OAuth = endpoint.SignIn is { } signIn ? ToOptions(signIn, endpoint) : null,
             },
             http.CreateClient(HttpClientName),
-            loggers,
+            sdkLoggers,
             ownsHttpClient: true);
         var options = new McpClientOptions
         {
@@ -264,7 +266,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
         try
         {
-            return await McpClient.CreateAsync(transport, options, loggers, cancellationToken);
+            return await McpClient.CreateAsync(transport, options, sdkLoggers, cancellationToken);
         }
         catch (Exception failure) when (endpoint.ProtocolMode is ProtocolMode.StatelessOnly && Failures.IsRefusalOfTheProtocol(failure))
         {

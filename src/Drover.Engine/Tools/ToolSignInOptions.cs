@@ -9,7 +9,7 @@ public sealed class ToolSignInOptions
     #region Private Fields
 
     public const string MissingPublicUrl =
-        "Signing in to a tool server needs this server's public address. Set Drover:PublicUrl to the address people open Drover at.";
+        "Signing in to a tool server needs this server's public address. Set DROVER_PUBLIC_URL to the address people open Drover at.";
 
     public const string CallbackPath = "/oauth/mcp/callback";
 

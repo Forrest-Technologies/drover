@@ -188,6 +188,13 @@ public sealed record DeploymentPolicy
     /// <summary>The operator may read tenant content through the product. Never, in any preset.</summary>
     public bool AllowOperatorContentAccess { get; init; }
 
+    /// <summary>
+    /// The owners and admins of a space see the server's own rows on the status page: database role, migrations,
+    /// key ring, public address, and the run queue of every space as counts. On a server for one household they are
+    /// the operator; on a shared service they are strangers, and those rows are the operator's alone.
+    /// </summary>
+    public bool SpaceAdminsSeeServerStatus { get; init; } = true;
+
     #endregion
 
     #region Rule Table
@@ -308,6 +315,10 @@ public sealed record DeploymentPolicy
             nameof(AllowOperatorContentAccess),
             policy => policy.AllowOperatorContentAccess,
             Enforcement.Later("Support access, if it is ever added")),
+        PolicyRule.Permission(
+            nameof(SpaceAdminsSeeServerStatus),
+            policy => policy.SpaceAdminsSeeServerStatus,
+            Enforcement.Now("GET /api/spaces/{spaceId}/status")),
     ];
 
     #endregion

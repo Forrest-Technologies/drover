@@ -290,6 +290,21 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         after.Should().ContainSingle().Which.Should().Equal(2L, 2L, 1L, 1L, 4L);
     }
 
+    [Fact]
+    public async Task Applied_migration_names_the_newest_migration_and_the_application_role_cannot_read_the_history_itself()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var newest = scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database.GetMigrations().Last();
+
+        var applied = await Query(scratch.AppConnectionString, "SELECT sys.applied_migration()");
+        var direct = () => Query(scratch.AppConnectionString, "SELECT count(*) FROM \"__EFMigrationsHistory\"");
+
+        applied.Should().ContainSingle().Which.Should().Equal(newest);
+        (await direct.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+    }
+
     #endregion
 
     #region Audit
@@ -311,6 +326,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
+            ("applied_migration", "SELECT sys.applied_migration()", 1, []),
         };
 
         foreach (var call in calls)
@@ -406,6 +422,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
+            .. Columns("__EFMigrationsHistory", "SELECT", "migration_id"),
         ]);
     }
 
