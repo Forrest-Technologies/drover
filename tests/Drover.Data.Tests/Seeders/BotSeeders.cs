@@ -63,3 +63,18 @@ public sealed class ToolGrantSeeder : PlainSeeder<ToolGrant>
         ["granted_by_user_id"] = seed.Placement.User,
     };
 }
+
+public sealed class BotRuleSeeder : PlainSeeder<BotRule>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["bot_id"] = seed.Parent("bots"),
+        ["name"] = "Ask before anything that writes",
+        ["enabled"] = true,
+        ["position"] = 0,
+        ["checkpoint"] = "before_tool",
+        ["effect"] = "ask",
+        ["created_by_user_id"] = seed.Placement.User,
+    };
+}
