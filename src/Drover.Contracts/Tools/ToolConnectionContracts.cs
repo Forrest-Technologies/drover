@@ -7,7 +7,7 @@ namespace Drover.Contracts.Tools;
 /// what the server and Drover settled on, for a badge: it starts with "stateless" or "session-based".
 /// <see cref="Slug"/> prefixes the names a model sees for this connection's tools. A credential is never returned:
 /// a header connection has one, and that is all a response says.
-/// For a connection people sign in to (<c>oauth</c>), <see cref="CredentialScope"/> is per_user (each person signs
+/// For a connection people sign in to (<c>oauth</c>), <see cref="SignInScope"/> is per_user (each person signs
 /// in themself) or space (an admin signs in once for everyone), and <see cref="SignIn"/> says how the sign-in the
 /// caller would use stands: signed_in, needs_sign_in, or needs_reconnect. It is null for other connections.
 /// </summary>
@@ -26,7 +26,7 @@ public sealed record ToolConnectionSummary(
 {
     #region Properties
 
-    public string CredentialScope { get; init; } = "space";
+    public string SignInScope { get; init; } = "space";
 
     public string? SignIn { get; init; }
 
@@ -80,7 +80,7 @@ public sealed record CreateToolConnectionRequest(
     string? ProtocolMode = null,
     string? ClientId = null,
     string? ClientSecret = null,
-    string? CredentialScope = null)
+    string? SignInScope = null)
 {
     public override string ToString() => nameof(CreateToolConnectionRequest);
 }

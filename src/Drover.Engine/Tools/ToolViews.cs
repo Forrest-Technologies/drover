@@ -23,7 +23,7 @@ public static class ToolViews
             connection.LastListedAt,
             connection.LastError)
         {
-            CredentialScope = WireName(connection.CredentialScope),
+            SignInScope = WireName(connection.CredentialScope),
             SignIn = connection.AuthKind is not ToolAuthKind.Oauth
                 ? null
                 : signIn switch

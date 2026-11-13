@@ -46,7 +46,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         var toolsBody = await (await admin.Get($"{space}/tool-connections/{id}/tools")).Content.ReadAsStringAsync(Token);
 
         created.Connection.Should().Match<ToolConnectionSummary>(connection =>
-            connection.AuthKind == "oauth" && connection.CredentialScope == "per_user" && connection.SignIn == "needs_sign_in" && connection.Status == "pending");
+            connection.AuthKind == "oauth" && connection.SignInScope == "per_user" && connection.SignIn == "needs_sign_in" && connection.Status == "pending");
         created.Problem.Should().Contain("Sign in");
         start.Step.Should().Be("redirect", start.Problem);
         back.Should().StartWith("/?tool-sign-in=connected");
@@ -164,7 +164,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         var asMember = await SignIn(member.Email, member.Password);
         await AllowPrivateAddresses(alice.SpaceId);
         var space = $"/api/spaces/{alice.SpaceId}";
-        var request = new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth", ClientId: clientId, ClientSecret: clientSecret, CredentialScope: "space");
+        var request = new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth", ClientId: clientId, ClientSecret: clientSecret, SignInScope: "space");
 
         var createdBody = await (await admin.Post($"{space}/tool-connections", request)).Content.ReadAsStringAsync(Token);
         var id = JsonSerializer.Deserialize<ToolConnectionRefresh>(createdBody, JsonSerializerOptions.Web)!.Connection.Id;
@@ -173,15 +173,17 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         var forMember = await (await asMember.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token);
         var bot = await CreateBot(admin, alice.SpaceId);
         await Grant(alice.SpaceId, alice.UserId, bot.Id, "echo");
+        server.ExpireAccessTokens();
         var run = await Ask(asMember, alice.SpaceId, bot.Id, "Use the shared calendar");
         var removedByMember = await asMember.Delete($"{space}/tool-connections/{id}/sign-in");
         var removed = await admin.Delete($"{space}/tool-connections/{id}/sign-in");
         var afterwards = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id);
 
         byMember.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a sign-in every bot run in the space will act as is an admin's decision");
-        Summary(forMember, id).Should().Match<ToolConnectionSummary>(connection => connection.CredentialScope == "space" && connection.SignIn == "signed_in");
+        Summary(forMember, id).Should().Match<ToolConnectionSummary>(connection => connection.SignInScope == "space" && connection.SignIn == "signed_in");
         run.Status.Should().Be("completed", run.Error?.Message);
         Script.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"echo: shared\""));
+        server.Refreshes.Should().Be(1, "a member's run renews the space's tokens when they run out, and stores the new ones");
         server.ClientsSeen.Should().Equal(clientId);
         server.Registrations.Should().Be(0, "a client id an admin entered is used before any other way");
         removedByMember.StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -201,7 +203,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
 
         var inTheClear = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "http://tools.example.test/mcp", "oauth"));
         var secretAlone = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", ClientSecret: NewPassword()));
-        var unknownScope = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", CredentialScope: "everyone"));
+        var unknownScope = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", SignInScope: "everyone"));
         var notASignIn = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Plain", "https://tools.example.test/mcp"));
         var signInToPlain = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{notASignIn.Connection.Id}/sign-in", new { });
         var document = await NewClient().Get("/oauth/client.json");

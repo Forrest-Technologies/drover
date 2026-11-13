@@ -163,7 +163,7 @@ public static class ToolConnectionEndpoints
         if (!TryRead<ToolAuthKind>(request.AuthKind, ToolAuthKind.None, out var authKind)
             || !TryRead<TrustLevel>(request.Trust, TrustLevel.Untrusted, out var trust)
             || !TryRead<ProtocolMode>(request.ProtocolMode, ProtocolMode.Automatic, out var mode)
-            || !TryRead<CredentialScope>(request.CredentialScope, CredentialScope.PerUser, out var credentialScope))
+            || !TryRead<CredentialScope>(request.SignInScope, CredentialScope.PerUser, out var credentialScope))
         {
             return TypedResults.Problem(title: "One of the connection's settings has a value this server does not know.", statusCode: StatusCodes.Status400BadRequest);
         }

@@ -326,6 +326,41 @@ public sealed class RunToolServerTests(PostgresServer postgres)
 
     #endregion
 
+    #region Sign-In Tokens
+
+    [Fact]
+    public async Task A_persons_tokens_are_theirs_in_the_vault_and_cannot_be_read_as_anyone_else_whatever_is_asked_for()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing.")]));
+        world.Server.Offer("inbox", "Reads the inbox.", readOnly: true, "[]");
+        var connection = await world.Connect("Mail", TrustLevel.Trusted);
+        var other = await world.AddMember(MembershipRole.Member);
+        var scopes = await world.Transact(services => Task.FromResult(services.GetRequiredService<IServiceScopeFactory>()));
+        var (first, firstAccess, firstRefresh) = NewTokenSet();
+        var (second, secondAccess, _) = NewTokenSet();
+        var mine = new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId);
+
+        await mine.Write(first, RunWorld.Token);
+        var readBack = await mine.Read(RunWorld.Token);
+        var theirOwn = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other).Read(RunWorld.Token);
+        var mineAskedForByThem = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, world.UserId).Read(RunWorld.Token);
+        var theSpaces = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, Audience.Everyone).Read(RunWorld.Token);
+        await mine.Write(second, RunWorld.Token);
+        var renewed = await mine.Read(RunWorld.Token);
+        var rows = await world.Transact(services => services.GetRequiredService<DroverDbContext>().ToolConnectionCredentials.CountAsync(RunWorld.Token));
+
+        readBack.Should().Be(first);
+        theirOwn.Should().BeNull("the other person has not signed in");
+        mineAskedForByThem.Should().BeNull("the database does not hand one person's credential to another, even when the code asks for it by name");
+        theSpaces.Should().BeNull("a person's own sign-in is not the space's");
+        renewed.Should().Be(second);
+        rows.Should().Be(1, "renewed tokens replace the old ones in the same credential");
+        mine.Secrets.Should().Contain([firstAccess, firstRefresh, secondAccess], "every token seen is scrubbed from what a tool server returns, renewed ones included")
+            .And.NotContain("Bearer");
+    }
+
+    #endregion
+
     #region Removal
 
     [Fact]
@@ -392,6 +427,18 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         var seen = script.Requests[1].Single(message => message.Role == "tool").Summary;
         seen.Length.Should().BeLessThan(1300);
         seen.Should().Contain("The result was 5000 characters long. Only the first 1000 are shown.");
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>A token set shaped like a tool source's, with tokens made for this run of the tests.</summary>
+    private static (string Stored, string Access, string Refresh) NewTokenSet()
+    {
+        var access = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        var refresh = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        return (JsonSerializer.Serialize(new Dictionary<string, string> { ["access_token"] = access, ["refresh_token"] = refresh, ["token_type"] = "Bearer" }), access, refresh);
     }
 
     #endregion

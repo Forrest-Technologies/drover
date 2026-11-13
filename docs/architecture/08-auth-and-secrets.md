@@ -17,6 +17,7 @@ Decisions:
 - **External sign-in** (Phase 2): ASP.NET Core's OpenID Connect handler, as a client. For the MAUI app the flow runs in the system browser against the Drover server and ends with a one-time code handed back to the app through a registered link.
 - **No OAuth server inside Drover** until something needs one. If third-party clients ever need delegated access, OpenIddict (Apache-2.0) is the candidate.
 - **Rate limiting** on sign-in and token endpoints through ASP.NET Core's rate limiter. Today that is sign-in and first-run setup, per remote address: 10 attempts a minute, set by `Drover:SignInRateLimit` (`PermitLimit`, `Window`).
+- **Request lines are not logged.** The web host's request log is off below warnings, because a request line includes the query string and the callback of a tool server sign-in carries a one-time code there ([06-mcp.md](06-mcp.md)).
 - **Lockout**: five wrong passwords lock the account for five minutes. A wrong password, an unknown email, and a locked account all answer 401 with the same body, so the answer does not say which emails exist. The password is hashed before the lockout decision, and an unknown email is hashed against a decoy, so the timing does not say either.
 - **Passwords** need 12 characters and no composition rules.
 
