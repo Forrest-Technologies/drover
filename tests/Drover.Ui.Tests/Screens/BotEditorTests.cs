@@ -14,6 +14,8 @@ public sealed class BotEditorTests : ScreenTest
 
     private static readonly Guid toolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000005");
 
+    private static readonly Guid ruleId = Guid.Parse("0196f1a0-0000-7000-8000-000000000007");
+
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
     private static readonly string bot = $"/api/spaces/{SpaceId}/bots/{botId}";
@@ -32,6 +34,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("GET", $"{space}/tool-connections", Array.Empty<ToolConnectionSummary>());
         Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null) });
         Server.Answer("GET", $"{bot}/schedules", Array.Empty<BotScheduleResponse>());
+        Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
     }
 
     #endregion
@@ -67,7 +70,7 @@ public sealed class BotEditorTests : ScreenTest
     #region At Rest
 
     [Fact]
-    public void The_editor_shows_who_the_bot_is_and_six_closed_sections_each_with_its_summary_in_its_name()
+    public void The_editor_shows_who_the_bot_is_and_seven_closed_sections_each_with_its_summary_in_its_name()
     {
         var page = RenderEditor();
 
@@ -79,6 +82,7 @@ public sealed class BotEditorTests : ScreenTest
         toggles.Select(toggle => Words(toggle.TextContent)).Should().Equal(
             "Model, Sample connection · sample-large",
             "Tools, 1 allowed",
+            "Rules, No rules",
             "Memory, Does not remember · keeps every message",
             "Schedule, None",
             "Sandbox, No sandbox",
@@ -254,7 +258,7 @@ public sealed class BotEditorTests : ScreenTest
     public async Task A_number_that_is_not_a_number_is_said_before_anything_is_sent()
     {
         var page = RenderEditor();
-        await Open(page, 5);
+        await Open(page, 6);
 
         await page.FindAll(".dv-disclosure-open input")[0].InputAsync(new ChangeEventArgs { Value = "many" });
         await page.Find("form").SubmitAsync();
@@ -273,7 +277,7 @@ public sealed class BotEditorTests : ScreenTest
         var made = new BotScheduleResponse(Guid.Parse("0196f1a0-0000-7000-8000-000000000006"), botId, Person.UserId, "30 9 * * 1-5", "UTC", "Sample prompt", "new_thread", true, null);
         Server.Answer("POST", $"{bot}/schedules", made, HttpStatusCode.Created);
         var page = RenderEditor();
-        await Open(page, 3);
+        await Open(page, 4);
 
         await page.Find(".dv-disclosure-open .dv-button").ClickAsync(new MouseEventArgs());
         await page.Find(".dv-schedule-form select").ChangeAsync(new ChangeEventArgs { Value = "Weekdays" });
@@ -286,6 +290,125 @@ public sealed class BotEditorTests : ScreenTest
         page.FindAll(".dv-schedule-actions button").Select(button => button.GetAttribute("aria-label")).Should().Equal(
             "Change the schedule Every weekday at 09:30",
             "Remove the schedule Every weekday at 09:30");
+    }
+
+    #endregion
+
+    #region Rules
+
+    [Fact]
+    public async Task With_no_rules_the_section_offers_to_write_one_and_starters_that_say_what_they_are()
+    {
+        var page = RenderEditor();
+        await Open(page, 2);
+
+        page.FindAll(".dv-disclosure-open .dv-rule").Should().BeEmpty();
+        page.FindAll(".dv-disclosure-open .dv-disclosure-body button").Select(button => Words(button.TextContent)).Should().Equal(
+            "Write a rule",
+            "Ask before anything that writes",
+            "Never send a card number or key",
+            "Quiet hours");
+        page.Find(".dv-rule-form legend").TextContent.Should().Be("Starters. Each adds a rule you can then change.");
+        page.FindAll(".dv-rule-try").Should().BeEmpty("there is nothing to try yet");
+    }
+
+    [Fact]
+    public async Task A_starter_adds_its_rule_and_the_rule_is_announced_and_shown_as_its_sentence()
+    {
+        Server.Answer("POST", $"{bot}/rules", Rule("Ask before anything that writes", RuleWords.BeforeTool, "ask", new RuleConditionBody("tool_kind") { ToolKinds = ["write", "critical"] }), HttpStatusCode.Created);
+        var page = RenderEditor();
+        await Open(page, 2);
+
+        await page.FindAll(".dv-rule-starts button")[1].ClickAsync(new MouseEventArgs());
+
+        const string Sentence = "When a tool is about to run, if the tool writes or is critical, then ask a person first.";
+        page.WaitForAssertion(() => page.Find(".dv-rule-sentence").TextContent.Should().Be(Sentence));
+        page.Find(".dv-disclosure-open p[role=status]").TextContent.Should().Be($"Rule added. {Sentence}");
+        Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should().Contain("\"checkpoint\":\"before_tool\"").And.Contain("\"effect\":\"ask\"").And.Contain("\"toolKinds\":[\"write\",\"critical\"]");
+        page.Find(".dv-rule input[role=switch]").ParentElement!.TextContent.Should().Contain("On").And.Contain("Ask before anything that writes");
+        page.FindAll(".dv-rule-actions button").Select(button => button.GetAttribute("aria-label")).Should().Equal(
+            "Change the rule Ask before anything that writes",
+            "Remove the rule Ask before anything that writes");
+    }
+
+    [Fact]
+    public async Task A_rule_is_built_from_when_if_then_and_only_what_fits_the_moment_is_offered()
+    {
+        var made = Rule("Sample rule", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample words"] });
+        Server.Answer("POST", $"{bot}/rules", made, HttpStatusCode.Created);
+        var page = RenderEditor();
+        await Open(page, 2);
+        await page.Find(".dv-rule-starts button").ClickAsync(new MouseEventArgs());
+        Labels(page).Should().StartWith(["New rule", "When", "Condition 1", "If"]);
+        Options(page, "Then").Should().Equal("Ask a person first", "Do not run it", "Remove what matched", "Stop the run");
+
+        await Select(page, "When").ChangeAsync(new ChangeEventArgs { Value = RuleWords.BeforeReply });
+
+        page.FindAll(".dv-rule-condition").Should().BeEmpty("a condition about a tool means nothing for a reply");
+        Options(page, "Then").Should().Equal(["Do not send it", "Remove what matched", "Stop the run"], "a reply cannot wait for a person");
+        await page.FindAll(".dv-rule-form .dv-button").First(button => button.TextContent.Contains("Add a condition")).ClickAsync(new MouseEventArgs());
+        Options(page, "If").Should().Equal("The reply contains", "The reply holds", "The reply matches a pattern", "The time is between", "The run has used more than");
+        await page.Find(".dv-rule-condition textarea").InputAsync(new ChangeEventArgs { Value = "sample words" });
+        await Select(page, "Then").ChangeAsync(new ChangeEventArgs { Value = "redact" });
+        await page.FindAll(".dv-rule-form input[type=text]")[^1].InputAsync(new ChangeEventArgs { Value = "Sample rule" });
+        Words(page.Find(".dv-rule-preview").TextContent).Should().Be("Reads as When the bot is about to reply, if the reply contains \"sample words\", then remove what matched.");
+        await page.Find(".dv-rule-form .dv-button-primary").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-rule-sentence").TextContent.Should().Be("When the bot is about to reply, if the reply contains \"sample words\", then remove what matched."));
+        Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should()
+            .Contain("\"name\":\"Sample rule\"").And.Contain("\"checkpoint\":\"before_reply\"").And.Contain("\"effect\":\"redact\"").And.Contain("\"entries\":[\"sample words\"]");
+    }
+
+    [Fact]
+    public async Task A_rule_the_server_refuses_stays_in_the_builder_with_the_servers_reason()
+    {
+        Server.Refuse("POST", $"{bot}/rules", HttpStatusCode.BadRequest, "Give the rule a name.");
+        var page = RenderEditor();
+        await Open(page, 2);
+        await page.Find(".dv-rule-starts button").ClickAsync(new MouseEventArgs());
+
+        await page.Find(".dv-rule-form .dv-button-primary").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-rule-form [role=alert]").TextContent.Should().Contain("Give the rule a name."));
+        page.FindAll(".dv-rule-form .dv-button-primary").Should().ContainSingle("the builder stays open");
+    }
+
+    [Fact]
+    public async Task Rules_from_the_bots_above_are_listed_with_where_they_come_from_and_cannot_be_changed_here()
+    {
+        var parent = Rule("Sample parent rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] }) with { BotName = "Sample parent", Inherited = true };
+        var own = Rule("Sample own rule", RuleWords.MessageArrives, "stop", new RuleConditionBody("text_holds") { Builtin = "key" }) with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000008"), Enabled = false };
+        Server.Answer("GET", $"{bot}/rules", new[] { parent, own });
+        var page = RenderEditor("Rules, 2 rules, 1 off");
+        await Open(page, 2);
+
+        var lists = page.FindAll(".dv-rules");
+        lists.Select(list => list.GetAttribute("aria-label")).Should().Equal("Rules from the bots above", "Rules");
+        Words(lists[0].TextContent).Should().Be("When a tool is about to run, if the tool is critical, then do not run it. Sample parent rule · from Sample parent, changed there");
+        lists[0].QuerySelectorAll("button, input").Should().BeEmpty("an inherited rule has no control here");
+        lists[1].QuerySelector(".dv-rule-sentence")!.TextContent.Should().Be("When a message arrives, if the message holds a key or token, then stop the run.");
+        lists[1].QuerySelector("input[role=switch]")!.HasAttribute("checked").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Trying_a_sample_asks_the_server_and_shows_its_answer_in_words()
+    {
+        Server.Answer("GET", $"{bot}/rules", new[] { Rule("Sample rule", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample words"] }) });
+        Server.Answer("POST", $"{bot}/rules/try", new TryRulesResponse("redact", ruleId, "Sample rule", "the text contains text the rule names", "Some [removed by a rule] here.", null, ["Sample rule"]));
+        var page = RenderEditor("Rules, 1 rule");
+        await Open(page, 2);
+
+        await Select(page, "As if").ChangeAsync(new ChangeEventArgs { Value = RuleWords.BeforeReply });
+        await page.Find(".dv-rule-try textarea").InputAsync(new ChangeEventArgs { Value = "Some sample words here." });
+        await page.Find(".dv-rule-try .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-rule-trial > *").Select(line => Words(line.TextContent)).Should().Equal(
+            "The rule \"Sample rule\" would remove what matched: the text contains text the rule names.",
+            "What would be left",
+            "Some [removed by a rule] here."));
+        page.Find(".dv-rule-trial").GetAttribute("role").Should().Be("status");
+        Server.Sent("POST", $"{bot}/rules/try").Should().ContainSingle().Which.Should()
+            .Contain("\"checkpoint\":\"before_reply\"").And.Contain("\"text\":\"Some sample words here.\"").And.NotContain("\"draft\":{");
     }
 
     #endregion
@@ -348,13 +471,22 @@ public sealed class BotEditorTests : ScreenTest
     private static BotToolEntry TimeTool(string grant, string ceiling, string? parent) =>
         new(toolId, "time.now", "Current time", "Sample description", "builtin", null, null, "read", grant, ceiling, parent, "available");
 
+    private static BotRuleResponse Rule(string name, string checkpoint, string effect, params RuleConditionBody[] conditions) =>
+        new(ruleId, botId, "Atlas", false, name, true, 0, checkpoint, effect, conditions);
+
+    private static IElement Select(IRenderedComponent<BotEditor> page, string label) =>
+        page.FindAll(".dv-disclosure-open .dv-select").First(select => Words(select.QuerySelector("label")!.TextContent) == label).QuerySelector("select")!;
+
+    private static List<string> Options(IRenderedComponent<BotEditor> page, string label) =>
+        [.. Select(page, label).QuerySelectorAll("option").Select(option => option.TextContent)];
+
     private static Task Open(IRenderedComponent<BotEditor> page, int section) =>
         page.FindAll(".dv-disclosure-toggle")[section].ClickAsync(new MouseEventArgs());
 
-    private IRenderedComponent<BotEditor> RenderEditor()
+    private IRenderedComponent<BotEditor> RenderEditor(string loaded = "Rules, No rules")
     {
         var page = Render<BotEditor>(parameters => parameters.Add(editor => editor.BotId, botId));
-        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle").Select(toggle => Words(toggle.TextContent)).Should().Contain("Schedule, None"));
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle").Select(toggle => Words(toggle.TextContent)).Should().Contain("Schedule, None").And.Contain(loaded));
         return page;
     }
 
