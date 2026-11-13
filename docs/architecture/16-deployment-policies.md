@@ -85,6 +85,7 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `AllowDisablingDataRights` | `true` | `false` | Later: export and deletion endpoints |
 | `AllowTelemetryContent` | `false` | `false` | Later: telemetry export |
 | `AllowOperatorContentAccess` | `false` | `false` | Later: support access, if it is ever added |
+| `SpaceAdminsSeeServerStatus` | `true` | `false` | Enforced: `GET /api/spaces/{spaceId}/status` shows the server rows (database role, migrations, key ring, public address, run queue across spaces) to a space's owners and admins only when on. On a shared service they are strangers, so those rows stay with the operator, who reads `/health/ready` and the log |
 
 `OpenRegistration` is the one rule the operator of a hosted service may loosen: the table's "operator's choice". Every other rule is locked to its preset. The sign-in rate limit, the key ring path, and quota amounts are configuration, not rules.
 

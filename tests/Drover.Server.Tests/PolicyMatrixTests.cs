@@ -157,6 +157,20 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         }
     }
 
+    [Fact]
+    public async Task SpaceAdminsSeeServerStatus_decides_whether_a_space_owner_sees_the_server_rows()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("statusowner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var report = (await (await client.Get($"/api/spaces/{spaceId}/status")).Content.ReadFromJsonAsync<StatusReport>(Token))!;
+
+        var shown = Setting(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus)) == "true";
+        report.ServerRowsShown.Should().Be(shown);
+        report.Rows.Any(row => row.Area == "server").Should().Be(shown);
+    }
+
     #endregion
 
     #region Private Methods

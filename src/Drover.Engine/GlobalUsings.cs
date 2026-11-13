@@ -51,6 +51,7 @@ global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;
 global using Drover.Engine.Runs;
 global using Drover.Engine.Spaces;
+global using Drover.Engine.Status;
 global using Drover.Engine.Threads;
 global using Drover.Engine.Tools;
 global using Microsoft.AspNetCore.Identity;
