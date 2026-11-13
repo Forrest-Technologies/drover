@@ -78,5 +78,6 @@ global using ModelContextProtocol.Server;
 global using Npgsql;
 global using Testcontainers.PostgreSql;
 global using Xunit;
+global using YamlDotNet.RepresentationModel;
 
 [assembly: AssemblyFixture(typeof(PostgresServer))]

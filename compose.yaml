@@ -11,6 +11,11 @@ services:
     image: *postgres-image
     user: "0:0"
     restart: "no"
+    read_only: true
+    # Root only to hand each file to its reader: change owner and mode, and read a file another user owns.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -38,6 +43,14 @@ services:
   db:
     image: *postgres-image
     restart: unless-stopped
+    read_only: true
+    # The image starts as root, prepares its data directory, then drops to the postgres user.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /var/run/postgresql
+      - /tmp
     environment:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     volumes:
@@ -60,6 +73,13 @@ services:
     image: drover:local
     user: "0:0"
     restart: "no"
+    read_only: true
+    # Root only to read the three password files, each owned by the user that needs it.
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp
     command: ["--initialize-database"]
     environment:
       Database__Host: db
@@ -76,13 +96,23 @@ services:
     build:
       context: .
     image: drover:local
+    # The image's own non-root user. It owns the key ring and files volumes and the copy of the app password.
+    user: "1654:1654"
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp
+    # Only this machine can reach it. To reach it from another device, put the HTTPS proxy in front (compose.proxy.yaml).
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       Database__Host: db
       Database__AppPasswordFile: /run/secrets/app_password
       DataProtection__KeyPath: /var/lib/drover/keys
+      # The address people open Drover at. Tool server sign-ins need it. Empty is fine on this machine alone.
+      DROVER_PUBLIC_URL: ${DROVER_PUBLIC_URL:-}
     volumes:
       - drover-app-secrets:/run/secrets:ro
       - drover-keys:/var/lib/drover/keys
@@ -106,9 +136,29 @@ services:
       retries: 3
       start_period: 20s
 
+  # Optional: a self-hosted notification server for phones, started with `docker compose --profile push up`.
+  # Drover does not send to it yet; push arrives in Phase 1 (docs/architecture/13-deployment-and-push.md).
+  ntfy:
+    profiles: [push]
+    image: binwiederhier/ntfy:v2.14.0@sha256:5a051798d14138c3ecb12c038652558ab6a077e1aceeb867c151cbf5fa8451ef
+    command: ["serve"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      NTFY_LISTEN_HTTP: ":2586"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_BEHIND_PROXY: "true"
+    ports:
+      - "127.0.0.1:2586:2586"
+    volumes:
+      - drover-ntfy:/var/cache/ntfy
+
 volumes:
   drover-db:
   drover-secrets:
   drover-app-secrets:
   drover-keys:
   drover-files:
+  drover-ntfy:
