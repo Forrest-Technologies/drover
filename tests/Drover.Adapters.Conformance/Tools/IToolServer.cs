@@ -85,6 +85,21 @@ public interface IToolServer : IAsyncDisposable
     /// </summary>
     Task<SignInAnswer> Approve(Uri authorizationUrl);
 
+    /// <summary>How many requests of any kind reached the server's token endpoint.</summary>
+    int TokenRequests { get; }
+
+    /// <summary>
+    /// Makes the token endpoint answer every renewal with this status and change nothing, as a sign-in service that
+    /// is overloaded or down does. Null makes it work again.
+    /// </summary>
+    void FailRenewals(int? status);
+
+    /// <summary>
+    /// Makes the server answer every tool call with 403 and a note that the access token lacks a scope, as a server
+    /// does when the signed-in account may not use that tool. Listing still works.
+    /// </summary>
+    void ForbidCalls(bool forbidden);
+
     /// <summary>Forgets every access token, as if all had expired. Refresh tokens stay good.</summary>
     void ExpireAccessTokens();
 

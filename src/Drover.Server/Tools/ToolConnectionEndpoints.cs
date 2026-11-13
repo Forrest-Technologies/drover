@@ -178,6 +178,7 @@ public static class ToolConnectionEndpoints
                 ProtocolMode = mode,
                 ClientId = request.ClientId,
                 ClientSecret = request.ClientSecret,
+                Issuer = request.Issuer,
                 CredentialScope = credentialScope,
             },
             context.RequestAborted);

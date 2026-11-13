@@ -69,6 +69,13 @@ public sealed record ToolSignIn(Uri RedirectUrl, Func<CancellationToken, Task<st
 
     public string? ClientSecret { get; init; }
 
+    /// <summary>
+    /// The sign-in service this connection was set up for. When set, a source signs in and renews with that service
+    /// only: if the tool server names another, nothing is sent to it. The tool server's documents are its own to
+    /// change, and a client secret given out by one service must not follow them to a different one.
+    /// </summary>
+    public Uri? Issuer { get; init; }
+
     /// <summary>Where this server publishes its client document, for a tool server that reads one.</summary>
     public Uri? ClientDocumentUrl { get; init; }
 

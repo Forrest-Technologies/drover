@@ -36,6 +36,22 @@ public sealed class SignInAttempt
     /// <summary>Set when the server wanted a sign-in and nobody was there to give one.</summary>
     public bool WasRequired { get; private set; }
 
+    /// <summary>
+    /// The status the sign-in service gave the last request to renew the tokens, or zero when it gave none because
+    /// it could not be reached. Null when no renewal was tried. Only a refusal (400 or 401) means the refresh token
+    /// is no good; anything else is the service's trouble, and the sign-in is as good as it was.
+    /// </summary>
+    public int? RenewalStatus { get; set; }
+
+    /// <summary>The last refusal (401 or 403) the tool server itself gave a request that carried an access token.</summary>
+    public HttpStatusCode? LastRefusal { get; set; }
+
+    /// <summary>Set when the tool server named a sign-in service other than the one the connection is pinned to.</summary>
+    public bool NamedAnotherService { get; set; }
+
+    /// <summary>A renewal was tried and the sign-in service did not refuse it: it failed, or could not be reached.</summary>
+    public bool RenewalWasNotAnswered => RenewalStatus is { } status && status is not (400 or 401);
+
     #endregion
 
     #region Public Methods
@@ -166,7 +182,7 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
 
     public async ValueTask StoreTokensAsync(TokenContainer tokens, CancellationToken cancellationToken)
     {
-        await signIn.WriteTokens(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), RunsOutAt(tokens), cancellationToken);
+        await Functions.WriteTokens(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), RunsOutAt(tokens), cancellationToken);
 
         gate.MarkRenewed(time);
 
@@ -181,8 +197,16 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
 
     #region Private Methods
 
+    /// <summary>
+    /// Where the tokens are read and written right now: through the use in progress, so the caller of each use sees
+    /// the tokens that were sent for it and stores renewed ones as the person it acts for. A kept session outlives
+    /// the use that opened it, and that use's functions are only for what happens outside any use, such as the
+    /// session's listening stream. Both belong to the same credential: a session is kept per credential.
+    /// </summary>
+    private ToolSignIn Functions => SignInAttempt.Current?.Endpoint.SignIn ?? signIn;
+
     private async Task<TokenContainer?> Read(CancellationToken cancellationToken) =>
-        await signIn.ReadTokens(cancellationToken) is { Length: > 0 } stored
+        await Functions.ReadTokens(cancellationToken) is { Length: > 0 } stored
             ? JsonSerializer.Deserialize<TokenContainer>(stored, McpJsonUtilities.DefaultOptions)
             : null;
 
@@ -220,14 +244,17 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
 /// token goes to the tool server's own origin or is not sent; a connection saved as <c>https</c> makes no request
 /// over <c>http</c>, so no code, token, or client secret travels in the clear because a document named an
 /// <c>http</c> address. A request made outside any use of a connection carries no access token at all.
+/// It also notes, for the use in progress, how the sign-in service answered a renewal and whether the tool server
+/// refused an access token, because the protocol library reports all of those the same way.
 /// </summary>
 public sealed class CredentialGuardHandler : DelegatingHandler
 {
     #region Overrides
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var endpoint = SignInAttempt.Current?.Endpoint.Url;
+        var attempt = SignInAttempt.Current;
+        var endpoint = attempt?.Endpoint.Url;
         var target = request.RequestUri;
         var carriesToken = request.Headers.Authorization is { Scheme: var scheme } && scheme.Equals("Bearer", StringComparison.OrdinalIgnoreCase);
 
@@ -240,12 +267,40 @@ public sealed class CredentialGuardHandler : DelegatingHandler
                 "The tool server pointed this server's credentials at an address they must not go to. Nothing was sent.");
         }
 
-        return base.SendAsync(request, cancellationToken);
+        var renews = attempt is not null && await IsRenewal(request, cancellationToken);
+
+        try
+        {
+            var response = await base.SendAsync(request, cancellationToken);
+
+            if (renews)
+            {
+                attempt!.RenewalStatus = (int)response.StatusCode;
+            }
+            else if (carriesToken && attempt is not null && response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                attempt.LastRefusal = response.StatusCode;
+            }
+
+            return response;
+        }
+        catch (Exception) when (renews)
+        {
+            // No answer at all. Recorded, and the failure goes on its way unchanged.
+            attempt!.RenewalStatus = 0;
+            throw;
+        }
     }
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>Whether the request asks a sign-in service to exchange a refresh token. The form is small and already in memory.</summary>
+    private static async Task<bool> IsRenewal(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        request.Method == HttpMethod.Post
+        && request.Content is { Headers.ContentType.MediaType: "application/x-www-form-urlencoded" } form
+        && (await form.ReadAsStringAsync(cancellationToken)).Split('&').Contains("grant_type=refresh_token");
 
     private static bool SameOrigin(Uri one, Uri other) =>
         one.Scheme == other.Scheme && one.Port == other.Port && string.Equals(one.IdnHost, other.IdnHost, StringComparison.OrdinalIgnoreCase);

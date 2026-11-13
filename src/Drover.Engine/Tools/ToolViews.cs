@@ -24,6 +24,7 @@ public static class ToolViews
             connection.LastError)
         {
             SignInScope = WireName(connection.CredentialScope),
+            Issuer = connection.Oauth?.Issuer,
             SignIn = connection.AuthKind is not ToolAuthKind.Oauth
                 ? null
                 : signIn switch

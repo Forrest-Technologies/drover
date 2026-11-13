@@ -197,6 +197,42 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     }
 
     [Fact]
+    public async Task A_sign_in_service_that_is_down_leaves_the_sign_in_as_it_was_for_the_renewer_and_for_a_run()
+    {
+        Script = new ScriptedModel(
+            [new ToolCallOutput("c1", "calendar__echo", """{"text":"down"}""")],
+            [new TextOutput("I could not.")],
+            [new ToolCallOutput("c2", "calendar__echo", """{"text":"back"}""")],
+            [new TextOutput("Done.")]);
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var id = (await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"))).Connection.Id;
+        await SignInToServer(admin, server, space, id);
+        var bot = await CreateBot(admin, alice.SpaceId);
+        await Grant(alice.SpaceId, alice.UserId, bot.Id, "echo");
+        var renewal = Services.GetRequiredService<ToolSignInRenewal>();
+
+        server.FailRenewals(503);
+        var renewedWhileDown = await renewal.RenewDue(Token);
+        server.ExpireAccessTokens();
+        var runWhileDown = await Ask(admin, alice.SpaceId, bot.Id, "Use my calendar");
+        var whileDown = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id);
+        server.FailRenewals(null);
+        var runAfterwards = await Ask(admin, alice.SpaceId, bot.Id, "Use my calendar");
+
+        renewedWhileDown.Should().Be(0);
+        runWhileDown.Status.Should().Be("completed", runWhileDown.Error?.Message);
+        Script.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.Contains("could not renew", StringComparison.Ordinal));
+        whileDown.SignIn.Should().Be("signed_in", "a sign-in service that is down has refused nothing: the sign-in is not ended by it");
+        runAfterwards.Status.Should().Be("completed", runAfterwards.Error?.Message);
+        Script.Requests[3].Should().Contain(new SeenMessage("tool", "c2 = \"echo: back\""));
+        server.Approvals.Should().Be(1, "nobody had to sign in again");
+    }
+
+    [Fact]
     public async Task One_sign_in_for_the_space_is_an_admins_to_make_and_to_remove_and_serves_every_member()
     {
         Script = new ScriptedModel([new ToolCallOutput("c1", "calendar__echo", """{"text":"shared"}""")], [new TextOutput("Done.")]);
@@ -210,7 +246,8 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         var asMember = await SignIn(member.Email, member.Password);
         await AllowPrivateAddresses(alice.SpaceId);
         var space = $"/api/spaces/{alice.SpaceId}";
-        var request = new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth", ClientId: clientId, ClientSecret: clientSecret, SignInScope: "space");
+        var request = new CreateToolConnectionRequest(
+            "Calendar", server.Url.ToString(), "oauth", ClientId: clientId, ClientSecret: clientSecret, SignInScope: "space", Issuer: server.Url.GetLeftPart(UriPartial.Authority));
 
         var createdBody = await (await admin.Post($"{space}/tool-connections", request)).Content.ReadAsStringAsync(Token);
         var id = JsonSerializer.Deserialize<ToolConnectionRefresh>(createdBody, JsonSerializerOptions.Web)!.Connection.Id;
@@ -249,6 +286,11 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
 
         var inTheClear = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "http://tools.example.test/mcp", "oauth"));
         var secretAlone = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", ClientSecret: NewPassword()));
+        var clientWithNoService = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", ClientId: "known"));
+        var serviceWithNoClient = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", Issuer: "https://sign-in.example.test"));
+        var serviceInTheClear = await admin.Post(
+            $"{space}/tool-connections",
+            new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", ClientId: "known", Issuer: "http://sign-in.example.test"));
         var unknownScope = await admin.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth", SignInScope: "everyone"));
         var notASignIn = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Plain", "https://tools.example.test/mcp"));
         var signInToPlain = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{notASignIn.Connection.Id}/sign-in", new { });
@@ -257,6 +299,9 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
 
         inTheClear.StatusCode.Should().Be(HttpStatusCode.BadRequest, "tokens would travel where others can read them");
         secretAlone.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        clientWithNoService.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a client id with no service named could be handed to any service the tool server names");
+        serviceWithNoClient.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        serviceInTheClear.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         unknownScope.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         notASignIn.Connection.SignIn.Should().BeNull();
         signInToPlain.Step.Should().Be("failed");

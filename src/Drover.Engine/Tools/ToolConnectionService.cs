@@ -18,6 +18,12 @@ public sealed record NewToolConnection(string? Name, string? Url)
     /// <summary>For a sign-in: a client id the tool server's operator gave out. Without one, this server names itself.</summary>
     public string? ClientId { get; init; }
 
+    /// <summary>
+    /// The address of the sign-in service that gave out <see cref="ClientId"/>. Required with a client id: the
+    /// client id and its secret are that service's, and go to no other.
+    /// </summary>
+    public string? Issuer { get; init; }
+
     /// <summary>The secret that goes with <see cref="ClientId"/>, when there is one. It goes to the vault.</summary>
     public string? ClientSecret { get; init; }
 
@@ -202,6 +208,7 @@ public sealed class ToolConnectionService(
             connection.Oauth = new OAuthMetadata
             {
                 ClientId = request.ClientId.Trim(),
+                Issuer = request.Issuer!.Trim(),
                 ClientSecretId = string.IsNullOrEmpty(request.ClientSecret)
                     ? null
                     : await vault.Store(SecretKind.OauthClientSecret, request.ClientSecret, null, cancellationToken),
@@ -449,6 +456,14 @@ public sealed class ToolConnectionService(
             return (null, ToolSignInOptions.MissingPublicUrl, []);
         }
 
+        // A client id is one sign-in service's. Without knowing which, it could be handed to any the tool server names.
+        Uri? issuer = null;
+
+        if (connection.Oauth?.ClientId is not null && !Uri.TryCreate(connection.Oauth.Issuer, UriKind.Absolute, out issuer))
+        {
+            return (null, $"The {connection.Name} connection has a client id and no sign-in service to use it with. Remove it and add it again.", []);
+        }
+
         var audience = connection.CredentialScope is CredentialScope.Space ? Audience.Everyone : actingUserId;
         var kept = new KeptToolTokens(new RunTenant(scopes, connection.SpaceId, actingUserId), connection.Id, audience);
         var clientSecret = connection.Oauth?.ClientSecretId is { } secretId ? await vault.Reveal(secretId, cancellationToken) : null;
@@ -458,6 +473,7 @@ public sealed class ToolConnectionService(
             {
                 ClientId = connection.Oauth?.ClientId,
                 ClientSecret = clientSecret,
+                Issuer = issuer,
                 ClientDocumentUrl = signInOptions.Value.ClientDocumentUrl,
             },
             null,
@@ -577,13 +593,32 @@ public sealed class ToolConnectionService(
         {
             ToolAuthKind.None => null,
             ToolAuthKind.Header => ValidateHeader(request.HeaderName, request.HeaderValue),
-            ToolAuthKind.Oauth => ValidateClient(request.ClientId, request.ClientSecret),
+            ToolAuthKind.Oauth => ValidateClient(request.ClientId, request.ClientSecret, request.Issuer, url),
             _ => "This server does not know that kind of credential.",
         };
     }
 
-    private static string? ValidateClient(string? clientId, string? clientSecret)
+    private static string? ValidateClient(string? clientId, string? clientSecret, string? issuer, Uri connectionUrl)
     {
+        var hasClient = !string.IsNullOrWhiteSpace(clientId);
+
+        if (hasClient != !string.IsNullOrWhiteSpace(issuer))
+        {
+            return hasClient
+                ? "A client id needs the address of the sign-in service that gave it out, so it is never handed to another."
+                : "A sign-in service is entered together with the client id it gave out.";
+        }
+
+        // The service's address is https, or http only where the connection itself is.
+        if (hasClient
+            && (issuer!.Length > MaxUrlLength
+                || !Uri.TryCreate(issuer.Trim(), UriKind.Absolute, out var service)
+                || !(service.Scheme is "https" || (service.Scheme is "http" && connectionUrl.Scheme is "http"))
+                || !string.IsNullOrEmpty(service.UserInfo) || !string.IsNullOrEmpty(service.Query) || !string.IsNullOrEmpty(service.Fragment)))
+        {
+            return "Enter the sign-in service's web address, starting with https://, with nothing after the path.";
+        }
+
         if (clientId is { Length: > MaxClientIdLength } || clientId?.Any(char.IsControl) is true)
         {
             return $"Enter a client id of up to {MaxClientIdLength} characters, on one line, or leave it empty.";
