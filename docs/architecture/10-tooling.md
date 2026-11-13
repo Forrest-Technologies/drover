@@ -9,7 +9,8 @@
 | [`/.editorconfig`](../../.editorconfig) | Written and tested, see below |
 | [`/BannedSymbols.txt`](../../BannedSymbols.txt) | Written and tested |
 | `.github/workflows/ci.yml`, `security.yml`, `.github/dependabot.yml` | Live since step 1. Linted clean with zizmor (pedantic) and actionlint before the first run. |
-| [`drafts/workflows/release.yml`](drafts/workflows/release.yml), [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Drafts. The release workflow goes live with the first release; the canary with the agent framework step. |
+| `.github/workflows/release.yml` | Live. Runs only for a `v*.*.*` tag, on the owner's self-hosted runner. |
+| [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Draft. Goes live with the agent framework step. |
 
 ## Style enforcement
 
