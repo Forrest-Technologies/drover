@@ -48,6 +48,14 @@ namespace Drover.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("email_confirmed");
 
+                    b.Property<int>("KnownBrowserAccessFailedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("known_browser_access_failed_count");
+
+                    b.Property<DateTimeOffset?>("KnownBrowserLockoutEnd")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("known_browser_lockout_end");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("lockout_enabled");

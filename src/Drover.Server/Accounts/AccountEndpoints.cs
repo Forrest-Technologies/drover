@@ -105,6 +105,7 @@ public static class AccountEndpoints
         var credentials = await accounts.CheckCredentials(
             request.Email ?? string.Empty,
             request.Password ?? string.Empty,
+            KnownBrowser.SignedInBefore(context),
             context.RequestAborted);
 
         if (!credentials.Succeeded)
@@ -146,6 +147,7 @@ public static class AccountEndpoints
         var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
         var principal = SessionStamp.BuildPrincipal(userId, email, displayName, stamp, now);
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+        KnownBrowser.Remember(context, userId);
 
         // The antiforgery token belongs to the signed-in person, so the client gets a fresh one with the session.
         context.User = principal;
