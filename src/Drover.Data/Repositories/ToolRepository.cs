@@ -44,9 +44,6 @@ public sealed class ToolRepository(DroverDbContext db)
             .ThenBy(tool => tool.Name)
             .ToListAsync(cancellationToken);
 
-    public Task<List<ToolConnection>> ListConnections(CancellationToken cancellationToken) =>
-        db.ToolConnections.AsNoTracking().OrderBy(connection => connection.Name).ToListAsync(cancellationToken);
-
     /// <summary>
     /// The rows a bot holds itself, tracked. This is what an editor shows and changes. It never decides access: a row
     /// counts only as far as the path to the root allows, which is what <see cref="ListEffectiveGrants"/> answers.

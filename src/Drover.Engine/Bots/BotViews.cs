@@ -64,8 +64,10 @@ public static class BotViews
             request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits);
     }
 
-    public static BotToolEntry ToEntry(this BotToolView view) =>
-        new(
+    public static BotToolEntry ToEntry(this BotToolView view)
+    {
+        var reviewed = view.NeedsReview && view.Tool.ReviewedDefinition is { } kept ? kept.Deserialize<ReviewedToolDefinition>() : null;
+        return new(
             view.Tool.Id,
             view.Tool.Name,
             string.IsNullOrWhiteSpace(view.Tool.Title) ? view.Tool.Name : view.Tool.Title,
@@ -77,7 +79,12 @@ public static class BotViews
             GrantService.Word(view.Own),
             GrantService.Word(view.Ceiling),
             view.CeilingBotName,
-            view.NeedsReview);
+            Words.Of(view.Tool.State))
+        {
+            NeedsReview = view.NeedsReview,
+            Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
+        };
+    }
 
     public static BotScheduleResponse ToResponse(this BotSchedule schedule) =>
         new(

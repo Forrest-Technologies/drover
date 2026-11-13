@@ -39,6 +39,8 @@ public sealed partial class BotEditor(
 
     private IReadOnlyList<BotToolEntry>? tools;
 
+    private IReadOnlyList<ToolConnectionSummary> toolConnections = [];
+
     private IReadOnlyList<BotScheduleResponse>? schedules;
 
     private IReadOnlyList<BotSummary> otherBots = [];
@@ -148,6 +150,7 @@ public sealed partial class BotEditor(
             otherBots = [.. (await api.ListBots(SpaceId)).Where(other => other.Id != BotId)];
             Show(bot);
             models = await api.ListModels(SpaceId, bot.ModelConnectionId);
+            toolConnections = await api.ListToolConnections(SpaceId);
             tools = await api.ListBotTools(SpaceId, BotId);
             schedules = await api.ListBotSchedules(SpaceId, BotId);
         }

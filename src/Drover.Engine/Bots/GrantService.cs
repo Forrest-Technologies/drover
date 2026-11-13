@@ -19,6 +19,7 @@ public sealed record GrantChange(BotToolView? Tool, string? Problem)
 public sealed class GrantService(
     BotRepository bots,
     ToolRepository tools,
+    ToolConnectionRepository connections,
     ToolCatalog catalog,
     AuditLog audit,
     ILogger<GrantService> logger)
@@ -36,9 +37,9 @@ public sealed class GrantService(
         var parent = await FindParent(bot, cancellationToken);
         var ceilings = parent is null ? null : await tools.ListEffectiveGrants(parent.Id, cancellationToken);
         var own = (await tools.ListOwnGrants(botId, cancellationToken)).ToDictionary(grant => grant.ToolId);
-        var connections = (await tools.ListConnections(cancellationToken)).ToDictionary(connection => connection.Id);
+        var byId = (await connections.ListConnections(cancellationToken)).ToDictionary(connection => connection.Id);
 
-        return [.. (await ListAllTools(cancellationToken)).Select(tool => View(tool, connections, own.GetValueOrDefault(tool.Id), parent, ceilings))];
+        return [.. (await ListAllTools(cancellationToken)).Select(tool => View(tool, byId, own.GetValueOrDefault(tool.Id), parent, ceilings))];
     }
 
     /// <summary>Sets one tool for one bot. A null effect is off: the bot's grant is taken away.</summary>
@@ -73,9 +74,8 @@ public sealed class GrantService(
         }
         else if (effect is { } changed && stored is not null)
         {
-            // A person setting the grant has looked at the tool as it is now, which is what a review asks for.
+            // A grant that waits for review keeps waiting: changing its effect is not reading the changed definition.
             stored.Effect = changed;
-            stored.ReviewState = ReviewState.Current;
             stored.GrantedByUserId = actorUserId;
             stored.GrantedByBotId = null;
         }
@@ -87,10 +87,8 @@ public sealed class GrantService(
             logger.LogInformation("Bot {BotId} has tool {ToolId} set to {Grant}", bot.Id, tool.Id, Word(effect));
         }
 
-        var connection = tool.ToolConnectionId is { } connectionId
-            ? (await tools.ListConnections(cancellationToken)).Find(candidate => candidate.Id == connectionId)
-            : null;
-        return new GrantChange(new BotToolView(tool, connection, stored?.Effect, false, ceiling, parent?.Name), null);
+        var connection = tool.ToolConnectionId is { } connectionId ? await connections.FindConnection(connectionId, cancellationToken) : null;
+        return new GrantChange(new BotToolView(tool, connection, stored?.Effect, stored?.ReviewState is ReviewState.NeedsReview, ceiling, parent?.Name), null);
     }
 
     /// <summary>A grant as the API and the audit log spell it. No grant, and an explicit deny, are both off.</summary>

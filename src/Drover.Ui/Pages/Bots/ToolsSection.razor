@@ -18,11 +18,15 @@ else
 
     @foreach (var group in Groups)
     {
-        <details class="dv-tools-group" open="@group.Builtin" @key="group.Name">
+        <details class="dv-tools-group" open="@(group.ConnectionId is null)" @key="group.Name">
             <summary class="dv-tools-group-name">
                 <span>@group.Name</span>
-                <span class="dv-mono">@Count(group.Tools)</span>
+                <span class="dv-mono">@Count(group)</span>
             </summary>
+            @if (group.Tools.Count == 0)
+            {
+                <p class="dv-editor-hint">@group.Name has listed no tools.@(group.Problem is null ? null : $" {group.Problem}")</p>
+            }
             <ul class="dv-tools">
                 @foreach (var tool in group.Tools)
                 {
@@ -34,26 +38,53 @@ else
                             {
                                 <p class="dv-tool-description">@tool.Description</p>
                             }
+                            @if (tool.State is "missing")
+                            {
+                                <p class="dv-tool-limit">@group.Name no longer lists this tool, so it cannot be used.</p>
+                            }
                             @if (Limit(tool) is { } limit)
                             {
                                 <p class="dv-tool-limit">@limit</p>
                             }
                         </div>
                         <div class="dv-tool-control">
-                            @if (tool.NeedsReview)
-                            {
-                                <Badge Kind="BadgeKind.Warn">Changed, review it</Badge>
-                            }
                             <SegmentedControl @key="@($"{tool.ToolId}-{version}")" Label="@($"{tool.Title} for {BotName}")" Options="OptionsFor(tool)" Value="@tool.Grant"
                                               ValueChanged="(string grant) => Set(tool, grant)" Disabled="@(busy == tool.ToolId)" />
                         </div>
+                        @if (tool.NeedsReview)
+                        {
+                            <div class="dv-tool-review">
+                                <Badge Kind="BadgeKind.Warn">Changed, needs review</Badge>
+                                <p class="dv-tool-description">The server changed what this tool says it does. Until a person accepts the change, @BotName asks before each use.</p>
+                                @if (tool.Reviewed is { } reviewed)
+                                {
+                                    <details class="dv-tool-reviewed">
+                                        <summary class="dv-tools-group-name">What was last reviewed</summary>
+                                        <dl class="dv-tool-compare">
+                                            <dt>Reviewed</dt>
+                                            <dd>@(string.IsNullOrWhiteSpace(reviewed.Title) ? tool.Name : reviewed.Title)<br />@reviewed.Description</dd>
+                                            <dt>Now</dt>
+                                            <dd>@tool.Title<br />@tool.Description</dd>
+                                        </dl>
+                                        @if (reviewed.Title == tool.Title && reviewed.Description == tool.Description)
+                                        {
+                                            <p class="dv-tool-description">The words are the same. What the tool accepts as input changed.</p>
+                                        }
+                                    </details>
+                                }
+                                @if (tool.ConnectionId is { } connectionId)
+                                {
+                                    <Button OnClick="() => Accept(tool, connectionId)" Disabled="@(busy == tool.ToolId)">Accept the change for every bot</Button>
+                                }
+                            </div>
+                        }
                     </li>
                 }
             </ul>
         </details>
     }
 
-    @if (!Tools.Any(tool => tool.Source is "connection"))
+    @if (Connections.Count == 0)
     {
         <p class="dv-editor-hint">This space has no tool connections. Tools from a connection are listed here once one is added.</p>
     }
@@ -88,6 +119,10 @@ else
     [Parameter]
     public IReadOnlyList<BotToolEntry>? Tools { get; set; }
 
+    /// <summary>The space's tool connections. Each is a group, whether or not it has listed a tool.</summary>
+    [Parameter]
+    public IReadOnlyList<ToolConnectionSummary> Connections { get; set; } = [];
+
     /// <summary>False when the bot's model is known not to call tools. The controls are then replaced by the reason.</summary>
     [Parameter]
     public bool ModelCallsTools { get; set; } = true;
@@ -96,21 +131,32 @@ else
     [Parameter]
     public EventCallback<IReadOnlyList<BotToolEntry>> OnToolsChanged { get; set; }
 
-    private IEnumerable<(string Name, bool Builtin, List<BotToolEntry> Tools)> Groups =>
-        Tools!.GroupBy(tool => (tool.Source, tool.ConnectionName))
-            .Select(group => (group.Key.Source is "builtin" ? "Built in" : group.Key.ConnectionName ?? "Connection", group.Key.Source is "builtin", group.ToList()));
+    // Built-in tools first, then a group for each connection, in the order the server lists them.
+    private IEnumerable<ToolGroup> Groups =>
+    [
+        new("Built in", null, null, [.. Tools!.Where(tool => tool.Source is "builtin")]),
+        .. Connections.Select(connection => new ToolGroup(
+            connection.Name,
+            connection.Id,
+            connection.Status is "connected" ? null : connection.LastError,
+            [.. Tools!.Where(tool => tool.ConnectionId == connection.Id)])),
+    ];
 
     #endregion
 
     #region Private Methods
 
-    private static string Count(List<BotToolEntry> tools) =>
-        $"{tools.Count(tool => tool.Grant is not "off")} of {tools.Count} on";
+    private static string Count(ToolGroup group)
+    {
+        var on = $"{group.Tools.Count(tool => tool.Grant is not "off")} of {group.Tools.Count} on";
+        var waiting = group.Tools.Count(tool => tool.NeedsReview);
+        return waiting == 0 ? on : $"{on} · {waiting} to review";
+    }
 
     private static string Sensitivity(BotToolEntry tool) => tool.Sensitivity switch
     {
         "read" => "reads",
-        "write" => "changes things",
+        "write" => "may change things",
         _ => tool.Sensitivity.Replace('_', ' '),
     };
 
@@ -150,6 +196,35 @@ else
             busy = null;
         }
     }
+
+    /// <summary>Accepts a tool's changed definition. The server counts every bot's grant on it as current again.</summary>
+    private async Task Accept(BotToolEntry tool, Guid connectionId)
+    {
+        busy = tool.ToolId;
+        problem = null;
+
+        try
+        {
+            await Api.ConfirmToolReview(SpaceId, connectionId, tool.ToolId);
+            announcement = $"The change to {tool.Title} is accepted.";
+            await OnToolsChanged.InvokeAsync(await Api.ListBotTools(SpaceId, BotId));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSection));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = null;
+        }
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record ToolGroup(string Name, Guid? ConnectionId, string? Problem, List<BotToolEntry> Tools);
 
     #endregion
 }

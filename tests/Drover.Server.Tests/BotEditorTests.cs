@@ -358,6 +358,28 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         turnedOff.StatusCode.Should().Be(HttpStatusCode.OK, "a grant can always be lowered");
     }
 
+    [Fact]
+    public async Task A_changed_server_tool_is_listed_with_what_was_reviewed_and_changing_its_grant_does_not_review_it()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var toolId = await SeedChangedServerTool(alice.SpaceId, alice.UserId, bot.Id);
+        var tools = $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools";
+
+        var listed = (await GetFor<List<BotToolEntry>>(client, tools)).Single(tool => tool.ToolId == toolId);
+        var lowered = await PutFor<BotToolEntry>(client, $"{tools}/{toolId}", new SetToolGrantRequest("ask"));
+        var raised = await PutFor<BotToolEntry>(client, $"{tools}/{toolId}", new SetToolGrantRequest("allow"));
+        var effective = await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<ToolRepository>().FindEffectiveGrant(bot.Id, toolId, Token));
+
+        listed.Should().Match<BotToolEntry>(found => found.Source == "connection" && found.ConnectionName == "Sample server" && found.Grant == "allow" && found.NeedsReview && found.State == "available" && found.Sensitivity == "write");
+        listed.Reviewed.Should().Be(new ToolDefinitionSnapshot("Look up", "What a person read.", "{}"));
+        lowered.NeedsReview.Should().BeTrue();
+        raised.Should().Match<BotToolEntry>(found => found.Grant == "allow" && found.NeedsReview, "choosing a grant is not reading the changed definition");
+        effective.Should().Be(GrantEffect.Ask, "a grant that waits for review asks, whatever it is set to");
+    }
+
     #endregion
 
     #region Schedules
@@ -542,6 +564,32 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             db.BotAncestors.Add(new BotAncestor { AncestorBotId = parentId, DescendantBotId = child.Id, Distance = 1 });
             await db.SaveChangesAsync(Token);
             return child.Id;
+        });
+
+    /// <summary>A tool of a tool connection whose definition changed after the bot was granted it.</summary>
+    private Task<Guid> SeedChangedServerTool(Guid spaceId, Guid userId, Guid botId) =>
+        InSpace(spaceId, userId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            var connection = new ToolConnection { Name = "Sample server", Slug = "sample", Url = "https://tools.example.test/mcp" };
+            var tool = new Tool
+            {
+                SourceKind = ToolSourceKind.Mcp,
+                ToolConnectionId = connection.Id,
+                Name = "lookup",
+                Title = "Look up",
+                Description = "What the server says now.",
+                InputSchema = JsonSerializer.SerializeToElement(new { type = "object" }),
+                DefinitionHash = "changed",
+                ReviewedDefinition = JsonSerializer.SerializeToElement(new ReviewedToolDefinition("Look up", "What a person read.", "{}")),
+                FirstSeenAt = Time.GetUtcNow(),
+                LastSeenAt = Time.GetUtcNow(),
+            };
+            db.ToolConnections.Add(connection);
+            db.Tools.Add(tool);
+            db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = GrantEffect.Allow, ReviewState = ReviewState.NeedsReview, GrantedByUserId = userId });
+            await db.SaveChangesAsync(Token);
+            return tool.Id;
         });
 
     private Task<Guid> SeedFile(Guid spaceId, Guid userId) =>

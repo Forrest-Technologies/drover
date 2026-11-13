@@ -76,7 +76,7 @@ Notes:
 - `avatar` holds an optional `emoji` and `file_id`. With neither, the interface draws the bot's character from its name and id.
 - Every column of `bots` that a person may set has a path through the API, and a test walks the entity to hold that. `id`, `parent_bot_id`, `depth`, and the two `created_by` columns are set by the server; `status` changes through pause, resume, and remove, and remove is soft: the row and its history stay.
 - A schedule's `next_run_at` is computed when the schedule is saved, in UTC, from its cron expression and time zone. A schedule that is off has none.
-- Setting a tool to off in the editor deletes the bot's `tool_grants` row. Setting it is refused when it would exceed what the parent's `effective_grants` gives. A duplicated bot is a top-level bot holding the source's effective grants.
+- Setting a tool to off in the editor deletes the bot's `tool_grants` row. Setting it is refused when it would exceed what the parent's `effective_grants` gives. A duplicated bot is a top-level bot holding the source's effective grants. Changing a grant's effect leaves its `review_state` alone: a grant that waits for review is made current only by accepting the tool's changed definition, which the editor offers beside the tool together with what was last reviewed.
 - Bot, grant, and schedule changes each write one `audit_log` row in the same transaction: `actor_kind` `user`, the actor's id, an `action` such as `bot.updated` or `grant.changed`, `target_kind` `bot`, and `data.changes` holding only the values that changed, each with `before` and `after`.
 
 ### Skills, reserved shape

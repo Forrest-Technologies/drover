@@ -41,15 +41,19 @@ public static class BotSummaries
             return "Loading";
         }
 
-        var allowed = tools.Count(tool => tool.Grant is "allow");
-        var asking = tools.Count(tool => tool.Grant is "ask");
-        return (allowed, asking) switch
+        // A tool its server no longer lists cannot be used, and a grant that waits for review asks, whatever it is set to.
+        var usable = tools.Where(tool => tool.State is not "missing").ToList();
+        var allowed = usable.Count(tool => tool.Grant is "allow" && !tool.NeedsReview);
+        var asking = usable.Count(tool => tool.Grant is "ask" || (tool.Grant is "allow" && tool.NeedsReview));
+        var waiting = usable.Count(tool => tool.NeedsReview);
+        var set = (allowed, asking) switch
         {
-            (0, 0) => $"None on · {tools.Count} available",
+            (0, 0) => $"None on · {usable.Count} available",
             (_, 0) => $"{allowed} allowed",
             (0, _) => $"{asking} ask first",
             _ => $"{allowed} allowed · {asking} ask first",
         };
+        return waiting == 0 ? set : $"{set} · {waiting} to review";
     }
 
     public static string Memory(BotDraft draft) =>

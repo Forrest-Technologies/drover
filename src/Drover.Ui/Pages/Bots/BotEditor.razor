@@ -80,7 +80,7 @@
                     <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection" />
                 </Disclosure>
                 <Disclosure Title="Tools" Summary="@BotSummaries.Tools(tools, ModelCallsTools)" Open="@IsOpen(Tools)" OpenChanged="open => Toggle(Tools, open)">
-                    <ToolsSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" Tools="tools" ModelCallsTools="ModelCallsTools"
+                    <ToolsSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" Tools="tools" Connections="toolConnections" ModelCallsTools="ModelCallsTools"
                                   OnToolsChanged="changed => tools = changed" />
                 </Disclosure>
                 <Disclosure Title="Memory" Summary="@BotSummaries.Memory(draft)" Open="@IsOpen(Memory)" OpenChanged="open => Toggle(Memory, open)">

@@ -29,6 +29,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
         Server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
         Server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Model("sample-large", toolCalling: true), Model("sample-plain", toolCalling: false) });
+        Server.Answer("GET", $"{space}/tool-connections", Array.Empty<ToolConnectionSummary>());
         Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null) });
         Server.Answer("GET", $"{bot}/schedules", Array.Empty<BotScheduleResponse>());
     }
@@ -159,6 +160,45 @@ public sealed class BotEditorTests : ScreenTest
 
         page.Find(".dv-tool-limit").TextContent.Should().Be("Sample parent does not have this.");
         page.FindAll(".dv-segment-input").Select(input => input.HasAttribute("disabled")).Should().Equal(false, true, true);
+    }
+
+    [Fact]
+    public async Task A_connection_is_a_group_of_its_tools_and_a_changed_tool_shows_what_was_reviewed_and_can_be_accepted()
+    {
+        var connection = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
+        var changed = new BotToolEntry(Guid.Parse("0196f1a0-0000-7000-8000-000000000009"), "lookup", "Look up", "Sample new words", "connection", connection, "Sample server", "write", "allow", "allow", null, "available")
+        {
+            NeedsReview = true,
+            Reviewed = new ToolDefinitionSnapshot("Look up", "Sample old words", "{}"),
+        };
+        var gone = changed with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000a"), Name = "gone", Title = "Gone", NeedsReview = false, Reviewed = null, State = "missing" };
+        Server.Answer("GET", $"{space}/tool-connections", new[]
+        {
+            new ToolConnectionSummary(connection, "Sample server", "sample", "https://tools.example.test/mcp", "none", "untrusted", "automatic", "connected", null, null, null),
+            new ToolConnectionSummary(Guid.Parse("0196f1a0-0000-7000-8000-00000000000b"), "Quiet server", "quiet", "https://quiet.example.test/mcp", "none", "untrusted", "automatic", "failed", null, null, "Sample failure."),
+        });
+        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null), changed, gone });
+        Server.Answer("POST", $"{space}/tool-connections/{connection}/tools/{changed.ToolId}/review", new ConnectionToolSummary(changed.ToolId, connection, "lookup", "sample_lookup", "Look up", "Sample new words", "write", "available", DateTimeOffset.UnixEpoch));
+        var page = Render<BotEditor>(parameters => parameters.Add(editor => editor.BotId, botId));
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle").Select(toggle => Words(toggle.TextContent)).Should().Contain("Tools, 1 allowed · 1 ask first · 1 to review"));
+        await Open(page, 1);
+
+        page.FindAll(".dv-tools-group > summary").Select(summary => Words(summary.TextContent)).Should().Equal(
+            "Built in 1 of 1 on",
+            "Sample server 2 of 2 on · 1 to review",
+            "Quiet server 0 of 0 on");
+        page.FindAll(".dv-tools-group > .dv-editor-hint").Should().ContainSingle().Which.TextContent.Should().Be("Quiet server has listed no tools. Sample failure.");
+        page.Find(".dv-tool-review .dv-badge").TextContent.Should().Be("Changed, needs review");
+        page.Find(".dv-tool-review").TextContent.Should().Contain("Atlas asks before each use");
+        page.FindAll(".dv-tool-compare dd").Select(words => words.TextContent).Should().Equal("Look upSample old words", "Look upSample new words");
+        page.FindAll(".dv-tool-limit").Select(limit => limit.TextContent).Should().Contain("Sample server no longer lists this tool, so it cannot be used.");
+
+        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null), changed with { NeedsReview = false, Reviewed = null }, gone });
+        await page.Find(".dv-tool-review .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-tool-review").Should().BeEmpty());
+        Server.Sent("POST", $"{space}/tool-connections/{connection}/tools/{changed.ToolId}/review").Should().ContainSingle();
+        page.FindAll(".dv-disclosure-open [role=status]").Select(status => status.TextContent).Should().Contain("The change to Look up is accepted.");
     }
 
     [Fact]
@@ -306,7 +346,7 @@ public sealed class BotEditorTests : ScreenTest
             DateTimeOffset.UnixEpoch);
 
     private static BotToolEntry TimeTool(string grant, string ceiling, string? parent) =>
-        new(toolId, "time.now", "Current time", "Sample description", "builtin", null, null, "read", grant, ceiling, parent, false);
+        new(toolId, "time.now", "Current time", "Sample description", "builtin", null, null, "read", grant, ceiling, parent, "available");
 
     private static Task Open(IRenderedComponent<BotEditor> page, int section) =>
         page.FindAll(".dv-disclosure-toggle")[section].ClickAsync(new MouseEventArgs());

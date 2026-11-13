@@ -203,6 +203,37 @@
   gap: var(--dv-space-2);
 }
 
+.dv-editor ::deep .dv-tool-review {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.dv-editor ::deep .dv-tool-reviewed {
+  align-self: stretch;
+}
+
+.dv-editor ::deep .dv-tool-compare {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--dv-space-2) var(--dv-space-3);
+  margin: 0;
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+.dv-editor ::deep .dv-tool-compare dt {
+  color: var(--dv-text-3);
+}
+
+.dv-editor ::deep .dv-tool-compare dd {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
 .dv-editor ::deep .dv-schedule-actions,
 .dv-editor ::deep .dv-schedule-form-actions {
   display: flex;
