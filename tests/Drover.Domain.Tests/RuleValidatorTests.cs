@@ -17,6 +17,8 @@ public sealed class RuleValidatorTests
         ];
 
         RuleValidator.FindProblem("Mail stays inside", RuleCheckpoint.BeforeTool, RuleEffect.Ask, conditions).Should().BeNull();
+        RuleValidator.FindProblem("Addresses stay inside", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] }])
+            .Should().BeNull("a list with no input named checks every address in the input, for any tool");
         RuleValidator.FindProblem("Always", RuleCheckpoint.BeforeReply, RuleEffect.Block, []).Should().BeNull("no condition means always");
     }
 
@@ -36,7 +38,7 @@ public sealed class RuleValidatorTests
         { "a tool condition on a reply", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["x"] }], "belongs to a rule about a tool" },
         { "no tool named", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs }], "Name at least one tool" },
         { "an argument on a result", RuleCheckpoint.AfterTool, RuleEffect.Block, [Holds() with { Argument = "body" }], "only before a tool is used" },
-        { "a list with no argument", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Entries = ["x"] }], "Name the argument" },
+        { "a list that names an input and no tool", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["x"] }], "name the tools" },
         { "a blank entry", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", " "] }], "no blank entry" },
         { "a long list", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = [.. Enumerable.Range(0, 51).Select(number => $"v{number}")] }], "Keep it to 50" },
         { "a long pattern", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = new string('a', 501) }], "up to 500 characters" },
