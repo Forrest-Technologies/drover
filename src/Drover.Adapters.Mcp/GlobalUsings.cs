@@ -15,6 +15,7 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Http.Resilience;
 global using Microsoft.Extensions.Logging;
 global using ModelContextProtocol;
+global using ModelContextProtocol.Authentication;
 global using ModelContextProtocol.Client;
 global using ModelContextProtocol.Protocol;
 global using ServerTool = ModelContextProtocol.Protocol.Tool;

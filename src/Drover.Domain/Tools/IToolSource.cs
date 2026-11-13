@@ -43,7 +43,58 @@ public sealed record ToolEndpoint(Guid ConnectionId, Uri Url)
 
     public ToolServerLimits Limits { get; init; } = ToolServerLimits.Default;
 
+    /// <summary>Set when the server wants a sign-in instead of a header.</summary>
+    public ToolSignIn? SignIn { get; init; }
+
     #endregion
+}
+
+/// <summary>
+/// What a source needs to act for somebody who signed in to a tool server. The tokens are one credential's: the
+/// caller reads and writes them in the vault through <see cref="ReadTokens"/> and <see cref="WriteTokens"/>, as text
+/// only the source understands. A source sends an access token to the tool server's own origin and nowhere else,
+/// asks for a sign-in only through <see cref="AskPerson"/>, and when that is absent and the tokens no longer work
+/// fails with <see cref="ToolSourceFailure.SignInRequired"/>.
+/// </summary>
+public sealed record ToolSignIn(Uri RedirectUrl, Func<CancellationToken, Task<string?>> ReadTokens, Func<string, CancellationToken, Task> WriteTokens)
+{
+    #region Properties
+
+    /// <summary>The name a person sees on the consent page when this server registers itself.</summary>
+    public string ClientName { get; init; } = "Drover";
+
+    /// <summary>A client id an admin entered. It is used before any other way of naming this server to the tool server.</summary>
+    public string? ClientId { get; init; }
+
+    public string? ClientSecret { get; init; }
+
+    /// <summary>Where this server publishes its client document, for a tool server that reads one.</summary>
+    public Uri? ClientDocumentUrl { get; init; }
+
+    /// <summary>
+    /// Sends a person to the address to approve, and waits for what their browser brings back. Absent when nobody
+    /// is there to ask, as in a run.
+    /// </summary>
+    public Func<SignInPrompt, CancellationToken, Task<SignInAnswer>>? AskPerson { get; init; }
+
+    #endregion
+
+    #region Overrides
+
+    /// <summary>Says nothing: a record would otherwise print the client secret.</summary>
+    public override string ToString() => nameof(ToolSignIn);
+
+    #endregion
+}
+
+/// <summary>Where a person must go to approve a sign-in. The address comes from the tool server's side: show it, never trust it.</summary>
+public sealed record SignInPrompt(Uri AuthorizationUrl);
+
+/// <summary>What a person's browser brought back from the approval page.</summary>
+public sealed record SignInAnswer(string Code, string? State, string? Issuer)
+{
+    /// <summary>Says nothing: the code is a credential until it is spent.</summary>
+    public override string ToString() => nameof(SignInAnswer);
 }
 
 /// <summary>
@@ -88,6 +139,9 @@ public enum ToolSourceFailure
     Blocked,
     ServerError,
     TooLarge,
+
+    /// <summary>The server wants a sign-in, and there are no tokens that work and nobody to ask.</summary>
+    SignInRequired,
 }
 
 /// <summary>A tool server could not be used. The message is plain words for a person and holds no credential.</summary>

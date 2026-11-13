@@ -23,6 +23,7 @@
     <Compile Include="..\Shared\TestWebServer.cs" Link="Shared\TestWebServer.cs" />
     <Compile Include="..\Shared\ScriptedModelProvider.cs" Link="Shared\ScriptedModelProvider.cs" />
     <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
+    <Compile Include="..\Shared\SignInDesk.cs" Link="Shared\SignInDesk.cs" />
   </ItemGroup>
 
 </Project>
