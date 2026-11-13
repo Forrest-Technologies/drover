@@ -527,22 +527,34 @@ public sealed class RunExecutor(
     }
 
     /// <summary>
-    /// What arrived for this execution: the message that started the run, until its first step, and every message
-    /// placed on the thread just now.
+    /// What arrived for this execution. Until the run's first step that is every message of its person it holds: the
+    /// one that started it, those placed on the thread just now, and those an execution that was cut off placed
+    /// before it could check them. After the first step only what was placed just now is new.
     /// </summary>
     private static async Task<IReadOnlyList<Message>> Arrived(RunSession session, LoadedRun loaded, IReadOnlyList<Message> placed)
     {
-        if (loaded.Steps.Count == 0
-            && loaded.Run.TriggerMessageId is { } triggerId
-            && placed.All(message => message.Id != triggerId)
-            && await session.Tenant.Transact(
-                services => services.GetRequiredService<MessageRepository>().FindMessage(triggerId, CancellationToken.None),
-                CancellationToken.None) is { } trigger)
+        if (loaded.Steps.Count > 0)
         {
-            return [trigger, .. placed];
+            return placed;
         }
 
-        return placed;
+        var held = await session.Tenant.Transact(
+            async services =>
+            {
+                var messages = services.GetRequiredService<MessageRepository>();
+                List<Message> found = [.. await messages.ListDeliveredMessages(loaded.Run.ThreadId, loaded.Run.Id, CancellationToken.None)];
+
+                if (loaded.Run.TriggerMessageId is { } triggerId
+                    && found.All(message => message.Id != triggerId)
+                    && await messages.FindMessage(triggerId, CancellationToken.None) is { } trigger)
+                {
+                    found.Insert(0, trigger);
+                }
+
+                return found;
+            },
+            CancellationToken.None);
+        return [.. held, .. placed.Where(message => held.All(known => known.Id != message.Id))];
     }
 
     private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()

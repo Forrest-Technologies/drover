@@ -172,6 +172,24 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
     #region Try It
 
     [Fact]
+    public async Task A_sample_too_long_to_try_is_refused_in_words_before_any_rule_is_run()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Slow pattern", true, "before_reply", "block", [new("text_matches") { Pattern = "a+b|a" }])), HttpStatusCode.Created);
+        var watch = Stopwatch.StartNew();
+
+        var refused = await client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, new string('a', RuleService.MaxSampleLength + 1)));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Token)).Should().Contain("20,000 characters");
+        var tried = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, new string('a', RuleService.MaxSampleLength))), HttpStatusCode.OK);
+        tried.Effect.Should().Be("block");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public async Task Trying_a_sample_answers_with_the_evaluator_a_run_uses_and_changes_nothing()
     {
         var alice = await SeedPerson("alice");

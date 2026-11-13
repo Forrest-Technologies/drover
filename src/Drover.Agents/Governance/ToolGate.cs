@@ -55,8 +55,9 @@ public sealed class ToolGate(RunContext run, ILogger logger)
 
         if (decision.Arguments is { ValueKind: JsonValueKind.Object } ruled)
         {
-            // A rule removed something from the arguments. The tool is called with what is left, and that is what
-            // the call's row keeps.
+            // A rule removed something from the arguments. The tool is called with what is left. The copies made
+            // before the gate (the event, the stored message, a row made for an approval) are kept clean earlier,
+            // where the model's call is first read: see ReplyRules.
             AIFunctionArguments left = [];
 
             foreach (var argument in ruled.EnumerateObject())
