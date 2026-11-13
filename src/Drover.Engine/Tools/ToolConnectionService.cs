@@ -248,6 +248,7 @@ public sealed class ToolConnectionService(
         }
 
         await work.Commit(cancellationToken);
+        await Forget(connectionId, cancellationToken);
         logger.LogInformation("The header of tool connection {ConnectionId} was replaced", connectionId);
         return new ToolConnectionChange(connection, null);
     }
@@ -264,8 +265,9 @@ public sealed class ToolConnectionService(
         }
 
         connection.Trust = trust;
+        var protocolChanged = connection.ProtocolMode != protocolMode;
 
-        if (connection.ProtocolMode != protocolMode)
+        if (protocolChanged)
         {
             // What was negotiated under the old setting says nothing about the new one.
             connection.ProtocolMode = protocolMode;
@@ -273,6 +275,12 @@ public sealed class ToolConnectionService(
         }
 
         await work.Commit(cancellationToken);
+
+        if (protocolChanged)
+        {
+            await Forget(connectionId, cancellationToken);
+        }
+
         return new ToolConnectionChange(connection, null);
     }
 
@@ -305,6 +313,7 @@ public sealed class ToolConnectionService(
         }
 
         await work.Commit(cancellationToken);
+        await Forget(connectionId, cancellationToken);
         logger.LogInformation("Tool connection {ConnectionId} removed", connectionId);
         return true;
     }
@@ -518,6 +527,7 @@ public sealed class ToolConnectionService(
         connections.Remove(credential);
         await vault.Delete(credential.SecretId, cancellationToken);
         await work.Commit(cancellationToken);
+        await Forget(connectionId, cancellationToken);
         logger.LogInformation("A sign-in of tool connection {ConnectionId} was removed", connectionId);
         return true;
     }
@@ -569,6 +579,19 @@ public sealed class ToolConnectionService(
 
     #region Private Methods
 
+    /// <summary>
+    /// Tells every tool source to let go of what it keeps open for the connection. Called after the change is
+    /// committed, with no transaction open: from here on a call resolves the new state, and must not be served by a
+    /// session that was opened under the old one.
+    /// </summary>
+    private async Task Forget(Guid connectionId, CancellationToken cancellationToken)
+    {
+        foreach (var source in sources)
+        {
+            await source.Forget(connectionId, cancellationToken);
+        }
+    }
+
     private async Task StoreHeader(ToolConnection connection, string name, string value, CancellationToken cancellationToken)
     {
         var secretId = await vault.Store(SecretKind.ToolHeader, HeaderSecret.Write(name, value), null, cancellationToken);
@@ -587,6 +610,13 @@ public sealed class ToolConnectionService(
             || !string.IsNullOrEmpty(url.UserInfo))
         {
             return "Enter the server's web address, starting with https:// or http://, with no user name or password in it.";
+        }
+
+        // An address is stored as it is and shown to every member. A key in it ("?api_key=...") would be too, so
+        // nothing after the path is taken. The message does not repeat the address.
+        if (!string.IsNullOrEmpty(url.Query) || !string.IsNullOrEmpty(url.Fragment) || request.Url.Contains('?', StringComparison.Ordinal) || request.Url.Contains('#', StringComparison.Ordinal))
+        {
+            return "Enter the server's address with nothing after the path: no \"?\" and no \"#\". If the server wants a key, add it as a header, which is kept secret.";
         }
 
         return request.AuthKind switch

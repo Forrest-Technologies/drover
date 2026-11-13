@@ -13,6 +13,8 @@ public sealed class FakeToolServer : IToolSource
 
     private readonly ConcurrentDictionary<string, Func<JsonElement, ToolEndpoint, ToolOutcome>> answers = new(StringComparer.Ordinal);
 
+    private readonly ConcurrentQueue<Guid> forgotten = new();
+
     #endregion
 
     #region Properties
@@ -25,6 +27,9 @@ public sealed class FakeToolServer : IToolSource
     public ToolSourceException? Down { get; set; }
 
     public IReadOnlyList<(string Tool, ToolEndpoint Endpoint)> Calls => [.. calls];
+
+    /// <summary>The connections the engine told this source to let go of, in order.</summary>
+    public IReadOnlyList<Guid> Forgotten => [.. forgotten];
 
     #endregion
 
@@ -46,6 +51,12 @@ public sealed class FakeToolServer : IToolSource
     #endregion
 
     #region Interface Implementations
+
+    public Task Forget(Guid connectionId, CancellationToken cancellationToken)
+    {
+        forgotten.Enqueue(connectionId);
+        return Task.CompletedTask;
+    }
 
     public Task<ToolListing> ListTools(ToolEndpoint endpoint, CancellationToken cancellationToken) =>
         Down is { } down ? throw down : Task.FromResult(new ToolListing([.. Tools], "2026-07-28", true));
