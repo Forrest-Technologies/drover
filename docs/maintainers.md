@@ -5,33 +5,19 @@ These settings live in GitHub, not in the code. The workflows assume every one o
 ## Checklist
 
 1. **Approval for outside contributors.** Settings, Actions, General: require approval for workflow runs from all outside contributors.
-2. **Runner group.** Settings, Actions, Runner groups: restrict the self-hosted runner group to the `release` workflow. A mistaken `runs-on` in any other workflow must not reach it.
-3. **Tag protection. A precondition for the first tag.** Add a ruleset for `v*` so only maintainers can create a version tag. `release.yml` runs on that tag, and its safety depends on this rule. Do not push the first tag before it is in place.
-4. **Release environment.** Create the `release` environment and protect it with required reviewers. `release.yml` names it.
-5. **Required checks on `main`.** Require the `ci` and `security` checks and a pull request before merge.
-6. **Secret scanning with push protection.** Switch both on. Also switch on the dependency graph; the dependency review job fails without it.
-7. **Private vulnerability reporting.** Switch it on. `SECURITY.md` tells people to use it.
+2. **Tag protection. A precondition for the first tag.** Add a ruleset for `v*` so only maintainers can create a version tag. `release.yml` runs on that tag, and its safety depends on this rule. Do not push the first tag before it is in place.
+3. **Release environment.** Create the `release` environment and protect it with required reviewers. `release.yml` names it.
+4. **Required checks on `main`.** Require the `ci` and `security` checks and a pull request before merge.
+5. **Secret scanning with push protection.** Switch both on. Also switch on the dependency graph; the dependency review job fails without it.
+6. **Private vulnerability reporting.** Switch it on. `SECURITY.md` tells people to use it.
 
 The reasons are in [tooling](architecture/10-tooling.md#runners).
 
-## What the release runner needs
+## What the release job needs
 
-`release.yml` runs one job that builds, runs the tests, writes the SBOM, attests, and publishes. Whatever runs it needs:
+`release.yml` runs on a GitHub-hosted runner (`ubuntu-latest`), like every other workflow. Docker (the test suite starts PostgreSQL containers) and the `gh` CLI are already there, and .NET comes from `setup-dotnet`. There is no self-hosted runner for this repository.
 
-- Linux on x64.
-- Docker available to the job's user. The test suite starts PostgreSQL containers.
-- The `gh` CLI.
-- Outbound access to GitHub, NuGet, and the attestation service.
-- Nothing else for .NET: `setup-dotnet` installs it.
-
-With no runner registered, a release job waits and does nothing.
-
-### A decision for the owner
-
-Choose one. The workflow's `runs-on` is left as written until you do.
-
-1. **Register a self-hosted runner** that meets the list above, and restrict its runner group to this workflow (checklist item 2). AGENTS.md section 11 allows this for `release.yml` and does not require it.
-2. **Run the job on a GitHub-hosted runner.** It already has Docker and `gh`. Change `runs-on` in `release.yml` to `ubuntu-latest`.
+The job is trusted because it runs only for a `v*` tag behind the tag ruleset (checklist item 2) and waits for the `release` environment's required reviewer. Both must be in place before the first tag.
 
 ## Cutting a release
 
