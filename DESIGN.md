@@ -87,6 +87,7 @@ Every bot is a head with a visor: one band of light where a face would be. The v
 - Built from parts stored as data: six heads, six visors, six tops, six marks, a tilt, and the hue. The same bot always gets the same character.
 - The visor is the state: dark at rest, a slow breath when thinking, steady when writing, a bright bar sweeping across when a tool runs, a pale red when failed. Each state is also said in words.
 - Below 24 px the top and the mark drop out; the head and visor remain.
+- In a conversation the bot speaks from its character: the head stands at 48 px on a faceted plate beside each reply and in the thread header, never as a small profile dot. The plate's edge takes the live color only while that bot is thinking or writing.
 - The Drover mark is the lead of the crew: the wedge head, cocked, with the visor cut out so it holds in one color.
 - Nothing is a soft blob with eye marks, and nothing resembles another product's avatars.
 
