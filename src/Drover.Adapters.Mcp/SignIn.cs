@@ -80,6 +80,10 @@ public sealed class RefreshGate : IDisposable
 
     private readonly SemaphoreSlim turn = new(1, 1);
 
+    private long renewedAt;
+
+    private int everRenewed;
+
     #endregion
 
     #region Public Methods
@@ -87,6 +91,21 @@ public sealed class RefreshGate : IDisposable
     public Task Enter(CancellationToken cancellationToken) => turn.WaitAsync(cancellationToken);
 
     public void Leave() => turn.Release();
+
+    /// <summary>Notes that new tokens were just stored for this credential.</summary>
+    public void MarkRenewed(TimeProvider time)
+    {
+        Volatile.Write(ref renewedAt, time.GetTimestamp());
+        Volatile.Write(ref everRenewed, 1);
+    }
+
+    /// <summary>
+    /// Whether this credential's tokens were renewed within the given time. Tokens that new are not renewed again
+    /// on the strength of a clock: a use that starts just after another renewed them would otherwise spend the new
+    /// refresh token at once. If they really are no good, the tool server says so and the library renews then.
+    /// </summary>
+    public bool WasRenewedWithin(TimeSpan span, TimeProvider time) =>
+        Volatile.Read(ref everRenewed) == 1 && time.GetElapsedTime(Volatile.Read(ref renewedAt)) < span;
 
     #endregion
 
@@ -149,6 +168,8 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
     {
         await signIn.WriteTokens(JsonSerializer.Serialize(tokens, McpJsonUtilities.DefaultOptions), RunsOutAt(tokens), cancellationToken);
 
+        gate.MarkRenewed(time);
+
         if (SignInAttempt.Current is { } attempt)
         {
             attempt.HasRenewed = true;
@@ -175,6 +196,7 @@ internal sealed class KeptTokenCache(ToolSignIn signIn, RefreshGate gate, TimePr
         var renewBefore = attempt.Endpoint.SignIn?.RenewBefore is { } wanted && wanted > now + margin ? wanted : now + margin;
         // Without a refresh token nothing can be renewed: the access token is used for as long as the tool server takes it.
         return !string.IsNullOrEmpty(tokens.RefreshToken)
+            && !gate.WasRenewedWithin(margin, time)
             && RunsOutAt(tokens) is { } runsOut
             && runsOut <= renewBefore;
     }

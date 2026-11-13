@@ -418,6 +418,23 @@ public abstract class ToolSourceConformance
         server.Refreshes.Should().Be(1, "a refresh token works once, so the uses must not each spend it");
     }
 
+    [Fact]
+    public async Task A_use_that_starts_just_after_the_tokens_were_renewed_does_not_renew_them_again()
+    {
+        await using var source = CreateSource();
+        await using var server = await StartServer(
+            new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn { TokenLifetime = TimeSpan.FromSeconds(2) } });
+        var endpoint = await SignIn(source.Source, server, new KeptTokens());
+
+        await Task.Delay(TimeSpan.FromSeconds(2.5), Token);
+        var first = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"first"}"""), Token);
+        var second = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"second"}"""), Token);
+
+        first.Result.GetString().Should().Be("echo: first");
+        second.Result.GetString().Should().Be("echo: second");
+        server.Refreshes.Should().Be(1, "new tokens are used, not spent on another renewal because a clock says they are short-lived");
+    }
+
     [Theory]
     [InlineData(ServerGeneration.Stateless)]
     [InlineData(ServerGeneration.SessionBased)]
