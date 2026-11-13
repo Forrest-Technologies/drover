@@ -9,12 +9,10 @@
         <Badge Kind="@Status.Kind">@Status.Words</Badge>
     </div>
 
-    @if (Connection.Status is "failed" && Connection.LastError is { Length: > 0 } error)
-    {
-        <StatusNote Kind="NoteKind.Danger" Text="@error" />
-    }
+    <StatusNote Kind="NoteKind.Danger" Text="@ShownError" />
 
-    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+    @* A check that just failed leaves the same words as the connection's last error; they are said once. *@
+    <StatusNote Kind="NoteKind.Danger" Text="@(Problem == ShownError ? null : Problem)" />
 
     @if (ConnectionWords.SignInNeed(Connection) is { } need)
     {
@@ -169,6 +167,8 @@
     public EventCallback<ReplaceToolHeaderRequest> OnReplaceHeader { get; set; }
 
     private (BadgeKind Kind, string Words) Status => ConnectionWords.Status(Connection);
+
+    private string? ShownError => Connection.Status is "failed" && Connection.LastError is { Length: > 0 } error ? error : null;
 
     // One sign-in for the whole space is an owner's or admin's to give; a person's own sign-in is theirs.
     private bool MaySignIn => Connection.SignInScope is "per_user" || CanEdit;

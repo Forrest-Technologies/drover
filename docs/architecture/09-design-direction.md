@@ -165,6 +165,18 @@ One page, sectioned, with progressive disclosure. Never a wall of settings.
 - In Tools, built-in tools come first, then one group for each tool connection, also one that has listed nothing. A tool whose definition changed says the bot asks before each use until the change is accepted, shows what was last reviewed beside what it says now, and offers to accept it for every bot. A tool its server no longer lists says so.
 - New bot makes a bot at once on the connection that last answered and opens it in the editor; there is no separate creation form.
 
+### 3a. Tool connections
+
+Its job: add a tool server, see whether it is connected, sign in to it, review changed tools, remove it.
+
+- One frame for each server: its name, its address and facts in monospace, and its state in words (Connected, Not connected with the last error, Not checked yet).
+- The add form asks for a name and an address, then how Drover proves who is calling: nothing, a header, or a sign-in. A credential's fields appear only under its choice, and a client id, secret, and sign-in service only when the person says they registered a client. Only what the final choice uses is sent.
+- A secret is typed once and never shown back. A stored header has no field until it is being replaced.
+- A sign-in that is missing or has lapsed is said in a sentence with the one button that fixes it. One sign-in for the whole space is an owner's or admin's to give; a person's own is theirs.
+- The provider's page sends the browser back to the start page, which hands it to this screen; the screen says how the sign-in went.
+- A changed tool shows what was last reviewed beside what it says now, and one button accepts it. Removing a server asks first and says what goes with it.
+- The bot editor's Tools section links here when the space has no tool server.
+
 ### 4. Activity
 
 Every run in the space, newest first, filterable by bot, status, and "waiting for me". Each row expands to the same timeline as the thread rail. This is where a human audits what the crew did overnight and answers approvals in bulk.

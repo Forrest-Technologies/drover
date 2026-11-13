@@ -165,7 +165,21 @@ public sealed class ToolConnectionsTests : ScreenTest
         page.Find(".dv-connection-ask .dv-button").TextContent.Trim().Should().Be("Sign in again");
         await page.Find(".dv-connection-ask .dv-button").ClickAsync(new MouseEventArgs());
 
-        page.WaitForAssertion(() => page.Find(".dv-connection [role=alert]").TextContent.Should().Contain("Sample reason the sign-in could not start."));
+        page.WaitForAssertion(() => page.FindAll(".dv-connection .dv-note").Select(note => note.TextContent.Trim()).Should().Equal("Sample reason the sign-in could not start."));
+    }
+
+    [Fact]
+    public async Task A_check_that_fails_says_what_went_wrong_once()
+    {
+        Listed([Connection("ready")], Tool());
+        Server.Answer("POST", $"{root}/{connectionId}/refresh", new ToolConnectionRefresh(Connection("failed") with { LastError = "Sample failure." }, [Tool()], "Sample failure.", 0, 0, 0, 0));
+        var page = Render<ToolConnections>();
+        page.WaitForElement(".dv-connection-actions .dv-button");
+
+        await page.Find(".dv-connection-actions .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-connection .dv-badge").TextContent.Should().Be("Not connected"));
+        page.FindAll(".dv-connection .dv-note").Select(note => note.TextContent.Trim()).Should().Equal("Sample failure.");
     }
 
     [Theory]
