@@ -352,8 +352,8 @@ public sealed class RunExecutor(
     }
 
     /// <summary>
-    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs its
-    /// connection, switched on, and is named for the model with the connection's own prefix, so no server can take
+    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs tool
+    /// connections allowed on this server and its own connection switched on, and is named for the model with the connection's own prefix, so no server can take
     /// another's names or a built-in's.
     /// </summary>
     private RunTool? ToRunTool(GrantedTool granted, IReadOnlyList<ToolConnection> toolConnections)
@@ -367,7 +367,9 @@ public sealed class RunExecutor(
                 builtins.FirstOrDefault(builtin => builtin.Name == granted.Tool.Name));
         }
 
-        return toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
+        // With tool connections turned off on this server, a tool of one cannot be called, so the model is not offered it.
+        return deployment.Value.Rules.AllowToolConnections
+            && toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
             ? new RunTool(granted.Tool, granted.Effect, ToolNames.ForModel(connection.Slug, granted.Tool.Name), null, connection)
             : null;
     }

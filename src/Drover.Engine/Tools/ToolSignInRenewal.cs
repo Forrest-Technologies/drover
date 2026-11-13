@@ -12,8 +12,13 @@ namespace Drover.Engine.Tools;
 /// hands out that person's tokens and nobody else's, exactly as in a run. No transaction is open while the tool
 /// server is asked.</item>
 /// <item>One tool server that is down must not take every pass. A sign-in that was tried and not renewed is noted
-/// and left out of the passes of the next half hour, and once one sign-in of a connection has failed for a reason
-/// that is the server's, the rest of that connection's are noted and skipped in the same pass without being tried.</item>
+/// and left out for a third of the lead, so it is tried again before it runs out, and once one sign-in of a
+/// connection has failed for a reason that is the server's, the rest of that connection's are noted and skipped in
+/// the same pass without being tried.</item>
+/// <item>One space must not take every pass either. The spaces take turns, one sign-in from each before a second
+/// from any, and a sign-in is renewed at most once in the lead: tokens that last less than the lead would
+/// otherwise be due again at every pass, for as long as the sign-in exists.</item>
+/// <item>With tool connections turned off on this server, a pass does nothing.</item>
 /// <item>One sign-in that cannot even be prepared fails by itself; the pass goes on with the others.</item>
 /// <item>How many a pass tries, how often a pass runs, and how far ahead it renews are deployment policy rules.</item>
 /// </list>
@@ -27,15 +32,21 @@ public sealed class ToolSignInRenewal(
 {
     #region Private Fields
 
-    /// <summary>How long a sign-in that was tried and not renewed waits before it is tried again.</summary>
-    public static readonly TimeSpan RetryAfter = TimeSpan.FromMinutes(30);
-
     /// <summary>How long one renewal may take. A pass is many of them, one after another.</summary>
     private static readonly TimeSpan patience = TimeSpan.FromSeconds(20);
 
     #endregion
 
     #region Properties
+
+    /// <summary>How far ahead of its end a sign-in is renewed, from the deployment policy. Also the least time between two renewals of one sign-in.</summary>
+    public TimeSpan Lead => TimeSpan.FromMinutes(Math.Max(1, policy.Value.Rules.MaxToolSignInRenewalLeadMinutes));
+
+    /// <summary>
+    /// How long a sign-in that was tried and not renewed waits before it is tried again: a third of the lead, so
+    /// one failure leaves time for another try before the tokens run out.
+    /// </summary>
+    public TimeSpan RetryAfter => Lead / 3;
 
     /// <summary>The time between two passes, from the deployment policy.</summary>
     public TimeSpan Interval => TimeSpan.FromHours(1) / Math.Max(1, policy.Value.Rules.MaxToolSignInRenewalPassesPerHour);
@@ -52,16 +63,16 @@ public sealed class ToolSignInRenewal(
     {
         var rules = policy.Value.Rules;
 
-        if (sources.FirstOrDefault(found => found.Kind is ToolSourceKind.Mcp) is not { } source)
+        if (!rules.AllowToolConnections || sources.FirstOrDefault(found => found.Kind is ToolSourceKind.Mcp) is not { } source)
         {
             return 0;
         }
 
         var now = time.GetUtcNow();
-        var renewBefore = now + TimeSpan.FromMinutes(rules.MaxToolSignInRenewalLeadMinutes);
+        var renewBefore = now + Lead;
         var due = await scopes.WithoutTenant(
             services => services.GetRequiredService<ToolConnectionRepository>()
-                .ListSignInsRunningOut(renewBefore, now - RetryAfter, rules.MaxToolSignInRenewalsPerPass, cancellationToken),
+                .ListSignInsRunningOut(renewBefore, now - RetryAfter, now - Lead, rules.MaxToolSignInRenewalsPerPass, cancellationToken),
             cancellationToken);
         HashSet<Guid> unanswering = [];
         var renewed = 0;
