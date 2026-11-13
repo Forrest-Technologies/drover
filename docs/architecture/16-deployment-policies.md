@@ -62,12 +62,12 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `AllowPrivateAddresses` | `true` | `false` | Enforced: every outbound connection |
 | `MaxModelListBytes` | `8388608` | `2097152` | Enforced: each model provider adapter stops reading a model list or key check past it and refuses the answer. A limit, not a switch: the operator may tighten it, a higher value than the preset is refused at start, and zero or less is not a value |
 | `MaxModelsPerConnection` | `5000` | `1000` | Enforced: `ModelConnectionService` refuses a refresh that lists more models and leaves the catalog as it was |
-| `AllowToolConnections` | `true` | `false` | Enforced: `ToolConnectionService`. Off, no tool connection can be added, and none that exists is listed, signed in to, renewed, or called; every such attempt answers with a message naming this rule. Nothing is removed, so turning it on again restores what was there. Off in the hosted preset until what a shared server needs is done: renewal that one dead server cannot monopolize, sign-ins that survive more than one instance, and revoking tokens at the provider. A self-hoster decides for their own server |
+| `AllowToolConnections` | `true` | `false` | Enforced: `ToolConnectionService`, `RunExecutor`, `ToolSignInRenewal`. Off, no tool connection can be added, and none that exists is offered to a model, listed, signed in to, renewed, or called; every such attempt answers with a message naming this rule. Nothing is removed, so turning it on again restores what was there. Off in the hosted preset until what a shared server needs is done: renewal that one dead server cannot monopolize, sign-ins that survive more than one instance, and revoking tokens at the provider. A self-hoster decides for their own server |
 | `MaxToolResponseBytes` | `8388608` | `2097152` | Enforced: the tool source adapter stops reading any answer from a tool server past it (a tool list page, a tool's result, a session's event stream) and reports the answer as too large. A tool server chooses how much it sends; this is how much Drover will hold. A limit: it may be tightened, not raised past the preset |
 | `MaxToolsPerConnection` | `500` | `200` | Enforced: the adapter stops listing at this many tools, and the catalog stores no more than this many for one connection. A limit, as above |
 | `MaxToolSignInRenewalsPerPass` | `50` | `20` | Enforced: the background renewal of tool server sign-ins tries no more than this many in one pass. Each is a request to somebody else's server made on this server's own initiative. A limit, as above |
 | `MaxToolSignInRenewalPassesPerHour` | `12` | `12` | Enforced: how often that pass runs. A limit: an operator may run it less often, not more |
-| `MaxToolSignInRenewalLeadMinutes` | `15` | `15` | Enforced: how long before an access token runs out it is renewed. A longer lead renews more often, so it is a limit too |
+| `MaxToolSignInRenewalLeadMinutes` | `15` | `15` | Enforced: how long before an access token runs out it is renewed. A longer lead renews more often, so it is a limit too. It is also the least time between two background renewals of one sign-in, and a failed renewal is tried again after a third of it |
 | `SandboxAdapters` | `All` | `HardBoundaryOnly` | Later: sandbox adapter registration (Phase 1) |
 | `AllowHostStdioMcp` | `false` | `false` | Later: MCP tool servers (Phase 1) |
 | `SubscriptionSignIn` | `WhereProviderPermits` | `OnlyWithOperatorApproval` | Later: model providers |
@@ -85,6 +85,7 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `AllowDisablingDataRights` | `true` | `false` | Later: export and deletion endpoints |
 | `AllowTelemetryContent` | `false` | `false` | Later: telemetry export |
 | `AllowOperatorContentAccess` | `false` | `false` | Later: support access, if it is ever added |
+| `SpaceAdminsSeeServerStatus` | `true` | `false` | Enforced: `GET /api/spaces/{spaceId}/status` shows the server rows (database role, migrations, key ring, public address, run queue across spaces) to a space's owners and admins only when on. On a shared service they are strangers, so those rows stay with the operator, who reads `/health/ready` and the log |
 
 `OpenRegistration` is the one rule the operator of a hosted service may loosen: the table's "operator's choice". Every other rule is locked to its preset. The sign-in rate limit, the key ring path, and quota amounts are configuration, not rules.
 

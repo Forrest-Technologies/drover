@@ -138,6 +138,31 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Self_hosted_on_a_superuser_connection_starts_but_logs_an_error_and_the_status_page_turns_red()
+    {
+        var logs = new LogCapture();
+        await using var server = await Boot(SelfHosted(), useAdminConnection: true, logs: logs);
+        var connection = server.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString;
+
+        var row = await StatusEndpoints.CheckDatabase(connection, NullLogger.Instance, TestContext.Current.CancellationToken);
+
+        logs.Entries.Should().Contain(entry => entry.Level == LogLevel.Error
+            && entry.Category == typeof(DatabaseRoleGuard).FullName
+            && entry.Text.Contains("row-level security", StringComparison.Ordinal));
+        row.State.Should().Be("problem");
+        row.Summary.Should().Contain("drover_app");
+    }
+
+    [Fact]
+    public async Task Self_hosted_on_the_application_role_logs_no_error_about_the_role()
+    {
+        var logs = new LogCapture();
+        await using var server = await Boot(SelfHosted(), logs: logs);
+
+        logs.Entries.Should().NotContain(entry => entry.Category == typeof(DatabaseRoleGuard).FullName && entry.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
     public async Task Hosted_with_the_migration_credential_in_the_server_does_not_start_and_names_the_rule()
     {
         var settings = Hosted(withCertificate: true);
@@ -277,7 +302,11 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         return failure.Which.Message;
     }
 
-    private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false, bool useSecretFile = false)
+    private async Task<RunningServer> Boot(
+        Dictionary<string, string?> settings,
+        bool useAdminConnection = false,
+        bool useSecretFile = false,
+        LogCapture? logs = null)
     {
         var database = await postgres.CreateDatabase();
 
@@ -299,7 +328,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
             settings["Database:AppPasswordFile"] = passwordFile;
         }
 
-        var factory = new DroverFactory(database, keyRing, new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings, useAppConnection: !useSecretFile);
+        var factory = new DroverFactory(database, keyRing, logs ?? new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings, useAppConnection: !useSecretFile);
         var server = new RunningServer(factory, database, keyRing);
 
         try

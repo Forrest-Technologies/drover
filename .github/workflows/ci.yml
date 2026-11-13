@@ -63,8 +63,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Validate compose file
-        run: docker compose config --quiet
+      - name: Validate compose files
+        env:
+          DROVER_DOMAIN: drover.example.org
+        run: |
+          docker compose config --quiet
+          docker compose --profile push config --quiet
+          docker compose -f compose.yaml -f compose.proxy.yaml config --quiet
       - name: Build image under the memory budget a small VPS has
         # BuildKit ignores a memory flag on `docker build`, so the budget is set on the builder container
         # that runs every build step. If a step needs more than 2 GB, the builder is killed and this step fails.
@@ -110,6 +115,13 @@ jobs:
           uid=$(docker compose exec -T drover id -u)
           echo "uid=${uid}"
           test "${uid}" != "0"
+      - name: The server cannot write to its root filesystem
+        run: |
+          if docker compose exec -T drover sh -c 'touch /app/probe' 2>/dev/null; then
+            echo "the root filesystem of drover is writable"
+            exit 1
+          fi
+          docker compose exec -T drover sh -c 'touch /tmp/probe && rm /tmp/probe'
       - name: The server can read only its application secret
         run: |
           docker compose exec -T drover sh -c 'test -r /run/secrets/app_password && test ! -e /run/secrets/postgres_password && test ! -e /run/secrets/owner_password'

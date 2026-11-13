@@ -18,6 +18,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int requests;
 
+    private int sessionsClosed;
+
     private volatile bool callsForbidden;
 
     private volatile string? headerValue = spec.HeaderValue;
@@ -36,6 +38,9 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     /// <summary>How many requests of any kind reached the server.</summary>
     public int Requests => Volatile.Read(ref requests);
+
+    /// <summary>How many times a client told the server it was done with a session.</summary>
+    public int SessionsClosed => Volatile.Read(ref sessionsClosed);
 
     public int Approvals => desk?.Approvals ?? 0;
 
@@ -134,6 +139,11 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     private async Task CheckHeaderAndCountHandshakes(HttpContext context, RequestDelegate next)
     {
         Interlocked.Increment(ref requests);
+
+        if (HttpMethods.IsDelete(context.Request.Method))
+        {
+            Interlocked.Increment(ref sessionsClosed);
+        }
 
         if (spec.RedirectTo is { } elsewhere)
         {

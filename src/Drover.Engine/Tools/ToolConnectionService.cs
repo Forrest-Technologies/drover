@@ -104,6 +104,7 @@ public sealed class ToolConnectionService(
     [
         "host", "content-length", "content-type", "transfer-encoding", "connection", "cookie", "accept", "mcp-session-id", "mcp-protocol-version",
         "proxy-authorization", "origin", "user-agent", "upgrade", "te", "expect", "last-event-id",
+        "forwarded", "via", "x-real-ip", "true-client-ip",
     ];
 
     #endregion
@@ -255,6 +256,8 @@ public sealed class ToolConnectionService(
             return ToolConnectionChange.Invalid("This connection does not use a header.");
         }
 
+        // Two replacements that both find no credential must not each store one.
+        await connections.LockCredential(connectionId, Audience.Everyone, cancellationToken);
         var kept = await connections.ListCredentials(connectionId, cancellationToken);
 
         foreach (var old in kept)
@@ -510,7 +513,7 @@ public sealed class ToolConnectionService(
         }
 
         var audience = connection.CredentialScope is CredentialScope.Space ? Audience.Everyone : actingUserId;
-        var kept = new KeptToolTokens(new RunTenant(scopes, connection.SpaceId, actingUserId), connection.Id, audience);
+        var kept = new KeptToolTokens(new RunTenant(scopes, connection.SpaceId, actingUserId), connection.Id, audience, time);
         var clientSecret = connection.Oauth?.ClientSecretId is { } secretId ? await vault.Reveal(secretId, cancellationToken) : null;
         kept.Note(clientSecret);
         return (

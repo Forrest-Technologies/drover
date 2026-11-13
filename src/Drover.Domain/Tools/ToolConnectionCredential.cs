@@ -27,6 +27,13 @@ public sealed class ToolConnectionCredential : ISpaceOwned, IAudienceScoped
     /// </summary>
     public DateTimeOffset? RenewAttemptedAt { get; set; }
 
+    /// <summary>
+    /// When this credential's tokens were last replaced by new ones. Null for a credential that is not a sign-in,
+    /// and for a sign-in whose first tokens are still the ones in use. The background renewal leaves one renewed lately alone, so a tool server
+    /// that hands out very short tokens is not asked for new ones at every pass.
+    /// </summary>
+    public DateTimeOffset? RenewedAt { get; set; }
+
     public CredentialStatus Status { get; set; } = CredentialStatus.Active;
 
     #endregion
