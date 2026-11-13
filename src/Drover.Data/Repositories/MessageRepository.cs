@@ -51,6 +51,10 @@ public sealed class MessageRepository(DroverDbContext db)
             .Select(result => result.ToolCallId),
     ];
 
+    /// <summary>Marks a message as kept from the bot by a rule. No model is given a message marked so.</summary>
+    public Task MarkWithheld(Guid id, CancellationToken cancellationToken) =>
+        db.Messages.Where(message => message.Id == id).ExecuteUpdateAsync(set => set.SetProperty(message => message.Withheld, true), cancellationToken);
+
     public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
         db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
 

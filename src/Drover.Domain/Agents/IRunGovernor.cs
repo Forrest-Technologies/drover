@@ -21,4 +21,22 @@ public interface IRunGovernor
     /// tool arguments through it before it writes them to a <c>tool_calls</c> row.
     /// </summary>
     JsonElement Redact(JsonElement value);
+
+    /// <summary>
+    /// Whether the bot has a rule about its replies. When it has, a reply is held back until it is complete and has
+    /// passed the rules, so that nothing a rule forbids is shown or stored. A governor with no rules holds nothing.
+    /// </summary>
+    Task<bool> HoldsReplies(CancellationToken cancellationToken) => Task.FromResult(false);
+
+    /// <summary>
+    /// The text a reply may be shown as: unchanged, with matches removed, or replaced by a statement that a rule
+    /// withheld it. Called once for each complete piece of text of one model call.
+    /// </summary>
+    Task<string> RuleOnReply(string text, CancellationToken cancellationToken) => Task.FromResult(text);
+
+    /// <summary>
+    /// Checks a person's messages that arrived during the run, before the model sees them. When a rule does not
+    /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
+    /// </summary>
+    Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken) => Task.CompletedTask;
 }

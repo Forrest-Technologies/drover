@@ -17,6 +17,12 @@ public sealed record ToolGateDecision(ToolGateVerdict Verdict, string? Reason = 
 
     public static ToolGateDecision Ask { get; } = new(ToolGateVerdict.Ask);
 
+    /// <summary>
+    /// The arguments the tool is to be called with instead of the model's, when a rule removed something from them.
+    /// Null leaves the arguments as they are.
+    /// </summary>
+    public JsonElement? Arguments { get; init; }
+
     #endregion
 
     #region Public Methods

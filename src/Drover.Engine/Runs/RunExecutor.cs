@@ -407,11 +407,13 @@ public sealed class RunExecutor(
         {
             Limits = new DiscoveryLimits(deployment.Value.Rules.MaxModelListBytes, deployment.Value.Rules.MaxModelsPerConnection),
         };
+        var rules = new RunRules(session, loggers.CreateLogger<RunRules>());
         var governor = new RunGovernor(
             session,
             bot,
             loaded.Pricing,
             toolSources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp),
+            rules,
             loggers.CreateLogger<RunGovernor>());
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
@@ -425,7 +427,22 @@ public sealed class RunExecutor(
 
         try
         {
-            var outcome = await DriveToAStop(session, loaded, model, governor, cancellation.Token);
+            // The messages that started this run are checked before the model is given anything.
+            if (await rules.CheckArrivals(await Arrived(session, loaded, placed), cancellation.Token) is not null)
+            {
+                await FinishAfterFailure(session, new OperationCanceledException(), stopping);
+                return;
+            }
+
+            var outcome = await DriveToAStop(session, loaded, model, governor, rules, cancellation.Token);
+
+            // A rule can end the run while its last model call still returns normally.
+            if (session.EndedByRule is not null)
+            {
+                await FinishAfterFailure(session, new OperationCanceledException(), stopping);
+                return;
+            }
+
             await (outcome is RunOutcome.Waiting
                 ? Finish(session, RunStatus.Waiting, RunReasons.AwaitingApproval, null)
                 : Finish(session, RunStatus.Completed, null, null));
@@ -447,6 +464,7 @@ public sealed class RunExecutor(
         LoadedRun loaded,
         IModelChatClient model,
         RunGovernor governor,
+        RunRules rules,
         CancellationToken cancellationToken)
     {
         var answers = loaded.Answers;
@@ -454,6 +472,7 @@ public sealed class RunExecutor(
         while (true)
         {
             session.MarkBuilt();
+            session.RulesAtBuild = await rules.Load(cancellationToken);
 
             try
             {
@@ -490,6 +509,7 @@ public sealed class RunExecutor(
                     break;
                 case ApprovalRequested approval:
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
+                    await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     await session.Writer.Append(
                         session.RunId,
                         RunEventTypes.ToolApprovalRequested,
@@ -504,6 +524,25 @@ public sealed class RunExecutor(
         }
 
         return outcome;
+    }
+
+    /// <summary>
+    /// What arrived for this execution: the message that started the run, until its first step, and every message
+    /// placed on the thread just now.
+    /// </summary>
+    private static async Task<IReadOnlyList<Message>> Arrived(RunSession session, LoadedRun loaded, IReadOnlyList<Message> placed)
+    {
+        if (loaded.Steps.Count == 0
+            && loaded.Run.TriggerMessageId is { } triggerId
+            && placed.All(message => message.Id != triggerId)
+            && await session.Tenant.Transact(
+                services => services.GetRequiredService<MessageRepository>().FindMessage(triggerId, CancellationToken.None),
+                CancellationToken.None) is { } trigger)
+        {
+            return [trigger, .. placed];
+        }
+
+        return placed;
     }
 
     private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()
@@ -531,7 +570,7 @@ public sealed class RunExecutor(
         Description = tool.Tool.Description,
         InputSchema = tool.Tool.InputSchema,
         Sensitivity = tool.Tool.Sensitivity,
-        RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask,
+        RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
         DefinedByServer = tool.Builtin is null,
     };
 
@@ -640,6 +679,12 @@ public sealed class RunExecutor(
         if (session.CancelledByUser)
         {
             await Finish(session, RunStatus.Cancelled, RunReasons.CancelledByUser, null);
+            return;
+        }
+
+        if (session.EndedByRule is { } rule)
+        {
+            await Finish(session, RunStatus.Failed, rule.Reason, new RunError(rule.Reason, rule.Message));
             return;
         }
 

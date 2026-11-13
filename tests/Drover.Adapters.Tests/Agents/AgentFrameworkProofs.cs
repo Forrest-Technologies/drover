@@ -114,7 +114,10 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         var governor = new ScriptedGovernor(tools, new Dictionary<string, ToolGateDecision>
         {
             ["delete_all"] = ToolGateDecision.Refuse("No grant for delete_all."),
-        });
+        })
+        {
+            ReplyRule = said => said,
+        };
         var parentRunId = Guid.CreateVersion7();
         var run = await TeamRun(governor);
         var first = Member("first", run, parentRunId, pattern == "handoff"
@@ -148,6 +151,10 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         // A handoff is a declaration the workflow routes, never an invoked function, so it does not pass the tool
         // gate; it is governed where it lands, by the target member's GovernedAgent asking for a child run.
         governor.Decided.Should().NotContain(call => call.ToolName.StartsWith(HandoffWorkflowBuilder.FunctionPrefix, StringComparison.Ordinal));
+
+        // So a rule on tools cannot see a handoff itself. What the member it lands on does is ruled like any other
+        // agent's work: its tool calls at the gate above, and what it says before any of it is sent.
+        governor.RuledReplies.Should().Contain("I may not.");
     }
 
     [Fact]

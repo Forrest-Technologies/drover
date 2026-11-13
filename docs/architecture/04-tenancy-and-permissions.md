@@ -349,6 +349,20 @@ The `delegate` tool's description, as the model sees it, lists the caller's chil
 
 Delegating across the tree (to a sibling's team, say) is useful and risky: the target may hold tools the caller lacks, so a low-privilege bot could steer a high-privilege one. It is deferred to Phase 2 as human-created delegation links with one added rule: **borrowed authority asks.** During a run that arrived over a link, any `allow` grant the calling bot does not itself hold is treated as `ask`.
 
+### Rules
+
+A grant says whether a bot may use a tool. A rule is a further limit a person writes as a sentence: when something happens (a tool is about to run, a tool has answered, the bot is about to reply, a message arrives), if every condition holds, then redact, ask, block, or stop. Rules are stored in `bot_rules` and enforced by the server in code ([03-run-lifecycle.md](03-run-lifecycle.md)); the model is never asked to follow one and never decides whether one applies.
+
+- **Rules only narrow.** A rule has no effect that allows. At the tool gate the grant is decided first, and a call it refuses is not shown to a rule; a milder rule never lowers a grant that asks to one that runs. A rule cannot loosen a deployment or space policy, because it never reaches one.
+- **A child follows every ancestor's rules** as well as its own, ancestors first. Only a bot's own rules can be edited on that bot; an inherited rule is shown with the bot it comes from and has no route that changes it from below.
+- **When several rules apply, the strictest effect wins**: stop, then block, then ask, then redact. When redaction wins, every applying rule's matches are removed.
+- **Only owners and admins of the space edit rules.** Every change is an audit entry (`rule.added`, `rule.changed`, `rule.removed`).
+- **Bounds are enforced at save**: fifty rules a bot, ten conditions a rule, and a cap on every list and pattern. A pattern that cannot be compiled without backtracking is refused with the reason.
+- **"Try it" is the run's evaluator.** `POST .../rules/try` evaluates a sample with `RuleEvaluator.Evaluate`, the same call a run makes, so what the editor shows is what a run would do.
+- A fired rule is a `rule.fired` run event that says which rule and why in words. The text that matched is not in the event, the server log, or what the model is given.
+
+A handoff inside a team is not a tool call and passes no gate ([14-agent-framework.md](14-agent-framework.md), point 12), so no `before_tool` rule sees it. The member it lands on is built like any bot: its tool calls and replies are ruled.
+
 ### Pausing and removing
 
 - **Pause** stops new runs for the bot and its subtree and requests cancellation of active ones.

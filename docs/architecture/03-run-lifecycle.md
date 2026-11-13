@@ -49,6 +49,7 @@ Rules that hold for both:
 - **A run takes instructions only from the person it acts for.** A run uses its principal's authority, so in a shared thread another member's message never steers it: it is stored as `queue` whatever was asked, and is answered by a run that acts for its own author.
 - **A pending message always gets a run.** When a root run ends for any reason (completed, failed, cancelled), the transaction that ends it queues the next run for the oldest pending message, as that message's author. A steering message that arrived after the run's last step is answered this way. The ending run takes the thread lock, the same lock a post takes, so a message cannot slip between "the run ended" and "nothing was pending".
 - **A run that starts takes all of its person's pending messages**, in the order they were sent, and answers them together. Other members' messages wait for the run after it.
+- **A message a rule withheld is the exception.** It is marked `withheld`, gets its position when the run ends so people still read it where it was sent, and starts no run.
 - `message.delivered` in the run's log says a pending message has its position, so a client can move it from "waiting" into the conversation.
 - A steering message sent while the run waits for an approval stays pending until the approval is answered: the run has no step to take it at before then.
 
@@ -179,6 +180,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `message.delivered` | A message that was pending, as stored now that it has its position. Written when a run starts with pending messages, and before the `message.completed` of a step a message steered. |
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name |
+| `rule.fired` | A rule of the bot applied: rule id and name, checkpoint, effect, a sentence saying why, and the tool call id when there is one. Never the text that matched. |
 | `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, while the run waits. |
 | `tool.started`, `tool.output`, `tool.completed` | Tool call id, incremental output for long commands, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
 | `delegation.started`, `delegation.completed` | Tool call id, child run id, child bot id, result summary |
@@ -221,6 +223,25 @@ A run that ends while a call still waits (it was cancelled) denies that call, wi
 Not built yet: an approval that nobody answers is meant to expire (default 24 hours) as denied. Until then it waits until it is answered or the run is cancelled.
 
 "Always allow" in the prompt changes the bot's grant from `ask` to `allow` when the user is permitted to do that, so the decision is visible in the bot editor and obeys the hierarchy rule. "Allow for this conversation" uses the framework's own approval rules, which are stored in the session.
+
+## Rules
+
+A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) are checked at four points of a run, each time against the rules as they are stored at that moment, by the one evaluator in `Drover.Domain.Rules`. No model is asked whether a rule applies. A rule that applies writes `rule.fired`.
+
+| Checkpoint | Where | What each effect does |
+| --- | --- | --- |
+| `message_arrives` | The executor, for the message that starts a run and the pending ones it takes; the history provider, for a message that steers. Before the model is given it. | `block` and `stop` end the run as `failed` with `blocked_by_rule` or `stopped_by_rule`, and mark the message `withheld`. |
+| `before_tool` | The tool gate, after the grant. A call the grant refuses is never shown to a rule. | `redact` replaces what matched in the arguments; the tool and its `tool_calls` row get what is left. `ask` waits for a person. `block` refuses the call and tells the model which rule. `stop` refuses it and ends the run. |
+| `after_tool` | The governor, on the tool's result, before it is stored or returned. | `redact` replaces what matched. `block` gives the model an error in place of the result. `stop` does that and ends the run. |
+| `before_reply` | A chat-client wrapper in `Drover.Agents`, on each model call's text and reasoning. | `redact` replaces what matched. `block` replaces the reply with a sentence naming the rule. `stop` does that and ends the run. |
+
+**Streamed replies.** While a bot follows any `before_reply` rule, its replies are held back: each model call's answer is collected in full, ruled on, and only then sent on as one chunk. Nothing that a rule removes is ever written to `run_events` or `messages`, and a pattern split across two chunks of the stream is still found. The cost is that such a bot's replies appear whole instead of word by word. A bot with no `before_reply` rule streams exactly as before.
+
+**Asking.** The framework can pause only for a tool that was marked for approval when the agent was built, before any argument is known. So a tool is marked when an `ask` rule's tool conditions cover it, and a rule that asks only for some arguments makes every call of those tools wait for a person. `rule.fired` is written before `tool.approval_requested` when the rule is why; a person's yes is not a second firing.
+
+**What a redaction before a tool does not reach.** The model's own message that made the call is stored as the model wrote it. The rule changes what the tool receives and what the `tool_calls` row and the activity view keep.
+
+**Limits.** A pattern is compiled without backtracking and is given 250 ms per check; one that runs out of time is treated as matching, so a slow pattern fails closed and cannot stall a run.
 
 ## Delegation
 
