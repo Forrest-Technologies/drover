@@ -39,22 +39,24 @@ public sealed partial class DroverApi(HttpClient http)
 
     private async Task<T> Send<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        using var request = NewRequest(method, path, body);
-        using var response = await http.SendAsync(request, cancellationToken);
+        using var response = await Send(method, path, body, cancellationToken);
         return await Read<T>(response, cancellationToken);
     }
 
-    /// <summary>Sends a request whose answer has no body.</summary>
-    private async Task Send(HttpMethod method, string path, CancellationToken cancellationToken)
+    /// <summary>A state-changing request whose answer has no body. A refusal throws like any other.</summary>
+    private async Task SendForNothing(HttpMethod method, string path, CancellationToken cancellationToken)
     {
-        using var request = NewRequest(method, path, null);
-        using var response = await http.SendAsync(request, cancellationToken);
-        await response.ThrowIfRefused(cancellationToken);
+        using var response = await Send(method, path, null, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await DroverApiException.From(response, cancellationToken);
+        }
     }
 
-    private HttpRequestMessage NewRequest(HttpMethod method, string path, object? body)
+    private async Task<HttpResponseMessage> Send(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(method, path);
+        using var request = new HttpRequestMessage(method, path);
 
         if (body is not null)
         {
@@ -66,7 +68,7 @@ public sealed partial class DroverApi(HttpClient http)
             request.Headers.Add(AntiforgeryHeader, token);
         }
 
-        return request;
+        return await http.SendAsync(request, cancellationToken);
     }
 
     private static async Task<T> Read<T>(HttpResponseMessage response, CancellationToken cancellationToken)

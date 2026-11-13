@@ -52,6 +52,11 @@ public sealed class MeteredModelClient(IModelChatClient inner, RunSession sessio
             throw new InvalidOperationException("A model was called inside a tenant transaction. Close the scope before the call.");
         }
 
+        if (session.NeedsRebuild)
+        {
+            throw new AgentRebuildRequiredException();
+        }
+
         return (await session.BeginStep()).ToString("N");
     }
 

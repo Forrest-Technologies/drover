@@ -20,6 +20,7 @@ public static class SpaceEndpoints
 
         // Model connections choose their own filter: testing one waits on the provider and must not hold a scope.
         root.MapModelConnectionEndpoints();
+        root.MapToolConnectionEndpoints();
 
         // Bots, threads, and runs choose their own filter too: posting a message and cancelling a run commit first
         // and then wake the workers.

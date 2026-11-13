@@ -7,7 +7,7 @@ public static class RunServiceExtensions
     /// <summary>
     /// Registers the run engine, the agent runtime it drives, and the worker that executes runs. The runtime talks
     /// to the model client the engine built for the run, so every model call is counted and policy-checked by the
-    /// engine. Settings under <c>Runs</c> change the pace: <c>Runs:Workers</c>, <c>Runs:PollSeconds</c>,
+    /// engine. Remote tool servers are reached through the tool source registered here. Settings under <c>Runs</c> change the pace: <c>Runs:Workers</c>, <c>Runs:PollSeconds</c>,
     /// <c>Runs:StepLimit</c>.
     /// </summary>
     public static IServiceCollection AddDroverRunEngine(this IServiceCollection services, IConfiguration configuration)
@@ -23,6 +23,16 @@ public static class RunServiceExtensions
         });
         services.AddDroverAgents(execution => new ModelChatClientBridge(
             execution.Model ?? throw new InvalidOperationException("The engine starts every run with its model client.")));
+        services.AddMcpToolSource();
+
+        // A tool server is reached through the checked outbound client, and each request carries the space's rule
+        // on private addresses. A request that says nothing is refused a private address.
+        services.TryAddTransient<SpaceOutboundHandler>();
+        // It never follows a redirect: a connection's header would go to whatever host the answer names.
+        services.AddHttpClient(McpToolSource.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(provider =>
+                OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
+            .AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
         return services;
     }

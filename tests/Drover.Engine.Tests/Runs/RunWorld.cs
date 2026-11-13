@@ -43,6 +43,9 @@ public sealed class RunWorld : IAsyncDisposable
 
     public TestTools Tools { get; }
 
+    /// <summary>The tool server every host of this world reaches, in place of a real one.</summary>
+    public FakeToolServer Server { get; } = new();
+
     public Guid SpaceId { get; } = Guid.CreateVersion7();
 
     public Guid UserId { get; } = Guid.CreateVersion7();
@@ -174,6 +177,36 @@ public sealed class RunWorld : IAsyncDisposable
             return Task.FromResult(thread.Id);
         });
 
+    /// <summary>Adds a tool connection and lists its tools, through the engine's own service, as an admin would.</summary>
+    public async Task<ToolConnection> Connect(string name, TrustLevel trust = TrustLevel.Untrusted, string? headerName = null, string? headerValue = null)
+    {
+        var created = await WithService<ToolConnectionService, ToolConnectionChange>(service => service.Create(
+            new NewToolConnection(name, "https://tools.example.test/mcp")
+            {
+                AuthKind = headerName is null ? ToolAuthKind.None : ToolAuthKind.Header,
+                HeaderName = headerName,
+                HeaderValue = headerValue,
+                Trust = trust,
+            },
+            Token));
+        created.Problem.Should().BeNull();
+        await Relist(created.Connection!.Id);
+        return created.Connection;
+    }
+
+    /// <summary>Asks the tool server for its tools again, as "refresh" on the connections screen does.</summary>
+    public async Task<ToolRefresh> Relist(Guid connectionId) =>
+        (await WithService<ToolConnectionService, ToolRefresh?>(service => service.Refresh(connectionId, Token)))!;
+
+    /// <summary>Calls a service that opens its own tenant scope, as the world's person.</summary>
+    public async Task<TResult> WithService<TService, TResult>(Func<TService, Task<TResult>> call)
+        where TService : notnull
+    {
+        await using var scope = seeder.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, UserId);
+        return await call(scope.ServiceProvider.GetRequiredService<TService>());
+    }
+
     /// <summary>The root runs of a thread, oldest first.</summary>
     public Task<List<Run>> ReadRuns(Guid threadId) =>
         Read(db => db.Runs.AsNoTracking().Where(run => run.ThreadId == threadId).OrderBy(run => run.Id).ToListAsync(Token));
@@ -285,7 +318,17 @@ public sealed class RunWorld : IAsyncDisposable
 
     private EngineHost NewHost(Action<RunOptions>? configure = null, Action<IServiceCollection>? replaceServices = null)
     {
-        var host = new EngineHost(database.AppConnectionString, keyRing, Model, Tools.All, configure, replaceServices);
+        var host = new EngineHost(
+            database.AppConnectionString,
+            keyRing,
+            Model,
+            Tools.All,
+            configure,
+            services =>
+            {
+                services.AddSingleton<IToolSource>(Server);
+                replaceServices?.Invoke(services);
+            });
         hosts.Add(host);
         return host;
     }

@@ -46,6 +46,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunExecutor>();
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
+        services.AddScoped<ToolConnectionService>();
         services.AddScoped<AuditLog>();
         services.AddScoped<BotService>();
         services.AddScoped<GrantService>();

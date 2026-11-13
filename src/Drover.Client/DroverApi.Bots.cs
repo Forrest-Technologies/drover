@@ -24,7 +24,7 @@ public sealed partial class DroverApi
         Post<BotDetail>($"{Space(spaceId)}/bots/{botId}/resume", null, cancellationToken);
 
     public Task RemoveBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
-        Send(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}", cancellationToken);
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}", cancellationToken);
 
     #endregion
 
@@ -51,7 +51,7 @@ public sealed partial class DroverApi
         Send<BotScheduleResponse>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", schedule, cancellationToken);
 
     public Task RemoveBotSchedule(Guid spaceId, Guid botId, Guid scheduleId, CancellationToken cancellationToken = default) =>
-        Send(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", cancellationToken);
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", cancellationToken);
 
     #endregion
 }
