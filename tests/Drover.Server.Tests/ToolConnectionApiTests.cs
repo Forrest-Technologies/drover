@@ -252,6 +252,10 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
     [InlineData("Last-Event-ID")]
     [InlineData("X-Forwarded-For")]
     [InlineData("x-forwarded-host")]
+    [InlineData("Forwarded")]
+    [InlineData("X-Real-IP")]
+    [InlineData("Via")]
+    [InlineData("True-Client-IP")]
     [InlineData("Host")]
     public async Task A_header_that_belongs_to_the_transport_or_disguises_the_request_is_not_a_credential(string header)
     {
