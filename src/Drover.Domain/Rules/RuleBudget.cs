@@ -17,6 +17,12 @@ public sealed class RuleBudget(TimeSpan limit)
     /// <summary>What one evaluation gets. A person's own patterns finish in far less; this stops the ones built not to.</summary>
     public static TimeSpan Default { get; } = TimeSpan.FromSeconds(1);
 
+    /// <summary>The most characters one evaluation looks at, over all its pieces of text. More is too much to check.</summary>
+    public static int MaxCharacters => 500_000;
+
+    /// <summary>The most pieces of text (strings, numbers, names) one evaluation looks at.</summary>
+    public static int MaxLeaves => 5_000;
+
     public bool IsSpent => spent.Elapsed >= limit;
 
     #endregion
