@@ -3,12 +3,21 @@ namespace Drover.Domain.Rules;
 /// <summary>
 /// Decides which rule applies to a subject. This is the one place rules are evaluated: a run and the editor's
 /// "Try it" both call it, so what a person is shown is what a run does. Same input, same outcome; no model is asked.
+/// Conditions are of two kinds. An exact condition is decided on structure (which tool, its kind, the time, a count,
+/// the values of named inputs) and is guaranteed. A pattern condition looks for something in text and catches the
+/// common forms. Either kind applies when it could not be checked.
 /// </summary>
 public static class RuleEvaluator
 {
     #region Private Fields
 
     public const string Redaction = "[removed by a rule]";
+
+    private const string TooMuch = "there is too much to check";
+
+    private const string OutOfTime = "it could not be checked in time";
+
+    private static readonly JsonElement nothing = JsonElement.Parse("{}");
 
     #endregion
 
@@ -17,27 +26,27 @@ public static class RuleEvaluator
     /// <summary>
     /// The outcome for a subject, or null when no rule applies. Of the rules that apply, the strictest effect decides
     /// (stop, then block, then ask, then redact), and among equals the first in order. Effects hold together: every
-    /// applying rule that redacts is carried out whichever rule decides, so a rule that asks never lets through what
-    /// another rule removes. The whole evaluation shares one time budget for searching text.
+    /// applying rule that redacts is carried out whichever rule decides. A rule removes text from text; where what
+    /// matched cannot be rewritten (the name of an input, a number, something too long or too slow to read), the
+    /// rule blocks. The whole evaluation shares one budget of time and one cap on size.
     /// </summary>
     public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject) =>
         Evaluate(rules, subject, new RuleBudget(RuleBudget.Default));
 
     public static RuleOutcome? Evaluate(IReadOnlyList<ActiveRule> rules, RuleSubject subject, RuleBudget budget)
     {
+        var reading = new RuleReading(subject, budget);
         List<(ActiveRule Rule, string Why, RuleEffect Effect)> applied = [];
 
         foreach (var rule in rules)
         {
-            if (rule.Checkpoint != subject.Checkpoint || Applies(rule, subject, budget) is not { } why)
+            if (rule.Checkpoint != subject.Checkpoint || Applies(rule, reading) is not { } why)
             {
                 continue;
             }
 
-            // A rule removes text from values. The name of an input cannot be rewritten: a call with a renamed
-            // input is not a call the tool knows. A rule that would remove part of a name blocks instead.
-            applied.Add(rule.Effect is RuleEffect.Redact && MatchesAName(rule, subject, budget)
-                ? (rule, $"{why}, in the name of an input, which a rule cannot rewrite", RuleEffect.Block)
+            applied.Add(rule.Effect is RuleEffect.Redact && CannotRewrite(rule, reading) is { } obstacle
+                ? (rule, $"{why}{obstacle}", RuleEffect.Block)
                 : (rule, why, rule.Effect));
         }
 
@@ -59,10 +68,22 @@ public static class RuleEvaluator
             return outcome;
         }
 
+        // When any redacting rule met something it cannot rewrite, nothing is kept: what is stored of the subject
+        // must not hold what matched, and nobody can say what a clean version would be.
+        if (redacting.Any(rule => CannotRewrite(rule, reading) is not null))
+        {
+            return outcome with
+            {
+                RedactedText = subject.Text is null ? null : Redaction,
+                RedactedJson = subject.Json is null ? null : nothing,
+            };
+        }
+
+        var next = subject.Text is null ? 0 : 1;
         return outcome with
         {
-            RedactedText = subject.Text is { } text ? Redact(text, redacting, null, budget) : null,
-            RedactedJson = subject.Json is { } json ? Redact(json, redacting, budget) : null,
+            RedactedText = subject.Text is null ? null : Redact(reading, 0, redacting),
+            RedactedJson = subject.Json is { } json ? JsonSerializer.SerializeToElement(RedactNode(json, reading, redacting, ref next)) : null,
         };
     }
 
@@ -71,13 +92,13 @@ public static class RuleEvaluator
     #region Conditions
 
     // The reason the rule applies, in words that never hold the text that matched, or null when it does not apply.
-    private static string? Applies(ActiveRule rule, RuleSubject subject, RuleBudget budget)
+    private static string? Applies(ActiveRule rule, RuleReading reading)
     {
         List<string> reasons = [];
 
         foreach (var condition in rule.Conditions)
         {
-            if (Holds(condition, rule, subject, budget) is not { } reason)
+            if (Holds(condition, rule, reading) is not { } reason)
             {
                 return null;
             }
@@ -88,66 +109,158 @@ public static class RuleEvaluator
         return reasons.Count == 0 ? "it always applies" : string.Join(", and ", reasons);
     }
 
-    private static string? Holds(RuleCondition condition, ActiveRule rule, RuleSubject subject, RuleBudget budget) => condition.Kind switch
+    private static string? Holds(RuleCondition condition, ActiveRule rule, RuleReading reading)
     {
-        RuleConditionKind.ToolIs => subject.ToolName is { } tool && condition.Tools.Contains(tool, StringComparer.OrdinalIgnoreCase)
-            ? $"the tool is {tool}"
-            : null,
-        RuleConditionKind.ToolKind => subject.ToolKind is { } kind && condition.ToolKinds.Contains(kind)
-            ? $"the tool {KindWords(kind)}"
-            : null,
-        RuleConditionKind.TextContains => Texts(subject, condition.Argument).Any(text => Places(condition, text, budget).Count > 0)
-            ? $"{Where(condition)} contains text the rule names"
-            : null,
-        RuleConditionKind.TextMatches => Texts(subject, condition.Argument).Any(text => Places(condition, text, budget).Count > 0)
-            ? $"{Where(condition)} matches the rule's pattern"
-            : null,
-        RuleConditionKind.TextHolds => Texts(subject, condition.Argument).Any(text => Places(condition, text, budget).Count > 0)
-            ? $"{Where(condition)} holds {RulePatterns.Words(condition.Builtin ?? BuiltinPattern.Key)}"
-            : null,
-        RuleConditionKind.NotInList => IsOffTheList(condition, rule, subject, budget),
-        RuleConditionKind.TimeIs => IsAtThisTime(condition, subject.Now) ? "it is within the rule's hours" : null,
-        RuleConditionKind.RunExceeds => Exceeds(condition, subject),
-        _ => null,
-    };
-
-    // A list rule with no input named checks every email address anywhere in the tool's input, whichever field the
-    // model put it in. One that names inputs checks every value of each named input that is there; when none of
-    // them is there and the rule says which tools it is about, it applies, because the input should have been.
-    private static string? IsOffTheList(RuleCondition condition, ActiveRule rule, RuleSubject subject, RuleBudget budget)
-    {
-        if (condition.Argument is null)
+        var subject = reading.Subject;
+        return condition.Kind switch
         {
-            return Texts(subject, null).Any(text => HasAnAddressOffTheList(condition.Entries, text, budget))
-                ? "the tool's input has an email address that is not on the rule's list"
-                : null;
+            RuleConditionKind.ToolIs => subject.ToolName is { } tool && condition.Tools.Contains(tool, StringComparer.OrdinalIgnoreCase)
+                ? $"the tool is {tool}"
+                : null,
+            RuleConditionKind.ToolKind => subject.ToolKind is { } kind && condition.ToolKinds.Contains(kind)
+                ? $"the tool {KindWords(kind)}"
+                : null,
+            RuleConditionKind.TextContains => Finds(condition, reading, $"{Where(condition)} contains text the rule names"),
+            RuleConditionKind.TextMatches => Finds(condition, reading, $"{Where(condition)} matches the rule's pattern"),
+            RuleConditionKind.TextHolds => Finds(condition, reading, $"{Where(condition)} holds {RulePatterns.Words(condition.Builtin ?? BuiltinPattern.Key)}"),
+            RuleConditionKind.NotInList when condition.Argument is null => HasAnAddressOffTheList(condition, reading),
+            RuleConditionKind.NotInList => IsOffTheList(condition, rule, reading),
+            RuleConditionKind.TimeIs => IsAtThisTime(condition, subject.Now) ? "it is within the rule's hours" : null,
+            RuleConditionKind.RunExceeds => Exceeds(condition, subject),
+            _ => null,
+        };
+    }
+
+    // A pattern condition: whether what it looks for is in any piece of text it looks at. What could not be read,
+    // for size or for time, counts as found.
+    private static string? Finds(RuleCondition condition, RuleReading reading, string found)
+    {
+        if (reading.IsTooMuch)
+        {
+            return TooMuch;
         }
 
-        var json = subject.Json is { ValueKind: JsonValueKind.Object } read ? read : default;
-        var present = json.ValueKind is JsonValueKind.Object ? Names(condition.Argument).Where(name => json.TryGetProperty(name, out _)).ToList() : [];
+        for (var index = 0; index < reading.Pieces.Count; index++)
+        {
+            if (InScope(condition, reading.Pieces[index]) && reading.Places(condition, index).Count > 0)
+            {
+                return reading.RanOutOfTime ? OutOfTime : found;
+            }
+        }
+
+        return null;
+    }
+
+    // An exact condition. The rule names inputs, matched without regard to case, and every value of every one of
+    // them that is in the call has to be on the list, each time it occurs. When none of them is there and the rule
+    // says which tools it is about, it applies, because the input should have been.
+    private static string? IsOffTheList(RuleCondition condition, ActiveRule rule, RuleReading reading)
+    {
+        if (reading.Budget.IsSpent)
+        {
+            return OutOfTime;
+        }
+
+        var names = Names(condition.Argument);
+        List<JsonElement> present =
+        [
+            .. reading.Subject.Json is { ValueKind: JsonValueKind.Object } json
+                ? json.EnumerateObject().Where(property => names.Contains(property.Name, StringComparer.OrdinalIgnoreCase)).Select(property => property.Value)
+                : [],
+        ];
 
         if (present.Count == 0)
         {
             return rule.Conditions.Any(other => other.Kind is RuleConditionKind.ToolIs) ? $"{Where(condition)} is not there to check" : null;
         }
 
-        return present.SelectMany(name => Strings(json.GetProperty(name), names: false)).Any(value => !IsListed(condition.Entries, value))
+        return present.SelectMany(Values).Any(value => !IsListed(condition.Entries, value))
             ? $"{Where(condition)} has a value that is not on the rule's list"
             : null;
     }
 
-    private static bool HasAnAddressOffTheList(IReadOnlyList<string> allowed, string written, RuleBudget budget)
+    // A pattern condition: every email address anywhere in the tool's input, whichever field the model put it in.
+    private static string? HasAnAddressOffTheList(RuleCondition condition, RuleReading reading)
     {
-        if (budget.IsSpent)
+        if (reading.IsTooMuch)
         {
-            return written.Length > 0;
+            return TooMuch;
         }
 
-        var text = new RuleText(written);
-        var addresses = RulePatterns.Find(BuiltinPattern.EmailAddress, text.Plain, budget);
+        foreach (var piece in reading.Pieces)
+        {
+            if (reading.Budget.IsSpent)
+            {
+                return OutOfTime;
+            }
 
-        // An address that only appears once unseen characters are taken out is not the address the tool gets.
-        return addresses.Count > 0 && (!text.IsAsWritten || addresses.Any(place => !IsListed(allowed, text.Plain.Substring(place.Start, place.Length))));
+            if (HasAnAddressOffTheList(condition.Entries, piece.Text))
+            {
+                return "the tool's input has an email address that is not on the rule's list";
+            }
+        }
+
+        return null;
+    }
+
+    // Looks at what stands around each @ in a piece of text. Something shaped like an address (a name, then a host
+    // that ends in a word) has to be a plain address on the list. A shape people use to get an address past a
+    // reader (percent-encoding, a quoted name, an address in brackets, letters of another script, signs a mailbox
+    // does not have, characters that cannot be seen) is not on any list. An @ that is not part of an address, as in
+    // a package version or a mention, is nothing.
+    private static bool HasAnAddressOffTheList(IReadOnlyList<string> allowed, RuleText text)
+    {
+        var plain = text.Plain.Contains('%', StringComparison.Ordinal) ? Uri.UnescapeDataString(text.Plain) : text.Plain;
+
+        for (var at = plain.IndexOf('@', StringComparison.Ordinal); at >= 0; at = plain.IndexOf('@', at + 1))
+        {
+            var start = at;
+
+            while (start > 0 && !IsAddressEnd(plain[start - 1]))
+            {
+                start--;
+            }
+
+            var end = at + 1;
+
+            while (end < plain.Length && !IsAddressEnd(plain[end]) && plain[end] is not ':')
+            {
+                end++;
+            }
+
+            var host = plain[(at + 1)..end].TrimEnd('.');
+            var quoted = at > 0 && plain[at - 1] is '"' or '\'';
+            var bracketed = at + 1 < plain.Length && plain[at + 1] is '[';
+
+            if (quoted || bracketed)
+            {
+                return true;
+            }
+
+            if (start == at || !EndsInAWord(host))
+            {
+                continue;
+            }
+
+            // The tool gets the text as written. An address that only reads as one once it is decoded, or once
+            // unseen characters are taken out, is not the address a person put on the list.
+            if (!text.IsAsWritten || !ReferenceEquals(plain, text.Plain) || !IsListed(allowed, $"{plain[start..at]}@{host}"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAddressEnd(char character) =>
+        char.IsWhiteSpace(character) || character is '<' or '>' or '(' or ')' or ',' or ';' or '"' or '\'' or '=' or '?' or '&' or '/' or '\\' or '|' or '[' or ']' or '{' or '}' or '#' or '`';
+
+    // A host ends in a label of letters: "example.org" does, "20.1.0" and "host" do not.
+    private static bool EndsInAWord(string host)
+    {
+        var dot = host.LastIndexOf('.');
+        return dot > 0 && host.Length - dot > 2 && host[(dot + 1)..].All(char.IsLetter);
     }
 
     private static string KindWords(ToolSensitivity kind) => kind switch
@@ -217,174 +330,61 @@ public static class RuleEvaluator
     private static string[] Names(string? argument) =>
         argument?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) ?? [];
 
-    #endregion
-
-    #region Text
-
-    // The pieces of text a condition looks at: the reply or message, or the strings of the tool's arguments or
-    // result, the names of their properties included, because a model writes those too. With inputs named, only
-    // what is under those inputs.
-    private static IEnumerable<string> Texts(RuleSubject subject, string? argument)
+    // The values under a named input, as text: strings as they are, numbers as written.
+    private static IEnumerable<string> Values(JsonElement value) => value.ValueKind switch
     {
-        if (subject.Text is { } text)
-        {
-            yield return text;
-        }
-
-        if (subject.Json is not { } json)
-        {
-            yield break;
-        }
-
-        if (argument is null)
-        {
-            foreach (var leaf in Strings(json, names: true))
-            {
-                yield return leaf;
-            }
-        }
-        else if (json.ValueKind is JsonValueKind.Object)
-        {
-            foreach (var leaf in Names(argument).SelectMany(name => json.TryGetProperty(name, out var named) ? Strings(named, names: true) : []))
-            {
-                yield return leaf;
-            }
-        }
-    }
-
-    private static IEnumerable<string> Strings(JsonElement value, bool names)
-    {
-        switch (value.ValueKind)
-        {
-            case JsonValueKind.String:
-                yield return value.GetString() ?? string.Empty;
-                break;
-            case JsonValueKind.Array:
-                foreach (var leaf in value.EnumerateArray().SelectMany(item => Strings(item, names)))
-                {
-                    yield return leaf;
-                }
-
-                break;
-            case JsonValueKind.Object:
-                foreach (var property in value.EnumerateObject())
-                {
-                    if (names)
-                    {
-                        yield return property.Name;
-                    }
-
-                    foreach (var leaf in Strings(property.Value, names))
-                    {
-                        yield return leaf;
-                    }
-                }
-
-                break;
-            case JsonValueKind.Number:
-                // A number can be a card number as well as a string can.
-                yield return value.GetRawText();
-                break;
-        }
-    }
-
-    // Whether one of the rule's text conditions matches in the name of a property it looks at.
-    private static bool MatchesAName(ActiveRule rule, RuleSubject subject, RuleBudget budget)
-    {
-        if (subject.Json is not { } json)
-        {
-            return false;
-        }
-
-        return rule.Conditions
-            .Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds)
-            .Any(condition => NamesUnder(json, condition.Argument).Any(name => Places(condition, name, budget).Count > 0));
-    }
-
-    private static IEnumerable<string> NamesUnder(JsonElement json, string? argument)
-    {
-        if (argument is null)
-        {
-            return NamesIn(json);
-        }
-
-        return json.ValueKind is JsonValueKind.Object
-            ? Names(argument).SelectMany(name => json.TryGetProperty(name, out var named) ? NamesIn(named) : [])
-            : [];
-    }
-
-    private static IEnumerable<string> NamesIn(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.Array => value.EnumerateArray().SelectMany(NamesIn),
-        JsonValueKind.Object => value.EnumerateObject().SelectMany(property => NamesIn(property.Value).Prepend(property.Name)),
+        JsonValueKind.String => [value.GetString() ?? string.Empty],
+        JsonValueKind.Number => [value.GetRawText()],
+        JsonValueKind.Array => value.EnumerateArray().SelectMany(Values),
+        JsonValueKind.Object => value.EnumerateObject().SelectMany(property => Values(property.Value)),
         _ => [],
     };
 
-    // Where a text condition matches in one piece of text, as places in the text as it was written. The search
-    // itself runs on the text's plain form, so an unseen character or another form of a letter hides nothing.
-    private static List<(int Start, int Length)> Places(RuleCondition condition, string written, RuleBudget budget)
-    {
-        if (written.Length == 0)
-        {
-            return [];
-        }
-
-        if (budget.IsSpent)
-        {
-            return WholeOf(written);
-        }
-
-        var text = new RuleText(written);
-        return [.. PlacesInPlain(condition, text.Plain, budget).Select(place => text.InOriginal(place.Start, place.Length))];
-    }
-
-    private static List<(int Start, int Length)> PlacesInPlain(RuleCondition condition, string text, RuleBudget budget)
-    {
-        switch (condition.Kind)
-        {
-            case RuleConditionKind.TextMatches:
-                return RulePatterns.Compile(condition.Pattern).Expression is { } expression ? RulePatterns.Find(expression, text, budget) : WholeOf(text);
-            case RuleConditionKind.TextHolds:
-                return RulePatterns.Find(condition.Builtin ?? BuiltinPattern.Key, text, budget);
-            case RuleConditionKind.TextContains:
-                using (budget.Search())
-                {
-                    List<(int, int)> found = [];
-
-                    foreach (var piece in condition.Entries.Select(entry => new RuleText(entry).Plain).Where(piece => piece.Length > 0))
-                    {
-                        for (var at = text.IndexOf(piece, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.IndexOf(piece, at + piece.Length, StringComparison.OrdinalIgnoreCase))
-                        {
-                            found.Add((at, piece.Length));
-                        }
-
-                        if (budget.IsSpent)
-                        {
-                            return WholeOf(text);
-                        }
-                    }
-
-                    return found;
-                }
-
-            default:
-                return [];
-        }
-    }
-
-    // A pattern that cannot be read is treated as matching everything: a rule fails closed.
-    private static List<(int Start, int Length)> WholeOf(string text) => text.Length == 0 ? [] : [(0, text.Length)];
+    // A condition with inputs named looks only at what is under those inputs. Without, at everything.
+    private static bool InScope(RuleCondition condition, RulePiece piece) =>
+        condition.Argument is null || (piece.Argument is { } under && Names(condition.Argument).Contains(under, StringComparer.OrdinalIgnoreCase));
 
     #endregion
 
     #region Redaction
 
-    private static string Redact(string text, List<ActiveRule> rules, string? argument, RuleBudget budget)
+    // Why a rule that removes text cannot do so here, as the end of a sentence, or null when it can. What is too
+    // long or too slow to read cannot be rewritten; neither can the name of an input or a value that is not text.
+    private static string? CannotRewrite(ActiveRule rule, RuleReading reading)
     {
+        if (reading.IsTooMuch || reading.RanOutOfTime || reading.Budget.IsSpent)
+        {
+            return ", so nothing of it is let through";
+        }
+
+        var kinds = rule.Conditions
+            .Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds)
+            .SelectMany(condition => Enumerable.Range(0, reading.Pieces.Count)
+                .Where(index => reading.Pieces[index].Kind is RulePieceKind.Name or RulePieceKind.Other
+                    && InScope(condition, reading.Pieces[index])
+                    && reading.Places(condition, index).Count > 0)
+                .Select(index => reading.Pieces[index].Kind))
+            .ToHashSet();
+
+        if (reading.RanOutOfTime)
+        {
+            return ", so nothing of it is let through";
+        }
+
+        return kinds.Contains(RulePieceKind.Name) ? ", in the name of an input, which a rule cannot rewrite"
+            : kinds.Contains(RulePieceKind.Other) ? ", in a value that is not text, which a rule cannot rewrite"
+            : null;
+    }
+
+    // One piece of text with every place the rules match in it replaced.
+    private static string Redact(RuleReading reading, int index, List<ActiveRule> rules)
+    {
+        var piece = reading.Pieces[index];
+        var text = piece.Written;
         var places = rules
             .SelectMany(rule => rule.Conditions)
-            .Where(condition => condition.Argument is null || Names(condition.Argument).Contains(argument, StringComparer.Ordinal))
-            .SelectMany(condition => Places(condition, text, budget))
+            .Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds && InScope(condition, piece))
+            .SelectMany(condition => reading.Places(condition, index))
             .OrderBy(place => place.Start)
             .ToList();
 
@@ -410,33 +410,35 @@ public static class RuleEvaluator
         return result.Append(text, cursor, text.Length - cursor).ToString();
     }
 
-    private static JsonElement Redact(JsonElement value, List<ActiveRule> rules, RuleBudget budget) =>
-        JsonSerializer.SerializeToElement(RedactNode(value, rules, null, atTop: true, budget));
-
-    private static JsonNode? RedactNode(JsonElement value, List<ActiveRule> rules, string? argument, bool atTop, RuleBudget budget)
+    // The value with its strings redacted. It is walked in the order it was read, so each string is the next piece.
+    // Names, numbers, and flags are kept as they are: a rule that matched in one of those blocked before this.
+    private static JsonNode? RedactNode(JsonElement value, RuleReading reading, List<ActiveRule> rules, ref int next)
     {
         switch (value.ValueKind)
         {
             case JsonValueKind.String:
-                return JsonValue.Create(Redact(value.GetString() ?? string.Empty, rules, argument, budget));
-            case JsonValueKind.Number:
-                var digits = value.GetRawText();
-                var redacted = Redact(digits, rules, argument, budget);
-                return redacted == digits ? JsonNode.Parse(digits) : JsonValue.Create(redacted);
+                return JsonValue.Create(Redact(reading, next++, rules));
             case JsonValueKind.Array:
-                return new JsonArray([.. value.EnumerateArray().Select(item => RedactNode(item, rules, argument, atTop: false, budget))]);
+                JsonArray items = [];
+
+                foreach (var item in value.EnumerateArray())
+                {
+                    items.Add(RedactNode(item, reading, rules, ref next));
+                }
+
+                return items;
             case JsonValueKind.Object:
                 JsonObject copy = [];
 
                 foreach (var property in value.EnumerateObject())
                 {
-                    // An argument is a property of the top object; everything beneath it belongs to it. Names are
-                    // kept as they are: see where a rule that matches in a name is made to block.
-                    copy[property.Name] = RedactNode(property.Value, rules, atTop ? property.Name : argument, atTop: false, budget);
+                    next++;
+                    copy[property.Name] = RedactNode(property.Value, reading, rules, ref next);
                 }
 
                 return copy;
             default:
+                next++;
                 return JsonNode.Parse(value.GetRawText());
         }
     }

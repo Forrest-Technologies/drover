@@ -627,6 +627,27 @@ public sealed class RunRuleTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_secret_in_the_name_of_an_input_blocks_the_call_and_is_in_no_stored_copy()
+    {
+        const string Key = "sk-sample0000000000000000";
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup", $$"""{"{{Key}}":"hello"}""")], [new TextOutput("Done.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await AddRule(world, "No keys", RuleCheckpoint.BeforeTool, RuleEffect.Redact, Holds(BuiltinPattern.Key));
+        world.StartHost();
+        var threadId = await world.NewThread();
+
+        var runId = await world.Post(threadId, "Look it up");
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        tools.Count("test.lookup").Should().Be(0, "a rule cannot rewrite the name of an input, so the call is not run");
+        (await world.ReadEvents(runId)).Should().OnlyContain(stored => !stored.Data.Contains(Key));
+        (await world.ReadMessages(threadId)).Should().OnlyContain(message => !JsonSerializer.Serialize(message.Parts).Contains(Key));
+        (await world.ReadToolCalls(runId)).Should().OnlyContain(call => !call.Arguments.GetRawText().Contains(Key));
+        script.Requests.Should().OnlyContain(request => request.All(seen => !seen.Summary.Contains(Key)));
+    }
+
+    [Fact]
     public async Task A_message_placed_by_an_execution_that_was_cut_off_before_checking_it_is_still_checked()
     {
         var script = new ScriptedModel([new TextOutput("Never said.")], [new TextOutput("It is sunny.")]);

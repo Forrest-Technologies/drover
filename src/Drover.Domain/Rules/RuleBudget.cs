@@ -1,14 +1,16 @@
 namespace Drover.Domain.Rules;
 
 /// <summary>
-/// The time one evaluation may spend looking for matches, across every rule, condition, and piece of text in it.
-/// Once it is spent, whatever is still to be searched counts as matching: a rule that cannot finish applies.
+/// What one evaluation may spend: a length of time that covers everything it does (reading the text into its plain
+/// form, every search, every rewrite), and a size it will look at. The clock starts when the budget is made. Once
+/// the time is spent, or when there is more than the size, what is still to be decided cannot be checked, and a
+/// rule that could not be checked applies.
 /// </summary>
 public sealed class RuleBudget(TimeSpan limit)
 {
     #region Private Fields
 
-    private readonly Stopwatch spent = new();
+    private readonly Stopwatch running = Stopwatch.StartNew();
 
     #endregion
 
@@ -20,34 +22,10 @@ public sealed class RuleBudget(TimeSpan limit)
     /// <summary>The most characters one evaluation looks at, over all its pieces of text. More is too much to check.</summary>
     public static int MaxCharacters => 500_000;
 
-    /// <summary>The most pieces of text (strings, numbers, names) one evaluation looks at.</summary>
-    public static int MaxLeaves => 5_000;
+    /// <summary>The most pieces of text (strings, numbers, flags, names) one evaluation looks at.</summary>
+    public static int MaxLeaves => 20_000;
 
-    public bool IsSpent => spent.Elapsed >= limit;
-
-    #endregion
-
-    #region Public Methods
-
-    /// <summary>
-    /// Counts the time until the returned value is disposed as time spent searching. Every search counts, whatever
-    /// the length of the text: many short searches cost what one long one does.
-    /// </summary>
-    public Running Search()
-    {
-        spent.Start();
-        return new Running(spent);
-    }
-
-    #endregion
-
-    #region Running
-
-    /// <summary>One stretch of searching. Disposing it stops the count.</summary>
-    public readonly struct Running(Stopwatch watch) : IDisposable
-    {
-        public void Dispose() => watch.Stop();
-    }
+    public bool IsSpent => running.Elapsed >= limit;
 
     #endregion
 }
