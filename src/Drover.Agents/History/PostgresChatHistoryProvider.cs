@@ -58,6 +58,8 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             },
             cancellationToken);
 
+        // Messages that arrived during the run pass the bot's rules before they are put in front of the model.
+        await run.Governor.RuleOnArrivals([.. steers.Select(TextOf)], cancellationToken);
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage())];
         steering = [.. steered.Select(message => message.MessageId!)];
         context.RequestMessages = [.. request, .. steered];
@@ -125,6 +127,8 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     #endregion
 
     #region Steering
+
+    private static string TextOf(Message message) => string.Join('\n', message.Parts.OfType<TextPart>().Select(part => part.Text));
 
     /// <summary>
     /// The pending messages that steer this run: sent to steer, by the person the run acts for. A run takes

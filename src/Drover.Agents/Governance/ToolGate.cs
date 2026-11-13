@@ -52,6 +52,21 @@ public sealed class ToolGate(RunContext run, ILogger logger)
         var wrapped = context.Function.GetService<ApprovalRequiredAIFunction>() is not null;
         var request = await BuildRequest(context, definition, wrapped, cancellationToken);
         var decision = await run.Governor.Decide(request, cancellationToken);
+
+        if (decision.Arguments is { ValueKind: JsonValueKind.Object } ruled)
+        {
+            // A rule removed something from the arguments. The tool is called with what is left, and that is what
+            // the call's row keeps.
+            AIFunctionArguments left = [];
+
+            foreach (var argument in ruled.EnumerateObject())
+            {
+                left[argument.Name] = argument.Value;
+            }
+
+            context.Arguments = left;
+            request = request with { Arguments = ruled };
+        }
         var verdict = decision.Verdict is ToolGateVerdict.Ask && request.Approved ? ToolGateVerdict.Run : decision.Verdict;
 
         if (verdict is not ToolGateVerdict.Run)

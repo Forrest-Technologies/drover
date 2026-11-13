@@ -64,5 +64,8 @@ public static class RunEventTypes
 
     public const string UsageRecorded = "usage.recorded";
 
+    /// <summary>A rule a person wrote on the bot applied. Data is <see cref="RuleFired"/>.</summary>
+    public const string RuleFired = "rule.fired";
+
     #endregion
 }

@@ -96,6 +96,17 @@ public sealed class RunSession(
 
     public bool CancelledByUser { get; private set; }
 
+    /// <summary>Set when a rule ended the run: the reason code and the sentence the run fails with.</summary>
+    public (string Reason, string Message)? EndedByRule { get; private set; }
+
+    /// <summary>The bot's rules as they were when the agent was last built, which decides the tools that must ask.</summary>
+    public IReadOnlyList<ActiveRule> RulesAtBuild { get; set; } = [];
+
+    /// <summary>How many tool calls the model has asked for in this execution of the run.</summary>
+    public int ToolCallCount => calls.Count;
+
+    public DateTimeOffset Now => time.GetUtcNow();
+
     public bool LeaseLost { get; private set; }
 
     public RunOptions Options => options;
@@ -119,6 +130,28 @@ public sealed class RunSession(
     #endregion
 
     #region Stopping
+
+    /// <summary>Ends the run because a rule says so. The first rule to end it is the one the run reports.</summary>
+    public void EndByRule(string reason, string message)
+    {
+        EndedByRule ??= (reason, message);
+        stop.Cancel();
+    }
+
+    /// <summary>
+    /// True when a rule asks a person before this tool is used, going by the rule's conditions about the tool alone.
+    /// The framework can stop for approval only on tools marked for it when the agent is built, before any argument
+    /// is known, so a rule that asks only for some arguments makes every call of the tools it could apply to ask.
+    /// </summary>
+    public bool RuleAsks(RunTool tool) =>
+        RulesAtBuild.Any(rule =>
+            rule is { Checkpoint: RuleCheckpoint.BeforeTool, Effect: RuleEffect.Ask }
+            && rule.Conditions.All(condition => condition.Kind switch
+            {
+                RuleConditionKind.ToolIs => condition.Tools.Contains(tool.Tool.Name, StringComparer.Ordinal),
+                RuleConditionKind.ToolKind => condition.ToolKinds.Contains(tool.Tool.Sensitivity),
+                _ => true,
+            }));
 
     public void CancelByUser()
     {

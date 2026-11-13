@@ -5,7 +5,7 @@ namespace Drover.Engine.Runs;
 /// the model never decides what it may do: the grant is read again when the call is made, the bot must still be
 /// active, and the result is redacted before anything stores or sees it.
 /// </summary>
-public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricing, IToolSource? toolServers, ILogger logger) : IRunGovernor
+public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricing, IToolSource? toolServers, RunRules rules, ILogger logger) : IRunGovernor
 {
     #region Private Fields
 
@@ -46,7 +46,7 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         try
         {
             await session.StartTool(toolCall.CallId);
-            var outcome = await Run(toolCall, cancellationToken);
+            var outcome = await RuleOnResult(toolCall, await Run(toolCall, cancellationToken), cancellationToken);
             await session.CompleteTool(toolCall.CallId, outcome);
             return outcome;
         }
@@ -96,6 +96,39 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
     public JsonElement Redact(JsonElement value) => session.Redactor.Redact(value);
 
+    public async Task<bool> HoldsReplies(CancellationToken cancellationToken) =>
+        (await rules.Load(cancellationToken)).Any(rule => rule.Checkpoint is RuleCheckpoint.BeforeReply);
+
+    public async Task<string> RuleOnReply(string text, CancellationToken cancellationToken)
+    {
+        if (await rules.Check(new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = text }, null, cancellationToken) is not { } outcome)
+        {
+            return text;
+        }
+
+        if (outcome.Effect is RuleEffect.Redact)
+        {
+            return outcome.RedactedText ?? text;
+        }
+
+        var withheld = $"[This reply was withheld by the rule \"{outcome.Rule.Name}\": {outcome.Why}.]";
+
+        if (outcome.Effect is RuleEffect.Stop)
+        {
+            session.EndByRule(RunRules.StoppedByRule, $"Stopped by the rule \"{outcome.Rule.Name}\": {outcome.Why}.");
+        }
+
+        return withheld;
+    }
+
+    public async Task RuleOnArrivals(IReadOnlyList<string> texts, CancellationToken cancellationToken)
+    {
+        if (await rules.CheckArrivals(texts, cancellationToken) is { } refused)
+        {
+            throw new OperationCanceledException(refused);
+        }
+    }
+
     #endregion
 
     #region Gate
@@ -122,12 +155,78 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         }
 
         // The grant as it stands now, and then the run's own state: a tainted run asks before it changes anything.
-        return (effect is { } granted ? session.EffectNow(tool, granted) : effect) switch
+        var granting = (effect is { } granted ? session.EffectNow(tool, granted) : effect) switch
         {
             GrantEffect.Allow => ToolGateDecision.Run,
             GrantEffect.Ask => ToolGateDecision.Ask,
             _ => ToolGateDecision.Refuse($"This bot has no grant for the tool {toolCall.ToolName}."),
         };
+
+        // Rules come after the grant and only narrow: what the grant refuses, no rule is asked about.
+        return granting.Verdict is ToolGateVerdict.Refuse ? granting : await RuleOnCall(toolCall, tool, granting, cancellationToken);
+    }
+
+    private async Task<ToolGateDecision> RuleOnCall(ToolCallRequest toolCall, RunTool tool, ToolGateDecision granting, CancellationToken cancellationToken)
+    {
+        var subject = new RuleSubject
+        {
+            Checkpoint = RuleCheckpoint.BeforeTool,
+            ToolName = tool.Tool.Name,
+            ToolKind = tool.Tool.Sensitivity,
+            Json = toolCall.Arguments,
+        };
+
+        if (await rules.Check(subject, ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken) is not { } outcome)
+        {
+            return granting;
+        }
+
+        switch (outcome.Effect)
+        {
+            case RuleEffect.Stop:
+                session.EndByRule(RunRules.StoppedByRule, $"Stopped by the rule \"{outcome.Rule.Name}\": {outcome.Why}.");
+                return ToolGateDecision.Refuse($"The rule \"{outcome.Rule.Name}\" stopped the run: {outcome.Why}.");
+            case RuleEffect.Block:
+                return ToolGateDecision.Refuse($"The rule \"{outcome.Rule.Name}\" does not allow this: {outcome.Why}.");
+            case RuleEffect.Ask:
+                return ToolGateDecision.Ask;
+            default:
+                return granting with { Arguments = outcome.RedactedJson };
+        }
+    }
+
+    private async Task<ToolOutcome> RuleOnResult(ToolCallRequest toolCall, ToolOutcome result, CancellationToken cancellationToken)
+    {
+        if (toolCall.ToolId is not { } toolId || session.FindTool(toolId) is not { } tool)
+        {
+            return result;
+        }
+
+        var subject = new RuleSubject
+        {
+            Checkpoint = RuleCheckpoint.AfterTool,
+            ToolName = tool.Tool.Name,
+            ToolKind = tool.Tool.Sensitivity,
+            Json = result.Result,
+        };
+
+        if (await rules.Check(subject, ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken) is not { } outcome)
+        {
+            return result;
+        }
+
+        if (outcome.Effect is RuleEffect.Redact)
+        {
+            return result with { Result = outcome.RedactedJson ?? result.Result };
+        }
+
+        if (outcome.Effect is RuleEffect.Stop)
+        {
+            session.EndByRule(RunRules.StoppedByRule, $"Stopped by the rule \"{outcome.Rule.Name}\": {outcome.Why}.");
+        }
+
+        // The tool ran; what it answered is kept from the model.
+        return Error($"The rule \"{outcome.Rule.Name}\" withheld this tool's result: {outcome.Why}.");
     }
 
     private async Task<ToolOutcome> Run(ToolCallRequest toolCall, CancellationToken cancellationToken)
