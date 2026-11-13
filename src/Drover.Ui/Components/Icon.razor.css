@@ -1,0 +1,14 @@
+.dv-icon {
+  flex: none;
+  display: block;
+}
+
+.dv-icon-16 {
+  width: var(--dv-icon-16);
+  height: var(--dv-icon-16);
+}
+
+.dv-icon-20 {
+  width: var(--dv-icon-20);
+  height: var(--dv-icon-20);
+}

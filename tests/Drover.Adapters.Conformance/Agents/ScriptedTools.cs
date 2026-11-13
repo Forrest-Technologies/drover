@@ -48,6 +48,22 @@ public sealed class ScriptedTools
             throw new InvalidOperationException("Unreachable.");
         });
 
+    /// <summary>A tool that never finishes the first time it starts, and answers every time after that.</summary>
+    public ScriptedTools AddPausingOnce(string name, string resultJson = """{"ok":true}""")
+    {
+        var started = 0;
+        return Add(name, async (_, cancellationToken) =>
+        {
+            if (Interlocked.Increment(ref started) == 1)
+            {
+                paused.TrySetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return new ToolOutcome(Json(resultJson));
+        });
+    }
+
     public int Count(string name) => invocations.Count(invoked => invoked == name);
 
     public async Task<ToolOutcome> Invoke(ToolCallRequest request, CancellationToken cancellationToken)

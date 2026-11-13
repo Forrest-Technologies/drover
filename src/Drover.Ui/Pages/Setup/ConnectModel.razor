@@ -1,0 +1,151 @@
+@page "/setup/model"
+@layout EntryLayout
+@inject DroverApi Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ILogger<ConnectModel> Logger
+
+<PageTitle>Connect a model</PageTitle>
+
+<SessionGate>
+    <SetupSteps Current="2" />
+    <h1>Connect a model</h1>
+    <p class="dv-entry-lead">Bots think with a model you bring. The key is stored encrypted on this server and is never shown again.</p>
+
+    <form class="dv-entry-form" @onsubmit="Test">
+        <SegmentedControl TValue="string" Label="Provider" Options="providers" Value="@kind" ValueChanged="ChooseProvider"
+                          Disabled="busy" />
+        @if (kind == CompatibleKind)
+        {
+            <Field Label="Base address" Type="url" @bind-Value="baseUrl" name="base-address" autocomplete="off" required="true"
+                   Placeholder="https://" Disabled="busy"
+                   Hint="Any server that speaks the chat completions API, such as one on your own machine." />
+            <Field Label="Key" Type="password" @bind-Value="apiKey" name="model-key" autocomplete="off" Disabled="busy"
+                   Hint="Leave this empty if the server needs no key." />
+        }
+        else
+        {
+            <Field Label="Key" Type="password" @bind-Value="apiKey" name="model-key" autocomplete="off" required="true"
+                   Disabled="busy" Hint="Made in your Venice account, under API keys." />
+        }
+        <StatusNote Kind="@(Passed ? NoteKind.Ok : NoteKind.Danger)" Text="@(busy ? null : Outcome)" />
+        @if (busy)
+        {
+            <p class="dv-entry-lead" role="status">Asking the provider. This can take a few seconds.</p>
+        }
+        <div class="dv-entry-actions">
+            @if (Passed)
+            {
+                <Button Type="submit" Disabled="busy">Test again</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="Continue">Continue</Button>
+            }
+            else
+            {
+                <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? "Testing" : "Test connection")</Button>
+            }
+        </div>
+    </form>
+</SessionGate>
+
+@code {
+    #region Private Fields
+
+    private const string VeniceKind = "venice";
+
+    private const string CompatibleKind = "openai_compatible";
+
+    private static readonly SegmentOption<string>[] providers =
+    [
+        new(VeniceKind, "Venice"),
+        new(CompatibleKind, "Compatible endpoint"),
+    ];
+
+    private string kind = VeniceKind;
+
+    private string baseUrl = string.Empty;
+
+    private string apiKey = string.Empty;
+
+    private ModelConnectionSummary? connection;
+
+    private string? sentKey;
+
+    private ConnectionTestResponse? result;
+
+    private string? problem;
+
+    private bool busy;
+
+    #endregion
+
+    #region Properties
+
+    private bool Passed => problem is null && result is { Succeeded: true };
+
+    private string? Outcome => problem ?? result?.Message;
+
+    private Guid SpaceId => Session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
+
+    #endregion
+
+    #region Private Methods
+
+    private void ChooseProvider(string chosen)
+    {
+        kind = chosen;
+        result = null;
+        problem = null;
+    }
+
+    private async Task Test()
+    {
+        busy = true;
+        problem = null;
+        result = null;
+        try
+        {
+            connection = await SaveConnection();
+            result = await Api.TestModelConnection(SpaceId, connection.Id);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ConnectModel));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    // The first test saves the connection. A later one keeps it and only replaces a changed key,
+    // unless the provider or the address changed, which makes it a different connection.
+    private async Task<ModelConnectionSummary> SaveConnection()
+    {
+        var address = kind == CompatibleKind ? baseUrl.Trim() : null;
+        var key = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
+
+        if (connection is null || connection.Kind != kind || !string.Equals(connection.BaseUrl, address, StringComparison.Ordinal))
+        {
+            var created = await Api.CreateModelConnection(SpaceId, new(kind, NameFor(address), address, key, null));
+            sentKey = key;
+            return created;
+        }
+
+        if (key is not null && key != sentKey)
+        {
+            var updated = await Api.ReplaceModelKey(SpaceId, connection.Id, new(key));
+            sentKey = key;
+            return updated;
+        }
+
+        return connection;
+    }
+
+    private string NameFor(string? address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
+
+    private void Continue() => Navigation.NavigateTo(Addresses.SetupBot);
+
+    #endregion
+}

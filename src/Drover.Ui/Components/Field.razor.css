@@ -1,0 +1,55 @@
+.dv-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  min-width: 0;
+}
+
+.dv-field-label {
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  color: var(--dv-text-2);
+}
+
+.dv-field-input {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-0);
+  min-height: var(--dv-target-pointer);
+  padding: 0 var(--dv-space-3);
+  color: var(--dv-text);
+  font: inherit;
+}
+
+.dv-field-input::placeholder {
+  color: var(--dv-text-3);
+}
+
+.dv-field-input[aria-invalid="true"] {
+  --dv-facet-edge: var(--dv-danger);
+}
+
+.dv-field-input:disabled {
+  color: var(--dv-text-3);
+  cursor: not-allowed;
+}
+
+.dv-field-hint {
+  font-size: var(--dv-text-12);
+  color: var(--dv-text-3);
+}
+
+.dv-field-error {
+  font-size: var(--dv-text-12);
+  color: var(--dv-danger);
+}
+
+@media (pointer: coarse) {
+  .dv-field-input {
+    min-height: var(--dv-target-touch);
+  }
+}
+
+.dv-field-input:focus-visible {
+  --dv-facet-edge: var(--dv-ember);
+}

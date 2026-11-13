@@ -1,0 +1,116 @@
+@page "/setup"
+@layout EntryLayout
+@inject DroverApi Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ILogger<CreateAccount> Logger
+
+<PageTitle>Set up Drover</PageTitle>
+
+<SetupSteps Current="1" />
+<h1>Create your account</h1>
+
+@if (status is null)
+{
+    @if (problem is null)
+    {
+        <p class="dv-entry-lead" role="status">Checking this server.</p>
+    }
+    else
+    {
+        <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+        <Button Kind="ButtonKind.Primary" OnClick="CheckServer">Try again</Button>
+    }
+}
+else
+{
+    <p class="dv-entry-lead">This is the first account on this server. It owns the server and everything on it.</p>
+
+    <form class="dv-entry-form" @onsubmit="Submit">
+        <Field Label="Your name" @bind-Value="displayName" name="name" autocomplete="name" required="true" maxlength="200"
+               Disabled="busy" />
+        <Field Label="Email" Type="email" @bind-Value="email" name="email" autocomplete="username" required="true"
+               Disabled="busy" />
+        <Field Label="Password" Type="password" @bind-Value="password" name="new-password" autocomplete="new-password"
+               required="true" minlength="12" Hint="At least 12 characters." Disabled="busy" />
+        @if (status.RequiresCode)
+        {
+            <Field Label="Setup code" @bind-Value="setupCode" name="setup-code" autocomplete="off" autocapitalize="characters"
+                   spellcheck="false" required="true" Disabled="busy"
+                   Hint="Drover printed this code in its server log when it started. It proves you run this server." />
+        }
+        <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+        <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? "Creating your account" : "Create account")</Button>
+    </form>
+}
+
+@code {
+    #region Private Fields
+
+    private SetupStatus? status;
+
+    private string displayName = string.Empty;
+
+    private string email = string.Empty;
+
+    private string password = string.Empty;
+
+    private string setupCode = string.Empty;
+
+    private string? problem;
+
+    private bool busy;
+
+    #endregion
+
+    #region Private Methods
+
+    protected override Task OnInitializedAsync() => CheckServer();
+
+    // Setup happens once. After that this address has nothing to offer, so it hands over to sign-in.
+    private async Task CheckServer()
+    {
+        problem = null;
+        try
+        {
+            status = await Api.GetSetupStatus();
+            if (status is null)
+            {
+                Navigation.NavigateTo(Addresses.SignIn, replace: true);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(CreateAccount));
+            problem = Failures.Sentence(exception);
+        }
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        problem = null;
+        try
+        {
+            var code = status is { RequiresCode: true } ? setupCode.Trim() : null;
+            Session.Begin(await Api.CreateFirstAccount(new(email.Trim(), displayName.Trim(), password, code)));
+            Navigation.NavigateTo(Addresses.SetupModel);
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is System.Net.HttpStatusCode.NotFound)
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(CreateAccount));
+            problem = "This server already has its first account. Sign in with it.";
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(CreateAccount));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    #endregion
+}

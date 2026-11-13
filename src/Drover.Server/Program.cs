@@ -11,6 +11,10 @@ if (initializeDatabase)
     return;
 }
 
+// The web host writes every request line to the log, query string included. A tool server's sign-in page sends the
+// person's browser back with a one-time code in the query, so request lines are not logged. Failures still are.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+
 var policy = new DeploymentPolicySetup(builder.Configuration).Resolve();
 var connectionString = string.Empty;
 try
@@ -35,6 +39,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
+builder.Services.AddDroverModels();
+builder.Services.AddDroverRunEngine(builder.Configuration);
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddSingleton<SetupCode>();
@@ -42,7 +48,9 @@ builder.Services.AddHostedService<SetupCodeAnnouncer>();
 
 var app = builder.Build();
 
+app.UseTrustedProxies();
 app.UseSecurityHeaders();
+app.UseCookiePolicy();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 app.UseRouting();
@@ -57,6 +65,7 @@ api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
 api.MapFallback(() => Results.NotFound());
+app.MapToolSignInCallback();
 
 app.MapOpenApi();
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });

@@ -1,0 +1,13 @@
+<svg class="dv-icon dv-icon-@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    @((MarkupString)IconShapes.For(Name))
+</svg>
+
+@code {
+    [Parameter, EditorRequired]
+    public IconName Name { get; set; }
+
+    /// <summary>The edge length in pixels: 16 or 20.</summary>
+    [Parameter]
+    public int Size { get; set; } = 16;
+}

@@ -10,6 +10,8 @@ public sealed class TenantWork(DroverDbContext db, IDbContextTransaction transac
 
     private bool committed;
 
+    private bool disposed;
+
     #endregion
 
     #region Public Methods
@@ -21,7 +23,23 @@ public sealed class TenantWork(DroverDbContext db, IDbContextTransaction transac
         committed = true;
     }
 
-    public async ValueTask DisposeAsync()
+    // Not an async method: the caller's flow must see the scope as closed from here on (see TenantScope.Begin).
+    public ValueTask DisposeAsync()
+    {
+        if (!disposed)
+        {
+            disposed = true;
+            TenantScope.MarkClosed();
+        }
+
+        return DisposeTransaction();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private async ValueTask DisposeTransaction()
     {
         try
         {

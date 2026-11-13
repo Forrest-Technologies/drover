@@ -1,7 +1,9 @@
 namespace Drover.Agents.Runtime;
 
-/// <summary>Gives the chat client for a bot's model connection. The server wires it to the model providers.</summary>
-public delegate IChatClient ChatClientResolver(BotDefinition bot);
+/// <summary>
+/// Gives the chat client for one run. The server wires it to the model client the engine built for the run's bot.
+/// </summary>
+public delegate IChatClient ChatClientResolver(RunExecution execution);
 
 
 /// <summary>

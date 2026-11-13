@@ -1,0 +1,30 @@
+.dv-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--dv-target-pointer);
+  height: var(--dv-target-pointer);
+  padding: 0;
+  border: 0;
+  border-radius: var(--dv-radius-control);
+  background: transparent;
+  color: var(--dv-text-2);
+  cursor: pointer;
+  transition: background var(--dv-dur-1) var(--dv-ease);
+}
+
+.dv-icon-button:hover:not(:disabled) {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+.dv-icon-button:disabled {
+  color: var(--dv-text-3);
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .dv-icon-button {
+    width: var(--dv-target-touch);
+    height: var(--dv-target-touch);
+  }
+}

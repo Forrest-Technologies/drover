@@ -1,0 +1,84 @@
+/* Reversed, so the newest message stays in view while text streams in and the reader is at the bottom,
+   and stays put when they have scrolled up to read. The column inside keeps reading order. */
+.dv-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dv-messages-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-5);
+  width: min(var(--dv-measure), 100%);
+  margin: 0 auto;
+  padding: var(--dv-space-5) var(--dv-space-4);
+}
+
+.dv-messages-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dv-space-3);
+  padding: var(--dv-space-7) 0;
+  color: var(--dv-text-2);
+  text-align: center;
+}
+
+.dv-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-message-person {
+  align-items: flex-end;
+}
+
+.dv-message-bubble {
+  max-width: 85%;
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-2);
+  padding: var(--dv-space-2) var(--dv-space-4);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dv-message-pending {
+  font-size: var(--dv-text-12);
+  color: var(--dv-text-3);
+}
+
+.dv-message-from {
+  display: flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  color: var(--dv-text-2);
+}
+
+.dv-message-state,
+.dv-message-writing {
+  color: var(--dv-ion);
+}
+
+/* A bot's words sit under its head, set in from the edge the head stands on. */
+.dv-message-bot ::deep .dv-markdown {
+  padding-left: calc(var(--dv-avatar-32) + var(--dv-space-2));
+}
+
+/* Each block of a streaming reply fades in once, as it first arrives. Text added to it after that is not delayed. */
+.dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
+  animation: dv-arrive var(--dv-dur-1) var(--dv-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
+    animation: none;
+  }
+}

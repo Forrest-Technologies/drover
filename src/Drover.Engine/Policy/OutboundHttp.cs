@@ -1,8 +1,5 @@
 namespace Drover.Engine.Policy;
 
-/// <summary>Raised when an outbound request is refused because it would reach a private address.</summary>
-public sealed class OutboundBlockedException(string message) : HttpRequestException(message);
-
 /// <summary>
 /// The one handler every outbound client uses. A request is allowed to reach private addresses only when the
 /// deployment allows it and the request says so: the caller that knows the space puts the space's effective value on
@@ -33,17 +30,25 @@ public static class OutboundHttp
     public static HttpMessageHandler CreateHandler(DeploymentPolicy policy) =>
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains);
 
+    /// <summary>
+    /// The same handler for a client that must never follow a redirect: one whose requests carry a credential in a
+    /// header of the caller's choosing, which a redirect would hand to whatever host the answer names.
+    /// </summary>
+    public static HttpMessageHandler CreateHandlerWithoutRedirects(DeploymentPolicy policy) =>
+        CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains, followRedirects: false);
+
     /// <summary>The same handler with its address lookup and its test for a refused address supplied by the caller.</summary>
     public static HttpMessageHandler CreateHandler(
         DeploymentPolicy policy,
         Func<string, CancellationToken, Task<IPAddress[]>> resolve,
-        Func<IPAddress, bool> isRefused)
+        Func<IPAddress, bool> isRefused,
+        bool followRedirects = true)
     {
-        var guarded = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), UseProxy = false };
+        var guarded = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), UseProxy = false, AllowAutoRedirect = followRedirects };
         guarded.ConnectCallback = (context, cancellationToken) =>
             ConnectToCheckedAddress(context, resolve, isRefused, cancellationToken);
         var open = policy.AllowPrivateAddresses
-            ? new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }
+            ? new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = followRedirects }
             : null;
         return new RoutingHandler(guarded, open);
     }

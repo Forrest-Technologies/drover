@@ -277,6 +277,48 @@ public abstract class AgentRuntimeConformance
     }
 
     [Fact]
+    public async Task A_read_only_tool_call_cut_off_by_a_kill_runs_again_and_its_result_reaches_the_model()
+    {
+        var run = await NewRun("Look it up", new ToolSpec("lookup", ToolSensitivity.Read));
+        var tools = new ScriptedTools().AddPausingOnce("lookup", """{"answer":42}""");
+        var model = new ScriptedModel([new ToolCallOutput("c1", "lookup")], [new TextOutput("It is 42")]);
+
+        await Kill(model, tools.Paused, run, tools);
+        await using var second = StartHost(model);
+        var governor = new ScriptedGovernor(tools);
+        var events = await Collect(second, run, governor);
+
+        events[^1].Should().Be(new RunFinished(RunOutcome.Completed));
+        tools.Count("lookup").Should().Be(2, "a tool that only reads is safe to run again");
+        governor.Decided.Should().ContainSingle(decided => decided.ToolName == "lookup", "the grant is checked again before the tool runs again");
+        model.Requests.Should().HaveCount(2, "the model call that asked for the tool finished and is not repeated");
+        model.Requests[1].Should().Contain(new SeenMessage("tool", """c1 = {"answer":42}"""));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Completed);
+        Summaries(await ReadMessages(run)).Should().Equal(
+            "user: Look it up", "assistant: call c1 lookup", """tool: result c1 {"answer":42}""", "assistant: It is 42");
+    }
+
+    [Fact]
+    public async Task A_cut_off_read_only_call_the_bot_may_no_longer_make_is_reported_interrupted()
+    {
+        var run = await NewRun("Look it up", new ToolSpec("lookup", ToolSensitivity.Read));
+        var tools = new ScriptedTools().AddPausingOnce("lookup");
+        var model = new ScriptedModel([new ToolCallOutput("c1", "lookup")], [new TextOutput("I could not finish looking.")]);
+
+        await Kill(model, tools.Paused, run, tools);
+        await using var second = StartHost(model);
+        var refusing = new ScriptedGovernor(tools, new Dictionary<string, ToolGateDecision>
+        {
+            ["lookup"] = ToolGateDecision.Refuse("No grant for lookup."),
+        });
+        await Collect(second, run, refusing);
+
+        tools.Count("lookup").Should().Be(1);
+        model.Requests[1].Should().Contain(new SeenMessage("tool", "c1 = \"interrupted, outcome unknown\""));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Interrupted);
+    }
+
+    [Fact]
     public async Task A_call_id_reused_by_a_later_run_is_repaired_from_that_runs_own_row()
     {
         var first = await NewRun("Count once", new ToolSpec("count"));

@@ -1,0 +1,107 @@
+@page "/"
+@page "/new"
+@page "/threads/{ThreadId:guid}"
+
+<PageTitle>@PageName</PageTitle>
+
+<SessionGate>
+    <div class="dv-shell @(AtList ? "dv-shell-at-list" : "dv-shell-at-thread")">
+        <div class="dv-shell-list">
+            <header class="dv-shell-list-header">
+                <span class="dv-wordmark"><DroverMark />Drover</span>
+                @if (Bot is not null)
+                {
+                    <a class="dv-shell-new dv-facet" href="@Addresses.NewThread">
+                        <Icon Name="IconName.Plus" />
+                        New thread
+                    </a>
+                }
+            </header>
+            <nav class="dv-shell-threads" aria-label="Threads">
+                @if (AtList)
+                {
+                    <h1 class="dv-visually-hidden">Threads</h1>
+                }
+                @if (NotReady is not null)
+                {
+                    <div class="dv-shell-narrow-only">@NotReady</div>
+                }
+                else if (threads.Count == 0)
+                {
+                    <p class="dv-shell-hint">No threads yet. Start one with @Bot!.Name.</p>
+                }
+                else
+                {
+                    <ThreadList Threads="ThreadItems" SelectedId="ThreadId" />
+                }
+            </nav>
+            <footer class="dv-shell-list-footer">
+                <AccountMenu />
+            </footer>
+        </div>
+        <main class="dv-shell-main dv-yard">
+            @if (NotReady is not null)
+            {
+                <div class="dv-shell-center">@NotReady</div>
+            }
+            else if (missing)
+            {
+                <div class="dv-shell-center">
+                    <EmptyState Title="This thread is not here" Cause="It was removed, or it belongs to someone else."
+                                ActionLabel="Start a new thread" ActionHref="@Addresses.NewThread" />
+                </div>
+            }
+            else
+            {
+                <header class="dv-shell-main-header">
+                    <a class="dv-shell-back" href="@Addresses.Home" aria-label="Back to threads">
+                        <Icon Name="IconName.ArrowLeft" Size="20" />
+                    </a>
+                    <Avatar Name="@ShownBot.Name" Hue="BotIdentity.Hue(ShownBot.Id)" Size="32"
+                            State="@(Working ? AvatarState.Thinking : AvatarState.Rest)" />
+                    <span class="dv-shell-bot dv-mono">@ShownBot.Name</span>
+                    @if (AtList)
+                    {
+                        <h2 class="dv-shell-title">@ThreadName</h2>
+                    }
+                    else
+                    {
+                        <h1 class="dv-shell-title">@ThreadName</h1>
+                    }
+                </header>
+                @if (loadingThread)
+                {
+                    <div class="dv-shell-center">
+                        <p class="dv-shell-hint" role="status">Loading the conversation.</p>
+                    </div>
+                }
+                else
+                {
+                    <MessageList @ref="list" Messages="Messages" BotName="@ShownBot.Name" BotHue="BotIdentity.Hue(ShownBot.Id)" Thinking="Thinking"
+                                 Problem="@problem" Notice="@Notice" />
+                }
+                <Composer @ref="composer" BotName="@ShownBot.Name" Running="Working" Disabled="loadingThread" Sending="sending" OnSend="Send"
+                          OnCancel="Stop" />
+            }
+        </main>
+    </div>
+</SessionGate>
+
+@code {
+    // What stands in for the workspace until there is a bot to talk to. A phone shows it in the list;
+    // a wide window shows it in the main pane.
+    private RenderFragment? NotReady => this switch
+    {
+        { spaceProblem: not null } =>
+            @<EmptyState Title="Drover could not load this space" Cause="@spaceProblem" ActionLabel="Try again" OnAction="Reload" />,
+        { bots: null } =>
+            @<p class="dv-shell-hint" role="status">Loading your space.</p>,
+        { connections.Count: 0 } =>
+            @<EmptyState Title="No model is connected" Cause="A bot needs a model to think with, and this space has none yet."
+                         ActionLabel="Connect a model" ActionHref="@Addresses.SetupModel" />,
+        { bots.Count: 0 } =>
+            @<EmptyState Title="No bot yet" Cause="A model is connected, and there is no bot to use it."
+                         ActionLabel="Meet your first bot" ActionHref="@Addresses.SetupBot" />,
+        _ => null,
+    };
+}

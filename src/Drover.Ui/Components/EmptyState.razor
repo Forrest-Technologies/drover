@@ -1,0 +1,48 @@
+<section class="dv-empty dv-facet">
+    @if (Title is not null)
+    {
+        <h2 class="dv-empty-title">@Title</h2>
+    }
+    <p class="dv-empty-cause">@Cause</p>
+    @if (ActionHref is not null)
+    {
+        <a class="dv-empty-action" href="@ActionHref">@ActionLabel</a>
+    }
+    else
+    {
+        <Button Kind="ButtonKind.Primary" OnClick="OnAction">@ActionLabel</Button>
+    }
+</section>
+
+@code {
+    [Parameter]
+    public string? Title { get; set; }
+
+    /// <summary>Why there is nothing here, in plain words. Required, so an empty screen always says what is happening.</summary>
+    [Parameter, EditorRequired]
+    public string Cause { get; set; } = string.Empty;
+
+    /// <summary>The one thing to do next, named as an action.</summary>
+    [Parameter, EditorRequired]
+    public string ActionLabel { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<MouseEventArgs> OnAction { get; set; }
+
+    /// <summary>Set when the next step is somewhere else. The action is then a link.</summary>
+    [Parameter]
+    public string? ActionHref { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(Cause) || string.IsNullOrWhiteSpace(ActionLabel))
+        {
+            throw new InvalidOperationException($"{nameof(EmptyState)} needs a {nameof(Cause)} and an {nameof(ActionLabel)}.");
+        }
+
+        if (ActionHref is null && !OnAction.HasDelegate)
+        {
+            throw new InvalidOperationException($"{nameof(EmptyState)} needs {nameof(OnAction)} or {nameof(ActionHref)}: its action must do something.");
+        }
+    }
+}

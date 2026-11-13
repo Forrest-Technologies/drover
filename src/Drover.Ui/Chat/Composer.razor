@@ -1,0 +1,119 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<Composer> Logger
+
+<form class="dv-composer" @onsubmit="Send">
+    <div class="dv-composer-frame dv-facet @(Running ? "dv-state-tool" : null)">
+    <textarea @ref="field" class="dv-composer-field" rows="1" aria-label="Message to @BotName" placeholder="Write to @BotName"
+              value="@text" @oninput="Typed" disabled="@Disabled" enterkeyhint="send"></textarea>
+    @if (Running)
+    {
+        <Button OnClick="OnCancel">
+            <Icon Name="IconName.Stop" />
+            Stop
+        </Button>
+    }
+    @if (!Running || !string.IsNullOrWhiteSpace(text))
+    {
+        <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(Disabled || Sending || string.IsNullOrWhiteSpace(text))">
+            <Icon Name="IconName.Send" />
+            Send
+        </Button>
+    }
+    </div>
+</form>
+
+@code {
+    #region Private Fields
+
+    private const string ModulePath = "./_content/Drover.Ui/Chat/Composer.razor.js";
+
+    private ElementReference field;
+
+    private IJSObjectReference? module;
+
+    private string text = string.Empty;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True while a run is active. Stop then takes the place of Send, and Send comes back beside it once there
+    /// is something written: a message sent now reaches the bot at its next step.
+    /// </summary>
+    [Parameter]
+    public bool Running { get; set; }
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>True while a message is on its way. The field stays usable, so focus and typing are not lost.</summary>
+    [Parameter]
+    public bool Sending { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnSend { get; set; }
+
+    /// <summary>Stops the whole run, including work it handed to other bots.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>Puts the cursor back in the message field.</summary>
+    public ValueTask Focus() => field.FocusAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            await module.DisposeAsync();
+        }
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // The script makes Enter send and Shift+Enter break the line, and grows the field with its text.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            await module.InvokeVoidAsync("attach", field);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The composer script failed to attach to the message field");
+            throw;
+        }
+    }
+
+    private void Typed(ChangeEventArgs change) => text = change.Value?.ToString() ?? string.Empty;
+
+    private async Task Send()
+    {
+        if (Disabled || Sending || string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var message = text.Trim();
+        text = string.Empty;
+        await OnSend.InvokeAsync(message);
+    }
+
+    #endregion
+}

@@ -1,0 +1,168 @@
+/* The workspace: the thread list and the open conversation. A phone shows one at a time. */
+.dv-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100dvh;
+}
+
+.dv-shell-list,
+.dv-shell-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dv-shell-list {
+  background: var(--dv-bg-1);
+}
+
+.dv-shell-at-list .dv-shell-main,
+.dv-shell-at-thread .dv-shell-list {
+  display: none;
+}
+
+.dv-shell-list-header,
+.dv-shell-main-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  min-height: calc(var(--dv-target-touch) + var(--dv-space-3));
+  padding: var(--dv-space-2) var(--dv-space-4);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-shell-list-header {
+  justify-content: space-between;
+}
+
+.dv-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  letter-spacing: var(--dv-tracking);
+}
+
+.dv-shell-main-header {
+  background: var(--dv-bg-0);
+}
+
+.dv-shell-bot {
+  flex: none;
+}
+
+.dv-shell-bot::after {
+  content: "/";
+  margin-left: var(--dv-space-2);
+  color: var(--dv-line);
+}
+
+.dv-shell-threads {
+  flex: 1;
+  min-height: 0;
+  padding: var(--dv-space-2);
+  overflow-y: auto;
+}
+
+.dv-shell-hint {
+  padding: var(--dv-space-2) var(--dv-space-3);
+  color: var(--dv-text-2);
+}
+
+.dv-shell-list-footer {
+  padding: var(--dv-space-3) var(--dv-space-4) max(var(--dv-space-3), env(safe-area-inset-bottom));
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+/* Links that act as the shell's two navigation controls. */
+.dv-shell-new,
+.dv-shell-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-pointer);
+  color: var(--dv-text);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+}
+
+.dv-shell-new {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-2);
+  padding: 0 var(--dv-space-3);
+}
+
+.dv-shell-back {
+  border-radius: var(--dv-radius-control);
+}
+
+.dv-shell-back {
+  flex: none;
+  min-width: var(--dv-target-pointer);
+  color: var(--dv-text-2);
+}
+
+.dv-shell-new:hover {
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-2);
+}
+
+.dv-shell-back:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+.dv-shell-narrow-only {
+  padding: var(--dv-space-2);
+}
+
+@media (pointer: coarse) {
+  .dv-shell-new,
+  .dv-shell-back {
+    min-height: var(--dv-target-touch);
+  }
+
+  .dv-shell-back {
+    min-width: var(--dv-target-touch);
+  }
+}
+
+.dv-shell-center {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  padding: var(--dv-space-4);
+}
+
+.dv-shell-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dv-text-14);
+  font-weight: var(--dv-weight-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 900px) {
+  .dv-shell {
+    grid-template-columns: var(--dv-list-width) minmax(0, 1fr);
+  }
+
+  .dv-shell-at-list .dv-shell-main,
+  .dv-shell-at-thread .dv-shell-list {
+    display: flex;
+  }
+
+  .dv-shell-list {
+    border-right: var(--dv-border) solid var(--dv-line);
+  }
+
+  .dv-shell-back,
+  .dv-shell-narrow-only {
+    display: none;
+  }
+}

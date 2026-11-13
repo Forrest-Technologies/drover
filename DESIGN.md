@@ -16,13 +16,13 @@ This file holds design facts: identity, palette, type, motion, and what the inte
 
 ## Personality
 
-Calm, exact, a little ahead of its time. Confident enough to stay quiet. It shows the work instead of describing it.
+Calm at rest, charged when working, a little ahead of its time. Confident enough to stay quiet until something is happening. It shows the work instead of describing it.
 
 Not: playful, loud, decorative, corporate, or "AI-themed".
 
-**Dial: ENERGY 2 / RHYTHM 2 / MOTION 2**
+**Dial: ENERGY 3 / RHYTHM 2 / MOTION 2**
 
-- Energy 2: restrained chrome, with two places allowed to be bold, the bot tree and the live activity timeline.
+- Energy 3: restrained chrome at rest. Live things are turned up: they carry light, not only color. Two places are allowed to be bold, the bot tree and the live activity timeline.
 - Rhythm 2: consistent structure, broken only where a screen's job needs it.
 - Motion 2: transitions and state indicators. No scroll effects, no choreography.
 
@@ -33,30 +33,31 @@ Not: playful, loud, decorative, corporate, or "AI-themed".
 - Warm (`ember`) is a person's intent: the primary action, the focus ring, send.
 - Cool (`ion`) is a bot working: thinking, streaming, a tool running.
 - Violet is work passing between bots.
+- A live thing blooms: a soft light in its own accent color, around the thing that is working and nothing else.
 - If nothing is happening, nothing glows and nothing moves.
 
 This is the identity motif. It is why a screenshot of Drover is recognizable without a logo.
 
 ## Palette
 
-Dark is primary. Light is supported and must be as good.
+Dark is primary: the app is dark until a person chooses light or asks it to follow their device. Light is supported and must be as good.
 
 | Role | Token | Dark | Light |
 | --- | --- | --- | --- |
-| App background | `--dv-bg-0` | `#0A0C10` | `#F6F7FA` |
-| Panel | `--dv-bg-1` | `#10141B` | `#FFFFFF` |
-| Card | `--dv-bg-2` | `#171C26` | `#EEF0F5` |
-| Hover, selected | `--dv-bg-3` | `#202735` | |
-| Decorative line | `--dv-line` | `#2B3445` | `#D5DAE3` |
+| App background | `--dv-bg-0` | `#05070A` | `#F6F7FA` |
+| Panel | `--dv-bg-1` | `#0B0E14` | `#FFFFFF` |
+| Card | `--dv-bg-2` | `#121722` | `#EEF0F5` |
+| Hover, selected | `--dv-bg-3` | `#1B2230` | `#E2E6EE` |
+| Decorative line | `--dv-line` | `#263042` | `#D5DAE3` |
 | Text | `--dv-text` | `#E9EDF5` | `#12151C` |
 | Secondary text | `--dv-text-2` | `#AEB7C7` | `#414B5E` |
 | Captions | `--dv-text-3` | `#8791A5` | `#5D6779` |
-| Human intent | `--dv-ember` | `#FFB454` | `#9A5B00` |
+| Human intent | `--dv-ember` | `#FFB454` | `#8F5400` |
 | Bot activity | `--dv-ion` | `#67E8F9` | `#0B6E82` |
 | Delegation | `--dv-violet` | `#B4A0FF` | `#5B3FD6` |
 | Success, attention, failure | `--dv-ok`, `--dv-warn`, `--dv-danger` | `#4ADE80`, `#FACC15`, `#FF7A7A` | `#15703A`, `#7A5A00`, `#B3261E` |
 
-Every text and status color clears 4.5:1 on every surface in both themes. This was computed, and a test recomputes it. Each bot also has an identity hue from twelve fixed steps, shown as a ring on its avatar and never used as the only signal.
+Every text and status color clears 4.5:1 on every surface in both themes. This was computed, and a test recomputes it. Each bot also has an identity hue from twelve fixed steps. Its character's head carries the hue, and it is never the only signal.
 
 Three accent colors is the limit, and each has one meaning. No gradients as decoration.
 
@@ -73,9 +74,21 @@ Three accent colors is the limit, and each has one meaning. No gradients as deco
 ## Shape and space
 
 - Spacing on a 4 px base: 4, 8, 12, 16, 24, 32, 48.
-- Radius: 6 for controls, 10 for cards, 16 for sheets, full for avatars and pills. Nothing else.
+- The frame is faceted: controls, cards, message bubbles, and the composer have two cut corners (top left, bottom right), 6 px on controls and 10 px on larger frames, echoing the bot heads. One class, `dv-facet`, draws it. Radius remains for what is round by nature: 16 for sheets and dialogs, full for pills and uploaded pictures.
 - Depth comes from a lighter surface and a 1 px line. Two levels. No soft drop shadows, no blur panels.
+- Light is not depth. Bloom belongs to the four live states and is never used to lift a surface.
+- The working area (the conversation, the setup screens, the two bold screens) sits on a faint dot grid, the yard. Lists and panels are plain.
 - Touch targets 44 px, pointer targets 32 px.
+
+## Bots are characters
+
+Every bot is a head with a visor: one band of light where a face would be. The visor is dark at rest and lit while the bot works, which is "light means live" made into a character.
+
+- Built from parts stored as data: six heads, six visors, six tops, six marks, a tilt, and the hue. The same bot always gets the same character.
+- The visor is the state: dark at rest, a slow breath when thinking, steady when writing, a bright bar sweeping across when a tool runs, a pale red when failed. Each state is also said in words.
+- Below 24 px the top and the mark drop out; the head and visor remain.
+- The Drover mark is the lead of the crew: the wedge head, cocked, with the visor cut out so it holds in one color.
+- Nothing is a soft blob with eye marks, and nothing resembles another product's avatars.
 
 ## Motion
 
@@ -83,9 +96,9 @@ Four things move, because four things are states worth seeing:
 
 | State | Motion |
 | --- | --- |
-| A bot is thinking | A slow breath on its avatar ring |
+| A bot is thinking | A slow breath of light across its visor |
 | Text is streaming | New characters fade in over 120 ms |
-| A tool is running | A thin line travels the top edge of its card, then stops and turns green or red |
+| A tool is running | A thin line travels the top edge of its card, then stops and turns green or red. While a bot works, the same line travels the top edge of the composer |
 | Work passes between bots | One pulse along the connector, out and back |
 
 Durations 120, 220, and 420 ms, one easing curve. Motion stops when the work stops. With reduced motion set, each state has a static equivalent and nothing animates.
@@ -151,7 +164,7 @@ These are the habits that make an interface look generated. Each one is checked 
 | Choice | Why |
 | --- | --- |
 | Dark by default | Owner's decision. A tool kept open all day, used beside editors and terminals. Light is fully supported. |
-| A glowing ring, a traveling line, a pulse | Each reports a live state and stops when the state ends. That is the product's central idea, not decoration. |
+| A glowing ring, a traveling line, a pulse, each with bloom | Each reports a live state and stops when the state ends. That is the product's central idea, not decoration. The owner chose the charged look over the flat one on 2026-11-12. |
 | A loop while a bot thinks | It runs only while work is in progress. Nothing loops at rest. |
 | A uniform spacing scale and consistent structure | This is a tool. Predictability is the point. Variety is spent on the two bold screens. |
 | Monospace beyond code blocks | It marks machine activity as distinct from conversation. |

@@ -15,4 +15,10 @@ public interface IRunGovernor
     Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken);
 
     Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The value as it may be stored or shown: every secret the run has revealed is replaced. The runtime passes
+    /// tool arguments through it before it writes them to a <c>tool_calls</c> row.
+    /// </summary>
+    JsonElement Redact(JsonElement value);
 }

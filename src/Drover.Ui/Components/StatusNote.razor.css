@@ -1,0 +1,41 @@
+.dv-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  max-width: none;
+  padding: var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-2);
+  color: var(--dv-text-2);
+  overflow-wrap: anywhere;
+}
+
+/* The icon sits on the first line of text, whatever the line count. */
+.dv-note ::deep .dv-icon {
+  flex: none;
+  margin-top: calc((1lh - var(--dv-icon-16)) / 2);
+}
+
+.dv-note-ok {
+  border-color: var(--dv-ok);
+  color: var(--dv-text);
+}
+
+.dv-note-ok ::deep .dv-icon {
+  color: var(--dv-ok);
+}
+
+.dv-note-danger {
+  border-color: var(--dv-danger);
+  color: var(--dv-text);
+}
+
+.dv-note-danger ::deep .dv-icon {
+  color: var(--dv-danger);
+}
+
+/* The region is always in the page for assistive technology, and takes no room while it has nothing to say. */
+.dv-note-region {
+  display: contents;
+}

@@ -1,0 +1,8 @@
+/* The Drover mark: the lead of the crew, with the visor cut out of the head so it holds in one color. */
+.dv-mark {
+  flex: none;
+  display: block;
+  width: var(--dv-mark);
+  height: var(--dv-mark);
+  fill: currentColor;
+}

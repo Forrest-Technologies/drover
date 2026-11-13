@@ -17,6 +17,7 @@ Decisions:
 - **External sign-in** (Phase 2): ASP.NET Core's OpenID Connect handler, as a client. For the MAUI app the flow runs in the system browser against the Drover server and ends with a one-time code handed back to the app through a registered link.
 - **No OAuth server inside Drover** until something needs one. If third-party clients ever need delegated access, OpenIddict (Apache-2.0) is the candidate.
 - **Rate limiting** on sign-in and token endpoints through ASP.NET Core's rate limiter. Today that is sign-in and first-run setup, per remote address: 10 attempts a minute, set by `Drover:SignInRateLimit` (`PermitLimit`, `Window`).
+- **Request lines are not logged.** The web host's request log is off below warnings, because a request line includes the query string and the callback of a tool server sign-in carries a one-time code there ([06-mcp.md](06-mcp.md)).
 - **Lockout**: five wrong passwords lock the account for five minutes. A wrong password, an unknown email, and a locked account all answer 401 with the same body, so the answer does not say which emails exist. The password is hashed before the lockout decision, and an unknown email is hashed against a decoy, so the timing does not say either.
 - **Passwords** need 12 characters and no composition rules.
 
@@ -70,7 +71,7 @@ public interface ISecretVault
 }
 ```
 
-`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the inbound forms a person fills in with their own password (`SignInRequest`, `SetupRequest`, `RegisterRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
+`Reveal` is called by adapters at the moment of use and nowhere else. No API endpoint calls it: there is no route that returns a secret value. A test asserts that no type in `Drover.Contracts` has a property carrying a secret value, directly or through a type it reaches; the only exceptions are the inbound forms a person fills in with their own password or model key (`SignInRequest`, `SetupRequest`, `RegisterRequest`, `CreateModelConnectionRequest`, `UpdateModelKeyRequest`), which print nothing from `ToString`. Responses carry `HasValue` and `LastUsedAt` only: `GET /api/spaces/{spaceId}/secrets`, open to admins and owners, lists that metadata.
 
 Every vault method runs inside a tenant scope the caller opened and commits, and the vault never opens one. `Reveal` throws `KeyNotFoundException` for a secret that does not exist or that row-level security hides, and `CryptographicException` for a ciphertext that does not belong to its row.
 
@@ -104,6 +105,8 @@ A database dump alone does not reveal secrets, because the keys are elsewhere. A
 | Logs | Structured logging only, as the guide requires. Secret-bearing types override `ToString` to print `[secret]`, and a log test scans captured output from the integration suite for seeded secret values. |
 | Sandbox environment | Secrets a command needs are passed per command, never written to the sandbox's persistent files by Drover |
 
+Built in step 9 for the secrets a run reveals, which today is the model connection's key: the engine's `Redactor` is applied to tool results before they are returned to the runtime, to tool arguments before they are stored in `tool_calls` and in the thread's messages, and to both before they are written to events. The token shapes it knows are provider keys that start `sk-`, GitHub and Slack tokens, AWS access key ids, JSON web tokens, bearer header values, and PEM private key blocks.
+
 The redactor is a seatbelt, not a guarantee: a tool that returns a secret in a transformed form (encoded, split) will not be caught. The primary control is that secrets do not enter tool arguments in the first place.
 
 ### Database credentials
@@ -117,7 +120,8 @@ In the single-container compose deployment both passwords sit on the same secret
 
 ## Transport and browser hardening
 
-- HTTPS is the operator's reverse proxy in self-hosting; the compose file documents one. The server trusts forwarded headers only from configured proxy addresses. (Not built yet: the cookies are `Secure` regardless of the request scheme, and the server reads no forwarded header.)
+- HTTPS is the operator's reverse proxy in self-hosting. The server trusts forwarded headers (`X-Forwarded-For`, `X-Forwarded-Proto`, one hop) only from the addresses or networks listed in `Drover:Proxy:TrustedAddresses`. With none listed, none are read, loopback included, so a client cannot claim an address or a scheme by sending a header. The per-address sign-in limit therefore counts the real client behind a trusted proxy and the proxy's own address otherwise. An entry that is neither an address nor a network stops the server at start. So does the host's own switch (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`): it adds a second forwarded-headers step that would trust every address, so the server refuses to start with it on. Only an attempt (sign-in, first-account setup, registration) counts against the sign-in limit; asking whether setup or registration is open does not, so a stranger cannot spend the allowance of everyone behind the same address.
+- The session and antiforgery cookies are `Secure` whatever scheme the request came in on, and keep the `__Host-` prefix. The cookie policy stamps `Secure` on every cookie the server sets. A browser keeps such cookies only for a secure origin, which is HTTPS or `http://localhost` (and `127.0.0.1`), so the compose deployment works at `http://localhost:8080` and sign-in fails closed on any other plain-HTTP address. One browser family does not treat `http://localhost` as secure for cookies; there, use the reverse proxy. The antiforgery cookie's own setting is `SameAsRequest` only because the framework refuses to answer a plain-HTTP request under `Always`; over plain HTTP the cookie policy is what makes it `Secure`.
 - A content security policy with no inline script and no remote origins by default. `wasm-unsafe-eval` is allowed, as Blazor WebAssembly requires.
 - Standard headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, frame denial (`X-Frame-Options: DENY` and `frame-ancestors 'none'`), on every response. The policy is `default-src 'self'` with `script-src 'self' 'wasm-unsafe-eval'` and `style-src 'self'`; if the web client needs inline styles, loosen `style-src` there and say why.
 - File downloads are served with `Content-Disposition: attachment` and a neutral content type unless the type is on a short image allowlist.

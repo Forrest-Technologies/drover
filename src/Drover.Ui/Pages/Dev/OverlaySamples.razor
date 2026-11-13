@@ -1,0 +1,33 @@
+@inject ToastService Toasts
+
+<Button OnClick="() => dialogOpen = true">Open dialog</Button>
+<Button OnClick="() => sheetOpen = true">Open sheet</Button>
+<Menu Label="Bot actions">
+    <MenuItem OnSelect="@(() => Toasts.Show("Sample bot paused.", ToastKind.Success))">Pause</MenuItem>
+    <MenuItem OnSelect="@(() => Toasts.Show("Sample bot duplicated.", ToastKind.Success))">Duplicate</MenuItem>
+    <MenuItem Disabled="true">Remove</MenuItem>
+</Menu>
+<Tooltip Text="Copies the sample address.">
+    <Button aria-describedby="@context">Copy address</Button>
+</Tooltip>
+<Button OnClick="@(() => Toasts.Show("The sample connection could not be reached. Check the address.", ToastKind.Error))">Show an error toast</Button>
+
+<Dialog Title="Remove sample bot" @bind-Open="dialogOpen">
+    <ChildContent>
+        <p>Its threads stay. It stops answering.</p>
+    </ChildContent>
+    <Actions>
+        <Button OnClick="() => dialogOpen = false">Keep bot</Button>
+        <Button Kind="ButtonKind.Danger" OnClick="() => dialogOpen = false">Remove bot</Button>
+    </Actions>
+</Dialog>
+
+<Sheet Title="Sample bot" @bind-Open="sheetOpen">
+    <p>A sheet holds detail beside the page on a wide window and rises from the bottom on a phone.</p>
+</Sheet>
+
+@code {
+    private bool dialogOpen;
+
+    private bool sheetOpen;
+}

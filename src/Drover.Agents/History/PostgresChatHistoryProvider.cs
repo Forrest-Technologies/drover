@@ -17,12 +17,24 @@ namespace Drover.Agents.History;
 /// happened. Calls pair with results by their <c>tool_calls</c> id, which is scoped to the run, so a provider that
 /// reuses call ids across runs cannot make one run's result answer another run's call.
 /// </para>
+/// <para>
+/// A message its person sent to steer the run joins here, at a model call: it is handed to the model after the
+/// request's own messages, so after any tool results, and stored in that place when the call returns. Only messages
+/// of the person the run acts for are taken. A message for after the run is left alone.
+/// </para>
+/// <para>
+/// The model is always given a tool call followed by its results, whatever order they were stored in: a run stopped
+/// in the middle of a call leaves it unanswered, and its result is stored later, after whatever was said meanwhile.
+/// </para>
 /// </remarks>
 public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) : ChatHistoryProvider
 {
     #region Private Fields
 
     private readonly ToolCallLedger ledger = new(run);
+
+    // The ids of the steering messages handed to the model call in flight, as the framework's message ids.
+    private HashSet<string> steering = [];
 
     #endregion
 
@@ -32,20 +44,27 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var (request, history) = await run.Database.Transact(
+        var (request, history, cutOff, steers) = await run.Database.Transact(
             async services =>
             {
+                var repository = services.GetRequiredService<MessageRepository>();
                 var reconciled = await ledger.PreferRows(
-                    [.. context.RequestMessages],
+                    WithoutSecondResults([.. context.RequestMessages], await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken)),
                     services.GetRequiredService<ToolCallRepository>(),
                     cancellationToken);
-                var messages = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
-                return (reconciled, messages);
+                var (messages, rerun) = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
+                var waiting = await ListSteering(services.GetRequiredService<MessageRepository>(), cancellationToken);
+                return (reconciled, messages, rerun, waiting);
             },
             cancellationToken);
 
-        context.RequestMessages = request;
-        return history.Select(message => message.ToChatMessage());
+        List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage())];
+        steering = [.. steered.Select(message => message.MessageId!)];
+        context.RequestMessages = [.. request, .. steered];
+
+        // The tools run here, after the transaction above has closed: no transaction is ever held across a tool call.
+        var complete = cutOff.Count == 0 ? history : [.. history, await RunAgain(cutOff, cancellationToken)];
+        return MessageOrder.ResultsAfterCalls(complete).Select(message => message.ToChatMessage());
     }
 
     protected override async ValueTask StoreChatHistoryAsync(
@@ -58,23 +77,46 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         }
 
         var execution = run.Execution;
+        var taken = steering;
+        steering = [];
+
+        // The steering messages are rows already; they are given their place below, not stored a second time.
+        List<ChatMessage> request = [.. context.RequestMessages.Where(message => message.MessageId is null || !taken.Contains(message.MessageId))];
         await run.Database.Transact(
             async services =>
             {
+                var repository = services.GetRequiredService<MessageRepository>();
+                request = WithoutSecondResults(request, await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken));
                 var reconciled = await ledger.PreferRows(
-                    [.. context.RequestMessages.Concat(context.ResponseMessages ?? [])],
+                    [.. request, .. context.ResponseMessages ?? []],
                     services.GetRequiredService<ToolCallRepository>(),
                     cancellationToken);
-                List<Message> messages =
+                List<(bool IsReply, Message Message)> converted =
                 [
                     .. reconciled
-                        .Select(message => message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId))
-                        .OfType<Message>(),
+                        .Select((message, index) => (
+                            IsReply: index >= request.Count,
+                            Message: message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId, keepReplyId: index >= request.Count)))
+                        .Where(pair => pair.Message is not null)
+                        .Select(pair => (pair.IsReply, WithRedactedArguments(pair.Message!))),
+                ];
+                List<Message> steers = [.. (await ListSteering(repository, cancellationToken)).Where(message => taken.Contains(message.Id.ToString("N")))];
+
+                foreach (var message in steers)
+                {
+                    message.RunId = execution.RunId;
+                }
+
+                List<Message> messages =
+                [
+                    .. converted.Where(pair => !pair.IsReply).Select(pair => pair.Message),
+                    .. steers,
+                    .. converted.Where(pair => pair.IsReply).Select(pair => pair.Message),
                 ];
 
                 if (messages.Count > 0)
                 {
-                    await services.GetRequiredService<MessageRepository>().AppendMessages(run.Thread, messages, cancellationToken);
+                    await repository.AppendMessages(run.Thread, messages, cancellationToken);
                 }
             },
             cancellationToken);
@@ -82,7 +124,73 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
     #endregion
 
+    #region Steering
+
+    /// <summary>
+    /// The pending messages that steer this run: sent to steer, by the person the run acts for. A run takes
+    /// instructions from nobody else, so another member's message in a shared thread waits for a run of its own.
+    /// </summary>
+    private async Task<IReadOnlyList<Message>> ListSteering(MessageRepository repository, CancellationToken cancellationToken) =>
+    [
+        .. (await repository.ListPendingMessages(run.Thread.Id, cancellationToken))
+            .Where(message => message.Steers && message.AuthorUserId == run.Execution.PrincipalUserId),
+    ];
+
+    #endregion
+
+    #region Redaction
+
+    /// <summary>
+    /// Tool arguments are stored after redaction wherever they are stored, the thread's messages included. Results
+    /// are already redacted when the governor returns them.
+    /// </summary>
+    private Message WithRedactedArguments(Message message)
+    {
+        message.Parts =
+        [
+            .. message.Parts.Select(part => part is ToolCallPart call
+                ? call with { Arguments = run.Governor.Redact(call.Arguments) }
+                : part),
+        ];
+        return message;
+    }
+
+    #endregion
+
     #region History Repair
+
+    /// <summary>
+    /// The messages without any tool result for a call the conversation already has a result for. A session saved
+    /// while a call waited for approval still holds that request; when a later execution starts from it after the
+    /// call was approved, ran, and was answered, the framework answers the request once more. That second result
+    /// would land after later messages, where no call precedes it.
+    /// </summary>
+    private List<ChatMessage> WithoutSecondResults(List<ChatMessage> messages, HashSet<Guid> answered)
+    {
+        List<ChatMessage> kept = [];
+
+        foreach (var message in messages)
+        {
+            List<AIContent> contents =
+            [
+                .. message.Contents.Where(content => content is not FunctionResultContent result
+                    || !answered.Contains(ToolCallIds.For(run.Execution.RunId, result.CallId))),
+            ];
+
+            if (contents.Count == message.Contents.Count)
+            {
+                kept.Add(message);
+            }
+            else if (contents.Count > 0)
+            {
+                var copy = message.Clone();
+                copy.Contents = contents;
+                kept.Add(copy);
+            }
+        }
+
+        return kept;
+    }
 
     private HashSet<Guid> AnsweredIn(IReadOnlyList<ChatMessage> request) =>
     [
@@ -91,7 +199,11 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             .Select(result => ToolCallIds.For(run.Execution.RunId, result.CallId)),
     ];
 
-    private async Task<IReadOnlyList<Message>> LoadAndRepair(
+    /// <summary>
+    /// The thread's messages with missing tool results added from their rows, and the calls that must run again: the
+    /// ones this run started, a kill cut off, and whose tool only reads.
+    /// </summary>
+    private async Task<(IReadOnlyList<Message> Messages, IReadOnlyList<CutOffCall> RunAgain)> LoadAndRepair(
         IServiceProvider services,
         HashSet<Guid> supplied,
         CancellationToken cancellationToken)
@@ -102,15 +214,22 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         if (unanswered.Count == 0)
         {
-            return messages;
+            return (messages, []);
         }
 
         var toolCalls = services.GetRequiredService<ToolCallRepository>();
         List<MessagePart> results = [];
+        List<CutOffCall> cutOff = [];
 
         foreach (var call in unanswered)
         {
             var row = await toolCalls.GetToolCall(call.ToolCallId, cancellationToken);
+
+            if (FindToolToRunAgain(row) is { } tool)
+            {
+                cutOff.Add(new CutOffCall(call, tool));
+                continue;
+            }
 
             // Null while the call waits for a human: the framework answers it from the saved session on resume.
             if (ToolCallLedger.SettledOutcome(row) is { } outcome)
@@ -121,7 +240,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         if (results.Count == 0)
         {
-            return messages;
+            return (messages, cutOff);
         }
 
         var repair = new Message { Role = MessageRole.Tool, RunId = run.Execution.RunId, Parts = results };
@@ -131,7 +250,66 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             results.Count,
             run.Thread.Id,
             run.Execution.RunId);
-        return [.. messages, repair];
+        return ([.. messages, repair], cutOff);
+    }
+
+    /// <summary>
+    /// The tool of a call that may run again: this run started it, it never finished, and its definition says it only
+    /// reads. Anything else might already have happened, so it is never repeated.
+    /// </summary>
+    private ToolDefinition? FindToolToRunAgain(ToolCall? row) =>
+        row is { Status: ToolCallStatus.Running, StartedAt: not null } && row.RunId == run.Execution.RunId
+            ? run.Execution.Tools.FirstOrDefault(tool => tool.ToolId == row.ToolId && tool.MayRunAgainAfterInterruption)
+            : null;
+
+    /// <summary>Runs the cut-off read-only calls again, through the governor, and stores their results as a tool message.</summary>
+    private async Task<Message> RunAgain(IReadOnlyList<CutOffCall> cutOff, CancellationToken cancellationToken)
+    {
+        List<MessagePart> results = [];
+
+        foreach (var (call, tool) in cutOff)
+        {
+            var request = new ToolCallRequest
+            {
+                RunId = run.Execution.RunId,
+                CallId = call.CallId,
+                ToolName = tool.Name,
+                ToolId = tool.ToolId,
+                Arguments = call.Arguments,
+            };
+            var (status, outcome) = await RunAgain(request, cancellationToken);
+            await ledger.Finish(request, tool.ToolId, status, outcome, cancellationToken);
+            results.Add(new ToolResultPart(call.ToolCallId, call.CallId, outcome.IsError, outcome.Result));
+            logger.LogInformation("Tool call {CallId} of run {RunId} was cut off and ran again: {Status}", call.CallId, request.RunId, status);
+        }
+
+        var repair = new Message { Role = MessageRole.Tool, RunId = run.Execution.RunId, Parts = results };
+        await run.Database.Transact(
+            services => services.GetRequiredService<MessageRepository>().AppendMessages(run.Thread, [repair], cancellationToken),
+            cancellationToken);
+        return repair;
+    }
+
+    /// <summary>The grant is checked again, as for any call. A call that may no longer run is settled as interrupted.</summary>
+    private async Task<(ToolCallStatus Status, ToolOutcome Outcome)> RunAgain(ToolCallRequest request, CancellationToken cancellationToken)
+    {
+        var decision = await run.Governor.Decide(request, cancellationToken);
+
+        if (decision.Verdict is not ToolGateVerdict.Run)
+        {
+            return (ToolCallStatus.Interrupted, ToolCallLedger.Interrupted);
+        }
+
+        try
+        {
+            var outcome = await run.Governor.InvokeTool(request, cancellationToken);
+            return (outcome.IsError ? ToolCallStatus.Failed : ToolCallStatus.Completed, outcome);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception, "Tool {ToolName} failed when run again in run {RunId}", request.ToolName, request.RunId);
+            return (ToolCallStatus.Failed, ToolCallLedger.Error("The tool failed."));
+        }
     }
 
     private static List<ToolCallPart> FindUnansweredCalls(IReadOnlyList<Message> messages, HashSet<Guid> supplied)
@@ -149,6 +327,12 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                 .Where(call => !answered.Contains(call.ToolCallId)),
         ];
     }
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record CutOffCall(ToolCallPart Call, ToolDefinition Tool);
 
     #endregion
 }

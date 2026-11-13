@@ -1,0 +1,253 @@
+/* Fonts, page defaults, focus, and the four live-state classes.
+   Every value comes from tokens.css. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--dv-bg-0);
+  color: var(--dv-text);
+  font-family: var(--dv-font-ui);
+  font-size: 100%;
+  line-height: var(--dv-leading-text);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* A subtree can be shown in the other theme. It takes that theme's surface and text with it. */
+[data-theme] {
+  background: var(--dv-bg-0);
+  color: var(--dv-text);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-size: var(--dv-text-14);
+  font-weight: var(--dv-weight-body);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: var(--dv-weight-heading);
+  line-height: var(--dv-leading-heading);
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--dv-text-28);
+}
+
+h2 {
+  font-size: var(--dv-text-20);
+}
+
+h3 {
+  font-size: var(--dv-text-16);
+}
+
+p {
+  margin: 0;
+  max-width: var(--dv-measure);
+}
+
+a {
+  color: var(--dv-ember);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-13);
+}
+
+:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+/* A page heading takes focus after navigation so the new page is announced. It is not a control. */
+h1[tabindex="-1"]:focus {
+  outline: none; /* design: allow focus-always-visible because the heading is focused by the router to announce the page, never by the person */
+}
+
+.dv-visually-hidden {
+  position: absolute;
+  width: var(--dv-border);
+  height: var(--dv-border);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* What the host page shows until the app has loaded. */
+.dv-boot {
+  display: grid;
+  place-content: center;
+  min-height: 100dvh;
+  max-width: none;
+  color: var(--dv-text-2);
+}
+
+/* The faceted frame: two cut corners, echoing the bot heads. A component adds the class and sets the
+   three properties. The cut edges get their line from the two corner gradients. */
+.dv-facet {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-1);
+  border: var(--dv-border) solid var(--dv-facet-edge);
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, transparent calc(50% - var(--dv-border)), var(--dv-facet-edge) 0 calc(50% + var(--dv-border)), transparent 0)
+      top left / var(--dv-facet-cut) var(--dv-facet-cut) no-repeat border-box,
+    linear-gradient(135deg, transparent calc(50% - var(--dv-border)), var(--dv-facet-edge) 0 calc(50% + var(--dv-border)), transparent 0)
+      bottom right / var(--dv-facet-cut) var(--dv-facet-cut) no-repeat border-box,
+    var(--dv-facet-fill);
+  clip-path: polygon(
+    var(--dv-facet-cut) 0,
+    100% 0,
+    100% calc(100% - var(--dv-facet-cut)),
+    calc(100% - var(--dv-facet-cut)) 100%,
+    0 100%,
+    0 var(--dv-facet-cut)
+  );
+}
+
+/* A clipped element cannot show an outline, so the focus ring is drawn inside the frame. */
+.dv-facet:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--dv-focus-width) var(--dv-ember);
+}
+
+/* The yard: a dot grid behind the working area. */
+.dv-yard {
+  background-image: radial-gradient(color-mix(in oklab, var(--dv-line) 70%, transparent) var(--dv-border), transparent 0);
+  background-size: var(--dv-grid-step) var(--dv-grid-step);
+}
+
+.dv-mono {
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  font-weight: var(--dv-weight-body);
+  color: var(--dv-text-3);
+}
+
+/* Live state: a bot is thinking. A slow breath, with light. */
+.dv-state-thinking {
+  color: var(--dv-ion);
+  filter: drop-shadow(var(--dv-bloom-ion));
+  animation: dv-breath var(--dv-dur-breath) ease-in-out infinite;
+}
+
+/* Live state: text is streaming. The newest characters fade in. */
+.dv-state-streaming {
+  animation: dv-arrive var(--dv-dur-1) var(--dv-ease);
+}
+
+/* Live state: a tool is running. A line travels the top edge. */
+.dv-state-tool {
+  position: relative;
+  overflow: hidden;
+}
+
+.dv-state-tool::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: var(--dv-travel-width);
+  height: var(--dv-focus-width);
+  background: var(--dv-ion);
+  box-shadow: var(--dv-bloom-ion);
+  animation: dv-travel var(--dv-dur-travel) linear infinite;
+}
+
+/* Live state: work passes between bots. One pulse, out and back. */
+.dv-state-delegation {
+  color: var(--dv-violet);
+  filter: drop-shadow(var(--dv-bloom-violet));
+  animation: dv-pulse var(--dv-dur-3) var(--dv-ease) 2 alternate;
+}
+
+@keyframes dv-breath {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes dv-arrive {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dv-travel {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes dv-pulse {
+  from {
+    opacity: 0.35;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-state-thinking,
+  .dv-state-streaming,
+  .dv-state-delegation {
+    animation: none;
+  }
+
+  .dv-state-tool::before {
+    animation: none;
+    width: 100%;
+  }
+}
