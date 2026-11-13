@@ -285,7 +285,7 @@ public static class RuleEvaluator
             case RuleConditionKind.TextHolds:
                 return RulePatterns.Find(condition.Builtin ?? BuiltinPattern.Key, text, budget);
             case RuleConditionKind.TextContains:
-                using (budget.Search())
+                using (budget.Search(text.Length))
                 {
                     List<(int, int)> found = [];
 

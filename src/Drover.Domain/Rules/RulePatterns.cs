@@ -1,8 +1,10 @@
 namespace Drover.Domain.Rules;
 
 /// <summary>
-/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, so the time a match
-/// takes grows with the length of the text and never with the shape of the pattern, and under a time limit as well.
+/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, so the time one match
+/// takes grows with the length of the text and never with the shape of the pattern. No match has a clock of its
+/// own: a clock on a short text measures how busy the server is, and a rule must not change its answer with that.
+/// What can grow without bound is the number of matches in a long text, and the evaluation's budget bounds it.
 /// </summary>
 public static partial class RulePatterns
 {
@@ -10,16 +12,13 @@ public static partial class RulePatterns
 
     public const int MaxPatternLength = 500;
 
-    /// <summary>How long one match may take. A match that runs out of time counts as found: a rule fails closed.</summary>
-    public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
-
     private const RegexOptions Options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 
     private const int MaxCached = 512;
 
     private static readonly ConcurrentDictionary<string, Regex> written = new(StringComparer.Ordinal);
 
-    private static readonly Regex email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options, MatchTimeout);
+    private static readonly Regex email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options);
 
     private const int MinCardDigits = 13;
 
@@ -36,8 +35,7 @@ public static partial class RulePatterns
     // Keys as the common services issue them, a private key block, and a bearer value.
     private static readonly Regex key = new(
         @"(sk|pk|rk)[\-_][A-Za-z0-9\-_]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]\-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{30,}|\-\-\-\-\-BEGIN [A-Z ]*PRIVATE KEY\-\-\-\-\-|[Bb]earer [A-Za-z0-9\-_\.=]{20,}",
-        Options,
-        MatchTimeout);
+        Options);
 
     #endregion
 
@@ -61,7 +59,7 @@ public static partial class RulePatterns
 
         try
         {
-            var compiled = new Regex(pattern, Options, MatchTimeout);
+            var compiled = new Regex(pattern, Options);
 
             if (written.Count < MaxCached)
             {
@@ -81,9 +79,9 @@ public static partial class RulePatterns
     }
 
     /// <summary>
-    /// Every place in the text where the expression matches, as start and length. A search that runs out of time,
-    /// in one match or over all of them, gives the whole text: the rule applies and, if it redacts, nothing of the
-    /// text is let through.
+    /// Every place in the text where the expression matches, as start and length. A search that runs out of the
+    /// evaluation's budget gives the whole text: the rule applies and, if it redacts, nothing of the text is let
+    /// through. So does an expression that was given a time limit of its own and ran out of it.
     /// </summary>
     public static List<(int Start, int Length)> Find(Regex expression, string text, RuleBudget budget)
     {
@@ -92,7 +90,7 @@ public static partial class RulePatterns
             return [];
         }
 
-        using var searching = budget.Search();
+        using var searching = budget.Search(text.Length);
 
         try
         {
@@ -115,7 +113,8 @@ public static partial class RulePatterns
         }
         catch (RegexMatchTimeoutException ranOut)
         {
-            return [(0, ranOut.Input.Length)];
+            // The whole text, by its own length: what the exception carries of the input can be empty.
+            return [(0, Math.Max(text.Length, ranOut.Input.Length))];
         }
     }
 

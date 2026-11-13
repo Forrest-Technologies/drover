@@ -333,6 +333,33 @@ public sealed class RuleEvaluatorTests
         outcome.Should().NotBeNull("a rule that cannot finish applies");
     }
 
+    [Fact]
+    public void A_match_that_runs_out_of_time_counts_as_the_whole_text()
+    {
+        var slow = new Regex("a+b|a", RegexOptions.NonBacktracking, TimeSpan.FromTicks(1));
+        var text = new string('a', 200_000);
+
+        RulePatterns.Find(slow, text, new RuleBudget(TimeSpan.FromHours(1))).Should().Equal([(0, text.Length)], "a search that cannot finish applies, and removes everything if it redacts");
+    }
+
+    [Theory]
+    [InlineData(BuiltinPattern.CardNumber, "Card 4111 1111 1111 1111 on file.")]
+    [InlineData(BuiltinPattern.CardNumber, "Nothing like a card here.")]
+    [InlineData(BuiltinPattern.EmailAddress, "Write to sam@example.org today.")]
+    [InlineData(BuiltinPattern.Key, "Use sk-sample0000000000000000 for this.")]
+    public void With_no_time_left_every_text_condition_applies_and_nothing_is_let_through(BuiltinPattern builtin, string text)
+    {
+        RuleCondition[] conditions = [Holds(builtin), Matches("card"), Contains(null, "zebra")];
+
+        foreach (var condition in conditions)
+        {
+            var outcome = RuleEvaluator.Evaluate([Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, condition)], Reply(text), new RuleBudget(TimeSpan.Zero));
+
+            outcome.Should().NotBeNull();
+            outcome!.RedactedText.Should().Be(RuleEvaluator.Redaction);
+        }
+    }
+
     [Theory]
     [InlineData("the tangerine plan", true)]
     [InlineData("the tan\u200Bgerine plan", true)]
