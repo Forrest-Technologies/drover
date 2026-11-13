@@ -13,7 +13,8 @@ public sealed record MessageResponse(
     Guid? RunId,
     IReadOnlyList<MessagePartResponse> Parts,
     DateTimeOffset CreatedAt,
-    bool Steers = false);
+    bool Steers = false,
+    bool Withheld = false);
 
 /// <summary>
 /// One part of a message. <see cref="Kind"/> names it (text, reasoning, tool_call, tool_result, image, file) and

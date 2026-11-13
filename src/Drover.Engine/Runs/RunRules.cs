@@ -6,14 +6,6 @@ namespace Drover.Engine.Runs;
 /// </summary>
 public sealed class RunRules(RunSession session, ILogger logger)
 {
-    #region Private Fields
-
-    public const string StoppedByRule = "stopped_by_rule";
-
-    public const string BlockedByRule = "blocked_by_rule";
-
-    #endregion
-
     #region Public Methods
 
     /// <summary>The rules the run's bot follows right now: its own and those of every bot above it, switched on.</summary>
@@ -23,62 +15,83 @@ public sealed class RunRules(RunSession session, ILogger logger)
             cancellationToken);
 
     /// <summary>
-    /// What the rules say about a subject, or null when none applies. The run's clock and counts are filled in here.
+    /// What the rules say about a subject, or null when none applies, written to the run's event log.
     /// </summary>
     public async Task<RuleOutcome?> Check(RuleSubject subject, Guid? toolCallId, CancellationToken cancellationToken)
     {
+        var outcome = await Find(subject, cancellationToken);
+
+        if (outcome is not null)
+        {
+            await Record(outcome, subject.Checkpoint, toolCallId);
+        }
+
+        return outcome;
+    }
+
+    /// <summary>What the rules say about a subject, without writing it down. The run's clock and counts are filled in here.</summary>
+    public async Task<RuleOutcome?> Find(RuleSubject subject, CancellationToken cancellationToken)
+    {
         var rules = await Load(cancellationToken);
 
-        if (rules.Count == 0)
-        {
-            return null;
-        }
+        return rules.Count == 0
+            ? null
+            : RuleEvaluator.Evaluate(rules, subject with
+            {
+                Now = session.Now,
+                ToolCalls = session.ToolCallCount,
+                Tokens = session.Usage.InputTokens + session.Usage.OutputTokens,
+            });
+    }
 
-        var outcome = RuleEvaluator.Evaluate(rules, subject with
-        {
-            Now = session.Now,
-            ToolCalls = session.ToolCallCount,
-            Tokens = session.Usage.InputTokens + session.Usage.OutputTokens,
-        });
-
-        if (outcome is null)
-        {
-            return null;
-        }
-
+    /// <summary>Writes a rule that applied to the run's event log and the server log. Neither gets the text that matched.</summary>
+    public async Task Record(RuleOutcome outcome, RuleCheckpoint checkpoint, Guid? toolCallId)
+    {
         await session.Writer.Append(
             session.RunId,
             RunEventTypes.RuleFired,
-            new RuleFired(outcome.Rule.Id, outcome.Rule.Name, Words.Of(subject.Checkpoint), Words.Of(outcome.Effect), outcome.Why, toolCallId));
+            new RuleFired(outcome.Rule.Id, outcome.Rule.Name, Words.Of(checkpoint), Words.Of(outcome.Effect), outcome.Why, toolCallId));
         logger.LogInformation(
             "Rule {RuleId} applied in run {RunId} at {Checkpoint}: {Effect}",
             outcome.Rule.Id,
             session.RunId,
-            subject.Checkpoint,
+            checkpoint,
             outcome.Effect);
-        return outcome;
     }
 
     /// <summary>
-    /// Checks a person's messages before the model sees them. A rule that blocks or stops ends the run; the sentence
-    /// the run fails with is returned, or null when every message may pass.
+    /// Checks a person's messages before the model sees them. A rule that blocks or stops ends the run and marks the
+    /// message withheld, so no later run reads it either. The sentence the run fails with is returned, or null when
+    /// every message may pass.
     /// </summary>
-    public async Task<string?> CheckArrivals(IEnumerable<string> texts, CancellationToken cancellationToken)
+    public async Task<string?> CheckArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
-        foreach (var text in texts)
+        foreach (var message in messages.Where(message => !message.Withheld))
         {
+            var text = string.Join('\n', message.Parts.OfType<TextPart>().Select(part => part.Text));
             var outcome = await Check(new RuleSubject { Checkpoint = RuleCheckpoint.MessageArrives, Text = text }, null, cancellationToken);
 
             if (outcome is not null)
             {
-                var message = $"The rule \"{outcome.Rule.Name}\" did not let this message through: {outcome.Why}.";
-                session.EndByRule(outcome.Effect is RuleEffect.Stop ? StoppedByRule : BlockedByRule, message);
-                return message;
+                await session.Tenant.Transact(
+                    services => services.GetRequiredService<MessageRepository>().MarkWithheld(message.Id, CancellationToken.None),
+                    CancellationToken.None);
+                var why = $"The rule \"{outcome.Rule.Name}\" did not let this message through: {outcome.Why}.";
+                session.EndByRule(outcome.Effect is RuleEffect.Stop ? StoppedByRule : BlockedByRule, why);
+                return why;
             }
         }
 
         return null;
     }
+
+    #endregion
+
+    #region Reasons
+
+    public const string StoppedByRule = "stopped_by_rule";
+
+    public const string BlockedByRule = "blocked_by_rule";
 
     #endregion
 }

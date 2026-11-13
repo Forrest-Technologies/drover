@@ -38,5 +38,5 @@ public interface IRunGovernor
     /// Checks a person's messages that arrived during the run, before the model sees them. When a rule does not
     /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
     /// </summary>
-    Task RuleOnArrivals(IReadOnlyList<string> texts, CancellationToken cancellationToken) => Task.CompletedTask;
+    Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken) => Task.CompletedTask;
 }

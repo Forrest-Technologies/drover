@@ -66,6 +66,43 @@ public abstract class AgentRuntimeConformance
     }
 
     [Fact]
+    public async Task A_reply_the_governor_rules_on_leaves_the_runtime_only_as_ruled()
+    {
+        var run = await NewRun("Say the word");
+        var model = new ScriptedModel([new TextOutput("The word is tange"), new TextOutput("rine.")]);
+        var governor = new ScriptedGovernor(new ScriptedTools()) { ReplyRule = said => said.Replace("tangerine", "[removed]", StringComparison.Ordinal) };
+
+        var events = await Execute(model, run, governor);
+
+        governor.RuledReplies.Should().Equal(["The word is tangerine."], "the rule sees the whole reply, however the stream split it");
+        events.OfType<TextDelta>().Should().OnlyContain(delta => !delta.Text.Contains("tange", StringComparison.Ordinal));
+        string.Concat(events.OfType<TextDelta>().Select(delta => delta.Text)).Should().Be("The word is [removed].");
+        Summaries(await ReadMessages(run)).Should().Equal("user: Say the word", "assistant: The word is [removed].");
+    }
+
+    [Fact]
+    public async Task Arguments_the_gate_changed_are_what_the_tool_gets_and_what_is_stored()
+    {
+        var run = await NewRun("Send it", new ToolSpec("send"));
+        var received = new ConcurrentQueue<string>();
+        var tools = new ScriptedTools().Add("send", (request, _) =>
+        {
+            received.Enqueue(request.Arguments.GetRawText());
+            return Task.FromResult(new ToolOutcome(JsonElement.Parse("""{"ok":true}""")));
+        });
+        var governor = new ScriptedGovernor(tools, new Dictionary<string, ToolGateDecision>
+        {
+            ["send"] = ToolGateDecision.Run with { Arguments = JsonElement.Parse("""{"to":"[removed]"}""") },
+        });
+        var model = new ScriptedModel([new ToolCallOutput("c1", "send", """{"to":"sam@example.org"}""")], [new TextOutput("Sent.")]);
+
+        await Execute(model, run, governor);
+
+        received.Should().ContainSingle().Which.Should().Contain("[removed]").And.NotContain("sam@example.org");
+        (await ReadToolCalls(run)).Should().ContainSingle().Which.Arguments.GetRawText().Should().NotContain("sam@example.org");
+    }
+
+    [Fact]
     public async Task Read_only_tools_requested_together_run_in_parallel()
     {
         var run = await NewRun("Compare", new ToolSpec("left"), new ToolSpec("right"));

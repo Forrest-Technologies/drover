@@ -1614,6 +1614,12 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("thread_id");
 
+                    b.Property<bool>("Withheld")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("withheld");
+
                     b.HasKey("Id")
                         .HasName("pk_messages");
 

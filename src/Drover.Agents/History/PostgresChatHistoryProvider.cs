@@ -59,7 +59,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             cancellationToken);
 
         // Messages that arrived during the run pass the bot's rules before they are put in front of the model.
-        await run.Governor.RuleOnArrivals([.. steers.Select(TextOf)], cancellationToken);
+        await run.Governor.RuleOnArrivals(steers, cancellationToken);
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage())];
         steering = [.. steered.Select(message => message.MessageId!)];
         context.RequestMessages = [.. request, .. steered];
@@ -128,8 +128,6 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
     #region Steering
 
-    private static string TextOf(Message message) => string.Join('\n', message.Parts.OfType<TextPart>().Select(part => part.Text));
-
     /// <summary>
     /// The pending messages that steer this run: sent to steer, by the person the run acts for. A run takes
     /// instructions from nobody else, so another member's message in a shared thread waits for a run of its own.
@@ -137,7 +135,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     private async Task<IReadOnlyList<Message>> ListSteering(MessageRepository repository, CancellationToken cancellationToken) =>
     [
         .. (await repository.ListPendingMessages(run.Thread.Id, cancellationToken))
-            .Where(message => message.Steers && message.AuthorUserId == run.Execution.PrincipalUserId),
+            .Where(message => message.Steers && !message.Withheld && message.AuthorUserId == run.Execution.PrincipalUserId),
     ];
 
     #endregion
@@ -213,7 +211,8 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         CancellationToken cancellationToken)
     {
         var repository = services.GetRequiredService<MessageRepository>();
-        var messages = await repository.ListMessages(run.Thread.Id, cancellationToken);
+        // A message a rule withheld stays in the thread for people. The model is never given it.
+        IReadOnlyList<Message> messages = [.. (await repository.ListMessages(run.Thread.Id, cancellationToken)).Where(message => !message.Withheld)];
         var unanswered = FindUnansweredCalls(messages, supplied);
 
         if (unanswered.Count == 0)

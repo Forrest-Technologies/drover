@@ -426,7 +426,7 @@ public sealed class RunExecutor(
         try
         {
             // The messages that started this run are checked before the model is given anything.
-            if (await rules.CheckArrivals(placed.Select(TextOf), cancellation.Token) is not null)
+            if (await rules.CheckArrivals(await Arrived(session, loaded, placed), cancellation.Token) is not null)
             {
                 await FinishAfterFailure(session, new OperationCanceledException(), stopping);
                 return;
@@ -507,6 +507,7 @@ public sealed class RunExecutor(
                     break;
                 case ApprovalRequested approval:
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
+                    await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     await session.Writer.Append(
                         session.RunId,
                         RunEventTypes.ToolApprovalRequested,
@@ -523,7 +524,24 @@ public sealed class RunExecutor(
         return outcome;
     }
 
-    private static string TextOf(Message message) => string.Join('\n', message.Parts.OfType<TextPart>().Select(part => part.Text));
+    /// <summary>
+    /// What arrived for this execution: the message that started the run, until its first step, and every message
+    /// placed on the thread just now.
+    /// </summary>
+    private static async Task<IReadOnlyList<Message>> Arrived(RunSession session, LoadedRun loaded, IReadOnlyList<Message> placed)
+    {
+        if (loaded.Steps.Count == 0
+            && loaded.Run.TriggerMessageId is { } triggerId
+            && placed.All(message => message.Id != triggerId)
+            && await session.Tenant.Transact(
+                services => services.GetRequiredService<MessageRepository>().FindMessage(triggerId, CancellationToken.None),
+                CancellationToken.None) is { } trigger)
+        {
+            return [trigger, .. placed];
+        }
+
+        return placed;
+    }
 
     private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()
     {

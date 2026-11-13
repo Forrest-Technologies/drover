@@ -121,9 +121,34 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         return withheld;
     }
 
-    public async Task RuleOnArrivals(IReadOnlyList<string> texts, CancellationToken cancellationToken)
+    /// <summary>
+    /// A call is waiting for a person. When a rule is why, the rule is written down before the question, so the
+    /// person reads which rule asked.
+    /// </summary>
+    public async Task RuleOnApprovalRequest(string callId, string modelName, JsonElement arguments, CancellationToken cancellationToken)
     {
-        if (await rules.CheckArrivals(texts, cancellationToken) is { } refused)
+        if (session.FindToolByModelName(modelName) is not { } tool)
+        {
+            return;
+        }
+
+        var subject = new RuleSubject
+        {
+            Checkpoint = RuleCheckpoint.BeforeTool,
+            ToolName = tool.Tool.Name,
+            ToolKind = tool.Tool.Sensitivity,
+            Json = arguments,
+        };
+
+        if (await rules.Find(subject, cancellationToken) is { Effect: RuleEffect.Ask } outcome)
+        {
+            await rules.Record(outcome, subject.Checkpoint, ToolCallIds.For(session.RunId, callId));
+        }
+    }
+
+    public async Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken)
+    {
+        if (await rules.CheckArrivals(messages, cancellationToken) is { } refused)
         {
             throw new OperationCanceledException(refused);
         }
@@ -176,9 +201,15 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             Json = toolCall.Arguments,
         };
 
-        if (await rules.Check(subject, ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken) is not { } outcome)
+        if (await rules.Find(subject, cancellationToken) is not { } outcome)
         {
             return granting;
+        }
+
+        // A rule that asks was written down when the person was asked. Their yes is not a second firing.
+        if (outcome.Effect is not RuleEffect.Ask || !toolCall.Approved)
+        {
+            await rules.Record(outcome, subject.Checkpoint, ToolCallIds.For(session.RunId, toolCall.CallId));
         }
 
         switch (outcome.Effect)

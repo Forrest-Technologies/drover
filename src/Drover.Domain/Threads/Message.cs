@@ -25,6 +25,12 @@ public sealed class Message : ISpaceOwned, IAudienceScoped
     /// </summary>
     public bool Steers { get; set; }
 
+    /// <summary>
+    /// A rule of the bot did not let this message through. It stays in the thread for the people who can read it,
+    /// and no model is ever given it.
+    /// </summary>
+    public bool Withheld { get; set; }
+
     public MessageRole Role { get; set; }
 
     public Guid? AuthorUserId { get; set; }

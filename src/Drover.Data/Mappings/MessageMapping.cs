@@ -10,6 +10,7 @@ public sealed class MessageMapping : IEntityTypeConfiguration<Message>
         builder.HasKey(message => message.Id);
         builder.Property(message => message.Id).ValueGeneratedNever();
         builder.Property(message => message.Parts).HasJsonRecord("'[]'::jsonb");
+        builder.Property(message => message.Withheld).HasDefaultValue(false);
         builder.Property(message => message.CreatedAt).HasDefaultValueSql("now()");
         builder.HasEnumColumn(message => message.Role);
         builder.HasIndex(message => new { message.SpaceId, message.ThreadId, message.Position }).IsUnique();
