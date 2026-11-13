@@ -52,6 +52,21 @@ Skip the overlay and set two things on the `drover` service:
 
 Without the second setting Drover still works, but every person shares the proxy's address for the sign-in limit. Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
 
+## Before you expose it
+
+A review of the code found no blocker for exposing Drover through the proxy overlay, and these known gaps:
+
+1. Anyone who knows the owner's email can lock that account out for five minutes at a time ([#91](https://github.com/Forrest-Technologies/drover/issues/91)).
+2. Signing out does not end the session on the server, and there is no password change ([#92](https://github.com/Forrest-Technologies/drover/issues/92)). Pick a strong, unique password.
+3. By default an admin can point a model or tool connection at a private address, such as the database container ([#93](https://github.com/Forrest-Technologies/drover/issues/93)). On a cloud machine, set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service unless you run a local model.
+
+Also:
+
+- Try it on a throwaway domain first. The proxy and its certificate have not been run by anyone yet.
+- Finish setup right away, reading the code from `docker compose logs drover`. Use an owner email that is not public.
+- Keep open registration off.
+- Anyone who copies the `drover-keys` volume together with the database can read every stored secret. Keep both copies private.
+
 ## The public address
 
 `DROVER_PUBLIC_URL` is the address people open Drover at. It is empty by default, which is fine on one machine. Tool server sign-ins need it, because the tool server sends the person back to this address. The overlay sets it for you from `DROVER_DOMAIN`.
