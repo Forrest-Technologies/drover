@@ -105,6 +105,7 @@ internal sealed class VeniceChatClient(IModelChatClient inner, string modelId, M
                 ReasoningEffort = disableThinking ? null : request.Options.ReasoningEffort ?? settings.ReasoningEffort,
                 Temperature = request.Options.Temperature ?? (float?)settings.Temperature,
                 MaxOutputTokens = request.Options.MaxOutputTokens ?? settings.MaxOutputTokens,
+                ResponseFormat = request.Options.ResponseFormat ?? (settings.StructuredOutput ? "json" : null),
             },
         };
     }

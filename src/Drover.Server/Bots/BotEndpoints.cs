@@ -13,6 +13,7 @@ public static class BotEndpoints
         bots.MapGet("/{botId:guid}", GetBot).WithName("GetBot");
         bots.MapGet("/{botId:guid}/threads", ListThreads).WithName("ListThreads");
         bots.MapPost("/{botId:guid}/threads", CreateThread).WithName("CreateThread");
+        bots.MapBotEditorEndpoints();
         return space;
     }
 

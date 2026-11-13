@@ -66,6 +66,7 @@ internal sealed class ProtocolChatClient(HttpClient httpClient, ModelEndpoint en
         Temperature = options.Temperature ?? (float?)settings.Temperature,
         MaxOutputTokens = options.MaxOutputTokens ?? settings.MaxOutputTokens,
         ReasoningEffort = options.ReasoningEffort ?? settings.ReasoningEffort,
+        ResponseFormat = options.ResponseFormat ?? (settings.StructuredOutput ? "json" : null),
     };
 
     private ChatOptions ToChatOptions(ModelChatOptions options)

@@ -13,5 +13,8 @@ public sealed record ModelSettings
 
     public WebSearchMode WebSearch { get; init; } = WebSearchMode.Off;
 
+    /// <summary>The bot answers as a JSON object, on a model that supports structured output.</summary>
+    public bool StructuredOutput { get; init; }
+
     #endregion
 }

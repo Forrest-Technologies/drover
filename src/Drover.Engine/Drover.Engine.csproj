@@ -5,4 +5,8 @@
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Cronos" />
+  </ItemGroup>
 </Project>
