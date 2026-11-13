@@ -85,6 +85,9 @@ public interface IToolServer : IAsyncDisposable
     /// </summary>
     Task<SignInAnswer> Approve(Uri authorizationUrl);
 
+    /// <summary>From now on the server wants this value in its header, and refuses the one it wanted before.</summary>
+    void ExpectHeader(string value);
+
     /// <summary>How many requests of any kind reached the server's token endpoint.</summary>
     int TokenRequests { get; }
 

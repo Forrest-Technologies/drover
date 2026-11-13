@@ -54,6 +54,14 @@ public sealed partial class Threads(
     [Parameter]
     public Guid? ThreadId { get; set; }
 
+    /// <summary>Set when the browser comes back from a tool server's sign-in page: "connected" or "failed".</summary>
+    [SupplyParameterFromQuery(Name = "tool-sign-in")]
+    public string? ToolSignIn { get; set; }
+
+    /// <summary>The tool connection that sign-in was for.</summary>
+    [SupplyParameterFromQuery(Name = "connection")]
+    public Guid? ToolSignInConnection { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     // A phone shows the list or the conversation. The list is the start page; every other address is a conversation.
@@ -106,6 +114,13 @@ public sealed partial class Threads(
     {
         if (await session.Load() is null)
         {
+            return;
+        }
+
+        // A sign-in at a tool server ends here, at the start page. The tool connections screen says how it went.
+        if (ToolSignIn is "connected" or "failed")
+        {
+            navigation.NavigateTo(Addresses.ToolSignIn(ToolSignIn, ToolSignInConnection?.ToString()), replace: true);
             return;
         }
 

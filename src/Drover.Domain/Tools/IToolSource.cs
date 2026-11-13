@@ -19,6 +19,13 @@ public interface IToolSource
     /// or does not speak the required protocol is a <see cref="ToolSourceException"/>.
     /// </summary>
     Task<ToolOutcome> CallTool(ToolEndpoint endpoint, string toolName, JsonElement arguments, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lets go of whatever the source keeps open for the connection, for every credential. The caller says so when
+    /// the connection's credential, protocol setting, or existence changed: a session opened before the change must
+    /// not serve a call made after it. The next use opens what it needs afresh.
+    /// </summary>
+    Task Forget(Guid connectionId, CancellationToken cancellationToken);
 }
 
 /// <summary>

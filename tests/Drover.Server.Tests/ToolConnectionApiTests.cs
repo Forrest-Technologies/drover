@@ -247,6 +247,54 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
     }
 
     [Fact]
+    public async Task An_address_with_a_key_in_it_is_refused_and_the_key_is_stored_and_shown_nowhere()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var key = NewPassword();
+
+        var withQuery = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Keyed", $"https://tools.example.test/mcp?api_key={key}"));
+        var withFragment = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Keyed", $"https://tools.example.test/mcp#{key}"));
+        var bareQuestionMark = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Keyed", "https://tools.example.test/mcp?"));
+        var refusal = await withQuery.Content.ReadAsStringAsync(Token);
+        var listed = await (await client.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token);
+
+        withQuery.StatusCode.Should().Be(HttpStatusCode.BadRequest, "the address is stored and shown to every member, and so would the key be");
+        withFragment.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        bareQuestionMark.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        refusal.Should().Contain("header", "the message says where a key belongs");
+        string.Join('\n', refusal, await withFragment.Content.ReadAsStringAsync(Token), listed, string.Join('\n', Logs.Entries.Select(entry => entry.ToString())))
+            .Should().NotContain(key, "the key is not repeated in the answer, stored, or logged");
+        listed.Should().NotContain("Keyed", "nothing was saved");
+    }
+
+    [Fact]
+    public async Task A_replaced_header_is_the_one_sent_on_the_very_next_call_to_a_server_that_keeps_sessions()
+    {
+        var old = NewPassword();
+        var replacement = NewPassword();
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.SessionBased, HeaderName, old));
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections", new CreateToolConnectionRequest("Helpdesk", server.Url.ToString(), "header", HeaderName, old));
+        var id = created.Connection.Id;
+        var sessionsBefore = server.Handshakes;
+
+        // The key is rotated at the server and then here. The session opened with the old key is still open.
+        server.ExpectHeader(replacement);
+        var replaced = await client.Put($"{space}/tool-connections/{id}/header", new ReplaceToolHeaderRequest(HeaderName, replacement));
+        var refreshed = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections/{id}/refresh", new { });
+
+        created.Problem.Should().BeNull();
+        replaced.StatusCode.Should().Be(HttpStatusCode.OK);
+        refreshed.Problem.Should().BeNull("the first call after the change carries the new header: the old session was let go");
+        server.Handshakes.Should().Be(sessionsBefore + 1, "a new session was opened for it");
+    }
+
+    [Fact]
     public async Task A_credential_is_not_carried_to_wherever_a_tool_server_redirects()
     {
         var secret = NewPassword();

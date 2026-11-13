@@ -1,0 +1,69 @@
+@page "/tools"
+@layout WorkLayout
+
+<PageTitle>Tool connections · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-connections-header">
+        <h1 class="dv-connections-title">Tool connections</h1>
+        @if (CanEdit && connections is { Count: > 0 } && !adding)
+        {
+            <Button Kind="ButtonKind.Primary" OnClick="StartAdding">
+                <Icon Name="IconName.Plus" />
+                Add a tool server
+            </Button>
+        }
+    </header>
+
+    <StatusNote Kind="@(noticeIsProblem ? NoteKind.Danger : NoteKind.Ok)" Text="@notice" />
+
+    @if (adding)
+    {
+        <div class="dv-connections-add">
+            <AddConnectionForm Problem="@addProblem" Busy="addingBusy" OnAdd="Add" OnCancel="() => adding = false" />
+        </div>
+    }
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load the tool connections" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (connections is null)
+    {
+        <p class="dv-connections-hint" role="status">Loading the tool connections.</p>
+    }
+    else if (connections.Count == 0 && adding)
+    {
+    }
+    else if (connections.Count == 0 && CanEdit)
+    {
+        <EmptyState Title="No tool server yet" Cause="A tool server gives bots tools beyond the built-in ones. Add one by its address, then give its tools to a bot."
+                    ActionLabel="Add a tool server" OnAction="StartAdding" />
+    }
+    else if (connections.Count == 0)
+    {
+        <p class="dv-connections-hint">This space has no tool servers yet. An owner or admin of the space can add one.</p>
+    }
+    else
+    {
+        <ul class="dv-connections" aria-label="Tool connections">
+            @foreach (var connection in connections)
+            {
+                <ConnectionCard @key="connection.Id" Connection="connection" Tools="@tools.GetValueOrDefault(connection.Id)" CanEdit="CanEdit"
+                                Busy="@(busy == connection.Id)" Problem="@problems.GetValueOrDefault(connection.Id)"
+                                OnRefresh="Refresh" OnSignIn="SignIn" OnSignOut="SignOut" OnRemove="found => removing = found" OnAccept="Accept"
+                                OnReplaceHeader="request => ReplaceHeader(connection, request)" />
+            }
+        </ul>
+    }
+
+    <Dialog Title="@($"Remove {removing?.Name}")" Open="@(removing is not null)" OpenChanged="open => removing = open ? removing : null">
+        <ChildContent>
+            <p>Bots lose its tools at once, and its stored credential and sign-ins are deleted. Runs that already used it keep their history.</p>
+        </ChildContent>
+        <Actions>
+            <Button OnClick="() => removing = null">Keep server</Button>
+            <Button Kind="ButtonKind.Danger" OnClick="Remove">Remove server</Button>
+        </Actions>
+    </Dialog>
+</SessionGate>
