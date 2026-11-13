@@ -65,7 +65,7 @@ public sealed class RuleEvaluatorTests
     [InlineData("a@notexample.org", true)]
     public void A_value_is_on_a_list_as_written_or_under_a_listed_domain(string recipient, bool applies)
     {
-        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Ask, new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Values = ["example.org"] });
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Ask, new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
 
         (RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = new[] { "b@example.org", recipient } })) is not null).Should().Be(applies);
     }
@@ -241,7 +241,7 @@ public sealed class RuleEvaluatorTests
 
     private static RuleCondition ToolIs(params string[] tools) => new() { Kind = RuleConditionKind.ToolIs, Tools = tools };
 
-    private static RuleCondition Contains(string? argument, params string[] values) => new() { Kind = RuleConditionKind.TextContains, Argument = argument, Values = values };
+    private static RuleCondition Contains(string? argument, params string[] values) => new() { Kind = RuleConditionKind.TextContains, Argument = argument, Entries = values };
 
     private static RuleCondition Holds(BuiltinPattern builtin) => new() { Kind = RuleConditionKind.TextHolds, Builtin = builtin };
 

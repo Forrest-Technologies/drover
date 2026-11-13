@@ -94,7 +94,7 @@ public static class RuleEvaluator
         RuleConditionKind.TextHolds => Texts(subject, condition.Argument).Any(text => Places(condition, text).Count > 0)
             ? $"{Where(condition)} holds {RulePatterns.Words(condition.Builtin ?? BuiltinPattern.Key)}"
             : null,
-        RuleConditionKind.NotInList => Texts(subject, condition.Argument).Any(text => !IsListed(condition.Values, text))
+        RuleConditionKind.NotInList => Texts(subject, condition.Argument).Any(text => !IsListed(condition.Entries, text))
             ? $"{Where(condition)} has a value that is not on the rule's list"
             : null,
         RuleConditionKind.TimeIs => IsAtThisTime(condition, subject.Now) ? "it is within the rule's hours" : null,
@@ -222,7 +222,7 @@ public static class RuleEvaluator
             case RuleConditionKind.TextContains:
                 List<(int, int)> found = [];
 
-                foreach (var piece in condition.Values.Where(piece => piece.Length > 0))
+                foreach (var piece in condition.Entries.Where(piece => piece.Length > 0))
                 {
                     for (var at = text.IndexOf(piece, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.IndexOf(piece, at + piece.Length, StringComparison.OrdinalIgnoreCase))
                     {

@@ -23,6 +23,11 @@ public static class BotEditorEndpoints
         bot.MapPost("/schedules", CreateSchedule).WithName("CreateBotSchedule");
         bot.MapPut("/schedules/{scheduleId:guid}", UpdateSchedule).WithName("UpdateBotSchedule");
         bot.MapDelete("/schedules/{scheduleId:guid}", RemoveSchedule).WithName("RemoveBotSchedule");
+        bot.MapGet("/rules", ListRules).WithName("ListBotRules");
+        bot.MapPost("/rules", CreateRule).WithName("CreateBotRule");
+        bot.MapPut("/rules/{ruleId:guid}", UpdateRule).WithName("UpdateBotRule");
+        bot.MapDelete("/rules/{ruleId:guid}", RemoveRule).WithName("RemoveBotRule");
+        bot.MapPost("/rules/try", TryRules).WithName("TryBotRules");
         return bots;
     }
 
@@ -157,6 +162,86 @@ public static class BotEditorEndpoints
         await schedules.Remove(botId, scheduleId, context.GetSpaceAccess().UserId, context.RequestAborted)
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
+
+    #endregion
+
+    #region Rules
+
+    private static async Task<Results<Ok<List<BotRuleResponse>>, NotFound>> ListRules(Guid botId, HttpContext context, RuleService rules) =>
+        await rules.ListRules(botId, context.RequestAborted) is { } found
+            ? TypedResults.Ok(found.Select(rule => rule.ToResponse()).ToList())
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Created<BotRuleResponse>, NotFound, ProblemHttpResult>> CreateRule(
+        Guid botId,
+        BotRuleBody body,
+        HttpContext context,
+        RuleService rules)
+    {
+        var access = context.GetSpaceAccess();
+        var change = await rules.Create(botId, body, access.UserId, context.RequestAborted);
+
+        if (change.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return change.Rule is { } rule
+            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/bots/{botId}/rules/{rule.Rule.Id}", rule.ToResponse())
+            : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<BotRuleResponse>, NotFound, ProblemHttpResult>> UpdateRule(
+        Guid botId,
+        Guid ruleId,
+        BotRuleBody body,
+        HttpContext context,
+        RuleService rules)
+    {
+        var change = await rules.Update(botId, ruleId, body, context.GetSpaceAccess().UserId, context.RequestAborted);
+
+        if (change.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return change.Rule is { } rule ? TypedResults.Ok(rule.ToResponse()) : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<NoContent, NotFound>> RemoveRule(Guid botId, Guid ruleId, HttpContext context, RuleService rules) =>
+        await rules.Remove(botId, ruleId, context.GetSpaceAccess().UserId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+
+    /// <summary>What a run would do with a sample. It changes nothing, and it runs the evaluator a run uses.</summary>
+    private static async Task<Results<Ok<TryRulesResponse>, NotFound, ProblemHttpResult>> TryRules(
+        Guid botId,
+        TryRulesRequest request,
+        HttpContext context,
+        RuleService rules)
+    {
+        var trial = await rules.Try(botId, request, context.RequestAborted);
+
+        if (trial.BotMissing)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (trial.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var outcome = trial.Outcome;
+        return TypedResults.Ok(new TryRulesResponse(
+            outcome is null ? null : Words.Of(outcome.Effect),
+            outcome?.Rule.Id is { } id && id != Guid.Empty ? id : null,
+            outcome?.Rule.Name,
+            outcome?.Why,
+            outcome?.RedactedText,
+            outcome?.RedactedJson?.GetRawText(),
+            [.. (outcome?.Applied ?? []).Select(rule => rule.Name)]));
+    }
 
     #endregion
 

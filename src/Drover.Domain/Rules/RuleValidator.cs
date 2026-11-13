@@ -87,13 +87,13 @@ public static class RuleValidator
             RuleConditionKind.ToolKind => condition.ToolKinds.Count == 0 || condition.ToolKinds.Any(kind => !Enum.IsDefined(kind))
                 ? "Choose whether the tool reads, writes, or is critical."
                 : null,
-            RuleConditionKind.TextContains => FindListProblem(condition.Values, "Write at least one piece of text to look for", "pieces of text"),
+            RuleConditionKind.TextContains => FindListProblem(condition.Entries, "Write at least one piece of text to look for", "pieces of text"),
             RuleConditionKind.TextMatches => RulePatterns.Compile(condition.Pattern).Problem,
             RuleConditionKind.TextHolds => condition.Builtin is { } builtin && Enum.IsDefined(builtin)
                 ? null
                 : "Choose what the text holds: an email address, a card number, or a key.",
             RuleConditionKind.NotInList when condition.Argument is null => "Name the argument whose values must be on the list.",
-            RuleConditionKind.NotInList => FindListProblem(condition.Values, "Write at least one value for the list", "values"),
+            RuleConditionKind.NotInList => FindListProblem(condition.Entries, "Write at least one value for the list", "values"),
             RuleConditionKind.TimeIs => FindTimeProblem(condition),
             RuleConditionKind.RunExceeds => condition.Counter is { } counter && Enum.IsDefined(counter) && condition.Limit is >= 0 and <= MaxLimit
                 ? null

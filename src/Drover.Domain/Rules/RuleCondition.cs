@@ -22,7 +22,7 @@ public sealed record RuleCondition
     public string? Argument { get; init; }
 
     /// <summary>The pieces of text to find, or the list a value must be on.</summary>
-    public IReadOnlyList<string> Values { get; init; } = [];
+    public IReadOnlyList<string> Entries { get; init; } = [];
 
     /// <summary>A regular expression, for <see cref="RuleConditionKind.TextMatches"/>.</summary>
     public string? Pattern { get; init; }

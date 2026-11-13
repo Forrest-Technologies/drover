@@ -53,6 +53,7 @@ public static class EngineServiceExtensions
         services.AddScoped<BotService>();
         services.AddScoped<GrantService>();
         services.AddScoped<ScheduleService>();
+        services.AddScoped<RuleService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();

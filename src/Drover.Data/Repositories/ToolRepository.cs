@@ -53,6 +53,13 @@ public sealed class ToolRepository(DroverDbContext db)
 
     public void Remove(ToolGrant grant) => db.ToolGrants.Remove(grant);
 
+    /// <summary>A tool by its name, built-in tools first when a server's tool has the same name.</summary>
+    public Task<Tool?> FindToolByName(string name, CancellationToken cancellationToken) =>
+        db.Tools.AsNoTracking()
+            .Where(tool => tool.Name == name)
+            .OrderBy(tool => tool.SourceKind)
+            .FirstOrDefaultAsync(cancellationToken);
+
     /// <summary>The names of these tools, by id, for records that must name a tool a person can recognize.</summary>
     public Task<Dictionary<Guid, string>> ListToolNames(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
         db.Tools.AsNoTracking().Where(tool => ids.Contains(tool.Id)).ToDictionaryAsync(tool => tool.Id, tool => tool.Name, cancellationToken);

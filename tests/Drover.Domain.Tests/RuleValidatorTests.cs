@@ -13,7 +13,7 @@ public sealed class RuleValidatorTests
         RuleCondition[] conditions =
         [
             new() { Kind = RuleConditionKind.ToolIs, Tools = ["email.send"] },
-            new() { Kind = RuleConditionKind.NotInList, Argument = "to", Values = ["example.org"] },
+            new() { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] },
         ];
 
         RuleValidator.FindProblem("Mail stays inside", RuleCheckpoint.BeforeTool, RuleEffect.Ask, conditions).Should().BeNull();
@@ -36,9 +36,9 @@ public sealed class RuleValidatorTests
         { "a tool condition on a reply", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["x"] }], "belongs to a rule about a tool" },
         { "no tool named", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs }], "Name at least one tool" },
         { "an argument on a result", RuleCheckpoint.AfterTool, RuleEffect.Block, [Holds() with { Argument = "body" }], "only before a tool is used" },
-        { "a list with no argument", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Values = ["x"] }], "Name the argument" },
-        { "a blank entry", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Values = ["a", " "] }], "no blank entry" },
-        { "a long list", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Values = [.. Enumerable.Range(0, 51).Select(number => $"v{number}")] }], "Keep it to 50" },
+        { "a list with no argument", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Entries = ["x"] }], "Name the argument" },
+        { "a blank entry", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", " "] }], "no blank entry" },
+        { "a long list", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = [.. Enumerable.Range(0, 51).Select(number => $"v{number}")] }], "Keep it to 50" },
         { "a long pattern", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = new string('a', 501) }], "up to 500 characters" },
         { "a pattern that looks behind", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = "(?<=a)b" }], "cannot stall" },
         { "a pattern that refers back", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = @"(a)\1" }], "cannot stall" },
