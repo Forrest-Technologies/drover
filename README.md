@@ -1,42 +1,49 @@
+[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Roadmap](ROADMAP.md)
+
 # Drover
 
-A self-hosted platform for running your own crew of AI bots: fully defined by you, on every device you own, with your own keys.
+**Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a desktop or phone browser.
 
-**Status: early.** The design is written, the solution builds, and CI is live. There is nothing to use yet. Follow progress in the [roadmap](ROADMAP.md).
+![Drover on desktop, streaming a bot reply in a dark conversation view](docs/screenshots/issue-13/conversation-streaming-dark.png)
+
+Drover is in early development. You can run the browser app from source today. The native Android and Windows apps are on the [roadmap](ROADMAP.md).
 
 ## Quick start
 
-Requires Docker with Compose. No file to edit and no secret to type.
+Install Docker with Compose, then run:
 
-```bash
+```sh
+git clone https://github.com/Forrest-Technologies/drover.git
+cd drover
 docker compose up --build
 ```
 
-Then open <http://localhost:8080>. The first start builds the image from source and creates the database passwords on a volume; `docker compose down` then `up` keeps them. The server listens on localhost only.
+Open [localhost:8080](http://localhost:8080). Create your account and connect a model to start a conversation. Compose creates the database passwords on first startup and keeps them in Docker volumes. The default configuration listens on localhost.
 
-## Run what exists without Docker
+## A closer look
 
+<p>
+  <img src="docs/screenshots/issue-13/setup-3-meet-dark.png" alt="Drover setup introduces the first bot" width="540" />
+  <img src="docs/screenshots/issue-13/conversation-360.png" alt="A Drover conversation in a phone browser" width="190" />
+</p>
 
-Requires the .NET 11 SDK.
+The bot’s visor lights up as it works. The same thread fits a single column on a phone.
 
-```bash
+<details>
+<summary>Build and test with the .NET 11 SDK</summary>
+
+```sh
 dotnet build Drover.slnx -warnaserror
 dotnet test --solution Drover.slnx
-dotnet run --project src/Drover.Server      # http://localhost:8080
+dotnet run --project src/Drover.Server
 ```
 
-## Where things are
+</details>
 
-| | |
-| --- | --- |
-| [ROADMAP.md](ROADMAP.md) | Direction, and links to the issues that track each step |
-| [docs/architecture](docs/architecture/README.md) | The design, one file per topic |
-| [docs/adr](docs/adr/README.md) | Decisions and what would reopen them |
-| [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) | Handoff for whoever coordinates the build: what to dispatch, in what order, and when to stop |
-| [AGENTS.md](AGENTS.md) | Rules for anyone, human or coding agent, changing this repository |
-| [CODE_STYLE.md](CODE_STYLE.md) | The C# style guide. Binding. |
-| [DESIGN.md](DESIGN.md) | The interface direction, and what the interface never does |
+## Contributing
 
-## License
+Start with the [roadmap](ROADMAP.md) and [contributor guidance](AGENTS.md). The [architecture](docs/architecture/README.md), [decision records](docs/adr/README.md), [interface design](DESIGN.md), [C# style guide](CODE_STYLE.md), and [orchestration notes](docs/ORCHESTRATION.md) explain how the project fits together.
 
-Apache-2.0. See [LICENSE](LICENSE).
+![Drover cover art showing three graphite bot heads, one with a lit amber visor](docs/screenshots/drover-crew.webp)
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for license and attribution details.
