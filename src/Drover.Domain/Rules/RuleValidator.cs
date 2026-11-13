@@ -98,7 +98,8 @@ public static class RuleValidator
             RuleConditionKind.ToolKind => condition.ToolKinds.Count == 0 || condition.ToolKinds.Any(kind => !Enum.IsDefined(kind))
                 ? "Choose whether the tool reads, writes, or is critical."
                 : null,
-            RuleConditionKind.TextContains => FindListProblem(condition.Entries, "Write at least one piece of text to look for", "pieces of text"),
+            RuleConditionKind.TextContains => FindListProblem(condition.Entries, "Write at least one piece of text to look for", "pieces of text")
+                ?? FindSameTextProblem(condition.Entries),
             RuleConditionKind.TextMatches => RulePatterns.Compile(condition.Pattern).Problem,
             RuleConditionKind.TextHolds => condition.Builtin is { } builtin && Enum.IsDefined(builtin)
                 ? null
@@ -122,6 +123,30 @@ public static class RuleValidator
         return list.Count > MaxListLength || list.Any(entry => entry.Length > MaxValueLength)
             ? $"Keep it to {MaxListLength} {plural} of up to {MaxValueLength} characters each."
             : null;
+    }
+
+    // Text is looked for in its plain form and without regard to case, so two entries that differ only in that
+    // look for one thing. Each would find every match again.
+    private static string? FindSameTextProblem(IReadOnlyList<string> entries)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            var plain = RuleText.Read(entry, new RuleBudget(RuleBudget.MaxWork))?.Plain ?? string.Empty;
+
+            if (plain.Length == 0)
+            {
+                return "Write at least one piece of text to look for, with no blank entry. An entry made only of characters that cannot be seen is blank.";
+            }
+
+            if (!seen.Add(plain))
+            {
+                return "Two of the pieces of text read the same once characters that cannot be seen are set aside and capitals are ignored. Write each one once.";
+            }
+        }
+
+        return null;
     }
 
     private static string? FindTimeProblem(RuleCondition condition)

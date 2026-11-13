@@ -80,7 +80,7 @@ public static partial class RulePatterns
 
     /// <summary>
     /// Every place in the text where the expression matches, as start and length, or null when the budget could not
-    /// pay for the search: one reading of the text, and each match by how far it moved on. An expression that was
+    /// pay for the search: one reading of the text, each match by how far it moved on, and each match kept. An expression that was
     /// given a time limit of its own and ran out of it could not be searched either.
     /// </summary>
     public static List<(int Start, int Length)>? Find(Regex expression, string text, RuleBudget budget)
@@ -104,10 +104,17 @@ public static partial class RulePatterns
 
                 from = match.Index + match.Length;
 
-                if (match.Length > 0)
+                if (match.Length == 0)
                 {
-                    found.Add((match.Index, match.Length));
+                    continue;
                 }
+
+                if (!budget.TryKeep())
+                {
+                    return null;
+                }
+
+                found.Add((match.Index, match.Length));
             }
 
             return found;
@@ -173,6 +180,11 @@ public static partial class RulePatterns
 
             if (isCard)
             {
+                if (!budget.TryKeep())
+                {
+                    return null;
+                }
+
                 found.Add((index, last - index));
             }
 

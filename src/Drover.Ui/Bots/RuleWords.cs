@@ -53,7 +53,7 @@ public static class RuleWords
 
     /// <summary>What the address list finds and does not.</summary>
     public static string NotCaughtAddresses =>
-        "Catches common forms, and is not a guarantee. Anything with an @ in it, anywhere in the tool's input, has to be a listed address or at a listed host. That also catches a package version or a repository address until its host is listed. A percent-encoded @ and an address split across two items are not caught. To be exact about recipients, use a list on named inputs.";
+        "Catches common forms, and is not a guarantee. Anything with an @ in it, anywhere in the tool's input, has to be one plain address, standing on its own, that is listed or at a listed host. That also catches an address inside a link, a package version, and a repository address, whatever is listed. A percent-encoded @ and an address split across two items are not caught. To be exact about recipients, use a list on named inputs.";
 
     /// <summary>What makes a list on named inputs exact, and what it needs.</summary>
     public static string ListIsExact =>

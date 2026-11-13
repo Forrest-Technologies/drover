@@ -221,6 +221,93 @@ public sealed class RuleKindsTests
         budget.Spent.Should().BeLessThan(text.Length * 4L, "the text is read once and tokenised once");
     }
 
+    [Fact]
+    public void Entries_that_read_the_same_cannot_multiply_the_matches_kept()
+    {
+        // The validator refuses these at save. A rule saved before it did must still not cost more than the budget.
+        var rule = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, Contains([.. Enumerable.Range(0, 50).Select(count => $"a{new string('\u200B', count)}")]));
+        var text = new string('a', RuleBudget.MaxCharacters - 16);
+        var budget = new RuleBudget(RuleBudget.MaxWork);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var watch = Stopwatch.StartNew();
+
+        var outcome = RuleEvaluator.Evaluate([rule], Reply(text), budget);
+
+        watch.Elapsed.Should().BeLessThan(bound, "this took 3 to 4 seconds");
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(100_000_000, "this held over a gigabyte of matches");
+        outcome.Should().NotBeNull();
+        outcome!.Effect.Should().Be(RuleEffect.Block, "more matches than one evaluation keeps could not be checked, and a rule that removes text then blocks");
+        outcome.Why.Should().Contain("could not be checked");
+        budget.Kept.Should().Be(RuleBudget.MaxMatches, "no match is kept past the ceiling");
+    }
+
+    [Fact]
+    public void Each_match_is_work_and_the_matches_kept_have_a_ceiling()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, Contains("a"));
+        var some = new RuleBudget(RuleBudget.MaxWork);
+        var none = new RuleBudget(RuleBudget.MaxWork);
+
+        RuleEvaluator.Evaluate([rule], Reply(new string('a', 1_000)), some)!.Effect.Should().Be(RuleEffect.Redact);
+        RuleEvaluator.Evaluate([rule], Reply(new string('b', 1_000)), none).Should().BeNull();
+        some.Kept.Should().Be(1_000);
+        (some.Spent - none.Spent).Should().BeGreaterThanOrEqualTo(1_000, "finding a match costs a unit, before anything is done with it");
+
+        var atTheCeiling = RuleEvaluator.Evaluate([rule], Reply(new string('a', RuleBudget.MaxMatches)))!;
+        var past = RuleEvaluator.Evaluate([rule], Reply(new string('a', RuleBudget.MaxMatches + 1)))!;
+        atTheCeiling.Effect.Should().Be(RuleEffect.Redact);
+        past.Effect.Should().Be(RuleEffect.Block);
+        past.Why.Should().Contain("could not be checked");
+    }
+
+    [Fact]
+    public void The_ceiling_is_on_all_the_matches_of_one_evaluation_whichever_conditions_find_them()
+    {
+        var digits = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, Matches(@"\d"));
+        var fours = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, Contains("4"));
+        var half = new string('4', (RuleBudget.MaxMatches / 2) + 1);
+
+        RuleEvaluator.Evaluate([digits], Reply(half))!.Effect.Should().Be(RuleEffect.Redact);
+        RuleEvaluator.Evaluate([digits], Reply(new string('4', RuleBudget.MaxMatches + 1)))!.Effect.Should().Be(RuleEffect.Block, "a written pattern keeps no more matches than anything else");
+
+        var both = RuleEvaluator.Evaluate([digits, fours], Reply(half))!;
+        both.Effect.Should().Be(RuleEffect.Block, "each alone is under the ceiling and the two together are over it");
+        both.Why.Should().Contain("nothing of it is let through");
+        both.RedactedText.Should().Be(RuleEvaluator.Redaction);
+    }
+
+    [Fact]
+    public void A_list_on_named_inputs_pays_for_every_element_it_walks()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
+        var empty = Call("email.send", $"{{\"to\":[{string.Join(',', Enumerable.Repeat("[]", 1_000_000))}]}}");
+        var budget = new RuleBudget(RuleBudget.MaxWork);
+
+        RuleEvaluator.Evaluate([rule], empty, budget).Should().BeNull("there is no value in it that is off the list");
+        budget.Spent.Should().BeGreaterThanOrEqualTo(1_000_000, "a million elements walked ran two seconds at no units");
+
+        var listed = Call("email.send", JsonSerializer.Serialize(new { to = Enumerable.Repeat("ann@example.org", 1_000) }));
+        var enough = new RuleBudget(RuleBudget.MaxWork);
+        RuleEvaluator.Evaluate([rule], listed, enough).Should().BeNull();
+        enough.Spent.Should().BeGreaterThanOrEqualTo(1_000 * ("ann@example.org".Length + 1L), "each value is an element and its characters");
+        RuleEvaluator.Evaluate([rule], listed, new RuleBudget(enough.Spent)).Should().BeNull("exactly the work it takes is enough, every time");
+        RuleEvaluator.Evaluate([rule], listed, new RuleBudget(enough.Spent - 1))!.Why.Should().Contain("could not be checked");
+    }
+
+    [Fact]
+    public void A_list_on_every_address_pays_for_every_token_it_compares()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = [.. Enumerable.Range(0, 49).Select(number => $"host{number}.test"), "example.org"] });
+        var note = string.Concat(Enumerable.Repeat("a@example.org ", 10_000));
+        var call = Call("note.write", JsonSerializer.Serialize(new { note }));
+        var enough = new RuleBudget(RuleBudget.MaxWork);
+
+        RuleEvaluator.Evaluate([rule], call, enough).Should().BeNull();
+        enough.Spent.Should().BeGreaterThanOrEqualTo(note.Length + (10_000 * 50L), "a token is compared with each entry of the list, and that is work");
+        RuleEvaluator.Evaluate([rule], call, new RuleBudget(enough.Spent)).Should().BeNull("exactly the work it takes is enough, every time");
+        RuleEvaluator.Evaluate([rule], call, new RuleBudget(enough.Spent - 1))!.Why.Should().Contain("could not be checked");
+    }
+
     #endregion
 
     #region Lists On Named Inputs: Exact
@@ -262,11 +349,19 @@ public sealed class RuleKindsTests
     [InlineData("ann\u200B@example.org")]
     [InlineData("git@github.com:org/repo")]
     [InlineData("npm i @types/node@20.1.0")]
-    public void A_token_with_an_at_sign_that_is_not_a_listed_address_or_host_is_off_the_list(string value)
+    [InlineData("mailto:mallory@evil.test?cc=ann@example.org")]
+    [InlineData("mallory@evil.test/ann@example.org")]
+    [InlineData("to=mallory@evil.test&cc=ann@example.org")]
+    [InlineData("a@evil.test?x=@example.org")]
+    [InlineData("https://example.org/?to=ann@example.org")]
+    [InlineData("git log --author=ann@mail.example.org")]
+    [InlineData("@example.org")]
+    [InlineData("ann@")]
+    public void A_token_with_an_at_sign_that_is_not_one_plain_listed_address_is_off_the_list(string value)
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] });
 
-        RuleEvaluator.Evaluate([rule], Call("shell.run", JsonSerializer.Serialize(new { command = value }))).Should().NotBeNull("anything with an @ in it has to be listed: to let one through, list its host");
+        RuleEvaluator.Evaluate([rule], Call("shell.run", JsonSerializer.Serialize(new { command = value }))).Should().NotBeNull("a token with an @ in it has to be one plain address that is listed, whole");
     }
 
     [Theory]
@@ -274,9 +369,9 @@ public sealed class RuleKindsTests
     [InlineData("ANN@Example.ORG")]
     [InlineData("100% done, mail ann@example.org")]
     [InlineData("mailto:ann@example.org")]
-    [InlineData("https://example.org/?to=ann@example.org")]
     [InlineData("Ann Example <ann@example.org>")]
-    [InlineData("git log --author=ann@mail.example.org")]
+    [InlineData("git log --author ann@mail.example.org")]
+    [InlineData("ann.b_c%d+e-f@example.org, bob@example.org; (carol@example.org)")]
     [InlineData("Write to ann@example.org.")]
     [InlineData("no address here, 50% off")]
     public void A_listed_address_inside_other_text_raises_no_alarm(string value)
@@ -432,7 +527,7 @@ public sealed class RuleKindsTests
     {
         RuleConditionKind.ToolIs => ToolIs("sample.tool"),
         RuleConditionKind.ToolKind => new() { Kind = kind, ToolKinds = [ToolSensitivity.Write] },
-        RuleConditionKind.TextContains => Contains("@", "%", ".", "4", "a", "\"", "<", " ", "aa", "@a"),
+        RuleConditionKind.TextContains => Contains(["@", "%", ".", "4", "\"", "<", " ", "aa", "@a", .. Enumerable.Range(0, 41).Select(count => $"a{new string('\u200B', count)}")]),
         RuleConditionKind.TextMatches => Matches("a+b|a|@+%|4+5"),
         RuleConditionKind.TextHolds => Holds(BuiltinPattern.CardNumber),
         RuleConditionKind.NotInList => new() { Kind = kind, Argument = anywhere ? null : "text, list, deep", Entries = ["example.org"] },
@@ -458,6 +553,7 @@ public sealed class RuleKindsTests
 
         yield return ("many tiny leaves", JsonSerializer.SerializeToElement(new { list = Enumerable.Repeat("a@", RuleBudget.MaxLeaves - 8) }));
         yield return ("more leaves than the cap", JsonSerializer.SerializeToElement(new { list = Enumerable.Repeat("4", 200_000) }));
+        yield return ("a million empty lists", JsonElement.Parse($"{{\"list\":[{string.Join(',', Enumerable.Repeat("[]", 1_000_000))}]}}"));
         yield return ("deep nesting", JsonElement.Parse($"{{\"deep\":{new string('[', 60)}\"a@4%\"{new string(']', 60)}}}"));
     }
 

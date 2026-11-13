@@ -21,6 +21,10 @@ public static class RuleEvaluator
 
     private static readonly JsonElement nothing = JsonElement.Parse("{}");
 
+    private static readonly SearchValues<char> hostCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-");
+
+    private static readonly SearchValues<char> mailboxCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-");
+
     #endregion
 
     #region Public Methods
@@ -144,14 +148,21 @@ public static class RuleEvaluator
 
     // An exact condition. The rule names inputs, matched without regard to case, and every value of every one of
     // them that is in the call has to be on the list, each time it occurs. When none of them is there and the rule
-    // says which tools it is about, it applies, because the input should have been.
+    // says which tools it is about, it applies, because the input should have been. Each input looked at and each
+    // element walked is a unit of work, and so is each character read and each entry a value is compared with.
     private static string? IsOffTheList(RuleCondition condition, ActiveRule rule, RuleReading reading)
     {
         var names = RuleReading.Names(condition.Argument);
+        var allowed = Allowed(condition);
         var present = false;
 
         foreach (var property in reading.Subject.Json is { ValueKind: JsonValueKind.Object } json ? json.EnumerateObject() : default)
         {
+            if (!reading.Budget.TrySpend(names.Length))
+            {
+                return OutOfWork;
+            }
+
             if (!names.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
             {
                 continue;
@@ -159,21 +170,62 @@ public static class RuleEvaluator
 
             present = true;
 
-            foreach (var value in Values(property.Value))
+            if (AreAllListed(allowed, property.Value, reading.Budget) is not { } listed)
             {
-                if (IsListed(condition.Entries, value, reading.Budget) is not { } listed)
-                {
-                    return OutOfWork;
-                }
+                return OutOfWork;
+            }
 
-                if (!listed)
-                {
-                    return $"{Where(condition)} has a value that is not on the rule's list";
-                }
+            if (!listed)
+            {
+                return $"{Where(condition)} has a value that is not on the rule's list";
             }
         }
 
         return !present && rule.Conditions.Any(other => other.Kind is RuleConditionKind.ToolIs) ? $"{Where(condition)} is not there to check" : null;
+    }
+
+    // Whether every value under a named input is on the list: strings as they are, numbers as written. Null when
+    // the budget could not pay for walking to the end.
+    private static bool? AreAllListed(string[] allowed, JsonElement value, RuleBudget budget)
+    {
+        if (!budget.TrySpend(1))
+        {
+            return null;
+        }
+
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                return IsListed(allowed, value.GetString() ?? string.Empty, budget);
+            case JsonValueKind.Number:
+                return IsListed(allowed, value.GetRawText(), budget);
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray())
+                {
+                    var listed = AreAllListed(allowed, item, budget);
+
+                    if (listed is not true)
+                    {
+                        return listed;
+                    }
+                }
+
+                return true;
+            case JsonValueKind.Object:
+                foreach (var property in value.EnumerateObject())
+                {
+                    var listed = AreAllListed(allowed, property.Value, budget);
+
+                    if (listed is not true)
+                    {
+                        return listed;
+                    }
+                }
+
+                return true;
+            default:
+                return true;
+        }
     }
 
     // A pattern condition: every piece of text in the tool's input, whichever field the model put it in.
@@ -184,9 +236,11 @@ public static class RuleEvaluator
             return TooMuch;
         }
 
+        var allowed = Allowed(condition);
+
         foreach (var piece in reading.Pieces)
         {
-            if (!reading.Budget.TrySpend(1) || piece.Text(reading.Budget) is not { } text || HasAnAddressOffTheList(condition.Entries, text, reading.Budget) is not { } off)
+            if (!reading.Budget.TrySpend(1) || piece.Text(reading.Budget) is not { } text || HasAnAddressOffTheList(allowed, text, reading.Budget) is not { } off)
             {
                 return OutOfWork;
             }
@@ -201,10 +255,11 @@ public static class RuleEvaluator
     }
 
     // One reading of a text, token by token. Tokens are parted by white space, quotes, angle brackets, commas,
-    // semicolons, and parentheses. A token with an @ in it is on the list only when it is exactly a listed address,
-    // or when what follows its last @ is a listed host or under one. Any other token with an @ in it is off the
-    // list: to let one through, a person lists its host. Null when the budget could not pay for the reading.
-    private static bool? HasAnAddressOffTheList(IReadOnlyList<string> allowed, RuleText text, RuleBudget budget)
+    // semicolons, and parentheses. A token with an @ in it is on the list only when the whole token is one plain
+    // address and that address, or its host, is listed. Any other token with an @ in it is off the list, whatever
+    // else in it is listed: an address after a "?", a "/", or an "=" is not what the token is sent to. Comparing a
+    // token with the list is work: its characters, and a unit for each entry. Null when the budget could not pay.
+    private static bool? HasAnAddressOffTheList(string[] allowed, RuleText text, RuleBudget budget)
     {
         var plain = text.Plain;
 
@@ -225,9 +280,19 @@ public static class RuleEvaluator
             var token = plain.AsSpan(start, index - start);
             start = index + 1;
 
+            if (!token.Contains('@'))
+            {
+                continue;
+            }
+
+            if (!budget.TrySpend(token.Length + allowed.Length))
+            {
+                return null;
+            }
+
             // The tool gets the text as written. A token that only reads as a listed address once unseen
             // characters are taken out, or another form of a letter is made plain, is not that address.
-            if (token.Contains('@') && (!text.IsAsWritten || !IsListedAddress(allowed, token)))
+            if (!text.IsAsWritten || !IsAListedAddress(allowed, token))
             {
                 return true;
             }
@@ -239,18 +304,44 @@ public static class RuleEvaluator
     private static bool IsTokenEnd(char character) =>
         char.IsWhiteSpace(character) || character is '"' or '\'' or '<' or '>' or ',' or ';' or '(' or ')';
 
-    // The token without the "mailto:" a link puts before an address and without the full stop, colon, or mark that
-    // ends a sentence after one.
-    private static bool IsListedAddress(IReadOnlyList<string> allowed, ReadOnlySpan<char> token)
+    // The token without the "mailto:" a link puts before an address and without the mark that ends a sentence or a
+    // clause after one. What is left has to be one plain address, whole: a mailbox, one @, and a host.
+    private static bool IsAListedAddress(string[] allowed, ReadOnlySpan<char> token)
     {
-        var address = token.TrimEnd(".:!?").ToString();
+        var address = token.TrimEnd(".,;:!?");
         address = address.StartsWith(MailTo, StringComparison.OrdinalIgnoreCase) ? address[MailTo.Length..] : address;
-        var host = address[(address.LastIndexOf('@') + 1)..];
-        return allowed.Select(entry => entry.Trim()).Any(listed =>
-            address.Equals(listed, StringComparison.OrdinalIgnoreCase)
-            || (!listed.Contains('@', StringComparison.Ordinal)
-                && (host.Equals(listed, StringComparison.OrdinalIgnoreCase) || host.EndsWith($".{listed}", StringComparison.OrdinalIgnoreCase))));
+        var at = address.IndexOf('@');
+        return at > 0 && IsOneName(address[..at], address[(at + 1)..]) && IsOn(allowed, address, address[(at + 1)..]);
     }
+
+    // A mailbox of letters, digits, and the marks a mailbox is written with, and a host of letters, digits, full
+    // stops, and hyphens. An @ is neither, so there is one address and no second one behind it.
+    private static bool IsOneName(ReadOnlySpan<char> mailbox, ReadOnlySpan<char> host) =>
+        host.Length > 0 && !host.ContainsAnyExcept(hostCharacters) && !mailbox.ContainsAnyExcept(mailboxCharacters);
+
+    // On the list as written, or at a listed host or under one: "example.org" lists "a@example.org" and
+    // "mail.example.org".
+    private static bool IsOn(string[] allowed, ReadOnlySpan<char> whole, ReadOnlySpan<char> host)
+    {
+        foreach (var listed in allowed)
+        {
+            if (whole.Equals(listed, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!listed.Contains('@', StringComparison.Ordinal)
+                && host.EndsWith(listed, StringComparison.OrdinalIgnoreCase)
+                && (host.Length == listed.Length || host[^(listed.Length + 1)] is '.'))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string[] Allowed(RuleCondition condition) => [.. condition.Entries.Select(entry => entry.Trim())];
 
     private static string KindWords(ToolSensitivity kind) => kind switch
     {
@@ -288,14 +379,14 @@ public static class RuleEvaluator
         return within && (condition.Weekdays.Count == 0 || condition.Weekdays.Contains(day));
     }
 
-    // On the list as written, or one address or host under a listed domain: "example.org" lists "a@example.org"
-    // and "mail.example.org". The value has to be that and nothing more. Two addresses in one value, an address
-    // inside a link, or a longer name that only ends like a listed one are not on the list. Neither is a value
-    // with characters that cannot be seen or in another form: the tool gets the value as written, so that is
-    // what is compared. Null when the budget could not pay for reading the value.
-    private static bool? IsListed(IReadOnlyList<string> allowed, string value, RuleBudget budget)
+    // A value under a named input has to be on the list and nothing more: the entry as written, or one address or
+    // host at a listed host or under one. Two addresses in one value, an address inside a link, or a longer name
+    // that only ends like a listed one are not on the list. Neither is a value with characters that cannot be seen
+    // or in another form: the tool gets the value as written, so that is what is compared. Null when the budget
+    // could not pay for reading the value and comparing it with each entry.
+    private static bool? IsListed(string[] allowed, string value, RuleBudget budget)
     {
-        if (RuleText.Read(value, budget) is not { } read)
+        if (RuleText.Read(value, budget) is not { } read || !budget.TrySpend(value.Length + allowed.Length))
         {
             return null;
         }
@@ -305,30 +396,11 @@ public static class RuleEvaluator
             return false;
         }
 
-        var plain = value.Trim();
-        var at = plain.IndexOf('@', StringComparison.Ordinal);
-        var host = at < 0 ? plain : plain[(at + 1)..];
-        var isOneName = host.Length > 0 && host.All(IsHostCharacter) && (at < 0 || (at > 0 && plain[..at].All(IsMailboxCharacter)));
-        return allowed.Select(entry => entry.Trim()).Any(listed =>
-            plain.Equals(listed, StringComparison.OrdinalIgnoreCase)
-            || (isOneName
-                && !listed.Contains('@', StringComparison.Ordinal)
-                && (host.Equals(listed, StringComparison.OrdinalIgnoreCase) || host.EndsWith($".{listed}", StringComparison.OrdinalIgnoreCase))));
+        var plain = value.AsSpan().Trim();
+        var at = plain.IndexOf('@');
+        var host = plain[(at + 1)..];
+        return IsOn(allowed, plain, at != 0 && IsOneName(at < 0 ? [] : plain[..at], host) ? host : []);
     }
-
-    private static bool IsHostCharacter(char character) => char.IsAsciiLetterOrDigit(character) || character is '.' or '-';
-
-    private static bool IsMailboxCharacter(char character) => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '%' or '+' or '-';
-
-    // The values under a named input, as text: strings as they are, numbers as written.
-    private static IEnumerable<string> Values(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.String => [value.GetString() ?? string.Empty],
-        JsonValueKind.Number => [value.GetRawText()],
-        JsonValueKind.Array => value.EnumerateArray().SelectMany(Values),
-        JsonValueKind.Object => value.EnumerateObject().SelectMany(property => Values(property.Value)),
-        _ => [],
-    };
 
     private static IEnumerable<RuleCondition> TextConditions(ActiveRule rule) =>
         rule.Conditions.Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds);
@@ -378,12 +450,15 @@ public static class RuleEvaluator
     private static string Redact(RuleReading reading, int index, List<RuleSearch> searches)
     {
         var text = reading.Pieces[index].Written;
-        var places = searches.SelectMany(search => search.Places[index] ?? []).OrderBy(place => place.Start).ToList();
+        List<(int Start, int Length)> places = [.. searches.SelectMany(search => search.Places[index] ?? [])];
 
-        if (places.Count == 0 || !reading.Budget.TrySpend(text.Length))
+        // The budget is asked before the places are put in order: the piece once, and each place in it.
+        if (places.Count == 0 || !reading.Budget.TrySpend(text.Length + places.Count))
         {
             return text;
         }
+
+        places.Sort((one, other) => one.Start.CompareTo(other.Start));
 
         var result = new StringBuilder(text.Length);
         var cursor = 0;

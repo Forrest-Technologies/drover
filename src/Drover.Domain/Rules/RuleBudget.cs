@@ -2,11 +2,12 @@ namespace Drover.Domain.Rules;
 
 /// <summary>
 /// What one evaluation may spend. Work is counted, not timed: every loop that looks at text spends units from the
-/// one budget of its evaluation (a unit is a character examined, or one piece looked at), so the same input gets
-/// the same answer on a busy server and an idle one. There is no way to search text without a budget. When the
-/// budget is spent, what is still to be decided could not be checked, and a rule that could not be checked
-/// applies. A clock runs as well, as a backstop only, for the one cost units cannot see: what a written pattern
-/// does inside the expression engine.
+/// one budget of its evaluation (a unit is a character examined, a piece or an element looked at, an entry
+/// compared, or a match kept), so the same input gets the same answer on a busy server and an idle one. There is
+/// no way to search text without a budget. When the budget is spent, what is still to be decided could not be
+/// checked, and a rule that could not be checked applies. One cost cannot be counted: what a written pattern does
+/// inside the expression engine. For that a clock runs, and the clock is its only bound, so a rule with a written
+/// pattern can get a different answer on a busy server: the stricter one.
 /// </summary>
 public sealed class RuleBudget(long work, TimeSpan backstop)
 {
@@ -41,6 +42,12 @@ public sealed class RuleBudget(long work, TimeSpan backstop)
     /// <summary>The most pieces of text (strings, numbers, flags, names) one evaluation looks at.</summary>
     public static int MaxLeaves => 20_000;
 
+    /// <summary>The most matches one evaluation keeps, over all its searches. More could not be checked.</summary>
+    public static int MaxMatches => 100_000;
+
+    /// <summary>The matches kept so far.</summary>
+    public int Kept { get; private set; }
+
     /// <summary>The units of work spent so far.</summary>
     public long Spent { get; private set; }
 
@@ -64,6 +71,27 @@ public sealed class RuleBudget(long work, TimeSpan backstop)
         }
 
         Spent += units;
+        return true;
+    }
+
+    /// <summary>
+    /// Takes room for one more match before it is kept: a unit of work, and one of the matches an evaluation may
+    /// hold. False when either has run out: the caller keeps nothing more and treats its subject as not checked.
+    /// </summary>
+    public bool TryKeep()
+    {
+        if (Kept >= MaxMatches)
+        {
+            spent = true;
+            return false;
+        }
+
+        if (!TrySpend(1))
+        {
+            return false;
+        }
+
+        Kept++;
         return true;
     }
 

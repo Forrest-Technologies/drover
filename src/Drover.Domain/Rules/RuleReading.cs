@@ -233,6 +233,11 @@ internal sealed class RuleReading
 
                     for (var at = text.Plain.IndexOf(entry, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.Plain.IndexOf(entry, at + entry.Length, StringComparison.OrdinalIgnoreCase))
                     {
+                        if (!Budget.TryKeep())
+                        {
+                            return null;
+                        }
+
                         places.Add((at, entry.Length));
                     }
                 }
@@ -241,10 +246,13 @@ internal sealed class RuleReading
         }
     }
 
-    // What a "contains" condition looks for, in its plain form, or null when the budget could not pay for reading it.
+    // What a "contains" condition looks for, in its plain form and each thing once, or null when the budget could
+    // not pay for reading it. A rule is refused at save when two of its entries read the same; one saved before
+    // that was checked is still searched for each thing once.
     private List<string>? ReadEntries(RuleCondition condition)
     {
         List<string> entries = [];
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in condition.Entries)
         {
@@ -253,7 +261,7 @@ internal sealed class RuleReading
                 return null;
             }
 
-            if (read.Plain.Length > 0)
+            if (read.Plain.Length > 0 && seen.Add(read.Plain))
             {
                 entries.Add(read.Plain);
             }
