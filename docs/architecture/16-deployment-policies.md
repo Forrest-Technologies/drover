@@ -64,6 +64,9 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `MaxModelsPerConnection` | `5000` | `1000` | Enforced: `ModelConnectionService` refuses a refresh that lists more models and leaves the catalog as it was |
 | `MaxToolResponseBytes` | `8388608` | `2097152` | Enforced: the tool source adapter stops reading any answer from a tool server past it (a tool list page, a tool's result, a session's event stream) and reports the answer as too large. A tool server chooses how much it sends; this is how much Drover will hold. A limit: it may be tightened, not raised past the preset |
 | `MaxToolsPerConnection` | `500` | `200` | Enforced: the adapter stops listing at this many tools, and the catalog stores no more than this many for one connection. A limit, as above |
+| `MaxToolSignInRenewalsPerPass` | `50` | `20` | Enforced: the background renewal of tool server sign-ins tries no more than this many in one pass. Each is a request to somebody else's server made on this server's own initiative. A limit, as above |
+| `MaxToolSignInRenewalPassesPerHour` | `12` | `12` | Enforced: how often that pass runs. A limit: an operator may run it less often, not more |
+| `MaxToolSignInRenewalLeadMinutes` | `15` | `15` | Enforced: how long before an access token runs out it is renewed. A longer lead renews more often, so it is a limit too |
 | `SandboxAdapters` | `All` | `HardBoundaryOnly` | Later: sandbox adapter registration (Phase 1) |
 | `AllowHostStdioMcp` | `false` | `false` | Later: MCP tool servers (Phase 1) |
 | `SubscriptionSignIn` | `WhereProviderPermits` | `OnlyWithOperatorApproval` | Later: model providers |
