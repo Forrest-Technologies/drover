@@ -45,13 +45,8 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `Microsoft.Extensions.AI.OpenAI` 11.0.0, official `OpenAI` client and `System.ClientModel` | MIT | Microsoft and OpenAI | Compatible protocol serialization, tools, streaming and reasoning | Referenced only by `Drover.Adapters.OpenAICompatible`. Venice composes its Drover-owned transport delegate. |
 | `Anthropic` (official) | Apache-2.0 | Anthropic | Native connection kind for that provider | Behind `IModelClientProvider` |
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
-<<<<<<< HEAD
-| Markdig 1.6.0 | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownView`. |
+| Markdig 1.6.0 | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownDocument`, which `MarkdownView` renders from. |
 | HtmlSanitizer 11.0.26, with AngleSharp and AngleSharp.Css | MIT, MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
-=======
-| Markdig | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownDocument`, which `MarkdownView` renders from. |
-| HtmlSanitizer, with AngleSharp | MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
->>>>>>> worktree-agent-aafd1c00ea159c3a2
 | `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency | Web Push and VAPID | **Wrapped** by `IPushChannel` |
 | Cronos | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct. One call site in the scheduler. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
