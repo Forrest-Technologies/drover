@@ -196,6 +196,42 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         message.Should().Contain(nameof(DeploymentPolicy.RequireTermsAcceptance)).And.Contain("TermsVersion");
     }
 
+    public static TheoryData<int> RefusedCombinations => [.. Enumerable.Range(0, PolicyMatrix.Refusals.Count)];
+
+    [Theory]
+    [MemberData(nameof(RefusedCombinations))]
+    public async Task A_refused_combination_of_settings_does_not_start_and_names_what_to_change(int row)
+    {
+        var refusal = PolicyMatrix.Refusals[row];
+        var settings = new Dictionary<string, string?> { ["DROVER_POLICY"] = refusal.Preset };
+
+        foreach (var (rule, setting) in refusal.Rules)
+        {
+            settings[$"Drover:Policy:Rules:{rule}"] = setting;
+        }
+
+        var message = await StartupFailure(settings);
+
+        foreach (var name in refusal.Names)
+        {
+            message.Should().Contain(name);
+        }
+    }
+
+    [Fact]
+    public async Task Self_hosted_with_open_registration_starts_once_private_addresses_are_forbidden()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:OpenRegistration"] = "true";
+        settings["Drover:Policy:Rules:AllowPrivateAddresses"] = "false";
+
+        await using var server = await Boot(settings);
+
+        var rules = server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        rules.OpenRegistration.Should().BeTrue();
+        rules.AllowPrivateAddresses.Should().BeFalse();
+    }
+
     [Fact]
     public async Task A_key_that_names_no_rule_does_not_start()
     {

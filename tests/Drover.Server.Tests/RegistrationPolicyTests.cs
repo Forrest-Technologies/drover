@@ -1,8 +1,8 @@
 namespace Drover.Server.Tests;
 
 /// <summary>
-/// Registration on a self-hosted server whose operator opened it and asked for the terms to be accepted. The
-/// version accepted is recorded with the account.
+/// Registration on a self-hosted server whose operator opened it, forbade private addresses as that requires, and
+/// asked for the terms to be accepted. The version accepted is recorded with the account.
 /// </summary>
 public sealed class RegistrationPolicyTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
@@ -17,6 +17,9 @@ public sealed class RegistrationPolicyTests(PostgresServer postgres) : ServerTes
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
         ["Drover:Policy:Rules:OpenRegistration"] = "true",
+
+        // Open registration on a self-hosted server must forbid private addresses, or the server does not start.
+        ["Drover:Policy:Rules:AllowPrivateAddresses"] = "false",
         ["Drover:Policy:Rules:RequireTermsAcceptance"] = "true",
         ["Drover:Policy:TermsVersion"] = Terms,
     };
