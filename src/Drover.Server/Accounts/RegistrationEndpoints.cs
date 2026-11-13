@@ -10,9 +10,11 @@ public static class RegistrationEndpoints
 
     public static IEndpointRouteBuilder MapRegistrationEndpoints(this RouteGroupBuilder api)
     {
-        var register = api.MapGroup("/register").RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit);
+        var register = api.MapGroup("/register");
         register.MapGet("/", GetRegistrationStatus).WithName("GetRegistrationStatus");
-        register.MapPost("/", Register).WithName("Register");
+        register.MapPost("/", Register)
+            .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithName("Register");
         return api;
     }
 
