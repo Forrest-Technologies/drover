@@ -94,6 +94,9 @@ public sealed class ThreadLine(
         // The query answers from the database, where the messages placed a moment ago are still pending; the rows
         // in hand know better.
         var pending = await messages.ListPendingMessages(thread.Id, cancellationToken);
+
+        // A pending message a rule withheld joins the conversation where people read it and starts nothing.
+        await messages.AppendMessages(thread, [.. pending.Where(message => message is { Position: null, Withheld: true })], cancellationToken);
         return pending.FirstOrDefault(message => message.Position is null && message.AuthorUserId is not null) is { AuthorUserId: { } author } next
             ? await Queue(thread, next, author, cancellationToken)
             : null;

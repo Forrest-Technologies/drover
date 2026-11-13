@@ -30,6 +30,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<BotSchedule> BotSchedules => Set<BotSchedule>();
 
+    public DbSet<BotRule> BotRules => Set<BotRule>();
+
     public DbSet<ToolGrant> ToolGrants => Set<ToolGrant>();
 
     public DbSet<ModelConnection> ModelConnections => Set<ModelConnection>();

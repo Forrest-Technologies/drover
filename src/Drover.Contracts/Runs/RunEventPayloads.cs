@@ -45,5 +45,12 @@ public sealed record ToolStarted(Guid ToolCallId);
 /// </summary>
 public sealed record ToolCompleted(Guid ToolCallId, string Outcome, bool IsError, string Preview, long DurationMs);
 
+/// <summary>
+/// Data of <c>rule.fired</c>: a rule applied and did what it says. The checkpoint is "before_tool", "after_tool",
+/// "before_reply", or "message_arrives"; the effect is "redact", "ask", "block", or "stop". <see cref="Why"/> says
+/// which conditions held, in words, and never holds the text that matched.
+/// </summary>
+public sealed record RuleFired(Guid RuleId, string RuleName, string Checkpoint, string Effect, string Why, Guid? ToolCallId);
+
 /// <summary>Data of <c>usage.recorded</c>: what one model call used.</summary>
 public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal Cost, string Currency);

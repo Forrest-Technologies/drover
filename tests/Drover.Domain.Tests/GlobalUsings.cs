@@ -1,8 +1,10 @@
 global using System;
 global using System.Collections.Generic;
+global using System.Diagnostics;
 global using System.IO;
 global using System.Linq;
 global using System.Reflection;
+global using System.Text.Json;
 global using System.Text.RegularExpressions;
 global using System.Xml.Linq;
 global using AwesomeAssertions;
@@ -11,5 +13,7 @@ global using Drover.Domain.Bots;
 global using Drover.Domain.Models;
 global using Drover.Domain.Permissions;
 global using Drover.Domain.Policy;
+global using Drover.Domain.Rules;
+global using Drover.Domain.Tools;
 global using Drover.Tests.Common;
 global using Xunit;

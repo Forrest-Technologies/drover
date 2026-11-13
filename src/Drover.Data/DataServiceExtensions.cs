@@ -31,6 +31,7 @@ public static class DataServiceExtensions
         services.AddScoped<ToolRepository>();
         services.AddScoped<ToolConnectionRepository>();
         services.AddScoped<BotScheduleRepository>();
+        services.AddScoped<BotRuleRepository>();
         services.AddScoped<AuditRepository>();
         services.AddSingleton(provider => new RunWakeListener(appConnectionString, provider.GetRequiredService<ILogger<RunWakeListener>>()));
         services.AddDbContext<DroverDbContext>((provider, options) => options

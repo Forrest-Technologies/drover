@@ -17,6 +17,8 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
 
     private readonly ConcurrentQueue<ModelUsage> recordedUsage = new();
 
+    private readonly ConcurrentQueue<string> ruledReplies = new();
+
     #endregion
 
     #region Properties
@@ -28,6 +30,12 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
     public IReadOnlyList<(ChildRun Child, ChildRunOutcome Outcome)> Completions => [.. completions];
 
     public IReadOnlyList<ModelUsage> Usage => [.. recordedUsage];
+
+    /// <summary>What a rule does to a reply. When set, the governor holds every reply until this has seen all of it.</summary>
+    public Func<string, string>? ReplyRule { get; init; }
+
+    /// <summary>Every reply the runtime asked the governor to rule on, as the model said it.</summary>
+    public IReadOnlyList<string> RuledReplies => [.. ruledReplies];
 
     #endregion
 
@@ -61,6 +69,14 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
     }
 
     public JsonElement Redact(JsonElement value) => value;
+
+    public Task<bool> HoldsReplies(CancellationToken cancellationToken) => Task.FromResult(ReplyRule is not null);
+
+    public Task<string> RuleOnReply(string text, CancellationToken cancellationToken)
+    {
+        ruledReplies.Enqueue(text);
+        return Task.FromResult(ReplyRule?.Invoke(text) ?? text);
+    }
 
     #endregion
 }

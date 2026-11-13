@@ -781,6 +781,76 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Rules.BotRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<string>("Checkpoint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("checkpoint");
+
+                    b.Property<string>("Conditions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("conditions")
+                        .HasDefaultValueSql("'[]'::jsonb");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Effect")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("effect");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_bot_rules");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_bot_rules_created_by_user_id");
+
+                    b.HasIndex("SpaceId", "BotId")
+                        .HasDatabaseName("ix_bot_rules_space_id_bot_id");
+
+                    b.ToTable("bot_rules", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_bot_rules_checkpoint", "checkpoint IN ('before_tool', 'after_tool', 'before_reply', 'message_arrives')");
+
+                            t.HasCheckConstraint("ck_bot_rules_effect", "effect IN ('redact', 'ask', 'block', 'stop')");
+
+                            t.HasCheckConstraint("ck_bot_rules_position", "position >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Runs.AgentSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1544,6 +1614,12 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("thread_id");
 
+                    b.Property<bool>("Withheld")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("withheld");
+
                     b.HasKey("Id")
                         .HasName("pk_messages");
 
@@ -2044,6 +2120,23 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tool_grants_tools_space_id_tool_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Rules.BotRule", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_bot_rules_asp_net_users_created_by_user_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_bot_rules_bots_space_id_bot_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Runs.AgentSession", b =>
