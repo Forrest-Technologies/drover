@@ -261,6 +261,12 @@
   overflow-wrap: anywhere;
 }
 
+.dv-editor ::deep .dv-rule-note {
+  color: var(--dv-warn);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
 .dv-editor ::deep .dv-rule-condition {
   padding-top: var(--dv-space-3);
   border-top: var(--dv-border) solid var(--dv-line);

@@ -169,7 +169,7 @@ public static class BotEditorEndpoints
 
     private static async Task<Results<Ok<List<BotRuleResponse>>, NotFound>> ListRules(Guid botId, HttpContext context, RuleService rules) =>
         await rules.ListRules(botId, context.RequestAborted) is { } found
-            ? TypedResults.Ok(found.Select(rule => rule.ToResponse()).ToList())
+            ? TypedResults.Ok(await rules.Describe(found, context.RequestAborted))
             : TypedResults.NotFound();
 
     private static async Task<Results<Created<BotRuleResponse>, NotFound, ProblemHttpResult>> CreateRule(
@@ -187,7 +187,7 @@ public static class BotEditorEndpoints
         }
 
         return change.Rule is { } rule
-            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/bots/{botId}/rules/{rule.Rule.Id}", rule.ToResponse())
+            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/bots/{botId}/rules/{rule.Rule.Id}", (await rules.Describe([rule], context.RequestAborted))[0])
             : TypedResults.NotFound();
     }
 
@@ -205,7 +205,7 @@ public static class BotEditorEndpoints
             return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return change.Rule is { } rule ? TypedResults.Ok(rule.ToResponse()) : TypedResults.NotFound();
+        return change.Rule is { } rule ? TypedResults.Ok((await rules.Describe([rule], context.RequestAborted))[0]) : TypedResults.NotFound();
     }
 
     private static async Task<Results<NoContent, NotFound>> RemoveRule(Guid botId, Guid ruleId, HttpContext context, RuleService rules) =>
@@ -240,7 +240,10 @@ public static class BotEditorEndpoints
             outcome?.Why,
             outcome?.RedactedText,
             outcome?.RedactedJson?.GetRawText(),
-            [.. (outcome?.Applied ?? []).Select(rule => rule.Name)]));
+            [.. (outcome?.Applied ?? []).Select(rule => rule.Name)])
+        {
+            CatchesCommonForms = outcome?.Rule.Conditions.Any(condition => condition.IsPattern) ?? false,
+        });
     }
 
     #endregion

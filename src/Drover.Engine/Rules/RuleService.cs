@@ -40,6 +40,17 @@ public sealed class RuleService(
     public async Task<List<InheritedRule>?> ListRules(Guid botId, CancellationToken cancellationToken) =>
         await FindBot(botId, cancellationToken) is null ? null : await rules.ListRulesAlongPath(botId, cancellationToken);
 
+    /// <summary>
+    /// The rules as the editor reads them back, each with what a person should know about it as things stand now:
+    /// a tool it names that no tool is called (so that condition never holds, and a typo does not pass in silence),
+    /// and a list on a named input saved before such a rule had to say which tools it is about.
+    /// </summary>
+    public async Task<List<BotRuleResponse>> Describe(IReadOnlyList<InheritedRule> found, CancellationToken cancellationToken)
+    {
+        var known = (await tools.ListAllToolNames(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known) })];
+    }
+
     public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
         if (await FindBot(botId, cancellationToken) is not { } bot)
@@ -195,6 +206,27 @@ public sealed class RuleService(
     #endregion
 
     #region Private Methods
+
+    private static List<string> Notes(BotRule rule, HashSet<string> knownTools)
+    {
+        List<string> notes =
+        [
+            .. rule.Conditions
+                .Where(condition => condition.Kind is RuleConditionKind.ToolIs)
+                .SelectMany(condition => condition.Tools)
+                .Where(tool => !knownTools.Contains(tool))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(tool => $"No tool has that name now: {tool}. The rule does not apply to it until one does. Check the spelling."),
+        ];
+
+        if (rule.Conditions.Any(condition => condition is { Kind: RuleConditionKind.NotInList, Argument: not null })
+            && !rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.ToolIs))
+        {
+            notes.Add("This rule checks a named input and does not say for which tools, so it does not apply when the input is missing. Change it to add the tools it is about.");
+        }
+
+        return notes;
+    }
 
     private static JsonObject Snapshot(BotRule rule) =>
         AuditLog.Snapshot(new { rule.Name, rule.Enabled, rule.Position, rule.Checkpoint, rule.Effect, rule.Conditions });

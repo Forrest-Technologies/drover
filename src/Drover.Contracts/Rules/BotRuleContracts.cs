@@ -58,7 +58,18 @@ public sealed record BotRuleResponse(
     int Position,
     string Checkpoint,
     string Effect,
-    IReadOnlyList<RuleConditionBody> Conditions);
+    IReadOnlyList<RuleConditionBody> Conditions)
+{
+    #region Properties
+
+    /// <summary>
+    /// What a person should know about the rule as things stand now, in sentences: a tool it names that no tool is
+    /// called, or an input it checks without saying for which tools. Empty when there is nothing to say.
+    /// </summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
+
+    #endregion
+}
 
 /// <summary>
 /// A sample to try a bot's rules on: a tool with its arguments or its result as JSON text, or a reply or message as
@@ -77,4 +88,15 @@ public sealed record TryRulesResponse(
     string? Why,
     string? RedactedText,
     string? RedactedJson,
-    IReadOnlyList<string> Applied);
+    IReadOnlyList<string> Applied)
+{
+    #region Properties
+
+    /// <summary>
+    /// Whether the rule that decided looks for something in text. Such a condition catches the common forms and is
+    /// not a guarantee, and the editor says so beside the answer.
+    /// </summary>
+    public bool CatchesCommonForms { get; init; }
+
+    #endregion
+}

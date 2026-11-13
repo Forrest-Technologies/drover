@@ -347,17 +347,79 @@ public sealed class BotEditorTests : ScreenTest
         page.FindAll(".dv-rule-condition").Should().BeEmpty("a condition about a tool means nothing for a reply");
         Options(page, "Then").Should().Equal(["Do not send it", "Remove what matched", "Stop the run"], "a reply cannot wait for a person");
         await page.FindAll(".dv-rule-form .dv-button").First(button => button.TextContent.Contains("Add a condition")).ClickAsync(new MouseEventArgs());
-        Options(page, "If").Should().Equal("The reply contains", "The reply holds", "The reply matches a pattern", "The time is between", "The run has used more than");
+        Options(page, "If").Should().Equal(
+            "The reply contains (catches common forms)",
+            "The reply holds (catches common forms)",
+            "The reply matches a pattern (catches common forms)",
+            "The time is between",
+            "The run has used more than");
         await page.Find(".dv-rule-condition textarea").InputAsync(new ChangeEventArgs { Value = "sample words" });
         page.Find(".dv-rule-condition .dv-editor-hint").TextContent.Should().Be(RuleWords.NotCaught, "a person is told what a condition on text does not find");
         await Select(page, "Then").ChangeAsync(new ChangeEventArgs { Value = "redact" });
         await page.FindAll(".dv-rule-form input[type=text]")[^1].InputAsync(new ChangeEventArgs { Value = "Sample rule" });
-        Words(page.Find(".dv-rule-preview").TextContent).Should().Be("Reads as When the bot is about to reply, if the reply contains \"sample words\", then remove what matched.");
+        Words(page.Find(".dv-rule-preview").TextContent).Should().Be("Reads as When the bot is about to reply, if the reply contains \"sample words\" (catches common forms), then remove what matched.");
         await page.Find(".dv-rule-form .dv-button-primary").ClickAsync(new MouseEventArgs());
 
-        page.WaitForAssertion(() => page.Find(".dv-rule-sentence").TextContent.Should().Be("When the bot is about to reply, if the reply contains \"sample words\", then remove what matched."));
+        page.WaitForAssertion(() => page.Find(".dv-rule-sentence").TextContent.Should().Be("When the bot is about to reply, if the reply contains \"sample words\" (catches common forms), then remove what matched."));
         Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should()
             .Contain("\"name\":\"Sample rule\"").And.Contain("\"checkpoint\":\"before_reply\"").And.Contain("\"effect\":\"redact\"").And.Contain("\"entries\":[\"sample words\"]");
+    }
+
+    [Fact]
+    public async Task The_section_says_which_conditions_are_exact_and_which_catch_common_forms()
+    {
+        var page = RenderEditor();
+        await Open(page, 2);
+
+        Words(page.Find(".dv-disclosure-open .dv-editor-hint").TextContent).Should().Be(
+            "The server checks a rule every time, whatever the bot's instructions say. Conditions about the tool, the time, counts, and named inputs are exact. Conditions that look for something in text catch common forms and are not a guarantee.");
+        page.Find(".dv-disclosure-open").TextContent.Should().NotContainAny("hard limit", "never leaks", "guarantees that");
+    }
+
+    [Fact]
+    public async Task What_the_server_notes_about_a_rule_is_shown_with_it_and_read_out_when_it_is_saved()
+    {
+        const string Note = "No tool has that name now: sample.typo. The rule does not apply to it until one does. Check the spelling.";
+        var noted = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_is") { Tools = ["sample.typo"] }) with { Notes = [Note] };
+        Server.Answer("GET", $"{bot}/rules", new[] { noted });
+        Server.Answer("PUT", $"{bot}/rules/{ruleId}", noted);
+        var page = RenderEditor("Rules, 1 rule");
+        await Open(page, 2);
+
+        page.Find(".dv-rule .dv-rule-note").TextContent.Should().Contain(Note);
+
+        await page.Find(".dv-rule input[role=switch]").ChangeAsync(new ChangeEventArgs { Value = false });
+
+        page.WaitForAssertion(() => page.Find(".dv-disclosure-open p[role=status]").TextContent.Should().EndWith(Note));
+    }
+
+    [Fact]
+    public async Task A_trial_decided_by_a_pattern_condition_says_it_is_not_a_guarantee()
+    {
+        Server.Answer("GET", $"{bot}/rules", new[] { Rule("Sample rule", RuleWords.BeforeReply, "block", new RuleConditionBody("text_holds") { Builtin = "card_number" }) });
+        Server.Answer("POST", $"{bot}/rules/try", new TryRulesResponse("block", ruleId, "Sample rule", "the text holds a card number", null, null, ["Sample rule"]) { CatchesCommonForms = true });
+        var page = RenderEditor("Rules, 1 rule");
+        await Open(page, 2);
+
+        await Select(page, "As if").ChangeAsync(new ChangeEventArgs { Value = RuleWords.BeforeReply });
+        await page.Find(".dv-rule-try .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Words(page.Find(".dv-rule-trial").TextContent).Should().Be(
+            "The rule \"Sample rule\" would block this: the text holds a card number. It looks for something in text, so it catches common forms and is not a guarantee."));
+    }
+
+    [Fact]
+    public async Task A_list_condition_starts_on_the_fields_a_recipient_can_be_in_and_the_address_form_is_marked_a_pattern()
+    {
+        var page = RenderEditor();
+        await Open(page, 2);
+        await page.Find(".dv-rule-starts button").ClickAsync(new MouseEventArgs());
+        Options(page, "If").Should().Contain(["An input is not on a list", "An email address is not on a list (catches common forms)"]);
+
+        await Select(page, "If").ChangeAsync(new ChangeEventArgs { Value = "not_in_list" });
+
+        page.Find(".dv-rule-condition input[type=text]").GetAttribute("value").Should().Be("to, cc, bcc");
+        Words(page.Find(".dv-rule-preview").TextContent).Should().StartWith("Reads as When a tool is about to run, if any of the inputs \"to\", \"cc\", \"bcc\" is not one of");
     }
 
     [Fact]
@@ -387,7 +449,7 @@ public sealed class BotEditorTests : ScreenTest
         lists.Select(list => list.GetAttribute("aria-label")).Should().Equal("Rules from the bots above", "Rules");
         Words(lists[0].TextContent).Should().Be("When a tool is about to run, if the tool is critical, then do not run it. Sample parent rule · from Sample parent, changed there");
         lists[0].QuerySelectorAll("button, input").Should().BeEmpty("an inherited rule has no control here");
-        lists[1].QuerySelector(".dv-rule-sentence")!.TextContent.Should().Be("When a message arrives, if the message holds a key or token, then stop the run.");
+        lists[1].QuerySelector(".dv-rule-sentence")!.TextContent.Should().Be("When a message arrives, if the message holds a key or token (catches common forms), then stop the run.");
         lists[1].QuerySelector("input[role=switch]")!.HasAttribute("checked").Should().BeFalse();
     }
 
