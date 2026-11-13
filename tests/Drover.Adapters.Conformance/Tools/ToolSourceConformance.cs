@@ -154,6 +154,58 @@ public abstract class ToolSourceConformance
 
     #endregion
 
+    #region Letting Go
+
+    [Fact]
+    public async Task Forgetting_a_connection_closes_what_is_kept_for_it_for_every_credential_and_for_no_other_connection()
+    {
+        await using var source = CreateSource();
+        var (server, endpoint) = await Start(ServerGeneration.SessionBased, withHeader: false);
+        await using var stopping = server;
+        var one = endpoint with { CredentialKey = Guid.CreateVersion7() };
+        var other = endpoint with { CredentialKey = Guid.CreateVersion7() };
+        var elsewhere = new ToolEndpoint(Guid.CreateVersion7(), server.Url);
+        await source.Source.CallTool(one, "echo", Json("""{"text":"a"}"""), Token);
+        await source.Source.CallTool(other, "echo", Json("""{"text":"b"}"""), Token);
+        await source.Source.CallTool(elsewhere, "echo", Json("""{"text":"c"}"""), Token);
+        var opened = server.Handshakes;
+
+        await source.Source.Forget(endpoint.ConnectionId, Token);
+        await source.Source.CallTool(elsewhere, "echo", Json("""{"text":"d"}"""), Token);
+        var afterTheOtherConnection = server.Handshakes;
+        await source.Source.CallTool(one, "echo", Json("""{"text":"e"}"""), Token);
+        await source.Source.CallTool(other, "echo", Json("""{"text":"f"}"""), Token);
+
+        opened.Should().Be(3);
+        afterTheOtherConnection.Should().Be(3, "another connection's session is left alone");
+        server.Handshakes.Should().Be(5, "each credential of the forgotten connection opens a session of its own again");
+    }
+
+    [Fact]
+    public async Task A_kept_session_whose_credential_the_server_now_refuses_is_closed_so_the_next_use_sends_the_new_one()
+    {
+        await using var source = CreateSource();
+        var old = NewSecret();
+        var replacement = NewSecret();
+        await using var server = await StartServer(new ToolServerSpec(ServerGeneration.SessionBased, HeaderName, old));
+        var id = Guid.CreateVersion7();
+        var credential = Guid.CreateVersion7();
+        var before = new ToolEndpoint(id, server.Url) { Headers = new Dictionary<string, string> { [HeaderName] = old }, CredentialKey = credential };
+        var after = before with { Headers = new Dictionary<string, string> { [HeaderName] = replacement } };
+        await source.Source.CallTool(before, "echo", Json("""{"text":"open a session"}"""), Token);
+
+        server.ExpectHeader(replacement);
+        var withTheKeptSession = () => source.Source.CallTool(after, "echo", Json("""{"text":"x"}"""), Token);
+        var refused = (await withTheKeptSession.Should().ThrowAsync<ToolSourceException>()).Which;
+        var next = await source.Source.CallTool(after, "echo", Json("""{"text":"new"}"""), Token);
+
+        refused.Failure.Should().Be(ToolSourceFailure.Unauthorized);
+        refused.ToString().Should().NotContain(old).And.NotContain(replacement);
+        next.Result.GetString().Should().Be("echo: new", "a session the server refuses is not kept: the next use opens one with the credential it was given");
+    }
+
+    #endregion
+
     #region Protocol Choice
 
     [Fact]
