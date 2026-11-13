@@ -172,6 +172,31 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
             return await session.Use(work, time, limit.Token);
         }
+        catch (Exception failure) when (signIn.NamedAnotherService && !cancellationToken.IsCancellationRequested)
+        {
+            throw new ToolSourceException(
+                ToolSourceFailure.Blocked,
+                "The tool server names a different sign-in service than the one this connection was set up with. Nothing was sent to it.",
+                failure);
+        }
+        catch (Exception failure) when (signIn.RenewalWasNotAnswered && !cancellationToken.IsCancellationRequested)
+        {
+            // The library reports "renewal failed" and "renewal refused" alike, by asking for a new sign-in. Only a
+            // refusal ends a sign-in. A service that is down or overloaded leaves it as good as it was.
+            await Close(key);
+            throw new ToolSourceException(
+                signIn.RenewalStatus is 0 ? ToolSourceFailure.Unreachable : ToolSourceFailure.ServerError,
+                "The tool server's sign-in service could not renew the sign-in just now. The sign-in itself is unchanged; try again later.",
+                failure);
+        }
+        catch (Exception failure) when (signIn.WasRequired && signIn.LastRefusal is HttpStatusCode.Forbidden && !cancellationToken.IsCancellationRequested)
+        {
+            // The account is signed in and may not do this one thing. That is not a sign-in that ended.
+            throw new ToolSourceException(
+                ToolSourceFailure.Unauthorized,
+                "The tool server does not let the signed-in account do this.",
+                failure);
+        }
         catch (Exception failure) when (signIn.WasRequired && !cancellationToken.IsCancellationRequested)
         {
             // The session, if one was kept, was opened with tokens that no longer work.
@@ -239,8 +264,9 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
     /// itself), where the tokens are kept, and how a person is asked. The person is found through the use in
     /// progress and not through the endpoint that opened a session, so a kept session never asks anyone.
     /// </summary>
-    private ClientOAuthOptions ToOptions(ToolSignIn signIn, ToolEndpoint endpoint) =>
-        new()
+    private ClientOAuthOptions ToOptions(ToolSignIn signIn, ToolEndpoint endpoint)
+    {
+        var options = new ClientOAuthOptions
         {
             RedirectUri = signIn.RedirectUrl,
             ClientId = signIn.ClientId,
@@ -261,6 +287,33 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 return new AuthorizationResult { Code = answer.Code, State = answer.State, Iss = answer.Issuer };
             },
         };
+
+        if (signIn.Issuer is { } issuer)
+        {
+            // A connection pinned to one sign-in service uses that one or none. The tool server's documents say
+            // which services it accepts, and they are its own to change: without the pin, a client secret, a code
+            // and its proof key, and a refresh token would follow them wherever they point.
+            options.AuthServerSelector = offered =>
+            {
+                var pinned = offered.FirstOrDefault(candidate => IsSameService(candidate, issuer));
+
+                if (pinned is null && SignInAttempt.Current is { } attempt)
+                {
+                    attempt.NamedAnotherService = true;
+                }
+
+                return pinned;
+            };
+        }
+
+        return options;
+    }
+
+    private static bool IsSameService(Uri one, Uri other) =>
+        one.Scheme == other.Scheme
+        && one.Port == other.Port
+        && string.Equals(one.IdnHost, other.IdnHost, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(one.AbsolutePath.TrimEnd('/'), other.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
 
     private static bool IsStateless(McpClient client) =>
         string.CompareOrdinal(client.NegotiatedProtocolVersion, StatelessRevision) >= 0 && client.SessionId is null;

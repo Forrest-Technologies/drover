@@ -18,6 +18,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int requests;
 
+    private volatile bool callsForbidden;
+
     private readonly SignInDesk? desk = spec.SignIn is { } signIn ? new SignInDesk(signIn) : null;
 
     #endregion
@@ -79,6 +81,12 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     public Task<SignInAnswer> Approve(Uri authorizationUrl) =>
         Task.FromResult((desk ?? throw new InvalidOperationException("This server signs nobody in.")).Approve(authorizationUrl));
+
+    public int TokenRequests => desk?.TokenRequests ?? 0;
+
+    public void FailRenewals(int? status) => desk?.FailRenewals(status);
+
+    public void ForbidCalls(bool forbidden) => callsForbidden = forbidden;
 
     public void ExpireAccessTokens() => desk?.ExpireAccessTokens();
 
@@ -158,6 +166,14 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
             if (body.Contains("\"initialize\"", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref handshakes);
+            }
+
+            if (callsForbidden && body.Contains("\"tools/call\"", StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.Headers.WWWAuthenticate =
+                    $"Bearer error=\"insufficient_scope\", scope=\"tools admin\", resource_metadata=\"{context.Request.Scheme}://{context.Request.Host}/.well-known/oauth-protected-resource\"";
+                return;
             }
 
             if (body.Contains("\"tools/call\"", StringComparison.Ordinal) && body.Contains("\"vanish\"", StringComparison.Ordinal))
