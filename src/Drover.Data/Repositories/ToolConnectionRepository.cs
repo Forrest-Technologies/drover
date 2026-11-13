@@ -11,30 +11,47 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
 
     public void Add(ToolConnection connection) => db.ToolConnections.Add(connection);
 
+    // A removed connection keeps its row, switched off, because the record of what bots did with its tools points
+    // at it. Nothing below returns such a row: to every caller a removed connection is gone.
+
     public Task<ToolConnection?> FindConnection(Guid id, CancellationToken cancellationToken) =>
-        db.ToolConnections.AsNoTracking().SingleOrDefaultAsync(connection => connection.Id == id, cancellationToken);
+        db.ToolConnections.AsNoTracking()
+            .SingleOrDefaultAsync(connection => connection.Id == id && connection.Status != ConnectionStatus.Disabled, cancellationToken);
 
     /// <summary>The tracked row, for a caller that changes it.</summary>
     public Task<ToolConnection?> GetConnection(Guid id, CancellationToken cancellationToken) =>
-        db.ToolConnections.SingleOrDefaultAsync(connection => connection.Id == id, cancellationToken);
+        db.ToolConnections.SingleOrDefaultAsync(connection => connection.Id == id && connection.Status != ConnectionStatus.Disabled, cancellationToken);
 
     public Task<List<ToolConnection>> ListConnections(CancellationToken cancellationToken) =>
-        db.ToolConnections.AsNoTracking().OrderBy(connection => connection.Name).ThenBy(connection => connection.Id).ToListAsync(cancellationToken);
+        db.ToolConnections.AsNoTracking()
+            .Where(connection => connection.Status != ConnectionStatus.Disabled)
+            .OrderBy(connection => connection.Name)
+            .ThenBy(connection => connection.Id)
+            .ToListAsync(cancellationToken);
 
     public Task<List<ToolConnection>> ListConnections(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
-        db.ToolConnections.AsNoTracking().Where(connection => ids.Contains(connection.Id)).ToListAsync(cancellationToken);
+        db.ToolConnections.AsNoTracking()
+            .Where(connection => ids.Contains(connection.Id) && connection.Status != ConnectionStatus.Disabled)
+            .ToListAsync(cancellationToken);
 
     public Task<bool> IsSlugTaken(string slug, CancellationToken cancellationToken) =>
         db.ToolConnections.AnyAsync(connection => connection.Slug == slug, cancellationToken);
 
-    /// <summary>Removes a connection with everything that hangs on it: grants on its tools, the tools, its credentials.</summary>
+    /// <summary>
+    /// Removes a connection for good, as far as anyone can use it: every grant on its tools and every credential
+    /// row is deleted, its tools are marked missing, and the connection is switched off. The connection and tool
+    /// rows stay, because <c>tool_calls</c> points at them and the record of what a bot did is never rewritten.
+    /// The caller deletes the credentials' secrets from the vault.
+    /// </summary>
     public async Task Remove(ToolConnection connection, CancellationToken cancellationToken)
     {
         var toolIds = db.Tools.Where(tool => tool.ToolConnectionId == connection.Id).Select(tool => tool.Id);
         await db.ToolGrants.Where(grant => toolIds.Contains(grant.ToolId)).ExecuteDeleteAsync(cancellationToken);
-        await db.Tools.Where(tool => tool.ToolConnectionId == connection.Id).ExecuteDeleteAsync(cancellationToken);
-        await db.ToolConnectionCredentials.Where(credential => credential.ToolConnectionId == connection.Id).ExecuteDeleteAsync(cancellationToken);
-        db.ToolConnections.Remove(connection);
+        await db.Tools.Where(tool => tool.ToolConnectionId == connection.Id)
+            .ExecuteUpdateAsync(tool => tool.SetProperty(row => row.State, AvailabilityState.Missing), cancellationToken);
+        db.ToolConnectionCredentials.RemoveRange(await ListCredentials(connection.Id, cancellationToken));
+        connection.Status = ConnectionStatus.Disabled;
+        connection.LastError = null;
     }
 
     #endregion

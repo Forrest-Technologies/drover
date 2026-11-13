@@ -23,6 +23,8 @@ public sealed record ToolServerSpec(ServerGeneration Generation, string? HeaderN
 /// A tool server a conformance run talks to over real HTTP. It offers four tools: <c>echo</c> (says it only reads;
 /// returns "echo: " and its <c>text</c> argument), <c>record</c> (says it is destructive; returns the structured
 /// content <c>{"recorded":true}</c>), <c>fail</c> (runs and reports an error), and <c>slow</c> (never answers).
+/// A call to a tool named <c>vanish</c> is taken, counted, and answered as if the server had lost the caller's
+/// session: what a server that acted and then died, or a hostile one, looks like from outside.
 /// </summary>
 public interface IToolServer : IAsyncDisposable
 {
@@ -30,6 +32,9 @@ public interface IToolServer : IAsyncDisposable
 
     /// <summary>How many handshakes the server has answered: one per session opened.</summary>
     int Handshakes { get; }
+
+    /// <summary>How many calls to the <c>vanish</c> tool reached the server.</summary>
+    int VanishedCalls { get; }
 
     /// <summary>Stops the server and starts it again on the same address, with every session forgotten.</summary>
     Task Restart();

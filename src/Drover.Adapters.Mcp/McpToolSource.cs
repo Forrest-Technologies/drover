@@ -59,6 +59,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
                 return new ToolListing(tools, client.NegotiatedProtocolVersion ?? string.Empty, IsStateless(client), timeToLive);
             },
+            mayRepeat: true,
             cancellationToken);
 
     public Task<ToolOutcome> CallTool(ToolEndpoint endpoint, string toolName, JsonElement arguments, CancellationToken cancellationToken) =>
@@ -71,6 +72,7 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                     cancellation);
                 return new ToolOutcome(ToJson(result), result.IsError is true);
             },
+            mayRepeat: false,
             cancellationToken);
 
     public async ValueTask DisposeAsync()
@@ -86,10 +88,16 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
     #region Client Lifetime
 
     /// <summary>
-    /// Runs the work on a client for the endpoint, within the endpoint's timeout. A kept session whose server has
-    /// forgotten it is closed and the work is tried once more on a new one.
+    /// Runs the work on a client for the endpoint, within the endpoint's timeout. A kept session whose server says
+    /// it has forgotten it is always closed. Work that only reads (<paramref name="mayRepeat"/>) is then done once
+    /// more on a new session. A tool call never is: the server may have acted before it answered, and a server can
+    /// say "session gone" whenever it likes, so the failure is reported and the next call opens a session of its own.
     /// </summary>
-    private async Task<T> Use<T>(ToolEndpoint endpoint, Func<McpClient, CancellationToken, Task<T>> work, CancellationToken cancellationToken)
+    private async Task<T> Use<T>(
+        ToolEndpoint endpoint,
+        Func<McpClient, CancellationToken, Task<T>> work,
+        bool mayRepeat,
+        CancellationToken cancellationToken)
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(endpoint.Timeout);
@@ -106,8 +114,18 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 }
                 catch (Exception gone) when (IsSessionGone(gone))
                 {
-                    logger.LogInformation(gone, "The session with tool connection {ConnectionId} is gone; opening a new one", endpoint.ConnectionId);
+                    // The library's failure may carry the server's own text, so only its type is logged.
+                    logger.LogInformation(
+                        "The session with tool connection {ConnectionId} is gone ({Failure}); repeating the request: {Repeating}",
+                        endpoint.ConnectionId,
+                        gone.GetType().Name,
+                        mayRepeat);
                     await Close(key);
+
+                    if (!mayRepeat)
+                    {
+                        throw;
+                    }
                 }
             }
 

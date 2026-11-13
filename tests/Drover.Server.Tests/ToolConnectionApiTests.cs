@@ -59,8 +59,7 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
             connection.Slug == "helpdesk" && connection.Status == "ready" && connection.AuthKind == "header" && connection.Trust == "trusted"
             && connection.NegotiatedProtocol!.StartsWith(badge));
         listed.Tools.Select(tool => tool.ModelName).Should().BeEquivalentTo(["helpdesk__echo", "helpdesk__record", "helpdesk__fail", "helpdesk__slow"]);
-        listed.Tools.Single(tool => tool.Name == "echo").Sensitivity.Should().Be("read");
-        listed.Tools.Single(tool => tool.Name == "record").Sensitivity.Should().Be("write");
+        listed.Tools.Should().OnlyContain(tool => tool.Sensitivity == "write", "a server's claim that a tool only reads decides nothing");
         listed.Added.Should().Be(4);
         seenByMember.StatusCode.Should().Be(HttpStatusCode.OK, "any member may see which connections exist");
 

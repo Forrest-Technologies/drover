@@ -62,8 +62,8 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
     /// <item>A tool whose definition changed is updated, and every grant on it is marked for review, which makes it
     /// behave as "ask". A server cannot quietly turn a tool a person approved into something else.</item>
     /// </list>
-    /// A server's claim that a tool only reads sets the sensitivity of a new row. It never lowers the sensitivity of
-    /// an existing one: only a person does that.
+    /// A server's tool is stored as one that can change things, whatever the server says about it. "It only reads"
+    /// is the server's claim: it is kept with the tool's annotations for a person to see, and it decides nothing.
     /// </summary>
     public async Task<CatalogChange> FoldServerTools(ToolConnection connection, IReadOnlyList<ListedTool> listed, CancellationToken cancellationToken)
     {
@@ -81,8 +81,9 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
                 continue;
             }
 
-            var hash = HashOf(tool);
-            var claimed = tool.ClaimsReadOnly && !tool.ClaimsDestructive ? ToolSensitivity.Read : ToolSensitivity.Write;
+            var title = Shorten(tool.Title, MaxNameLength);
+            var description = Shorten(tool.Description, MaxDescriptionLength) ?? string.Empty;
+            var hash = HashOf(tool.Name, title, description, tool.InputSchema, tool.Annotations);
 
             if (!existing.TryGetValue(tool.Name, out var row))
             {
@@ -92,7 +93,7 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
                     ToolConnectionId = connection.Id,
                     Name = tool.Name,
                     DefinitionHash = hash,
-                    Sensitivity = claimed,
+                    Sensitivity = ToolSensitivity.Write,
                     FirstSeenAt = now,
                 };
                 connections.Add(row);
@@ -101,11 +102,10 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
             else if (row.DefinitionHash != hash)
             {
                 changed.Add(row.Id);
-                row.Sensitivity = (ToolSensitivity)Math.Max((int)row.Sensitivity, (int)claimed);
             }
 
-            row.Title = Shorten(tool.Title, MaxNameLength);
-            row.Description = Shorten(tool.Description, MaxDescriptionLength) ?? string.Empty;
+            row.Title = title;
+            row.Description = description;
             row.InputSchema = tool.InputSchema;
             row.Annotations = tool.Annotations;
             row.DefinitionHash = hash;
@@ -134,10 +134,14 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
         && tool.InputSchema.ValueKind is JsonValueKind.Object
         && tool.InputSchema.GetRawText().Length <= MaxSchemaLength;
 
-    /// <summary>The hash a change of name, description, input schema, or annotations changes.</summary>
-    private static string HashOf(ListedTool tool) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{tool.Name}\n{tool.Title}\n{tool.Description}\n{tool.InputSchema.GetRawText()}\n{tool.Annotations?.GetRawText()}")));
+    /// <summary>
+    /// The hash that any change of name, title, description, input schema, or annotations changes. It is taken over
+    /// the fields as they are stored and shown, written as one JSON array, so text cannot move from one field into
+    /// the next and leave the hash as it was.
+    /// </summary>
+    private static string HashOf(string name, string? title, string description, JsonElement inputSchema, JsonElement? annotations) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
+            new[] { name, title, description, inputSchema.GetRawText(), annotations?.GetRawText() })));
 
     private static string? Shorten(string? text, int length) =>
         text is null || text.Length <= length ? text : text[..length];

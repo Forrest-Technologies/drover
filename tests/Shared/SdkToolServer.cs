@@ -14,6 +14,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int handshakes;
 
+    private int vanished;
+
     #endregion
 
     #region Properties
@@ -21,6 +23,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     public Uri Url => new($"http://127.0.0.1:{port}/{(spec.Generation is ServerGeneration.LegacySse ? "sse" : string.Empty)}");
 
     public int Handshakes => Volatile.Read(ref handshakes);
+
+    public int VanishedCalls => Volatile.Read(ref vanished);
 
     #endregion
 
@@ -107,6 +111,14 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
             if (body.Contains("\"initialize\"", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref handshakes);
+            }
+
+            if (body.Contains("\"tools/call\"", StringComparison.Ordinal) && body.Contains("\"vanish\"", StringComparison.Ordinal))
+            {
+                // The call arrived and counts as done; the answer says the session is unknown.
+                Interlocked.Increment(ref vanished);
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
             }
         }
 

@@ -225,6 +225,24 @@ public abstract class ToolSourceConformance
         await call.Should().ThrowAsync<OperationCanceledException>().WaitAsync(patience, Token);
     }
 
+    [Theory]
+    [InlineData(ServerGeneration.SessionBased)]
+    [InlineData(ServerGeneration.Stateless)]
+    public async Task A_call_is_never_sent_twice_even_when_the_server_answers_that_the_session_is_gone(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        var (server, endpoint) = await Start(generation, withHeader: false);
+        await using var stopping = server;
+        await source.Source.CallTool(endpoint, "echo", Json("""{"text":"open a session"}"""), Token);
+
+        var call = () => source.Source.CallTool(endpoint, "vanish", Json("{}"), Token);
+
+        await call.Should().ThrowAsync<ToolSourceException>("a call that may have happened is reported, not repeated");
+        server.VanishedCalls.Should().Be(1, "the tool may have acted the first time");
+        var after = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"next"}"""), Token);
+        after.Result.GetString().Should().Be("echo: next", "the next call opens a session of its own");
+    }
+
     [Fact]
     public async Task A_session_the_server_forgot_is_opened_again_without_the_caller_noticing()
     {
@@ -234,8 +252,10 @@ public abstract class ToolSourceConformance
         await source.Source.CallTool(endpoint, "echo", Json("""{"text":"before"}"""), Token);
 
         await server.Restart();
+        var listing = await source.Source.ListTools(endpoint, Token);
         var after = await source.Source.CallTool(endpoint, "echo", Json("""{"text":"after"}"""), Token);
 
+        listing.Tools.Should().NotBeEmpty("a request that only reads is made again on a new session");
         after.Result.GetString().Should().Be("echo: after");
     }
 
