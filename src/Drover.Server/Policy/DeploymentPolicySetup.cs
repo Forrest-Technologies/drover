@@ -9,6 +9,18 @@ namespace Drover.Server.Policy;
 public sealed class DeploymentPolicySetup(IConfiguration configuration)
     : IConfigureOptions<DeploymentPolicyOptions>, IValidateOptions<DeploymentPolicyOptions>
 {
+    #region Private Fields
+
+    private static readonly string[] initializationOnlySettings =
+    [
+        DatabaseStartup.AdminPassword,
+        $"{DatabaseStartup.AdminPassword}{DatabaseStartup.FileSuffix}",
+        DatabaseStartup.OwnerPassword,
+        $"{DatabaseStartup.OwnerPassword}{DatabaseStartup.FileSuffix}",
+    ];
+
+    #endregion
+
     #region Public Methods
 
     public DeploymentPolicyOptions Resolve()
@@ -50,10 +62,22 @@ public sealed class DeploymentPolicySetup(IConfiguration configuration)
 
         var facts = new ServerFacts(
             KeyRingProtectedByCertificate: !string.IsNullOrWhiteSpace(configuration["DataProtection:CertificatePath"]),
-            HoldsMigrationCredential: !string.IsNullOrWhiteSpace(configuration.GetConnectionString("DroverOwner")));
+            HoldsMigrationCredential: HoldsMigrationCredential());
         var problems = options.Rules.FindProblems(options.Preset, preset, options.TermsVersion, facts);
         return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>
+    /// The owner connection, or a password only the one-off initialization needs, given to this process in either
+    /// form. Whether it is set is all that is read; the value is never looked at.
+    /// </summary>
+    private bool HoldsMigrationCredential() =>
+        !string.IsNullOrWhiteSpace(configuration.GetConnectionString("DroverOwner"))
+        || initializationOnlySettings.Any(setting => !string.IsNullOrEmpty(configuration[setting]));
 
     #endregion
 

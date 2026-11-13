@@ -173,6 +173,22 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer));
     }
 
+    [Theory]
+    [InlineData("Database:Password")]
+    [InlineData("Database:PasswordFile")]
+    [InlineData("Database:OwnerPassword")]
+    [InlineData("Database:OwnerPasswordFile")]
+    public async Task Hosted_given_an_initialization_password_in_the_server_does_not_start_and_names_the_setting(string setting)
+    {
+        var settings = Hosted(withCertificate: true);
+        settings[setting] = "given-to-the-wrong-process";
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer)).And.Contain(setting)
+            .And.NotContain("given-to-the-wrong-process");
+    }
+
     [Fact]
     public async Task Self_hosted_may_hold_the_migration_credential_in_the_server()
     {

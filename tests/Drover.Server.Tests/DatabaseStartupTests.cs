@@ -103,9 +103,106 @@ public sealed class DatabaseStartupTests
         }
     }
 
+    [Fact]
+    public void An_app_password_given_as_a_value_is_used_like_the_file_form()
+    {
+        var password = Guid.NewGuid().ToString("N");
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:AppPassword"] = $"{password}\n",
+            ["Database:Username"] = "postgres",
+        });
+
+        var connection = new NpgsqlConnectionStringBuilder(DatabaseStartup.ApplicationConnection(configuration));
+
+        connection.Username.Should().Be("drover_app");
+        connection.Password.Should().Be(password);
+        connection.Host.Should().Be("db");
+    }
+
+    [Fact]
+    public void A_password_given_both_as_a_value_and_as_a_file_is_refused_without_echoing_it()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var password = Guid.NewGuid().ToString("N");
+            File.WriteAllText(path, password);
+            var configuration = Configuration(new()
+            {
+                ["Database:Host"] = "db",
+                ["Database:AppPassword"] = password,
+                ["Database:AppPasswordFile"] = path,
+            });
+
+            var resolve = () => DatabaseStartup.ApplicationConnection(configuration);
+
+            resolve.Should().Throw<InvalidOperationException>()
+                .WithMessage("*Database:AppPassword*Database:AppPasswordFile*")
+                .Which.ToString().Should().NotContain(password);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData(" \n")]
+    public void A_blank_password_value_fails_closed(string value)
+    {
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:AppPassword"] = value,
+        });
+
+        var resolve = () => DatabaseStartup.ApplicationConnection(configuration);
+
+        resolve.Should().Throw<InvalidOperationException>().WithMessage("*Database:AppPassword*");
+    }
+
+    [Fact]
+    public void Initialization_takes_every_password_as_a_value()
+    {
+        var (admin, owner, app) = (NewSecret(), NewSecret(), NewSecret());
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:Password"] = admin,
+            ["Database:OwnerPassword"] = owner,
+            ["Database:AppPassword"] = app,
+        });
+
+        var connections = DatabaseStartup.InitializationConnections(configuration);
+
+        (connections.Admin.Username, connections.Admin.Password).Should().Be(("postgres", admin));
+        (connections.Owner.Username, connections.Owner.Password).Should().Be(("drover_owner", owner));
+        (connections.App.Username, connections.App.Password).Should().Be(("drover_app", app));
+    }
+
+    [Fact]
+    public void Initialization_without_the_owner_password_names_both_ways_to_give_it()
+    {
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:Password"] = NewSecret(),
+            ["Database:AppPassword"] = NewSecret(),
+        });
+
+        var resolve = () => DatabaseStartup.InitializationConnections(configuration);
+
+        resolve.Should().Throw<InvalidOperationException>().WithMessage("*Database:OwnerPassword*Database:OwnerPasswordFile*");
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static string NewSecret() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 
     private static IConfiguration Configuration(Dictionary<string, string?> settings) =>
         new ConfigurationBuilder().AddInMemoryCollection(settings).Build();

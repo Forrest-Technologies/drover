@@ -60,6 +60,12 @@ public static class TrustedProxies
 
     public const string HostSwitch = "ForwardedHeaders_Enabled";
 
+    /// <summary>A private IPv4 range is at most a /8; anything wider takes in addresses on the open internet.</summary>
+    public const int WidestIPv4Prefix = 8;
+
+    /// <summary>A /32 is what one provider is given for all its customers; anything wider names no one's network.</summary>
+    public const int WidestIPv6Prefix = 32;
+
     #endregion
 
     #region Private Methods
@@ -79,9 +85,9 @@ public static class TrustedProxies
 
     private static void Trust(this ForwardedHeadersOptions options, string entry)
     {
-        if (System.Net.IPNetwork.TryParse(entry, out var network))
+        if (entry.Contains('/', StringComparison.Ordinal))
         {
-            options.KnownIPNetworks.Add(network);
+            options.KnownIPNetworks.Add(ParseNetwork(entry));
         }
         else if (IPAddress.TryParse(entry, out var address))
         {
@@ -89,10 +95,54 @@ public static class TrustedProxies
         }
         else
         {
-            throw new InvalidOperationException(
-                $"{Section}:TrustedAddresses holds '{entry}', which is neither an address nor a network such as 10.0.0.0/8.");
+            throw NotAnAddressOrNetwork(entry);
         }
     }
+
+    /// <summary>
+    /// A network is believed only as written: its address must be the network's first address, and it must be no
+    /// wider than <see cref="WidestIPv4Prefix"/> or <see cref="WidestIPv6Prefix"/> allows.
+    /// </summary>
+    private static System.Net.IPNetwork ParseNetwork(string entry)
+    {
+        var parts = entry.Split('/');
+        if (parts.Length is not 2 || !IPAddress.TryParse(parts[0], out var address)
+            || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var prefix)
+            || prefix > address.GetAddressBytes().Length * 8)
+        {
+            throw NotAnAddressOrNetwork(entry);
+        }
+
+        var widest = address.AddressFamily is AddressFamily.InterNetwork ? WidestIPv4Prefix : WidestIPv6Prefix;
+        if (prefix < widest)
+        {
+            throw new InvalidOperationException(
+                $"{Section}:TrustedAddresses holds '{entry}', which is too wide to name a proxy: any address in it could claim to be any client and connect over HTTPS, and the sign-in limit could be dodged from it. Name the proxy's own network, no wider than /{widest}.");
+        }
+
+        var first = FirstAddress(address, prefix);
+        if (!first.Equals(address))
+        {
+            throw new InvalidOperationException(
+                $"{Section}:TrustedAddresses holds '{entry}', which names an address inside a network rather than the network. Write it as {first}/{prefix}, or name the one address without a prefix.");
+        }
+
+        return new(first, prefix);
+    }
+
+    private static IPAddress FirstAddress(IPAddress address, int prefix)
+    {
+        var bytes = address.GetAddressBytes();
+        for (var bit = prefix; bit < bytes.Length * 8; bit++)
+        {
+            bytes[bit / 8] &= (byte)~(0x80 >> (bit % 8));
+        }
+
+        return new(bytes);
+    }
+
+    private static InvalidOperationException NotAnAddressOrNetwork(string entry) =>
+        new($"{Section}:TrustedAddresses holds '{entry}', which is neither an address nor a network such as 10.0.0.0/8.");
 
     #endregion
 }

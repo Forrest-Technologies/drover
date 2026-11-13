@@ -98,10 +98,10 @@ public static class StatusEndpoints
     private static StatusRow Migrations(ServerReadings server) =>
         server.AppliedMigration switch
         {
-            null => Row(Server, "Migrations", Problem, "No migration is applied. Run the database initialization; docker compose up does it."),
+            null => Row(Server, "Migrations", Problem, "No migration is applied. Run the database initialization: docker compose up does it, and elsewhere a one-off run of the image with --initialize-database."),
             var applied when applied == server.NewestKnownMigration => Row(Server, "Migrations", Ok, $"Up to date at {applied}."),
             var applied => Row(Server, "Migrations", Problem,
-                $"The database is at {applied} and this build expects {server.NewestKnownMigration}. Run the database initialization; docker compose up does it."),
+                $"The database is at {applied} and this build expects {server.NewestKnownMigration}. Run the database initialization: docker compose up does it, and elsewhere a one-off run of the image with --initialize-database."),
         };
 
     private static StatusRow KeyRing(string path, ILogger logger)
