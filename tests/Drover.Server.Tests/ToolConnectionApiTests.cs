@@ -178,6 +178,75 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
     }
 
     [Fact]
+    public async Task No_slug_holds_two_underscores_in_a_row_so_no_two_connections_give_a_tool_the_same_name()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var space = $"/api/spaces/{alice.SpaceId}";
+
+        // Twenty-three letters and then a space: cut to length, the stem ends where the space was.
+        var name = $"{new string('a', 23)} helpdesk";
+        List<string> slugs = [];
+
+        foreach (var each in new[] { name, name, name, "a__b", "__", "tools_", "Ünïcödé Sërvër" })
+        {
+            var created = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections", new CreateToolConnectionRequest(each, "https://tools.example.test/mcp"));
+            slugs.Add(created.Connection.Slug);
+        }
+
+        slugs.Should().OnlyHaveUniqueItems();
+        slugs.Should().AllSatisfy(slug =>
+        {
+            slug.Should().NotContain("__", "the two underscores separate a connection from its tool in the name a model sees");
+            slug.Should().NotStartWith("_").And.NotEndWith("_");
+            slug.Should().MatchRegex("^[a-z0-9_]{1,32}$");
+        });
+    }
+
+    [Fact]
+    public async Task A_setting_left_out_of_a_change_stays_as_it_was()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(
+            client,
+            $"{space}/tool-connections",
+            new CreateToolConnectionRequest("Notes", "https://tools.example.test/mcp", Trust: "trusted", ProtocolMode: "session_only"));
+        var path = $"{space}/tool-connections/{created.Connection.Id}";
+
+        var nothing = await (await client.Put(path, new UpdateToolConnectionRequest(null, null))).Content.ReadFromJsonAsync<ToolConnectionSummary>(Token);
+        var trustOnly = await (await client.Put(path, new UpdateToolConnectionRequest("untrusted", null))).Content.ReadFromJsonAsync<ToolConnectionSummary>(Token);
+        var modeOnly = await (await client.Put(path, new UpdateToolConnectionRequest(null, "stateless_only"))).Content.ReadFromJsonAsync<ToolConnectionSummary>(Token);
+
+        nothing.Should().Match<ToolConnectionSummary>(connection => connection.Trust == "trusted" && connection.ProtocolMode == "session_only");
+        trustOnly.Should().Match<ToolConnectionSummary>(connection => connection.Trust == "untrusted" && connection.ProtocolMode == "session_only");
+        modeOnly.Should().Match<ToolConnectionSummary>(connection => connection.Trust == "untrusted" && connection.ProtocolMode == "stateless_only");
+    }
+
+    [Theory]
+    [InlineData("Proxy-Authorization")]
+    [InlineData("Origin")]
+    [InlineData("User-Agent")]
+    [InlineData("Upgrade")]
+    [InlineData("TE")]
+    [InlineData("Expect")]
+    [InlineData("Last-Event-ID")]
+    [InlineData("X-Forwarded-For")]
+    [InlineData("x-forwarded-host")]
+    [InlineData("Host")]
+    public async Task A_header_that_belongs_to_the_transport_or_disguises_the_request_is_not_a_credential(string header)
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var space = $"/api/spaces/{alice.SpaceId}";
+
+        var created = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Bad", "https://tools.example.test/mcp", "header", header, NewPassword()));
+
+        created.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task An_address_with_a_key_in_it_is_refused_and_the_key_is_stored_and_shown_nowhere()
     {
         var alice = await SeedPerson("alice");

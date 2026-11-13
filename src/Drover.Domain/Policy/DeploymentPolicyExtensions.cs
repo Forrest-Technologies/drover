@@ -10,6 +10,7 @@ public static class DeploymentPolicyExtensions
             .WithoutPrivateAddresses()
             .WithBoundedModelDiscovery()
             .WithBoundedToolServers()
+            .WithoutToolConnections()
             .WithHardBoundarySandboxesOnly()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
@@ -22,6 +23,9 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
+
+    public static DeploymentPolicy WithoutToolConnections(this DeploymentPolicy policy) =>
+        policy with { AllowToolConnections = false };
 
     public static DeploymentPolicy WithBoundedToolServers(this DeploymentPolicy policy) =>
         policy with

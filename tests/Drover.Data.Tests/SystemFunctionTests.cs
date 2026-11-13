@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "purge_expired", "health"];
 
     #endregion
 
@@ -138,6 +138,42 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Forgetting A Connection's Sign-Ins
+
+    [Fact]
+    public async Task Forgetting_a_connections_sign_ins_takes_every_audience_in_the_callers_own_space_and_nothing_anywhere_else()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var mine = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, null);
+        var anothers = await SaveSignIn(provider, world.SpaceA, world.UserA2, world.UserA2, null, connectionId: mine.ConnectionId);
+        var theSpaces = await SaveSignIn(provider, world.SpaceA, world.UserA1, Audience.Everyone, null, connectionId: mine.ConnectionId);
+        var elsewhereInTheSpace = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, null);
+        var inAnotherSpace = await SaveSignIn(provider, world.SpaceB, world.UserB1, world.UserB1, null);
+        const string Sql = "SELECT sys.forget_tool_credentials(@connection)";
+
+        var withNoTenant = await Scalar<int>(scratch.AppConnectionString, Sql, ("connection", mine.ConnectionId));
+        var fromAnotherSpace = await ScalarAs<int>(scratch.AppConnectionString, world.SpaceB, world.UserB1, Sql, ("connection", mine.ConnectionId));
+        var forgotten = await ScalarAs<int>(scratch.AppConnectionString, world.SpaceA, world.UserA1, Sql, ("connection", mine.ConnectionId));
+        var again = await ScalarAs<int>(scratch.AppConnectionString, world.SpaceA, world.UserA1, Sql, ("connection", mine.ConnectionId));
+
+        withNoTenant.Should().Be(0, "a transaction with no space sees no space's rows");
+        fromAnotherSpace.Should().Be(0, "a connection id from another space forgets nothing");
+        forgotten.Should().Be(3, "every audience of that one connection: two people's and the space's");
+        again.Should().Be(0);
+        var left = await Query(
+            AdminFor(scratch),
+            "SELECT id FROM tool_connection_credentials UNION ALL SELECT id FROM secrets ORDER BY id");
+        left.Select(row => (Guid)row[0]!).Should().BeEquivalentTo(
+            [elsewhereInTheSpace.CredentialId, elsewhereInTheSpace.SecretId, inAnotherSpace.CredentialId, inAnotherSpace.SecretId],
+            "the credential rows and the secrets of the forgotten connection are gone, and no others");
+        List<Guid> forgottenSecrets = [mine.SecretId, anothers.SecretId, theSpaces.SecretId];
+        forgottenSecrets.Should().NotIntersectWith(left.Select(row => (Guid)row[0]!));
+    }
+
+    #endregion
+
     #region Sign-Ins That Were Tried
 
     [Fact]
@@ -221,6 +257,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("memberships_for_user", "SELECT * FROM sys.memberships_for_user()", 2, [("as_user", world.Traveler)]),
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("limit", 10)]),
+            ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
         };
@@ -303,7 +340,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             """);
 
         tables.Select(row => (string)row[0]!).Should().BeEquivalentTo(
-            ["sys.audit INSERT", "public.oauth_flows DELETE", "public.sandboxes DELETE"],
+            ["sys.audit INSERT", "public.oauth_flows DELETE", "public.sandboxes DELETE", "public.tool_connection_credentials DELETE", "public.secrets DELETE"],
             "no table-wide SELECT or UPDATE anywhere");
         columns.Select(row => (string)row[0]!).Should().BeEquivalentTo(
         [
@@ -315,7 +352,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("spaces", "SELECT", "id kind name slug"),
             .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
             .. Columns("sandboxes", "SELECT", "id space_id state"),
-            .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id status expires_at renew_attempted_at"),
+            .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at"),
+            .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
         ]);
     }
@@ -408,6 +446,31 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     private static async Task<T> Scalar<T>(string connectionString, string sql, params (string Name, object? Value)[] parameters) =>
         (T)(await Query(connectionString, sql, parameters))[0][0]!;
 
+    /// <summary>Runs the query in a transaction carrying a space and a user, as a tenant scope does.</summary>
+    private static async Task<T> ScalarAs<T>(string connectionString, Guid space, Guid user, string sql, params (string Name, object? Value)[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await using (var set = new NpgsqlCommand("SELECT set_config('drover.space_id', @space, true), set_config('drover.user_id', @user, true)", connection, transaction))
+        {
+            set.Parameters.AddWithValue("space", space.ToString());
+            set.Parameters.AddWithValue("user", user.ToString());
+            await set.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        }
+
+        var scalar = (T)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+        await transaction.CommitAsync(TestContext.Current.CancellationToken);
+        return scalar;
+    }
+
     private static async Task<FlowSet> SaveFlows(IServiceProvider provider, TenantWorld world)
     {
         await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
@@ -433,7 +496,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     }
 
     /// <summary>A connection with one credential, saved as the given person. The secret is a placeholder row: nothing here reads it.</summary>
-    private static async Task<(Guid ConnectionId, Guid CredentialId)> SaveSignIn(
+    private static async Task<(Guid ConnectionId, Guid CredentialId, Guid SecretId)> SaveSignIn(
         IServiceProvider provider,
         Guid spaceId,
         Guid userId,
@@ -442,20 +505,26 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         CredentialStatus status = CredentialStatus.Active,
         ConnectionStatus connectionStatus = ConnectionStatus.Ready,
         ToolAuthKind authKind = ToolAuthKind.Oauth,
-        DateTimeOffset? attemptedAt = null)
+        DateTimeOffset? attemptedAt = null,
+        Guid? connectionId = null)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
         var connection = NewToolConnection();
+        connection.Id = connectionId ?? connection.Id;
         connection.AuthKind = authKind;
         connection.Status = connectionStatus;
         connection.CredentialScope = audience == Audience.Everyone ? CredentialScope.Space : CredentialScope.PerUser;
         var secret = new Secret { AudienceUserId = audience, Kind = SecretKind.OauthTokens, Ciphertext = [0], CreatedByUserId = userId, CreatedAt = DateTimeOffset.UtcNow };
         var credential = new ToolConnectionCredential { ToolConnectionId = connection.Id, SecretId = secret.Id, AudienceUserId = audience, ExpiresAt = expiresAt, Status = status, RenewAttemptedAt = attemptedAt };
-        session.Db.ToolConnections.Add(connection);
+        if (connectionId is null)
+        {
+            session.Db.ToolConnections.Add(connection);
+        }
+
         session.Db.Secrets.Add(secret);
         session.Db.ToolConnectionCredentials.Add(credential);
         await session.Commit();
-        return (connection.Id, credential.Id);
+        return (connection.Id, credential.Id, secret.Id);
     }
 
     private static ToolConnection NewToolConnection() => new()
