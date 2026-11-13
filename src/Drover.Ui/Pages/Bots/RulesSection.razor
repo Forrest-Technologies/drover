@@ -134,6 +134,7 @@ else
                                     <option value="@choice.Value">@choice.Label</option>
                                 }
                             </Select>
+                            <p class="dv-editor-hint">@RuleWords.NotCaught</p>
                             break;
                         case "text_matches":
                             <Field Label="Pattern" @bind-Value="condition.Pattern" autocomplete="off" spellcheck="false"
@@ -141,10 +142,14 @@ else
                             <p class="dv-editor-hint">@RuleWords.NotCaught</p>
                             break;
                         case "not_in_list":
-                            <Field Label="Input names" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
-                                   Hint="The tool inputs to check, parted by commas, such as to, cc, bcc. When none of them is in a call, the rule applies." />
+                            <Field Label="Input names, or none" @bind-Value="condition.Argument" autocomplete="off" spellcheck="false"
+                                   Hint="Leave empty to check every email address anywhere in the tool's input. Use that for recipients: it does not depend on which field they are in." />
+                            @if (!string.IsNullOrWhiteSpace(condition.Argument))
+                            {
+                                <p class="dv-editor-hint">Named inputs, parted by commas, have each of their values checked. The rule then needs a condition that says which tools, and applies when none of these inputs is in a call.</p>
+                            }
                             <TextArea Label="Allowed, one on each line" Rows="2" @bind-Value="condition.Entries"
-                                      Hint="Each value has to be one whole entry. A domain such as example.org allows its addresses and subdomains." />
+                                      Hint="Each value has to be one whole entry, as written. A domain such as example.org allows its addresses and subdomains." />
                             break;
                         case "time_is":
                             <div class="dv-editor-pair">

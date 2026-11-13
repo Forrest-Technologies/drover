@@ -42,7 +42,7 @@ public static class RuleWords
 
     /// <summary>What a condition on text does not find, said where a person writes one.</summary>
     public static string NotCaught =>
-        "Characters that cannot be seen are ignored. Not caught: a letter from another alphabet that only looks the same, and text split across two inputs or two items of a list.";
+        "Characters that cannot be seen are ignored. Not caught: a letter from another alphabet that only looks the same, text split across two inputs or two items of a list, and a card number with other digits joined to it without a gap.";
 
     public static IReadOnlyList<RuleChoice> Checkpoints => checkpoints;
 
@@ -76,7 +76,7 @@ public static class RuleWords
         new("text_contains", $"{Capitalized(Subject(checkpoint))} contains"),
         new("text_holds", $"{Capitalized(Subject(checkpoint))} holds"),
         new("text_matches", $"{Capitalized(Subject(checkpoint))} matches a pattern"),
-        .. checkpoint is BeforeTool ? [new RuleChoice("not_in_list", "An input is not on a list")] : Array.Empty<RuleChoice>(),
+        .. checkpoint is BeforeTool ? [new RuleChoice("not_in_list", "An address or an input is not on a list")] : Array.Empty<RuleChoice>(),
         new("time_is", "The time is between"),
         new("run_exceeds", "The run has used more than"),
     ];
@@ -172,7 +172,7 @@ public static class RuleWords
         string[] names = [.. (argument ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(name => $"\"{name}\"")];
         return names.Length switch
         {
-            0 => "the input … is",
+            0 => "an email address anywhere in the tool's input is",
             1 => $"the input {names[0]} is",
             _ => $"any of the inputs {string.Join(", ", names)} is",
         };

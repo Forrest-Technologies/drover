@@ -68,7 +68,8 @@ public sealed class ConditionDraft
             "text_contains" => new RuleConditionBody(Kind) { Entries = entries },
             "text_holds" => new RuleConditionBody(Kind) { Builtin = Builtin },
             "text_matches" => new RuleConditionBody(Kind) { Pattern = Pattern },
-            "not_in_list" => new RuleConditionBody(Kind) { Argument = Argument.Trim(), Entries = entries },
+            // No input named means every email address anywhere in the tool's input.
+            "not_in_list" => new RuleConditionBody(Kind) { Argument = string.IsNullOrWhiteSpace(Argument) ? null : Argument.Trim(), Entries = entries },
             "time_is" => new RuleConditionBody(Kind)
             {
                 From = Clock(From),
