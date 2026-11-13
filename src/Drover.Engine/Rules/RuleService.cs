@@ -149,6 +149,11 @@ public sealed class RuleService(
             return new RuleTrial(null, null, BotMissing: true);
         }
 
+        if ((request.Text?.Length ?? 0) + (request.Json?.Length ?? 0) > MaxSampleLength)
+        {
+            return new RuleTrial(null, $"A sample can be up to {MaxSampleLength:N0} characters. Try a shorter one.");
+        }
+
         if (Words.Read<RuleCheckpoint>(request.Checkpoint) is not { } checkpoint)
         {
             return new RuleTrial(null, "Choose the moment to try: before_tool, after_tool, before_reply, or message_arrives.");
@@ -249,6 +254,13 @@ public sealed class RuleService(
 
     private async Task<Bot?> FindBot(Guid botId, CancellationToken cancellationToken) =>
         await bots.FindBot(botId, cancellationToken) is { Status: not BotStatus.Removed } bot ? bot : null;
+
+    #endregion
+
+    #region Limits
+
+    /// <summary>The longest sample "Try it" takes. A run's text has no such cap; the evaluator's time budget bounds both.</summary>
+    public const int MaxSampleLength = 20_000;
 
     #endregion
 

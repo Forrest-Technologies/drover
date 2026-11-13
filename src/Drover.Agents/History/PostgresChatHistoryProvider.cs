@@ -303,9 +303,12 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             return (ToolCallStatus.Interrupted, ToolCallLedger.Interrupted);
         }
 
+        // A rule decides about the call again, and the tool is called with what it leaves this time too.
+        var ruled = decision.Arguments is { ValueKind: JsonValueKind.Object } left ? request with { Arguments = left } : request;
+
         try
         {
-            var outcome = await run.Governor.InvokeTool(request, cancellationToken);
+            var outcome = await run.Governor.InvokeTool(ruled, cancellationToken);
             return (outcome.IsError ? ToolCallStatus.Failed : ToolCallStatus.Completed, outcome);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

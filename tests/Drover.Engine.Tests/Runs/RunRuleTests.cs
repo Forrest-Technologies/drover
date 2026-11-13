@@ -520,7 +520,7 @@ public sealed class RunRuleTests(PostgresServer postgres)
 
             var waiting = (await world.ReadToolCalls(runId)).Single(call => call.Status is ToolCallStatus.PendingApproval);
             await world.Decide(waiting.Id, approved: true);
-            await world.WaitForEvent(runId, stored => stored.Type == RunEventTypes.ToolCompleted && stored.Data.Contains(waiting.Id.ToString()));
+            await Settled(world, runId, waiting.Id);
         }
 
         var ended = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
@@ -591,6 +591,19 @@ public sealed class RunRuleTests(PostgresServer postgres)
     #endregion
 
     #region Private Methods
+
+    // An approved call is taken up by a new execution of the run. Until its row says so, the run still reads as waiting.
+    private static async Task Settled(RunWorld world, Guid runId, Guid toolCallId)
+    {
+        var watch = Stopwatch.StartNew();
+
+        while ((await world.ReadToolCalls(runId)).Single(call => call.Id == toolCallId).Status is ToolCallStatus.PendingApproval or ToolCallStatus.Approved
+            && (await world.ReadRun(runId)).Status is not (RunStatus.Completed or RunStatus.Failed))
+        {
+            watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30), "an approved call is taken up");
+            await Task.Delay(TimeSpan.FromMilliseconds(20), RunWorld.Token);
+        }
+    }
 
     private static Task<Guid> AddChild(RunWorld world) =>
         world.Read(async db =>

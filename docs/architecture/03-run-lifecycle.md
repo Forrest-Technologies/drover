@@ -230,8 +230,8 @@ A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) a
 
 | Checkpoint | Where | What each effect does |
 | --- | --- | --- |
-| `message_arrives` | The executor, for the message that starts a run and the pending ones it takes; the history provider, for a message that steers. Before the model is given it. | `block` and `stop` end the run as `failed` with `blocked_by_rule` or `stopped_by_rule`, and mark the message `withheld`. |
-| `before_tool` | The tool gate, after the grant. A call the grant refuses is never shown to a rule. | `redact` replaces what matched in the arguments; the tool and its `tool_calls` row get what is left. `ask` waits for a person. `block` refuses the call and tells the model which rule. `stop` refuses it and ends the run. |
+| `message_arrives` | The executor, for the message that starts a run and the pending ones it takes; the history provider, for a message that steers. Before the model is given it. Every message is checked, also after one was refused, and until the run's first step every message the run holds is checked again, so one that an execution placed and was cut off before checking is not missed. | `block` and `stop` end the run as `failed` with `blocked_by_rule` or `stopped_by_rule`, and mark each refused message `withheld`. |
+| `before_tool` | Decided once, on the arguments as the model wrote them, where the model's call is first read (`ReplyRules`); carried out by the tool gate, after the grant. A call the grant refuses is never acted on. | `redact` replaces what matched in the arguments, at once: the event, the stored message, a row made for an approval, the tool, and what the model is shown again all get what is left. `ask` waits for a person. `block` refuses the call and tells the model which rule. `stop` refuses it and ends the run. |
 | `after_tool` | The governor, on the tool's result, before it is stored or returned. | `redact` replaces what matched. `block` gives the model an error in place of the result. `stop` does that and ends the run. |
 | `before_reply` | A chat-client wrapper in `Drover.Agents`, on each model call's text and reasoning. | `redact` replaces what matched. `block` replaces the reply with a sentence naming the rule. `stop` does that and ends the run. |
 
@@ -239,9 +239,15 @@ A bot's rules ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)) a
 
 **Asking.** The framework can pause only for a tool that was marked for approval when the agent was built, before any argument is known. So a tool is marked when an `ask` rule's tool conditions cover it, and a rule that asks only for some arguments makes every call of those tools wait for a person. `rule.fired` is written before `tool.approval_requested` when the rule is why; a person's yes is not a second firing.
 
-**What a redaction before a tool does not reach.** The model's own message that made the call is stored as the model wrote it. The rule changes what the tool receives and what the `tool_calls` row and the activity view keep.
+**Effects hold together.** The strictest applying rule decides, and every applying rule that redacts is carried out as well. A rule that asks never lets through what another rule removes: the person is asked about, and the tool gets, the arguments as the redacting rules leave them. A child's rule therefore cannot undo a parent's.
 
-**Limits.** A pattern is compiled without backtracking and is given 250 ms per check; one that runs out of time is treated as matching, so a slow pattern fails closed and cannot stall a run.
+**A call is decided once.** The decision is made on the arguments as written and kept for the execution, because after redaction the arguments no longer hold what a rule matched. An execution that takes a call up again after a wait for a person or a restart has only the stored arguments, which are already what the rules left, and decides on those. One consequence is known and accepted: when one rule redacts some text and another blocks on that same text, a call that was waiting for a person is decided on the redacted arguments when it resumes, so it runs, without the text.
+
+**Counting.** `run_exceeds` counts the run's tool calls from its event log as well as from the execution under way, so a wait for a person or a restart does not start the count again.
+
+**Limits.** A pattern is compiled without backtracking. One evaluation has one budget of one second for searching text, across every rule, condition, and piece of text in it, and a single match has 250 ms. Whatever is still to be searched when the budget is spent counts as matching, so a slow pattern fails closed and cannot stall a run. "Try it" also refuses a sample longer than 20,000 characters.
+
+**What text conditions compare.** Text is compared without characters that cannot be seen (zero-width spaces and joiners, direction marks) and with full-width letters, digits of any script, and unusual spaces in their plain form. The names of JSON properties are text too. A card number is found in one piece or in groups parted by spaces, hyphens, or dots, whatever number stands next to it. Not caught, and said so in the editor: a letter of another alphabet that only looks the same, and text split across two inputs or two items of a list.
 
 ## Delegation
 
