@@ -70,6 +70,9 @@ public sealed class RuleText
     /// <summary>The text as it is compared.</summary>
     public string Plain { get; }
 
+    /// <summary>Whether the text is its own plain form: nothing unseen in it, and no character in another form.</summary>
+    public bool IsAsWritten => ReferenceEquals(Plain, Original) || string.Equals(Plain, Original, StringComparison.Ordinal);
+
     #endregion
 
     #region Public Methods
@@ -90,12 +93,12 @@ public sealed class RuleText
 
     #region Private Methods
 
-    // Most text is plain already: ASCII has no other form and nothing in it is unseen.
+    // Most text is plain already: printable ASCII has no other form and nothing in it is unseen.
     private static bool IsPlain(string text)
     {
         foreach (var character in text)
         {
-            if (character > '~')
+            if (character > '\u007E' || (character < ' ' && character is not ('\n' or '\r' or '\t')))
             {
                 return false;
             }
@@ -104,19 +107,22 @@ public sealed class RuleText
         return true;
     }
 
-    // Format characters: zero-width spaces and joiners, direction marks, the soft hyphen. And stray controls.
+    // What cannot be seen: format characters (zero-width spaces and joiners, direction marks, the soft hyphen),
+    // marks that attach to the character before them (combining accents, variation selectors, the grapheme
+    // joiner), and controls other than line breaks and tabs.
     private static bool IsUnseen(string piece) =>
-        CharUnicodeInfo.GetUnicodeCategory(piece, 0) is UnicodeCategory.Format
-        || (piece.Length == 1 && char.IsControl(piece[0]) && !char.IsWhiteSpace(piece[0]));
+        CharUnicodeInfo.GetUnicodeCategory(piece, 0) is UnicodeCategory.Format or UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
+        || (piece.Length == 1 && char.IsControl(piece[0]) && piece[0] is not ('\n' or '\r' or '\t'));
 
     // The plain form of one character, worked out here because the server runs without the system's Unicode
-    // tables: a full-width letter, digit, or sign becomes the ordinary one, any digit becomes 0 to 9, and any
-    // space becomes a space. Letters of other alphabets that only look like these stay what they are.
+    // tables: a full-width letter, digit, or sign becomes the ordinary one, a digit of any script becomes 0 to 9,
+    // and any space becomes a space. Letters of other alphabets that only look like these stay what they are.
     private static string Normal(string piece)
     {
-        if (piece.Length != 1)
+        if (piece.Length == 2)
         {
-            return piece;
+            var rune = Rune.GetRuneAt(piece, 0);
+            return Rune.IsDigit(rune) ? ((char)('0' + (int)Rune.GetNumericValue(rune))).ToString() : piece;
         }
 
         var character = piece[0];

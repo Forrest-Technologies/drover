@@ -3,8 +3,8 @@ namespace Drover.Domain.Rules;
 /// <summary>
 /// The patterns rules look for. Every expression runs on the engine that cannot backtrack, so the time one match
 /// takes grows with the length of the text and never with the shape of the pattern. No match has a clock of its
-/// own: a clock on a short text measures how busy the server is, and a rule must not change its answer with that.
-/// What can grow without bound is the number of matches in a long text, and the evaluation's budget bounds it.
+/// own. What can grow without bound is the number of searches and of matches, and the evaluation's one budget
+/// bounds all of them together. An expression is built and warmed when it is made, outside any budget.
 /// </summary>
 public static partial class RulePatterns
 {
@@ -18,24 +18,20 @@ public static partial class RulePatterns
 
     private static readonly ConcurrentDictionary<string, Regex> written = new(StringComparer.Ordinal);
 
-    private static readonly Regex email = new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options);
+    private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options));
+
+    private const string WarmUp = "Warm-up text 0123 sam@example.org -_.";
 
     private const int MinCardDigits = 13;
 
     private const int MaxCardDigits = 19;
 
-    private const int MaxCardSeparator = 3;
-
-    private const int MaxCardGroups = 6;
-
-    private const int MinGroupDigits = 2;
-
-    private const int MaxGroupDigits = 7;
+    private const int MaxCardSeparator = 4;
 
     // Keys as the common services issue them, a private key block, and a bearer value.
-    private static readonly Regex key = new(
+    private static readonly Regex key = Warmed(new(
         @"(sk|pk|rk)[\-_][A-Za-z0-9\-_]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]\-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{30,}|\-\-\-\-\-BEGIN [A-Z ]*PRIVATE KEY\-\-\-\-\-|[Bb]earer [A-Za-z0-9\-_\.=]{20,}",
-        Options);
+        Options));
 
     #endregion
 
@@ -59,7 +55,7 @@ public static partial class RulePatterns
 
         try
         {
-            var compiled = new Regex(pattern, Options);
+            var compiled = Warmed(new Regex(pattern, Options));
 
             if (written.Count < MaxCached)
             {
@@ -91,7 +87,7 @@ public static partial class RulePatterns
             return [];
         }
 
-        using var searching = budget.Search(text.Length);
+        using var searching = budget.Search();
 
         try
         {
@@ -138,9 +134,10 @@ public static partial class RulePatterns
 
     #region Private Methods
 
-    // A card number is thirteen to nineteen digits, written in one piece or in groups parted by a little white
-    // space, hyphens, or dots. Whole groups are tried from every group on, so a number, an expiry date, or a
-    // security code standing next to the card does not hide it. Luhn decides which runs of groups are cards.
+    // A card number is thirteen to nineteen digits, written in one piece or in groups with a few characters that
+    // are neither letters nor digits between them. Every run of whole groups that adds up to a card's length is
+    // tried, from every group on, and every run that passes Luhn is a place: so a number, a date, or a security
+    // code standing next to the card neither hides it nor is left behind with a part of it.
     private static List<(int Start, int Length)> FindCards(string text)
     {
         List<(int Start, int Length)> found = [];
@@ -161,10 +158,10 @@ public static partial class RulePatterns
                 continue;
             }
 
-            // The run of groups goes on over a short separator and ends at anything else.
+            // The run of groups goes on over a short separator and ends at a letter or a longer gap.
             var gap = index;
 
-            while (gap < text.Length && gap - index < MaxCardSeparator && IsCardSeparator(text[gap]))
+            while (gap < text.Length && gap - index < MaxCardSeparator && !char.IsLetterOrDigit(text[gap]))
             {
                 gap++;
             }
@@ -193,26 +190,22 @@ public static partial class RulePatterns
             {
                 digits += groups[last].End - groups[last].Start;
 
-                // Written in groups, a card has a few groups of a few digits each. A column of small numbers is not one.
-                var grouped = last > first;
-
-                if (grouped && (last - first >= MaxCardGroups || groups.Skip(first).Take(last - first + 1).Any(group => group.End - group.Start is < MinGroupDigits or > MaxGroupDigits)))
-                {
-                    break;
-                }
-
                 if (digits is >= MinCardDigits and <= MaxCardDigits && PassesLuhn(text.AsSpan(groups[first].Start, groups[last].End - groups[first].Start)))
                 {
                     found.Add((groups[first].Start, groups[last].End - groups[first].Start));
-                    first = last;
-                    break;
                 }
             }
         }
     }
 
-    private static bool IsCardSeparator(char character) =>
-        character is '.' || char.IsWhiteSpace(character) || char.GetUnicodeCategory(character) is UnicodeCategory.DashPunctuation;
+    // An expression builds its matcher the first time it is used. That happens here, when the expression is made
+    // (the built-in ones when the server starts, a written one when its rule is saved or first read), so the
+    // first search of a run never pays for it out of the evaluation's budget.
+    private static Regex Warmed(Regex expression)
+    {
+        expression.IsMatch(WarmUp);
+        return expression;
+    }
 
     private static bool PassesLuhn(ReadOnlySpan<char> shaped)
     {

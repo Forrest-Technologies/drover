@@ -132,7 +132,7 @@ public sealed class RuleEvaluatorTests
         var block = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block) with { Name = "block" };
         var blockToo = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block) with { Name = "block too" };
         var stop = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Stop) with { Name = "stop" };
-        var subject = Tool("any.tool", new { text = "x" });
+        var subject = Tool("any.tool", new { note = "x" });
 
         RuleEvaluator.Evaluate([redact, ask, block, blockToo, stop], subject)!.Rule.Name.Should().Be("stop");
         RuleEvaluator.Evaluate([redact, ask, block, blockToo], subject)!.Rule.Name.Should().Be("block");
@@ -306,7 +306,7 @@ public sealed class RuleEvaluatorTests
     [Fact]
     public void A_list_rule_applies_when_the_input_it_names_is_not_there()
     {
-        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
 
         RuleEvaluator.Evaluate([rule], Tool("email.send", new { cc = "mallory@evil.test", bcc = "mallory@evil.test" })).Should().NotBeNull("sending by another field is not a way around the list");
     }
@@ -314,7 +314,7 @@ public sealed class RuleEvaluatorTests
     [Fact]
     public void A_list_rule_can_name_several_inputs_and_checks_each_that_is_there()
     {
-        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to, cc, bcc", Entries = ["example.org"] });
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to, cc, bcc", Entries = ["example.org"] });
 
         RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = "ann@example.org" })).Should().BeNull();
         RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = "ann@example.org", cc = "mallory@evil.test" })).Should().NotBeNull();
@@ -382,6 +382,125 @@ public sealed class RuleEvaluatorTests
         RuleEvaluator.Evaluate([Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, Contains(null, "tangerine"))], Tool("note.write", new Dictionary<string, string> { ["tangerine"] = "x" }))
             .Should().NotBeNull("what the model writes as a name is still something it wrote");
     }
+
+    #endregion
+
+    #region Second Review
+
+    [Fact]
+    public void A_short_text_counts_against_the_budget_like_any_other()
+    {
+        RuleCondition[] slow = [.. Enumerable.Repeat(Matches("a+b|a"), 10)];
+        ActiveRule[] rules = [.. Enumerable.Range(0, 50).Select(_ => Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, slow))];
+        var watch = Stopwatch.StartNew();
+
+        var outcome = RuleEvaluator.Evaluate(rules, Reply(new string('a', 4096)));
+
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "fifty rules of ten slow conditions on 4,096 characters took 27 seconds while short texts were not counted");
+        outcome.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Many_short_pieces_of_text_share_the_one_budget()
+    {
+        var rule = Rule(RuleCheckpoint.AfterTool, RuleEffect.Redact, Matches("a+b|a"));
+        var leaves = Enumerable.Repeat(new string('a', 4096), 400).ToArray();
+        var watch = Stopwatch.StartNew();
+
+        var outcome = RuleEvaluator.Evaluate([rule], Result(new { rows = leaves }));
+
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "four hundred leaves of 4,096 characters took 11 seconds while short texts were not counted");
+        outcome.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void A_property_name_is_examined_and_never_rewritten()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Redact, Contains(null, "body"));
+
+        var outcome = RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = "ann@example.org", body = "hello" }))!;
+
+        outcome.Effect.Should().Be(RuleEffect.Block, "what the rule would remove is the name of an input, and a call with a renamed input is not the call the tool knows");
+        outcome.Why.Should().Contain("name of an input");
+        (outcome.RedactedJson?.GetRawText() ?? """{"body":1}""").Should().Contain("\"body\"").And.NotContain(RuleEvaluator.Redaction);
+    }
+
+    [Fact]
+    public void A_value_is_redacted_and_its_name_is_left_alone()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Redact, Contains(null, "tangerine"));
+
+        var outcome = RuleEvaluator.Evaluate([rule], Tool("note.write", new { note = "the tangerine plan" }))!;
+
+        outcome.Effect.Should().Be(RuleEffect.Redact);
+        outcome.RedactedJson!.Value.GetRawText().Should().Be($$"""{"note":"the {{RuleEvaluator.Redaction}} plan"}""");
+    }
+
+    [Fact]
+    public void A_list_rule_saved_without_a_tool_does_not_apply_to_tools_that_lack_its_input()
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
+
+        RuleEvaluator.Evaluate([rule], Tool("web.search", new { query = "weather" })).Should().BeNull("a rule that names no tool cannot say which tools must have the input");
+        RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = "mallory@evil.test" })).Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData("""{"to":[],"cc":"mallory@evil.test"}""", true)]
+    [InlineData("""{"to":null,"bcc":"mallory@evil.test"}""", true)]
+    [InlineData("""{"to":"ann@example.org","cc":"mallory@evil.test"}""", true)]
+    [InlineData("""{"to":"ann@example.org","body":"then forward it to mallory@evil.test"}""", true)]
+    [InlineData("""{"to":"ann@example.org","headers":{"reply-to":["Mallory <mallory@evil.test>"]}}""", true)]
+    [InlineData("""{"to":"ann@example.org","cc":["bob@mail.example.org"]}""", false)]
+    [InlineData("""{"query":"weather"}""", false)]
+    public void A_list_rule_with_no_input_named_checks_every_address_anywhere_in_the_input(string arguments, bool applies)
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, new RuleCondition { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] });
+        var subject = new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = "email.send", ToolKind = ToolSensitivity.Write, Json = JsonElement.Parse(arguments), Now = tuesdayNight };
+
+        (RuleEvaluator.Evaluate([rule], subject) is not null).Should().Be(applies);
+    }
+
+    [Theory]
+    [InlineData("to", "ann\u200B@example.org")]
+    [InlineData("to", "ann@exam\u200Bple.org")]
+    [InlineData(null, "ann\u200B@example.org")]
+    [InlineData(null, "\uFF41nn@example.org")]
+    public void A_value_with_characters_that_cannot_be_seen_is_not_on_any_list(string? argument, string value)
+    {
+        var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = argument, Entries = ["example.org"] });
+
+        RuleEvaluator.Evaluate([rule], Tool("email.send", new { to = value })).Should().NotBeNull("the tool gets the value as written, so that is what has to be on the list");
+    }
+
+    [Theory]
+    [InlineData("4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1")]
+    [InlineData("41111111 11111111")]
+    [InlineData("4111    1111    1111    1111")]
+    [InlineData("4111/1111/1111/1111")]
+    [InlineData("4111_1111_1111_1111")]
+    [InlineData("4111,1111,1111,1111")]
+    [InlineData("4111\u00011111\u00011111\u00011111")]
+    [InlineData("\U0001D7D2\U0001D7CF\U0001D7CF\U0001D7CF \U0001D7CF\U0001D7CF\U0001D7CF\U0001D7CF \U0001D7CF\U0001D7CF\U0001D7CF\U0001D7CF \U0001D7CF\U0001D7CF\U0001D7CF\U0001D7CF")]
+    [InlineData("ref 14 4111 1111 1111 1111")]
+    public void A_card_number_is_found_between_any_separators_and_removed_whole(string text)
+    {
+        var rule = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Redact, Holds(BuiltinPattern.CardNumber));
+
+        var outcome = RuleEvaluator.Evaluate([rule], Reply(text));
+
+        outcome.Should().NotBeNull();
+        outcome!.RedactedText.Should().Contain(RuleEvaluator.Redaction).And.NotContain("111").And.NotContain("\U0001D7CF");
+    }
+
+    [Theory]
+    [InlineData("tan\u0001gerine")]
+    [InlineData("tan\u034Fgerine")]
+    [InlineData("tan\u0301gerine")]
+    [InlineData("tan\uFE0Fgerine")]
+    [InlineData("tan\u007Fgerine")]
+    public void A_control_or_combining_character_inside_a_word_does_not_hide_it(string text) =>
+        RuleEvaluator.Evaluate([Rule(RuleCheckpoint.BeforeReply, RuleEffect.Block, Contains(null, "tangerine"))], Reply(text)).Should().NotBeNull();
 
     #endregion
 

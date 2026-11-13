@@ -114,7 +114,7 @@ public sealed class RunSession(
     /// What the rules said about each tool call when the model wrote it, on the arguments as written. The gate
     /// decides from this, because by then the arguments hold only what the rules left.
     /// </summary>
-    public ConcurrentDictionary<string, RuleOutcome?> RuledCalls { get; } = new(StringComparer.Ordinal);
+    public ConcurrentDictionary<string, RuledCall> RuledCalls { get; } = new(StringComparer.Ordinal);
 
     public bool LeaseLost { get; private set; }
 

@@ -123,18 +123,27 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
     public async Task<JsonElement> RuleOnCallArguments(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken)
     {
-        if (session.FindToolByModelName(toolName) is not { } tool || session.RuledCalls.ContainsKey(callId))
+        // The same call read again (a stream and then its summary, or the call as the rules already left it)
+        // keeps its decision. The same id with other arguments is another call and is decided afresh.
+        if (session.RuledCalls.TryGetValue(callId, out var known)
+            && (JsonElement.DeepEquals(known.Written, arguments) || JsonElement.DeepEquals(known.Left, arguments)))
         {
-            return arguments;
+            return known.Left;
         }
 
         session.NoteCall(callId);
 
         // Decided here, on the arguments as the model wrote them, and written down by the gate when the call
-        // reaches it. From here on the call exists only as the rules leave it.
-        var outcome = await rules.Find(CallSubject(tool, arguments), cancellationToken);
-        session.RuledCalls[callId] = outcome;
-        return outcome?.RedactedJson ?? arguments;
+        // reaches it. From here on the call exists only as the rules leave it. A call to a tool the bot does not
+        // have never runs, and is still stored only as the rules leave it.
+        var tool = session.FindToolByModelName(toolName);
+        var subject = tool is null
+            ? new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = toolName, Json = arguments }
+            : CallSubject(tool, arguments);
+        var outcome = await rules.Find(subject, cancellationToken);
+        var left = outcome?.RedactedJson ?? arguments;
+        session.RuledCalls[callId] = new RuledCall(arguments.Clone(), left.Clone(), outcome);
+        return left;
     }
 
     /// <summary>
@@ -231,7 +240,9 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
     // otherwise what they say about the arguments now (a call taken up again after a wait or a restart, whose
     // stored arguments already are what the rules left).
     private async Task<RuleOutcome?> RuleFor(string callId, RunTool tool, JsonElement arguments, CancellationToken cancellationToken) =>
-        session.RuledCalls.TryGetValue(callId, out var ruled) ? ruled : await rules.Find(CallSubject(tool, arguments), cancellationToken);
+        session.RuledCalls.TryGetValue(callId, out var ruled) && JsonElement.DeepEquals(ruled.Left, arguments)
+            ? ruled.Outcome
+            : await rules.Find(CallSubject(tool, arguments), cancellationToken);
 
     private static RuleSubject CallSubject(RunTool tool, JsonElement arguments) => new()
     {

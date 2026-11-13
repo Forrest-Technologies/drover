@@ -17,9 +17,6 @@ public sealed class RuleBudget(TimeSpan limit)
     /// <summary>What one evaluation gets. A person's own patterns finish in far less; this stops the ones built not to.</summary>
     public static TimeSpan Default { get; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>Texts up to this length are searched without counting the time.</summary>
-    public static int UncountedLength => 4096;
-
     public bool IsSpent => spent.Elapsed >= limit;
 
     #endregion
@@ -27,17 +24,11 @@ public sealed class RuleBudget(TimeSpan limit)
     #region Public Methods
 
     /// <summary>
-    /// Counts the time until the returned value is disposed as time spent searching a text of this length. A short
-    /// text is not counted: searching it is quick whatever the pattern, and time measured over so little work is
-    /// mostly how busy the server is, which must not decide whether a rule applies.
+    /// Counts the time until the returned value is disposed as time spent searching. Every search counts, whatever
+    /// the length of the text: many short searches cost what one long one does.
     /// </summary>
-    public Running Search(int length)
+    public Running Search()
     {
-        if (length <= UncountedLength)
-        {
-            return default;
-        }
-
         spent.Start();
         return new Running(spent);
     }
@@ -47,9 +38,9 @@ public sealed class RuleBudget(TimeSpan limit)
     #region Running
 
     /// <summary>One stretch of searching. Disposing it stops the count.</summary>
-    public readonly struct Running(Stopwatch? watch) : IDisposable
+    public readonly struct Running(Stopwatch watch) : IDisposable
     {
-        public void Dispose() => watch?.Stop();
+        public void Dispose() => watch.Stop();
     }
 
     #endregion
