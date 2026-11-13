@@ -34,9 +34,29 @@ public sealed partial class DroverApi(HttpClient http)
         return await Read<T>(response, cancellationToken);
     }
 
-    private async Task<T> Post<T>(string path, object? body, CancellationToken cancellationToken)
+    private Task<T> Post<T>(string path, object? body, CancellationToken cancellationToken) =>
+        Send<T>(HttpMethod.Post, path, body, cancellationToken);
+
+    private async Task<T> Send<T>(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        using var response = await Send(method, path, body, cancellationToken);
+        return await Read<T>(response, cancellationToken);
+    }
+
+    /// <summary>A state-changing request whose answer has no body. A refusal throws like any other.</summary>
+    private async Task SendForNothing(HttpMethod method, string path, CancellationToken cancellationToken)
+    {
+        using var response = await Send(method, path, null, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await DroverApiException.From(response, cancellationToken);
+        }
+    }
+
+    private async Task<HttpResponseMessage> Send(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, path);
 
         if (body is not null)
         {
@@ -48,8 +68,7 @@ public sealed partial class DroverApi(HttpClient http)
             request.Headers.Add(AntiforgeryHeader, token);
         }
 
-        using var response = await http.SendAsync(request, cancellationToken);
-        return await Read<T>(response, cancellationToken);
+        return await http.SendAsync(request, cancellationToken);
     }
 
     private static async Task<T> Read<T>(HttpResponseMessage response, CancellationToken cancellationToken)

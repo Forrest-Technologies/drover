@@ -304,7 +304,7 @@ This is computed when a run assembles its tools and again when a tool is called,
 
 Writes are validated too: granting a child an effect above its parent's effective grant is rejected with a clear message ("raise it on Atlas first"). The read-time rule is the guarantee; the write-time rule keeps stored data honest.
 
-A `needs_review` grant counts as `ask` until a human confirms it. A bot whose own row (distance 0) is missing from `bot_ancestors` is not in the tree and gets no grants at all.
+A `needs_review` grant counts as `ask` until a human confirms it. On top of that, a run leaves a tool server's tool with such a grant out altogether, so its changed text is not shown to the model ([06-mcp.md](06-mcp.md)). A bot whose own row (distance 0) is missing from `bot_ancestors` is not in the tree and gets no grants at all.
 
 Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQL function and the C# function are tested against the same table of cases.
 

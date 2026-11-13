@@ -2,6 +2,25 @@
 
 Remote HTTP servers first. The adapter is `Drover.Adapters.Mcp`, built on the official C# SDK 2.4 (Apache-2.0), which targets spec revision 2026-07-28 and falls back to older servers on its own (verified).
 
+## What is built
+
+Built and tested: the `IToolSource` interface and its conformance suite; the adapter with automatic protocol choice, the per-connection override, and both client lifetimes; no-auth and header connections; the catalog with definition pinning, the kept reviewed definition, and the confirmation of a review; per-principal credential lookup; the taint rule; the result size limit; the bound on what a server may send; the connections API at `/api/spaces/{spaceId}/tool-connections`.
+
+Not built yet, and described below as the design: OAuth and everything under it (discovery, the callback bridge, token cache, refresh, `needs_reconnect`); refreshing a catalog on its time-to-live, hourly, or on a server's notification (today it is listed when a connection is added and when an admin presses refresh); saving a result that was cut as a file; the connection's status after a failed call (a failed listing sets it; a failed call is reported to the model and logged); the connections screen, including the side-by-side view of a changed definition (the API carries both definitions; nothing draws them yet); a way for a person to change a tool's sensitivity.
+
+Details the first build settled:
+
+- **A header credential is one secret.** The header's name and value are stored together in the vault, so the row holds only a secret id and the API never returns either part. A connection may not set a header that belongs to the transport (`Host`, `Content-Length`, `Cookie`, the protocol's own headers, and the like), and an address with a user name or password in it is refused.
+- **Limits on what a server can make Drover keep or read.** Two deployment policy rules ([16-deployment-policies.md](16-deployment-policies.md)): `MaxToolResponseBytes` bounds every response body the adapter reads, counted as it streams, so a server cannot make Drover hold an answer of any size (the call fails as "too large"); `MaxToolsPerConnection` bounds the catalog, and listing stops at it and after 100 pages. A description is stored up to 8,000 characters; a tool whose input schema is not an object, or is larger than 64 KB, is not stored.
+- **A server's "read-only" is a claim, and decides nothing.** Every tool from a server is stored as `write`. The annotations are kept and shown, but they never lower a sensitivity, so they never exempt a tool from the taint rule, and they are never a reason to run a call again after a restart: only a built-in tool that Drover marks as reading is repeated. Until a person can lower a sensitivity, every server tool with `allow` asks once a run is tainted.
+- **A tool call is sent once.** When a session of the older generation is gone, listing is tried again on a new session, because listing changes nothing. A call is not: the server may have acted before the session dropped. The call fails, the model is told, and the next call opens a new session.
+- **The definition hash covers each field separately.** It is the hash of the stored name, title, description, schema, and annotations as a JSON array, so text cannot move between fields without changing it.
+- **A changed tool waits outside every run.** When a tool somebody was granted changes, its grants become `needs_review` and the tool is left out of runs until an admin confirms the change (`POST .../tool-connections/{id}/tools/{toolId}/review`). The definition as it was last reviewed is kept on the row and returned beside the new one; a second change before the review leaves the kept one alone, so the comparison is always with what a person saw. This is stricter than "behaves as ask": asking would still put the new description in front of the model.
+- **The credential goes to the address that was saved, and nowhere else.** The adapter's client follows no redirects, so a header is never carried to another host. A connection with a header must be `https`, unless the space allows private addresses (a server on the operator's own network).
+- **Removing a connection keeps its history.** Tool calls of past runs point at the catalog rows, so removal deletes the grants and the credential (and its secret), marks the tools `missing`, and disables the connection, which every reader then treats as gone.
+- **Tainted runs rebuild the agent.** The agent framework can stop for approval only on tools that were marked for it when the agent was built. When a run becomes tainted, it is stopped before its next model call and its agent is built again with every consequential `allow` tool marked to ask; the run then goes on from the stored conversation. No model call and no tool call is repeated. A consequential tool called in the same step as the untrusted read, before the rebuild, is refused with a message that it needs approval, and the model can ask again.
+- **A session's outbound rule is the one it was opened under.** A kept session of the older protocol generation makes its requests under the space's private-address rule as it was when the session was opened. A changed rule applies from the next session, at most ten idle minutes later.
+
 ## Two protocol generations, stateless preferred
 
 MCP has two generations in use. Drover supports both and prefers the newer one.
@@ -121,7 +140,7 @@ Upsert rules:
 
 - **New tool**: row added, state `available`. No bot gets it. A human or a permitted parent bot must grant it.
 - **Tool gone**: state `missing`. Grants are kept, so it works again if it returns unchanged.
-- **Definition changed** (name, description, input schema, or annotations hash differs): the row updates and every grant on it becomes `needs_review`, which behaves as `ask` until a human looks at the diff and confirms. A server cannot quietly turn an approved harmless tool into something else.
+- **Definition changed** (name, description, input schema, or annotations hash differs): the row updates and every grant on it becomes `needs_review`, and the tool is left out of every run until a human looks at the diff and confirms. The definition last reviewed is kept for that diff. A server cannot quietly turn an approved harmless tool into something else.
 
 Names shown to the model are `{connection-slug}__{tool-name}`. Two servers cannot shadow each other, and a server cannot impersonate a built-in.
 
@@ -146,7 +165,7 @@ A tool result is text chosen by a third party that the model will read. The desi
 | --- | --- |
 | The model cannot grant itself anything | Grants are enforced by the gate at call time. A hostile result can only steer the bot toward tools it already holds. |
 | Least privilege is the default | New tools are never auto-granted. The grant screen shows each tool's own description and annotations. |
-| Consequential tools ask | Tools have a `sensitivity`: `read`, `write`, or `critical`. It starts from the server's annotations (read-only, destructive) and a human can raise it. `critical` covers bot management, credential changes, and anything a human marks. |
+| Consequential tools ask | Tools have a `sensitivity`: `read`, `write`, or `critical`. A server's tool starts as `write` whatever its annotations claim; a human can change it. `critical` covers bot management, credential changes, and anything a human marks. |
 | **Tainted runs escalate** | Each connection has a `trust` level; servers that return open-world content (web, mail, documents from others) are `untrusted`. Once a run has received a result from an untrusted source, the run is marked `tainted` and, for the rest of that run, `allow` on `write` and `critical` tools behaves as `ask`. A child run inherits the mark. This breaks the chain "read hostile text, then act on it unattended". Spaces can turn it off per bot. |
 | Results stay in their place | Results go to the model only as tool-role content, never merged into instructions. Tool descriptions from servers are treated the same way. |
 | Size limits | Results over a limit are cut for the model, with the full output saved as a file the user can open |

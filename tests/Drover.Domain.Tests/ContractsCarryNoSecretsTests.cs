@@ -14,7 +14,7 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ReplaceToolHeaderRequest"];
 
     #endregion
 
@@ -40,6 +40,9 @@ public sealed class ContractsCarryNoSecretsTests
         new Drover.Contracts.Models.CreateModelConnectionRequest("venice", "V", null, "a-model-key-value", null)
             .ToString().Should().NotContain("a-model-key-value");
         new Drover.Contracts.Models.UpdateModelKeyRequest("a-model-key-value").ToString().Should().NotContain("a-model-key-value");
+        new Drover.Contracts.Tools.CreateToolConnectionRequest("T", "https://tools.example.test/", "header", "X-Api-Key", "a-header-value")
+            .ToString().Should().NotContain("a-header-value");
+        new Drover.Contracts.Tools.ReplaceToolHeaderRequest("X-Api-Key", "a-header-value").ToString().Should().NotContain("a-header-value");
         inboundCredentialForms.Should().OnlyContain(name => name.EndsWith("Request", StringComparison.Ordinal));
         sample.ToString().Should().NotContain("a-password-value");
         setup.ToString().Should().NotContain("a-password-value").And.NotContain("CODE");

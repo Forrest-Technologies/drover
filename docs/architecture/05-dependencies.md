@@ -94,6 +94,7 @@ No library is used for E2B or for Apple's push service. Neither has an official 
 | --- | --- | --- | --- |
 | xUnit v3 | Apache-2.0 | xUnit project, active | Test framework |
 | `xunit.v3.extensibility.core` | Apache-2.0 | xunit project, active | Lets `Drover.Adapters.Conformance`, a library of abstract suites, use `[Fact]` without being a test executable (`xunit.v3` refuses a library) |
+| `ModelContextProtocol.AspNetCore` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | Test only (`Drover.Adapters.Tests`): the protocol library's own server, so the tool source conformance suite runs over real HTTP against real servers of both protocol generations. Never referenced by a shipping project. |
 | AwesomeAssertions | Apache-2.0 | Community fork, active | Assertions |
 | NSubstitute | BSD-3-Clause | Community, active | Test doubles |
 | Testcontainers, `Testcontainers.PostgreSql` | MIT | Active | Real PostgreSQL in tests |

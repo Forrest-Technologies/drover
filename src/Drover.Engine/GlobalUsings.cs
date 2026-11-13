@@ -21,6 +21,7 @@ global using Drover.Contracts.Bots;
 global using Drover.Contracts.Permissions;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Threads;
+global using Drover.Contracts.Tools;
 global using Drover.Data;
 global using Drover.Data.Identity;
 global using Drover.Data.Repositories;

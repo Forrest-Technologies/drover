@@ -62,6 +62,8 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `AllowPrivateAddresses` | `true` | `false` | Enforced: every outbound connection |
 | `MaxModelListBytes` | `8388608` | `2097152` | Enforced: each model provider adapter stops reading a model list or key check past it and refuses the answer. A limit, not a switch: the operator may tighten it, a higher value than the preset is refused at start, and zero or less is not a value |
 | `MaxModelsPerConnection` | `5000` | `1000` | Enforced: `ModelConnectionService` refuses a refresh that lists more models and leaves the catalog as it was |
+| `MaxToolResponseBytes` | `8388608` | `2097152` | Enforced: the tool source adapter stops reading any answer from a tool server past it (a tool list page, a tool's result, a session's event stream) and reports the answer as too large. A tool server chooses how much it sends; this is how much Drover will hold. A limit: it may be tightened, not raised past the preset |
+| `MaxToolsPerConnection` | `500` | `200` | Enforced: the adapter stops listing at this many tools, and the catalog stores no more than this many for one connection. A limit, as above |
 | `SandboxAdapters` | `All` | `HardBoundaryOnly` | Later: sandbox adapter registration (Phase 1) |
 | `AllowHostStdioMcp` | `false` | `false` | Later: MCP tool servers (Phase 1) |
 | `SubscriptionSignIn` | `WhereProviderPermits` | `OnlyWithOperatorApproval` | Later: model providers |
