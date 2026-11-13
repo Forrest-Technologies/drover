@@ -56,6 +56,15 @@ public sealed record DeploymentPolicy
                 $"{nameof(RequireTermsAcceptance)} is on with open registration, so Drover:Policy:TermsVersion must name the version people accept.");
         }
 
+        // Strangers who register get a space of their own and can add connections, so they must not be able to aim the
+        // server at its private network. A self-hoster who opens registration keeps local models by naming them
+        // elsewhere or by giving up open registration; the server does not guess which.
+        if (OpenRegistration && AllowPrivateAddresses)
+        {
+            problems.Add(
+                $"{nameof(OpenRegistration)} is on while {nameof(AllowPrivateAddresses)} is on, so anyone who registers could aim a connection at this server's private network. Set Drover:Policy:Rules:{nameof(AllowPrivateAddresses)} to false, or set Drover:Policy:Rules:{nameof(OpenRegistration)} to false.");
+        }
+
         return problems;
     }
 
