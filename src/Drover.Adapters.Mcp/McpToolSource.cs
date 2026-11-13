@@ -25,6 +25,9 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
 
     private static readonly TimeSpan idleLimit = TimeSpan.FromMinutes(10);
 
+    /// <summary>The most pages of one tool list that are read. A server that keeps handing out cursors is not followed for ever.</summary>
+    private const int MaxListPages = 100;
+
     private readonly ConcurrentDictionary<SessionKey, Session> sessions = new();
 
     private readonly ILogger logger = loggers.CreateLogger<McpToolSource>();
@@ -47,15 +50,17 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
                 List<ListedTool> tools = [];
                 TimeSpan? timeToLive = null;
                 string? cursor = null;
+                var pages = 0;
 
+                // Each page is bounded in size by the response limit; the number of pages and of tools is bounded here.
                 do
                 {
                     var page = await client.ListToolsAsync(new ListToolsRequestParams { Cursor = cursor }, cancellation);
-                    tools.AddRange(page.Tools.Select(ToListedTool));
+                    tools.AddRange(page.Tools.Take(endpoint.Limits.MaxTools - tools.Count).Select(ToListedTool));
                     timeToLive = page.TimeToLive ?? timeToLive;
                     cursor = page.NextCursor;
                 }
-                while (!string.IsNullOrEmpty(cursor));
+                while (!string.IsNullOrEmpty(cursor) && ++pages < MaxListPages && tools.Count < endpoint.Limits.MaxTools);
 
                 return new ToolListing(tools, client.NegotiatedProtocolVersion ?? string.Empty, IsStateless(client), timeToLive);
             },
@@ -101,6 +106,9 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
     {
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(endpoint.Timeout);
+
+        // Set before any client is made, so every request of this use, and of a session opened by it, is bounded.
+        var bound = ResponseLimit.Begin(endpoint.Limits.MaxResponseBytes);
         await CloseIdleSessions();
         var key = new SessionKey(endpoint.ConnectionId, endpoint.CredentialKey);
 
@@ -154,6 +162,13 @@ public sealed class McpToolSource(IHttpClientFactory http, ILoggerFactory logger
         }
         catch (Exception failure) when (failure is not ToolSourceException && !cancellationToken.IsCancellationRequested)
         {
+            // A kept session whose stream was cut for size is of no further use.
+            if (bound.WasReached)
+            {
+                await Close(key);
+                throw new ToolSourceException(ToolSourceFailure.TooLarge, "The tool server's answer was larger than this server accepts.", failure);
+            }
+
             throw Failures.Translate(failure, limit.IsCancellationRequested);
         }
     }

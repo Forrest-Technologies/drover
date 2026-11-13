@@ -17,12 +17,17 @@ public enum ServerGeneration
 }
 
 /// <summary>How to stand a test tool server up. With a header named, a request without that exact header gets 401.</summary>
-public sealed record ToolServerSpec(ServerGeneration Generation, string? HeaderName = null, string? HeaderValue = null);
+public sealed record ToolServerSpec(ServerGeneration Generation, string? HeaderName = null, string? HeaderValue = null)
+{
+    /// <summary>When set, the server answers every request with a redirect to this address and does nothing else.</summary>
+    public Uri? RedirectTo { get; init; }
+}
 
 /// <summary>
 /// A tool server a conformance run talks to over real HTTP. It offers four tools: <c>echo</c> (says it only reads;
 /// returns "echo: " and its <c>text</c> argument), <c>record</c> (says it is destructive; returns the structured
-/// content <c>{"recorded":true}</c>), <c>fail</c> (runs and reports an error), and <c>slow</c> (never answers).
+/// content <c>{"recorded":true}</c>), <c>fail</c> (runs and reports an error), <c>slow</c> (never answers), and
+/// <c>flood</c> (answers with 300,000 characters).
 /// A call to a tool named <c>vanish</c> is taken, counted, and answered as if the server had lost the caller's
 /// session: what a server that acted and then died, or a hostile one, looks like from outside.
 /// </summary>

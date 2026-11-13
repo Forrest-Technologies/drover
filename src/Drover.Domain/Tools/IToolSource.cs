@@ -41,7 +41,19 @@ public sealed record ToolEndpoint(Guid ConnectionId, Uri Url)
 
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(60);
 
+    public ToolServerLimits Limits { get; init; } = ToolServerLimits.Default;
+
     #endregion
+}
+
+/// <summary>
+/// How much Drover accepts from a tool server. A hostile or broken server can answer with an endless body, an
+/// endless chain of pages, or millions of tools, so each is capped; the deployment policy sets the values.
+/// </summary>
+public sealed record ToolServerLimits(int MaxResponseBytes, int MaxTools)
+{
+    /// <summary>The self-hosted values, used where a caller states none.</summary>
+    public static ToolServerLimits Default { get; } = new(8 * 1024 * 1024, 500);
 }
 
 /// <summary>
@@ -75,6 +87,7 @@ public enum ToolSourceFailure
     ProtocolNotSupported,
     Blocked,
     ServerError,
+    TooLarge,
 }
 
 /// <summary>A tool server could not be used. The message is plain words for a person and holds no credential.</summary>

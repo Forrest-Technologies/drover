@@ -8,11 +8,13 @@ public static class ServiceCollectionExtensions
     /// Registers the tool source for remote tool servers. Its HTTP client is the checked outbound client every
     /// adapter gets, so the rule on private addresses applies to a tool server as to a model. A call is never
     /// repeated by the client: a tool may have acted already. Each server gets its own circuit, so one dead
-    /// server pauses calls to itself only.
+    /// server pauses calls to itself only. Every answer is read through <see cref="ResponseLimitHandler"/>, so a
+    /// server cannot make this one hold more than the limit the caller states.
     /// </summary>
     public static IServiceCollection AddMcpToolSource(this IServiceCollection services)
     {
         services.AddHttpClient(McpToolSource.HttpClientName)
+            .AddHttpMessageHandler(() => new ResponseLimitHandler())
             .AddStandardResilienceHandler(options =>
             {
                 options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);

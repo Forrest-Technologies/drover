@@ -15,6 +15,11 @@ public static class Failures
             return new ToolSourceException(ToolSourceFailure.Blocked, blocked.Message, failure);
         }
 
+        if (Find<ToolResponseTooLargeException>(failure) is not null)
+        {
+            return new ToolSourceException(ToolSourceFailure.TooLarge, "The tool server's answer was larger than this server accepts.", failure);
+        }
+
         if (timedOut || Find<TimeoutException>(failure) is not null)
         {
             return new ToolSourceException(ToolSourceFailure.TimedOut, "The tool server did not answer in time.", failure);

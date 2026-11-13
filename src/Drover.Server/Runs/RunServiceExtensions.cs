@@ -28,7 +28,11 @@ public static class RunServiceExtensions
         // A tool server is reached through the checked outbound client, and each request carries the space's rule
         // on private addresses. A request that says nothing is refused a private address.
         services.TryAddTransient<SpaceOutboundHandler>();
-        services.AddHttpClient(McpToolSource.HttpClientName).AddHttpMessageHandler<SpaceOutboundHandler>();
+        // It never follows a redirect: a connection's header would go to whatever host the answer names.
+        services.AddHttpClient(McpToolSource.HttpClientName)
+            .ConfigurePrimaryHttpMessageHandler(provider =>
+                OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
+            .AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
         return services;
     }

@@ -44,7 +44,7 @@ public abstract class ToolSourceConformance
 
         var listing = await source.Source.ListTools(endpoint, Token);
 
-        listing.Tools.Select(tool => tool.Name).Should().BeEquivalentTo(["echo", "record", "fail", "slow"]);
+        listing.Tools.Select(tool => tool.Name).Should().BeEquivalentTo(["echo", "record", "fail", "slow", "flood"]);
         var echo = listing.Tools.Single(tool => tool.Name == "echo");
         echo.Description.Should().Be("Repeats the text it is given.");
         echo.InputSchema.GetProperty("properties").TryGetProperty("text", out _).Should().BeTrue("the schema is the server's own");
@@ -184,6 +184,35 @@ public abstract class ToolSourceConformance
     #endregion
 
     #region Failure
+
+    [Theory]
+    [InlineData(ServerGeneration.Stateless)]
+    [InlineData(ServerGeneration.SessionBased)]
+    public async Task An_answer_larger_than_the_caller_accepts_is_refused_and_smaller_ones_still_arrive(ServerGeneration generation)
+    {
+        await using var source = CreateSource();
+        var (server, endpoint) = await Start(generation, withHeader: false);
+        await using var stopping = server;
+        var bounded = endpoint with { Limits = new ToolServerLimits(MaxResponseBytes: 100_000, MaxTools: 500) };
+
+        var flood = () => source.Source.CallTool(bounded, "flood", Json("{}"), Token);
+
+        (await flood.Should().ThrowAsync<ToolSourceException>()).Which.Failure.Should().Be(ToolSourceFailure.TooLarge, "a server chooses how much it sends, and the caller how much it holds");
+        (await source.Source.CallTool(bounded, "echo", Json("""{"text":"small"}"""), Token)).Result.GetString().Should().Be("echo: small");
+        (await source.Source.CallTool(endpoint, "flood", Json("{}"), Token)).Result.GetString().Should().HaveLength(300_000, "the same answer fits under the default limit");
+    }
+
+    [Fact]
+    public async Task A_listing_holds_no_more_tools_than_the_caller_accepts()
+    {
+        await using var source = CreateSource();
+        var (server, endpoint) = await Start(ServerGeneration.Stateless, withHeader: false);
+        await using var stopping = server;
+
+        var listing = await source.Source.ListTools(endpoint with { Limits = new ToolServerLimits(8 * 1024 * 1024, MaxTools: 2) }, Token);
+
+        listing.Tools.Should().HaveCount(2);
+    }
 
     [Fact]
     public async Task A_server_that_is_down_is_reported_as_unreachable()

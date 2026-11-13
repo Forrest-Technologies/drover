@@ -58,9 +58,9 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
         listed.Connection.Should().Match<ToolConnectionSummary>(connection =>
             connection.Slug == "helpdesk" && connection.Status == "ready" && connection.AuthKind == "header" && connection.Trust == "trusted"
             && connection.NegotiatedProtocol!.StartsWith(badge));
-        listed.Tools.Select(tool => tool.ModelName).Should().BeEquivalentTo(["helpdesk__echo", "helpdesk__record", "helpdesk__fail", "helpdesk__slow"]);
+        listed.Tools.Select(tool => tool.ModelName).Should().BeEquivalentTo(["helpdesk__echo", "helpdesk__record", "helpdesk__fail", "helpdesk__slow", "helpdesk__flood"]);
         listed.Tools.Should().OnlyContain(tool => tool.Sensitivity == "write", "a server's claim that a tool only reads decides nothing");
-        listed.Added.Should().Be(4);
+        listed.Added.Should().Be(5);
         seenByMember.StatusCode.Should().Be(HttpStatusCode.OK, "any member may see which connections exist");
 
         var bot = await CreateBot(client, alice.SpaceId);
@@ -101,7 +101,7 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
         (await replaced.Content.ReadAsStringAsync(Token)).Should().NotContain(secret);
         refreshed.Problem.Should().BeNull();
         refreshed.Connection.Status.Should().Be("ready");
-        refreshed.Tools.Should().HaveCount(4);
+        refreshed.Tools.Should().HaveCount(5);
     }
 
     [Fact]
@@ -142,6 +142,46 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ServerTest
             connection.Trust == "trusted" && connection.ProtocolMode == "stateless_only" && connection.NegotiatedProtocol == null);
         removed.StatusCode.Should().Be(HttpStatusCode.NoContent);
         afterwards.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_credential_is_not_carried_to_wherever_a_tool_server_redirects()
+    {
+        var secret = NewPassword();
+        await using var elsewhere = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless, HeaderName, secret));
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { RedirectTo = elsewhere.Url });
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+
+        var created = await PostFor<ToolConnectionRefresh>(
+            client,
+            $"/api/spaces/{alice.SpaceId}/tool-connections",
+            new CreateToolConnectionRequest("Moved", server.Url.ToString(), "header", HeaderName, secret));
+
+        server.Requests.Should().BeGreaterThan(0);
+        elsewhere.Requests.Should().Be(0, "a redirect is not followed, so the header goes only to the address a person entered");
+        created.Problem.Should().NotBeNull();
+        created.Connection.Status.Should().Be("failed");
+        created.Tools.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_header_is_not_accepted_for_an_address_that_would_send_it_in_the_clear()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId, allowed: false);
+        var space = $"/api/spaces/{alice.SpaceId}";
+
+        var inTheClear = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Plain", "http://tools.example.test/mcp", "header", HeaderName, NewPassword()));
+        var encrypted = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Safe", "https://tools.example.test/mcp", "header", HeaderName, NewPassword()));
+        var noSecret = await client.Post($"{space}/tool-connections", new CreateToolConnectionRequest("Open", "http://tools.example.test/mcp"));
+
+        inTheClear.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a header value is a secret, and http would send it readable to anyone on the way");
+        (await inTheClear.Content.ReadAsStringAsync(Token)).Should().Contain("https");
+        encrypted.StatusCode.Should().Be(HttpStatusCode.Created);
+        noSecret.StatusCode.Should().Be(HttpStatusCode.Created, "an address with no credential has nothing to protect");
     }
 
     [Fact]

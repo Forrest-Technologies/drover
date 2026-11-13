@@ -16,6 +16,8 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private int vanished;
 
+    private int requests;
+
     #endregion
 
     #region Properties
@@ -25,6 +27,9 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
     public int Handshakes => Volatile.Read(ref handshakes);
 
     public int VanishedCalls => Volatile.Read(ref vanished);
+
+    /// <summary>How many requests of any kind reached the server.</summary>
+    public int Requests => Volatile.Read(ref requests);
 
     #endregion
 
@@ -95,6 +100,15 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
 
     private async Task CheckHeaderAndCountHandshakes(HttpContext context, RequestDelegate next)
     {
+        Interlocked.Increment(ref requests);
+
+        if (spec.RedirectTo is { } elsewhere)
+        {
+            context.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
+            context.Response.Headers.Location = elsewhere.ToString();
+            return;
+        }
+
         if (spec.HeaderName is { } name && context.Request.Headers[name] != spec.HeaderValue)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -143,6 +157,9 @@ public sealed class SdkToolServer(ToolServerSpec spec) : IToolServer
                 return "never";
             },
             new McpServerToolCreateOptions { Name = "slow", Description = "Never answers." }),
+        McpServerTool.Create(
+            () => new string('x', 300_000),
+            new McpServerToolCreateOptions { Name = "flood", Description = "Answers with 300,000 characters." }),
     ];
 
     #endregion

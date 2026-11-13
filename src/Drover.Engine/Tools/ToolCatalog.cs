@@ -12,9 +12,6 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
 {
     #region Private Fields
 
-    /// <summary>The most tools one connection may add to the catalog. A server chooses how many it lists; this server chooses how many it keeps.</summary>
-    public const int MaxToolsPerConnection = 500;
-
     public const int MaxDescriptionLength = 8000;
 
     public const int MaxSchemaLength = 65_536;
@@ -65,7 +62,11 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
     /// A server's tool is stored as one that can change things, whatever the server says about it. "It only reads"
     /// is the server's claim: it is kept with the tool's annotations for a person to see, and it decides nothing.
     /// </summary>
-    public async Task<CatalogChange> FoldServerTools(ToolConnection connection, IReadOnlyList<ListedTool> listed, CancellationToken cancellationToken)
+    public async Task<CatalogChange> FoldServerTools(
+        ToolConnection connection,
+        IReadOnlyList<ListedTool> listed,
+        int maxTools,
+        CancellationToken cancellationToken)
     {
         await tools.LockCatalog(cancellationToken);
         var existing = (await connections.GetTools(connection.Id, cancellationToken)).ToDictionary(tool => tool.Name, StringComparer.Ordinal);
@@ -74,7 +75,8 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
         List<Guid> changed = [];
         var added = 0;
 
-        foreach (var tool in listed.Where(IsStorable).Take(MaxToolsPerConnection))
+        // A server chooses how many tools it lists; the deployment policy says how many this server keeps.
+        foreach (var tool in listed.Where(IsStorable).Take(maxTools))
         {
             if (!seen.Add(tool.Name))
             {

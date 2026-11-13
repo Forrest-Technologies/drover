@@ -111,6 +111,17 @@ public sealed class ToolConnectionService(
         }
 
         await using var work = await scope.Begin(cancellationToken);
+        var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("No space is set for this request.");
+
+        // A header is a secret. Over http anyone on the way can read it, so it needs https. The one exception is a
+        // space that may reach private addresses, where a tool server on the same machine or network is the point.
+        if (request.AuthKind is ToolAuthKind.Header
+            && new Uri(request.Url!.Trim()).Scheme is not "https"
+            && !(await policy.GetEffective(spaceId, cancellationToken)).AllowPrivateAddresses)
+        {
+            return ToolConnectionChange.Invalid("A connection with a header needs an address that starts with https://, so the header is not sent where others can read it.");
+        }
+
         var connection = new ToolConnection
         {
             Name = request.Name!.Trim(),
@@ -256,7 +267,7 @@ public sealed class ToolConnectionService(
 
         if (listing is not null)
         {
-            change = await catalog.FoldServerTools(row, listing.Tools, cancellationToken);
+            change = await catalog.FoldServerTools(row, listing.Tools, policy.Deployment.MaxToolsPerConnection, cancellationToken);
             row.Status = ConnectionStatus.Ready;
             row.NegotiatedProtocol = listing.IsStateless ? $"stateless {listing.ProtocolVersion}" : $"session-based {listing.ProtocolVersion}";
             row.LastListedAt = time.GetUtcNow();
@@ -293,7 +304,12 @@ public sealed class ToolConnectionService(
             return new ResolvedToolEndpoint(null, "The connection's address is not a web address.", []);
         }
 
-        var endpoint = new ToolEndpoint(connection.Id, url) { Transport = connection.Transport, ProtocolMode = connection.ProtocolMode };
+        var endpoint = new ToolEndpoint(connection.Id, url)
+        {
+            Transport = connection.Transport,
+            ProtocolMode = connection.ProtocolMode,
+            Limits = new ToolServerLimits(policy.Deployment.MaxToolResponseBytes, policy.Deployment.MaxToolsPerConnection),
+        };
 
         if (connection.AuthKind is ToolAuthKind.None)
         {
