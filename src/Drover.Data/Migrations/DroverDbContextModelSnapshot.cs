@@ -1645,6 +1645,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<JsonElement?>("ReviewedDefinition")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("reviewed_definition");
+
                     b.Property<string>("Sensitivity")
                         .IsRequired()
                         .HasMaxLength(32)

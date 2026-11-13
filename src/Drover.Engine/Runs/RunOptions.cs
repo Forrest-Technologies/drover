@@ -19,6 +19,12 @@ public sealed class RunOptions
     /// <summary>The most model calls one run may make.</summary>
     public int StepLimit { get; set; } = 50;
 
+    /// <summary>The most characters of one tool result a model is given. A longer result is cut, and says so.</summary>
+    public int MaxToolResultCharacters { get; set; } = 100_000;
+
+    /// <summary>How long one call to a tool server may take.</summary>
+    public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromMinutes(2);
+
     /// <summary>A run taken over this many times after a lost lease fails instead of starting again.</summary>
     public int MaxAttempts { get; set; } = 3;
 

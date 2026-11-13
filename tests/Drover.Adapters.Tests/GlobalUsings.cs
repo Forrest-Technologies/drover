@@ -19,9 +19,12 @@ global using AwesomeAssertions;
 global using Drover.Adapters.Conformance;
 global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.Conformance.Secrets;
+global using Drover.Adapters.Conformance.Tools;
 global using Drover.Adapters.DataProtection;
+global using Drover.Adapters.Mcp;
 global using Drover.Adapters.OpenAICompatible;
 global using Drover.Adapters.Tests.Agents;
+global using Drover.Adapters.Tests.Mcp;
 global using Drover.Adapters.Tests.Support;
 global using Drover.Adapters.Venice;
 global using Drover.Agents;
@@ -46,18 +49,25 @@ global using Drover.Domain.Tools;
 global using Drover.Tests.Common;
 global using Microsoft.Agents.AI;
 global using Microsoft.Agents.AI.Workflows;
+global using Microsoft.AspNetCore.Builder;
+global using Microsoft.AspNetCore.Hosting;
+global using Microsoft.AspNetCore.Http;
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.AI;
 global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Http.Resilience;
+global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Logging.Abstractions;
 global using Microsoft.Extensions.Options;
+global using ModelContextProtocol.AspNetCore;
+global using ModelContextProtocol.Server;
 global using Npgsql;
 global using Polly.CircuitBreaker;
 global using Polly.Timeout;
 global using Testcontainers.PostgreSql;
 global using Xunit;
+
+// Drover.Domain.Runs.AgentSession is the stored row; in these tests the name means the framework session.
 global using AgentSession = Microsoft.Agents.AI.AgentSession;
 
 [assembly: AssemblyFixture(typeof(PostgresServer))]
-// Drover.Domain.Runs.AgentSession is the stored row; in these tests the name means the framework session.
