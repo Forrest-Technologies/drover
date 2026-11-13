@@ -1,0 +1,76 @@
+/* Model connections: one frame for each connection, saying whether it works. */
+.dv-models-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+}
+
+.dv-models-title {
+  font-size: var(--dv-text-20);
+}
+
+.dv-models-hint {
+  color: var(--dv-text-2);
+}
+
+.dv-models {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dv-model,
+.dv-model-add {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-4);
+}
+
+.dv-model-add {
+  --dv-facet-edge: var(--dv-text-3);
+  gap: var(--dv-space-4);
+}
+
+.dv-model-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+.dv-model-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  flex: 1 1 var(--dv-column-min);
+  min-width: 0;
+}
+
+.dv-model-name {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  overflow-wrap: anywhere;
+}
+
+.dv-model-text .dv-mono {
+  overflow-wrap: anywhere;
+}
+
+.dv-model-actions,
+.dv-model-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}

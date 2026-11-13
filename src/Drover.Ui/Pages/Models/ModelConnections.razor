@@ -1,0 +1,107 @@
+@page "/models"
+@layout WorkLayout
+
+<PageTitle>Model connections · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-models-header">
+        <h1 class="dv-models-title">Model connections</h1>
+        @if (CanEdit && connections is { Count: > 0 } && !adding)
+        {
+            <Button Kind="ButtonKind.Primary" OnClick="StartAdding">
+                <Icon Name="IconName.Plus" />
+                Add a model connection
+            </Button>
+        }
+    </header>
+
+    <StatusNote Kind="@(noticeIsProblem ? NoteKind.Danger : NoteKind.Ok)" Text="@notice" />
+
+    @if (adding)
+    {
+        <form class="dv-model-add dv-facet" @onsubmit="Add" aria-labelledby="dv-model-add-title">
+            <h2 class="dv-model-name" id="dv-model-add-title">Add a model connection</h2>
+            <SegmentedControl TValue="string" Label="Provider" Options="providers" Value="@kind" ValueChanged="ChooseProvider" Disabled="addingBusy" />
+            @if (kind == CompatibleKind)
+            {
+                <Field Label="Base address" Type="url" @bind-Value="baseUrl" name="base-address" autocomplete="off" required="true"
+                       Placeholder="https://" Disabled="addingBusy"
+                       Hint="Any server that speaks the chat completions API." />
+                <Field Label="Key" Type="password" @bind-Value="apiKey" name="model-key" autocomplete="off" Disabled="addingBusy"
+                       Hint="Leave this empty if the server needs no key." />
+            }
+            else
+            {
+                <Field Label="Key" Type="password" @bind-Value="apiKey" name="model-key" autocomplete="off" required="true"
+                       Disabled="addingBusy" Hint="Made in your Venice account, under API keys." />
+            }
+            <StatusNote Kind="NoteKind.Danger" Text="@addProblem" />
+            <div class="dv-model-actions">
+                <Button OnClick="() => adding = false" Disabled="addingBusy">Cancel</Button>
+                <Button Kind="ButtonKind.Primary" Type="submit" Disabled="addingBusy">@(addingBusy ? "Adding" : "Add and test")</Button>
+            </div>
+        </form>
+    }
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load the model connections" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (connections is null)
+    {
+        <p class="dv-models-hint" role="status">Loading the model connections.</p>
+    }
+    else if (connections.Count == 0 && adding)
+    {
+    }
+    else if (connections.Count == 0 && CanEdit)
+    {
+        <EmptyState Title="No model connection yet" Cause="Bots think with a model you bring. Add a connection, then choose it in a bot's Model section."
+                    ActionLabel="Add a model connection" OnAction="StartAdding" />
+    }
+    else if (connections.Count == 0)
+    {
+        <p class="dv-models-hint">This space has no model connections yet. An owner or admin of the space can add one.</p>
+    }
+    else
+    {
+        <ul class="dv-models" aria-label="Model connections">
+            @foreach (var connection in connections)
+            {
+                var status = StatusOf(connection);
+                <li class="dv-model dv-facet" @key="connection.Id">
+                    <div class="dv-model-head">
+                        <div class="dv-model-text">
+                            <h2 class="dv-model-name">@connection.Name</h2>
+                            <span class="dv-mono">@Facts(connection)</span>
+                        </div>
+                        <Badge Kind="@status.Kind">@status.Words</Badge>
+                    </div>
+                    @if (problems.TryGetValue(connection.Id, out var problem))
+                    {
+                        <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+                    }
+                    @if (CanEdit)
+                    {
+                        <div class="dv-model-actions">
+                            <Button OnClick="() => Test(connection)" Disabled="@(busy == connection.Id)">Test connection</Button>
+                            @if (replacing == connection.Id)
+                            {
+                                <form class="dv-model-key" @onsubmit="() => ReplaceKey(connection)">
+                                    <Field Label="New key" Type="password" @bind-Value="newKey" autocomplete="new-password" Disabled="@(busy == connection.Id)"
+                                           Hint="Stored encrypted. It is not shown again." />
+                                    <Button OnClick="() => replacing = null" Disabled="@(busy == connection.Id)">Cancel</Button>
+                                    <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(busy == connection.Id)">Save key</Button>
+                                </form>
+                            }
+                            else
+                            {
+                                <Button OnClick="() => StartReplacing(connection)" Disabled="@(busy == connection.Id)">Replace key</Button>
+                            }
+                        </div>
+                    }
+                </li>
+            }
+        </ul>
+    }
+</SessionGate>

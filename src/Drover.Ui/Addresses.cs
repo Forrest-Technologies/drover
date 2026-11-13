@@ -19,6 +19,8 @@ public static class Addresses
 
     public const string Bots = "/bots";
 
+    public const string Models = "/models";
+
     public const string Tools = "/tools";
 
     public const string Status = "/status";
