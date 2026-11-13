@@ -67,6 +67,7 @@ public sealed class KeptToolTokens(RunTenant tenant, Guid connectionId, Guid aud
                     await vault.Replace(credential.SecretId, tokens, cancellationToken);
                     credential.Status = CredentialStatus.Active;
                     credential.ExpiresAt = runsOutAt;
+                    credential.RenewAttemptedAt = null;
                 }
             },
             cancellationToken);

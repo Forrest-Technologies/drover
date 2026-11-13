@@ -115,16 +115,21 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     /// <summary>
     /// The sign-ins, in every space, whose access token runs out before the given moment. This crosses spaces, so
     /// it goes through <c>sys.tool_sign_ins_running_out</c>, which returns ids only: the caller then works on each
-    /// one inside that space's own tenant scope, as the person the sign-in belongs to.
+    /// one inside that space's own tenant scope, as the person the sign-in belongs to. A sign-in that was tried
+    /// and not renewed since <paramref name="notTriedSince"/> is left out, and those never tried come first.
     /// </summary>
-    public Task<List<SignInRunningOut>> ListSignInsRunningOut(DateTimeOffset before, int limit, CancellationToken cancellationToken) =>
+    public Task<List<SignInRunningOut>> ListSignInsRunningOut(DateTimeOffset before, DateTimeOffset notTriedSince, int limit, CancellationToken cancellationToken) =>
         db.Database
             .SqlQuery<SignInRunningOut>(
                 $"""
                 SELECT space_id, audience_user_id, tool_connection_id, credential_id
-                FROM sys.tool_sign_ins_running_out({before}, {limit})
+                FROM sys.tool_sign_ins_running_out({before}, {notTriedSince}, {limit})
                 """)
             .ToListAsync(cancellationToken);
+
+    /// <summary>One credential by its id, tracked, when the transaction may see it.</summary>
+    public Task<ToolConnectionCredential?> GetCredential(Guid credentialId, CancellationToken cancellationToken) =>
+        db.ToolConnectionCredentials.SingleOrDefaultAsync(credential => credential.Id == credentialId, cancellationToken);
 
     public void Add(Tool tool) => db.Tools.Add(tool);
 
