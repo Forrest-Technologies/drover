@@ -37,8 +37,26 @@
 }
 
 .dv-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
   font-size: var(--dv-text-16);
   font-weight: var(--dv-weight-heading);
+  letter-spacing: var(--dv-tracking);
+}
+
+.dv-shell-main-header {
+  background: var(--dv-bg-0);
+}
+
+.dv-shell-bot {
+  flex: none;
+}
+
+.dv-shell-bot::after {
+  content: "/";
+  margin-left: var(--dv-space-2);
+  color: var(--dv-line);
 }
 
 .dv-shell-threads {
@@ -66,17 +84,20 @@
   justify-content: center;
   gap: var(--dv-space-2);
   min-height: var(--dv-target-pointer);
-  border-radius: var(--dv-radius-control);
   color: var(--dv-text);
   font-weight: var(--dv-weight-label);
   text-decoration: none;
-  transition: background var(--dv-dur-1) var(--dv-ease);
 }
 
 .dv-shell-new {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-2);
   padding: 0 var(--dv-space-3);
-  border: var(--dv-border) solid var(--dv-text-3);
-  background: var(--dv-bg-2);
+}
+
+.dv-shell-back {
+  border-radius: var(--dv-radius-control);
 }
 
 .dv-shell-back {
@@ -85,7 +106,11 @@
   color: var(--dv-text-2);
 }
 
-.dv-shell-new:hover,
+.dv-shell-new:hover {
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-2);
+}
+
 .dv-shell-back:hover {
   background: var(--dv-bg-3);
   color: var(--dv-text);

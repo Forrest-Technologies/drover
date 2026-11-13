@@ -1,8 +1,8 @@
 namespace Drover.Ui.Theme;
 
 /// <summary>
-/// Reads and applies the theme choice. The choice is kept on the device, and the page follows the system
-/// until a person picks dark or light.
+/// Reads and applies the theme choice. The choice is kept on the device. The page is dark until a person
+/// picks light or asks to follow the device.
 /// </summary>
 public sealed class ThemeService(IJSRuntime js, ILogger<ThemeService> logger) : IAsyncDisposable
 {
@@ -16,7 +16,7 @@ public sealed class ThemeService(IJSRuntime js, ILogger<ThemeService> logger) : 
 
     #region Properties
 
-    public ThemeChoice Choice { get; private set; } = ThemeChoice.System;
+    public ThemeChoice Choice { get; private set; } = ThemeChoice.Dark;
 
     #endregion
 
@@ -25,7 +25,7 @@ public sealed class ThemeService(IJSRuntime js, ILogger<ThemeService> logger) : 
     public async Task Load()
     {
         var stored = await Call<string>("read");
-        Choice = Enum.TryParse<ThemeChoice>(stored, ignoreCase: true, out var choice) ? choice : ThemeChoice.System;
+        Choice = Enum.TryParse<ThemeChoice>(stored, ignoreCase: true, out var choice) ? choice : ThemeChoice.Dark;
     }
 
     public async Task Choose(ThemeChoice choice)

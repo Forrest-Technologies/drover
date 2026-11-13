@@ -119,6 +119,49 @@ h1[tabindex="-1"]:focus {
   color: var(--dv-text-2);
 }
 
+/* The faceted frame: two cut corners, echoing the bot heads. A component adds the class and sets the
+   three properties. The cut edges get their line from the two corner gradients. */
+.dv-facet {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-1);
+  border: var(--dv-border) solid var(--dv-facet-edge);
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, transparent calc(50% - var(--dv-border)), var(--dv-facet-edge) 0 calc(50% + var(--dv-border)), transparent 0)
+      top left / var(--dv-facet-cut) var(--dv-facet-cut) no-repeat border-box,
+    linear-gradient(135deg, transparent calc(50% - var(--dv-border)), var(--dv-facet-edge) 0 calc(50% + var(--dv-border)), transparent 0)
+      bottom right / var(--dv-facet-cut) var(--dv-facet-cut) no-repeat border-box,
+    var(--dv-facet-fill);
+  clip-path: polygon(
+    var(--dv-facet-cut) 0,
+    100% 0,
+    100% calc(100% - var(--dv-facet-cut)),
+    calc(100% - var(--dv-facet-cut)) 100%,
+    0 100%,
+    0 var(--dv-facet-cut)
+  );
+}
+
+/* A clipped element cannot show an outline, so the focus ring is drawn inside the frame. */
+.dv-facet:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--dv-focus-width) var(--dv-ember);
+}
+
+/* The yard: a dot grid behind the working area. */
+.dv-yard {
+  background-image: radial-gradient(color-mix(in oklab, var(--dv-line) 70%, transparent) var(--dv-border), transparent 0);
+  background-size: var(--dv-grid-step) var(--dv-grid-step);
+}
+
+.dv-mono {
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  font-weight: var(--dv-weight-body);
+  color: var(--dv-text-3);
+}
+
 /* Live state: a bot is thinking. A slow breath, with light. */
 .dv-state-thinking {
   color: var(--dv-ion);

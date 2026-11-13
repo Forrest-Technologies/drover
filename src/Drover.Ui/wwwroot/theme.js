@@ -1,13 +1,13 @@
-// The theme choice: "system", "dark", or "light". Kept on the device. The host page applies the stored
-// choice before first paint; this module reads it and changes it.
+// The theme choice: "dark", "light", or "system". Dark until a person chooses otherwise. Kept on the device.
+// The host page applies the stored choice before first paint; this module reads it and changes it.
 const key = "drover.theme";
 
 export function read() {
     try {
-        return localStorage.getItem(key) ?? "system";
+        return localStorage.getItem(key) ?? "dark";
     } catch {
-        // Storage can be turned off. The page then follows the system.
-        return "system";
+        // Storage can be turned off. The page is then dark.
+        return "dark";
     }
 }
 

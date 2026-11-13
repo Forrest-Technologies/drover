@@ -1,54 +1,126 @@
 .dv-avatar {
-  position: relative;
   flex: none;
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--dv-radius-full);
-  background: var(--dv-bg-2);
-  color: var(--dv-text);
-  font-weight: var(--dv-weight-heading);
+  display: inline-block;
+  line-height: 0;
 }
 
 .dv-avatar-20 {
   width: var(--dv-avatar-20);
   height: var(--dv-avatar-20);
-  font-size: var(--dv-text-12);
 }
 
 .dv-avatar-24 {
   width: var(--dv-avatar-24);
   height: var(--dv-avatar-24);
-  font-size: var(--dv-text-12);
 }
 
 .dv-avatar-32 {
   width: var(--dv-avatar-32);
   height: var(--dv-avatar-32);
-  font-size: var(--dv-text-12);
 }
 
 .dv-avatar-48 {
   width: var(--dv-avatar-48);
   height: var(--dv-avatar-48);
-  font-size: var(--dv-text-16);
 }
 
 .dv-avatar-96 {
   width: var(--dv-avatar-96);
   height: var(--dv-avatar-96);
-  font-size: var(--dv-text-28);
 }
 
-/* The identity ring. At rest it is the bot's hue; while the bot thinks it takes the live color and breathes. */
-.dv-avatar-ring {
-  position: absolute;
-  inset: 0;
-  border: var(--dv-focus-width) solid var(--dv-avatar-hue);
-  border-radius: var(--dv-radius-full);
+.dv-character {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-.dv-avatar-ring.dv-state-thinking {
-  border-color: var(--dv-ion);
+/* The head carries the bot's hue. */
+.dv-character-head {
+  fill: var(--dv-avatar-head);
+}
+
+.dv-character-top {
+  fill: color-mix(in oklab, var(--dv-avatar-head) 78%, var(--dv-visor));
+}
+
+.dv-character-mark {
+  fill: color-mix(in oklab, var(--dv-avatar-head) 40%, var(--dv-on-head));
+}
+
+/* Parts drawn as a line take their color as a stroke. They arrive as markup, so they sit outside the scope. */
+.dv-character ::deep .dv-character-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dv-character-top ::deep .dv-character-line {
+  color: color-mix(in oklab, var(--dv-avatar-head) 78%, var(--dv-visor));
+}
+
+.dv-character-mark ::deep .dv-character-line,
+.dv-character-top ::deep .dv-character-dot {
+  color: color-mix(in oklab, var(--dv-avatar-head) 40%, var(--dv-on-head));
+  fill: color-mix(in oklab, var(--dv-avatar-head) 40%, var(--dv-on-head));
+}
+
+.dv-character-mark ::deep .dv-character-line {
+  fill: none;
+}
+
+/* One lighter face, so the head reads as cut, not flat. */
+.dv-character-facet {
+  fill: var(--dv-on-head);
+  opacity: 0.08;
+}
+
+/* The visor is the state. Dark at rest. */
+.dv-character-visor {
+  fill: var(--dv-visor);
+}
+
+.dv-character-lit {
+  color: var(--dv-visor-lit);
+  fill: currentColor;
+}
+
+.dv-character-lit.dv-state-thinking {
+  color: var(--dv-visor-lit);
+}
+
+.dv-character-dim {
+  opacity: 0.45;
+}
+
+.dv-character-failed {
+  fill: var(--dv-visor-failed);
+}
+
+/* A tool is running: one bright bar crosses the visor. */
+.dv-character-sweep.dv-state-tool {
+  fill: var(--dv-on-head);
+  animation: dv-character-sweep var(--dv-dur-travel) linear infinite;
+}
+
+@keyframes dv-character-sweep {
+  from {
+    transform: translateX(-25%);
+  }
+
+  to {
+    transform: translateX(110%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-character-sweep.dv-state-tool {
+    animation: none;
+    transform: translateX(40%);
+  }
 }
 
 .dv-avatar-image {
@@ -59,49 +131,49 @@
 }
 
 .dv-hue-0 {
-  --dv-avatar-hue: var(--dv-hue-0);
+  --dv-avatar-head: var(--dv-head-0);
 }
 
 .dv-hue-1 {
-  --dv-avatar-hue: var(--dv-hue-1);
+  --dv-avatar-head: var(--dv-head-1);
 }
 
 .dv-hue-2 {
-  --dv-avatar-hue: var(--dv-hue-2);
+  --dv-avatar-head: var(--dv-head-2);
 }
 
 .dv-hue-3 {
-  --dv-avatar-hue: var(--dv-hue-3);
+  --dv-avatar-head: var(--dv-head-3);
 }
 
 .dv-hue-4 {
-  --dv-avatar-hue: var(--dv-hue-4);
+  --dv-avatar-head: var(--dv-head-4);
 }
 
 .dv-hue-5 {
-  --dv-avatar-hue: var(--dv-hue-5);
+  --dv-avatar-head: var(--dv-head-5);
 }
 
 .dv-hue-6 {
-  --dv-avatar-hue: var(--dv-hue-6);
+  --dv-avatar-head: var(--dv-head-6);
 }
 
 .dv-hue-7 {
-  --dv-avatar-hue: var(--dv-hue-7);
+  --dv-avatar-head: var(--dv-head-7);
 }
 
 .dv-hue-8 {
-  --dv-avatar-hue: var(--dv-hue-8);
+  --dv-avatar-head: var(--dv-head-8);
 }
 
 .dv-hue-9 {
-  --dv-avatar-hue: var(--dv-hue-9);
+  --dv-avatar-head: var(--dv-head-9);
 }
 
 .dv-hue-10 {
-  --dv-avatar-hue: var(--dv-hue-10);
+  --dv-avatar-head: var(--dv-head-10);
 }
 
 .dv-hue-11 {
-  --dv-avatar-hue: var(--dv-hue-11);
+  --dv-avatar-head: var(--dv-head-11);
 }
