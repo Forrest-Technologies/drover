@@ -26,25 +26,33 @@
             else
             {
                 <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
-                    <header class="dv-message-from">
-                        <Avatar Name="@BotName" Hue="BotHue" Size="32" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
-                        <span class="dv-mono" aria-hidden="true">@BotName</span>
-                        @if (message.Streaming)
-                        {
-                            <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
-                        }
-                    </header>
-                    <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
+                    <div class="dv-message-head dv-facet @(message.Streaming ? "dv-message-head-live" : null)">
+                        <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
+                    </div>
+                    <div class="dv-message-body">
+                        <header class="dv-message-from">
+                            <span class="dv-mono" aria-hidden="true">@BotName</span>
+                            @if (message.Streaming)
+                            {
+                                <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
+                            }
+                        </header>
+                        <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
+                    </div>
                 </article>
             }
         }
         @if (Thinking)
         {
             <div class="dv-message dv-message-bot">
-                <div class="dv-message-from">
-                    <Avatar Name="@BotName" Hue="BotHue" Size="32" State="AvatarState.Thinking" />
-                    <span class="dv-mono" aria-hidden="true">@BotName</span>
-                    <span class="dv-message-state dv-mono" aria-hidden="true">Thinking</span>
+                <div class="dv-message-head dv-facet dv-message-head-live">
+                    <Avatar Name="@BotName" Hue="BotHue" Size="48" State="AvatarState.Thinking" />
+                </div>
+                <div class="dv-message-body">
+                    <div class="dv-message-from">
+                        <span class="dv-mono" aria-hidden="true">@BotName</span>
+                        <span class="dv-message-state dv-mono" aria-hidden="true">Thinking</span>
+                    </div>
                 </div>
             </div>
         }

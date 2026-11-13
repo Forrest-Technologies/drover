@@ -4,7 +4,7 @@
 
 **Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a desktop or phone browser.
 
-![Drover on desktop, streaming a bot reply in a dark conversation view](docs/screenshots/issue-13/conversation-streaming-dark.png)
+![Drover on desktop, streaming a bot reply in a dark conversation view](docs/screenshots/readme/conversation-streaming-dark.png)
 
 Drover is in early development. You can run the browser app from source today. The native Android and Windows apps are on the [roadmap](ROADMAP.md).
 
@@ -23,11 +23,11 @@ Open [localhost:8080](http://localhost:8080). Create your account and connect a 
 ## A closer look
 
 <p>
-  <img src="docs/screenshots/issue-13/setup-3-meet-dark.png" alt="Drover setup introduces the first bot" width="540" />
-  <img src="docs/screenshots/issue-13/conversation-360.png" alt="A Drover conversation in a phone browser" width="190" />
+  <img src="docs/screenshots/readme/bot-editor-dark.png" alt="The bot editor: a bot's character, name, instructions, and its model, tools, memory, schedule, sandbox, and team sections" width="540" />
+  <img src="docs/screenshots/readme/conversation-phone-dark.png" alt="A Drover conversation in a phone browser, the bot's character beside each reply" width="190" />
 </p>
 
-The bot’s visor lights up as it works. The same thread fits a single column on a phone.
+Every bot is a character. Its visor lights up as it works, and it speaks from beside each reply. Make a bot yours in the editor, then choose which tools it may use. The same thread fits a single column on a phone.
 
 <details>
 <summary>Build and test with the .NET 11 SDK</summary>

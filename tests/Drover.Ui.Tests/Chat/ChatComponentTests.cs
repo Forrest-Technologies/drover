@@ -54,6 +54,18 @@ public sealed class ChatComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_bot_speaks_from_its_character_large_beside_its_words_and_the_plate_is_live_only_while_it_writes()
+    {
+        var list = RenderMessages([new("1", false, "Sample reply."), new("2", false, "Sample", Streaming: true)]);
+
+        var heads = list.FindAll(".dv-message-bot .dv-message-head");
+        heads.Should().HaveCount(2);
+        heads.Select(head => head.QuerySelector("[role=img]")!.ClassList.Contains("dv-avatar-48")).Should().Equal(true, true);
+        heads.Select(head => head.QuerySelector("[role=img]")!.GetAttribute("aria-label")).Should().Equal("Sample bot", "Sample bot, writing");
+        heads.Select(head => head.ClassList.Contains("dv-message-head-live")).Should().Equal(false, true);
+    }
+
+    [Fact]
     public void A_message_the_bot_has_not_read_yet_says_so_in_words()
     {
         var list = RenderMessages([new("1", true, "Hello"), new("2", true, "One more thing", Pending: true)]);
