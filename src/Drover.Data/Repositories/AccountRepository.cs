@@ -134,6 +134,52 @@ public sealed class AccountRepository(DroverDbContext db)
         return values.SingleOrDefault();
     }
 
+    /// <summary>
+    /// Sets a new password hash and security stamp, only while the stored hash is still
+    /// <paramref name="expectedHash"/>, and says whether it was. Touches no other column, so it cannot overwrite the sign-in counters another attempt
+    /// is changing at the same moment. One statement.
+    /// </summary>
+    public async Task<bool> ReplacePassword(
+        Guid userId,
+        string expectedHash,
+        string newHash,
+        string newStamp,
+        CancellationToken cancellationToken)
+    {
+        var replaced = await db.Database
+            .SqlQuery<int>(
+                $"""
+                UPDATE users
+                SET password_hash = {newHash}, security_stamp = {newStamp},
+                    concurrency_stamp = {Guid.NewGuid().ToString()}
+                WHERE id = {userId} AND password_hash = {expectedHash}
+                RETURNING 1 AS "Value"
+                """)
+            .ToListAsync(cancellationToken);
+        return replaced.Count > 0;
+    }
+
+    /// <summary>Sets a new password hash and stamp and lifts the lockout in both buckets. One statement.</summary>
+    public Task ResetPassword(Guid userId, string newHash, string newStamp, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"""
+            UPDATE users
+            SET password_hash = {newHash}, security_stamp = {newStamp}, concurrency_stamp = {Guid.NewGuid().ToString()},
+                access_failed_count = 0, lockout_end = NULL,
+                known_browser_access_failed_count = 0, known_browser_lockout_end = NULL
+            WHERE id = {userId}
+            """,
+            cancellationToken);
+
+    /// <summary>
+    /// Stores the same password hashed in the current format, only while the old hash is still there. The security
+    /// stamp stays, since the password did not change. One statement.
+    /// </summary>
+    public Task UpgradePasswordHash(Guid userId, string oldHash, string newHash, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"UPDATE users SET password_hash = {newHash} WHERE id = {userId} AND password_hash = {oldHash}",
+            cancellationToken);
+
     /// <summary>The signed-in user's own spaces. The user comes from the transaction.</summary>
     public Task<List<SpaceMembership>> ListMemberships(CancellationToken cancellationToken) =>
         db.Database

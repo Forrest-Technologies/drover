@@ -52,7 +52,7 @@ public sealed class HashCounter
     /// <summary>How many guesses were checked against this one stored hash, as opposed to the decoy.</summary>
     public int ChecksAgainst(string hashedPassword) => byHash.GetValueOrDefault(hashedPassword);
 
-    /// <summary>Makes the next check wait inside the hasher until released, so a test can look around.</summary>
+    /// <summary>Makes the next check or hash wait in the hasher until released, so a test can look around.</summary>
     public HashHold HoldNextCheck()
     {
         var hold = new HashHold();
@@ -77,7 +77,11 @@ public sealed class CountingPasswordHasher(HashCounter counter) : IPasswordHashe
 
     #region Interface Implementations
 
-    public string HashPassword(User user, string password) => inner.HashPassword(user, password);
+    public string HashPassword(User user, string password)
+    {
+        counter.WaitIfHeld();
+        return inner.HashPassword(user, password);
+    }
 
     public PasswordVerificationResult VerifyHashedPassword(User user, string hashedPassword, string providedPassword)
     {

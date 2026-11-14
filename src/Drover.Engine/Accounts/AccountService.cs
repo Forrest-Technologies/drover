@@ -15,14 +15,6 @@ public sealed class AccountService(
     IOptions<IdentityOptions> identity,
     TimeProvider time)
 {
-    #region Private Fields
-
-    // Checked against when the email is unknown, so that a refusal takes about as long either way.
-    private static readonly Lazy<string> decoyHash =
-        new(() => new PasswordHasher<User>().HashPassword(new User(), Guid.NewGuid().ToString("N")));
-
-    #endregion
-
     #region Public Methods
 
     public async Task<bool> IsSetupOpen(CancellationToken cancellationToken)
@@ -126,7 +118,7 @@ public sealed class AccountService(
         var mayCheck = user?.PasswordHash is not null && attempt <= lockout.MaxFailedAccessAttempts;
         var verdict = hasher.VerifyHashedPassword(
             user ?? new User(),
-            mayCheck ? user!.PasswordHash! : decoyHash.Value,
+            mayCheck ? user!.PasswordHash! : DecoyPassword.Hash,
             password);
 
         if (!mayCheck || verdict is PasswordVerificationResult.Failed)
@@ -146,7 +138,18 @@ public sealed class AccountService(
         var accepted = await InOwnTransaction(
             () => accounts.RecordRightPassword(userId, knownBrowser, time.GetUtcNow(), cancellationToken),
             cancellationToken);
-        return accepted ? Accepted(user!) : CredentialResult.Refused;
+
+        if (!accepted)
+        {
+            return CredentialResult.Refused;
+        }
+
+        if (verdict is PasswordVerificationResult.SuccessRehashNeeded)
+        {
+            await UpgradeHash(user!, password, cancellationToken);
+        }
+
+        return Accepted(user!);
     }
 
     /// <summary>The user's current security stamp, or null when the user no longer exists. Runs with only the user set.</summary>
@@ -234,6 +237,15 @@ public sealed class AccountService(
         await using var work = await scope.Begin(cancellationToken);
         await statement();
         await work.Commit(cancellationToken);
+    }
+
+    /// <summary>Stores the right password in the current format: hashed outside any transaction, then one write.</summary>
+    private async Task UpgradeHash(User user, string password, CancellationToken cancellationToken)
+    {
+        var upgraded = hasher.HashPassword(user, password);
+        await InOwnTransaction(
+            () => accounts.UpgradePasswordHash(user.Id, user.PasswordHash!, upgraded, cancellationToken),
+            cancellationToken);
     }
 
     private static CredentialResult Accepted(User user) =>

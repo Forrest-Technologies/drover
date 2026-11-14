@@ -297,6 +297,108 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     }
 
     [Fact]
+    public async Task Twenty_wrong_current_passwords_at_once_on_one_session_never_fail_with_500_and_are_bounded()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        var hash = await PasswordHashOf(person.UserId);
+        var afterSignIn = Hashes.ChecksAgainst(hash);
+        List<ApiClient> copies = [.. Enumerable.Range(0, 20).Select(_ => NewClient())];
+
+        foreach (var copy in copies)
+        {
+            copy.TakeCookiesOf(laptop);
+        }
+
+        var statuses = await Task.WhenAll(copies.Select(async copy =>
+            (await copy.Post("/api/account/password", new ChangePasswordRequest("not-the-password-1", NewPassword())))
+                .StatusCode));
+
+        statuses.Should().OnlyContain(status =>
+            status == HttpStatusCode.BadRequest || status == HttpStatusCode.Unauthorized);
+        (Hashes.ChecksAgainst(hash) - afterSignIn).Should().BeLessThanOrEqualTo(5);
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_password_change_leaves_the_sign_in_counters_alone()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        var replacement = NewPassword();
+        (await laptop.Post("/api/account/password", new ChangePasswordRequest(person.Password, replacement)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        for (var attempt = 3; attempt < 5; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        (await NewClient("198.51.100.9").SignIn(person.Email, replacement))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_password_change_holds_no_transaction_while_it_checks_the_current_password()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+
+        using var hold = Hashes.HoldNextCheck();
+        var changing = laptop.Post("/api/account/password", new ChangePasswordRequest(person.Password, NewPassword()));
+        await hold.Entered.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        await Task.Delay(400, Token);
+        var longest = await LongestOpenTransaction();
+        hold.Dispose();
+
+        (await changing).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        longest.Should().BeLessThan(TimeSpan.FromMilliseconds(300));
+    }
+
+    [Fact]
+    public async Task A_reset_hashes_the_new_password_with_no_transaction_open()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+        var client = NewClient();
+        (await client.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+
+        using var hold = Hashes.HoldNextCheck();
+        var resetting = Redeem(client, person.Email, code);
+        await hold.Entered.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        await Task.Delay(400, Token);
+        var longest = await LongestOpenTransaction();
+        hold.Dispose();
+
+        (await resetting).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        longest.Should().BeLessThan(TimeSpan.FromMilliseconds(300));
+    }
+
+    [Fact]
+    public async Task Signing_in_upgrades_a_stored_hash_that_needs_rehashing()
+    {
+        var person = await SeedPerson("alice");
+        var oldFormat = new PasswordHasher<User>(Options.Create(
+            new PasswordHasherOptions { CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV2 }));
+        await SetPasswordHash(person.UserId, oldFormat.HashPassword(new User(), person.Password));
+
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        Convert.FromBase64String(await PasswordHashOf(person.UserId))[0]
+            .Should().Be(0x01, "the hash is now the current format");
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Redeeming_a_code_lifts_a_lockout()
     {
         var person = await SeedPerson("alice");
@@ -380,6 +482,41 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
                 .Select(entry => entry.Text[(entry.Text.IndexOf('\n', StringComparison.Ordinal) + 1)..])
                 .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
         ];
+    }
+
+    private async Task<string> PasswordHashOf(Guid userId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().SetUser(userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<User>>().FindByIdAsync(userId.ToString());
+        await work.Commit(Token);
+        return user!.PasswordHash!;
+    }
+
+    private async Task SetPasswordHash(Guid userId, string hash)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().SetUser(userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        await scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database
+            .ExecuteSqlAsync($"UPDATE users SET password_hash = {hash} WHERE id = {userId}", Token);
+        await work.Commit(Token);
+    }
+
+    /// <summary>The age of the oldest transaction another connection to this test's database has open now.</summary>
+    private async Task<TimeSpan> LongestOpenTransaction()
+    {
+        await using var connection = new NpgsqlConnection(AppConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT coalesce(max(extract(epoch FROM clock_timestamp() - xact_start)), 0)::float8
+            FROM pg_stat_activity
+            WHERE datname = current_database() AND pid <> pg_backend_pid() AND xact_start IS NOT NULL
+            """,
+            connection);
+        return TimeSpan.FromSeconds((double)(await command.ExecuteScalarAsync(Token))!);
     }
 
     private static Task<HttpResponseMessage> Redeem(ApiClient client, string email, string code) =>

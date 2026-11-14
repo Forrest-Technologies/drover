@@ -19,8 +19,11 @@ public sealed class SessionRepository(DroverDbContext db)
             .Where(session => session.Id == sessionId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(session => session.LastSeenAt, now), cancellationToken) > 0;
 
-    /// <summary>Counts one more wrong current password from the session; the new count, or 0 when it is gone.</summary>
-    public async Task<int> CountFailedPasswordChange(Guid sessionId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Takes one numbered password-change attempt for the session in a single statement and returns its number, or 0
+    /// when the session is gone. Attempts at the same moment each get their own number.
+    /// </summary>
+    public async Task<int> TakePasswordChangeAttempt(Guid sessionId, CancellationToken cancellationToken)
     {
         var counts = await db.Database
             .SqlQuery<int>(
