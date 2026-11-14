@@ -40,7 +40,8 @@
             });
         });
 
-        workers.register("service-worker.js").then(registration => {
+        // The worker's list of files is asked of the server each time too, never taken from the browser's cache.
+        workers.register("service-worker.js", { updateViaCache: "none" }).then(registration => {
             // A tab left open is asked again each time the person comes back to it.
             document.addEventListener("visibilitychange", () => {
                 if (document.visibilityState === "visible") {
