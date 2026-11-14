@@ -147,7 +147,7 @@ plain decimal form (`010.0.0.0/8`), and says why.
 
 Drover believes one proxy: the one that reaches it. If another proxy sits in front of the platform's, such as a content
 network, Drover sees the outer proxy's address as the client. Every person then shares one sign-in allowance (by default
-10 failed attempts a minute), so anyone failing to sign in can keep everyone else, the owner included, from signing in.
+10 sign-in attempts a minute), so anyone making attempts can keep everyone else, the owner included, from signing in.
 This is not supported yet. Until it is, let people reach the platform's proxy directly, with nothing in front of it.
 
 
