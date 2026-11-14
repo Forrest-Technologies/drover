@@ -34,6 +34,10 @@ public static class SandboxServiceExtensions
             options.DesktopTemplate = section["DesktopTemplate"] is { Length: > 0 } desktop ? desktop : options.DesktopTemplate;
         });
         services.AddSandboxTools();
+
+        // Retired sandboxes and interrupted creations are cleared up whether or not their bot is used again.
+        services.AddSingleton<SandboxSweep>();
+        services.AddHostedService<SandboxSweeper>();
         return services;
     }
 

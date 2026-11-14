@@ -45,6 +45,21 @@ public sealed class SandboxRepository(DroverDbContext db)
         db.Sandboxes.AnyAsync(sandbox => sandbox.OwnerBotId == ownerBotId && sandbox.State == SandboxState.Retiring, cancellationToken);
 
     /// <summary>
+    /// The sandboxes, in every space, that the sweep must act on: retiring ones that are due, or that may still be
+    /// running, and ones left creating since before <paramref name="stuckBefore"/>. This crosses spaces, so it goes
+    /// through <c>sys.sandboxes_to_sweep</c>, which returns ids only: the caller then handles each one inside that
+    /// space's own tenant scope.
+    /// </summary>
+    public Task<List<SandboxToSweep>> ListToSweep(DateTimeOffset now, DateTimeOffset stuckBefore, int limit, CancellationToken cancellationToken) =>
+        db.Database
+            .SqlQuery<SandboxToSweep>(
+                $"""
+                SELECT space_id, sandbox_id
+                FROM sys.sandboxes_to_sweep({now}, {stuckBefore}, {limit})
+                """)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
     /// True when a save failed because the owner already has a live sandbox, added by another call at the same time.
     /// The transaction is lost, so the caller starts a new one and reads that row.
     /// </summary>

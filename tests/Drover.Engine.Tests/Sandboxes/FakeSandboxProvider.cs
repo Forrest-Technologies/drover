@@ -33,6 +33,14 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     public ConcurrentQueue<NetworkPolicy> NetworksSet { get; } = new();
 
+    /// <summary>Every handle a pause or a destroy was asked with, in order.</summary>
+    public ConcurrentQueue<SandboxHandle> Pauses { get; } = new();
+
+    public ConcurrentQueue<SandboxHandle> Destroys { get; } = new();
+
+    /// <summary>The provider ids whose destruction fails, as when the provider is down.</summary>
+    public ConcurrentDictionary<string, bool> FailingDestroys { get; } = new(StringComparer.Ordinal);
+
     /// <summary>When set, resuming issues a new token, as a provider may.</summary>
     public bool NewTokenOnResume { get; set; }
 
@@ -104,6 +112,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     public Task Pause(SandboxHandle sandbox, CancellationToken cancellationToken)
     {
+        Pauses.Enqueue(sandbox);
         Check(sandbox).State = ProviderSandboxState.Paused;
         return Task.CompletedTask;
     }
@@ -124,6 +133,13 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     public Task Destroy(SandboxHandle sandbox, CancellationToken cancellationToken)
     {
+        Destroys.Enqueue(sandbox);
+
+        if (FailingDestroys.ContainsKey(sandbox.ProviderSandboxId))
+        {
+            throw new SandboxProviderException(SandboxFailure.Unavailable, "The provider is not available.");
+        }
+
         if (sandboxes.TryGetValue(sandbox.ProviderSandboxId, out var found))
         {
             found.State = ProviderSandboxState.Gone;

@@ -110,11 +110,25 @@ public sealed class SandboxKeySettingTests
         services.GetServices<ISandboxProvider>().Should().ContainSingle();
     }
 
+    [Fact]
+    public void The_sandbox_sweep_runs_only_on_a_server_with_a_provider()
+    {
+        RegistersSweeper([]).Should().BeFalse("with no provider there is nothing to clear up");
+        RegistersSweeper(new() { [SandboxServiceExtensions.KeySetting] = NewKey() }).Should().BeTrue();
+    }
+
     public static string NewKey() => $"e2b_{Convert.ToHexString(RandomNumberGenerator.GetBytes(20)).ToLowerInvariant()}";
 
     #endregion
 
     #region Private Methods
+
+    private static bool RegistersSweeper(Dictionary<string, string?> settings)
+    {
+        var services = new ServiceCollection();
+        services.AddDroverSandboxes(new ConfigurationBuilder().AddInMemoryCollection(settings).Build(), DeploymentPolicy.SelfHosted);
+        return services.Any(service => service.ServiceType == typeof(IHostedService) && service.ImplementationType == typeof(SandboxSweeper));
+    }
 
     private static ServiceProvider Build(Dictionary<string, string?> settings, DeploymentPolicy? policy = null)
     {
@@ -200,6 +214,28 @@ public abstract class SandboxServerTests(PostgresServer postgres, string preset)
         }
     }
 
+    [Fact]
+    public async Task The_sandbox_sweep_runs_when_the_server_starts()
+    {
+        Services.GetServices<IHostedService>().OfType<SandboxSweeper>().Should().ContainSingle();
+        var watch = Stopwatch.StartNew();
+
+        while (await SweepsLogged(AdminConnectionString) == 0)
+        {
+            (watch.Elapsed < TimeSpan.FromSeconds(30)).Should().BeTrue("the first pass runs as the server starts");
+            await Task.Delay(100, Token);
+        }
+    }
+
+    /// <summary>How many times the sweep's function was called, from its own audit rows.</summary>
+    public static async Task<long> SweepsLogged(string adminConnectionString)
+    {
+        await using var connection = new NpgsqlConnection(adminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM sys.audit WHERE function_name = 'sandboxes_to_sweep'", connection);
+        return (long)(await command.ExecuteScalarAsync(Token))!;
+    }
+
     #endregion
 }
 
@@ -224,6 +260,8 @@ public sealed class NoSandboxServerTests(PostgresServer postgres) : ServerTestBa
         var options = (await (await client.Get($"/api/spaces/{spaceId}/bots/{Guid.CreateVersion7()}/sandbox/options")).Content.ReadFromJsonAsync<BotSandboxOptions>(Token))!;
 
         Services.GetServices<ISandboxProvider>().Should().BeEmpty();
+        Services.GetServices<IHostedService>().OfType<SandboxSweeper>().Should().BeEmpty();
+        (await SandboxServerTests.SweepsLogged(AdminConnectionString)).Should().Be(0);
         status.Rows.Should().ContainSingle(row => row.Name == "Sandboxes").Which.State.Should().Be("off");
         options.Available.Should().BeFalse();
     }

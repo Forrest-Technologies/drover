@@ -661,7 +661,7 @@ public sealed class SandboxBroker(
                 }
 
                 row.ProviderSandboxId = created.ProviderSandboxId;
-                row.State = SandboxState.Running;
+                MarkRunning(row);
             },
             CancellationToken.None);
         appliedNetworks[target.Row.Id] = network;
@@ -763,7 +763,7 @@ public sealed class SandboxBroker(
             {
                 if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is { } row)
                 {
-                    row.State = SandboxState.Running;
+                    MarkRunning(row);
                     row.LastUsedAt = now;
                     row.ExpiresAt = now + lease.Idle;
                 }
@@ -819,6 +819,27 @@ public sealed class SandboxBroker(
     #region Private Methods
 
     private static InvalidOperationException MadeSandboxMissing() => new("A sandbox that may be made is always found.");
+
+    /// <summary>
+    /// Marks the row running, unless it was taken out of use while the call ran: its bot removed, or the sweep's
+    /// cleanup. Such a row stays retiring, so the sweep pauses and destroys what the call made or used. One already
+    /// destroyed becomes retiring again, due now, because a sandbox made after that holds an id the sweep must clear.
+    /// </summary>
+    private void MarkRunning(Sandbox row)
+    {
+        switch (row.State)
+        {
+            case SandboxState.Retiring:
+                return;
+            case SandboxState.Destroyed:
+                row.State = SandboxState.Retiring;
+                row.RetireAfter = time.GetUtcNow();
+                return;
+            default:
+                row.State = SandboxState.Running;
+                return;
+        }
+    }
 
     private static bool SameNetwork(NetworkPolicy left, NetworkPolicy right) =>
         left.Access == right.Access && left.AllowedHosts.SequenceEqual(right.AllowedHosts, StringComparer.Ordinal);

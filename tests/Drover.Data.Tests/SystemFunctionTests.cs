@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "sandboxes_to_sweep", "purge_expired", "health"];
 
     #endregion
 
@@ -251,6 +251,49 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Sandboxes To Sweep
+
+    [Fact]
+    public async Task Sandboxes_to_sweep_are_the_due_retiring_ones_those_that_may_still_run_and_creations_left_behind_in_every_space_as_ids()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        var inA = await SaveSandboxes(provider, world.SpaceA, world.UserA1, now,
+        [
+            (SandboxState.Retiring, now.AddMinutes(-1), null, null),
+            (SandboxState.Retiring, now.AddDays(7), now.AddMinutes(10), null),
+            (SandboxState.Retiring, now.AddDays(7), now.AddMinutes(-10), null),
+            (SandboxState.Retiring, now.AddDays(7), null, null),
+            (SandboxState.Creating, null, null, now.AddMinutes(-20)),
+            (SandboxState.Creating, null, null, now.AddMinutes(-1)),
+            (SandboxState.Running, now.AddMinutes(-30), now.AddMinutes(10), now.AddMinutes(-30)),
+            (SandboxState.Paused, null, null, now.AddMinutes(-30)),
+            (SandboxState.Destroyed, now.AddMinutes(-30), null, now.AddMinutes(-30)),
+        ]);
+        var inB = await SaveSandboxes(provider, world.SpaceB, world.UserB1, now, [(SandboxState.Retiring, now.AddSeconds(-1), null, null)]);
+        var randomCreating = await SaveSandboxes(provider, world.SpaceB, world.UserB1, now, [(SandboxState.Creating, null, null, null)], randomIds: true);
+        const string Sql = "SELECT space_id, sandbox_id FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)";
+        (string, object?)[] at = [("now", now.UtcDateTime), ("stuck", now.AddMinutes(-10).UtcDateTime)];
+
+        var found = await Query(scratch.AppConnectionString, Sql, [.. at, ("limit", 10)]);
+        var two = await Query(scratch.AppConnectionString, Sql, [.. at, ("limit", 2)]);
+        var shape = await Query(scratch.AppConnectionString, "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", [.. at, ("limit", 1)]);
+        var inATransaction = await QueryAs(scratch.AppConnectionString, world.UserA1, Sql, [.. at, ("limit", 10)]);
+
+        found.Select(row => ((Guid)row[0]!, (Guid)row[1]!)).Should().BeEquivalentTo(
+            [(world.SpaceA, inA[0]), (world.SpaceA, inA[1]), (world.SpaceA, inA[4]), (world.SpaceB, inB[0])],
+            "the due one, the one that may still run, the creation left twenty minutes ago, and another space's due one; "
+            + "not one already paused, one with no known end, a fresh creation, a live or destroyed one, or a creating row whose id holds no time");
+        randomCreating.Should().ContainSingle();
+        two.Should().HaveCount(2);
+        shape.Single().Should().HaveCount(2, "ids only: nothing that leads to a token or a provider's sandbox");
+        inATransaction.Should().HaveCount(4, "a tenant transaction gets the same answer: the function is the only way across spaces");
+    }
+
+    #endregion
+
     #region Cleanup And Health
 
     [Fact]
@@ -324,6 +367,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
+            ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
             ("applied_migration", "SELECT sys.applied_migration()", 1, []),
@@ -418,7 +462,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("memberships", "SELECT", "space_id user_id role"),
             .. Columns("spaces", "SELECT", "id kind name slug"),
             .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
-            .. Columns("sandboxes", "SELECT", "id space_id state"),
+            .. Columns("sandboxes", "SELECT", "id space_id state retire_after expires_at"),
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
@@ -646,6 +690,39 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             SandboxId = sandboxes[2].Id,
         });
         await session.Commit();
+    }
+
+    /// <summary>
+    /// One bot per sandbox, each saved as the given person: state, when it may be destroyed, when it pauses on its own,
+    /// and when it was made, which a version 7 id carries. <paramref name="randomIds"/> gives version 4 ids instead.
+    /// </summary>
+    private static async Task<List<Guid>> SaveSandboxes(
+        IServiceProvider provider,
+        Guid spaceId,
+        Guid userId,
+        DateTimeOffset now,
+        (SandboxState State, DateTimeOffset? RetireAfter, DateTimeOffset? ExpiresAt, DateTimeOffset? MadeAt)[] rows,
+        bool randomIds = false)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+        var model = CoreRows.NewConnection();
+        session.Db.ModelConnections.Add(model);
+        List<Guid> ids = [];
+
+        foreach (var (state, retireAfter, expiresAt, madeAt) in rows)
+        {
+            var bot = CoreRows.NewBot(model);
+            CoreRows.AddBot(session.Db, bot, []);
+            var sandbox = NewSandbox(bot, state);
+            sandbox.Id = randomIds ? Guid.NewGuid() : Guid.CreateVersion7(madeAt ?? now);
+            sandbox.RetireAfter = retireAfter;
+            sandbox.ExpiresAt = expiresAt;
+            session.Db.Sandboxes.Add(sandbox);
+            ids.Add(sandbox.Id);
+        }
+
+        await session.Commit();
+        return ids;
     }
 
     private static Sandbox NewSandbox(Bot bot, SandboxState state) => new()

@@ -210,6 +210,13 @@ public sealed class BotService(
         {
             // A share that outlived its bot would name a bot no edit can keep, and make the other bot unsaveable.
             await bots.RemoveSandboxSharesOf(id, cancellationToken);
+
+            // Its own sandbox is retired, not destroyed: kept, paused, for the retention period so a person can still
+            // recover its files. The server's sweep pauses it at the provider and destroys it when that is over.
+            if (await sandboxes.RetireLiveForOwner(id, time.GetUtcNow() + SandboxSweep.Retention, cancellationToken))
+            {
+                logger.LogInformation("Bot {BotId} was removed; its sandbox is retired", id);
+            }
         }
 
         return change;
