@@ -20,7 +20,8 @@ public static class DeploymentPolicyExtensions
             .WithoutMigrationCredential()
             .WithEnforcedAuditRetention()
             .WithGuaranteedDataRights()
-            .WithServerStatusForTheOperatorOnly();
+            .WithServerStatusForTheOperatorOnly()
+            .WithoutWrittenRulePatterns();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -76,6 +77,9 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithServerStatusForTheOperatorOnly(this DeploymentPolicy policy) =>
         policy with { SpaceAdminsSeeServerStatus = false };
+
+    public static DeploymentPolicy WithoutWrittenRulePatterns(this DeploymentPolicy policy) =>
+        policy with { AllowWrittenRulePatterns = false };
 
     #endregion
 }

@@ -5,9 +5,10 @@ namespace Drover.Domain.Rules;
 /// one budget of its evaluation (a unit is a character examined, a piece or an element looked at, an entry
 /// compared, or a match kept), so the same input gets the same answer on a busy server and an idle one. There is
 /// no way to search text without a budget. When the budget is spent, what is still to be decided could not be
-/// checked, and a rule that could not be checked applies. One cost cannot be counted: what a written pattern does
-/// inside the expression engine. For that a clock runs, and the clock is its only bound, so a rule with a written
-/// pattern can get a different answer on a busy server: the stricter one.
+/// checked, and a rule that could not be checked applies. One cost cannot be counted, and nothing here bounds it:
+/// what a written pattern does inside the expression engine during one match. The clock is read between matches
+/// only, and the engine's own match timeout is not looked at while it builds states. That is why no preset runs
+/// written patterns (<see cref="RulePatterns"/>). A match that does fail part way ends the budget.
 /// </summary>
 public sealed class RuleBudget(long work, TimeSpan backstop)
 {
@@ -72,6 +73,17 @@ public sealed class RuleBudget(long work, TimeSpan backstop)
 
         Spent += units;
         return true;
+    }
+
+    /// <summary>
+    /// Ends the budget because a search failed part way (it ran out of its own time, or of memory). What failed is
+    /// said so the caller can report it; from here on nothing more is checked, so nothing that follows can come
+    /// out differently from one run to the next.
+    /// </summary>
+    public Exception Fail(Exception failure)
+    {
+        spent = true;
+        return failure;
     }
 
     /// <summary>

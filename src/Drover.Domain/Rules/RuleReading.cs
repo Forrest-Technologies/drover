@@ -92,6 +92,9 @@ internal sealed class RuleReading
 {
     #region Private Fields
 
+    // Characters compared before the budget is asked again, so asking is not itself the work.
+    private const int ComparedAtOnce = 4096;
+
     private readonly Dictionary<string, RuleSearch> searches = [];
 
     private int characters;
@@ -225,20 +228,9 @@ internal sealed class RuleReading
 
                 foreach (var entry in entries)
                 {
-                    // Each thing looked for is one reading of the text.
-                    if (!Budget.TrySpend(text.Plain.Length))
+                    if (!FindEntry(entry, text.Folded, places))
                     {
                         return null;
-                    }
-
-                    for (var at = text.Plain.IndexOf(entry, StringComparison.OrdinalIgnoreCase); at >= 0; at = text.Plain.IndexOf(entry, at + entry.Length, StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!Budget.TryKeep())
-                        {
-                            return null;
-                        }
-
-                        places.Add((at, entry.Length));
                     }
                 }
 
@@ -246,13 +238,67 @@ internal sealed class RuleReading
         }
     }
 
-    // What a "contains" condition looks for, in its plain form and each thing once, or null when the budget could
+    // Every place one thing looked for stands in a text, both with their letters in capitals. The work is counted
+    // as it is done: one reading of the text to find where the thing could begin, and at each such place every
+    // character compared until one differs. An entry that almost matches everywhere is as much work as it costs.
+    // False when the budget could not pay.
+    private bool FindEntry(string entry, string text, List<(int, int)> places)
+    {
+        if (!Budget.TrySpend(text.Length))
+        {
+            return false;
+        }
+
+        long compared = 0;
+
+        for (var at = 0; at <= text.Length - entry.Length;)
+        {
+            var next = text.AsSpan(at).IndexOf(entry[0]);
+
+            if (next < 0)
+            {
+                break;
+            }
+
+            at += next;
+            var same = text.AsSpan(at).CommonPrefixLength(entry);
+            compared += same;
+
+            if (compared >= ComparedAtOnce)
+            {
+                if (!Budget.TrySpend(compared))
+                {
+                    return false;
+                }
+
+                compared = 0;
+            }
+
+            if (same < entry.Length)
+            {
+                at++;
+                continue;
+            }
+
+            if (!Budget.TryKeep())
+            {
+                return false;
+            }
+
+            places.Add((at, entry.Length));
+            at += entry.Length;
+        }
+
+        return Budget.TrySpend(compared);
+    }
+
+    // What a "contains" condition looks for, in its plain form with its letters in capitals and each thing once, or null when the budget could
     // not pay for reading it. A rule is refused at save when two of its entries read the same; one saved before
     // that was checked is still searched for each thing once.
     private List<string>? ReadEntries(RuleCondition condition)
     {
         List<string> entries = [];
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var entry in condition.Entries)
         {
@@ -261,9 +307,9 @@ internal sealed class RuleReading
                 return null;
             }
 
-            if (read.Plain.Length > 0 && seen.Add(read.Plain))
+            if (read.Plain.Length > 0 && seen.Add(read.Folded))
             {
-                entries.Add(read.Plain);
+                entries.Add(read.Folded);
             }
         }
 

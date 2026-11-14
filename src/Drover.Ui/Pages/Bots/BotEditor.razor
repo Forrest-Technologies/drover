@@ -84,7 +84,7 @@
                                   OnToolsChanged="changed => tools = changed" />
                 </Disclosure>
                 <Disclosure Title="Rules" Summary="@RuleWords.Summary(rules)" Open="@IsOpen(Rules)" OpenChanged="open => Toggle(Rules, open)">
-                    <RulesSection SpaceId="SpaceId" BotId="BotId" Rules="rules" Tools="tools" OnRulesChanged="changed => rules = changed" />
+                    <RulesSection SpaceId="SpaceId" BotId="BotId" Rules="rules" Tools="tools" WrittenPatterns="writtenPatterns" OnRulesChanged="changed => rules = changed" />
                 </Disclosure>
                 <Disclosure Title="Memory" Summary="@BotSummaries.Memory(draft)" Open="@IsOpen(Memory)" OpenChanged="open => Toggle(Memory, open)">
                     <MemorySection Draft="draft" OnChanged="Changed" />

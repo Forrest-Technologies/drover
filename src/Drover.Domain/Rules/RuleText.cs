@@ -21,6 +21,8 @@ public sealed class RuleText
 
     private readonly int[] ends;
 
+    private string? folded;
+
     #endregion
 
     #region Constructors
@@ -80,6 +82,12 @@ public sealed class RuleText
 
     /// <summary>The text as it is compared.</summary>
     public string Plain { get; }
+
+    /// <summary>
+    /// The plain form with every letter in its capital, character for character, so that text is found without
+    /// regard to case by comparing characters as they are. Worked out once.
+    /// </summary>
+    public string Folded => folded ??= Plain.ToUpperInvariant();
 
     /// <summary>Whether the text is its own plain form: nothing unseen in it, and no character in another form.</summary>
     public bool IsAsWritten => ReferenceEquals(Plain, Original) || string.Equals(Plain, Original, StringComparison.Ordinal);

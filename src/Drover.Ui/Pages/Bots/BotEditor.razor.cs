@@ -47,6 +47,8 @@ public sealed partial class BotEditor(
 
     private IReadOnlyList<BotRuleResponse>? rules;
 
+    private bool writtenPatterns = true;
+
     private IReadOnlyList<BotSummary> otherBots = [];
 
     private Guid? shownBotId;
@@ -157,6 +159,7 @@ public sealed partial class BotEditor(
             toolConnections = await api.ListToolConnections(SpaceId);
             tools = await api.ListBotTools(SpaceId, BotId);
             schedules = await api.ListBotSchedules(SpaceId, BotId);
+            writtenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
             rules = await api.ListBotRules(SpaceId, BotId);
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
