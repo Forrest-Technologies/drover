@@ -19,6 +19,16 @@ public sealed class HardeningTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task A_response_over_HTTPS_pins_the_name_to_HTTPS_and_one_over_plain_HTTP_does_not()
+    {
+        var secure = await NewClient().Get("/api/setup");
+        var plain = await NewClient(scheme: "http").Get("/api/setup");
+
+        secure.Headers.GetValues("Strict-Transport-Security").Should().ContainSingle("max-age=15552000");
+        plain.Headers.Contains("Strict-Transport-Security").Should().BeFalse();
+    }
+
+    [Fact]
     public async Task The_api_is_described_by_an_OpenAPI_document()
     {
         var response = await NewClient().Get("/openapi/v1.json");
