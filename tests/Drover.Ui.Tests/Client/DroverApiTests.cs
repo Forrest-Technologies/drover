@@ -79,5 +79,60 @@ public sealed class DroverApiTests : IDisposable
         tested.Message.Should().Be("Connected.");
     }
 
+    [Fact]
+    public async Task The_sandbox_controls_go_to_the_bots_sandbox_and_every_post_carries_the_antiforgery_token()
+    {
+        var spaceId = Guid.NewGuid();
+        var botId = Guid.NewGuid();
+        var sandbox = $"/api/spaces/{spaceId}/bots/{botId}/sandbox";
+        var running = new BotSandboxStatus(true, true, "running", null, Desktop: true, BotWorking: false);
+        var token = Xunit.TestContext.Current.CancellationToken;
+        byte[] png = [0x89, 0x50, 0x4E, 0x47];
+        server.Answer("GET", sandbox, running);
+        server.Answer("POST", $"{sandbox}/pause", running with { State = "paused" });
+        server.Answer("POST", $"{sandbox}/resume", running);
+        server.Answer("POST", $"{sandbox}/rebuild", running);
+        server.Answer("POST", $"{sandbox}/turn-off", running with { State = "none" });
+        server.AnswerBytes("POST", $"{sandbox}/screen", png, "image/png");
+        server.Answer("POST", $"{sandbox}/input", HttpStatusCode.NoContent);
+        server.Answer("POST", $"{sandbox}/commands", new SandboxCommandResponse(0, "ok\n", string.Empty, false, false, false));
+        var api = server.CreateApi();
+        api.AntiforgeryToken = "sample-antiforgery-token";
+
+        (await api.GetBotSandbox(spaceId, botId, token)).State.Should().Be("running");
+        (await api.PauseBotSandbox(spaceId, botId, token)).State.Should().Be("paused");
+        (await api.ResumeBotSandbox(spaceId, botId, token)).State.Should().Be("running");
+        (await api.RebuildBotSandbox(spaceId, botId, token)).State.Should().Be("running");
+        (await api.TurnOffBotSandbox(spaceId, botId, token)).State.Should().Be("none");
+        (await api.GetBotSandboxScreen(spaceId, botId, token)).Should().Equal(png);
+        await api.SendBotSandboxInput(spaceId, botId, new SandboxInputRequest("key", Keys: ["enter"]), token);
+        (await api.RunBotSandboxCommand(spaceId, botId, "echo ok", token)).Stdout.Should().Be("ok\n");
+
+        server.Requests.Select(request => $"{request.Method} {request.Path}").Should().Equal(
+            $"GET {sandbox}",
+            $"POST {sandbox}/pause",
+            $"POST {sandbox}/resume",
+            $"POST {sandbox}/rebuild",
+            $"POST {sandbox}/turn-off",
+            $"POST {sandbox}/screen",
+            $"POST {sandbox}/input",
+            $"POST {sandbox}/commands");
+        server.AntiforgeryTokens.Skip(1).Should().AllBe("sample-antiforgery-token");
+        JsonElement.Parse(server.Requests[6].Body).GetProperty("keys")[0].GetString().Should().Be("enter");
+        JsonElement.Parse(server.Requests[7].Body).GetProperty("command").GetString().Should().Be("echo ok");
+    }
+
+    [Fact]
+    public async Task A_refused_screen_carries_the_servers_own_sentence()
+    {
+        var spaceId = Guid.NewGuid();
+        var botId = Guid.NewGuid();
+        server.Refuse("POST", $"/api/spaces/{spaceId}/bots/{botId}/sandbox/screen", HttpStatusCode.Conflict, "This bot's sandbox has no screen.");
+
+        var screen = () => server.CreateApi().GetBotSandboxScreen(spaceId, botId, Xunit.TestContext.Current.CancellationToken);
+
+        (await screen.Should().ThrowAsync<DroverApiException>()).Which.Message.Should().Be("This bot's sandbox has no screen.");
+    }
+
     #endregion
 }

@@ -33,6 +33,9 @@ public static class Addresses
 
     public static string Bot(Guid botId) => $"/bots/{botId}";
 
+    /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
+    public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";
+
     /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
     public static string ToolSignIn(string outcome, string? connectionId) =>
         connectionId is null ? $"/tools?sign-in={outcome}" : $"/tools?sign-in={outcome}&connection={connectionId}";

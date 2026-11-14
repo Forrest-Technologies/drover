@@ -76,10 +76,25 @@ public static class BotSummaries
         return next is { } moment ? $"{count} · next {ScheduleWords.Moment(moment)}" : $"{count} · off";
     }
 
-    public static string Sandbox(BotDraft draft) =>
-        draft.SandboxPolicy is "none"
-            ? "No sandbox"
-            : $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{(draft.Desktop ? " · desktop" : string.Empty)}";
+    /// <summary>The sandbox's settings, and what the bot may do in it when its tools are known.</summary>
+    public static string Sandbox(BotDraft draft, IReadOnlyList<BotToolEntry>? tools = null)
+    {
+        if (draft.SandboxPolicy is "none")
+        {
+            return "No sandbox";
+        }
+
+        var settings = $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{(draft.Desktop ? " · desktop" : string.Empty)}";
+        var may = SandboxGrants.Standing(tools, SandboxGrants.SandboxTools, draft.StagedGrants) switch
+        {
+            ToolStanding.Allowed => " · may run commands",
+            ToolStanding.AllowedOnSave => " · allowed when saved",
+            ToolStanding.NotAllowed => " · not allowed yet",
+            ToolStanding.ParentForbids => " · not allowed by its parent",
+            _ => string.Empty,
+        };
+        return $"{settings}{may}";
+    }
 
     public static string Team(BotDraft draft) =>
         (draft.MaxChildren.Trim(), draft.MaxDepthBelow.Trim()) switch

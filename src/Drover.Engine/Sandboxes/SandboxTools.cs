@@ -28,7 +28,11 @@ public static class SandboxTools
 
     #region Public Methods
 
-    /// <summary>Registers the broker, the four sandbox tools, and the computer tools. Needs an <see cref="ISandboxProvider"/>.</summary>
+    /// <summary>
+    /// Registers the broker, the four sandbox tools, and the computer tools. Needs an <see cref="ISandboxProvider"/>.
+    /// The person's controls (<see cref="SandboxControlService"/>) are registered on every server, and use the broker
+    /// when there is one.
+    /// </summary>
     public static IServiceCollection AddSandboxTools(this IServiceCollection services)
     {
         services.AddSingleton<SandboxBroker>();

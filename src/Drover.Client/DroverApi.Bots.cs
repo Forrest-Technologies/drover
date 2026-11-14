@@ -74,6 +74,44 @@ public sealed partial class DroverApi
     public Task<BotSandboxOptions> GetBotSandboxOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<BotSandboxOptions>($"{Space(spaceId)}/bots/{botId}/sandbox/options", cancellationToken);
 
+    /// <summary>The bot's own sandbox: whether it exists, its state, whether it has a screen, whether the bot is working.</summary>
+    public Task<BotSandboxStatus> GetBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox", cancellationToken);
+
+    public Task<BotSandboxStatus> PauseBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/pause", null, cancellationToken);
+
+    public Task<BotSandboxStatus> ResumeBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/resume", null, cancellationToken);
+
+    /// <summary>Replaces the sandbox with a fresh one. Its files are gone.</summary>
+    public Task<BotSandboxStatus> RebuildBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/rebuild", null, cancellationToken);
+
+    /// <summary>Destroys the sandbox now. Its files are gone; the next use makes a new one.</summary>
+    public Task<BotSandboxStatus> TurnOffBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/turn-off", null, cancellationToken);
+
+    /// <summary>The sandbox's screen as PNG bytes. Asking resumes a paused sandbox and makes a missing one.</summary>
+    public async Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, CancellationToken cancellationToken = default)
+    {
+        using var response = await Send(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/screen", null, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await DroverApiException.From(response, cancellationToken);
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
+
+    /// <summary>One click, typed text, key press, or scroll on the sandbox's screen.</summary>
+    public Task SendBotSandboxInput(Guid spaceId, Guid botId, SandboxInputRequest input, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/input", input, cancellationToken);
+
+    public Task<SandboxCommandResponse> RunBotSandboxCommand(Guid spaceId, Guid botId, string command, CancellationToken cancellationToken = default) =>
+        Post<SandboxCommandResponse>($"{Space(spaceId)}/bots/{botId}/sandbox/commands", new SandboxCommandRequest(command), cancellationToken);
+
     /// <summary>What a rule on this server may use.</summary>
     public Task<BotRuleOptions> GetBotRuleOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<BotRuleOptions>($"{Space(spaceId)}/bots/{botId}/rules/options", cancellationToken);

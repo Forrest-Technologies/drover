@@ -51,6 +51,8 @@ public sealed partial class BotEditor(
 
     private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
 
+    private BotSandboxStatus? sandboxStatus;
+
     private IReadOnlyList<BotSummary> otherBots = [];
 
     private Guid? shownBotId;
@@ -98,6 +100,9 @@ public sealed partial class BotEditor(
 
     // Tools are hidden only when the catalog says the model cannot call them. An unknown model keeps them.
     private bool ModelCallsTools => models?.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.ToolCalling ?? true;
+
+    // Unknown while the catalog loads; a model the catalog does not list is treated as one that cannot see, as the server does.
+    private bool? ModelSeesImages => models is null ? null : models.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.Vision ?? false;
 
     private string SaveWords => (Dirty, justSaved) switch
     {
@@ -164,6 +169,7 @@ public sealed partial class BotEditor(
             writtenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
             sandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             rules = await api.ListBotRules(SpaceId, BotId);
+            sandboxStatus = await ReadSandbox();
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {
@@ -179,6 +185,20 @@ public sealed partial class BotEditor(
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditor));
             loadProblem = Failures.Sentence(exception);
+        }
+    }
+
+    /// <summary>The sandbox's state for the Sandbox section. The editor works without it, so a failure only leaves it out.</summary>
+    private async Task<BotSandboxStatus?> ReadSandbox()
+    {
+        try
+        {
+            return await api.GetBotSandbox(SpaceId, BotId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The sandbox state is left out of the {Screen} screen", nameof(BotEditor));
+            return null;
         }
     }
 
@@ -224,13 +244,28 @@ public sealed partial class BotEditor(
         await Try(
             async () =>
             {
+                var staged = draft.StagedGrants;
                 Show(await api.UpdateBotDefinition(SpaceId, BotId, draft.ToRequest()));
+                await ApplyGrants(staged);
                 justSaved = true;
                 editingHandle = false;
                 toasts.Show($"{saved!.Name} is saved.");
             },
             problem => saveProblem = problem);
         saving = false;
+    }
+
+    /// <summary>
+    /// The grants staged in the Sandbox section, set one by one through the tools API as the Tools section sets them.
+    /// The server checks each against the parent's ceiling.
+    /// </summary>
+    private async Task ApplyGrants(IReadOnlyDictionary<Guid, string> staged)
+    {
+        foreach (var (toolId, grant) in staged)
+        {
+            var changed = await api.SetBotToolGrant(SpaceId, BotId, toolId, grant);
+            tools = [.. (tools ?? []).Select(tool => tool.ToolId == changed.ToolId ? changed : tool)];
+        }
     }
 
     private void Discard()
