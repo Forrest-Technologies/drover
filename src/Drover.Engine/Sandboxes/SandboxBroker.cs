@@ -12,9 +12,20 @@ public sealed record SandboxListResult(IReadOnlyList<SandboxEntry> Entries, bool
 /// <summary>A screenshot of a sandbox's screen, as a PNG file, and the size it says it is.</summary>
 public sealed record SandboxScreenshot(byte[] Png, int Width, int Height, bool NewSandbox);
 
+/// <summary>
+/// Who is using a bot's sandbox: the bot itself, in a tool call of a run (<see cref="Call"/> is set), or a person
+/// acting on the bot's own sandbox from the sandbox screen (it is not). <see cref="Tenant"/> opens the short
+/// transactions, as the run's person or as the person acting.
+/// </summary>
+public sealed record SandboxCaller(RunTenant Tenant, Guid BotId, BuiltinToolCall? Call = null)
+{
+    public static SandboxCaller Of(BuiltinToolCall call) => new(call.Tenant, call.BotId, call);
+}
+
 
 /// <summary>
-/// The only caller of <see cref="ISandboxProvider"/>. For each sandbox tool call it works out which sandbox the bot
+/// The only caller of <see cref="ISandboxProvider"/>, for a bot's tool calls and for a person acting on a bot's own
+/// sandbox alike, so the same limits bind both. For each sandbox tool call it works out which sandbox the bot
 /// means and whether it may use it, finds or creates that sandbox's row and token in one short tenant transaction,
 /// then calls the provider with no transaction open, and records the use in another short one. The access token goes
 /// from the vault into the handle and nowhere else: output is scrubbed of it before it reaches an event or a result,
@@ -47,16 +58,26 @@ public sealed class SandboxBroker(
     #region Public Methods
 
     /// <summary>Runs a command, streaming its output into the run's events, and returns what it printed.</summary>
-    public async Task<SandboxCommandResult> Run(
+    public Task<SandboxCommandResult> Run(
         BuiltinToolCall call,
         string? environment,
         string command,
         string? workingDirectory,
         TimeSpan? timeout,
+        CancellationToken cancellationToken) =>
+        RunCommand(SandboxCaller.Of(call), environment, command, workingDirectory, timeout, call.Output, cancellationToken);
+
+    private async Task<SandboxCommandResult> RunCommand(
+        SandboxCaller caller,
+        string? environment,
+        string command,
+        string? workingDirectory,
+        TimeSpan? timeout,
+        Func<ToolOutputChunk, Task> output,
         CancellationToken cancellationToken)
     {
         var limit = CommandLimit(timeout);
-        var lease = await Acquire(call, environment, limit + commandMargin, screen: false, cancellationToken);
+        var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -67,15 +88,15 @@ public sealed class SandboxBroker(
             WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory,
             Timeout = limit,
         };
-        var transcript = new CommandTranscript(lease.Handle.AccessToken, runOptions.Value.MaxToolResultCharacters / 2, call.Output);
+        var transcript = new CommandTranscript(lease.Handle.AccessToken, runOptions.Value.MaxToolResultCharacters / 2, output);
         int? exitCode = null;
         var timedOut = false;
 
         try
         {
-            await foreach (var output in provider.Run(lease.Handle, request, cancellationToken))
+            await foreach (var piece in provider.Run(lease.Handle, request, cancellationToken))
             {
-                exitCode = await transcript.Take(output) ?? exitCode;
+                exitCode = await transcript.Take(piece) ?? exitCode;
             }
         }
         catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.TimedOut)
@@ -89,13 +110,13 @@ public sealed class SandboxBroker(
         }
 
         await transcript.Finish();
-        await Finish(call, lease, readsSandbox: true, cancellationToken);
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
         return new SandboxCommandResult(timedOut ? null : exitCode ?? 0, transcript.Stdout, transcript.Stderr, transcript.Truncated, timedOut, lease.NewSandbox);
     }
 
     public async Task<SandboxFileResult> ReadFile(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
-        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
+        var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
         byte[] bytes;
 
@@ -110,7 +131,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(call, lease, readsSandbox: true, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: true, cancellationToken);
         return new SandboxFileResult(ReadText(bytes, lease.Handle.AccessToken), bytes.Length, lease.NewSandbox);
     }
 
@@ -124,7 +145,7 @@ public sealed class SandboxBroker(
             throw new BuiltinToolException($"The content is {bytes.Length} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
         }
 
-        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
+        var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
 
         try
         {
@@ -136,13 +157,13 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(call, lease, readsSandbox: false, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
-        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
+        var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
         IReadOnlyList<SandboxEntry> entries;
 
         try
@@ -154,7 +175,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(call, lease, readsSandbox: true, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: true, cancellationToken);
         return new SandboxListResult([.. entries.Take(MaxEntries)], entries.Count > MaxEntries, lease.NewSandbox);
     }
 
@@ -166,9 +187,16 @@ public sealed class SandboxBroker(
     /// A screenshot of the bot's sandbox screen. What it shows is read from the sandbox like a file, so it taints the
     /// run when the sandbox can reach the network; no redaction can reach into its pixels.
     /// </summary>
-    public async Task<SandboxScreenshot> Screenshot(BuiltinToolCall call, CancellationToken cancellationToken)
+    public Task<SandboxScreenshot> Screenshot(BuiltinToolCall call, CancellationToken cancellationToken) =>
+        Screenshot(SandboxCaller.Of(call), cancellationToken);
+
+    /// <summary>
+    /// A screenshot of the bot's sandbox screen, for a bot or a person. A paused sandbox is resumed and one that does
+    /// not exist yet is made, as on a bot's first use.
+    /// </summary>
+    public async Task<SandboxScreenshot> Screenshot(SandboxCaller caller, CancellationToken cancellationToken)
     {
-        var lease = await AcquireScreen(call, cancellationToken);
+        var lease = await AcquireScreen(caller, create: true, cancellationToken) ?? throw MadeSandboxMissing();
         var path = $"/tmp/drover-screen-{Guid.NewGuid():N}.png";
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
         byte[] png;
@@ -191,7 +219,7 @@ public sealed class SandboxBroker(
         }
 
         var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
-        await Finish(call, lease, readsSandbox: true, cancellationToken);
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
         return new SandboxScreenshot(png, width, height, lease.NewSandbox);
     }
 
@@ -199,23 +227,40 @@ public sealed class SandboxBroker(
     /// Runs one mouse or keyboard action on the bot's sandbox screen. The command is a program and its arguments, built
     /// by <see cref="DesktopCommands"/>; its output is not read, so nothing from the sandbox comes back with it.
     /// </summary>
-    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken)
+    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken) =>
+        await Act(SandboxCaller.Of(call), action, doing, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+
+    /// <summary>
+    /// One action on the screen, for a bot or a person. Null when <paramref name="create"/> is false and there is no
+    /// sandbox yet; otherwise whether the sandbox is a new one.
+    /// </summary>
+    public async Task<bool?> Act(SandboxCaller caller, CommandRequest action, string doing, bool create, CancellationToken cancellationToken)
     {
-        var lease = await AcquireScreen(call, cancellationToken);
+        if (await AcquireScreen(caller, create, cancellationToken) is not { } lease)
+        {
+            return null;
+        }
+
         await RunOnScreen(lease, action, doing, cancellationToken);
-        await Finish(call, lease, readsSandbox: false, cancellationToken);
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
-    /// <summary>The bot's own sandbox, which must have a screen, with its display and desktop session running.</summary>
-    private async Task<SandboxLease> AcquireScreen(BuiltinToolCall call, CancellationToken cancellationToken)
+    /// <summary>
+    /// The bot's own sandbox, which must have a screen, with its display and desktop session running. Null when
+    /// <paramref name="create"/> is false and the bot has no sandbox yet.
+    /// </summary>
+    private async Task<SandboxLease?> AcquireScreen(SandboxCaller caller, bool create, CancellationToken cancellationToken)
     {
-        var lease = await Acquire(call, null, desktopMargin, screen: true, cancellationToken);
+        if (await Prepare(caller, null, desktopMargin, screen: true, create, cancellationToken) is not { } lease)
+        {
+            return null;
+        }
 
         if (await RunQuietly(lease, DesktopCommands.StartDisplay(), cancellationToken) is not 0)
         {
             throw new BuiltinToolException(
-                "The sandbox's screen did not start. Try again in a moment; if it keeps failing, a person can turn the bot's Desktop setting off and on to get a new sandbox.");
+                "The sandbox's screen did not start. Try again in a moment; if it keeps failing, rebuild the sandbox to get a new one.");
         }
 
         return lease;
@@ -272,37 +317,160 @@ public sealed class SandboxBroker(
 
     #endregion
 
+    #region A Person's Controls
+
+    /// <summary>
+    /// Runs a person's command in the bot's own sandbox, made on first use, and returns what it printed. Nothing
+    /// streams anywhere: the person sees the result. The output is scrubbed of the access token like a bot's.
+    /// </summary>
+    public Task<SandboxCommandResult> Run(SandboxCaller person, string command, TimeSpan limit, CancellationToken cancellationToken) =>
+        RunCommand(person, null, command, null, limit, _ => Task.CompletedTask, cancellationToken);
+
+    /// <summary>Pauses the bot's sandbox, keeping its files. False when it has none to pause.</summary>
+    public async Task<bool> Pause(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        if (await Locate(person, null, create: false, cancellationToken) is not { Token: { } token } target
+            || target.Row.State is SandboxState.Creating)
+        {
+            return false;
+        }
+
+        try
+        {
+            await provider.Pause(new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token), cancellationToken);
+        }
+        catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.NotFound)
+        {
+            logger.LogInformation("Sandbox {SandboxId} of bot {BotId} was gone at the provider when a person paused it", target.Row.Id, target.Owner.Id);
+            await Retire(person.Tenant, target.Row.Id, cancellationToken);
+            return false;
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure);
+        }
+
+        await person.Tenant.Transact(
+            async services =>
+            {
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(target.Row.Id, cancellationToken) is { } row)
+                {
+                    row.State = SandboxState.Paused;
+                }
+            },
+            cancellationToken);
+        return true;
+    }
+
+    /// <summary>Resumes the bot's paused sandbox, or keeps a running one. False when it has none; nothing is made.</summary>
+    public async Task<bool> Resume(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        if (await Prepare(person, null, null, screen: false, create: false, cancellationToken) is not { } lease)
+        {
+            return false;
+        }
+
+        await Finish(person, lease, readsSandbox: false, cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Replaces the bot's sandbox with a fresh one: the live one is taken out of use and destroyed at the provider, its
+    /// token deleted, and a new one made, as when the Desktop setting changes. Its files are gone.
+    /// </summary>
+    public async Task Rebuild(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        if (await Locate(person, null, create: false, cancellationToken) is { } target)
+        {
+            appliedNetworks.TryRemove(target.Row.Id, out _);
+            var now = time.GetUtcNow();
+            await person.Tenant.Transact(
+                services => services.GetRequiredService<SandboxRepository>().RetireLiveForOwner(target.Owner.Id, now, cancellationToken),
+                cancellationToken);
+        }
+
+        // Finding it again finds the retired one due, destroys it, and makes the new one.
+        var lease = await Acquire(person, null, null, screen: false, cancellationToken);
+        await Finish(person, lease, readsSandbox: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Destroys the bot's sandbox now, at the provider and in Drover: its files are gone and its token deleted. The next
+    /// use makes a new one. False when it has none.
+    /// </summary>
+    public async Task<bool> TurnOff(SandboxCaller person, CancellationToken cancellationToken)
+    {
+        if (await Locate(person, null, create: false, cancellationToken) is not { } target)
+        {
+            return false;
+        }
+
+        if (target is { Token: { } token, Row.ProviderSandboxId.Length: > 0 })
+        {
+            try
+            {
+                await provider.Destroy(new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token), cancellationToken);
+            }
+            catch (SandboxProviderException failure) when (failure.Failure is not SandboxFailure.NotFound)
+            {
+                throw Refusal(failure);
+            }
+        }
+
+        await Retire(person.Tenant, target.Row.Id, cancellationToken);
+        logger.LogInformation("A person turned off sandbox {SandboxId} of bot {BotId}", target.Row.Id, target.Owner.Id);
+        return true;
+    }
+
+    #endregion
+
     #region Finding The Sandbox
 
     /// <summary>
-    /// The sandbox the call means, running, for at least <paramref name="keepAtLeast"/>. A sandbox the provider no
-    /// longer has is retired and replaced once, and the lease says so, because its files are gone.
+    /// The sandbox the call means, running, for at least <paramref name="keepAtLeast"/>, made on first use. A sandbox
+    /// the provider no longer has is retired and replaced once, and the lease says so, because its files are gone.
     /// </summary>
     private async Task<SandboxLease> Acquire(
-        BuiltinToolCall call,
+        SandboxCaller caller,
         string? environment,
         TimeSpan? keepAtLeast,
         bool screen,
+        CancellationToken cancellationToken) =>
+        await Prepare(caller, environment, keepAtLeast, screen, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+
+    /// <summary>
+    /// As <see cref="Acquire"/>, but when <paramref name="create"/> is false and the owner has no live sandbox, null,
+    /// and nothing is made.
+    /// </summary>
+    private async Task<SandboxLease?> Prepare(
+        SandboxCaller caller,
+        string? environment,
+        TimeSpan? keepAtLeast,
+        bool screen,
+        bool create,
         CancellationToken cancellationToken)
     {
-        var target = await Locate(call, environment, cancellationToken);
+        if (await Locate(caller, environment, create, cancellationToken) is not { } target)
+        {
+            return null;
+        }
 
         if (screen && !DesktopFor(target.Owner))
         {
             throw new BuiltinToolException("This bot's sandbox has no screen. A person can turn on Desktop in the bot's Sandbox settings.");
         }
 
-        await DestroyRetired(call.Tenant, target, cancellationToken);
+        await DestroyRetired(caller.Tenant, target, cancellationToken);
         var network = NetworkFor(target.Owner);
         var idle = IdleFor(target.Owner);
         var keepFor = keepAtLeast is { } longer && longer > idle ? longer : idle;
         var newSandbox = false;
 
-        if (await Resume(call.Tenant, target, keepFor, cancellationToken) is not { } handle)
+        if (await Resume(caller.Tenant, target, keepFor, cancellationToken) is not { } handle)
         {
-            await Retire(call.Tenant, target.Row.Id, cancellationToken);
-            target = await Locate(call, environment, cancellationToken);
-            handle = await Resume(call.Tenant, target, keepFor, cancellationToken)
+            await Retire(caller.Tenant, target.Row.Id, cancellationToken);
+            target = await Locate(caller, environment, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+            handle = await Resume(caller.Tenant, target, keepFor, cancellationToken)
                 ?? throw new BuiltinToolException("The sandbox provider lost the sandbox again right after it was made. Try again later.");
             newSandbox = true;
         }
@@ -311,37 +479,50 @@ public sealed class SandboxBroker(
         return new SandboxLease(target.Row.Id, handle, network, idle, keepFor, newSandbox);
     }
 
-    /// <summary>The caller's group or the one it names, the access check, and the owner's live row, in one transaction.</summary>
-    private async Task<SandboxTarget> Locate(BuiltinToolCall call, string? environment, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's group or the one it names, the access check, and the owner's live row, in one transaction. With
+    /// <paramref name="create"/>, an owner with no live row gets a new one; without, the answer is null.
+    /// </summary>
+    private async Task<SandboxTarget?> Locate(SandboxCaller caller, string? environment, bool create, CancellationToken cancellationToken)
     {
         try
         {
-            return await call.Tenant.Transact(services => LocateIn(services, call, environment, cancellationToken), cancellationToken);
+            return await caller.Tenant.Transact(services => LocateIn(services, caller, environment, create, cancellationToken), cancellationToken);
         }
         catch (Exception raced) when (SandboxRepository.IsAlreadyLive(raced))
         {
             // Another call made the owner's first sandbox row at the same moment. Its row is the one to use.
-            logger.LogDebug("Bot {BotId} met another call creating the same sandbox; using that one", call.BotId);
-            return await call.Tenant.Transact(services => LocateIn(services, call, environment, cancellationToken), cancellationToken);
+            logger.LogDebug("Bot {BotId} met another call creating the same sandbox; using that one", caller.BotId);
+            return await caller.Tenant.Transact(services => LocateIn(services, caller, environment, create, cancellationToken), cancellationToken);
         }
     }
 
-    private async Task<SandboxTarget> LocateIn(IServiceProvider services, BuiltinToolCall call, string? environment, CancellationToken cancellationToken)
+    private async Task<SandboxTarget?> LocateIn(
+        IServiceProvider services,
+        SandboxCaller caller,
+        string? environment,
+        bool create,
+        CancellationToken cancellationToken)
     {
         var bots = services.GetRequiredService<BotRepository>();
-        var caller = await bots.FindBot(call.BotId, cancellationToken);
+        var bot = await bots.FindBot(caller.BotId, cancellationToken);
 
-        if (caller is null or { Status: BotStatus.Removed } || caller.SandboxPolicy is SandboxPolicy.None)
+        if (bot is null or { Status: BotStatus.Removed } || bot.SandboxPolicy is SandboxPolicy.None)
         {
             throw new BuiltinToolException("This bot has no sandbox. A person can give it one in the bot's Sandbox settings.");
         }
 
-        var callerOwner = SandboxGroups.OwnerOf(caller.Id, await bots.ListSandboxPath(caller.Id, cancellationToken));
+        var callerOwner = SandboxGroups.OwnerOf(bot.Id, await bots.ListSandboxPath(bot.Id, cancellationToken));
         var owner = string.IsNullOrWhiteSpace(environment)
             ? await FindBot(bots, callerOwner, cancellationToken)
-            : await FindNamedOwner(bots, caller, callerOwner, environment, cancellationToken);
+            : await FindNamedOwner(bots, bot, callerOwner, environment, cancellationToken);
         var sandboxes = services.GetRequiredService<SandboxRepository>();
         var row = await sandboxes.FindLiveForOwner(owner.Id, cancellationToken);
+
+        if (row is null && !create)
+        {
+            return null;
+        }
 
         if (row is null)
         {
@@ -366,7 +547,7 @@ public sealed class SandboxBroker(
             retired.Add(new RetiredSandbox(due.Id, due.ProviderSandboxId, retiredToken));
         }
 
-        return new SandboxTarget(call.Tenant.SpaceId, owner, row, token, retired);
+        return new SandboxTarget(caller.Tenant.SpaceId, owner, row, token, retired);
     }
 
     /// <summary>The owner of the sandbox another bot's handle names, when the caller may work in it.</summary>
@@ -559,10 +740,10 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// Records the use: the row is running and was used now, and the tool call names the sandbox. A sandbox kept up
+    /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
     /// longer for a long command goes back to its idle time. Text from a sandbox that can reach the network taints the run.
     /// </summary>
-    private async Task Finish(BuiltinToolCall call, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
+    private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
         if (lease.KeptFor > lease.Idle)
         {
@@ -577,7 +758,7 @@ public sealed class SandboxBroker(
         }
 
         var now = time.GetUtcNow();
-        await call.Tenant.Transact(
+        await caller.Tenant.Transact(
             async services =>
             {
                 if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is { } row)
@@ -587,13 +768,17 @@ public sealed class SandboxBroker(
                     row.ExpiresAt = now + lease.Idle;
                 }
 
-                await services.GetRequiredService<ToolCallRepository>().SetSandbox(call.ToolCallId, lease.SandboxId, cancellationToken);
+                if (caller.Call is { } call)
+                {
+                    await services.GetRequiredService<ToolCallRepository>().SetSandbox(call.ToolCallId, lease.SandboxId, cancellationToken);
+                }
             },
             cancellationToken);
 
-        if (readsSandbox && lease.Network.Access is not NetworkAccess.Off)
+        // A person reading their bot's sandbox is in no run, so there is nothing to taint.
+        if (readsSandbox && lease.Network.Access is not NetworkAccess.Off && caller.Call is { } reading)
         {
-            await call.Taint();
+            await reading.Taint();
         }
     }
 
@@ -632,6 +817,8 @@ public sealed class SandboxBroker(
     #endregion
 
     #region Private Methods
+
+    private static InvalidOperationException MadeSandboxMissing() => new("A sandbox that may be made is always found.");
 
     private static bool SameNetwork(NetworkPolicy left, NetworkPolicy right) =>
         left.Access == right.Access && left.AllowedHosts.SequenceEqual(right.AllowedHosts, StringComparer.Ordinal);

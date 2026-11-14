@@ -44,9 +44,12 @@ public sealed partial class DroverApi(HttpClient http)
     }
 
     /// <summary>A state-changing request whose answer has no body. A refusal throws like any other.</summary>
-    private async Task SendForNothing(HttpMethod method, string path, CancellationToken cancellationToken)
+    private Task SendForNothing(HttpMethod method, string path, CancellationToken cancellationToken) =>
+        SendForNothing(method, path, null, cancellationToken);
+
+    private async Task SendForNothing(HttpMethod method, string path, object? body, CancellationToken cancellationToken)
     {
-        using var response = await Send(method, path, null, cancellationToken);
+        using var response = await Send(method, path, body, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
