@@ -437,7 +437,8 @@ public static class RuleEvaluator
 
         List<RuleSearch> searches = [.. TextConditions(rule).Select(reading.Search)];
 
-        if (reading.Budget.IsSpent)
+        // A search can fail without the budget running out. What it did not find was not shown to be absent.
+        if (reading.Budget.IsSpent || searches.Any(search => search.CouldNotCheck))
         {
             return NothingLetThrough;
         }

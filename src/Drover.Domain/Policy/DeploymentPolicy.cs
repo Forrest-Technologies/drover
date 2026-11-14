@@ -198,11 +198,11 @@ public sealed record DeploymentPolicy
     /// <summary>
     /// Whether a bot rule may look for text with a pattern a person wrote. The expression engine guards against
     /// costly text and not against a costly pattern, and nothing can stop one match once it has begun, so whoever
-    /// may save a rule could slow the whole server. Off, a rule with such a condition is refused when it is saved
-    /// and is not run: one saved earlier counts as not checked and takes its effect. "Contains" and the built-in
-    /// kinds stay.
+    /// may save a rule could stop the whole server. Off in every preset until Drover has a matcher whose cost is
+    /// bounded. Off, a rule with such a condition is refused when it is saved, and one saved earlier is never built
+    /// or run: it counts as not checked and takes its effect. "Contains" and the built-in kinds stay.
     /// </summary>
-    public bool AllowWrittenRulePatterns { get; init; } = true;
+    public bool AllowWrittenRulePatterns { get; init; }
 
     #endregion
 

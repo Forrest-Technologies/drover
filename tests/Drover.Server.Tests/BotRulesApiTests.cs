@@ -69,8 +69,7 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         { "a misspelled condition", new("Sample", true, "before_reply", "block", [new("mood_is")]), "not a kind of condition" },
         { "a misspelled tool kind", new("Sample", true, "before_tool", "block", [new("tool_kind") { ToolKinds = ["harmless"] }]), "reads, writes, or is critical" },
         { "ask at a reply", new("Sample", true, "before_reply", "ask", []), "only before a tool is used" },
-        { "a pattern that could stall", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = "(?=a)a" }]), "cannot stall" },
-        { "a pattern too long", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = new string('a', 501) }]), "up to 500 characters" },
+        { "a pattern a person wrote, which no preset runs", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = @"ORD-\d+" }]), "AllowWrittenRulePatterns" },
         { "eleven conditions", new("Sample", true, "before_reply", "block", [.. Enumerable.Repeat(new RuleConditionBody("text_holds") { Builtin = "key" }, 11)]), "at most 10 conditions" },
         { "a null in a list", new("Sample", true, "before_reply", "block", [new("text_contains") { Entries = [null!] }]), "no blank entry" },
         { "a misspelled weekday", new("Sample", true, "before_reply", "block", [new("time_is") { From = "22:00", To = "07:00", TimeZone = "UTC", Weekdays = ["someday"] }]), "Choose each weekday once" },
@@ -237,7 +236,7 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
         var bot = await NewBot(client, alice.SpaceId);
-        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Slow pattern", true, "before_reply", "block", [new("text_matches") { Pattern = "a+b|a" }])), HttpStatusCode.Created);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Looks for a letter", true, "before_reply", "block", [new("text_contains") { Entries = ["a"] }])), HttpStatusCode.Created);
         var watch = Stopwatch.StartNew();
 
         var refused = await client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, new string('a', RuleService.MaxSampleLength + 1)));

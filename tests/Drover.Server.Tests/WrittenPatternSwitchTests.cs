@@ -1,23 +1,21 @@
 namespace Drover.Server.Tests;
 
 /// <summary>
-/// An operator who turns written rule patterns off gets a server that saves none and runs none. A rule saved
-/// before is not run as written: it takes its effect, and whoever reads it back is told why.
+/// Written rule patterns are off in every preset, so a server as it starts saves none and runs none. A rule that
+/// has one all the same is not run as written: it takes its effect, and whoever reads it back is told why.
 /// </summary>
 public sealed class WrittenPatternSwitchTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
     #region Private Fields
+
+    // A pattern no other test builds, so that finding it built would mean this path built it.
+    private const string Stored = @"STORED-ORDER-\d+";
 
     private ScriptedModelProvider? model;
 
     #endregion
 
     #region Overrides
-
-    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
-    {
-        ["Drover:Policy:Rules:AllowWrittenRulePatterns"] = "false",
-    };
 
     protected override void ConfigureServices(IServiceCollection services) =>
         services.AddSingleton<IModelClientProvider>(_ => model ??= new ScriptedModelProvider(new ScriptedModel()));
@@ -27,7 +25,7 @@ public sealed class WrittenPatternSwitchTests(PostgresServer postgres) : ServerT
     #region Tests
 
     [Fact]
-    public async Task With_written_patterns_off_none_is_saved_or_tried_and_the_other_ways_to_look_for_text_stay()
+    public async Task As_the_server_starts_no_written_pattern_is_saved_or_tried_and_the_other_ways_to_look_for_text_stay()
     {
         var alice = await SeedPerson("alice");
         var client = NewClient();
@@ -51,14 +49,14 @@ public sealed class WrittenPatternSwitchTests(PostgresServer postgres) : ServerT
     }
 
     [Fact]
-    public async Task A_rule_with_a_written_pattern_saved_before_is_not_run_takes_its_effect_and_says_why()
+    public async Task A_rule_that_has_a_written_pattern_is_never_built_or_run_takes_its_effect_and_says_why()
     {
         var alice = await SeedPerson("alice");
         var client = NewClient();
         (await client.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
         var bot = await NewBot(client, alice.SpaceId);
         var botId = Guid.Parse(bot[(bot.LastIndexOf('/') + 1)..]);
-        await SeedRule(alice.SpaceId, alice.UserId, botId, @"ORD-\d+");
+        await SeedRule(alice.SpaceId, alice.UserId, botId, Stored);
 
         var listed = await Read<List<BotRuleResponse>>(await client.Get($"{bot}/rules"), HttpStatusCode.OK);
         var trial = await Read<TryRulesResponse>(await client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, "Nothing like an order number here.")), HttpStatusCode.OK);
@@ -66,6 +64,7 @@ public sealed class WrittenPatternSwitchTests(PostgresServer postgres) : ServerT
         listed.Should().ContainSingle().Which.Notes.Should().ContainSingle().Which.Should().Contain("AllowWrittenRulePatterns").And.Contain("applies to everything");
         trial.Effect.Should().Be("block", "a pattern that is not run was not checked, and what was not checked is not let through");
         trial.Why.Should().Contain("written patterns are turned off on this server");
+        RulePatterns.IsKept(Stored).Should().BeFalse("reading the rule back and trying it built no expression");
     }
 
     #endregion

@@ -3,13 +3,15 @@ namespace Drover.Domain.Rules;
 /// <summary>
 /// The patterns rules look for. Every expression runs on the engine that cannot backtrack, which guards against
 /// costly text and, by its makers' own account, not against a costly pattern: it builds its states as it meets
-/// text, a pattern with a wide gap before something specific has very many of them, and the engine's match timeout
-/// is not looked at while they are built (measured: a 250 ms timeout on a match that ran 17 seconds). So a written
-/// pattern is not trusted to be cheap. Its counts are capped, it is tried on sample text under a ceiling when its
-/// rule is saved and again whenever a server first reads it, and one that goes over is refused in words and never
-/// run on real text. The trial catches the shapes that were measured and their like; it cannot catch every pattern
-/// built to slip past it, which is why a shared server turns written patterns off (AllowWrittenRulePatterns). What
-/// the expressions hold is bounded by <see cref="RulePatternCache"/>.
+/// text, a pattern with a wide gap before something specific has very many of them, and neither the engine's match
+/// timeout nor anything in this process can stop one match once it has begun (measured: a 250 ms timeout on a
+/// match that ran 17 seconds and took 4.7 GB). Trying a pattern on sample text first does not make it safe either:
+/// it was built, was beaten, and cost as much as what it guarded against. So the built-in patterns, which are
+/// Drover's own, always run, and a pattern a person wrote runs only where the deployment rule
+/// AllowWrittenRulePatterns is on, which it is in no preset. What is refused when a rule is saved is what can be
+/// read off the pattern: constructs that need backtracking, a count over <see cref="MaxRepeat"/>, and a pattern
+/// the engine says is too large. A match that fails part way ends the evaluation's budget, so the rule takes its
+/// effect.
 /// </summary>
 public static partial class RulePatterns
 {
@@ -22,20 +24,13 @@ public static partial class RulePatterns
     /// <summary>The most a pattern may ask for something to be repeated: the larger number of <c>{n,m}</c>.</summary>
     public const int MaxRepeat = 256;
 
-    /// <summary>The most written patterns kept ready, and the most they may be counted as holding together.</summary>
+    /// <summary>The most written patterns kept ready. The one used longest ago goes first.</summary>
     public const int MaxKept = 256;
-
-    public const long MaxKeptBytes = 48_000_000;
-
-    /// <summary>What trying a pattern on sample text may allocate and how long it may take. Over either, it is refused.</summary>
-    public const long MaxTrialBytes = 8_000_000;
-
-    private static readonly TimeSpan maxTrialTime = TimeSpan.FromMilliseconds(250);
 
     // The engine looks at this between stretches of text it has states for. It is no bound on building states.
     private static readonly TimeSpan matchTimeout = TimeSpan.FromSeconds(1);
 
-    private static readonly RulePatternCache written = new(MaxKeptBytes, MaxKept);
+    private static readonly RulePatternCache written = new(MaxKept);
 
     private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options, matchTimeout));
 
@@ -60,14 +55,17 @@ public static partial class RulePatterns
 
     #region Public Methods
 
-    /// <summary>How many written patterns are kept ready, and what they are counted as holding.</summary>
-    public static (int Patterns, long Bytes) Held => written.Held;
+    /// <summary>How many written patterns are kept ready.</summary>
+    public static int Kept => written.Count;
+
+    /// <summary>Whether a pattern has been built on this server: kept ready, or kept as refused.</summary>
+    public static bool IsKept(string pattern) => written.TryGet(pattern, out _);
 
     /// <summary>
     /// The expression for a pattern a person wrote, or the reason it cannot be used, in words. Refused here, when
     /// the rule is saved and whenever a server first reads it: constructs that need backtracking (lookarounds,
-    /// backreferences), a count over <see cref="MaxRepeat"/>, a pattern too large to build, and a pattern that
-    /// costs too much when it is tried on sample text.
+    /// backreferences), a count over <see cref="MaxRepeat"/>, and a pattern too large to build. What a pattern
+    /// costs to run is not judged here, because it cannot be.
     /// </summary>
     public static (Regex? Expression, string? Problem) Compile(string? pattern)
     {
@@ -81,13 +79,9 @@ public static partial class RulePatterns
             return known;
         }
 
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var (expression, problem) = Build(pattern);
-        problem ??= FindTrialProblem(expression!, pattern, before);
-
-        // A refused pattern keeps its refusal, so it is not tried again each time it is read, and never its expression.
-        written.Keep(pattern, problem is null ? expression : null, problem, problem is null ? GC.GetAllocatedBytesForCurrentThread() - before : 0);
-        return problem is null ? (expression, null) : (null, problem);
+        var built = Build(pattern);
+        written.Keep(pattern, built.Expression, built.Problem);
+        return built;
     }
 
     /// <summary>
@@ -101,8 +95,6 @@ public static partial class RulePatterns
         {
             return null;
         }
-
-        var before = GC.GetAllocatedBytesForCurrentThread();
 
         try
         {
@@ -135,14 +127,16 @@ public static partial class RulePatterns
         }
         catch (RegexMatchTimeoutException ranOut)
         {
-            // The text was not searched to its end, so it could not be checked. Only a limit that is not one could
-            // mean otherwise, and there is none.
-            return ranOut.MatchTimeout == Timeout.InfiniteTimeSpan ? [] : null;
+            // The text was not searched to its end, so it could not be checked, and the evaluation checks no more.
+            return NotSearched(budget.Fail(ranOut));
         }
-        finally
+        catch (InsufficientMemoryException tooLarge)
         {
-            // An expression holds the states it built for this text. That is counted against what the server keeps.
-            written.Charge(expression, GC.GetAllocatedBytesForCurrentThread() - before);
+            return NotSearched(budget.Fail(tooLarge));
+        }
+        catch (OutOfMemoryException tooLarge)
+        {
+            return NotSearched(budget.Fail(tooLarge));
         }
     }
 
@@ -322,6 +316,9 @@ public static partial class RulePatterns
     // An expression builds its matcher the first time it is used. That happens here, when the expression is made
     // (the built-in ones when the server starts, a written one when its rule is saved or first read), so the
     // first search of a run never pays for it out of the evaluation's budget.
+    // A search that failed part way found nothing it can vouch for.
+    private static List<(int Start, int Length)>? NotSearched(Exception failure) => failure is null ? [] : null;
+
     private static Regex Warmed(Regex expression)
     {
         expression.IsMatch(WarmUp);

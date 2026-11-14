@@ -1,21 +1,9 @@
 namespace Drover.Domain.Rules;
 
-/// <summary>
-/// Trying a written pattern before it is trusted with real text: its counts, whether the engine can build it, and
-/// what it costs on sample text made to bring out the states a costly pattern has.
-/// </summary>
+/// <summary>What can be read off a written pattern when its rule is saved: its counts, and whether the engine can build it.</summary>
 public static partial class RulePatterns
 {
     #region Private Fields
-
-    private const string TooMuchWork =
-        "That pattern takes too much work to run. It was tried on sample text and went over what one pattern may use. The usual cause is a wide gap, such as .* or .{0,200}, in front of something specific. Make the gap smaller, or say more exactly what comes before it.";
-
-    private const int TrialLength = 1500;
-
-    private const int TrialStep = 32;
-
-    private const int MostPairs = 8;
 
     private static readonly SearchValues<char> countCharacters = SearchValues.Create("0123456789,");
 
@@ -102,99 +90,6 @@ public static partial class RulePatterns
 
         return largest;
     }
-
-    // Runs the expression over the sample texts a stretch at a time and looks at what it has cost after each. The
-    // engine cannot be stopped inside a stretch, so a stretch is short: what one can cost is the most this goes
-    // over its ceiling. States the expression has built stay built, so reading a text again from its start is cheap.
-    private static string? FindTrialProblem(Regex expression, string pattern, long allocatedBefore)
-    {
-        var watch = Stopwatch.StartNew();
-
-        try
-        {
-            foreach (var text in TrialTexts(pattern))
-            {
-                for (var end = TrialStep; end <= text.Length; end += TrialStep)
-                {
-                    foreach (var match in expression.EnumerateMatches(text.AsSpan(0, end)))
-                    {
-                        _ = match;
-                    }
-
-                    if (GC.GetAllocatedBytesForCurrentThread() - allocatedBefore > MaxTrialBytes || watch.Elapsed > maxTrialTime)
-                    {
-                        return TooMuchWork;
-                    }
-                }
-            }
-
-            return null;
-        }
-        catch (RegexMatchTimeoutException ranOut)
-        {
-            return $"{TooMuchWork} (One match ran longer than {ranOut.MatchTimeout.TotalSeconds:0} second.)";
-        }
-    }
-
-    // Sample texts for one pattern, the same every time. A costly pattern is costly on text made of the characters
-    // it names: all of them, each of them with one other character, and the words it spells out with a little
-    // between them (what it names, letters only, digits only). Ordinary characters are mixed in so its classes have something to tell apart.
-    private static List<string> TrialTexts(string pattern)
-    {
-        var named = new string([.. pattern.Where(character => char.IsLetterOrDigit(character) || Ordinary.Contains(character, StringComparison.Ordinal)).Distinct()]);
-        named = named.Length == 0 ? "a" : named;
-        List<string> texts =
-        [
-            Scatter(named, TrialLength, 3),
-            Scatter($"{named}{Ordinary}", TrialLength, 5),
-            Spell(pattern, $"{named}{Ordinary}"),
-            Spell(pattern, "abc"),
-            Spell(pattern, "012"),
-        ];
-
-        foreach (var one in named.Take(MostPairs))
-        {
-            texts.Add(Scatter($"{one}{(one is 'a' ? 'b' : 'a')}", TrialLength, 7 + one));
-        }
-
-        return texts;
-    }
-
-    private static string Scatter(string alphabet, int length, int seed)
-    {
-        var random = new Random(seed);
-        return string.Create(length, (alphabet, random), static (span, state) =>
-        {
-            for (var index = 0; index < span.Length; index++)
-            {
-                span[index] = state.alphabet[state.random.Next(state.alphabet.Length)];
-            }
-        });
-    }
-
-    // The runs of letters and digits the pattern spells, also where it spells them one class or group at a time,
-    // each followed by a few characters to fill a gap. A gap that takes anything on a line is filled by letters or
-    // by digits; one that is ended by what the pattern names needs the filling not to hold it.
-    private static string Spell(string pattern, string filling)
-    {
-        var skeleton = new string([.. pattern.Where(character => character is not ('[' or ']' or '(' or ')'))]);
-        List<string> words = [.. spelled.Matches(skeleton).Select(match => match.Value).Distinct(StringComparer.Ordinal)];
-        var random = new Random(11);
-        var text = new StringBuilder(TrialLength + MaxPatternLength);
-
-        while (text.Length < TrialLength)
-        {
-            text.Append(words.Count > 0 ? words[random.Next(words.Count)] : "a");
-            text.Append(Scatter(filling, random.Next(0, 6), random.Next()));
-        }
-
-        return text.ToString(0, TrialLength);
-    }
-
-    [GeneratedRegex("[A-Za-z0-9]{2,}", RegexOptions.CultureInvariant)]
-    private static partial Regex SpelledWords();
-
-    private static readonly Regex spelled = SpelledWords();
 
     #endregion
 }

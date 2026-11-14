@@ -1,9 +1,10 @@
 namespace Drover.Domain.Tests;
 
 /// <summary>
-/// What a written pattern may cost. The expression engine does not guard against a costly pattern and its match
-/// timeout does not fire while it builds its states, so a pattern is tried on sample text when it is saved and when
-/// it is first read, and one that costs too much never touches real text.
+/// What a written pattern may cost. The expression engine does not guard against a costly pattern and nothing can
+/// stop one match once it has begun, so a server runs written patterns only where its deployment rule says so, and
+/// no preset does. Where they are off, one is never built. Where they are on, what can be read off a pattern is
+/// refused at save, and a match that fails part way takes the rule's effect.
 /// </summary>
 public sealed class RulePatternCostTests
 {
@@ -12,7 +13,8 @@ public sealed class RulePatternCostTests
     // Measured on main at 1b6a587: 2,000 random characters of '4' and 'a' took 17 seconds and 1.8 GB.
     private const string Measured = @"[\s\S]*4[\s\S]{300}Q|Z0";
 
-    // The same shape with its count under the most a pattern may repeat, so only trying it finds what it costs.
+    // The same shape with its count under the most a pattern may repeat. Nothing that can be read off it refuses
+    // it, which is why written patterns are off: it is never run in these tests.
     private const string UnderTheCount = @"[\s\S]*4[\s\S]{250}Q|Z0";
 
     private static readonly DateTimeOffset now = new(2026, 11, 10, 23, 30, 0, TimeSpan.Zero);
@@ -28,27 +30,6 @@ public sealed class RulePatternCostTests
     [Fact]
     public void The_measured_pattern_is_refused_at_save() =>
         RuleValidator.FindProblem("Sample", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(Measured)]).Should().Contain("more than 256 times");
-
-    [Theory]
-    [InlineData(UnderTheCount)]
-    [InlineData(@"4.{0,200}Q")]
-    [InlineData(@"[\s\S]*4[\s\S]{20}Q")]
-    [InlineData(@"(a|b)*a(a|b){12}")]
-    [InlineData(@"(4|a)*4(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)Q")]
-    [InlineData(@"x[a][b][c][d][e]4.{250}Q")]
-    [InlineData(@"ab4.{250}Q")]
-    [InlineData("abcdefghijkl4............................................................................................................................................................................................................................................................................................................Q")]
-    public void A_pattern_that_costs_too_much_on_sample_text_is_refused_at_save_in_words(string pattern)
-    {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var watch = Stopwatch.StartNew();
-
-        var problem = RuleValidator.FindProblem("Sample", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(pattern)]);
-
-        problem.Should().Contain("too much work");
-        watch.Elapsed.Should().BeLessThan(bound, "trying a pattern is itself bounded");
-        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated);
-    }
 
     [Theory]
     [InlineData(@"a{257}")]
@@ -82,24 +63,14 @@ public sealed class RulePatternCostTests
 
     #region In A Run
 
-    [Theory]
-    [InlineData(Measured, 2_000)]
-    [InlineData(Measured, 499_000)]
-    [InlineData(UnderTheCount, 2_000)]
-    [InlineData(UnderTheCount, 499_000)]
-    [InlineData(@"4.{0,200}Q", 499_000)]
-    [InlineData(@"[\s\S]*4[\s\S]{20}Q", 499_000)]
-    [InlineData(@"(a|b)*a(a|b){12}", 499_000)]
-    [InlineData(@"(4|a)*4(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)Q", 499_000)]
-    public void A_stored_pattern_that_costs_too_much_is_not_run_and_takes_the_rules_effect(string pattern, int length)
+    [Fact]
+    public void The_measured_pattern_stored_before_it_was_refused_is_not_run_and_takes_the_rules_effect()
     {
-        // The validator refuses it. A rule saved before it did is read the same way and never reaches real text.
-        var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(pattern)]);
-        var text = Random(pattern.Contains("(a|b)", StringComparison.Ordinal) ? "ab" : "4a", length, 7);
+        var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(Measured)]);
         var before = GC.GetAllocatedBytesForCurrentThread();
         var watch = Stopwatch.StartNew();
 
-        var outcome = RuleEvaluator.Evaluate([rule], new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = text, Now = now });
+        var outcome = RuleEvaluator.Evaluate([rule], new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = Random("4a", 2_000, 7), Now = now });
 
         watch.Elapsed.Should().BeLessThan(bound, "this took 17 seconds");
         (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated, "this held 1.8 GB");
@@ -107,9 +78,9 @@ public sealed class RulePatternCostTests
     }
 
     [Fact]
-    public void The_worst_pattern_that_is_accepted_stays_within_its_bound_on_long_random_text()
+    public void A_narrow_gap_stays_within_its_bound_on_long_random_text()
     {
-        // A gap of ten after an unanchored start has about a thousand states and no more, so it passes the trial.
+        // A gap of ten after an unanchored start has about a thousand states and no more.
         var accepted = @"[\s\S]*4[\s\S]{10}Q";
         RuleValidator.FindProblem("Sample", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(accepted)]).Should().BeNull();
         var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(accepted)]);
@@ -121,6 +92,39 @@ public sealed class RulePatternCostTests
         outcome.Should().BeNull("there is no Q in the text");
         watch.Elapsed.Should().BeLessThan(bound);
         (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated);
+    }
+
+    #endregion
+
+    #region A Match That Fails
+
+    [Fact]
+    public void A_match_that_runs_out_of_time_spends_the_budget_so_what_follows_cannot_differ()
+    {
+        var slow = new Regex(@"(\+?){250}\+{250}", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, TimeSpan.FromTicks(1));
+        var budget = new RuleBudget(RuleBudget.MaxWork);
+
+        RulePatterns.Find(slow, new string('+', 20_000), budget).Should().BeNull();
+
+        budget.IsSpent.Should().BeTrue("a search that failed is the end of what this evaluation can check");
+    }
+
+    [Fact]
+    public void A_rule_that_removes_text_never_lets_the_text_through_after_a_match_that_failed()
+    {
+        // Measured: this pattern on twenty thousand plus signs runs into the match timeout, and the reply went out whole.
+        var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Redact, [Matches(@"(\+?){250}\+{250}")]);
+        var text = new string('+', 20_000);
+
+        var outcome = RuleEvaluator.Evaluate([rule], new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = text, Now = now });
+
+        outcome.Should().NotBeNull();
+        outcome!.RedactedText.Should().NotBeNull().And.NotContain("+++", "whether the match finished or failed, what matched is not in what is let through");
+
+        if (outcome.RedactedText == RuleEvaluator.Redaction)
+        {
+            outcome.Effect.Should().Be(RuleEffect.Block, "a rule that could not search cannot say what is left");
+        }
     }
 
     #endregion
@@ -141,13 +145,16 @@ public sealed class RulePatternCostTests
         outcome.Why.Should().Contain("written patterns are turned off on this server");
         outcome.RedactedText.Should().Be(effect is RuleEffect.Redact ? RuleEvaluator.Redaction : null);
         budget.Spent.Should().Be(0, "the pattern was not run");
+        RulePatterns.IsKept(UnderTheCount).Should().BeFalse("and it was not built: no expression exists for it on this server");
     }
 
     [Fact]
-    public void The_hosted_preset_turns_written_patterns_off_and_the_self_hosted_one_leaves_them_on()
+    public void Written_patterns_are_off_in_every_preset_and_no_operator_may_turn_them_on()
     {
         DeploymentPolicy.Hosted.AllowWrittenRulePatterns.Should().BeFalse();
-        DeploymentPolicy.SelfHosted.AllowWrittenRulePatterns.Should().BeTrue();
+        DeploymentPolicy.SelfHosted.AllowWrittenRulePatterns.Should().BeFalse();
+        (DeploymentPolicy.SelfHosted with { AllowWrittenRulePatterns = true }).FindLoosenedRules(DeploymentPolicy.SelfHosted)
+            .Should().Contain(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "a server set that way does not start");
     }
 
     #endregion
@@ -155,31 +162,16 @@ public sealed class RulePatternCostTests
     #region What Is Kept
 
     [Fact]
-    public void The_patterns_kept_ready_are_bounded_in_number_and_in_what_they_hold()
+    public void The_patterns_kept_ready_are_bounded_in_number_and_a_refused_one_keeps_no_expression()
     {
         for (var number = 0; number < RulePatterns.MaxKept + 100; number++)
         {
             RulePatterns.Compile($"word{number}\\d+").Problem.Should().BeNull();
         }
 
-        RulePatterns.Compile(UnderTheCount).Expression.Should().BeNull("a pattern that was refused keeps no expression");
-        RulePatterns.Compile(UnderTheCount).Problem.Should().Contain("too much work", "its refusal is kept, so it is not tried again each time it is read");
-
-        var (patterns, bytes) = RulePatterns.Held;
-        patterns.Should().BeLessThanOrEqualTo(RulePatterns.MaxKept);
-        bytes.Should().BeLessThanOrEqualTo(RulePatterns.MaxKeptBytes);
-    }
-
-    [Fact]
-    public void A_refused_pattern_is_refused_again_without_being_tried_again()
-    {
-        RulePatterns.Compile(UnderTheCount);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-
-        var again = RulePatterns.Compile(UnderTheCount);
-
-        again.Problem.Should().Contain("too much work");
-        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(100_000);
+        RulePatterns.Compile(Measured).Expression.Should().BeNull();
+        RulePatterns.Compile(Measured).Problem.Should().Contain("more than 256 times");
+        RulePatterns.Kept.Should().BeLessThanOrEqualTo(RulePatterns.MaxKept);
     }
 
     #endregion
