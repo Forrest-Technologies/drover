@@ -108,7 +108,7 @@ Every scenario also checks that no vendor type leaves the adapter.
 
 ## The broker
 
-Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider`. It is registered, with the four sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
+Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider` for a bot's work; the only other caller is the sweep ([Retiring and the sweep](#retiring-and-the-sweep)), which only pauses and destroys. Both are registered, with the four sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
 
 For each sandbox tool call it:
 
@@ -132,7 +132,7 @@ The operator's E2B key is server configuration, not a secret in the vault: the v
 
 `SecretKind.SandboxProviderKey` stays reserved for a future hosted service where a space brings its own provider key.
 
-Not built yet: retiring a sandbox when its bot is removed (the table below), a sweeper for a row left in `creating` by a crash between the provider's answer and the vault write (the next use retries the creation with the same idempotency key; how long E2B remembers a key is not documented, so a very late retry can make a second sandbox and leave the first to pause), `sandbox.enter`, and the terminal view in the activity screen. The E2B clients go through the server's checked outbound handler, which does not use an outbound proxy.
+Not built yet: `sandbox.enter`, and the terminal view in the activity screen. The E2B clients go through the server's checked outbound handler, which does not use an outbound proxy.
 
 ## Sharing policies
 
@@ -177,6 +177,32 @@ Provider accounts: on a self-hosted server each space uses the operator's key. O
 "Retired" means: paused immediately, state `retiring`, kept for seven days so a human can download files or assign the environment to another bot, then destroyed. The retention period is a space setting and can be zero.
 
 If a human moves a child out of a subtree before removing the parent, the child leaves the sharing group and gets its own private sandbox on next use.
+
+As built:
+
+- `BotService.Remove` retires the removed bot's own live sandbox in the same transaction (`SandboxRepository.RetireLiveForOwner`: state `retiring`, due after the retention period) and removes the shares that name it. The provider is not called inside that transaction; the sweep pauses the sandbox within a minute.
+- A member that is not the owner keeps nothing: a removed bot can make no tool call, its shares are gone, and the shared sandbox carries on for the rest untouched. Stopping its processes and rotating the token by recreating the handle are not built.
+- Removing a bot does not remove its subtree. Its descendants stay; the removed bot no longer counts on their path, so a `subtree` child becomes the owner of a new sandbox on its next use, and the removed owner's sandbox is retired like any other.
+- The retention period is not a space setting yet: every space keeps seven days (`SandboxSweep.Retention`). There is no screen yet to recover files from a retired sandbox or give it to another bot.
+
+### Retiring and the sweep
+
+`SandboxSweep` in `Drover.Engine`, run by the `SandboxSweeper` hosted service once when the server starts and then every minute, only on a server with a sandbox provider. A pass:
+
+1. **Finds**, across spaces, through `sys.sandboxes_to_sweep(now, stuck_before, limit)` ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md)), at most 50 sandboxes as ids (space, sandbox): retiring ones that are due (`retire_after` passed), retiring ones that may still be running (`expires_at`, when the provider pauses it on its own, still ahead), and rows left `creating` for more than ten minutes. A creating row's age is read from its id, a version 7 UUID, so no column holds it.
+2. **Handles each** in that space's own tenant scope, as the space with no person, with no transaction open across a provider call:
+   - due: `Destroy` at the provider, then delete the token from the vault and mark the row `destroyed`;
+   - may still be running: `Pause`, then set `expires_at` to now so it is not paused again; one the provider no longer has is marked `destroyed`;
+   - left creating: retired, due now. That frees the bot's one live row at once, so its next use makes a new sandbox; the next pass clears the old row.
+3. Pausing and destroying need only the provider's control plane, so the sweep's handle carries no token, and it never reveals one. Logs carry ids and the failure kind only.
+
+One sandbox the provider cannot destroy is logged and left retiring with `retire_after` an hour later, so it is neither retried in a hot loop nor able to fill every pass; the other sandboxes of the pass go on. One it cannot pause pauses on its own when its idle time runs out. Every step locks the row and checks its state first, so two servers sweeping at once, or the broker destroying a due sandbox of the same bot on its next use, do no harm.
+
+A use that was already running when its sandbox was retired does not bring the row back into use: the broker leaves a retiring row retiring, and a row it finds destroyed after making a sandbox becomes retiring again, due now, so the sweep destroys what was made.
+
+**One case can leave a sandbox at the provider.** A row records its provider id only after the provider answered. If the server stops between the provider's answer and that write, and the bot is never used again, the row holds no provider id, and the provider interface has no way to look a sandbox up by its idempotency key without making one. The sweep then marks the row destroyed, and the sandbox at the provider is left to pause on its own when its idle time runs out, and stays there paused. It needs a crash inside a window of milliseconds; if the bot is used again within E2B's idempotency memory, the retry finds the same sandbox and nothing is left behind.
+
+Verified live on 2026-11-14 (`SandboxSweepLiveTests`, explicit): a bot ran a command in a new `base` sandbox, the bot was removed, a sweep pass left E2B reporting the sandbox paused, and a pass run as if the retention period had gone by left E2B reporting it gone, with the row destroyed and its token deleted.
 
 ## E2B adapter
 
@@ -246,7 +272,7 @@ A bot can see a screen in its sandbox and drive it with the mouse and keyboard. 
 
 **Saying what the bot may do.** A sandbox the bot is not granted the tools for is easy to miss, so the Sandbox section says it in words from the bot's grants as the Tools section shows them (its own and its parent's ceiling, never `tool_grants` read directly): "This bot may not use its sandbox yet." with one control, "Allow sandbox tools", and with Desktop on the same for the five screen tools ("Allow screen tools"). The control stages a grant for each tool that is off, at the most the parent allows (allow, or ask under a parent that asks), in the editor's draft; Save sets them through the same tool-grant API the Tools section uses, one by one, and the server checks each against the parent; Discard drops them. Nothing is granted by itself, and `GrantedToNewBots` is unchanged. Once allowed, the section says so quietly ("May run commands and use files", "May use the screen") with a way to the Tools section; a parent that keeps the tools off is named instead of an offer. With Desktop on and a model the catalog does not list as seeing images, the section says the bot cannot use the screen with this model and opens the Model section. The collapsed summary ends with what the bot may do ("· may run commands", "· not allowed yet").
 
-**The sandbox.** A sandbox with a screen is made from the provider's desktop image: `SandboxSpec.Desktop`, which the E2B adapter turns into `E2BOptions.DesktopTemplate` (default E2B's public `desktop`: Ubuntu with Xvfb, Xfce, xdotool and scrot; 8 vCPU and 8 GB, so it costs far more than `base`). `DISPLAY=:0` is in its environment. The choice is made when the sandbox is created, so it follows the sandbox's owner (in a shared sandbox, the owner's setting decides). Turning Desktop on or off takes the bot's live sandbox out of use when the bot is saved (`SandboxRepository.RetireLiveForOwner`: state `retiring`, due now); the next sandbox call makes one of the new kind, and the broker destroys the retired one at the provider and deletes its token. Its files go with it, and the editor says so beside the switch. Saving the bot without changing the switch keeps its sandbox.
+**The sandbox.** A sandbox with a screen is made from the provider's desktop image: `SandboxSpec.Desktop`, which the E2B adapter turns into `E2BOptions.DesktopTemplate` (default E2B's public `desktop`: Ubuntu with Xvfb, Xfce, xdotool and scrot; 8 vCPU and 8 GB, so it costs far more than `base`). `DISPLAY=:0` is in its environment. The choice is made when the sandbox is created, so it follows the sandbox's owner (in a shared sandbox, the owner's setting decides). Turning Desktop on or off takes the bot's live sandbox out of use when the bot is saved (`SandboxRepository.RetireLiveForOwner`: state `retiring`, due now); the next sandbox call makes one of the new kind, and the broker on that call, or the sweep within a minute, destroys the retired one at the provider and deletes its token. Its files go with it, and the editor says so beside the switch. Saving the bot without changing the switch keeps its sandbox.
 
 **The display.** Before every computer action the broker runs one fixed script, written by Drover and holding no model text, that does what E2B's desktop SDK does when it creates a sandbox: if the display does not answer, start `Xvfb :0 -ac -screen 0 1024x768x24 -retro -dpi 96 -nolisten tcp -nolisten unix` and wait for `xdpyinfo`; if the Xfce session is not running, start `startxfce4` and wait until `xfce4-session`, `xfwm4` and `xfdesktop` all run, then three more seconds (a first screenshot was black without them, live). Both start with `setsid -f` and no open output, so they outlive the command. A display that will not start is an error for the model; nothing else runs.
 
