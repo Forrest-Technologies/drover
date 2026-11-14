@@ -14,6 +14,7 @@ public static class RegistrationEndpoints
         register.MapGet("/", GetRegistrationStatus).WithName("GetRegistrationStatus");
         register.MapPost("/", Register)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("Register");
         return api;
     }

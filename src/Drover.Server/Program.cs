@@ -55,6 +55,7 @@ builder.Services.AddDroverModels();
 builder.Services.AddDroverRunEngine(builder.Configuration);
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
+builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
@@ -67,6 +68,7 @@ app.UseCookiePolicy();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRequestLimits();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -80,7 +82,12 @@ api.MapSpaceEndpoints();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
 
-app.MapOpenApi();
+// The API description is for building Drover; a running server does not hand it to strangers.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
 app.MapHealthChecks("/health/ready");
 app.MapFallbackToFile("index.html");
