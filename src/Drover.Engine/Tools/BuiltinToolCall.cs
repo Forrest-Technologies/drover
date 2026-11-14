@@ -24,7 +24,28 @@ public sealed record BuiltinToolCall(
     RunTenant Tenant,
     Func<ToolOutputChunk, Task> Output,
     Func<Task> Taint,
-    Action<ToolImage> Attach);
+    Action<ToolImage> Attach)
+{
+    #region Properties
+
+    /// <summary>Whether the run's own model reads images, so a picture handed over with <see cref="Attach"/> is seen.</summary>
+    public bool ModelSeesImages { get; init; }
+
+    /// <summary>
+    /// Counts a model call the tool is about to make for its run against the run's limit on model calls, or refuses
+    /// it in words. Outside a run there is no such limit to count against, so the call is refused.
+    /// </summary>
+    public Func<Task> BeginModelCall { get; init; } = () => throw new BuiltinToolException("A model can be called this way only inside a run.");
+
+    /// <summary>Records what a model call the tool made cost, against the run, as the run's own model calls are.</summary>
+    public Func<ToolModelUsage, Task> RecordModelUsage { get; init; } = _ => Task.CompletedTask;
+
+    #endregion
+}
+
+
+/// <summary>The tokens one model call a tool made used, with the model that answered and its prices.</summary>
+public sealed record ToolModelUsage(Guid ModelConnectionId, string Model, ModelPricing Pricing, long InputTokens, long OutputTokens);
 
 
 /// <summary>

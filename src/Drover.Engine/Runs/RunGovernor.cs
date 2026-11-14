@@ -5,7 +5,14 @@ namespace Drover.Engine.Runs;
 /// the model never decides what it may do: the grant is read again when the call is made, the bot must still be
 /// active, and the result is redacted before anything stores or sees it.
 /// </summary>
-public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricing, IToolSource? toolServers, RunRules rules, ILogger logger) : IRunGovernor
+public sealed class RunGovernor(
+    RunSession session,
+    Bot bot,
+    ModelPricing pricing,
+    IToolSource? toolServers,
+    RunRules rules,
+    ILogger logger,
+    bool modelSeesImages = false) : IRunGovernor
 {
     #region Private Fields
 
@@ -64,35 +71,8 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
     public Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken) =>
         throw new NotSupportedException(NotAvailable);
 
-    public async Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken)
-    {
-        var cost = Cost(usage);
-        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost);
-        var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, pricing.Currency);
-        await session.Writer.Write(
-            async services =>
-            {
-                var runs = services.GetRequiredService<RunRepository>();
-                runs.Add(new UsageRecord
-                {
-                    RunId = session.RunId,
-                    RootRunId = session.RootRunId,
-                    BotId = bot.Id,
-                    ModelConnectionId = bot.ModelConnectionId,
-                    Model = bot.Model,
-                    InputTokens = usage.InputTokens,
-                    OutputTokens = usage.OutputTokens,
-                    Cost = cost,
-                    Currency = pricing.Currency,
-                });
-
-                if (await runs.GetRunForUpdate(session.RunId, CancellationToken.None) is { } run)
-                {
-                    run.Usage = session.Usage;
-                }
-            },
-            [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
-    }
+    public Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken) =>
+        Record(new ToolModelUsage(bot.ModelConnectionId, bot.Model, pricing, usage.InputTokens, usage.OutputTokens));
 
     public JsonElement Redact(JsonElement value) => session.Redactor.Redact(value);
 
@@ -317,8 +297,8 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
     }
 
     /// <summary>
-    /// The call as a built-in tool sees it: its arguments, its run, and a way to stream output, to taint the run, and to
-    /// attach a picture for the model's next call.
+    /// The call as a built-in tool sees it: its arguments, its run, and a way to stream output, to taint the run, to
+    /// attach a picture for the model's next call, and to call another model for the run within its limits.
     /// </summary>
     private BuiltinToolCall BuiltinCall(ToolCallRequest toolCall, List<ToolImage> images) =>
         new(
@@ -329,7 +309,12 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             session.Tenant,
             chunk => session.ToolOutput(toolCall.CallId, chunk),
             session.Taint,
-            images.Add);
+            images.Add)
+        {
+            ModelSeesImages = modelSeesImages,
+            BeginModelCall = session.BeginToolModelCall,
+            RecordModelUsage = Record,
+        };
 
     #endregion
 
@@ -416,8 +401,42 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
     private static ToolOutcome Error(string message) => new(JsonSerializer.SerializeToElement(new { error = message }), true);
 
-    private decimal Cost(ModelUsage usage) =>
-        ((usage.InputTokens * (pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (pricing.OutputPerMillion ?? 0))) / 1_000_000m;
+    /// <summary>
+    /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen.
+    /// The record names the model that answered, so a call by another model is told apart from the bot's own.
+    /// </summary>
+    private async Task Record(ToolModelUsage usage)
+    {
+        var cost = Cost(usage);
+        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost);
+        var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
+        await session.Writer.Write(
+            async services =>
+            {
+                var runs = services.GetRequiredService<RunRepository>();
+                runs.Add(new UsageRecord
+                {
+                    RunId = session.RunId,
+                    RootRunId = session.RootRunId,
+                    BotId = bot.Id,
+                    ModelConnectionId = usage.ModelConnectionId,
+                    Model = usage.Model,
+                    InputTokens = usage.InputTokens,
+                    OutputTokens = usage.OutputTokens,
+                    Cost = cost,
+                    Currency = usage.Pricing.Currency,
+                });
+
+                if (await runs.GetRunForUpdate(session.RunId, CancellationToken.None) is { } run)
+                {
+                    run.Usage = session.Usage;
+                }
+            },
+            [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
+    }
+
+    private static decimal Cost(ToolModelUsage usage) =>
+        ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m;
 
     #endregion
 }

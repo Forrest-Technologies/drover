@@ -4,7 +4,8 @@ namespace Drover.Engine.Sandboxes;
 /// The five computer tools: a bot sees its sandbox's screen and drives it with the mouse and keyboard. They are
 /// registered with the sandbox tools, only on a server with a sandbox provider, and no new bot is granted them. Each is
 /// offered to a model only when its bot's sandbox has a screen, the deployment allows one, and the bot's model can see
-/// images; every call goes through the tool gate like any other. Each works in the bot's own sandbox only.
+/// images or another model is set to read the screen for it; every call goes through the tool gate like any other.
+/// Each works in the bot's own sandbox only.
 /// </summary>
 public static class ComputerTools
 {
@@ -29,7 +30,8 @@ public static class ComputerTools
     /// <summary>Registers the five tools. Needs the <see cref="SandboxBroker"/>.</summary>
     public static IServiceCollection AddComputerTools(this IServiceCollection services)
     {
-        services.AddSingleton(provider => Screenshot(provider.GetRequiredService<SandboxBroker>()));
+        services.AddSingleton<ScreenDescriber>();
+        services.AddSingleton(provider => Screenshot(provider.GetRequiredService<SandboxBroker>(), provider.GetRequiredService<ScreenDescriber>()));
         services.AddSingleton(provider => Click(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => Type(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => Key(provider.GetRequiredService<SandboxBroker>()));
@@ -39,18 +41,41 @@ public static class ComputerTools
 
     public static bool IsComputerTool(string name) => Names.Contains(name, StringComparer.Ordinal);
 
-    public static BuiltinTool Screenshot(SandboxBroker broker) =>
+    /// <summary>
+    /// The screenshot. Read by the bot's own model, the picture is attached for its next call. With a model set to read
+    /// the screen for the bot, that model describes it and the bot gets the description in words: the picture never
+    /// reaches the bot's model, and if the reader cannot answer the bot is told so and nothing else sees the picture.
+    /// </summary>
+    public static BuiltinTool Screenshot(SandboxBroker broker, ScreenDescriber describer) =>
         new(
             "computer.screenshot",
             "Take a screenshot",
-            $"Takes a screenshot of this bot's sandbox screen, with the pointer. You see the picture with your next answer, once; take a new one to see the screen again. {screen}",
-            Schema(string.Empty),
+            $"Takes a screenshot of this bot's sandbox screen, with the pointer. You see the picture with your next answer, once; take a new one to see the screen again. When another model reads the screen for this bot, you get its description in words instead, with the centre of each thing you can click or type into, and question tells it what to look for. {screen}",
+            Schema(
+                $$"""
+                "question": { "type": "string", "maxLength": {{ScreenDescriber.MaxQuestionCharacters}}, "description": "What to look for, when another model reads the screen for this bot. Ignored when you see the picture yourself." }
+                """),
             ToolSensitivity.Read,
             async (call, cancellationToken) =>
             {
+                var question = ScreenDescriber.ReadQuestion(call.Arguments);
+                var reader = await describer.FindReader(call, cancellationToken);
+
+                if (reader is null && !call.ModelSeesImages)
+                {
+                    throw new BuiltinToolException("This bot's model cannot read images and no model is set to read the screen for it, so a screenshot cannot be shown. A person can set one in the bot's Sandbox settings.");
+                }
+
                 var shot = await broker.Screenshot(call, cancellationToken);
-                call.Attach(new ToolImage(shot.Png, "image/png"));
-                return Result(new { screenshot = "attached", width = shot.Width, height = shot.Height, note = Note(shot.NewSandbox) });
+
+                if (reader is null)
+                {
+                    call.Attach(new ToolImage(shot.Png, "image/png"));
+                    return Result(new { screenshot = "attached", width = shot.Width, height = shot.Height, note = Note(shot.NewSandbox) });
+                }
+
+                var description = await describer.Describe(call, reader, shot, question, cancellationToken);
+                return Result(new { screenshot = "described", width = shot.Width, height = shot.Height, description, note = Note(shot.NewSandbox) });
             });
 
     public static BuiltinTool Click(SandboxBroker broker) =>

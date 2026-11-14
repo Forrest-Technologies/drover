@@ -246,7 +246,7 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
     /// A provider whose sandbox behaves like a desktop: the display check exits with <paramref name="displayExitCode"/>,
     /// scrot writes a PNG to the path it is given, rm removes it, and xdotool does what it is told.
     /// </summary>
-    private static FakeSandboxProvider DesktopProvider(int displayExitCode = 0)
+    internal static FakeSandboxProvider DesktopProvider(int displayExitCode = 0)
     {
         var provider = new FakeSandboxProvider();
         provider.Behaviour = (command, token, cancellationToken) => Desktop(provider.WithToken(token), command, displayExitCode, cancellationToken);

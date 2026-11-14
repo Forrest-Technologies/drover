@@ -16,5 +16,11 @@ public sealed record SandboxSettings
     /// </summary>
     public bool Desktop { get; init; }
 
+    /// <summary>
+    /// The model that reads the screen for the bot, or null for the bot's own model. With one set, a screenshot reaches
+    /// the bot as a description in words and never as a picture.
+    /// </summary>
+    public ScreenReader? ScreenReader { get; init; }
+
     #endregion
 }

@@ -25,6 +25,9 @@ public sealed class RunOptions
     /// <summary>How long one call to a tool server may take.</summary>
     public TimeSpan ToolCallTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
+    /// <summary>How long the model that reads a bot's screen may take to describe one screenshot.</summary>
+    public TimeSpan ScreenReadTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
     /// <summary>A run taken over this many times after a lost lease fails instead of starting again.</summary>
     public int MaxAttempts { get; set; } = 3;
 

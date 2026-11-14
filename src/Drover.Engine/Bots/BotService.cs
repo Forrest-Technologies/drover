@@ -142,7 +142,11 @@ public sealed class BotService(
         bot.ModelSettings = edit.ModelSettings!;
         bot.MemorySettings = edit.MemorySettings!;
         bot.SandboxPolicy = edit.SandboxPolicy!.Value;
-        bot.SandboxSettings = edit.SandboxSettings! with { AllowedHosts = [.. edit.SandboxSettings.AllowedHosts.Select(host => host.Trim().ToLowerInvariant())] };
+        bot.SandboxSettings = edit.SandboxSettings! with
+        {
+            AllowedHosts = [.. edit.SandboxSettings.AllowedHosts.Select(host => host.Trim().ToLowerInvariant())],
+            ScreenReader = edit.SandboxSettings.ScreenReader is { } reader ? reader with { Model = reader.Model.Trim() } : null,
+        };
         bot.BuildLimits = edit.BuildLimits;
         await bots.ReplaceSandboxShares(id, sharedWith, cancellationToken);
 
@@ -290,6 +294,7 @@ public sealed class BotService(
         ?? await FindModelProblem(edit, cancellationToken)
         ?? FindMemoryProblem(edit.MemorySettings)
         ?? await FindSandboxProblem(bot, edit, cancellationToken)
+        ?? await FindScreenReaderProblem(edit.SandboxSettings?.ScreenReader, cancellationToken)
         ?? FindBuildProblem(edit.BuildLimits);
 
     private static string? FindTextProblem(BotEdit edit)
@@ -482,6 +487,36 @@ public sealed class BotService(
         return await bots.CountBots(others, cancellationToken) != others.Count
             ? "A sandbox can be shared only with bots of this space."
             : null;
+    }
+
+    /// <summary>
+    /// A model that reads the screen for the bot must be one of this space's, and one the catalog says reads images:
+    /// a model that cannot would describe nothing, and one Drover knows nothing about is not trusted to.
+    /// </summary>
+    private async Task<string?> FindScreenReaderProblem(ScreenReader? reader, CancellationToken cancellationToken)
+    {
+        if (reader is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(reader.Model) || reader.Model.Trim().Length > MaxModelLength)
+        {
+            return "Choose a model to read the screen, or let the bot's own model do it.";
+        }
+
+        if (await connections.FindConnection(reader.ModelConnectionId, cancellationToken) is null)
+        {
+            return "The model chosen to read the screen is not on a model connection of this space. Choose another, or let the bot's own model do it.";
+        }
+
+        var model = reader.Model.Trim();
+        return await connections.FindCatalogEntry(reader.ModelConnectionId, model, cancellationToken) switch
+        {
+            null => $"Drover does not know whether {model} can read images, so it cannot read the screen. Choose a model its connection lists as reading images.",
+            { Capabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
+            _ => null,
+        };
     }
 
     private static string? FindBuildProblem(BuildLimits limits) =>

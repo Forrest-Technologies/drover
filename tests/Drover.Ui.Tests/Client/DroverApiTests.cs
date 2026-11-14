@@ -123,6 +123,29 @@ public sealed class DroverApiTests : IDisposable
     }
 
     [Fact]
+    public async Task A_bots_screen_reader_is_sent_with_its_sandbox_settings_and_read_back()
+    {
+        var spaceId = Guid.NewGuid();
+        var botId = Guid.NewGuid();
+        var connectionId = Guid.NewGuid();
+        var at = $"/api/spaces/{spaceId}/bots/{botId}/definition";
+        var settings = new SandboxSettingsBody("off", [], null, Desktop: true, new ScreenReaderBody(connectionId, "sample-eyes"));
+        var detail = new BotDetail(
+            botId, "Sample", "sample", new BotAvatarBody(null, null), string.Empty, string.Empty, Guid.NewGuid(), "sample-plain",
+            new ModelSettingsBody(null, null, null, "off", false), new MemorySettingsBody(false, "none", null, null), "private",
+            settings, [], "active", null, 0, new BuildLimitsBody(null, null), null, null);
+        server.Answer("PUT", at, detail);
+        var request = new UpdateBotRequest(null, null, null, null, null, null, null, null, null, null, settings, null, null);
+
+        var saved = await server.CreateApi().UpdateBotDefinition(spaceId, botId, request, Xunit.TestContext.Current.CancellationToken);
+
+        saved.SandboxSettings.ScreenReader.Should().Be(new ScreenReaderBody(connectionId, "sample-eyes"));
+        var sent = JsonElement.Parse(server.Requests.Single().Body).GetProperty("sandboxSettings").GetProperty("screenReader");
+        sent.GetProperty("modelConnectionId").GetGuid().Should().Be(connectionId);
+        sent.GetProperty("model").GetString().Should().Be("sample-eyes");
+    }
+
+    [Fact]
     public async Task A_refused_screen_carries_the_servers_own_sentence()
     {
         var spaceId = Guid.NewGuid();

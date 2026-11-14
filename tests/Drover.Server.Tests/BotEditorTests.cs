@@ -51,6 +51,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>());
         Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>());
         Names<SandboxSettingsBody>().Should().BeEquivalentTo(Names<SandboxSettings>());
+        Names<ScreenReaderBody>().Should().BeEquivalentTo(Names<ScreenReader>());
         Names<BuildLimitsBody>().Should().BeEquivalentTo(Names<BuildLimits>());
         Names<BotAvatarBody>().Should().BeEquivalentTo(Names<BotAvatar>());
     }
@@ -64,6 +65,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var other = await CreateBot(client, alice.SpaceId, "Other");
         var second = await CreateConnection(client, alice.SpaceId, "Second");
         var fileId = await SeedFile(alice.SpaceId, alice.UserId);
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "seeing", new ModelCapabilities { Vision = true });
         var untouched = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
         var edit = new UpdateBotRequest(
             "Atlas",
@@ -76,7 +78,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             new ModelSettingsBody(0.4, 900, "high", "automatic", true),
             new MemorySettingsBody(true, "summarization", 60_000, 12),
             "named",
-            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true),
+            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
             new BuildLimitsBody(3, 2));
 
@@ -97,7 +99,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 edit.ModelSettings,
                 edit.MemorySettings,
                 edit.SandboxPolicy,
-                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30, Desktop: true),
+                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, "seeing")),
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
                 Status = "active",
@@ -176,6 +178,47 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "a host that is nothing", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [null!], null) }, "is not a host name" },
             { "a blank host", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [" "], null) }, "is not a host name" },
         };
+    }
+
+    [Fact]
+    public async Task A_screen_reader_must_be_a_model_of_this_space_that_the_catalog_says_reads_images()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var asAlice = await SignIn(alice);
+        var asBob = await SignIn(bob);
+        var bot = await CreateBot(asAlice, alice.SpaceId);
+        var own = await CreateConnection(asAlice, alice.SpaceId, "Eyes");
+        var theirs = await CreateConnection(asBob, bob.SpaceId, "Bob's eyes");
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, own.Id, "seeing", new ModelCapabilities { Vision = true });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, own.Id, "blind", new ModelCapabilities());
+        await SeedCatalogEntry(bob.SpaceId, bob.UserId, theirs.Id, "seeing", new ModelCapabilities { Vision = true });
+        var at = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+
+        List<(string What, ScreenReaderBody Reader, string Expected)> refused =
+        [
+            ("another space's connection", new ScreenReaderBody(theirs.Id, "seeing"), "not on a model connection of this space"),
+            ("a connection that is not there", new ScreenReaderBody(Guid.CreateVersion7(), "seeing"), "not on a model connection of this space"),
+            ("a model that cannot read images", new ScreenReaderBody(own.Id, "blind"), "Plain cannot read images"),
+            ("a model the catalog does not list", new ScreenReaderBody(own.Id, "unlisted"), "does not know whether unlisted can read images"),
+            ("no model at all", new ScreenReaderBody(own.Id, " "), "Choose a model to read the screen"),
+        ];
+
+        foreach (var (what, reader, expected) in refused)
+        {
+            var response = await asAlice.Put(at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true, reader) });
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest, what);
+            (await Title(response)).Should().Contain(expected, what);
+        }
+
+        (await GetFor<BotDetail>(asAlice, at)).SandboxSettings.ScreenReader.Should().BeNull("a refused reader is not stored");
+
+        var chosen = await PutFor<BotDetail>(asAlice, at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true, new ScreenReaderBody(own.Id, "seeing")) });
+        chosen.SandboxSettings.ScreenReader.Should().Be(new ScreenReaderBody(own.Id, "seeing"));
+        (await GetFor<BotDetail>(asAlice, at)).SandboxSettings.ScreenReader.Should().Be(new ScreenReaderBody(own.Id, "seeing"));
+
+        var cleared = await PutFor<BotDetail>(asAlice, at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true) });
+        cleared.SandboxSettings.ScreenReader.Should().BeNull("the bot's own model reads the screen again");
     }
 
     #endregion
