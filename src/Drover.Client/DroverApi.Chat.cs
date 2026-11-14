@@ -33,6 +33,13 @@ public sealed partial class DroverApi
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 
     /// <summary>
+    /// The tool events of the thread's runs, each run's oldest first, already redacted. Feed them to
+    /// <see cref="ToolHistory.From"/> to show past tool calls as they were shown live.
+    /// </summary>
+    public Task<List<RunEventResponse>> ListToolEvents(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<List<RunEventResponse>>($"{Space(spaceId)}/threads/{threadId}/tool-events", cancellationToken);
+
+    /// <summary>
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
     /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
     /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it

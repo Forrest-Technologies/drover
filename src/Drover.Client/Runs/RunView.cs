@@ -87,7 +87,8 @@ public sealed record PartView(
 /// <summary>
 /// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, approved, denied, running,
 /// completed, failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
-/// <see cref="Output"/> is what the tool printed while it ran, both streams in the order they arrived.
+/// <see cref="Pieces"/> is what the tool printed while it ran, in the order it arrived, a piece for each run of one
+/// stream; <see cref="Output"/> is the same text with the streams joined.
 /// </summary>
 public sealed record ToolCallView(
     Guid ToolCallId,
@@ -99,5 +100,19 @@ public sealed record ToolCallView(
     bool IsError = false,
     string Preview = "",
     long DurationMs = 0,
-    string? RequestId = null,
-    string Output = "");
+    string? RequestId = null)
+{
+    public ImmutableList<ToolOutputPiece> Pieces { get; init; } = [];
+
+    public string Output => string.Concat(Pieces.Select(piece => piece.Text));
+
+    /// <summary>True while the call has not ended: it waits to run, runs, or waits for an answer.</summary>
+    public bool IsOpen => State is "requested" or "awaiting_approval" or "approved" or "running";
+
+    /// <summary>The call as it stands once its run is over: a call still open then was stopped with the run.</summary>
+    public ToolCallView Settled() => IsOpen ? this with { State = "cancelled" } : this;
+}
+
+
+/// <summary>Output a tool printed on one stream, stdout or stderr, without a break.</summary>
+public sealed record ToolOutputPiece(string Stream, string Text);

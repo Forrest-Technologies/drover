@@ -47,6 +47,14 @@ public sealed class RunRepository(DroverDbContext db)
             .OrderBy(run => run.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <summary>The ids of a thread's root runs, oldest first.</summary>
+    public Task<List<Guid>> ListRootRunIds(Guid threadId, CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .Where(run => run.ThreadId == threadId && run.ParentRunId == null)
+            .OrderBy(run => run.Id)
+            .Select(run => run.Id)
+            .ToListAsync(cancellationToken);
+
     /// <summary>For each of the threads that has one, the id of its active root run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListActiveRunIds(IReadOnlyCollection<Guid> threadIds, CancellationToken cancellationToken)
     {
