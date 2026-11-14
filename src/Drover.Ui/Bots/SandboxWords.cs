@@ -14,6 +14,16 @@ public static class SandboxWords
 
     #endregion
 
+    #region Properties
+
+    /// <summary>
+    /// How long after a person's input the picture is fetched again: long enough for the sandbox to draw what the
+    /// input did, short enough that it looks immediate.
+    /// </summary>
+    public static TimeSpan PictureAfterInput { get; } = TimeSpan.FromMilliseconds(300);
+
+    #endregion
+
     #region Public Methods
 
     public static string State(string state) => state switch
