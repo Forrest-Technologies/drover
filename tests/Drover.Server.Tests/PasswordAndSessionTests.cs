@@ -2,6 +2,16 @@ namespace Drover.Server.Tests;
 
 public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
+    #region Properties
+
+    /// <summary>This test reads the SQL the server ran from the log, so it turns the command category back up.</summary>
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Information",
+    };
+
+    #endregion
+
     #region Sign-Out
 
     [Fact]

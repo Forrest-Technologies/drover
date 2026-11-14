@@ -119,7 +119,7 @@ The redactor is a seatbelt, not a guarantee: a tool that returns a secret in a t
 
 | Credential | Held by | Notes |
 | --- | --- | --- |
-| `drover_owner` password | The migrator step | Used at start to apply migrations, then the connection is closed. If the serving process is given it (`ConnectionStrings:DroverOwner`, or the superuser or owner password through `Database:Password`, `Database:OwnerPassword` or their `File` forms), the `AllowMigrationCredentialInServer` rule decides whether the server may start. Where the rule lets it start, it logs an error at start naming each such setting, never its value. |
+| `drover_owner` password | The migrator step | Used at start to apply migrations, then the connection is closed. If the serving process is given it (`ConnectionStrings:DroverOwner`, or the superuser or owner password through `Database:Password`, `Database:OwnerPassword` or their `File` forms), the `AllowMigrationCredentialInServer` rule decides whether the server may start. Where the rule lets it start, the owner and superuser passwords are what the server migrates with at start (see 13-deployment-and-push.md): used for that one connection, never kept or logged. A setting the server does not use is logged as an error at start, naming it, never its value. |
 | `drover_app` password | The running server | The only credential request handling ever uses |
 
 In the single-container compose deployment both passwords sit on the same secrets volume, because one process migrates and then serves. The separation still does its main job: no code path in the running server holds a connection that can bypass row-level security. On the hosted service, migration is a separate job with its own credential, and the server never sees the owner password.

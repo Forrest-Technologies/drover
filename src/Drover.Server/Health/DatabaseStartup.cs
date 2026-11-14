@@ -69,6 +69,13 @@ public static class DatabaseStartup
         await DatabaseMigrator.Run(owner.ConnectionString);
     }
 
+    /// <summary>
+    /// Applies pending migrations as the owner and nothing else, for a database whose roles already exist. It reads
+    /// only the owner password, so the superuser password need not be given.
+    /// </summary>
+    public static async Task Migrate(IConfiguration configuration) =>
+        await DatabaseMigrator.Run(Connection(configuration, "drover_owner", OwnerPassword).ConnectionString);
+
     #endregion
 
     #region Constants

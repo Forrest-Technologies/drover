@@ -64,7 +64,14 @@ public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<Dep
     /// </summary>
     private void ReportInitializationSettings()
     {
-        var held = DatabaseStartup.HeldInitializationSettings(configuration);
+        var applies = StartupMigration.ModeFor(configuration, options.Value.Rules.AllowMigrationCredentialInServer)
+            is not StartupMigrationMode.Off;
+
+        // When the server applies its own migrations, the owner and superuser passwords are held for that. Only a
+        // setting it does not use (an owner connection string) is still worth an error.
+        var held = DatabaseStartup.HeldInitializationSettings(configuration)
+            .Where(setting => !applies || setting is "ConnectionStrings:DroverOwner")
+            .ToList();
         if (held.Count > 0)
         {
             logger.LogError(
