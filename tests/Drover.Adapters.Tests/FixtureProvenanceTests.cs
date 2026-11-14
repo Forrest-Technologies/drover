@@ -30,7 +30,25 @@ public sealed class FixtureProvenanceTests
             .Where(path => RecordedFixture.Parse(File.ReadAllText(path)).Provenance == "captured")
             .Select(path => $"{Path.GetFileName(Path.GetDirectoryName(path))}/{Path.GetFileName(path)}");
 
-        captured.Should().BeEquivalentTo(["venice/list_models.json", "venice/invalid_key.json"]);
+        captured.Should().BeEquivalentTo(
+        [
+            "venice/list_models.json",
+            "venice/invalid_key.json",
+            "e2b/creates_with_metadata.json",
+            "e2b/keeps_alive.json",
+            "e2b/runs_a_command.json",
+            "e2b/exits_zero.json",
+            "e2b/round_trips_binary.json",
+            "e2b/lists_files.json",
+            "e2b/denies_network.json",
+            "e2b/pauses_and_resumes.json",
+            "e2b/destroys.json",
+            "e2b/refuses_another_groups_handle.json",
+            "e2b/refuses_a_wrong_token.json",
+            "e2b/kills_on_cancel.json",
+            "e2b/stops_at_the_time_limit.json",
+            "e2b/malformed_key.json",
+        ]);
     }
 
     #endregion

@@ -1,0 +1,15 @@
+{
+  "provenance": "captured",
+  "note": "Captured with curl on 2026-11-14 by sending the made-up key 'drover-fake-key-for-capture' to GET https://api.e2b.app/sandboxes/doesnotexist000. The body is as returned; every header was dropped.",
+  "exchanges": [
+    {
+      "method": "*",
+      "path": "*",
+      "status": 401,
+      "body": {
+        "code": 401,
+        "message": "API key is malformed: expected the \"e2b_\" prefix, visit https://docs.e2b.dev/api-key for more information"
+      }
+    }
+  ]
+}
