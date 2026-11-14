@@ -190,6 +190,26 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     }
 
     [Fact]
+    public async Task Redeeming_a_code_lifts_the_lockout_of_a_browser_that_signed_in_before()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        await laptop.Post("/api/sign-out");
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await laptop.SignIn(person.Email, "not-the-password-1");
+        }
+
+        var replacement = NewPassword();
+        var code = await IssueResetCode(person.Email);
+        await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement));
+
+        (await laptop.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Redeeming_a_code_lifts_a_lockout()
     {
         var person = await SeedPerson("alice");
