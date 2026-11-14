@@ -33,11 +33,88 @@ public sealed class AccountRepository(DroverDbContext db)
         db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({FirstRunLockKey})", cancellationToken);
 
     /// <summary>
-    /// Locks the user's own row until the transaction ends, so two sign-in attempts on one account take turns: each
-    /// reads the failure count the other committed. Runs with only the user set; the row is visible to its user.
+    /// Takes one sign-in attempt from a lockout bucket in a single statement: adds one to the bucket's count and
+    /// returns the new count, or null when the bucket is locked or the account is not there. Each attempt gets its
+    /// own number, so attempts at the same moment cannot all read the same count. Where lockout is off for the
+    /// account, the attempt is taken and 0 returned. No lock outlives the statement.
     /// </summary>
-    public Task LockUser(Guid userId, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlAsync($"SELECT 1 FROM users WHERE id = {userId} FOR UPDATE", cancellationToken);
+    public async Task<int?> TakeSignInAttempt(
+        Guid userId,
+        bool knownBrowser,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var counts = knownBrowser
+            ? await db.Database.SqlQuery<int>(
+                $"""
+                UPDATE users
+                SET known_browser_access_failed_count =
+                    known_browser_access_failed_count + CASE WHEN lockout_enabled THEN 1 ELSE 0 END
+                WHERE id = {userId}
+                  AND (NOT lockout_enabled OR known_browser_lockout_end IS NULL OR known_browser_lockout_end <= {now})
+                RETURNING CASE WHEN lockout_enabled THEN known_browser_access_failed_count ELSE 0 END AS "Value"
+                """).ToListAsync(cancellationToken)
+            : await db.Database.SqlQuery<int>(
+                $"""
+                UPDATE users
+                SET access_failed_count = access_failed_count + CASE WHEN lockout_enabled THEN 1 ELSE 0 END
+                WHERE id = {userId} AND (NOT lockout_enabled OR lockout_end IS NULL OR lockout_end <= {now})
+                RETURNING CASE WHEN lockout_enabled THEN access_failed_count ELSE 0 END AS "Value"
+                """).ToListAsync(cancellationToken);
+        return counts.Count == 0 ? null : counts[0];
+    }
+
+    /// <summary>
+    /// After a wrong password: when the attempt's number reached the limit, locks the bucket until
+    /// <paramref name="lockUntil"/> and starts its count again. Otherwise changes nothing. One statement.
+    /// </summary>
+    public Task RecordWrongPassword(
+        Guid userId,
+        bool knownBrowser,
+        int attempt,
+        int limit,
+        DateTimeOffset lockUntil,
+        CancellationToken cancellationToken) =>
+        knownBrowser
+            ? db.Database.ExecuteSqlAsync(
+                $"""
+                UPDATE users SET known_browser_lockout_end = {lockUntil}, known_browser_access_failed_count = 0
+                WHERE id = {userId} AND lockout_enabled AND {attempt} >= {limit}
+                """,
+                cancellationToken)
+            : db.Database.ExecuteSqlAsync(
+                $"""
+                UPDATE users SET lockout_end = {lockUntil}, access_failed_count = 0
+                WHERE id = {userId} AND lockout_enabled AND {attempt} >= {limit}
+                """,
+                cancellationToken);
+
+    /// <summary>
+    /// After the right password: starts the bucket's count again, only if the bucket is still unlocked, and says
+    /// whether it was. An attempt that hashed while another locked the bucket is refused. One statement.
+    /// </summary>
+    public async Task<bool> RecordRightPassword(
+        Guid userId,
+        bool knownBrowser,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var accepted = knownBrowser
+            ? await db.Database.SqlQuery<int>(
+                $"""
+                UPDATE users SET known_browser_access_failed_count = 0
+                WHERE id = {userId}
+                  AND (NOT lockout_enabled OR known_browser_lockout_end IS NULL OR known_browser_lockout_end <= {now})
+                RETURNING 1 AS "Value"
+                """).ToListAsync(cancellationToken)
+            : await db.Database.SqlQuery<int>(
+                $"""
+                UPDATE users SET access_failed_count = 0
+                WHERE id = {userId} AND (NOT lockout_enabled OR lockout_end IS NULL OR lockout_end <= {now})
+                RETURNING 1 AS "Value"
+                """).ToListAsync(cancellationToken);
+        return accepted.Count > 0;
+    }
 
     /// <summary>
     /// Removes one of the user's stored tokens and returns its value, in one statement, or null when there is none.

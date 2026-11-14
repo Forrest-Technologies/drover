@@ -28,6 +28,7 @@ public static class BotEditorEndpoints
         bot.MapPut("/rules/{ruleId:guid}", UpdateRule).WithName("UpdateBotRule");
         bot.MapDelete("/rules/{ruleId:guid}", RemoveRule).WithName("RemoveBotRule");
         bot.MapPost("/rules/try", TryRules).WithName("TryBotRules");
+        bot.MapGet("/rules/options", GetRuleOptions).WithName("GetBotRuleOptions");
         return bots;
     }
 
@@ -166,6 +167,11 @@ public static class BotEditorEndpoints
     #endregion
 
     #region Rules
+
+    // What the server's deployment rules leave a rule to use. The same for every bot; it sits here so the editor
+    // asks with the access it already has.
+    private static Ok<BotRuleOptions> GetRuleOptions(RuleService rules) =>
+        TypedResults.Ok(new BotRuleOptions(rules.AllowsWrittenPatterns));
 
     private static async Task<Results<Ok<List<BotRuleResponse>>, NotFound>> ListRules(Guid botId, HttpContext context, RuleService rules) =>
         await rules.ListRules(botId, context.RequestAborted) is { } found

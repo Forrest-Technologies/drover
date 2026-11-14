@@ -70,6 +70,10 @@ public sealed partial class DroverApi
     public Task RemoveBotRule(Guid spaceId, Guid botId, Guid ruleId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/rules/{ruleId}", cancellationToken);
 
+    /// <summary>What a rule on this server may use.</summary>
+    public Task<BotRuleOptions> GetBotRuleOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotRuleOptions>($"{Space(spaceId)}/bots/{botId}/rules/options", cancellationToken);
+
     /// <summary>What the bot's rules would do with a sample. The server decides, with the evaluator a run uses.</summary>
     public Task<TryRulesResponse> TryBotRules(Guid spaceId, Guid botId, TryRulesRequest sample, CancellationToken cancellationToken = default) =>
         Post<TryRulesResponse>($"{Space(spaceId)}/bots/{botId}/rules/try", sample, cancellationToken);

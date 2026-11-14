@@ -31,6 +31,8 @@ public sealed class HashCounter
 
     private int checks;
 
+    private HashHold? next;
+
     #endregion
 
     #region Properties
@@ -50,6 +52,17 @@ public sealed class HashCounter
     /// <summary>How many guesses were checked against this one stored hash, as opposed to the decoy.</summary>
     public int ChecksAgainst(string hashedPassword) => byHash.GetValueOrDefault(hashedPassword);
 
+    /// <summary>Makes the next check wait inside the hasher until released, so a test can look around.</summary>
+    public HashHold HoldNextCheck()
+    {
+        var hold = new HashHold();
+        Interlocked.Exchange(ref next, hold);
+        return hold;
+    }
+
+    /// <summary>Called by the hasher: waits if a test asked to hold this check.</summary>
+    public void WaitIfHeld() => Interlocked.Exchange(ref next, null)?.Wait();
+
     #endregion
 }
 
@@ -68,8 +81,44 @@ public sealed class CountingPasswordHasher(HashCounter counter) : IPasswordHashe
 
     public PasswordVerificationResult VerifyHashedPassword(User user, string hashedPassword, string providedPassword)
     {
+        counter.WaitIfHeld();
         counter.Add(hashedPassword);
         return inner.VerifyHashedPassword(user, hashedPassword, providedPassword);
+    }
+
+    #endregion
+}
+
+
+/// <summary>A password check held open by a test: <see cref="Entered"/> completes when the check is waiting.</summary>
+public sealed class HashHold : IDisposable
+{
+    #region Private Fields
+
+    private readonly TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly ManualResetEventSlim released = new();
+
+    #endregion
+
+    #region Properties
+
+    public Task Entered => entered.Task;
+
+    #endregion
+
+    #region Interface Implementations
+
+    public void Dispose() => released.Set();
+
+    #endregion
+
+    #region Public Methods
+
+    public void Wait()
+    {
+        entered.TrySetResult();
+        released.Wait(TimeSpan.FromSeconds(30));
     }
 
     #endregion

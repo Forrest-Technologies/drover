@@ -171,6 +171,19 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         report.Rows.Any(row => row.Area == "server").Should().Be(shown);
     }
 
+    [Fact]
+    public async Task AllowWrittenRulePatterns_decides_whether_a_rule_may_look_for_text_with_a_written_pattern()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("ruleowner");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        // The answer is the server's, the same for every bot, so no bot has to exist to ask.
+        var options = (await (await client.Get($"/api/spaces/{spaceId}/bots/{Guid.CreateVersion7()}/rules/options")).Content.ReadFromJsonAsync<BotRuleOptions>(Token))!;
+
+        options.WrittenPatterns.Should().Be(Setting(nameof(DeploymentPolicy.AllowWrittenRulePatterns)) == "true");
+    }
+
     #endregion
 
     #region Private Methods

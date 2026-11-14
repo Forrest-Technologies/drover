@@ -49,7 +49,6 @@ public sealed class PasswordService(
     {
         tenant.SetUser(userId);
         await using var work = await scope.Begin(cancellationToken);
-        await accounts.LockUser(userId, cancellationToken);
         var user = await users.FindByIdAsync(userId.ToString());
 
         if (user is null)
