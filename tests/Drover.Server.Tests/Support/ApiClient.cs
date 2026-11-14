@@ -31,6 +31,15 @@ public sealed class ApiClient(HttpClient http)
     /// <summary>Sets one cookie by hand, as a browser holding it would send it.</summary>
     public void SetCookie(string name, string value) => cookies[name] = value;
 
+    /// <summary>Copies another client's cookies, as someone who stole them would.</summary>
+    public void TakeCookiesOf(ApiClient other)
+    {
+        foreach (var (name, value) in other.cookies)
+        {
+            cookies[name] = value;
+        }
+    }
+
     public Task<HttpResponseMessage> Get(string path) => Send(HttpMethod.Get, path, body: null, token: false);
 
     /// <summary>Opens a response without reading its body, for a stream. The caller disposes it to disconnect.</summary>
