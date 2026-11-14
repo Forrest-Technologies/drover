@@ -277,7 +277,7 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         }
 
         var active = await InSpace(alice.SpaceId, alice.UserId, async services =>
-            RuleService.Active(await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(botId, Token)));
+            RuleService.Active(await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(botId, Token), DeploymentPolicy.SelfHosted));
         var direct = samples.Select(sample => RuleEvaluator.Evaluate(active, new RuleSubject
         {
             Checkpoint = sample.Checkpoint is "before_tool" ? RuleCheckpoint.BeforeTool : sample.Checkpoint is "before_reply" ? RuleCheckpoint.BeforeReply : RuleCheckpoint.MessageArrives,

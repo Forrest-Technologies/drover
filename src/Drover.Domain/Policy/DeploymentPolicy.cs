@@ -195,6 +195,15 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool SpaceAdminsSeeServerStatus { get; init; } = true;
 
+    /// <summary>
+    /// Whether a bot rule may look for text with a pattern a person wrote. The expression engine guards against
+    /// costly text and not against a costly pattern, and nothing can stop one match once it has begun, so whoever
+    /// may save a rule could slow the whole server. Off, a rule with such a condition is refused when it is saved
+    /// and is not run: one saved earlier counts as not checked and takes its effect. "Contains" and the built-in
+    /// kinds stay.
+    /// </summary>
+    public bool AllowWrittenRulePatterns { get; init; } = true;
+
     #endregion
 
     #region Rule Table
@@ -319,6 +328,10 @@ public sealed record DeploymentPolicy
             nameof(SpaceAdminsSeeServerStatus),
             policy => policy.SpaceAdminsSeeServerStatus,
             Enforcement.Now("GET /api/spaces/{spaceId}/status")),
+        PolicyRule.Permission(
+            nameof(AllowWrittenRulePatterns),
+            policy => policy.AllowWrittenRulePatterns,
+            Enforcement.Now("RuleService, when a rule is saved, tried, or read for a run")),
     ];
 
     #endregion

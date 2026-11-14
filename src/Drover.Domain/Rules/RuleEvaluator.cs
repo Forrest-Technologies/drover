@@ -19,6 +19,8 @@ public static class RuleEvaluator
 
     private const string NothingLetThrough = ", so nothing of it is let through";
 
+    private const string PatternsOff = "the rule has a written pattern, written patterns are turned off on this server, and so it could not be checked";
+
     private static readonly JsonElement nothing = JsonElement.Parse("{}");
 
     private static readonly SearchValues<char> hostCharacters = SearchValues.Create("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-");
@@ -123,6 +125,7 @@ public static class RuleEvaluator
                 ? $"the tool {KindWords(kind)}"
                 : null,
             RuleConditionKind.TextContains => Finds(condition, reading, $"{Where(condition)} contains text the rule names"),
+            RuleConditionKind.TextMatches when rule.WrittenPatternsOff => PatternsOff,
             RuleConditionKind.TextMatches => Finds(condition, reading, $"{Where(condition)} matches the rule's pattern"),
             RuleConditionKind.TextHolds => Finds(condition, reading, $"{Where(condition)} holds {RulePatterns.Words(condition.Builtin ?? BuiltinPattern.Key)}"),
             RuleConditionKind.NotInList when condition.Argument is null => HasAnAddressOffTheList(condition, reading),
@@ -410,8 +413,13 @@ public static class RuleEvaluator
         return IsOn(allowed, plain, at != 0 && IsOneName(at < 0 ? [] : plain[..at], host) ? host : []);
     }
 
+    // The conditions of a rule that are searched for in text. A written pattern the server does not run is not one.
     private static IEnumerable<RuleCondition> TextConditions(ActiveRule rule) =>
-        rule.Conditions.Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextMatches or RuleConditionKind.TextHolds);
+        rule.Conditions.Where(condition => condition.Kind is RuleConditionKind.TextContains or RuleConditionKind.TextHolds
+            || (condition.Kind is RuleConditionKind.TextMatches && !rule.WrittenPatternsOff));
+
+    private static bool HasAPatternThatIsNotRun(ActiveRule rule) =>
+        rule.WrittenPatternsOff && rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.TextMatches);
 
     #endregion
 
@@ -422,7 +430,7 @@ public static class RuleEvaluator
     // that is not text, or an object in which two inputs share a name.
     private static string? CannotRewrite(ActiveRule rule, RuleReading reading)
     {
-        if (reading.IsTooMuch || reading.Budget.IsSpent)
+        if (reading.IsTooMuch || reading.Budget.IsSpent || HasAPatternThatIsNotRun(rule))
         {
             return NothingLetThrough;
         }

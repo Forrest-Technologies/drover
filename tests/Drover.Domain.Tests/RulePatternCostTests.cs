@@ -122,6 +122,33 @@ public sealed class RulePatternCostTests
 
     #endregion
 
+    #region Turned Off
+
+    [Theory]
+    [InlineData(RuleEffect.Block)]
+    [InlineData(RuleEffect.Redact)]
+    public void Where_written_patterns_are_off_a_rule_with_one_is_not_run_and_takes_its_effect(RuleEffect effect)
+    {
+        var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, effect, [Matches(UnderTheCount)]) { WrittenPatternsOff = true };
+        var budget = new RuleBudget(RuleBudget.MaxWork);
+
+        var outcome = RuleEvaluator.Evaluate([rule], new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = "Nothing in particular.", Now = now }, budget)!;
+
+        outcome.Effect.Should().Be(RuleEffect.Block, "a rule that removes text cannot say what is left of a text it did not search");
+        outcome.Why.Should().Contain("written patterns are turned off on this server");
+        outcome.RedactedText.Should().Be(effect is RuleEffect.Redact ? RuleEvaluator.Redaction : null);
+        budget.Spent.Should().Be(0, "the pattern was not run");
+    }
+
+    [Fact]
+    public void The_hosted_preset_turns_written_patterns_off_and_the_self_hosted_one_leaves_them_on()
+    {
+        DeploymentPolicy.Hosted.AllowWrittenRulePatterns.Should().BeFalse();
+        DeploymentPolicy.SelfHosted.AllowWrittenRulePatterns.Should().BeTrue();
+    }
+
+    #endregion
+
     #region What Is Kept
 
     [Fact]

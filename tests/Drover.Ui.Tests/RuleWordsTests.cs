@@ -27,6 +27,14 @@ public sealed class RuleWordsTests
         RuleWords.Sentence(checkpoint, effect, conditions).Should().Be(expected);
 
     [Fact]
+    public void Where_the_server_runs_no_written_patterns_that_choice_is_not_offered_and_the_others_are()
+    {
+        var choices = RuleWords.Conditions(RuleWords.BeforeReply, writtenPatterns: false).Select(choice => choice.Value);
+
+        choices.Should().NotContain("text_matches").And.Contain(["text_contains", "text_holds", "time_is", "run_exceeds"]);
+    }
+
+    [Fact]
     public void Every_choice_that_looks_for_something_in_text_says_it_catches_common_forms_and_no_exact_one_does()
     {
         var choices = RuleWords.Conditions(RuleWords.BeforeTool);
