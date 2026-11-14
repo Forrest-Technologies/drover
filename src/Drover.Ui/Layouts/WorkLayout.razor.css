@@ -58,6 +58,44 @@
   text-underline-offset: var(--dv-space-1);
 }
 
+/* On a phone the bar keeps one row: closer gaps, and the account name gives way with an ellipsis. */
+@media (max-width: 559px) {
+  .dv-work-header {
+    flex-wrap: nowrap;
+    gap: var(--dv-space-1);
+    padding-inline: var(--dv-space-2);
+  }
+
+  .dv-work-home,
+  .dv-work-nav {
+    flex: none;
+  }
+
+  .dv-work-nav {
+    gap: 0;
+  }
+
+  .dv-work-nav ::deep .dv-work-link {
+    padding-inline: var(--dv-space-2);
+  }
+
+  .dv-work-header ::deep .dv-menu {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  /* The name stays the button's whole text, so its accessible name is not shortened. */
+  .dv-work-header ::deep .dv-menu-trigger {
+    display: block;
+    max-width: 100%;
+    padding-inline: var(--dv-space-2);
+    overflow: hidden;
+    line-height: calc(var(--dv-target-touch) - 2 * var(--dv-border));
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .dv-work-main {
   display: flex;
   flex-direction: column;

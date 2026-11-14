@@ -104,7 +104,7 @@
             <p class="dv-visually-hidden" role="status">@SaveWords</p>
             @if (Dirty || saveProblem is not null)
             {
-                <div class="dv-editor-save dv-facet">
+                <div class="dv-editor-save dv-facet @(saveProblem is null ? null : "dv-editor-save-problem")">
                     <div class="dv-editor-save-state">
                         <StatusNote Kind="NoteKind.Danger" Text="@saveProblem" />
                         <p class="dv-editor-save-words" aria-hidden="true">@SaveWords</p>

@@ -1,5 +1,5 @@
-// Caches the app shell so Drover opens without waiting on the network. Data is never cached:
-// every /api request goes to the server.
+// Caches the app shell so Drover's files load without waiting on the network and it still opens offline.
+// Data is never cached: every /api request goes to the server.
 self.importScripts("./service-worker-assets.js");
 
 const cacheNamePrefix = "drover-shell-";
@@ -36,8 +36,22 @@ async function answer(event) {
         return fetch(event.request);
     }
 
-    // Every page address is the same shell.
-    const request = event.request.mode === "navigate" ? "index.html" : event.request;
     const cache = await caches.open(cacheName);
-    return await cache.match(request) ?? fetch(event.request);
+    if (event.request.mode === "navigate") {
+        return page(event.request, cache);
+    }
+
+    return await cache.match(event.request) ?? fetch(event.request);
+}
+
+// A page is asked of the server first. Its response carries the security headers the browser enforces for
+// the whole visit, and a stored copy would keep the headers of the day it was stored: a changed policy
+// would never arrive, because a change to the server alone does not change the shell's version. The stored
+// shell answers only when the server cannot be reached. Every page address is the same shell.
+async function page(request, cache) {
+    try {
+        return await fetch(request);
+    } catch {
+        return await cache.match("index.html") ?? Response.error();
+    }
 }
