@@ -48,7 +48,8 @@ public sealed class BuiltinToolsTests
             Guid.CreateVersion7(),
             new RunTenant(new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), Guid.CreateVersion7(), Guid.CreateVersion7()),
             _ => Task.CompletedTask,
-            () => Task.CompletedTask);
+            () => Task.CompletedTask,
+            _ => { });
 
     #endregion
 

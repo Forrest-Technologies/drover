@@ -88,6 +88,13 @@ public sealed class ToolGate(RunContext run, ILogger logger)
         {
             var result = await next(context, cancellationToken);
             var outcome = result as ToolOutcome ?? new ToolOutcome(MessageParts.ToJson(result));
+
+            if (outcome.Images is [.., var latest])
+            {
+                // The picture goes to the model's next call and nowhere else; the stored result is its JSON alone.
+                run.ShowOnNextModelCall(request.CallId, request.ToolName, latest);
+            }
+
             return await Finish(request, definition, outcome.IsError ? ToolCallStatus.Failed : ToolCallStatus.Completed, outcome, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
