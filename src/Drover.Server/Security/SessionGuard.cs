@@ -27,7 +27,12 @@ public sealed class SessionGuard : IAsyncDisposable
 
     private readonly IDisposable listening;
 
-    private DateTimeOffset checkedAt;
+    private readonly Lock gate = new();
+
+    // Ticks of the last check, read by the stream and written by a check that may run on another thread.
+    private long checkedAtTicks;
+
+    private bool disposed;
 
     private int heard;
 
@@ -46,7 +51,7 @@ public sealed class SessionGuard : IAsyncDisposable
         scopes = services.GetRequiredService<IServiceScopeFactory>();
         time = services.GetRequiredService<TimeProvider>();
         logger = services.GetRequiredService<ILogger<SessionGuard>>();
-        checkedAt = time.GetUtcNow();
+        checkedAtTicks = time.GetUtcNow().UtcTicks;
         listening = services.GetRequiredService<SessionRevocations>().Listen(userId, Heard);
     }
 
@@ -65,8 +70,16 @@ public sealed class SessionGuard : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Task pending;
+
+        lock (gate)
+        {
+            disposed = true;
+            pending = heardCheck;
+        }
+
         listening.Dispose();
-        await heardCheck;
+        await pending;
         ended.Dispose();
         checking.Dispose();
     }
@@ -87,6 +100,8 @@ public sealed class SessionGuard : IAsyncDisposable
     {
         var nothingHeard = Volatile.Read(ref checkedThrough) == Volatile.Read(ref heard);
 
+        var checkedAt = new DateTimeOffset(Volatile.Read(ref checkedAtTicks), TimeSpan.Zero);
+
         if (nothingHeard && time.GetUtcNow() - checkedAt < CheckInterval)
         {
             return !ended.IsCancellationRequested;
@@ -102,7 +117,15 @@ public sealed class SessionGuard : IAsyncDisposable
     private void Heard()
     {
         Interlocked.Increment(ref heard);
-        heardCheck = CheckAfterHearing();
+
+        // A guard being disposed hears nothing more; each check it does start is awaited before it lets go.
+        lock (gate)
+        {
+            if (!disposed)
+            {
+                heardCheck = Task.WhenAll(heardCheck, CheckAfterHearing());
+            }
+        }
     }
 
     private async Task CheckAfterHearing()
@@ -133,7 +156,7 @@ public sealed class SessionGuard : IAsyncDisposable
             await using var scope = scopes.CreateAsyncScope();
             var open = await scope.ServiceProvider.GetRequiredService<SessionService>()
                 .IsOpen(userId, sessionId, cancellationToken);
-            checkedAt = time.GetUtcNow();
+            Volatile.Write(ref checkedAtTicks, time.GetUtcNow().UtcTicks);
             Volatile.Write(ref checkedThrough, through);
 
             if (!open)

@@ -109,22 +109,44 @@ public sealed class AccountService(
         Guid? signedInBeforeAs,
         CancellationToken cancellationToken)
     {
-        var userId = await FindUserId(email, cancellationToken);
+        // An unknown email takes every step below against an account id nobody has, which row-level security shows
+        // nothing, so how long a refusal takes, alone or with others in parallel, does not say which emails exist.
+        var userId = await FindUserId(email, cancellationToken) ?? Guid.CreateVersion7();
+        tenant.SetUser(userId);
+        var user = await ReadAccount(userId, cancellationToken);
+        var knownBrowser = user is not null && signedInBeforeAs == userId;
+        var lockout = identity.Value.Lockout;
+        var now = time.GetUtcNow();
+        var attempt = await InOwnTransaction(
+            () => accounts.TakeSignInAttempt(userId, knownBrowser, now, cancellationToken),
+            cancellationToken);
 
-        if (userId is not { } id)
+        // Hashed once, outside any transaction, so no lock is held while it runs. A guess is checked against the
+        // real password only with an attempt the bucket allowed; otherwise against the decoy, which costs the same.
+        var mayCheck = user?.PasswordHash is not null && attempt <= lockout.MaxFailedAccessAttempts;
+        var verdict = hasher.VerifyHashedPassword(
+            user ?? new User(),
+            mayCheck ? user!.PasswordHash! : decoyHash.Value,
+            password);
+
+        if (!mayCheck || verdict is PasswordVerificationResult.Failed)
         {
-            hasher.VerifyHashedPassword(new User(), decoyHash.Value, password);
+            await InOwnTransaction(
+                () => accounts.RecordWrongPassword(
+                    userId,
+                    knownBrowser,
+                    attempt ?? 0,
+                    lockout.MaxFailedAccessAttempts,
+                    time.GetUtcNow() + lockout.DefaultLockoutTimeSpan,
+                    cancellationToken),
+                cancellationToken);
             return CredentialResult.Refused;
         }
 
-        tenant.SetUser(id);
-        await using var work = await scope.Begin(cancellationToken);
-        await accounts.LockUser(id, cancellationToken);
-        var result = signedInBeforeAs == id
-            ? await VerifyPasswordFromKnownBrowser(id, password)
-            : await VerifyPassword(id, password);
-        await work.Commit(cancellationToken);
-        return result;
+        var accepted = await InOwnTransaction(
+            () => accounts.RecordRightPassword(userId, knownBrowser, time.GetUtcNow(), cancellationToken),
+            cancellationToken);
+        return accepted ? Accepted(user!) : CredentialResult.Refused;
     }
 
     /// <summary>The user's current security stamp, or null when the user no longer exists. Runs with only the user set.</summary>
@@ -190,116 +212,32 @@ public sealed class AccountService(
         return userId;
     }
 
-    private async Task<CredentialResult> VerifyPassword(Guid userId, string password)
+    private async Task<User?> ReadAccount(Guid userId, CancellationToken cancellationToken)
     {
+        await using var work = await scope.Begin(cancellationToken);
         var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null)
-        {
-            return CredentialResult.Refused;
-        }
-
-        if (await users.IsLockedOutAsync(user))
-        {
-            return RefusedLikeAnyOther(password);
-        }
-
-        var passwordIsRight = await users.CheckPasswordAsync(user, password);
-
-        if (!passwordIsRight)
-        {
-            await users.AccessFailedAsync(user);
-            return CredentialResult.Refused;
-        }
-
-        await users.ResetAccessFailedCountAsync(user);
-        return await Accepted(user);
+        await work.Commit(cancellationToken);
+        return user;
     }
 
-    /// <summary>
-    /// The same check for a browser that has signed in to the account before, counted in that bucket's own fields
-    /// with the same limit and lockout time as Identity's.
-    /// </summary>
-    private async Task<CredentialResult> VerifyPasswordFromKnownBrowser(Guid userId, string password)
+    /// <summary>Runs one statement in a transaction of its own, so any row lock it takes ends with it.</summary>
+    private async Task<T> InOwnTransaction<T>(Func<Task<T>> statement, CancellationToken cancellationToken)
     {
-        var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null)
-        {
-            return CredentialResult.Refused;
-        }
-
-        var now = time.GetUtcNow();
-
-        if (user.LockoutEnabled && user.KnownBrowserLockoutEnd > now)
-        {
-            return RefusedLikeAnyOther(password);
-        }
-
-        var passwordIsRight = await users.CheckPasswordAsync(user, password);
-
-        if (!passwordIsRight)
-        {
-            await CountKnownBrowserFailure(user, now);
-            return CredentialResult.Refused;
-        }
-
-        if (user.KnownBrowserAccessFailedCount != 0 || user.KnownBrowserLockoutEnd is not null)
-        {
-            user.KnownBrowserAccessFailedCount = 0;
-            user.KnownBrowserLockoutEnd = null;
-            EnsureSucceeded(await users.UpdateAsync(user));
-        }
-
-        return await Accepted(user);
+        await using var work = await scope.Begin(cancellationToken);
+        var result = await statement();
+        await work.Commit(cancellationToken);
+        return result;
     }
 
-    private async Task CountKnownBrowserFailure(User user, DateTimeOffset now)
+    private async Task InOwnTransaction(Func<Task> statement, CancellationToken cancellationToken)
     {
-        if (!user.LockoutEnabled)
-        {
-            return;
-        }
-
-        var lockout = identity.Value.Lockout;
-        user.KnownBrowserAccessFailedCount++;
-
-        if (user.KnownBrowserAccessFailedCount >= lockout.MaxFailedAccessAttempts)
-        {
-            user.KnownBrowserLockoutEnd = now + lockout.DefaultLockoutTimeSpan;
-            user.KnownBrowserAccessFailedCount = 0;
-        }
-
-        EnsureSucceeded(await users.UpdateAsync(user));
+        await using var work = await scope.Begin(cancellationToken);
+        await statement();
+        await work.Commit(cancellationToken);
     }
 
-    /// <summary>
-    /// A locked bucket refuses without checking the guess against the real password, so guessing gets no further
-    /// checks however many attempts arrive. The guess is hashed against the decoy instead, so a locked account takes
-    /// as long to refuse as any other.
-    /// </summary>
-    private CredentialResult RefusedLikeAnyOther(string password)
-    {
-        hasher.VerifyHashedPassword(new User(), decoyHash.Value, password);
-        return CredentialResult.Refused;
-    }
-
-    private async Task<CredentialResult> Accepted(User user) =>
-        new(
-            true,
-            user.Id,
-            user.Email ?? string.Empty,
-            user.DisplayName,
-            await users.GetSecurityStampAsync(user) ?? string.Empty);
-
-    private static void EnsureSucceeded(IdentityResult result)
-    {
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException(
-                $"The account could not be updated: {string.Join(" ", result.Errors.Select(error => error.Code))}");
-        }
-    }
+    private static CredentialResult Accepted(User user) =>
+        new(true, user.Id, user.Email ?? string.Empty, user.DisplayName, user.SecurityStamp ?? string.Empty);
 
     private static User NewUser(Guid userId, string email, string displayName) => new()
     {
