@@ -2,7 +2,9 @@ namespace Drover.Server.Security;
 
 /// <summary>
 /// The headers every response carries. The content security policy allows no inline script and no remote origin;
-/// <c>wasm-unsafe-eval</c> is there because Blazor WebAssembly requires it.
+/// <c>wasm-unsafe-eval</c> is there because Blazor WebAssembly requires it. Inline styles and embedded fonts are
+/// allowed because browser extensions draw their own interface inside the page with them, and a policy that
+/// forbids them leaves that interface spilled over Drover's as unstyled text. Drover itself uses neither.
 /// </summary>
 public static class SecurityHeaders
 {
@@ -14,9 +16,9 @@ public static class SecurityHeaders
     private const string ContentSecurityPolicy =
         "default-src 'self'; "
         + "script-src 'self' 'wasm-unsafe-eval'; "
-        + "style-src 'self'; "
+        + "style-src 'self' 'unsafe-inline'; "
         + "img-src 'self' data:; "
-        + "font-src 'self'; "
+        + "font-src 'self' data:; "
         + "connect-src 'self'; "
         + "object-src 'none'; "
         + "base-uri 'self'; "
