@@ -5,7 +5,12 @@ namespace Drover.Engine.Accounts;
 /// still there, so ending a session on the server ends it for a copied cookie too. Each method opens its own tenant
 /// scope with only the user set.
 /// </summary>
-public sealed class SessionService(SessionRepository sessions, TenantScope scope, TenantContext tenant, TimeProvider time)
+public sealed class SessionService(
+    SessionRepository sessions,
+    SessionRevocations revocations,
+    TenantScope scope,
+    TenantContext tenant,
+    TimeProvider time)
 {
     #region Properties
 
@@ -54,6 +59,7 @@ public sealed class SessionService(SessionRepository sessions, TenantScope scope
         await using var work = await scope.Begin(cancellationToken);
         await sessions.Remove(sessionId, cancellationToken);
         await work.Commit(cancellationToken);
+        revocations.Announce(userId);
     }
 
     #endregion

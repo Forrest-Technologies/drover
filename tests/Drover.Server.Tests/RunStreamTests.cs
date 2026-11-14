@@ -214,6 +214,38 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task A_run_stream_opened_with_a_copied_cookie_ends_when_the_owner_signs_out_and_shows_nothing_after()
+    {
+        script = new ScriptedModel([new ToolCallOutput("c1", "test_gate")], [new TextOutput("Said after the end.")]);
+        var (client, spaceId, runId) = await StartRun("Hold on");
+        var thief = NewClient();
+        thief.TakeCookiesOf(client);
+        using var connection = await thief.Open(Events(spaceId, runId));
+        connection.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var body = await connection.Content.ReadAsStreamAsync(Token);
+        using var reader = new StreamReader(body);
+        var before = new StringBuilder();
+
+        while (!before.ToString().Contains(RunEventTypes.ToolStarted, StringComparison.Ordinal))
+        {
+            before.Append(await reader.ReadLineAsync(Token).AsTask().WaitAsync(patience, Token)).Append('\n');
+        }
+
+        (await client.Post("/api/sign-out")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        gate.SetResult();
+        var after = new StringBuilder();
+        var watch = Stopwatch.StartNew();
+
+        while (await reader.ReadLineAsync(Token).AsTask().WaitAsync(patience, Token) is { } line)
+        {
+            after.Append(line).Append('\n');
+            (watch.Elapsed < patience).Should().BeTrue("the server should close the stream of an ended session");
+        }
+
+        after.ToString().Should().NotContain("Said after the end.").And.NotContain(RunEventTypes.ToolCompleted);
+    }
+
+    [Fact]
     public async Task The_signal_stream_tells_the_person_their_thread_changed_and_their_run_finished()
     {
         script = new ScriptedModel([new TextOutput("Done.")]);

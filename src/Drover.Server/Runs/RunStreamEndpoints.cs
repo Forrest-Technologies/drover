@@ -57,9 +57,14 @@ public static class RunStreamEndpoints
             return;
         }
 
-        using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
+        await using var guard = SessionGuard.Start(context);
+        using var ending = CancellationTokenSource.CreateLinkedTokenSource(
+            context.RequestAborted,
+            lifetime.ApplicationStopping,
+            guard.Ended);
         await Stream(
             context,
+            guard,
             feed.Watch(access.SpaceId, access.UserId, runId, afterSeq.Value, ending.Token),
             stored => $"id: {stored.Seq.ToString(CultureInfo.InvariantCulture)}\nevent: {stored.Type}\ndata: {JsonSerializer.Serialize(stored, json)}\n\n",
             loggers.CreateLogger(typeof(RunStreamEndpoints)),
@@ -75,10 +80,15 @@ public static class RunStreamEndpoints
         ILoggerFactory loggers)
     {
         var access = context.GetSpaceAccess();
-        using var ending = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, lifetime.ApplicationStopping);
+        await using var guard = SessionGuard.Start(context);
+        using var ending = CancellationTokenSource.CreateLinkedTokenSource(
+            context.RequestAborted,
+            lifetime.ApplicationStopping,
+            guard.Ended);
         using var subscription = hub.Subscribe(access.SpaceId, access.UserId);
         await Stream(
             context,
+            guard,
             ReadSignals(subscription, options.Value.HeartbeatInterval, time, ending.Token),
             signal => $"event: {signal.Kind}\ndata: {JsonSerializer.Serialize(signal, json)}\n\n",
             loggers.CreateLogger(typeof(RunStreamEndpoints)),
@@ -100,9 +110,13 @@ public static class RunStreamEndpoints
         return after is null or >= 0 ? after ?? 0 : null;
     }
 
-    /// <summary>Writes each item as a frame and each null as a comment, which keeps proxies from closing a quiet stream.</summary>
+    /// <summary>
+    /// Writes each item as a frame and each null as a comment, which keeps proxies from closing a quiet stream. Before
+    /// each write the guard may check the session; once the session is gone the stream ends and writes nothing more.
+    /// </summary>
     private static async Task Stream<T>(
         HttpContext context,
+        SessionGuard guard,
         IAsyncEnumerable<T?> items,
         Func<T, string> frame,
         ILogger logger,
@@ -119,13 +133,19 @@ public static class RunStreamEndpoints
 
             await foreach (var item in items)
             {
+                if (!await guard.MayWrite(cancellationToken))
+                {
+                    logger.LogDebug("An event stream ended because its session ended");
+                    break;
+                }
+
                 await context.Response.Body.WriteAsync(item is null ? heartbeat : Encoding.UTF8.GetBytes(frame(item)), cancellationToken);
                 await context.Response.Body.FlushAsync(cancellationToken);
             }
         }
         catch (OperationCanceledException)
         {
-            logger.LogDebug("An event stream ended because the client left or the server is stopping");
+            logger.LogDebug("An event stream ended because the client left, its session ended, or the server is stopping");
         }
     }
 
