@@ -670,6 +670,132 @@ public sealed class BotEditorTests : ScreenTest
 
     #endregion
 
+    #region Sandbox Grants
+
+    [Fact]
+    public async Task A_sandbox_the_bot_may_not_use_says_so_and_one_tap_stages_the_four_grants_that_save_applies()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        var sandboxTools = SandboxToolEntries("off", "allow", null);
+        Server.Answer("GET", $"{bot}/tools", sandboxTools);
+
+        foreach (var tool in sandboxTools)
+        {
+            Server.Answer("PUT", $"{bot}/tools/{tool.ToolId}", tool with { Grant = "allow" });
+        }
+
+        var page = RenderEditor();
+        Words(page.FindAll(".dv-disclosure-toggle")[5].TextContent).Should().Be("Sandbox, Private · network off · not allowed yet");
+        await Open(page, 5);
+
+        var group = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']");
+        group.TextContent.Should().Contain("This bot may not use its sandbox yet.");
+        var allow = group.QuerySelector("button")!;
+        allow.TextContent.Trim().Should().Be("Allow sandbox tools");
+        await allow.ClickAsync(new MouseEventArgs());
+
+        page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']").TextContent
+            .Should().Contain("The sandbox tools will be allowed when you save.");
+        Server.Requests.Should().NotContain(request => request.Method == "PUT", "nothing is granted until the person saves");
+        await page.FindAll(".dv-editor-save button").Single(button => button.TextContent.Trim() == "Save changes").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path.Contains("/tools/", StringComparison.Ordinal)).Should().Be(4));
+        foreach (var tool in sandboxTools)
+        {
+            Server.Sent("PUT", $"{bot}/tools/{tool.ToolId}").Should().ContainSingle()
+                .Which.Should().Be(JsonSerializer.Serialize(new SetToolGrantRequest("allow"), JsonSerializerOptions.Web), "the same request the Tools section sends");
+        }
+
+        page.WaitForAssertion(() => page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']").TextContent
+            .Should().Contain("May run commands and use files."));
+    }
+
+    [Fact]
+    public async Task Discarding_drops_the_staged_grants()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "allow", null));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        await page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox'] button").ClickAsync(new MouseEventArgs());
+        await page.FindAll(".dv-editor-save button").Single(button => button.TextContent.Trim() == "Discard").ClickAsync(new MouseEventArgs());
+
+        page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']").TextContent.Should().Contain("may not use its sandbox yet");
+        Server.Requests.Should().NotContain(request => request.Method == "PUT");
+        page.FindAll(".dv-editor-save").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Allowed_sandbox_tools_are_said_quietly_with_a_way_to_the_tools_section()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("allow", "allow", null));
+        var page = RenderEditor();
+        Words(page.FindAll(".dv-disclosure-toggle")[5].TextContent).Should().Be("Sandbox, Private · network off · may run commands");
+        await Open(page, 5);
+
+        var group = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']");
+        group.TextContent.Should().Contain("May run commands and use files.");
+        await group.QuerySelector("button")!.ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle")[1].GetAttribute("aria-expanded").Should().Be("true", "the Tools section opens"));
+    }
+
+    [Fact]
+    public async Task A_parent_that_keeps_the_tools_off_is_named_and_nothing_is_offered()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "off", "Sample parent"));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        var group = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']");
+        group.TextContent.Should().Contain("Sample parent does not allow the sandbox tools, so this bot cannot use its sandbox.");
+        group.QuerySelectorAll("button").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Under_a_parent_that_only_asks_the_tap_stages_ask()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "ask", "Sample parent"));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        await page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox'] button").ClickAsync(new MouseEventArgs());
+
+        SandboxGrants.Stage(SandboxToolEntries("off", "ask", "Sample parent"), SandboxGrants.SandboxTools, new Dictionary<Guid, string>())
+            .Values.Should().AllBe("ask");
+        page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']").TextContent
+            .Should().Contain("will be allowed when you save");
+    }
+
+    [Fact]
+    public async Task With_a_screen_the_screen_tools_are_offered_and_a_model_that_cannot_see_is_named_with_a_way_to_the_model_section()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[.. SandboxToolEntries("allow", "allow", null), .. ScreenToolEntries("off")]);
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        var screen = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do on its screen']");
+        screen.TextContent.Should().Contain("This bot may not use the screen yet.");
+        screen.QuerySelector("button")!.TextContent.Trim().Should().Be("Allow screen tools");
+        var note = page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent));
+        note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model that can in the Model section.");
+        var openModel = page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Single(button => button.TextContent.Trim() == "Open the Model section");
+
+        await screen.QuerySelector("button")!.ClickAsync(new MouseEventArgs());
+        await openModel.ClickAsync(new MouseEventArgs());
+
+        page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do on its screen']").TextContent.Should().Contain("The screen tools will be allowed when you save.");
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle")[0].GetAttribute("aria-expanded").Should().Be("true"));
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -687,6 +813,14 @@ public sealed class BotEditorTests : ScreenTest
             [],
             "available",
             DateTimeOffset.UnixEpoch);
+
+    private static BotToolEntry[] SandboxToolEntries(string grant, string ceiling, string? parent) =>
+        [.. SandboxGrants.SandboxTools.Select((name, index) =>
+            new BotToolEntry(Guid.Parse($"0196f1a0-0000-7000-8000-0000000001{index:00}"), name, name, "Sample description", "builtin", null, null, "write", grant, ceiling, parent, "available"))];
+
+    private static BotToolEntry[] ScreenToolEntries(string grant) =>
+        [.. SandboxGrants.ScreenTools.Select((name, index) =>
+            new BotToolEntry(Guid.Parse($"0196f1a0-0000-7000-8000-0000000002{index:00}"), name, name, "Sample description", "builtin", null, null, "write", grant, "allow", null, "available"))];
 
     private static BotToolEntry TimeTool(string grant, string ceiling, string? parent) =>
         new(toolId, "time.now", "Current time", "Sample description", "builtin", null, null, "read", grant, ceiling, parent, "available");

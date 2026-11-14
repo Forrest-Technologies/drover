@@ -93,6 +93,13 @@
   color: var(--dv-text-2);
 }
 
+.dv-editor ::deep .dv-editor-sandbox-grant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+}
+
 .dv-editor ::deep .dv-editor-sandbox-live a {
   display: inline-flex;
   align-items: center;
@@ -383,7 +390,8 @@
 }
 
 @media (pointer: coarse) {
-  .dv-editor ::deep .dv-editor-sandbox-live a {
+  .dv-editor ::deep .dv-editor-sandbox-live a,
+  .dv-editor ::deep .dv-editor-sandbox-grant .dv-button {
     min-height: var(--dv-target-touch);
   }
 

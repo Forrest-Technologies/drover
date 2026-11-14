@@ -71,6 +71,44 @@
     {
         <p class="dv-editor-hint">A sandbox with a screen is not available on this server.</p>
     }
+
+    @if (Options.Available && SandboxStanding is not ToolStanding.Unknown)
+    {
+        <div class="dv-editor-sandbox-grant" role="group" aria-label="What this bot may do in its sandbox">
+            <p class="dv-editor-hint">@Words(SandboxStanding, SandboxGrants.SandboxTools, sandboxWords)</p>
+            @if (SandboxStanding is ToolStanding.NotAllowed)
+            {
+                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.SandboxTools)">Allow sandbox tools</Button>
+            }
+            else if (SandboxStanding is ToolStanding.Allowed)
+            {
+                <Button OnClick="() => OnOpenSection.InvokeAsync(ToolsSection)">Open the Tools section</Button>
+            }
+        </div>
+    }
+
+    @if (Options.Available && Draft.Desktop && ScreenStanding is not ToolStanding.Unknown)
+    {
+        <div class="dv-editor-sandbox-grant" role="group" aria-label="What this bot may do on its screen">
+            <p class="dv-editor-hint">@Words(ScreenStanding, SandboxGrants.ScreenTools, screenWords)</p>
+            @if (ScreenStanding is ToolStanding.NotAllowed)
+            {
+                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.ScreenTools)">Allow screen tools</Button>
+            }
+            else if (ScreenStanding is ToolStanding.Allowed)
+            {
+                <Button OnClick="() => OnOpenSection.InvokeAsync(ToolsSection)">Open the Tools section</Button>
+            }
+        </div>
+    }
+
+    @if (Draft.Desktop && ModelSeesImages is false)
+    {
+        <div class="dv-editor-sandbox-grant">
+            <StatusNote Text="The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model that can in the Model section." />
+            <Button OnClick="() => OnOpenSection.InvokeAsync(ModelSection)">Open the Model section</Button>
+        </div>
+    }
 }
 
 @code {
@@ -103,6 +141,57 @@
 
     [Parameter]
     public EventCallback OnChanged { get; set; }
+
+    /// <summary>The tools with this bot's grants, as the Tools section shows them, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotToolEntry>? Tools { get; set; }
+
+    /// <summary>Whether the bot's model can see images: null while unknown, false when it cannot or is not in the catalog.</summary>
+    [Parameter]
+    public bool? ModelSeesImages { get; set; }
+
+    /// <summary>Opens another section of the editor, by name: "Tools" or "Model".</summary>
+    [Parameter]
+    public EventCallback<string> OnOpenSection { get; set; }
+
+    private const string ToolsSection = "Tools";
+
+    private const string ModelSection = "Model";
+
+    private static readonly ToolWords sandboxWords = new(
+        "This bot may not use its sandbox yet. Allow its sandbox tools to let it run commands and use files.",
+        "The sandbox tools will be allowed when you save.",
+        "May run commands and use files.",
+        "use its sandbox",
+        "sandbox tools");
+
+    private static readonly ToolWords screenWords = new(
+        "This bot may not use the screen yet. Allow its screen tools to let it see and drive the screen.",
+        "The screen tools will be allowed when you save.",
+        "May use the screen.",
+        "use the screen",
+        "screen tools");
+
+    private ToolStanding SandboxStanding => SandboxGrants.Standing(Tools, SandboxGrants.SandboxTools, Draft.StagedGrants);
+
+    private ToolStanding ScreenStanding => SandboxGrants.Standing(Tools, SandboxGrants.ScreenTools, Draft.StagedGrants);
+
+    private string Words(ToolStanding standing, IReadOnlyList<string> names, ToolWords words) => standing switch
+    {
+        ToolStanding.NotAllowed => words.NotAllowed,
+        ToolStanding.AllowedOnSave => words.OnSave,
+        ToolStanding.ParentForbids =>
+            $"{SandboxGrants.Forbidder(Tools, names) ?? "The bot above this one"} does not allow the {words.Tools}, so this bot cannot {words.Use}.",
+        _ => SandboxGrants.Asks(Tools, names, Draft.StagedGrants) ? $"{words.Allowed} It asks a person before each use." : words.Allowed,
+    };
+
+    private Task Allow(IReadOnlyList<string> names)
+    {
+        Draft.StagedGrants = SandboxGrants.Stage(Tools, names, Draft.StagedGrants);
+        return Changed();
+    }
+
+    private sealed record ToolWords(string NotAllowed, string OnSave, string Allowed, string Use, string Tools);
 
     // A bot already set to open keeps the choice visible, so the editor shows what is stored; the server refuses to save it.
     private SegmentOption<string>[] Networks => Options.OpenNetwork || Draft.Network is "open" ? allNetworks : closedNetworks;

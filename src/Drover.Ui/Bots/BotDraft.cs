@@ -59,6 +59,12 @@ public sealed class BotDraft
 
     public string MaxDepthBelow { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Tool grants a person chose in the Sandbox section, by tool, applied through the tools API when the bot is saved
+    /// and dropped when the changes are discarded.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, string> StagedGrants { get; set; } = new Dictionary<Guid, string>();
+
     #endregion
 
     #region Public Methods
@@ -184,7 +190,8 @@ public sealed class BotDraft
 
     /// <summary>Whether this draft would save anything different from the other.</summary>
     public bool DiffersFrom(BotDraft other) =>
-        !string.Equals(JsonSerializer.Serialize(ToRequest()), JsonSerializer.Serialize(other.ToRequest()), StringComparison.Ordinal);
+        !string.Equals(JsonSerializer.Serialize(ToRequest()), JsonSerializer.Serialize(other.ToRequest()), StringComparison.Ordinal)
+        || !StagedGrants.OrderBy(pair => pair.Key).SequenceEqual(other.StagedGrants.OrderBy(pair => pair.Key));
 
     #endregion
 

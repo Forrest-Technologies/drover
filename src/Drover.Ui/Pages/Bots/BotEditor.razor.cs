@@ -101,6 +101,9 @@ public sealed partial class BotEditor(
     // Tools are hidden only when the catalog says the model cannot call them. An unknown model keeps them.
     private bool ModelCallsTools => models?.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.ToolCalling ?? true;
 
+    // Unknown while the catalog loads; a model the catalog does not list is treated as one that cannot see, as the server does.
+    private bool? ModelSeesImages => models is null ? null : models.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.Vision ?? false;
+
     private string SaveWords => (Dirty, justSaved) switch
     {
         (true, _) => "Changes not saved yet",
@@ -241,13 +244,28 @@ public sealed partial class BotEditor(
         await Try(
             async () =>
             {
+                var staged = draft.StagedGrants;
                 Show(await api.UpdateBotDefinition(SpaceId, BotId, draft.ToRequest()));
+                await ApplyGrants(staged);
                 justSaved = true;
                 editingHandle = false;
                 toasts.Show($"{saved!.Name} is saved.");
             },
             problem => saveProblem = problem);
         saving = false;
+    }
+
+    /// <summary>
+    /// The grants staged in the Sandbox section, set one by one through the tools API as the Tools section sets them.
+    /// The server checks each against the parent's ceiling.
+    /// </summary>
+    private async Task ApplyGrants(IReadOnlyDictionary<Guid, string> staged)
+    {
+        foreach (var (toolId, grant) in staged)
+        {
+            var changed = await api.SetBotToolGrant(SpaceId, BotId, toolId, grant);
+            tools = [.. (tools ?? []).Select(tool => tool.ToolId == changed.ToolId ? changed : tool)];
+        }
     }
 
     private void Discard()
