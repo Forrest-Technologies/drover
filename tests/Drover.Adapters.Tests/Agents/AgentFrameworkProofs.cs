@@ -231,6 +231,34 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
             || message.Summary.StartsWith("The image from", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_screen_read_by_another_model_reaches_a_text_only_model_as_words_and_no_image_content_is_ever_sent()
+    {
+        var run = await world.NewRun("Look at the screen", [new ToolSpec("look")]);
+        const string Described = """{"screenshot":"described","width":1024,"height":768,"description":"A terminal.\n40,700: Terminal"}""";
+        var tools = new ScriptedTools().Add("look", (_, _) => Task.FromResult(new ToolOutcome(ScriptedTools.Json(Described))));
+        var model = new ScriptedModel(
+            [new ToolCallOutput("c1", "look")],
+            [new ToolCallOutput("c2", "look")],
+            [new TextOutput("A terminal is open.")]);
+
+        await RunOnce(run, model, tools);
+
+        model.Requests.Should().HaveCount(3);
+        model.Requests.Should().AllSatisfy(request => request.Should().NotContain(message =>
+            message.Summary.StartsWith("image", StringComparison.Ordinal) || message.Summary.StartsWith("The image from", StringComparison.Ordinal)));
+        foreach (var (request, callId) in new[] { (model.Requests[1], "c1"), (model.Requests[2], "c2") })
+        {
+            var result = request[^1];
+            result.Role.Should().Be("tool");
+            result.Summary.Should().StartWith($"{callId} = ");
+            JsonElement.DeepEquals(JsonElement.Parse(result.Summary[$"{callId} = ".Length..]), JsonElement.Parse(Described)).Should().BeTrue(result.Summary);
+        }
+
+        var stored = await world.Read(db => db.Messages.Where(message => message.ThreadId == run.ThreadId).ToListAsync());
+        stored.SelectMany(message => message.Parts).Should().NotContain(part => part is ImagePart);
+    }
+
     #endregion
 
     #region Sessions

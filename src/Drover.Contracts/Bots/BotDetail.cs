@@ -33,8 +33,19 @@ public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputTokens
 /// <summary>Whether the bot remembers, and how it keeps a long thread inside the model's context.</summary>
 public sealed record MemorySettingsBody(bool Enabled, string Compaction, int? CompactAtTokens, int? KeepRecentMessages);
 
-/// <summary>What a bot's sandbox may reach, how long it keeps running after its last use, and whether it has a screen.</summary>
-public sealed record SandboxSettingsBody(string Network, IReadOnlyList<string> AllowedHosts, int? IdleTimeoutMinutes, bool Desktop = false);
+/// <summary>
+/// What a bot's sandbox may reach, how long it keeps running after its last use, whether it has a screen, and which
+/// model reads that screen for the bot (null: the bot's own model).
+/// </summary>
+public sealed record SandboxSettingsBody(
+    string Network,
+    IReadOnlyList<string> AllowedHosts,
+    int? IdleTimeoutMinutes,
+    bool Desktop = false,
+    ScreenReaderBody? ScreenReader = null);
+
+/// <summary>A model of the space, by connection and name, that reads the sandbox's screen for the bot.</summary>
+public sealed record ScreenReaderBody(Guid ModelConnectionId, string Model);
 
 /// <summary>How many bots this bot may build, and how deep beneath itself. A null leaves the space's cap.</summary>
 public sealed record BuildLimitsBody(int? MaxChildren, int? MaxDepthBelow);
