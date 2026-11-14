@@ -34,6 +34,21 @@ adds it will create the `vector` extension; on an image without it, that one-off
 PostgreSQL's error that the extension is not available, and the status page then says the database is behind the
 build. Moving a database to another image later means a dump and restore, so start on the right one.
 
+### Encryption to the database
+
+By default Drover uses TLS to PostgreSQL when the database offers it, without checking its certificate
+(`Database__SslMode=Prefer`). That keeps out someone who only listens, not someone who can pretend to be the database.
+It is enough when the database and Drover share a private network no other app joins. Otherwise set the same value on
+both the one-off initialization and the serving app:
+
+| `Database__SslMode` | Means |
+| --- | --- |
+| `Require` | Refuse a connection without TLS. The certificate is not checked. |
+| `VerifyFull` | Refuse a connection without TLS, and check the certificate and the host name against the authorities the image trusts. |
+
+The database must then serve a certificate. A certificate from your own private authority is not supported yet: the
+image has no setting to trust it, so use `Require` there.
+
 ## 2. Passwords
 
 Make two more long random passwords: one for the migration owner and one for the application. Store all three in the
@@ -60,6 +75,7 @@ Run the image once with the command `--initialize-database` and these variables:
 | `Database__Password` | The superuser password |
 | `Database__OwnerPassword` | The owner password |
 | `Database__AppPassword` | The application password |
+| `Database__SslMode` | Only to require TLS, see above |
 
 It creates the roles, sets their passwords, applies every migration, and exits. It is safe to run again. Run it again
 before each upgrade starts serving, so the new build finds its migrations applied.
@@ -73,13 +89,19 @@ Run the image with no command and only these variables:
 | `Database__Host` | The database app's name |
 | `Database__Port` | Only if it is not 5432 |
 | `Database__AppPassword` | The application password, and no other |
+| `Database__SslMode` | Only to require TLS, the same value as the initialization |
+| `Drover__Policy__Rules__AllowMigrationCredentialInServer` | `false` |
 | `DataProtection__KeyPath` | `/var/lib/drover/keys` |
 | `DROVER_PUBLIC_URL` | The HTTPS address people open Drover at, such as `https://drover.example.org` |
 | `Drover__Proxy__TrustedAddresses__0` | The platform proxy's network, see below |
 
-Do not give it `Database__Password`, `Database__OwnerPassword` or their file forms. On a server run with
-`DROVER_POLICY=hosted` it refuses to start with any of them; on a self-hosted server it starts, but holds a credential
-it never uses. Do not set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`: the server refuses to start with it on.
+Do not give it `Database__Password`, `Database__OwnerPassword` or their file forms. These step around the rules that
+keep one space's data from another, and the serving app is the process facing the internet. If it is given any of
+them, it logs an error at start naming each one. With `AllowMigrationCredentialInServer` set to `false`, as above, it
+refuses to start instead, so a password that leaks into the app's variables (for example from a "run once" command
+that shares them) cannot go unnoticed. That setting also makes the server check at start that it connects as
+`drover_app` and nothing more powerful. Do not set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`: the server refuses to start
+with it on.
 
 Volumes, both writable by the image's user:
 
@@ -108,10 +130,25 @@ Name that network in CIDR form instead of one address, for example `Drover__Prox
 More entries go in `__1`, `__2`, and so on, and exact addresses still work. To find the network, look at the
 platform's network settings, or at the address a request arrives from in the app's own network.
 
-Name the narrowest range that holds the proxy. Every address in a trusted range can claim to be any client and to have
-used HTTPS. If a range also holds other apps, a broken or hostile app there can make its requests look as if they came
-from anyone, and get past the sign-in limit. The server refuses a range wider than /8 for IPv4 or /32 for IPv6, and a
-range written with a host address such as `10.0.1.7/24`, and says why.
+Every address in a trusted range can claim to be any client and to have used HTTPS. If a range also holds other apps,
+a broken or hostile app there can make its requests look as if they came from anyone, and get past the sign-in limit.
+In order of preference:
+
+1. Put the proxy and Drover on a network no other app joins, and name that network.
+2. If the proxy's address does not change, name that one address.
+3. Only otherwise, name the narrowest range that holds the proxy, knowing that every app in it is trusted as much.
+
+The server refuses a range wider than /8 for IPv4 or /32 for IPv6, a range written with a host address such as
+`10.0.1.7/24`, an IPv6 range that takes in IPv4 addresses (write those as the IPv4 range), and anything not written in
+plain decimal form (`010.0.0.0/8`), and says why.
+
+### More than one proxy in front
+
+Drover believes one proxy: the one that reaches it. If another proxy sits in front of the platform's, such as a content
+network, Drover sees the outer proxy's address as the client. Every person then shares one sign-in allowance (by default
+10 failed attempts a minute), so anyone failing to sign in can keep everyone else, the owner included, from signing in.
+This is not supported yet. Until it is, let people reach the platform's proxy directly, with nothing in front of it.
+
 
 ## Checking it
 

@@ -8,6 +8,12 @@ namespace Drover.Server.Tests;
 [Collection(Name)]
 public sealed class EnvironmentCredentialTests(PostgresServer postgres)
 {
+    #region Private Fields
+
+    private static readonly string[] initializeArguments = ["--initialize-database"];
+
+    #endregion
+
     #region Properties
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -43,43 +49,122 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
     }
 
     /// <summary>
-    /// Against a server that checks passwords (the container CI starts), the server refuses to start: work at start
-    /// cannot reach the database. A local server set to trust connections lets the wrong password in. Either way,
-    /// neither the failure, the log nor the health answer carries the password.
+    /// Work at start reaches the database, so a wrong password stops the start with PostgreSQL's refusal. The
+    /// refusal names the role, never the password. The test first makes sure the database really checks passwords for
+    /// the role: one set to trust every connection cannot show this (scripts/dev-postgres.sh sets it up to check).
     /// </summary>
     [Fact]
-    public async Task A_wrong_app_password_from_the_environment_is_never_echoed()
+    public async Task A_wrong_app_password_from_the_environment_stops_the_start_without_being_echoed()
     {
         await using var database = await postgres.CreateDatabase();
         var wrong = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         var logs = new LogCapture();
-        string answer;
+        await RequirePasswordChecks(database, wrong);
+        PostgresException refusal;
 
         using (Environment(database, wrong))
         {
             await using var factory = Factory(database, logs);
-            answer = await ReadinessOrStartFailure(factory);
+            var start = () => Client(factory, "127.0.0.1");
+            refusal = start.Should().Throw<PostgresException>().Which;
         }
 
-        answer.Should().NotBeEmpty().And.NotContain(wrong);
+        refusal.SqlState.Should().Be(PostgresErrorCodes.InvalidPassword);
+        refusal.ToString().Should().Contain("drover_app").And.NotContain(wrong);
         logs.Entries.Should().NotContain(entry => entry.Text.Contains(wrong, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task The_one_off_initialization_takes_every_password_from_the_environment_and_prints_none()
+    {
+        await using var database = await postgres.CreateDatabase();
+        var passwords = Passwords(database);
+
+        var (failure, output) = RunInitialization(Environment(database, passwords));
+
+        failure.Should().BeNull();
+        await using var app = new NpgsqlConnection(database.AppConnectionString);
+        await app.OpenAsync(Token);
+        output.Should().NotContainAny(passwords.Admin, passwords.Owner, passwords.App);
+    }
+
+    [Fact]
+    public async Task A_one_off_initialization_that_cannot_reach_the_database_fails_without_printing_a_password()
+    {
+        await using var database = await postgres.CreateDatabase();
+        var passwords = Passwords(database);
+        var variables = Environment(database, passwords);
+        variables["Database__Port"] = UnusedPort().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var (failure, output) = RunInitialization(variables);
+
+        failure.Should().NotBeNull();
+        $"{failure} {output}".Should().NotContainAny(passwords.Admin, passwords.Owner, passwords.App);
     }
 
     #endregion
 
     #region Private Methods
 
-    private static async Task<string> ReadinessOrStartFailure(DroverFactory factory)
+    /// <summary>
+    /// Runs the real program with <c>--initialize-database</c> in this process, as the one-off run does, with
+    /// <paramref name="variables"/> set, and returns what it threw and everything it printed.
+    /// </summary>
+    // The one-off run has no logger of its own: what it prints goes to the console, so the test reads the console.
+#pragma warning disable RS0030
+    private static (Exception? Failure, string Output) RunInitialization(Dictionary<string, string?> variables)
     {
+        var output = new StringWriter();
+        var (console, errors) = (Console.Out, Console.Error);
+        Console.SetOut(output);
+        Console.SetError(output);
+
         try
         {
-            var ready = await Client(factory, "127.0.0.1").Get("/health/ready");
-            return $"{ready.StatusCode} {await ready.Content.ReadAsStringAsync(Token)}";
+            using (new ProcessEnvironment(variables))
+            {
+                typeof(Program).Assembly.EntryPoint!.Invoke(null, [initializeArguments]);
+            }
+
+            return (null, output.ToString());
         }
-        catch (Exception failure) when (failure is NpgsqlException or InvalidOperationException)
+        catch (TargetInvocationException failure)
         {
-            return failure.ToString();
+            return (failure.InnerException ?? failure, output.ToString());
         }
+        finally
+        {
+            Console.SetOut(console);
+            Console.SetError(errors);
+        }
+    }
+#pragma warning restore RS0030
+
+    private (string Admin, string Owner, string App) Passwords(TestDatabase database)
+    {
+        // A local server that trusts the superuser takes any value; a server that checks needs the real one.
+        var admin = new NpgsqlConnectionStringBuilder(database.AdminConnectionString).Password;
+        return (
+            string.IsNullOrEmpty(admin) ? Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) : admin,
+            postgres.OwnerPassword,
+            new NpgsqlConnectionStringBuilder(database.AppConnectionString).Password!);
+    }
+
+    private static async Task RequirePasswordChecks(TestDatabase database, string wrong)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(database.AppConnectionString) { Password = wrong, Pooling = false };
+        await using var attempt = new NpgsqlConnection(connection.ConnectionString);
+        var open = () => attempt.OpenAsync(Token);
+
+        await open.Should().ThrowAsync<PostgresException>(
+            "this PostgreSQL must check drover_app's password; scripts/dev-postgres.sh start sets that up");
+    }
+
+    private static int UnusedPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private static DroverFactory Factory(TestDatabase database, LogCapture logs) =>
@@ -108,16 +193,24 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
         return await status.Content.ReadAsStringAsync(Token);
     }
 
-    private static ProcessEnvironment Environment(TestDatabase database, string password)
+    private static ProcessEnvironment Environment(TestDatabase database, string appPassword) =>
+        new(Location(database, new() { ["Database__AppPassword"] = appPassword }));
+
+    private static Dictionary<string, string?> Environment(TestDatabase database, (string Admin, string Owner, string App) passwords) =>
+        Location(database, new()
+        {
+            ["Database__Password"] = passwords.Admin,
+            ["Database__OwnerPassword"] = passwords.Owner,
+            ["Database__AppPassword"] = passwords.App,
+        });
+
+    private static Dictionary<string, string?> Location(TestDatabase database, Dictionary<string, string?> passwords)
     {
         var connection = new NpgsqlConnectionStringBuilder(database.AppConnectionString);
-        return new(new()
-        {
-            ["Database__Host"] = connection.Host,
-            ["Database__Port"] = connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["Database__Database"] = connection.Database,
-            ["Database__AppPassword"] = password,
-        });
+        passwords["Database__Host"] = connection.Host;
+        passwords["Database__Port"] = connection.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        passwords["Database__Database"] = connection.Database;
+        return passwords;
     }
 
     #endregion

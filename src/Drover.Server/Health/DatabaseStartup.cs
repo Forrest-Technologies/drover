@@ -13,6 +13,19 @@ public sealed record InitializationConnections(
 /// </summary>
 public static class DatabaseStartup
 {
+    #region Private Fields
+
+    private static readonly string[] initializationOnlySettings =
+    [
+        "ConnectionStrings:DroverOwner",
+        AdminPassword,
+        $"{AdminPassword}{FileSuffix}",
+        OwnerPassword,
+        $"{OwnerPassword}{FileSuffix}",
+    ];
+
+    #endregion
+
     #region Public Methods
 
     public static string ApplicationConnection(IConfiguration configuration, bool allowCustomRole = false)
@@ -37,6 +50,15 @@ public static class DatabaseStartup
             Connection(configuration, "postgres", AdminPassword),
             Connection(configuration, "drover_owner", OwnerPassword),
             Connection(configuration, "drover_app", AppPassword));
+
+    /// <summary>
+    /// The settings only the one-off initialization needs that this configuration holds: the owner connection, or
+    /// the superuser or owner password in either form. Only whether each is set is read, never its value.
+    /// </summary>
+    public static IReadOnlyList<string> HeldInitializationSettings(IConfiguration configuration) =>
+    [
+        .. initializationOnlySettings.Where(setting => !string.IsNullOrWhiteSpace(configuration[setting])),
+    ];
 
     public static async Task Initialize(IConfiguration configuration)
     {
@@ -83,6 +105,7 @@ public static class DatabaseStartup
             Username = role,
             Password = ReadPassword(configuration, passwordSetting),
             Timeout = settings.TimeoutSeconds,
+            SslMode = settings.SslMode,
         };
     }
 

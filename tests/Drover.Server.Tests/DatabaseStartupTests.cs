@@ -184,6 +184,45 @@ public sealed class DatabaseStartupTests
     }
 
     [Fact]
+    public void Connections_use_tls_when_the_server_offers_it_unless_told_otherwise()
+    {
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:Password"] = NewSecret(),
+            ["Database:OwnerPassword"] = NewSecret(),
+            ["Database:AppPassword"] = NewSecret(),
+        });
+
+        var app = new NpgsqlConnectionStringBuilder(DatabaseStartup.ApplicationConnection(configuration));
+        var initialization = DatabaseStartup.InitializationConnections(configuration);
+
+        app.SslMode.Should().Be(SslMode.Prefer);
+        initialization.Admin.SslMode.Should().Be(SslMode.Prefer);
+    }
+
+    [Theory]
+    [InlineData("Require", SslMode.Require)]
+    [InlineData("VerifyFull", SslMode.VerifyFull)]
+    public void Tls_can_be_required_for_every_connection(string setting, SslMode expected)
+    {
+        var configuration = Configuration(new()
+        {
+            ["Database:Host"] = "db",
+            ["Database:SslMode"] = setting,
+            ["Database:Password"] = NewSecret(),
+            ["Database:OwnerPassword"] = NewSecret(),
+            ["Database:AppPassword"] = NewSecret(),
+        });
+
+        var app = new NpgsqlConnectionStringBuilder(DatabaseStartup.ApplicationConnection(configuration));
+        var initialization = DatabaseStartup.InitializationConnections(configuration);
+
+        NpgsqlConnectionStringBuilder[] all = [app, initialization.Admin, initialization.Owner, initialization.App];
+        all.Should().OnlyContain(connection => connection.SslMode == expected);
+    }
+
+    [Fact]
     public void Initialization_without_the_owner_password_names_both_ways_to_give_it()
     {
         var configuration = Configuration(new()

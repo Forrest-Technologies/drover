@@ -174,6 +174,8 @@ public sealed class TrustedProxyNetworkTests(PostgresServer postgres) : ServerTe
     [Theory]
     [InlineData("10.21.0.1")]
     [InlineData("192.0.2.9")]
+    [InlineData("::ffff:10.21.0.1")]
+    [InlineData("::ffff:203.0.113.5")]
     [InlineData("fd00:21::7")]
     [InlineData("2001:db8::9")]
     public async Task The_scheme_forwarded_from_outside_every_trusted_network_is_ignored(string stranger)
@@ -207,6 +209,7 @@ public sealed class TrustedProxyNetworkTests(PostgresServer postgres) : ServerTe
 
     [Theory]
     [InlineData("10.21.0.1")]
+    [InlineData("::ffff:203.0.113.5")]
     [InlineData("fd00:21::7")]
     public async Task An_address_forwarded_from_outside_every_trusted_network_is_ignored(string stranger)
     {
@@ -322,6 +325,48 @@ public sealed class TrustedProxyConfigurationTests
         var options = Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = entry });
 
         options.KnownIPNetworks.Should().Equal(System.Net.IPNetwork.Parse(entry));
+    }
+
+    [Theory]
+    [InlineData("::ffff:0:0/96")]
+    [InlineData("::ffff:10.0.0.0/104")]
+    [InlineData("::ffff:0:0/100")]
+    [InlineData("::/32")]
+    [InlineData("::/80")]
+    [InlineData("::/96")]
+    public void An_ipv6_network_that_takes_in_ipv4_addresses_stops_the_server_and_names_the_way_to_write_it(string entry)
+    {
+        var configure = () => Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = entry });
+
+        configure.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*'{entry}'*")
+            .WithMessage("*IPv4 network*");
+    }
+
+    [Theory]
+    [InlineData("010.0.0.0/8")]
+    [InlineData("10.0.0.0/08")]
+    [InlineData("10.0.0.0/+8")]
+    [InlineData("10.0.0.0/ 8")]
+    [InlineData("10.1/16")]
+    [InlineData("10.0.0.010")]
+    [InlineData("0x0a.0.0.1")]
+    [InlineData("10.0.0.1%1")]
+    [InlineData("fe80::1%1")]
+    [InlineData("::ffff:010.0.0.1")]
+    public void An_entry_not_written_in_plain_form_stops_the_server(string entry)
+    {
+        var configure = () => Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = entry });
+
+        configure.Should().Throw<InvalidOperationException>().WithMessage($"*'{entry}'*").WithMessage("*plain*");
+    }
+
+    [Fact]
+    public void An_ipv4_mapped_address_is_still_accepted_as_one_exact_proxy()
+    {
+        var options = Configure(new() { ["Drover:Proxy:TrustedAddresses:0"] = "::ffff:10.0.0.5" });
+
+        options.KnownProxies.Should().Equal(IPAddress.Parse("::ffff:10.0.0.5"));
     }
 
     [Fact]
