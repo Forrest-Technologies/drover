@@ -15,13 +15,15 @@ public static class DatabaseStartup
 {
     #region Private Fields
 
+    // Setting names only, written out: the start-up log names them, and they must not be derived from anything that
+    // holds a password value.
     private static readonly string[] initializationOnlySettings =
     [
         "ConnectionStrings:DroverOwner",
-        AdminPassword,
-        $"{AdminPassword}{FileSuffix}",
-        OwnerPassword,
-        $"{OwnerPassword}{FileSuffix}",
+        "Database:Password",
+        "Database:PasswordFile",
+        "Database:OwnerPassword",
+        "Database:OwnerPasswordFile",
     ];
 
     #endregion

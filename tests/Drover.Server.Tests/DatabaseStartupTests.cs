@@ -222,6 +222,19 @@ public sealed class DatabaseStartupTests
         all.Should().OnlyContain(connection => connection.SslMode == expected);
     }
 
+    [Theory]
+    [InlineData("ConnectionStrings:DroverOwner")]
+    [InlineData(DatabaseStartup.AdminPassword)]
+    [InlineData($"{DatabaseStartup.AdminPassword}{DatabaseStartup.FileSuffix}")]
+    [InlineData(DatabaseStartup.OwnerPassword)]
+    [InlineData($"{DatabaseStartup.OwnerPassword}{DatabaseStartup.FileSuffix}")]
+    public void Each_setting_only_the_initialization_needs_is_found_by_name(string setting)
+    {
+        var configuration = Configuration(new() { [setting] = "set", [DatabaseStartup.AppPassword] = "set" });
+
+        DatabaseStartup.HeldInitializationSettings(configuration).Should().Equal(setting);
+    }
+
     [Fact]
     public void Initialization_without_the_owner_password_names_both_ways_to_give_it()
     {
