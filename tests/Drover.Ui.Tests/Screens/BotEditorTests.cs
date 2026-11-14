@@ -16,6 +16,8 @@ public sealed class BotEditorTests : ScreenTest
 
     private static readonly Guid ruleId = Guid.Parse("0196f1a0-0000-7000-8000-000000000007");
 
+    private static readonly Guid eyesConnectionId = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
+
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
     private static readonly string bot = $"/api/spaces/{SpaceId}/bots/{botId}";
@@ -45,6 +47,9 @@ public sealed class BotEditorTests : ScreenTest
 
     private static ModelConnectionSummary Connection { get; } =
         new(connectionId, "Sample connection", "venice", null, true, "connected", "sample-large", [], null, null);
+
+    private static ModelConnectionSummary EyesConnection { get; } =
+        new(eyesConnectionId, "Eyes connection", "openai_compatible", "https://models.example.test/v1", true, "connected", "sample-eyes", [], null, null);
 
     private static BotDetail Atlas { get; } = new(
         botId,
@@ -794,6 +799,82 @@ public sealed class BotEditorTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle")[0].GetAttribute("aria-expanded").Should().Be("true"));
     }
 
+    [Fact]
+    public async Task A_text_only_bot_can_choose_a_model_of_another_connection_to_read_its_screen()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { Model("sample-eyes", toolCalling: true, vision: true), Model("sample-blind", toolCalling: true) });
+        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        var reader = Select(page, "Reads the screen for this bot");
+        reader.Id.Should().NotBeEmpty();
+        page.Find($"label[for='{reader.Id}']").TextContent.Should().Be("Reads the screen for this bot");
+        Options(page, "Reads the screen for this bot").Should().Equal("Its own model (cannot read images)", "sample-eyes");
+        reader.QuerySelector("optgroup")!.GetAttribute("label").Should().Be("Eyes connection");
+        reader.GetAttribute("value").Should().BeEmpty();
+        var note = page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent));
+        note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model to read the screen for it above, or a model that can see in the Model section.");
+        page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Should().Contain(button => button.TextContent.Trim() == "Open the Model section");
+
+        await reader.ChangeAsync(new ChangeEventArgs { Value = $"{eyesConnectionId}/sample-eyes" });
+
+        page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent)).Should().NotContain(text => text.Contains("cannot use the screen", StringComparison.Ordinal));
+        await Open(page, 5);
+        page.FindAll(".dv-disclosure-toggle")[5].TextContent.Should().Contain("screen read by sample-eyes", "the closed section says which model reads the screen");
+        await page.Find("form").SubmitAsync();
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which.Should()
+            .Contain($"\"screenReader\":{{\"modelConnectionId\":\"{eyesConnectionId}\",\"model\":\"sample-eyes\"}}"));
+    }
+
+    [Fact]
+    public async Task A_chosen_screen_reader_is_shown_with_what_it_costs_and_in_the_summary()
+    {
+        var chosen = new SandboxSettingsBody("off", [], null, Desktop: true, new ScreenReaderBody(eyesConnectionId, "sample-eyes"));
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = chosen });
+        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { Model("sample-eyes", toolCalling: true, vision: true) });
+        var page = RenderEditor();
+
+        page.FindAll(".dv-disclosure-toggle")[5].TextContent.Should().Contain("Private · network off · desktop · screen read by sample-eyes");
+        await Open(page, 5);
+
+        Select(page, "Reads the screen for this bot").GetAttribute("value").Should().Be($"{eyesConnectionId}/sample-eyes");
+        var hint = page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
+            .Single(text => text.Contains("description", StringComparison.Ordinal));
+        hint.Should().Be("The bot gets a description of each screenshot in words instead of the picture. That is slower and less exact than a model that sees for itself, and each screenshot is also a call to sample-eyes.");
+        page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent)).Should().NotContain(text => text.Contains("cannot use the screen", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_connecting_one()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        Labels(page).Should().NotContain("Reads the screen for this bot");
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
+            .Should().Contain("No model of this space is listed as reading images, so no other model can read the screen for this bot.");
+        var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Connect a model");
+        link.GetAttribute("href").Should().Be(Addresses.SetupModel);
+        page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent))
+            .Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model that can in the Model section.");
+    }
+
+    [Fact]
+    public async Task Without_a_screen_nothing_about_reading_it_is_shown()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        Labels(page).Should().NotContain("Reads the screen for this bot");
+        page.Find(".dv-disclosure-open").TextContent.Should().NotContain("reading images");
+    }
+
     #endregion
 
     #region Helpers
@@ -803,11 +884,11 @@ public sealed class BotEditorTests : ScreenTest
     private static List<string> Labels(IRenderedComponent<BotEditor> page) =>
         [.. page.FindAll(".dv-disclosure-open label, .dv-disclosure-open legend").Select(label => Words(label.TextContent))];
 
-    private static ModelCatalogResponse Model(string id, bool toolCalling) =>
+    private static ModelCatalogResponse Model(string id, bool toolCalling, bool vision = false) =>
         new(
             id,
             id,
-            new ModelCapabilitiesResponse(null, null, toolCalling, true, false, toolCalling, toolCalling ? ["low", "high"] : [], toolCalling, toolCalling),
+            new ModelCapabilitiesResponse(null, null, toolCalling, true, vision, toolCalling, toolCalling ? ["low", "high"] : [], toolCalling, toolCalling),
             new ModelPriceResponse(null, null, null, "USD"),
             null,
             [],

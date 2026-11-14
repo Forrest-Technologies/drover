@@ -4,9 +4,10 @@ namespace Drover.Tests.Common;
 /// A model provider that plays a <see cref="ScriptedModel"/> through Drover's own model seam, so a test runs the real
 /// engine and the real agent runtime with no network. It stands for the provider, outside any Drover process: one
 /// instance outlives a host that is killed and restarted. It remembers the tools every call was offered and whether
-/// a tenant transaction was open in the calling flow, which must never be the case.
+/// a tenant transaction was open in the calling flow, which must never be the case. A second provider of another
+/// <paramref name="kind"/> stands for a second connection, such as a model that reads a bot's screen.
 /// </summary>
-public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientProvider
+public sealed class ScriptedModelProvider(ScriptedModel model, string kind = ScriptedModelProvider.ConnectionKind) : IModelClientProvider
 {
     #region Private Fields
 
@@ -20,13 +21,17 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
 
     private readonly ConcurrentQueue<IReadOnlyList<ModelData>> imagesSeen = new();
 
+    private readonly ConcurrentQueue<ModelChatRequest> requests = new();
+
+    private readonly ConcurrentQueue<string> modelsAsked = new();
+
     private int calls;
 
     #endregion
 
     #region Properties
 
-    public string Kind => ConnectionKind;
+    public string Kind => kind;
 
     public Uri? FixedAddress { get; } = new("https://scripted-model.example.test/v1/");
 
@@ -43,6 +48,12 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
     /// <summary>The images each model call was sent, in call order, with their bytes.</summary>
     public IReadOnlyList<IReadOnlyList<ModelData>> ImagesSeen => [.. imagesSeen];
 
+    /// <summary>Every request, whole, in call order: the instructions, options, and messages as the provider got them.</summary>
+    public IReadOnlyList<ModelChatRequest> Requests => [.. requests];
+
+    /// <summary>The model name each chat client was made for, in order.</summary>
+    public IReadOnlyList<string> ModelsAsked => [.. modelsAsked];
+
     /// <summary>Runs at the start of each model call, with the call's number from zero, before the model answers.</summary>
     public Func<int, Task> BeforeCall { get; set; } = _ => Task.CompletedTask;
 
@@ -56,6 +67,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
     public IModelChatClient CreateChatClient(ModelEndpoint connection, string? apiKey, string modelId, ModelSettings settings)
     {
         keys.Enqueue(apiKey);
+        modelsAsked.Enqueue(modelId);
         return new Client(this);
     }
 
@@ -89,6 +101,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
             ModelChatRequest request,
             [EnumeratorCancellation] CancellationToken cancellation = default)
         {
+            provider.requests.Enqueue(request);
             provider.transactionWasOpen.Enqueue(TenantScope.IsOpenInCurrentFlow);
             provider.toolsOffered.Enqueue([.. (request.Options.Tools ?? []).Select(tool => tool.Name)]);
             provider.imagesSeen.Enqueue([.. request.Messages.SelectMany(message => message.Contents).OfType<ModelData>()]);

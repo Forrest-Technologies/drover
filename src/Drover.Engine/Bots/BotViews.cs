@@ -31,7 +31,12 @@ public static class BotViews
                 bot.MemorySettings.CompactAtTokens,
                 bot.MemorySettings.KeepRecentMessages),
             Words.Of(bot.SandboxPolicy),
-            new SandboxSettingsBody(Words.Of(bot.SandboxSettings.Network), bot.SandboxSettings.AllowedHosts, bot.SandboxSettings.IdleTimeoutMinutes, bot.SandboxSettings.Desktop),
+            new SandboxSettingsBody(
+                Words.Of(bot.SandboxSettings.Network),
+                bot.SandboxSettings.AllowedHosts,
+                bot.SandboxSettings.IdleTimeoutMinutes,
+                bot.SandboxSettings.Desktop,
+                bot.SandboxSettings.ScreenReader is { } reader ? new ScreenReaderBody(reader.ModelConnectionId, reader.Model) : null),
             view.SandboxSharedWith,
             Words.Of(bot.Status),
             bot.ParentBotId,
@@ -130,7 +135,14 @@ public static class BotViews
 
     private static SandboxSettings? Read(SandboxSettingsBody body) =>
         Words.Read<NetworkAccess>(body.Network) is { } network
-            ? new SandboxSettings { Network = network, AllowedHosts = body.AllowedHosts ?? [], IdleTimeoutMinutes = body.IdleTimeoutMinutes, Desktop = body.Desktop }
+            ? new SandboxSettings
+            {
+                Network = network,
+                AllowedHosts = body.AllowedHosts ?? [],
+                IdleTimeoutMinutes = body.IdleTimeoutMinutes,
+                Desktop = body.Desktop,
+                ScreenReader = body.ScreenReader is { } reader ? new ScreenReader(reader.ModelConnectionId, reader.Model ?? string.Empty) : null,
+            }
             : null;
 
     #endregion

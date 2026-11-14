@@ -76,15 +76,24 @@ public static class BotSummaries
         return next is { } moment ? $"{count} · next {ScheduleWords.Moment(moment)}" : $"{count} · off";
     }
 
-    /// <summary>The sandbox's settings, and what the bot may do in it when its tools are known.</summary>
-    public static string Sandbox(BotDraft draft, IReadOnlyList<BotToolEntry>? tools = null)
+    /// <summary>
+    /// The sandbox's settings, which model reads its screen when another one does, and what the bot may do in it when
+    /// its tools are known.
+    /// </summary>
+    public static string Sandbox(BotDraft draft, IReadOnlyList<BotToolEntry>? tools = null, string? screenReaderName = null)
     {
         if (draft.SandboxPolicy is "none")
         {
             return "No sandbox";
         }
 
-        var settings = $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{(draft.Desktop ? " · desktop" : string.Empty)}";
+        var screen = (draft.Desktop, draft.ScreenReader) switch
+        {
+            (true, { } reader) => $" · desktop · screen read by {screenReaderName ?? reader.Model}",
+            (true, null) => " · desktop",
+            _ => string.Empty,
+        };
+        var settings = $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{screen}";
         var may = SandboxGrants.Standing(tools, SandboxGrants.SandboxTools, draft.StagedGrants) switch
         {
             ToolStanding.Allowed => " · may run commands",

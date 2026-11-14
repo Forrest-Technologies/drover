@@ -58,6 +58,9 @@ public sealed class RunSession(
 
     private int step = stepsSoFar;
 
+    /// <summary>Model calls tools made for this execution, such as reading the screen. They count against the step limit.</summary>
+    private int toolModelCalls;
+
     private StepChanged? openStep;
 
     private StepChanged? lastStep;
@@ -186,7 +189,7 @@ public sealed class RunSession(
     {
         await AnnounceStoredMessage();
 
-        if (step >= options.StepLimit)
+        if (step + Volatile.Read(ref toolModelCalls) >= options.StepLimit)
         {
             throw new RunLimitException(
                 RunReasons.StepLimit,
@@ -198,6 +201,21 @@ public sealed class RunSession(
         lastStep = started;
         await writer.Append(RunId, RunEventTypes.StepStarted, started);
         return started.MessageId;
+    }
+
+    /// <summary>
+    /// A tool is about to call a model for this run, as the screen reader does. The call counts against the same limit
+    /// as the run's own model calls, and is refused in words once the run has made as many as it may.
+    /// </summary>
+    public Task BeginToolModelCall()
+    {
+        if (step + Interlocked.Increment(ref toolModelCalls) > options.StepLimit)
+        {
+            Interlocked.Decrement(ref toolModelCalls);
+            throw new BuiltinToolException($"This run has made {options.StepLimit} model calls, the most one run may make, so no other model is called for it.");
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

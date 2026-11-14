@@ -353,7 +353,8 @@ public sealed class RunExecutor(
 
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
-    /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images. A server's tool
+    /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
+    /// read the screen for the bot. A server's tool
     /// needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
@@ -371,10 +372,13 @@ public sealed class RunExecutor(
                 return null;
             }
 
-            // A computer tool also needs a screen the deployment allows and a model that can look at a screenshot; a
-            // model that cannot would click blind.
+            // A computer tool also needs a screen the deployment allows and something that can read a screenshot: the
+            // bot's own model, or a model set to read the screen for it. Without either the bot would click blind.
             if (ComputerTools.IsComputerTool(granted.Tool.Name)
-                && !(hasSandbox && bot!.SandboxSettings.Desktop && deployment.Value.Rules.AllowDesktopSandboxes && modelSeesImages))
+                && !(hasSandbox
+                    && bot!.SandboxSettings.Desktop
+                    && deployment.Value.Rules.AllowDesktopSandboxes
+                    && (modelSeesImages || bot.SandboxSettings.ScreenReader is not null)))
             {
                 return null;
             }
@@ -429,7 +433,8 @@ public sealed class RunExecutor(
             loaded.Pricing,
             toolSources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp),
             rules,
-            loggers.CreateLogger<RunGovernor>());
+            loggers.CreateLogger<RunGovernor>(),
+            loaded.ModelSeesImages);
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
             session,

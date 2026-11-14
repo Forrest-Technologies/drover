@@ -101,9 +101,9 @@ public sealed class ComputerLiveTests(PostgresServer postgres)
 
     #endregion
 
-    #region Private Methods
+    #region Helpers
 
-    private static async Task<Run> WaitLong(RunWorld world, Guid runId)
+    internal static async Task<Run> WaitLong(RunWorld world, Guid runId)
     {
         var watch = Stopwatch.StartNew();
 
@@ -135,7 +135,7 @@ public sealed class ComputerLiveTests(PostgresServer postgres)
     }
 
     /// <summary>Destroys exactly the sandboxes this test's rows name, through the adapter and its metadata check.</summary>
-    private static async Task DestroyCreated(RunWorld world, EngineHost host)
+    internal static async Task DestroyCreated(RunWorld world, EngineHost host)
     {
         var provider = host.Services.GetRequiredService<ISandboxProvider>();
         var rows = await world.Read(db => db.Sandboxes.AsNoTracking().Where(sandbox => sandbox.ProviderSandboxId != string.Empty).ToListAsync(CancellationToken.None));
