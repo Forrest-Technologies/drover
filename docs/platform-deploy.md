@@ -5,8 +5,9 @@ per app, and serves it behind its own HTTPS proxy. Drover runs there without `do
 told to do the things the compose files do for you. This page lists them. The compose path
 ([architecture/13-deployment-and-push.md](architecture/13-deployment-and-push.md)) is unchanged and still the simplest.
 
-No definition file is needed in the repository: the platform builds from the `Dockerfile` at the root, and the image
-listens on port 8080.
+The repository root holds `captain-definition`, a one-line file for platforms that look for one before they deploy a
+repository. It only tells them to build from the `Dockerfile` at the root; it sets no variables, volumes or ports. A
+platform that finds the `Dockerfile` by itself ignores it. The image listens on port 8080.
 
 ## What you set up
 
