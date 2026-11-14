@@ -12,7 +12,13 @@ public sealed class HardeningTests(PostgresServer postgres) : ServerTestBase(pos
         var policy = response.Headers.GetValues("Content-Security-Policy").Single();
         policy.Should().Contain("script-src 'self' 'wasm-unsafe-eval'").And.Contain("object-src 'none'")
             .And.Contain("frame-ancestors 'none'");
-        policy.Should().NotContain("unsafe-inline").And.NotContain("http:").And.NotContain("https:");
+        policy.Should().NotContain("http:").And.NotContain("https:");
+
+        // Inline styles are allowed so a browser extension's own interface keeps its look. Nothing else is inline:
+        // every directive that can run code stays closed.
+        var directives = policy.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        directives.Where(directive => directive.Contains("unsafe-inline")).Should().Equal("style-src 'self' 'unsafe-inline'");
+        directives.Should().Contain("default-src 'self'").And.NotContain(directive => directive.Contains("unsafe-eval'") && !directive.Contains("wasm-unsafe-eval"));
         response.Headers.GetValues("X-Content-Type-Options").Should().ContainSingle("nosniff");
         response.Headers.GetValues("X-Frame-Options").Should().ContainSingle("DENY");
         response.Headers.GetValues("Referrer-Policy").Should().ContainSingle("no-referrer");
