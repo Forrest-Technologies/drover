@@ -44,6 +44,8 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 
 The initializer additionally requires the superuser and owner passwords, as files (`Database:PasswordFile`, `Database:OwnerPasswordFile`) or values (`Database:Password`, `Database:OwnerPassword`). Run it only as the standalone `--initialize-database` command; never give its secrets to the request-serving process. Where `AllowMigrationCredentialInServer` is off, a serving process given any of the four settings does not start. Running on a platform that builds the image and fronts it with its own proxy is in [../platform-deploy.md](../platform-deploy.md).
 
+`--reset-password person@example.com` is the other standalone command. It connects as the server does (`drover_app`, with the same deployment policy), prints a one-time password reset code for that account to the log, and exits with 1 when no account has the email. In compose: `docker compose run --rm drover --reset-password person@example.com`. See [08-auth-and-secrets.md](08-auth-and-secrets.md).
+
 Upgrading is `git pull` to the new tag and the same `docker compose up --build`. The one-shot initialization command applies pending migrations before the application starts. Migrations are forward-only and written to be safe with existing data; a release that needs a manual step says so in its notes and refuses to start until it is done.
 
 ### First run in the browser
