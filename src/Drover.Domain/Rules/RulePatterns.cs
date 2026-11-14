@@ -1,10 +1,15 @@
 namespace Drover.Domain.Rules;
 
 /// <summary>
-/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, so the time one match
-/// takes grows with the length of the text and never with the shape of the pattern. No match has a clock of its
-/// own. What can grow without bound is the number of searches and of matches, and the evaluation's one budget
-/// bounds all of them together. An expression is built and warmed when it is made, outside any budget.
+/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, which guards against
+/// costly text and, by its makers' own account, not against a costly pattern: it builds its states as it meets
+/// text, a pattern with a wide gap before something specific has very many of them, and the engine's match timeout
+/// is not looked at while they are built (measured: a 250 ms timeout on a match that ran 17 seconds). So a written
+/// pattern is not trusted to be cheap. Its counts are capped, it is tried on sample text under a ceiling when its
+/// rule is saved and again whenever a server first reads it, and one that goes over is refused in words and never
+/// run on real text. The trial catches the shapes that were measured and their like; it cannot catch every pattern
+/// built to slip past it, which is why a shared server turns written patterns off (AllowWrittenRulePatterns). What
+/// the expressions hold is bounded by <see cref="RulePatternCache"/>.
 /// </summary>
 public static partial class RulePatterns
 {
@@ -14,11 +19,25 @@ public static partial class RulePatterns
 
     private const RegexOptions Options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 
-    private const int MaxCached = 512;
+    /// <summary>The most a pattern may ask for something to be repeated: the larger number of <c>{n,m}</c>.</summary>
+    public const int MaxRepeat = 256;
 
-    private static readonly ConcurrentDictionary<string, Regex> written = new(StringComparer.Ordinal);
+    /// <summary>The most written patterns kept ready, and the most they may be counted as holding together.</summary>
+    public const int MaxKept = 256;
 
-    private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options));
+    public const long MaxKeptBytes = 48_000_000;
+
+    /// <summary>What trying a pattern on sample text may allocate and how long it may take. Over either, it is refused.</summary>
+    public const long MaxTrialBytes = 8_000_000;
+
+    private static readonly TimeSpan maxTrialTime = TimeSpan.FromMilliseconds(250);
+
+    // The engine looks at this between stretches of text it has states for. It is no bound on building states.
+    private static readonly TimeSpan matchTimeout = TimeSpan.FromSeconds(1);
+
+    private static readonly RulePatternCache written = new(MaxKeptBytes, MaxKept);
+
+    private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options, matchTimeout));
 
     private const string WarmUp = "Warm-up text 0123 sam@example.org -_.";
 
@@ -34,15 +53,21 @@ public static partial class RulePatterns
     // Keys as the common services issue them, a private key block, and a bearer value.
     private static readonly Regex key = Warmed(new(
         @"(sk|pk|rk)[\-_][A-Za-z0-9\-_]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]\-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{30,}|\-\-\-\-\-BEGIN [A-Z ]*PRIVATE KEY\-\-\-\-\-|[Bb]earer [A-Za-z0-9\-_\.=]{20,}",
-        Options));
+        Options,
+        matchTimeout));
 
     #endregion
 
     #region Public Methods
 
+    /// <summary>How many written patterns are kept ready, and what they are counted as holding.</summary>
+    public static (int Patterns, long Bytes) Held => written.Held;
+
     /// <summary>
-    /// The expression for a pattern a person wrote, or the reason it cannot be used, in words. Constructs that need
-    /// backtracking (lookarounds, backreferences) are refused here, when the rule is saved.
+    /// The expression for a pattern a person wrote, or the reason it cannot be used, in words. Refused here, when
+    /// the rule is saved and whenever a server first reads it: constructs that need backtracking (lookarounds,
+    /// backreferences), a count over <see cref="MaxRepeat"/>, a pattern too large to build, and a pattern that
+    /// costs too much when it is tried on sample text.
     /// </summary>
     public static (Regex? Expression, string? Problem) Compile(string? pattern)
     {
@@ -51,37 +76,24 @@ public static partial class RulePatterns
             return (null, $"Write a pattern of up to {MaxPatternLength} characters.");
         }
 
-        if (written.TryGetValue(pattern, out var known))
+        if (written.TryGet(pattern, out var known))
         {
-            return (known, null);
+            return known;
         }
 
-        try
-        {
-            var compiled = Warmed(new Regex(pattern, Options));
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var (expression, problem) = Build(pattern);
+        problem ??= FindTrialProblem(expression!, pattern, before);
 
-            if (written.Count < MaxCached)
-            {
-                written.TryAdd(pattern, compiled);
-            }
-
-            return (compiled, null);
-        }
-        catch (NotSupportedException unsupported)
-        {
-            // The engine says which construct it met; a person is told that in plain words, not in the engine's.
-            return (null, $"That pattern {(unsupported.Message.Contains("backreference", StringComparison.OrdinalIgnoreCase) ? "refers back to a group" : "looks ahead or looks behind")}. Rules run patterns in a way that cannot stall, and such a pattern cannot run that way. Write it without that.");
-        }
-        catch (ArgumentException unreadable)
-        {
-            return (null, $"That pattern cannot be read: {unreadable.Message}");
-        }
+        // A refused pattern keeps its refusal, so it is not tried again each time it is read, and never its expression.
+        written.Keep(pattern, problem is null ? expression : null, problem, problem is null ? GC.GetAllocatedBytesForCurrentThread() - before : 0);
+        return problem is null ? (expression, null) : (null, problem);
     }
 
     /// <summary>
     /// Every place in the text where the expression matches, as start and length, or null when the budget could not
-    /// pay for the search: one reading of the text, each match by how far it moved on, and each match kept. An expression that was
-    /// given a time limit of its own and ran out of it could not be searched either.
+    /// pay for the search: one reading of the text, each match by how far it moved on, and each match kept. An expression that
+    /// ran out of its match timeout could not be searched either.
     /// </summary>
     public static List<(int Start, int Length)>? Find(Regex expression, string text, RuleBudget budget)
     {
@@ -90,12 +102,14 @@ public static partial class RulePatterns
             return null;
         }
 
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
         try
         {
             List<(int, int)> found = [];
             var from = 0;
 
-            for (var match = expression.Match(text); match.Success; match = match.NextMatch())
+            foreach (var match in expression.EnumerateMatches(text))
             {
                 if (!budget.TrySpend(match.Index + match.Length - from + 1))
                 {
@@ -124,6 +138,11 @@ public static partial class RulePatterns
             // The text was not searched to its end, so it could not be checked. Only a limit that is not one could
             // mean otherwise, and there is none.
             return ranOut.MatchTimeout == Timeout.InfiniteTimeSpan ? [] : null;
+        }
+        finally
+        {
+            // An expression holds the states it built for this text. That is counted against what the server keeps.
+            written.Charge(expression, GC.GetAllocatedBytesForCurrentThread() - before);
         }
     }
 

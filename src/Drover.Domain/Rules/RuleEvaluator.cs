@@ -214,6 +214,14 @@ public static class RuleEvaluator
             case JsonValueKind.Object:
                 foreach (var property in value.EnumerateObject())
                 {
+                    // A name under a named input is a value too: an address written as a name is still sent to.
+                    var named = IsListed(allowed, property.Name, budget);
+
+                    if (named is not true)
+                    {
+                        return named;
+                    }
+
                     var listed = AreAllListed(allowed, property.Value, budget);
 
                     if (listed is not true)
