@@ -55,6 +55,26 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
     }
 
     [Fact]
+    public async Task The_longest_message_fits_the_request_limit_even_when_every_character_is_escaped()
+    {
+        script = new ScriptedModel([new TextOutput("Read it.")]);
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var thread = await PostFor<ThreadSummary>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest(null), HttpStatusCode.Created);
+
+        // The serializer writes '<' as six bytes, the most any character costs.
+        var text = new string('<', RunService.MaxMessageLength);
+        var body = JsonSerializer.SerializeToUtf8Bytes(new SendMessageRequest(text));
+        var content = new ByteArrayContent(body);
+        content.Headers.ContentType = new("application/json");
+        var sent = await client.PostContent($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", content);
+
+        body.Length.Should().BeGreaterThan(500_000);
+        sent.StatusCode.Should().Be(HttpStatusCode.Accepted, await sent.Content.ReadAsStringAsync(Token));
+    }
+
+    [Fact]
     public async Task A_thread_shows_its_active_run_and_keeps_a_message_sent_meanwhile_for_the_next_run()
     {
         script = new ScriptedModel([new TextOutput("Thinking"), new PauseOutput()], [new TextOutput("Second answer.")]);

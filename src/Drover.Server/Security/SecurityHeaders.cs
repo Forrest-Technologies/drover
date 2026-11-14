@@ -38,6 +38,13 @@ public static class SecurityHeaders
                 headers["Referrer-Policy"] = "no-referrer";
                 headers["X-Frame-Options"] = "DENY";
 
+                // API answers are about one person and change with every action: no cache keeps them. A response
+                // that chose its own policy, such as the event stream, keeps it.
+                if (context.Request.Path.StartsWithSegments("/api") && !headers.ContainsKey("Cache-Control"))
+                {
+                    headers.CacheControl = "no-store";
+                }
+
                 // Only over HTTPS: behind a trusted proxy the scheme is the one the person used. Plain HTTP on this
                 // machine never gets it, so http://localhost is not pinned to HTTPS.
                 if (context.Request.IsHttps)
