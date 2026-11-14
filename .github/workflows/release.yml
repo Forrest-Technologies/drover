@@ -1,6 +1,6 @@
-# Draft. Moves to .github/workflows/release.yml in Phase 0 step 1.
-# Trusted job: runs only for version tags, which only maintainers can push (tag protection rule "v*").
-# It never executes pull request code, so the owner's self-hosted runner is allowed here.
+# Trusted job: it runs only for version tags, which only maintainers can push (tag ruleset "v*"), and it waits for
+# the required reviewer of the "release" environment. It is trusted because of those two controls, not because of
+# where it runs. It never executes pull request code, and it runs on a GitHub-hosted runner like every workflow here.
 # The project publishes no container images. A release is a tag, a source archive, an SBOM, and attestations.
 name: release
 
@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   release:
     name: SBOM, attest, publish release
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: release
     permissions:
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
-      - name: Restore (locked) and build
+      - name: Restore and build
         run: |
           dotnet restore Drover.slnx
           dotnet build Drover.slnx --no-restore -c Release -warnaserror

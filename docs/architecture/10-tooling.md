@@ -9,7 +9,8 @@
 | [`/.editorconfig`](../../.editorconfig) | Written and tested, see below |
 | [`/BannedSymbols.txt`](../../BannedSymbols.txt) | Written and tested |
 | `.github/workflows/ci.yml`, `security.yml`, `.github/dependabot.yml` | Live since step 1. Linted clean with zizmor (pedantic) and actionlint before the first run. |
-| [`drafts/workflows/release.yml`](drafts/workflows/release.yml), [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Drafts. The release workflow goes live with the first release; the canary with the agent framework step. |
+| `.github/workflows/release.yml` | Live. Runs only for a `v*.*.*` tag, on a GitHub-hosted runner, behind the `release` environment's required reviewer. |
+| [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Draft. Goes live with the agent framework step. |
 
 ## Style enforcement
 
@@ -128,14 +129,13 @@ Notes:
 | Situation | Runner | How |
 | --- | --- | --- |
 | Repository is public, job runs pull request code | GitHub-hosted | Free, and a stranger's code never touches the owner's machines |
-| Repository is public, trusted job (release from a protected tag) | Owner's self-hosted runner | Never executes pull request code |
+| Repository is public, trusted job (release from a protected tag) | GitHub-hosted | Never executes pull request code. Trusted because of the tag ruleset and the `release` environment's required reviewer, not because of where it runs |
 
-Every workflow uses `runs-on: ubuntu-latest` except `release.yml`.
+Every workflow uses `runs-on: ubuntu-latest`, `release.yml` included. The repository has no self-hosted runner. The release job needs Docker and the `gh` CLI, both present on the hosted runner. See [maintainers](../maintainers.md#what-the-release-job-needs).
 
-The repository is public, so two repository settings must be in place **before the workflows go live in Phase 0 step 1**, because they are the controls outside the workflow files:
+The repository is public, so this repository setting must be in place **before the workflows go live in Phase 0 step 1**, because it is a control outside the workflow files:
 
 1. Actions settings: require approval for workflows from all outside contributors.
-2. Runner groups: the self-hosted runner group is restricted to the `release` workflow, so even a mistaken `runs-on` in another workflow cannot reach it.
 
 Also: a tag protection rule for `v*`, a protected `release` environment, and branch protection on `main` requiring the `ci` and `security` checks.
 
