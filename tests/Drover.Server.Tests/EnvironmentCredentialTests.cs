@@ -43,8 +43,9 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
     }
 
     /// <summary>
-    /// Against a server that checks passwords (the container CI starts), readiness fails here and the failure is
-    /// logged. A local server set to trust connections lets the wrong password in; either way, it is never echoed.
+    /// Against a server that checks passwords (the container CI starts), the server refuses to start: work at start
+    /// cannot reach the database. A local server set to trust connections lets the wrong password in. Either way,
+    /// neither the failure, the log nor the health answer carries the password.
     /// </summary>
     [Fact]
     public async Task A_wrong_app_password_from_the_environment_is_never_echoed()
@@ -52,23 +53,34 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
         await using var database = await postgres.CreateDatabase();
         var wrong = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
         var logs = new LogCapture();
+        string answer;
 
         using (Environment(database, wrong))
         {
             await using var factory = Factory(database, logs);
-
-            var ready = await Client(factory, "127.0.0.1").Get("/health/ready");
-
-            ready.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.ServiceUnavailable);
-            (await ready.Content.ReadAsStringAsync(Token)).Should().NotContain(wrong);
+            answer = await ReadinessOrStartFailure(factory);
         }
 
+        answer.Should().NotBeEmpty().And.NotContain(wrong);
         logs.Entries.Should().NotContain(entry => entry.Text.Contains(wrong, StringComparison.Ordinal));
     }
 
     #endregion
 
     #region Private Methods
+
+    private static async Task<string> ReadinessOrStartFailure(DroverFactory factory)
+    {
+        try
+        {
+            var ready = await Client(factory, "127.0.0.1").Get("/health/ready");
+            return $"{ready.StatusCode} {await ready.Content.ReadAsStringAsync(Token)}";
+        }
+        catch (Exception failure) when (failure is NpgsqlException or InvalidOperationException)
+        {
+            return failure.ToString();
+        }
+    }
 
     private static DroverFactory Factory(TestDatabase database, LogCapture logs) =>
         new(database, Path.Combine(Path.GetTempPath(), $"drover-keys-{Guid.NewGuid():N}"), logs, new AdjustableTimeProvider(),
