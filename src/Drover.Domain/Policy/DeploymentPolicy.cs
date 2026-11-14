@@ -47,7 +47,7 @@ public sealed record DeploymentPolicy
         if ((!preset.AllowMigrationCredentialInServer || !AllowMigrationCredentialInServer) && facts.HoldsMigrationCredential)
         {
             problems.Add(
-                $"{nameof(AllowMigrationCredentialInServer)} is off, so ConnectionStrings:DroverOwner must not be set on the serving process. Migrate in a separate job.");
+                $"{nameof(AllowMigrationCredentialInServer)} is off, so the serving process must not be given ConnectionStrings:DroverOwner, Database:Password, Database:PasswordFile, Database:OwnerPassword or Database:OwnerPasswordFile. Give them only to the one-off --initialize-database run.");
         }
 
         if (OpenRegistration && (preset.RequireTermsAcceptance || RequireTermsAcceptance) && string.IsNullOrWhiteSpace(termsVersion))

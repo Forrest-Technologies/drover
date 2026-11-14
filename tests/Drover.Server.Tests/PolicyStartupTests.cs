@@ -173,6 +173,50 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer));
     }
 
+    [Theory]
+    [InlineData("Database:Password")]
+    [InlineData("Database:PasswordFile")]
+    [InlineData("Database:OwnerPassword")]
+    [InlineData("Database:OwnerPasswordFile")]
+    public async Task Hosted_given_an_initialization_password_in_the_server_does_not_start_and_names_the_setting(string setting)
+    {
+        var settings = Hosted(withCertificate: true);
+        settings[setting] = "given-to-the-wrong-process";
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer)).And.Contain(setting)
+            .And.NotContain("given-to-the-wrong-process");
+    }
+
+    [Theory]
+    [InlineData("Database:Password")]
+    [InlineData("Database:OwnerPasswordFile")]
+    public async Task Self_hosted_given_an_initialization_password_starts_but_logs_an_error_naming_the_setting(string setting)
+    {
+        var settings = SelfHosted();
+        settings[setting] = "given-to-the-wrong-process";
+        var logs = new LogCapture();
+
+        await using var server = await Boot(settings, logs: logs);
+
+        var errors = logs.Entries.Where(entry => entry.Level == LogLevel.Error).ToList();
+        errors.Should().Contain(entry => entry.Text.Contains(setting, StringComparison.Ordinal)
+            && entry.Text.Contains(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), StringComparison.Ordinal));
+        logs.Entries.Should().NotContain(entry => entry.Text.Contains("given-to-the-wrong-process", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Self_hosted_without_an_initialization_password_logs_no_error_about_one()
+    {
+        var logs = new LogCapture();
+
+        await using var server = await Boot(SelfHosted(), logs: logs);
+
+        logs.Entries.Should().NotContain(entry => entry.Level >= LogLevel.Error
+            && entry.Text.Contains(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Self_hosted_may_hold_the_migration_credential_in_the_server()
     {
