@@ -7,6 +7,12 @@ public sealed record PolicyMatrixRow(string Rule, string SelfHosted, string Host
 }
 
 /// <summary>
+/// Settings the server refuses to start with together, though each is allowed alone. <see cref="Names"/> are the
+/// settings the refusal must name, so the operator knows what to change.
+/// </summary>
+public sealed record PolicyRefusalRow(string Preset, IReadOnlyDictionary<string, string> Rules, IReadOnlyList<string> Names);
+
+/// <summary>
 /// The table the matrix tests run from. Adding a property to <see cref="DeploymentPolicy"/> without a row here
 /// fails <c>Every_rule_of_the_policy_has_a_row_in_the_matrix</c>, so no rule ships without a stated value for
 /// both presets and a test that starts the server under each.
@@ -45,6 +51,21 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
         new(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus), "true", "false"),
         new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
+    ];
+
+    /// <summary>
+    /// Combinations a server refuses at start. <c>PolicyStartupTests</c> starts the server with each and checks the
+    /// refusal names every setting in the row.
+    /// </summary>
+    public static IReadOnlyList<PolicyRefusalRow> Refusals { get; } =
+    [
+        new(
+            DeploymentPolicy.SelfHostedName,
+            new Dictionary<string, string> { [nameof(DeploymentPolicy.OpenRegistration)] = "true" },
+            [
+                $"Drover:Policy:Rules:{nameof(DeploymentPolicy.OpenRegistration)}",
+                $"Drover:Policy:Rules:{nameof(DeploymentPolicy.AllowPrivateAddresses)}",
+            ]),
     ];
 
     #endregion

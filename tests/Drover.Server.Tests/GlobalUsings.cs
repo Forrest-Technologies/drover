@@ -48,6 +48,7 @@ global using Drover.Domain.Rules;
 global using Drover.Domain.Secrets;
 global using Drover.Domain.Spaces;
 global using Drover.Domain.Tools;
+global using Drover.Engine.Accounts;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;

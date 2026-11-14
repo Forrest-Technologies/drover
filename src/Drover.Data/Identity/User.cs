@@ -27,5 +27,14 @@ public sealed class User : IdentityUser<Guid>
 
     public DateTimeOffset? TermsAcceptedAt { get; set; }
 
+    /// <summary>
+    /// Wrong passwords sent from a browser that has signed in to this account before. Counted apart from Identity's
+    /// own counter, which counts everyone else, so strangers cannot lock the owner's own browser out.
+    /// </summary>
+    public int KnownBrowserAccessFailedCount { get; set; }
+
+    /// <summary>Until when sign-in from a browser that has signed in before is locked, or null when it is not.</summary>
+    public DateTimeOffset? KnownBrowserLockoutEnd { get; set; }
+
     #endregion
 }

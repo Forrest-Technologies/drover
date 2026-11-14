@@ -50,7 +50,7 @@ public sealed class DeploymentPolicySetup(IConfiguration configuration)
 
         var facts = new ServerFacts(
             KeyRingProtectedByCertificate: !string.IsNullOrWhiteSpace(configuration["DataProtection:CertificatePath"]),
-            HoldsMigrationCredential: !string.IsNullOrWhiteSpace(configuration.GetConnectionString("DroverOwner")));
+            HoldsMigrationCredential: DatabaseStartup.HeldInitializationSettings(configuration).Count > 0);
         var problems = options.Rules.FindProblems(options.Preset, preset, options.TermsVersion, facts);
         return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
