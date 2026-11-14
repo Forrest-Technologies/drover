@@ -15,6 +15,9 @@ public static class ThreadEndpoints
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
+        threads.MapGet("/{threadId:guid}/tool-events", ListToolEvents)
+            .WithName("ListToolEvents")
+            .WithSummary("The tool events of the thread's runs, as their logs hold them, already redacted, so a client can show past tool calls as it showed them live.");
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
@@ -40,6 +43,17 @@ public static class ThreadEndpoints
         return messages is null
             ? TypedResults.NotFound()
             : TypedResults.Ok(messages.Select(message => message.ToResponse()).ToList());
+    }
+
+    private static async Task<Results<Ok<List<RunEventResponse>>, NotFound>> ListToolEvents(
+        Guid threadId,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var events = await threads.ListToolEvents(threadId, context.RequestAborted);
+        return events is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(events.Select(stored => stored.ToResponse()).ToList());
     }
 
     private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ProblemHttpResult>> PostMessage(

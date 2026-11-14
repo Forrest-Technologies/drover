@@ -1,8 +1,18 @@
-<section class="dv-disclosure dv-facet @(Open ? "dv-disclosure-open" : null)">
+<section class="dv-disclosure dv-facet @(Open ? "dv-disclosure-open" : null) @Class">
     <h2 class="dv-disclosure-heading">
         <button class="dv-disclosure-toggle" type="button" aria-expanded="@(Open ? "true" : "false")" aria-controls="@bodyId"
                 @onclick="() => OpenChanged.InvokeAsync(!Open)">
-            <span class="dv-disclosure-title">@Title</span>
+            @if (Status is null)
+            {
+                <span class="dv-disclosure-title">@Title</span>
+            }
+            else
+            {
+                <span class="dv-disclosure-title-row">
+                    <span class="dv-disclosure-title">@Title</span>
+                    @Status
+                </span>
+            }
             @if (!Open && Summary is not null)
             {
                 @* Read out between the title and the summary, so the two are heard as two things. *@
@@ -33,6 +43,17 @@
     /// </summary>
     [Parameter]
     public string? Summary { get; set; }
+
+    /// <summary>
+    /// What the thing the section is about is doing now, in words, shown after the title whether the section is
+    /// open or closed.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? Status { get; set; }
+
+    /// <summary>More classes for the frame, for a section that marks a state on its edge.</summary>
+    [Parameter]
+    public string? Class { get; set; }
 
     [Parameter]
     public bool Open { get; set; }

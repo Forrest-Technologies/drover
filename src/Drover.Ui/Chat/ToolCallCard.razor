@@ -1,0 +1,153 @@
+@if (Card.Phase is ToolPhase.WaitingForYou)
+{
+    <section class="dv-tool-ask dv-facet" aria-labelledby="@askId">
+        <div class="dv-tool-ask-head">
+            <h2 class="dv-tool-ask-title" id="@askId">@BotName asks to @Card.Request</h2>
+            <Badge Kind="BadgeKind.Warn">@Card.State</Badge>
+        </div>
+        @if (Card.Summary.Length > 0)
+        {
+            <p class="dv-tool-ask-summary dv-mono">@Card.Summary</p>
+        }
+        @if (!Card.ShowsAllArguments)
+        {
+            <CodeBlock Code="@Card.Arguments" Language="Arguments" />
+        }
+        <div class="dv-tool-ask-actions">
+            <Button Kind="ButtonKind.Primary" Disabled="deciding" OnClick="() => Answer(true)" aria-describedby="@askId">Approve</Button>
+            <Button Disabled="deciding" OnClick="() => Answer(false)" aria-describedby="@askId">Deny</Button>
+        </div>
+        <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+    </section>
+}
+else
+{
+    <div class="dv-tool">
+        <Disclosure Title="@Card.Label" Summary="@(Card.Summary.Length > 0 ? Card.Summary : null)" Open="open" OpenChanged="value => open = value"
+                    Class="@FrameClass">
+            <Status>
+                <Badge Kind="StateKind">@Card.State</Badge>
+            </Status>
+            <ChildContent>
+                @if (Card.Arguments is not ("{}" or ""))
+                {
+                    <div class="dv-tool-part">
+                        <h3 class="dv-tool-part-title">Arguments</h3>
+                        <CodeBlock Code="@Card.Arguments" />
+                    </div>
+                }
+                @if (Card.Output.Count > 0)
+                {
+                    <div class="dv-tool-part">
+                        <h3 class="dv-tool-part-title">Output</h3>
+                        @* Laid out bottom-up, so the newest line stays in view while output arrives. *@
+                        <div class="dv-tool-output" tabindex="0" role="group" aria-label="Output">
+                            <pre class="dv-tool-output-text">@foreach (var piece in Card.Output)
+                                {
+                                    if (piece.Stream is "stderr")
+                                    {
+                                        <span class="dv-tool-stderr"><span class="dv-tool-stream">stderr</span>@piece.Text</span>
+                                    }
+                                    else
+                                    {
+                                        <text>@piece.Text</text>
+                                    }
+                                }</pre>
+                        </div>
+                    </div>
+                }
+                @if (Card.ExitCode is not null || Card.Result is not null)
+                {
+                    <div class="dv-tool-part">
+                        <h3 class="dv-tool-part-title">Result</h3>
+                        @if (Card.ExitCode is { } exitCode)
+                        {
+                            <p class="dv-tool-exit">Exit code @exitCode</p>
+                        }
+                        @if (Card.Result is { } result)
+                        {
+                            <CodeBlock Code="@result" />
+                        }
+                    </div>
+                }
+                @if (Card.IsLive && Card.Output.Count == 0)
+                {
+                    <p class="dv-tool-quiet">No output yet.</p>
+                }
+            </ChildContent>
+        </Disclosure>
+    </div>
+}
+
+@code {
+    #region Private Fields
+
+    private string askId = string.Empty;
+
+    private bool open;
+
+    private bool deciding;
+
+    private string? problem;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public ToolCard Card { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>Sends a person's answer to a call that waits for one. Returns why it failed, or nothing when it was sent.</summary>
+    [Parameter]
+    public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    // The frame's top edge: a traveling line while the tool runs, then green or red once it has finished.
+    private string? FrameClass => Card.Phase switch
+    {
+        _ when Card.IsLive => "dv-state-tool",
+        ToolPhase.Done => "dv-tool-ended dv-tool-ended-ok",
+        ToolPhase.Failed => "dv-tool-ended dv-tool-ended-failed",
+        ToolPhase.Interrupted => "dv-tool-ended dv-tool-ended-unknown",
+        _ => null,
+    };
+
+    private BadgeKind StateKind => Card.Phase switch
+    {
+        _ when Card.IsLive => BadgeKind.Live,
+        ToolPhase.Done => BadgeKind.Ok,
+        ToolPhase.Failed => BadgeKind.Danger,
+        ToolPhase.Interrupted => BadgeKind.Warn,
+        _ => BadgeKind.Neutral,
+    };
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        askId = $"dv-tool-ask-{Card.Id:N}";
+        if (Card.Phase is not ToolPhase.WaitingForYou)
+        {
+            (deciding, problem) = (false, null);
+        }
+    }
+
+    private async Task Answer(bool approved)
+    {
+        if (Decide is null)
+        {
+            return;
+        }
+
+        // The buttons stay off once the answer is sent: the run's log turns the card into what happened next.
+        (deciding, problem) = (true, null);
+        problem = await Decide(Card.Id, approved);
+        deciding = problem is null;
+    }
+
+    #endregion
+}

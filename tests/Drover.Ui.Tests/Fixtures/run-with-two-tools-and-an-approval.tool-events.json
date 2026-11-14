@@ -1,0 +1,58 @@
+[
+  {
+    "seq": 7,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Current time\", \"effect\": \"allow\", \"toolName\": \"time.now\", \"arguments\": \"{}\", \"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.011006+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.132297+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"{\\\"utc\\\":\\\"2026-11-14T19:26:26.1359621\\\\u002B00:00\\\"}\", \"durationMs\": 16, \"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.148374+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Run a command\", \"effect\": \"ask\", \"toolName\": \"sandbox.run\", \"arguments\": \"{\\\"command\\\":\\\"ls -la /home/user \\\\u0026\\\\u0026 echo done\\\"}\", \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:27.046275+00:00"
+  },
+  {
+    "seq": 18,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.approval_requested",
+    "data": "{\"callId\": \"call_1794684386202\", \"requestId\": \"ficc_call_1794684386202\", \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:27.054349+00:00"
+  },
+  {
+    "seq": 21,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.approved",
+    "data": "{\"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\", \"decidedByUserId\": \"01a1db82-b0c5-72e1-9916-a60ef96adf3e\"}",
+    "createdAt": "2026-11-14T19:26:29.410136+00:00"
+  },
+  {
+    "seq": 23,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:29.496533+00:00"
+  },
+  {
+    "seq": 24,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.completed",
+    "data": "{\"isError\": true, \"outcome\": \"failed\", \"preview\": \"{\\\"error\\\":\\\"The server\\\\u0027s sandbox provider key does not work. Tell the server\\\\u0027s operator.\\\"}\", \"durationMs\": 507, \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:30.004368+00:00"
+  }
+]

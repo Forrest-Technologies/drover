@@ -3,7 +3,7 @@
 @inject ILogger<Composer> Logger
 
 <form class="dv-composer" @onsubmit="Send">
-    <div class="dv-composer-frame dv-facet @(Running ? "dv-state-tool" : null)">
+    <div class="dv-composer-frame dv-facet @(Running && !Waiting ? "dv-state-tool" : null)">
     <textarea @ref="field" class="dv-composer-field" rows="1" aria-label="Message to @BotName" placeholder="Write to @BotName"
               value="@text" @oninput="Typed" disabled="@Disabled" enterkeyhint="send"></textarea>
     @if (Running)
@@ -47,6 +47,10 @@
     /// </summary>
     [Parameter]
     public bool Running { get; set; }
+
+    /// <summary>True while the active run waits for a person. Nothing is happening, so the line along the top rests.</summary>
+    [Parameter]
+    public bool Waiting { get; set; }
 
     [Parameter]
     public bool Disabled { get; set; }
