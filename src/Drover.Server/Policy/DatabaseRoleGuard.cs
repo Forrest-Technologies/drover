@@ -14,6 +14,7 @@ public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<Dep
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var strict = !options.Value.Rules.AllowMigrationCredentialInServer;
+        ReportInitializationSettings();
 
         if (!strict && string.IsNullOrEmpty(database.Value.ConnectionString))
         {
@@ -52,6 +53,26 @@ public sealed class DatabaseRoleGuard(IConfiguration configuration, IOptions<Dep
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>
+    /// Where the deployment allows it, the server starts holding a credential only the one-off initialization needs.
+    /// It never uses it, but anyone who breaks into this process gets a way around row-level security, so say so.
+    /// </summary>
+    private void ReportInitializationSettings()
+    {
+        var held = DatabaseStartup.HeldInitializationSettings(configuration);
+        if (held.Count > 0)
+        {
+            logger.LogError(
+                "This serving process was given {Settings}, which only the one-off --initialize-database run needs and which can step around row-level security. Remove them from it, and set Drover:Policy:Rules:{Rule} to false so the server refuses to start with them",
+                string.Join(", ", held),
+                nameof(DeploymentPolicy.AllowMigrationCredentialInServer));
+        }
+    }
 
     #endregion
 }

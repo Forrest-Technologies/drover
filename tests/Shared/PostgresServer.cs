@@ -26,6 +26,16 @@ public sealed class PostgresServer : IAsyncLifetime
 
     #endregion
 
+    #region Properties
+
+    /// <summary>
+    /// The owner password this run gave <c>drover_owner</c>, for a test that runs the real one-off initialization
+    /// against these roles. Giving it the same value changes nothing.
+    /// </summary>
+    public string OwnerPassword => ownerPassword;
+
+    #endregion
+
     #region Interface Implementations
 
     public async ValueTask InitializeAsync()
