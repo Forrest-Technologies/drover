@@ -92,8 +92,9 @@
                 <Disclosure Title="Schedule" Summary="@BotSummaries.Schedules(schedules)" Open="@IsOpen(Schedule)" OpenChanged="open => Toggle(Schedule, open)">
                     <ScheduleSection SpaceId="SpaceId" BotId="BotId" Schedules="schedules" OnSchedulesChanged="changed => schedules = changed" />
                 </Disclosure>
-                <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
-                    <SandboxSection Draft="draft" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed" />
+                <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft, tools)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
+                    <SandboxSection Draft="draft" BotId="BotId" Status="sandboxStatus" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed"
+                                    Tools="tools" ModelSeesImages="ModelSeesImages" OnOpenSection="section => Toggle(section, true)" />
                 </Disclosure>
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />

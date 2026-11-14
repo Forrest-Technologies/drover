@@ -14,6 +14,8 @@ public sealed class FakeServer : HttpMessageHandler
 
     private readonly Dictionary<string, Func<HttpResponseMessage>> answers = [];
 
+    private readonly Dictionary<string, TaskCompletionSource> holds = [];
+
     private ServiceProvider? clients;
 
     #endregion
@@ -21,6 +23,9 @@ public sealed class FakeServer : HttpMessageHandler
     #region Properties
 
     public List<(string Method, string Path, string Body)> Requests { get; } = [];
+
+    /// <summary>The antiforgery token each request carried, by request, or null when it carried none.</summary>
+    public List<string?> AntiforgeryTokens { get; } = [];
 
     /// <summary>When set, every request fails as it does when the server cannot be reached.</summary>
     public bool Unreachable { get; set; }
@@ -39,6 +44,24 @@ public sealed class FakeServer : HttpMessageHandler
     {
         answers[$"{method} {path}"] = () => new(status);
         return this;
+    }
+
+    /// <summary>Answers the address with bytes of the given type, as the server sends a picture.</summary>
+    public FakeServer AnswerBytes(string method, string path, byte[] body, string contentType)
+    {
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK) { Content = new ByteArrayContent(body) { Headers = { ContentType = new(contentType) } } };
+        return this;
+    }
+
+    /// <summary>
+    /// Holds every request to the address until the test completes what this returns, so a screen can be seen while it
+    /// waits for the server.
+    /// </summary>
+    public TaskCompletionSource Hold(string method, string path)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        holds[$"{method} {path}"] = gate;
+        return gate;
     }
 
     /// <summary>Answers the way the server does when it refuses: a problem document with a sentence as its title.</summary>
@@ -99,10 +122,16 @@ public sealed class FakeServer : HttpMessageHandler
     {
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
         Requests.Add((request.Method.Method, request.RequestUri!.AbsolutePath, body));
+        AntiforgeryTokens.Add(request.Headers.TryGetValues("X-XSRF-TOKEN", out var tokens) ? tokens.Single() : null);
 
         if (Unreachable)
         {
             throw new HttpRequestException("The server cannot be reached.");
+        }
+
+        if (holds.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var gate))
+        {
+            await gate.Task.WaitAsync(cancellationToken);
         }
 
         return answers.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var answer)

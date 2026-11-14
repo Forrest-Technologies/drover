@@ -40,6 +40,10 @@ public sealed class SandboxRepository(DroverDbContext db)
             .Where(sandbox => sandbox.OwnerBotId == ownerBotId && sandbox.State == SandboxState.Retiring && sandbox.RetireAfter <= now)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Whether the owner has a sandbox taken out of use that is not destroyed yet.</summary>
+    public Task<bool> HasRetiringForOwner(Guid ownerBotId, CancellationToken cancellationToken) =>
+        db.Sandboxes.AnyAsync(sandbox => sandbox.OwnerBotId == ownerBotId && sandbox.State == SandboxState.Retiring, cancellationToken);
+
     /// <summary>
     /// True when a save failed because the owner already has a live sandbox, added by another call at the same time.
     /// The transaction is lost, so the caller starts a new one and reads that row.

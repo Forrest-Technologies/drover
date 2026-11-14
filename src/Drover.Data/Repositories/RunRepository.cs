@@ -47,6 +47,10 @@ public sealed class RunRepository(DroverDbContext db)
             .OrderBy(run => run.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
+    /// <summary>Whether a run of the bot is working right now: running, not queued and not waiting on a person.</summary>
+    public Task<bool> IsBotWorking(Guid botId, CancellationToken cancellationToken) =>
+        db.Runs.AnyAsync(run => run.BotId == botId && run.Status == RunStatus.Running, cancellationToken);
+
     /// <summary>For each of the threads that has one, the id of its active root run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListActiveRunIds(IReadOnlyCollection<Guid> threadIds, CancellationToken cancellationToken)
     {

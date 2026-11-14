@@ -84,6 +84,29 @@
   font-size: var(--dv-text-13);
 }
 
+.dv-editor ::deep .dv-editor-sandbox-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-4);
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-editor ::deep .dv-editor-sandbox-grant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+}
+
+.dv-editor ::deep .dv-editor-sandbox-live a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-pointer);
+  font-weight: var(--dv-weight-label);
+}
+
 .dv-editor ::deep .dv-editor-pair {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dv-column-min)), 1fr));
@@ -367,6 +390,11 @@
 }
 
 @media (pointer: coarse) {
+  .dv-editor ::deep .dv-editor-sandbox-live a,
+  .dv-editor ::deep .dv-editor-sandbox-grant .dv-button {
+    min-height: var(--dv-target-touch);
+  }
+
   .dv-editor ::deep .dv-editor-hint a {
     display: inline-flex;
     align-items: center;
