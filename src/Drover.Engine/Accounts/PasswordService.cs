@@ -105,7 +105,7 @@ public sealed class PasswordService(
     }
 
     /// <summary>
-    /// Sets a new password with a reset code, uses the code up, lifts any lockout, and ends every session of the
+    /// Sets a new password with a reset code, uses the code up, lifts any lockout in either bucket, and ends every session of the
     /// person. A wrong, used, or expired code and an unknown email are refused alike.
     /// </summary>
     public async Task<PasswordResult> RedeemResetCode(
@@ -138,6 +138,8 @@ public sealed class PasswordService(
         EnsureSucceeded(await users.RemoveAuthenticationTokenAsync(user, TokenProvider, ResetTokenName));
         EnsureSucceeded(await users.RemovePasswordAsync(user));
         EnsureSucceeded(await users.AddPasswordAsync(user, newPassword));
+        user.KnownBrowserAccessFailedCount = 0;
+        user.KnownBrowserLockoutEnd = null;
         EnsureSucceeded(await users.SetLockoutEndDateAsync(user, null));
         EnsureSucceeded(await users.ResetAccessFailedCountAsync(user));
         await sessions.RemoveAll(cancellationToken);

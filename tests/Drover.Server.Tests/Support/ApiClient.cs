@@ -28,6 +28,9 @@ public sealed class ApiClient(HttpClient http)
 
     #region Public Methods
 
+    /// <summary>Sets one cookie by hand, as a browser holding it would send it.</summary>
+    public void SetCookie(string name, string value) => cookies[name] = value;
+
     /// <summary>Copies another client's cookies, as someone who stole them would.</summary>
     public void TakeCookiesOf(ApiClient other)
     {
