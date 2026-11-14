@@ -67,10 +67,13 @@ public static class StartupMigration
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Only the kind of failure and PostgreSQL's code: a message can carry a host, a role or a statement.
+            // The framework wraps a failure it calls transient in another exception, so the cause is looked for
+            // underneath: without it the line says nothing about what PostgreSQL refused.
+            var cause = Causes(exception).Last();
             logger.LogCritical(
                 "Applying the database migrations at start failed ({Failure}, SQL state {SqlState}). The server did not start. {Advice}",
-                exception.GetType().Name,
-                (exception as PostgresException)?.SqlState ?? "none",
+                ReferenceEquals(cause, exception) ? exception.GetType().Name : $"{exception.GetType().Name} from {cause.GetType().Name}",
+                Causes(exception).OfType<PostgresException>().FirstOrDefault()?.SqlState ?? "none",
                 mode is StartupMigrationMode.OwnerOnly
                     ? "Check Database:OwnerPassword. On a database that was never initialized the roles do not exist yet: also give Database:Password (the superuser) once."
                     : "Check Database:Host and the superuser and owner passwords, or run the --initialize-database step instead.");
@@ -84,6 +87,14 @@ public static class StartupMigration
     #endregion
 
     #region Private Methods
+
+    private static IEnumerable<Exception> Causes(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            yield return current;
+        }
+    }
 
     private static bool IsSet(IConfiguration configuration, string passwordSetting) =>
         !string.IsNullOrWhiteSpace(configuration[passwordSetting])

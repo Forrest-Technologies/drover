@@ -42,9 +42,18 @@ public static class SecurityHeaders
 
                 // API answers are about one person and change with every action: no cache keeps them. A response
                 // that chose its own policy, such as the event stream, keeps it.
-                if (context.Request.Path.StartsWithSegments("/api") && !headers.ContainsKey("Cache-Control"))
+                if (context.Request.Path.StartsWithSegments("/api"))
                 {
-                    headers.CacheControl = "no-store";
+                    if (!headers.ContainsKey("Cache-Control"))
+                    {
+                        headers.CacheControl = "no-store";
+                    }
+                }
+                else if (!context.Request.Path.StartsWithSegments("/health"))
+                {
+                    // The web client's files and pages. The server states the policy for each, whatever the file
+                    // middleware chose, so nothing in front of it adds a longer one.
+                    headers.CacheControl = ClientFileCaching.For(context.Request.Path);
                 }
 
                 // Only over HTTPS: behind a trusted proxy the scheme is the one the person used. Plain HTTP on this
