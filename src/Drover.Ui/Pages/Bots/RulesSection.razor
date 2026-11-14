@@ -9,6 +9,10 @@
 else
 {
     <p class="dv-editor-hint">@RuleWords.Intro</p>
+    @if (!WrittenPatterns)
+    {
+        <p class="dv-editor-hint">@RuleWords.WrittenPatternsOff</p>
+    }
     <p class="dv-visually-hidden" role="status">@announcement</p>
 
     @if (Inherited.Count > 0)
@@ -90,7 +94,8 @@ else
                     <legend class="dv-visually-hidden">Condition @number</legend>
                     <div class="dv-rule-condition-head">
                         <Select Label="@(number == 1 ? "If" : "And if")" Value="@condition.Kind" ValueChanged="kind => condition.Kind = kind">
-                            @foreach (var choice in RuleWords.Conditions(draft.Checkpoint))
+                            @* A rule that already has a written pattern keeps showing it, so opening the rule does not change it unseen. *@
+                            @foreach (var choice in RuleWords.Conditions(draft.Checkpoint, WrittenPatterns || condition.Kind is "text_matches"))
                             {
                                 <option value="@choice.Value">@choice.Label</option>
                             }
@@ -305,6 +310,10 @@ else
     /// <summary>The bot's tools, so a rule can name one. Null while they load.</summary>
     [Parameter]
     public IReadOnlyList<BotToolEntry>? Tools { get; set; }
+
+    /// <summary>Whether this server runs patterns a person writes. Where it does not, the choice is not offered.</summary>
+    [Parameter]
+    public bool WrittenPatterns { get; set; } = true;
 
     /// <summary>Raised with the rules as they are after one was added, changed, or removed.</summary>
     [Parameter]

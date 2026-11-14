@@ -35,6 +35,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null) });
         Server.Answer("GET", $"{bot}/schedules", Array.Empty<BotScheduleResponse>());
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
+        Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
     }
 
     #endregion
@@ -329,6 +330,26 @@ public sealed class BotEditorTests : ScreenTest
         page.FindAll(".dv-rule-actions button").Select(button => button.GetAttribute("aria-label")).Should().Equal(
             "Change the rule Ask before anything that writes",
             "Remove the rule Ask before anything that writes");
+    }
+
+    [Fact]
+    public async Task Where_the_server_runs_no_written_patterns_the_section_says_so_and_does_not_offer_one()
+    {
+        Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(false));
+        var page = RenderEditor();
+        await Open(page, 2);
+
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(hint => hint.TextContent).Should().Contain(RuleWords.WrittenPatternsOff);
+
+        await page.Find(".dv-rule-starts button").ClickAsync(new MouseEventArgs());
+        await Select(page, "When").ChangeAsync(new ChangeEventArgs { Value = RuleWords.BeforeReply });
+        await page.FindAll(".dv-rule-form .dv-button").First(button => button.TextContent.Contains("Add a condition")).ClickAsync(new MouseEventArgs());
+
+        Options(page, "If").Should().Equal(
+            "The reply contains (catches common forms)",
+            "The reply holds (catches common forms)",
+            "The time is between",
+            "The run has used more than");
     }
 
     [Fact]

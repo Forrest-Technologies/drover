@@ -18,6 +18,9 @@ public sealed class RuleKindsTests
     // The stated bound for one evaluation, whatever it is given: the wall-clock backstop and a second for the rest.
     private static readonly TimeSpan bound = RuleBudget.Backstop + TimeSpan.FromSeconds(1);
 
+    // The most one evaluation may allocate, whatever it is given.
+    private const long MostAllocated = 128_000_000;
+
     private static readonly int[] primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 1009, 7919];
 
     #endregion
@@ -200,11 +203,14 @@ public sealed class RuleKindsTests
         foreach (var (shape, arguments) in HostileInputs())
         {
             var subject = new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = "sample.tool", ToolKind = ToolSensitivity.Write, Json = arguments, Now = tuesdayNight, ToolCalls = 1_000_000 };
+            var before = GC.GetAllocatedBytesForCurrentThread();
             var watch = Stopwatch.StartNew();
 
             RuleEvaluator.Evaluate(rules, subject);
 
             watch.Elapsed.Should().BeLessThan(bound, $"fifty rules of ten {kind} conditions on {shape} must end within the bound");
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            allocated.Should().BeLessThan(MostAllocated, $"fifty rules of ten {kind} conditions on {shape} must not hold more than the bound");
         }
     }
 
@@ -277,6 +283,22 @@ public sealed class RuleKindsTests
     }
 
     [Fact]
+    public void Looking_for_text_pays_for_what_the_comparing_costs_and_not_only_for_the_length()
+    {
+        // Fifty entries that almost match everywhere: each place in the text is compared nearly to the entry's end.
+        var rule = Rule(RuleCheckpoint.BeforeReply, RuleEffect.Block, Contains([.. Enumerable.Range(0, 50).Select(number => $"{new string('\u00E9', 199)}{(char)('\u0100' + number)}")]));
+        var text = new string('\u00E9', RuleBudget.MaxCharacters - 16);
+        var budget = new RuleBudget(RuleBudget.MaxWork, TimeSpan.FromHours(1));
+        var watch = Stopwatch.StartNew();
+
+        var outcome = RuleEvaluator.Evaluate([rule], Reply(text), budget);
+
+        watch.Elapsed.Should().BeLessThan(bound, "this took 2 to 2.5 seconds with a quarter of the units spent");
+        budget.IsSpent.Should().BeTrue("the comparing is far more work than one evaluation may do, and units say so without a clock");
+        outcome!.Why.Should().Contain("could not be checked");
+    }
+
+    [Fact]
     public void A_list_on_named_inputs_pays_for_every_element_it_walks()
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] });
@@ -320,6 +342,8 @@ public sealed class RuleKindsTests
     [InlineData("""{"to":"ann@example.org","cc":["bob@example.org","mallory@evil.test"]}""")]
     [InlineData("""{"to":[],"bcc":"mallory@evil.test"}""")]
     [InlineData("""{"to":null,"Bcc":"mallory@evil.test"}""")]
+    [InlineData("""{"to":{"mallory@evil.test":"ann@example.org"}}""")]
+    [InlineData("""{"to":[{"ann@example.org":{"mallory@evil.test":null}}]}""")]
     public void A_list_checks_every_occurrence_of_every_input_it_names_whatever_the_case(string arguments)
     {
         var rule = Rule(RuleCheckpoint.BeforeTool, RuleEffect.Block, ToolIs("email.send"), new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to, cc, bcc", Entries = ["example.org"] });
@@ -548,6 +572,17 @@ public sealed class RuleKindsTests
             {
                 var text = string.Concat(Enumerable.Repeat(unit, size / unit.Length));
                 yield return ($"{size:N0} characters of '{unit}'", JsonSerializer.SerializeToElement(new { text }));
+            }
+        }
+
+        // Text that does not repeat: an expression builds a new state for almost every character of it.
+        foreach (var size in sizes)
+        {
+            foreach (var alphabet in (string[])["4a", "ab", "a@ .4%\"<", "4aQZ0 \n"])
+            {
+                var random = new Random(size + alphabet.Length);
+                var text = string.Concat(Enumerable.Range(0, size).Select(_ => alphabet[random.Next(alphabet.Length)]));
+                yield return ($"{size:N0} random characters of '{alphabet}'", JsonSerializer.SerializeToElement(new { text }));
             }
         }
 

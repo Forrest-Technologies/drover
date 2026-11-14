@@ -86,15 +86,22 @@ public static class RuleWords
         new("stop", "Stop the run"),
     ];
 
-    /// <summary>The conditions that mean something at a checkpoint.</summary>
-    public static IReadOnlyList<RuleChoice> Conditions(string checkpoint) =>
+    /// <summary>Said in the section when the server does not run patterns a person writes.</summary>
+    public static string WrittenPatternsOff =>
+        "Patterns a person writes are turned off on this server, so a rule looks for text with \"contains\" or a built-in kind.";
+
+    /// <summary>
+    /// The conditions that mean something at a checkpoint. A pattern a person writes is offered only where the
+    /// server runs them.
+    /// </summary>
+    public static IReadOnlyList<RuleChoice> Conditions(string checkpoint, bool writtenPatterns = true) =>
     [
         .. checkpoint is BeforeTool or AfterTool
             ? [new RuleChoice("tool_is", "The tool is one of"), new RuleChoice("tool_kind", "The tool is of a kind")]
             : Array.Empty<RuleChoice>(),
         new("text_contains", $"{Capitalized(Subject(checkpoint))} contains {CommonForms}"),
         new("text_holds", $"{Capitalized(Subject(checkpoint))} holds {CommonForms}"),
-        new("text_matches", $"{Capitalized(Subject(checkpoint))} matches a pattern {CommonForms}"),
+        .. writtenPatterns ? [new RuleChoice("text_matches", $"{Capitalized(Subject(checkpoint))} matches a pattern {CommonForms}")] : Array.Empty<RuleChoice>(),
         .. checkpoint is BeforeTool
             ? [new RuleChoice("not_in_list", "An input is not on a list"), new RuleChoice(AddressesNotInList, $"An email address is not on a list {CommonForms}")]
             : Array.Empty<RuleChoice>(),

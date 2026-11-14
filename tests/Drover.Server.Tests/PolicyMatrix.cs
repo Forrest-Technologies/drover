@@ -50,6 +50,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowTelemetryContent), "false", "false"),
         new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
         new(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
     ];
 
     /// <summary>

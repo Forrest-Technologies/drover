@@ -1,10 +1,17 @@
 namespace Drover.Domain.Rules;
 
 /// <summary>
-/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, so the time one match
-/// takes grows with the length of the text and never with the shape of the pattern. No match has a clock of its
-/// own. What can grow without bound is the number of searches and of matches, and the evaluation's one budget
-/// bounds all of them together. An expression is built and warmed when it is made, outside any budget.
+/// The patterns rules look for. Every expression runs on the engine that cannot backtrack, which guards against
+/// costly text and, by its makers' own account, not against a costly pattern: it builds its states as it meets
+/// text, a pattern with a wide gap before something specific has very many of them, and neither the engine's match
+/// timeout nor anything in this process can stop one match once it has begun (measured: a 250 ms timeout on a
+/// match that ran 17 seconds and took 4.7 GB). Trying a pattern on sample text first does not make it safe either:
+/// it was built, was beaten, and cost as much as what it guarded against. So the built-in patterns, which are
+/// Drover's own, always run, and a pattern a person wrote runs only where the deployment rule
+/// AllowWrittenRulePatterns is on, which it is in no preset. What is refused when a rule is saved is what can be
+/// read off the pattern: constructs that need backtracking, a count over <see cref="MaxRepeat"/>, and a pattern
+/// the engine says is too large. A match that fails part way ends the evaluation's budget, so the rule takes its
+/// effect.
 /// </summary>
 public static partial class RulePatterns
 {
@@ -14,11 +21,18 @@ public static partial class RulePatterns
 
     private const RegexOptions Options = RegexOptions.NonBacktracking | RegexOptions.CultureInvariant;
 
-    private const int MaxCached = 512;
+    /// <summary>The most a pattern may ask for something to be repeated: the larger number of <c>{n,m}</c>.</summary>
+    public const int MaxRepeat = 256;
 
-    private static readonly ConcurrentDictionary<string, Regex> written = new(StringComparer.Ordinal);
+    /// <summary>The most written patterns kept ready. The one used longest ago goes first.</summary>
+    public const int MaxKept = 256;
 
-    private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options));
+    // The engine looks at this between stretches of text it has states for. It is no bound on building states.
+    private static readonly TimeSpan matchTimeout = TimeSpan.FromSeconds(1);
+
+    private static readonly RulePatternCache written = new(MaxKept);
+
+    private static readonly Regex email = Warmed(new(@"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+", Options, matchTimeout));
 
     private const string WarmUp = "Warm-up text 0123 sam@example.org -_.";
 
@@ -34,15 +48,24 @@ public static partial class RulePatterns
     // Keys as the common services issue them, a private key block, and a bearer value.
     private static readonly Regex key = Warmed(new(
         @"(sk|pk|rk)[\-_][A-Za-z0-9\-_]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]\-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{30,}|\-\-\-\-\-BEGIN [A-Z ]*PRIVATE KEY\-\-\-\-\-|[Bb]earer [A-Za-z0-9\-_\.=]{20,}",
-        Options));
+        Options,
+        matchTimeout));
 
     #endregion
 
     #region Public Methods
 
+    /// <summary>How many written patterns are kept ready.</summary>
+    public static int Kept => written.Count;
+
+    /// <summary>Whether a pattern has been built on this server: kept ready, or kept as refused.</summary>
+    public static bool IsKept(string pattern) => written.TryGet(pattern, out _);
+
     /// <summary>
-    /// The expression for a pattern a person wrote, or the reason it cannot be used, in words. Constructs that need
-    /// backtracking (lookarounds, backreferences) are refused here, when the rule is saved.
+    /// The expression for a pattern a person wrote, or the reason it cannot be used, in words. Refused here, when
+    /// the rule is saved and whenever a server first reads it: constructs that need backtracking (lookarounds,
+    /// backreferences), a count over <see cref="MaxRepeat"/>, and a pattern too large to build. What a pattern
+    /// costs to run is not judged here, because it cannot be.
     /// </summary>
     public static (Regex? Expression, string? Problem) Compile(string? pattern)
     {
@@ -51,37 +74,20 @@ public static partial class RulePatterns
             return (null, $"Write a pattern of up to {MaxPatternLength} characters.");
         }
 
-        if (written.TryGetValue(pattern, out var known))
+        if (written.TryGet(pattern, out var known))
         {
-            return (known, null);
+            return known;
         }
 
-        try
-        {
-            var compiled = Warmed(new Regex(pattern, Options));
-
-            if (written.Count < MaxCached)
-            {
-                written.TryAdd(pattern, compiled);
-            }
-
-            return (compiled, null);
-        }
-        catch (NotSupportedException unsupported)
-        {
-            // The engine says which construct it met; a person is told that in plain words, not in the engine's.
-            return (null, $"That pattern {(unsupported.Message.Contains("backreference", StringComparison.OrdinalIgnoreCase) ? "refers back to a group" : "looks ahead or looks behind")}. Rules run patterns in a way that cannot stall, and such a pattern cannot run that way. Write it without that.");
-        }
-        catch (ArgumentException unreadable)
-        {
-            return (null, $"That pattern cannot be read: {unreadable.Message}");
-        }
+        var built = Build(pattern);
+        written.Keep(pattern, built.Expression, built.Problem);
+        return built;
     }
 
     /// <summary>
     /// Every place in the text where the expression matches, as start and length, or null when the budget could not
-    /// pay for the search: one reading of the text, each match by how far it moved on, and each match kept. An expression that was
-    /// given a time limit of its own and ran out of it could not be searched either.
+    /// pay for the search: one reading of the text, each match by how far it moved on, and each match kept. An expression that
+    /// ran out of its match timeout could not be searched either.
     /// </summary>
     public static List<(int Start, int Length)>? Find(Regex expression, string text, RuleBudget budget)
     {
@@ -95,7 +101,7 @@ public static partial class RulePatterns
             List<(int, int)> found = [];
             var from = 0;
 
-            for (var match = expression.Match(text); match.Success; match = match.NextMatch())
+            foreach (var match in expression.EnumerateMatches(text))
             {
                 if (!budget.TrySpend(match.Index + match.Length - from + 1))
                 {
@@ -121,9 +127,16 @@ public static partial class RulePatterns
         }
         catch (RegexMatchTimeoutException ranOut)
         {
-            // The text was not searched to its end, so it could not be checked. Only a limit that is not one could
-            // mean otherwise, and there is none.
-            return ranOut.MatchTimeout == Timeout.InfiniteTimeSpan ? [] : null;
+            // The text was not searched to its end, so it could not be checked, and the evaluation checks no more.
+            return NotSearched(budget.Fail(ranOut));
+        }
+        catch (InsufficientMemoryException tooLarge)
+        {
+            return NotSearched(budget.Fail(tooLarge));
+        }
+        catch (OutOfMemoryException tooLarge)
+        {
+            return NotSearched(budget.Fail(tooLarge));
         }
     }
 
@@ -303,6 +316,9 @@ public static partial class RulePatterns
     // An expression builds its matcher the first time it is used. That happens here, when the expression is made
     // (the built-in ones when the server starts, a written one when its rule is saved or first read), so the
     // first search of a run never pays for it out of the evaluation's budget.
+    // A search that failed part way found nothing it can vouch for.
+    private static List<(int Start, int Length)>? NotSearched(Exception failure) => failure is null ? [] : null;
+
     private static Regex Warmed(Regex expression)
     {
         expression.IsMatch(WarmUp);
