@@ -114,7 +114,7 @@ public static class AccountEndpoints
         var credentials = await accounts.CheckCredentials(
             request.Email ?? string.Empty,
             request.Password ?? string.Empty,
-            KnownBrowser.SignedInBefore(context),
+            KnownBrowser.Read(context),
             context.RequestAborted);
 
         if (!credentials.Succeeded)
@@ -155,6 +155,14 @@ public static class AccountEndpoints
             request.NewPassword ?? string.Empty,
             context.RequestAborted);
 
+        if (result.Status is PasswordOutcome.SessionEnded)
+        {
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return TypedResults.Problem(
+                title: "The current password was wrong too many times, so this session was signed out.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
         if (result.Status is not PasswordOutcome.Changed)
         {
             return RefusedPassword(result, "The current password is not right.");
@@ -171,6 +179,7 @@ public static class AccountEndpoints
                 result.SecurityStamp,
                 sessionId,
                 now));
+        KnownBrowser.Remember(context, principal.GetUserId(), result.SecurityStamp);
         return TypedResults.NoContent();
     }
 
@@ -216,7 +225,7 @@ public static class AccountEndpoints
         var sessionId = await context.RequestServices.GetRequiredService<SessionService>().Open(userId, context.RequestAborted);
         var principal = SessionStamp.BuildPrincipal(userId, email, displayName, stamp, sessionId, now);
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
-        KnownBrowser.Remember(context, userId);
+        KnownBrowser.Remember(context, userId, stamp);
 
         // The antiforgery token belongs to the signed-in person, so the client gets a fresh one with the session.
         context.User = principal;

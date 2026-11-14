@@ -17,5 +17,11 @@ public sealed class UserSession : IUserOwned
     /// <summary>When the session was last checked against the database. Idle sessions are removed after the cookie's lifetime.</summary>
     public DateTimeOffset LastSeenAt { get; set; }
 
+    /// <summary>
+    /// Wrong current passwords sent from this session to change the password. Counted per session, so strangers'
+    /// sign-in failures do not block a signed-in change, and a session that guesses too often is ended.
+    /// </summary>
+    public int FailedPasswordChanges { get; set; }
+
     #endregion
 }

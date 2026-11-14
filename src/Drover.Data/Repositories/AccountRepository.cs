@@ -39,6 +39,24 @@ public sealed class AccountRepository(DroverDbContext db)
     public Task LockUser(Guid userId, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlAsync($"SELECT 1 FROM users WHERE id = {userId} FOR UPDATE", cancellationToken);
 
+    /// <summary>
+    /// Removes one of the user's stored tokens and returns its value, in one statement, or null when there is none.
+    /// Two transactions taking the same token cannot both get it: the second waits for the first and then finds
+    /// nothing, or finds the token again if the first rolled back. Runs with only the user set.
+    /// </summary>
+    public async Task<string?> TakeToken(Guid userId, string provider, string name, CancellationToken cancellationToken)
+    {
+        var values = await db.Database
+            .SqlQuery<string>(
+                $"""
+                DELETE FROM user_tokens
+                WHERE user_id = {userId} AND login_provider = {provider} AND name = {name}
+                RETURNING value AS "Value"
+                """)
+            .ToListAsync(cancellationToken);
+        return values.SingleOrDefault();
+    }
+
     /// <summary>The signed-in user's own spaces. The user comes from the transaction.</summary>
     public Task<List<SpaceMembership>> ListMemberships(CancellationToken cancellationToken) =>
         db.Database

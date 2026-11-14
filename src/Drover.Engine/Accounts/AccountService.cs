@@ -100,13 +100,13 @@ public sealed class AccountService(
     /// <summary>
     /// Checks an email and password, counting failures and locking the account as Identity is set to. Failures are
     /// counted in one of two buckets: from a browser that has signed in to this account before
-    /// (<paramref name="signedInBeforeAs"/> names this account), or from anyone else. Each bucket locks on its own,
+    /// (<paramref name="marker"/> names this account at its current security stamp), or from anyone else. Each bucket locks on its own,
     /// so strangers cannot keep the owner's own browser out, and guessing stays bounded in both.
     /// </summary>
     public async Task<CredentialResult> CheckCredentials(
         string email,
         string password,
-        Guid? signedInBeforeAs,
+        BrowserMarker? marker,
         CancellationToken cancellationToken)
     {
         var userId = await FindUserId(email, cancellationToken);
@@ -120,9 +120,16 @@ public sealed class AccountService(
         tenant.SetUser(id);
         await using var work = await scope.Begin(cancellationToken);
         await accounts.LockUser(id, cancellationToken);
-        var result = signedInBeforeAs == id
-            ? await VerifyPasswordFromKnownBrowser(id, password)
-            : await VerifyPassword(id, password);
+        var user = await users.FindByIdAsync(id.ToString());
+
+        if (user is null)
+        {
+            return CredentialResult.Refused;
+        }
+
+        var result = marker?.Names(user) is true
+            ? await VerifyPasswordFromKnownBrowser(user, password)
+            : await VerifyPassword(user, password);
         await work.Commit(cancellationToken);
         return result;
     }
@@ -190,15 +197,8 @@ public sealed class AccountService(
         return userId;
     }
 
-    private async Task<CredentialResult> VerifyPassword(Guid userId, string password)
+    private async Task<CredentialResult> VerifyPassword(User user, string password)
     {
-        var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null)
-        {
-            return CredentialResult.Refused;
-        }
-
         if (await users.IsLockedOutAsync(user))
         {
             return RefusedLikeAnyOther(password);
@@ -220,15 +220,8 @@ public sealed class AccountService(
     /// The same check for a browser that has signed in to the account before, counted in that bucket's own fields
     /// with the same limit and lockout time as Identity's.
     /// </summary>
-    private async Task<CredentialResult> VerifyPasswordFromKnownBrowser(Guid userId, string password)
+    private async Task<CredentialResult> VerifyPasswordFromKnownBrowser(User user, string password)
     {
-        var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null)
-        {
-            return CredentialResult.Refused;
-        }
-
         var now = time.GetUtcNow();
 
         if (user.LockoutEnabled && user.KnownBrowserLockoutEnd > now)

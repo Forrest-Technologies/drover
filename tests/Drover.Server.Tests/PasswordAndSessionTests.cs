@@ -161,7 +161,7 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
         var person = await SeedPerson("alice");
         await IssueResetCode(person.Email);
 
-        var wrong = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, "AAAA-AAAA-AAAA", NewPassword()));
+        var wrong = await Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA");
         var unknown = await NewClient().Post(
             "/api/password-reset",
             new ResetPasswordRequest("nobody@example.test", "AAAA-AAAA-AAAA", NewPassword()));
@@ -207,6 +207,93 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
         await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement));
 
         (await laptop.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Two_redemptions_of_one_code_at_once_let_exactly_one_through_and_neither_fails_with_500()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+        List<ApiClient> clients = [.. Enumerable.Range(0, 6).Select(_ => NewClient())];
+        await Task.WhenAll(clients.Select(client => client.Get("/api/antiforgery")));
+
+        var statuses = await Task.WhenAll(clients.Select(async client =>
+            (await Redeem(client, person.Email, code)).StatusCode));
+
+        statuses.Count(status => status == HttpStatusCode.NoContent).Should().Be(1);
+        statuses.Where(status => status != HttpStatusCode.NoContent)
+            .Should().AllBeEquivalentTo(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_does_not_use_up_the_right_one()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+
+        var wrong = await Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA");
+        var right = await Redeem(NewClient(), person.Email, code);
+
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        right.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_and_an_unknown_email_make_the_same_database_calls()
+    {
+        var person = await SeedPerson("alice");
+        await IssueResetCode(person.Email);
+
+        var known = await AccountCommandsDuring(() =>
+            Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA"));
+        var unknown = await AccountCommandsDuring(() =>
+            Redeem(NewClient(), "nobody@example.test", "AAAA-AAAA-AAAA"));
+
+        known.Should().NotBeEmpty();
+        unknown.Should().Equal(known);
+    }
+
+    [Fact]
+    public async Task Strangers_who_locked_sign_in_do_not_block_a_signed_in_password_change()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        var changed = await laptop.Post(
+            "/api/account/password",
+            new ChangePasswordRequest(person.Password, NewPassword()));
+
+        changed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Five_wrong_current_passwords_end_that_session_and_leave_sign_in_alone()
+    {
+        var person = await SeedPerson("alice");
+        var thief = NewClient();
+        var phone = NewClient();
+        await thief.SignIn(person.Email, person.Password);
+        await phone.SignIn(person.Email, person.Password);
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            (await thief.Post("/api/account/password", new ChangePasswordRequest("not-the-password-1", NewPassword())))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        var fifth = await thief.Post(
+            "/api/account/password",
+            new ChangePasswordRequest("not-the-password-1", NewPassword()));
+
+        fifth.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await thief.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await phone.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -276,6 +363,27 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
             .SqlQuery<string>($"SELECT value AS \"Value\" FROM user_tokens")
             .ToListAsync(Token);
     }
+
+    /// <summary>
+    /// The account-related SQL a request runs, in order, with parameter values left out: what the database does for
+    /// it, as against the other server work that may run meanwhile.
+    /// </summary>
+    private async Task<List<string>> AccountCommandsDuring(Func<Task<HttpResponseMessage>> request)
+    {
+        var before = Logs.Entries.Count;
+        (await request()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        return
+        [
+            .. Logs.Entries.Skip(before)
+                .Where(entry => entry.Category == "Microsoft.EntityFrameworkCore.Database.Command"
+                    && entry.Text.StartsWith("Executed DbCommand", StringComparison.Ordinal))
+                .Select(entry => entry.Text[(entry.Text.IndexOf('\n', StringComparison.Ordinal) + 1)..])
+                .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
+        ];
+    }
+
+    private static Task<HttpResponseMessage> Redeem(ApiClient client, string email, string code) =>
+        client.Post("/api/password-reset", new ResetPasswordRequest(email, code, NewPassword()));
 
     private static string ResetCodeIn(string text)
     {
