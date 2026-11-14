@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Drover.Adapters.DataProtection/Drover.Adapters.DataProtection.csproj" />
+    <Project Path="src/Drover.Adapters.E2B/Drover.Adapters.E2B.csproj" />
     <Project Path="src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj" />
     <Project Path="src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj" />
     <Project Path="src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj" />

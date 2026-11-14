@@ -102,6 +102,31 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
         $"{failure} {output}".Should().NotContainAny(passwords.Admin, passwords.Owner, passwords.App);
     }
 
+    /// <summary>
+    /// The serving app that is allowed to migrate and cannot (here, a wrong owner password) says so in one critical
+    /// line without a secret, sets a non-zero exit code and does not start, so the platform keeps the old build serving.
+    /// </summary>
+    [Fact]
+    public async Task A_server_that_cannot_apply_its_migrations_exits_non_zero_without_printing_a_password()
+    {
+        await using var database = await postgres.CreateDatabase();
+        var passwords = Passwords(database);
+        var wrong = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        await RequirePasswordChecks(database, wrong);
+        var variables = Environment(database, passwords);
+        variables.Remove("Database__Password");
+        variables["Database__OwnerPassword"] = wrong;
+
+        var (failure, output) = RunInitialization(variables, []);
+        var exitCode = System.Environment.ExitCode;
+        System.Environment.ExitCode = 0;
+
+        failure.Should().BeNull();
+        exitCode.Should().Be(1);
+        output.Should().Contain("Applying the database migrations at start failed").And.Contain("28P01");
+        output.Should().NotContainAny(wrong, passwords.Admin, passwords.Owner, passwords.App);
+    }
+
     #endregion
 
     #region Private Methods
@@ -112,7 +137,7 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
     /// </summary>
     // The one-off run has no logger of its own: what it prints goes to the console, so the test reads the console.
 #pragma warning disable RS0030
-    private static (Exception? Failure, string Output) RunInitialization(Dictionary<string, string?> variables)
+    private static (Exception? Failure, string Output) RunInitialization(Dictionary<string, string?> variables, string[]? arguments = null)
     {
         var output = new StringWriter();
         var (console, errors) = (Console.Out, Console.Error);
@@ -123,7 +148,7 @@ public sealed class EnvironmentCredentialTests(PostgresServer postgres)
         {
             using (new ProcessEnvironment(variables))
             {
-                typeof(Program).Assembly.EntryPoint!.Invoke(null, [initializeArguments]);
+                typeof(Program).Assembly.EntryPoint!.Invoke(null, [arguments ?? initializeArguments]);
             }
 
             return (null, output.ToString());

@@ -1,0 +1,68 @@
+{
+  "provenance": "captured",
+  "note": "Captured from api.e2b.dev and the sandbox daemon (envd 0.10.2, template base) on 2026-11-14 with curl, one sandbox created and killed by the capture script. Scrubbed: the sandbox id is replaced by fixturesandbox0000001, clientID by fixtureclient, envdAccessToken and trafficAccessToken by placeholders, and the metadata by the rig's space and group ids (the capture used its own values and a drover.test tag). Everything else, including times and the order of answers, is as returned. The 401 bodies are the daemon's answers to a wrong X-Access-Token: the Connect RPC one and the file API one.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/v2/sandboxes",
+      "status": 201,
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "sandboxID": "fixturesandbox0000001",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "trafficAccessToken": "fixture-traffic-token"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/sandboxes/fixturesandbox0000001",
+      "body": {
+        "alias": "base",
+        "clientID": "fixtureclient",
+        "cpuCount": 2,
+        "diskSizeMB": 23670,
+        "endAt": "2026-11-14T15:46:16.257853624Z",
+        "envdAccessToken": "fixture-envd-token",
+        "envdVersion": "0.10.2",
+        "lifecycle": {
+          "autoResume": false,
+          "onTimeout": "pause"
+        },
+        "memoryMB": 512,
+        "metadata": {
+          "drover.group": "0193a8f0-0000-7000-8000-000000000002",
+          "drover.space": "0193a8f0-0000-7000-8000-000000000001"
+        },
+        "network": {
+          "allowPublicTraffic": false
+        },
+        "sandboxID": "fixturesandbox0000001",
+        "startedAt": "2026-11-14T15:43:16.257853624Z",
+        "state": "running",
+        "templateID": "rki5dems9wqfm4r03t7g",
+        "volumeMounts": []
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/filesystem.Filesystem/ListDir",
+      "status": 401,
+      "body": {
+        "code": 401,
+        "message": "unauthorized access, please provide a valid access token or method signing if supported"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/files",
+      "status": 401,
+      "body": {
+        "code": 401,
+        "message": "access token present in header but does not match"
+      }
+    }
+  ]
+}

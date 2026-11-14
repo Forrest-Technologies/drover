@@ -42,11 +42,19 @@ catch (Exception exception) when (exception is InvalidOperationException or Argu
     Environment.ExitCode = 1;
     return;
 }
+var startupMigration = StartupMigration.ModeFor(builder.Configuration, policy.Rules.AllowMigrationCredentialInServer);
+if (startupMigration is not StartupMigrationMode.Off && !await StartupMigration.Apply(builder.Configuration, startupMigration))
+{
+    Environment.ExitCode = 1;
+    return;
+}
+
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
 builder.Services.Configure<DatabaseOptions>(options => options.ConnectionString = connectionString);
-builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database")
+    .AddCheck<MigrationHealthCheck>("migrations");
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
@@ -59,6 +67,7 @@ builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
+builder.Services.AddHostedService<MigrationStartupCheck>();
 
 var app = builder.Build();
 

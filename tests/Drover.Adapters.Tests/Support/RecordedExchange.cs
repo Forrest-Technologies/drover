@@ -19,6 +19,9 @@ public sealed class RecordedExchange
 
     public required string Body { get; init; }
 
+    /// <summary>A binary body, served as a stream: Connect frames or file bytes. Null for a text body.</summary>
+    public byte[]? Bytes { get; init; }
+
     #endregion
 
     #region Public Methods
@@ -31,10 +34,17 @@ public sealed class RecordedExchange
     public IEnumerable<KeyValuePair<string, string>> ResolveHeaders(DateTimeOffset now) =>
         Headers.Select(header => KeyValuePair.Create(header.Key, ResolveClock(header.Value, now)));
 
+    /// <summary>
+    /// A body is one of: <c>body</c> (JSON), <c>sse</c> (server events), <c>connect</c> (Connect stream frames:
+    /// <c>{"messages":[...],"end":{...}}</c>, where a missing <c>end</c> is a stream that stops without its end frame),
+    /// or <c>bytes_base64</c> (an octet stream).
+    /// </summary>
     public static RecordedExchange Parse(JsonElement element)
     {
         var sse = element.TryGetProperty("sse", out var lines) ? lines : (JsonElement?)null;
         var body = element.TryGetProperty("body", out var found) ? found : (JsonElement?)null;
+        var connect = element.TryGetProperty("connect", out var frames) ? frames : (JsonElement?)null;
+        var bytes = element.TryGetProperty("bytes_base64", out var encoded) ? encoded.GetBytesFromBase64() : null;
 
         return new RecordedExchange
         {
@@ -44,8 +54,15 @@ public sealed class RecordedExchange
             Headers = element.TryGetProperty("headers", out var headers)
                 ? headers.EnumerateObject().ToDictionary(header => header.Name, header => header.Value.GetString()!)
                 : [],
-            ContentType = sse is not null ? "text/event-stream" : "application/json",
+            ContentType = (sse, connect, bytes) switch
+            {
+                ({ }, _, _) => "text/event-stream",
+                (_, { }, _) => "application/connect+json",
+                (_, _, { }) => "application/octet-stream",
+                _ => "application/json",
+            },
             Body = sse is { } events ? ToEventStream(events) : body is { } json ? Compact(json) : string.Empty,
+            Bytes = connect is { } stream ? ToConnectStream(stream) : bytes,
         };
     }
 
@@ -59,6 +76,34 @@ public sealed class RecordedExchange
     private static string ToEventStream(JsonElement events) =>
         string.Concat(events.EnumerateArray().Select(@event =>
             $"data: {(@event.ValueKind == JsonValueKind.String ? @event.GetString() : Compact(@event))}\n\n"));
+
+    /// <summary>Connect framing: a flag byte (2 marks the end of the stream), a big-endian length, then the JSON.</summary>
+    private static byte[] ToConnectStream(JsonElement stream)
+    {
+        using var buffer = new MemoryStream();
+
+        foreach (var message in stream.GetProperty("messages").EnumerateArray())
+        {
+            WriteFrame(buffer, 0, message);
+        }
+
+        if (stream.TryGetProperty("end", out var end))
+        {
+            WriteFrame(buffer, 2, end);
+        }
+
+        return buffer.ToArray();
+    }
+
+    private static void WriteFrame(MemoryStream buffer, byte flags, JsonElement message)
+    {
+        var json = Encoding.UTF8.GetBytes(Compact(message));
+        var header = new byte[5];
+        header[0] = flags;
+        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(1), json.Length);
+        buffer.Write(header);
+        buffer.Write(json);
+    }
 
     private static string ResolveClock(string value, DateTimeOffset now) =>
         Regex.Replace(

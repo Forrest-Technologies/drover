@@ -11,15 +11,29 @@ platform that finds the `Dockerfile` by itself ignores it. The image listens on 
 
 ## What you set up
 
-Three apps on the platform, all from this repository or a pinned image:
+Two apps are enough for the simplest path, three for the stricter one. All are built from this repository or a pinned
+image:
 
 | App | Image | Runs |
 | --- | --- | --- |
 | Database | The PostgreSQL image `compose.yaml` pins (`pgvector/pgvector`, PostgreSQL 17, by digest) | Always |
-| Initialization | Built from the `Dockerfile`, command `--initialize-database` | Once at install, and once before each upgrade starts |
+| Initialization (stricter path only) | Built from the `Dockerfile`, command `--initialize-database` | Once at install, and once before each upgrade starts |
 | Drover | Built from the `Dockerfile`, no command | Always |
 
-Keep the initialization separate from the serving app. Its passwords can change roles and the schema; the serving
+There are two ways to apply migrations. Choose one.
+
+**Simple: the serving app migrates itself.** Give the serving app the owner password
+(`Database__OwnerPassword`) once, and leave `AllowMigrationCredentialInServer` at its self-hosted default (`true`). At
+every start, before it serves a request, the app applies any pending migrations as `drover_owner`, then serves as
+`drover_app` as ever. Every later deploy migrates itself, and several instances starting together are safe. The first
+install also needs the superuser password (`Database__Password`) once, so the roles can be created; afterwards you
+may remove it, and the app migrates with the owner password alone. If the migration fails, the app logs one critical
+line (no password) and exits with a non-zero code, so the platform keeps the old build serving. The passwords stay
+in the app's variables, so anyone who breaks into that process holds a way around the rules that keep one space's data
+from another. For a service shared with other people use the stricter path: the hosted preset refuses to start with
+them.
+
+**Stricter: a separate initialization.** Keep the initialization separate from the serving app. Its passwords can change roles and the schema; the serving
 app never needs them, and should not hold them in case it is ever broken into. If the platform offers a "run once"
 command on the serving app, check whether that command inherits the serving app's variables. If it does, put the
 initialization passwords only on the one-off command, never on the app. A separate app or job on the same image is the
@@ -67,7 +81,7 @@ message carries a password.
 
 ## 3. Initialization
 
-Run the image once with the command `--initialize-database` and these variables:
+Skip this section on the simple path. Run the image once with the command `--initialize-database` and these variables:
 
 | Variable | Value |
 | --- | --- |
@@ -83,7 +97,8 @@ before each upgrade starts serving, so the new build finds its migrations applie
 
 ## 4. The serving app
 
-Run the image with no command and only these variables:
+Run the image with no command and only these variables. This table is the stricter path. On the simple path, drop the
+`AllowMigrationCredentialInServer` row and add `Database__OwnerPassword` (and, at first install, `Database__Password`):
 
 | Variable | Value |
 | --- | --- |
@@ -115,7 +130,22 @@ The image runs as a non-root user (uid 1654) and owns these paths. Leave the use
 also make the root file system read-only (with `/tmp` writable), drop every Linux capability, and set
 `no-new-privileges`, as `compose.yaml` does.
 
-Readiness is `GET /health/ready` (the database answers as `drover_app`) and liveness is `GET /health/live`.
+Readiness is `GET /health/ready` and liveness is `GET /health/live`. Ready means the database answers as `drover_app`
+and has every migration this build carries.
+
+### When the initialization was skipped
+
+On the stricter path, a new build deployed before `--initialize-database` has run starts, but it is not ready:
+`/health/ready` answers 503, so the platform keeps traffic on the old build (or off the new one). The log shows, once at
+start, an error beginning "The database's migrations are behind this build. Run the --initialize-database step", with
+the migration the database is at and the one this build carries, and the platform's health checker logs the same
+sentence on each probe. The server does not stop, so the platform does not restart it in a loop. Run the
+initialization (section 3); the app turns ready within one probe, with no restart. The status page's Migrations row
+says the same. A database that is *newer* than the build (an older build started after a rollback) is not ready
+either: the message says the migrations are newer than this build knows and to deploy the build that carries them.
+Running the initialization cannot undo a migration. The log level of EF Core's database commands is `Warning` by
+default, so the run queue's poll no longer fills the log; set
+`Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command=Information` to see every command again.
 
 On first start with no accounts, the server logs a one-time setup code. Open the public address and enter it.
 

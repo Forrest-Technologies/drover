@@ -20,6 +20,7 @@ public sealed class SolutionLayoutTests
         ["Drover.Adapters.Mcp"] = ["Drover.Domain"],
         ["Drover.Adapters.LocalFiles"] = ["Drover.Domain"],
         ["Drover.Adapters.DataProtection"] = ["Drover.Domain", "Drover.Data"],
+        ["Drover.Adapters.E2B"] = ["Drover.Domain"],
         ["Drover.Client"] = ["Drover.Contracts"],
         ["Drover.Ui"] = ["Drover.Client", "Drover.Contracts"],
         ["Drover.Web"] = ["Drover.Ui"],

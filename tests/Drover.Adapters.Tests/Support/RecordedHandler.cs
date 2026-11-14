@@ -5,6 +5,12 @@ public sealed record SentRequest(HttpMethod Method, Uri Uri, IReadOnlyDictionary
 {
     /// <summary>The JSON body, or an empty object when the request had none.</summary>
     public JsonElement Json => string.IsNullOrEmpty(Body) ? default : JsonElement.Parse(Body);
+
+    /// <summary>The body as sent, for binary bodies such as Connect frames or file bytes.</summary>
+    public byte[] Bytes { get; init; } = [];
+
+    /// <summary>The content headers, such as Content-Type, which the request headers leave out.</summary>
+    public IReadOnlyDictionary<string, string> ContentHeaders { get; init; } = new Dictionary<string, string>();
 }
 
 /// <summary>
@@ -44,12 +50,17 @@ public sealed class RecordedHandler(RecordedFixture fixture) : HttpMessageHandle
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+        var bytes = request.Content is null ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken);
         var headers = request.Headers.ToDictionary(header => header.Key, header => string.Join(',', header.Value));
+        var contentHeaders = request.Content?.Headers.ToDictionary(header => header.Key, header => string.Join(',', header.Value)) ?? [];
 
         lock (gate)
         {
-            Requests.Add(new SentRequest(request.Method, request.RequestUri!, headers, body));
+            Requests.Add(new SentRequest(request.Method, request.RequestUri!, headers, Encoding.UTF8.GetString(bytes))
+            {
+                Bytes = bytes,
+                ContentHeaders = contentHeaders,
+            });
         }
 
         var exchange = Take(request) ?? throw new InvalidOperationException(
@@ -57,9 +68,13 @@ public sealed class RecordedHandler(RecordedFixture fixture) : HttpMessageHandle
 
         var response = new HttpResponseMessage((HttpStatusCode)exchange.Status)
         {
-            Content = exchange.ContentType == "text/event-stream"
-                ? new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(exchange.Body))))
-                : new StringContent(exchange.Body, Encoding.UTF8, exchange.ContentType),
+            Content = exchange switch
+            {
+                { Bytes: { } binary } => new StreamContent(new NonSeekableStream(new MemoryStream(binary))),
+                { ContentType: "text/event-stream" } =>
+                    new StreamContent(new NonSeekableStream(new MemoryStream(Encoding.UTF8.GetBytes(exchange.Body)))),
+                _ => new StringContent(exchange.Body, Encoding.UTF8, exchange.ContentType),
+            },
         };
 
         response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(exchange.ContentType);
