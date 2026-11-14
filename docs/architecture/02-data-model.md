@@ -38,7 +38,7 @@ What is shared by the whole space, and has no audience column: bots, grants, con
 | `user_profiles` | Global, special policy | `user_id`, `display_name` | Self-only insert and update; no DELETE privilege. A member can read fellow members' profiles in the selected space. `User.DisplayName` delegates to its automatically loaded profile; there is no duplicate display name on `users`. |
 | `spaces` | Global, special policy: `id` is the space, so there is no `space_id` to mark it with | `id`, `kind`, `name`, `slug`, `settings jsonb` | `kind` is `personal` or `shared`. Settings hold the hierarchy caps: `max_bot_depth`, `max_children_per_bot`, `max_bots`, plus run budgets. |
 | `memberships` | Space-owned, readable by own user | `id`, `space_id`, `user_id`, `role` | `role` is `owner`, `admin`, or `member`. Unique on `(space_id, user_id)`. A user can list their own memberships before a space is selected. |
-| `user_sessions` | User-owned | `id`, `user_id`, `created_at`, `last_seen_at` | One signed-in browser. The session cookie names its row; removing the row ends the session on the server ([08-auth-and-secrets.md](08-auth-and-secrets.md)). |
+| `user_sessions` | User-owned | `id`, `user_id`, `created_at`, `last_seen_at`, `failed_password_changes` | One signed-in browser. The session cookie names its row; removing the row ends the session on the server ([08-auth-and-secrets.md](08-auth-and-secrets.md)). |
 | `push_subscriptions` | User-owned | `user_id`, device fields | A device belongs to a person, not to a space. |
 
 ### Roles

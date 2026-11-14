@@ -94,9 +94,72 @@ public sealed class LockoutBucketTests(PostgresServer postgres) : ServerTestBase
         (await onlyTheMarker.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task A_marker_older_than_its_lifetime_counts_as_a_stranger()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await SignInOnce(laptop, person.Email, person.Password);
+        Time.Advance(TimeSpan.FromDays(31));
+
+        await LockOutStrangers(person.Email);
+
+        (await laptop.SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_marker_from_before_a_password_change_counts_as_a_stranger_and_the_changing_one_stays()
+    {
+        var person = await SeedPerson("alice");
+        var oldLaptop = NewClient();
+        await SignInOnce(oldLaptop, person.Email, person.Password);
+        var phone = NewClient();
+        (await phone.SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var replacement = NewPassword();
+        (await phone.Post("/api/account/password", new ChangePasswordRequest(person.Password, replacement)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await phone.Post("/api/sign-out");
+        (await phone.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+
+        await LockOutStrangers(person.Email);
+
+        (await oldLaptop.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await phone.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_marker_from_before_a_reset_counts_as_a_stranger()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await SignInOnce(laptop, person.Email, person.Password);
+        var replacement = NewPassword();
+        string code;
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            var passwords = scope.ServiceProvider.GetRequiredService<PasswordService>();
+            code = (await passwords.IssueResetCode(person.Email, Token))!;
+        }
+
+        (await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await LockOutStrangers(person.Email);
+
+        (await laptop.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     #endregion
 
     #region Private Methods
+
+    private async Task LockOutStrangers(string email)
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            (await NewClient($"198.51.100.{attempt + 1}").SignIn(email, "not-the-password-1"))
+                .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        }
+    }
 
     /// <summary>Signs in and out again, leaving the browser with its marker and a fresh antiforgery token, as after sign-out.</summary>
     private static async Task SignInOnce(ApiClient browser, string email, string password)

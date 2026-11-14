@@ -5,6 +5,9 @@ public enum PasswordOutcome
     Changed,
     Refused,
     Invalid,
+
+    /// <summary>The current password was wrong once too often from this session, so the session was ended.</summary>
+    SessionEnded,
 }
 
 /// <summary>

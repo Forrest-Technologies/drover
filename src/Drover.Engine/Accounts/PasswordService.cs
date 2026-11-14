@@ -8,11 +8,13 @@ namespace Drover.Engine.Accounts;
 /// </summary>
 public sealed class PasswordService(
     UserManager<User> users,
+    IPasswordHasher<User> hasher,
     AccountRepository accounts,
     SessionRepository sessions,
     SessionRevocations revocations,
     TenantScope scope,
     TenantContext tenant,
+    IOptions<IdentityOptions> identity,
     TimeProvider time)
 {
     #region Private Fields
@@ -35,7 +37,9 @@ public sealed class PasswordService(
 
     /// <summary>
     /// Changes the password of the signed-in person, given the current one, and ends every session of theirs but
-    /// <paramref name="sessionId"/>. A wrong current password counts toward the lockout, as at sign-in.
+    /// <paramref name="sessionId"/>. A wrong current password is counted against this session, not the sign-in
+    /// lockout: strangers who locked sign-in cannot block a signed-in change, and a session that sends a wrong current
+    /// password as often as sign-in allows is ended, so guessing through a session stays bounded.
     /// </summary>
     public async Task<PasswordResult> Change(
         Guid userId,
@@ -45,31 +49,59 @@ public sealed class PasswordService(
         CancellationToken cancellationToken)
     {
         tenant.SetUser(userId);
+        var user = await ReadAccount(userId, cancellationToken);
+
+        if (user?.PasswordHash is null)
+        {
+            return PasswordResult.Refused;
+        }
+
+        // A numbered attempt from the session, taken in one statement, as sign-in takes one from its bucket. 0 means
+        // the session is gone.
+        var attempt = await InOwnTransaction(
+            () => sessions.TakePasswordChangeAttempt(sessionId, cancellationToken),
+            cancellationToken);
+
+        if (attempt == 0)
+        {
+            return new PasswordResult(PasswordOutcome.SessionEnded, []);
+        }
+
+        // Hashed outside any transaction. Only an attempt within the limit is checked against the real password.
+        var limit = identity.Value.Lockout.MaxFailedAccessAttempts;
+        var mayCheck = attempt <= limit;
+        var verdict = hasher.VerifyHashedPassword(
+            user,
+            mayCheck ? user.PasswordHash : DecoyPassword.Hash,
+            currentPassword);
+
+        if (!mayCheck || verdict is PasswordVerificationResult.Failed)
+        {
+            return attempt >= limit ? await EndSession(userId, sessionId, cancellationToken) : PasswordResult.Refused;
+        }
+
+        var problems = await ProblemsWith(user, newPassword);
+
+        if (problems.Count > 0)
+        {
+            await InOwnTransaction(
+                () => sessions.ForgetFailedPasswordChanges(sessionId, cancellationToken),
+                cancellationToken);
+            return new PasswordResult(PasswordOutcome.Invalid, problems);
+        }
+
+        // The new password is hashed before the one short write, which touches only the password and the stamp.
+        var newHash = hasher.HashPassword(user, newPassword);
+        var stamp = NewSecurityStamp();
         await using var work = await scope.Begin(cancellationToken);
-        var user = await users.FindByIdAsync(userId.ToString());
 
-        if (user is null || await users.IsLockedOutAsync(user))
+        if (!await accounts.ReplacePassword(userId, user.PasswordHash, newHash, stamp, cancellationToken))
         {
             return PasswordResult.Refused;
         }
 
-        var changed = await users.ChangePasswordAsync(user, currentPassword, newPassword);
-
-        if (changed.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
-        {
-            await users.AccessFailedAsync(user);
-            await work.Commit(cancellationToken);
-            return PasswordResult.Refused;
-        }
-
-        if (!changed.Succeeded)
-        {
-            return Invalid(changed);
-        }
-
-        EnsureSucceeded(await users.ResetAccessFailedCountAsync(user));
+        await sessions.ForgetFailedPasswordChanges(sessionId, cancellationToken);
         await sessions.RemoveAllBut(sessionId, cancellationToken);
-        var stamp = await users.GetSecurityStampAsync(user);
         await work.Commit(cancellationToken);
         revocations.Announce(userId);
         return new PasswordResult(PasswordOutcome.Changed, [], stamp);
@@ -107,8 +139,8 @@ public sealed class PasswordService(
     }
 
     /// <summary>
-    /// Sets a new password with a reset code, uses the code up, lifts any lockout in either bucket, and ends every session of the
-    /// person. A wrong, used, or expired code and an unknown email are refused alike.
+    /// Sets a new password with a reset code, uses the code up, lifts any lockout in either bucket, and ends every
+    /// session of the person. A wrong, used, or expired code and an unknown email are refused alike.
     /// </summary>
     public async Task<PasswordResult> RedeemResetCode(
         string email,
@@ -116,34 +148,32 @@ public sealed class PasswordService(
         string newPassword,
         CancellationToken cancellationToken)
     {
-        if (await FindUserId(email, cancellationToken) is not { } userId)
-        {
-            return PasswordResult.Refused;
-        }
-
-        tenant.SetUser(userId);
-        await using var work = await scope.Begin(cancellationToken);
-        var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null || !await HoldsResetCode(user, code))
-        {
-            return PasswordResult.Refused;
-        }
-
-        var problems = await ProblemsWith(user, newPassword);
+        // An unknown email takes the same steps against an account id nobody has, so the time a refusal takes does
+        // not say which emails exist. Row-level security shows that id nothing.
+        var found = await FindUserId(email, cancellationToken);
+        var userId = found ?? Guid.CreateVersion7();
+        var problems = await ProblemsWith(new User(), newPassword);
 
         if (problems.Count > 0)
         {
             return new PasswordResult(PasswordOutcome.Invalid, problems);
         }
 
-        EnsureSucceeded(await users.RemoveAuthenticationTokenAsync(user, TokenProvider, ResetTokenName));
-        EnsureSucceeded(await users.RemovePasswordAsync(user));
-        EnsureSucceeded(await users.AddPasswordAsync(user, newPassword));
-        user.KnownBrowserAccessFailedCount = 0;
-        user.KnownBrowserLockoutEnd = null;
-        EnsureSucceeded(await users.SetLockoutEndDateAsync(user, null));
-        EnsureSucceeded(await users.ResetAccessFailedCountAsync(user));
+        // Hashed first, outside any transaction, whatever the code turns out to be; then one short transaction.
+        var newHash = hasher.HashPassword(new User { Id = userId }, newPassword);
+        var stamp = NewSecurityStamp();
+        tenant.SetUser(userId);
+        await using var work = await scope.Begin(cancellationToken);
+        var stored = await accounts.TakeToken(userId, TokenProvider, ResetTokenName, cancellationToken);
+        var codeIsRight = ResetCodeMatches(stored, code);
+
+        // A refusal leaves the transaction uncommitted, so a wrong code does not use up the right one.
+        if (found is null || !codeIsRight)
+        {
+            return PasswordResult.Refused;
+        }
+
+        await accounts.ResetPassword(userId, newHash, stamp, cancellationToken);
         await sessions.RemoveAll(cancellationToken);
         await work.Commit(cancellationToken);
         revocations.Announce(userId);
@@ -152,22 +182,33 @@ public sealed class PasswordService(
 
     #endregion
 
+    #region Password Change
+
+    /// <summary>Ends the session that sent a wrong current password as often as sign-in allows.</summary>
+    private async Task<PasswordResult> EndSession(Guid userId, Guid sessionId, CancellationToken cancellationToken)
+    {
+        await InOwnTransaction(() => sessions.Remove(sessionId, cancellationToken), cancellationToken);
+        revocations.Announce(userId);
+        return new PasswordResult(PasswordOutcome.SessionEnded, []);
+    }
+
+    #endregion
+
     #region Reset Codes
 
-    private async Task<bool> HoldsResetCode(User user, string code)
+    /// <summary>Hashes the guess whether or not a code was stored, so both refusals take the same work.</summary>
+    private bool ResetCodeMatches(string? stored, string code)
     {
-        var stored = await users.GetAuthenticationTokenAsync(user, TokenProvider, ResetTokenName);
+        var guess = Encoding.ASCII.GetBytes(Hash(Normalize(code)));
 
         if (stored?.Split(':') is not [var expires, var hash] || !long.TryParse(expires, out var expiresAt))
         {
+            CryptographicOperations.FixedTimeEquals(guess, guess);
             return false;
         }
 
         var unexpired = time.GetUtcNow() < DateTimeOffset.FromUnixTimeSeconds(expiresAt);
-        var matches = CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(hash),
-            Encoding.ASCII.GetBytes(Hash(Normalize(code))));
-        return unexpired && matches;
+        return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(hash), guess) && unexpired;
     }
 
     private static string Normalize(string code) =>
@@ -200,8 +241,32 @@ public sealed class PasswordService(
         return problems;
     }
 
-    private static PasswordResult Invalid(IdentityResult result) =>
-        new(PasswordOutcome.Invalid, [.. result.Errors.Select(error => error.Description)]);
+    private async Task<User?> ReadAccount(Guid userId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var user = await users.FindByIdAsync(userId.ToString());
+        await work.Commit(cancellationToken);
+        return user;
+    }
+
+    /// <summary>Runs one statement in a transaction of its own, so any row lock it takes ends with it.</summary>
+    private async Task<T> InOwnTransaction<T>(Func<Task<T>> statement, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var result = await statement();
+        await work.Commit(cancellationToken);
+        return result;
+    }
+
+    private async Task InOwnTransaction(Func<Task> statement, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        await statement();
+        await work.Commit(cancellationToken);
+    }
+
+    /// <summary>A fresh security stamp, which ends every cookie issued with the old one at its next check.</summary>
+    private static string NewSecurityStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
 
     private static void EnsureSucceeded(IdentityResult result)
     {

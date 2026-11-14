@@ -206,6 +206,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<int>("FailedPasswordChanges")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_password_changes");
+
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
