@@ -4,7 +4,8 @@ namespace Drover.Server.Accounts;
 /// The operator's way back into an account whose password is forgotten, on a server that cannot send email.
 /// <c>--reset-password person@example.com</c> runs instead of the server, makes a one-time reset code for that
 /// account, prints it to the log, and exits. The person enters it with a new password; it works once, within
-/// fifteen minutes, and ends every session of theirs. The code is the only secret this prints, as with the setup code.
+/// fifteen minutes, and ends every session of theirs. The code is the only secret this prints, as with the setup
+/// code, and the email the operator typed is never repeated in the log.
 /// </summary>
 public static class PasswordResetCommand
 {
@@ -32,13 +33,12 @@ public static class PasswordResetCommand
 
         if (code is null)
         {
-            logger.LogError("No account has the email {Email}. Nothing was changed.", email);
+            logger.LogError("No account has that email. Nothing was changed.");
             return 1;
         }
 
         logger.LogWarning(
-            "Password reset code for {Email}: {ResetCode}. It works once, within {Minutes} minutes, and ends every session of that account.",
-            email,
+            "Password reset code for that account: {ResetCode}. It works once, within {Minutes} minutes, and ends every session of that account.",
             code,
             PasswordService.ResetCodeLifetime.TotalMinutes);
         return 0;

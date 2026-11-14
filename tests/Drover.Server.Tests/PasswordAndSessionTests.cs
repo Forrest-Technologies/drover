@@ -222,6 +222,20 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
         Logs.AllText().Should().NotContain(person.Password);
     }
 
+    [Fact]
+    public async Task The_operator_command_does_not_repeat_the_email_it_was_given()
+    {
+        var person = await SeedPerson("alice");
+
+        await PasswordResetCommand.Issue(Services, person.Email);
+        await PasswordResetCommand.Issue(Services, "nobody@example.test");
+
+        var lines = Logs.Entries.Where(entry => entry.Category == typeof(PasswordResetCommand).FullName).ToList();
+        lines.Should().HaveCount(2);
+        lines.Should().NotContain(entry => entry.Text.Contains(person.Email, StringComparison.OrdinalIgnoreCase)
+            || entry.Text.Contains("nobody@example.test", StringComparison.OrdinalIgnoreCase));
+    }
+
     #endregion
 
     #region Private Methods
