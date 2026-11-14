@@ -52,6 +52,7 @@ global using Drover.Engine.Accounts;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;
 global using Drover.Engine.Rules;
+global using Drover.Engine.Runs;
 global using Drover.Engine.Tools;
 global using Drover.Server.Accounts;
 global using Drover.Server.Health;
