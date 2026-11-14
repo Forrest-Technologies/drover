@@ -39,6 +39,8 @@ public sealed partial class BotEditor(
 
     private IReadOnlyList<ModelCatalogResponse>? models;
 
+    private IReadOnlyList<ScreenReaderChoice>? readers;
+
     private IReadOnlyList<BotToolEntry>? tools;
 
     private IReadOnlyList<ToolConnectionSummary> toolConnections = [];
@@ -104,6 +106,11 @@ public sealed partial class BotEditor(
     // Unknown while the catalog loads; a model the catalog does not list is treated as one that cannot see, as the server does.
     private bool? ModelSeesImages => models is null ? null : models.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.Vision ?? false;
 
+    private string? ScreenReaderName =>
+        draft?.ScreenReader is { } reader
+            ? readers?.FirstOrDefault(choice => choice.ConnectionId == reader.ModelConnectionId && choice.Model == reader.Model)?.DisplayName
+            : null;
+
     private string SaveWords => (Dirty, justSaved) switch
     {
         (true, _) => "Changes not saved yet",
@@ -152,7 +159,7 @@ public sealed partial class BotEditor(
 
     private async Task Load()
     {
-        (saved, draft, baseline, models, tools, schedules, rules) = (null, null, null, null, null, null, null);
+        (saved, draft, baseline, models, tools, schedules, rules, readers) = (null, null, null, null, null, null, null, null);
         (loadProblem, saveProblem, actionProblem, notPermitted, missing, justSaved, editingHandle) = (null, null, null, false, false, false, false);
         open.Clear();
 
@@ -170,6 +177,7 @@ public sealed partial class BotEditor(
             sandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             rules = await api.ListBotRules(SpaceId, BotId);
             sandboxStatus = await ReadSandbox();
+            readers = await ListReaders();
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {
@@ -198,6 +206,34 @@ public sealed partial class BotEditor(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "The sandbox state is left out of the {Screen} screen", nameof(BotEditor));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The space's models that can read a bot's screen: those the catalog of each connection lists as reading images.
+    /// The editor works without them, so a failure only leaves the choice out.
+    /// </summary>
+    private async Task<IReadOnlyList<ScreenReaderChoice>?> ListReaders()
+    {
+        try
+        {
+            List<ScreenReaderChoice> found = [];
+
+            foreach (var connection in connections.OrderBy(connection => connection.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var listed = connection.Id == saved!.ModelConnectionId && models is not null ? models : await api.ListModels(SpaceId, connection.Id);
+                found.AddRange(listed
+                    .Where(entry => entry.State is "available" && entry.Capabilities.Vision)
+                    .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => new ScreenReaderChoice(connection.Id, connection.Name, entry.Model, entry.DisplayName)));
+            }
+
+            return found;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The models that read images are left out of the {Screen} screen", nameof(BotEditor));
             return null;
         }
     }

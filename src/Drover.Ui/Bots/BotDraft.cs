@@ -53,6 +53,9 @@ public sealed class BotDraft
     /// <summary>Whether the sandbox has a screen the bot sees and drives.</summary>
     public bool Desktop { get; set; }
 
+    /// <summary>The model that reads the screen for the bot, or null for the bot's own model.</summary>
+    public ScreenReaderBody? ScreenReader { get; set; }
+
     public IReadOnlyList<Guid> SandboxSharedWith { get; set; } = [];
 
     public string MaxChildren { get; set; } = string.Empty;
@@ -92,6 +95,7 @@ public sealed class BotDraft
         AllowedHosts = string.Join('\n', bot.SandboxSettings.AllowedHosts),
         IdleTimeoutMinutes = Text(bot.SandboxSettings.IdleTimeoutMinutes),
         Desktop = bot.SandboxSettings.Desktop,
+        ScreenReader = bot.SandboxSettings.ScreenReader,
         SandboxSharedWith = bot.SandboxSharedWith,
         MaxChildren = Text(bot.BuildLimits.MaxChildren),
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
@@ -157,7 +161,7 @@ public sealed class BotDraft
             new ModelSettingsBody(ReadDecimal(Temperature), ReadWhole(MaxOutputTokens), ReasoningEffort.Length == 0 ? null : ReasoningEffort, WebSearch, StructuredOutput),
             new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages)),
             SandboxPolicy,
-            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop),
+            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)));
 
