@@ -35,6 +35,9 @@ public sealed class RulePatternCostTests
     [InlineData(@"[\s\S]*4[\s\S]{20}Q")]
     [InlineData(@"(a|b)*a(a|b){12}")]
     [InlineData(@"(4|a)*4(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)(4|a)Q")]
+    [InlineData(@"x[a][b][c][d][e]4.{250}Q")]
+    [InlineData(@"ab4.{250}Q")]
+    [InlineData("abcdefghijkl4............................................................................................................................................................................................................................................................................................................Q")]
     public void A_pattern_that_costs_too_much_on_sample_text_is_refused_at_save_in_words(string pattern)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();

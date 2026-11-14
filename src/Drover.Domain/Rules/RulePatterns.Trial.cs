@@ -138,12 +138,19 @@ public static partial class RulePatterns
 
     // Sample texts for one pattern, the same every time. A costly pattern is costly on text made of the characters
     // it names: all of them, each of them with one other character, and the words it spells out with a little
-    // between them. Ordinary characters are mixed in so its classes have something to tell apart.
+    // between them (what it names, letters only, digits only). Ordinary characters are mixed in so its classes have something to tell apart.
     private static List<string> TrialTexts(string pattern)
     {
         var named = new string([.. pattern.Where(character => char.IsLetterOrDigit(character) || Ordinary.Contains(character, StringComparison.Ordinal)).Distinct()]);
         named = named.Length == 0 ? "a" : named;
-        List<string> texts = [Scatter(named, TrialLength, 3), Scatter($"{named}{Ordinary}", TrialLength, 5), Spell(pattern, named)];
+        List<string> texts =
+        [
+            Scatter(named, TrialLength, 3),
+            Scatter($"{named}{Ordinary}", TrialLength, 5),
+            Spell(pattern, $"{named}{Ordinary}"),
+            Spell(pattern, "abc"),
+            Spell(pattern, "012"),
+        ];
 
         foreach (var one in named.Take(MostPairs))
         {
@@ -166,8 +173,9 @@ public static partial class RulePatterns
     }
 
     // The runs of letters and digits the pattern spells, also where it spells them one class or group at a time,
-    // each followed by a few characters it names.
-    private static string Spell(string pattern, string named)
+    // each followed by a few characters to fill a gap. A gap that takes anything on a line is filled by letters or
+    // by digits; one that is ended by what the pattern names needs the filling not to hold it.
+    private static string Spell(string pattern, string filling)
     {
         var skeleton = new string([.. pattern.Where(character => character is not ('[' or ']' or '(' or ')'))]);
         List<string> words = [.. spelled.Matches(skeleton).Select(match => match.Value).Distinct(StringComparer.Ordinal)];
@@ -177,7 +185,7 @@ public static partial class RulePatterns
         while (text.Length < TrialLength)
         {
             text.Append(words.Count > 0 ? words[random.Next(words.Count)] : "a");
-            text.Append(Scatter($"{named}{Ordinary}", random.Next(0, 6), random.Next()));
+            text.Append(Scatter(filling, random.Next(0, 6), random.Next()));
         }
 
         return text.ToString(0, TrialLength);
