@@ -5,7 +5,13 @@ namespace Drover.Server.Tests;
 /// process and the process was given it: the pending migrations are applied before the first request, and the
 /// server then serves as <c>drover_app</c>. Each database is really behind: the newest migrations are rolled back by
 /// their own <c>Down</c> methods, as a database that never saw this build would be.
+/// <para>
+/// These servers take their database settings from configuration, which includes the process environment, so they
+/// run in turn with the tests that change it: a superuser password file set there while one of these starts makes
+/// two ways of giving the password, which the server refuses.
+/// </para>
 /// </summary>
+[Collection(EnvironmentCredentialTests.Name)]
 public sealed class StartupMigrationTests(PostgresServer postgres)
 {
     #region Public Methods
