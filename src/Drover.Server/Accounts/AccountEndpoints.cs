@@ -16,10 +16,12 @@ public static class AccountEndpoints
         setup.MapGet("/", GetSetupStatus).WithName("GetSetupStatus");
         setup.MapPost("/", CreateFirstAccount)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("CreateFirstAccount");
 
         api.MapPost("/sign-in", SignIn)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("SignIn");
         api.MapPost("/sign-out", (Delegate)SignOut).RequireAuthorization().WithName("SignOut");
         api.MapGet("/session", GetSession).RequireAuthorization().WithName("GetSession");
@@ -28,9 +30,11 @@ public static class AccountEndpoints
         api.MapPost("/account/password", ChangePassword)
             .RequireAuthorization()
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("ChangePassword");
         api.MapPost("/password-reset", ResetPassword)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("ResetPassword");
         return api;
     }

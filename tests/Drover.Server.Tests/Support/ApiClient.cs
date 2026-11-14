@@ -91,6 +91,17 @@ public sealed class ApiClient(HttpClient http)
         return await Send(HttpMethod.Delete, path, body: null, token: true);
     }
 
+    /// <summary>A state-changing request whose body is sent as given, with its length, rather than as JSON.</summary>
+    public async Task<HttpResponseMessage> PostContent(string path, HttpContent content)
+    {
+        if (Cookie("XSRF-TOKEN") is null)
+        {
+            (await Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        }
+
+        return await Send(HttpMethod.Post, path, content, token: true);
+    }
+
     public Task<HttpResponseMessage> PostWithoutToken(string path, object? body = null) =>
         Send(HttpMethod.Post, path, body, token: false);
 
@@ -105,10 +116,12 @@ public sealed class ApiClient(HttpClient http)
     {
         var request = new HttpRequestMessage(method, path);
 
-        if (body is not null)
+        request.Content = body switch
         {
-            request.Content = JsonContent.Create(body, body.GetType());
-        }
+            null => null,
+            HttpContent content => content,
+            _ => JsonContent.Create(body, body.GetType()),
+        };
 
         if (cookies.Count > 0)
         {
