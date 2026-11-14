@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Drover.Adapters.Venice\Drover.Adapters.Venice.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\..\src\Drover.Data\Drover.Data.csproj" />
     <ProjectReference Include="..\..\src\Drover.Agents\Drover.Agents.csproj" />
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />
