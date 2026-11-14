@@ -169,6 +169,28 @@ public sealed class RunReducerTests
     }
 
     [Fact]
+    public void Output_of_a_running_tool_grows_in_the_order_it_arrives_and_stays_after_the_call_ends()
+    {
+        var log = Load(Approval);
+        var waiting = log.FindIndex(stored => stored.Type == RunEventTypes.RunWaiting);
+        var paused = RunReducer.Apply(Start(log), log.Take(waiting + 1));
+        var call = paused.ToolCalls.Single().ToolCallId;
+
+        var running = RunReducer.Apply(paused, After(paused, RunEventTypes.ToolStarted, new ToolStarted(call)));
+        var first = RunReducer.Apply(running, After(running, RunEventTypes.ToolOutput, new ToolOutput(call, "stdout", "line 1\n")));
+        var second = RunReducer.Apply(first, After(first, RunEventTypes.ToolOutput, new ToolOutput(call, "stderr", "warning\n")));
+        var again = RunReducer.Apply(second, After(first, RunEventTypes.ToolOutput, new ToolOutput(call, "stdout", "repeated\n")));
+        var ended = RunReducer.Apply(second, After(second, RunEventTypes.ToolCompleted, new ToolCompleted(call, "completed", false, "{}", 5)));
+        var otherCall = RunReducer.Apply(second, After(second, RunEventTypes.ToolOutput, new ToolOutput(Guid.CreateVersion7(), "stdout", "elsewhere")));
+
+        first.ToolCalls.Single().Output.Should().Be("line 1\n");
+        second.ToolCalls.Single().Output.Should().Be("line 1\nwarning\n");
+        again.Should().Be(second, "an event at or below the cursor changes nothing");
+        ended.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "completed" && tool.Output == "line 1\nwarning\n");
+        otherCall.ToolCalls.Should().Equal(second.ToolCalls);
+    }
+
+    [Fact]
     public void A_delivered_message_joins_the_runs_messages_once_and_is_no_longer_pending()
     {
         var log = Load(Restart);

@@ -54,6 +54,9 @@ public static class RunEventTypes
 
     public const string ToolStarted = "tool.started";
 
+    /// <summary>A piece of a running tool's output. Data is <see cref="Drover.Contracts.Runs.ToolOutput"/>.</summary>
+    public const string ToolOutput = "tool.output";
+
     public const string ToolCompleted = "tool.completed";
 
     public const string ToolApproved = "tool.approved";

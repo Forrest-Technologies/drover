@@ -74,7 +74,11 @@ public sealed class TestTools
         });
     }
 
-    public TestTools Add(string name, ToolSensitivity sensitivity, Func<JsonElement, CancellationToken, Task<JsonElement>> run)
+    public TestTools Add(string name, ToolSensitivity sensitivity, Func<JsonElement, CancellationToken, Task<JsonElement>> run) =>
+        AddWithCall(name, sensitivity, (call, cancellationToken) => run(call.Arguments, cancellationToken));
+
+    /// <summary>A tool that sees the whole call: its run, and the ways to stream output and to taint the run.</summary>
+    public TestTools AddWithCall(string name, ToolSensitivity sensitivity, Func<BuiltinToolCall, CancellationToken, Task<JsonElement>> run)
     {
         tools.Add(new BuiltinTool(
             name,
@@ -82,11 +86,11 @@ public sealed class TestTools
             $"The {name} tool.",
             JsonElement.Parse("""{"type":"object","properties":{}}"""),
             sensitivity,
-            (arguments, cancellationToken) =>
+            (call, cancellationToken) =>
             {
                 invocations.Enqueue(name);
                 transactionWasOpen.Enqueue(TenantScope.IsOpenInCurrentFlow);
-                return run(arguments, cancellationToken);
+                return run(call, cancellationToken);
             }));
         return this;
     }

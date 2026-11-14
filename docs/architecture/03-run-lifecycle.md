@@ -165,7 +165,7 @@ Appending events runs `UPDATE runs SET last_event_seq = last_event_seq + n WHERE
 
 ### Keeping the write rate sane
 
-Model output arrives token by token. The engine coalesces deltas and flushes at most every 100 ms or 512 characters, whichever comes first, and always before any other event, so the log keeps the order things happened in. Persisted events are the coalesced chunks, and live subscribers receive exactly what was persisted, after commit. Live and replay are the same bytes: an event's data is published as the database returned it, because `jsonb` orders keys its own way.
+Model output arrives token by token, and a tool's output piece by piece. The engine coalesces both (deltas per message part, tool output per call and stream) and flushes at most every 100 ms or 512 characters, whichever comes first, and always before any other event, so the log keeps the order things happened in. Persisted events are the coalesced chunks, and live subscribers receive exactly what was persisted, after commit. Live and replay are the same bytes: an event's data is published as the database returned it, because `jsonb` orders keys its own way.
 
 Live delivery inside a server is a convenience, not the record. A subscriber that falls behind loses the oldest events from its queue and reads them from the table, which the gapless number makes safe.
 
@@ -182,7 +182,9 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name |
 | `rule.fired` | A rule of the bot applied: rule id and name, checkpoint, effect, a sentence saying why, and the tool call id when there is one. Never the text that matched. |
 | `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, while the run waits. |
-| `tool.started`, `tool.output`, `tool.completed` | Tool call id, incremental output for long commands, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
+| `tool.started` | Tool call id |
+| `tool.output` | Tool call id, stream (`stdout` or `stderr`), text. Output a built-in tool streams while it runs (a sandbox command's output), redacted, between the call's `tool.started` and `tool.completed`. One call streams at most `Runs:MaxToolOutputCharacters` (200,000 by default); past it the log says once that the rest is left out. The tool's result is separate and not affected. |
+| `tool.completed` | Tool call id, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
 | `delegation.started`, `delegation.completed` | Tool call id, child run id, child bot id, result summary |
 | `usage.recorded` | Tokens and cost for one model call |
 
