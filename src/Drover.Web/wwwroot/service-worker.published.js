@@ -8,8 +8,11 @@ const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/
 const neverCached = [/^service-worker\.js$/];
 const serverPaths = ["/api/", "/health/", "/openapi/"];
 
-self.addEventListener("install", event => event.waitUntil(cacheShell()));
-self.addEventListener("activate", event => event.waitUntil(dropOldShells()));
+// A new build takes over as soon as its shell is stored, without waiting for every open tab to close: a person
+// who leaves Drover open would otherwise keep running the old build for as long as any tab lives. The page
+// reloads itself when the worker changes (boot.js), so it never runs old code against the new shell.
+self.addEventListener("install", event => event.waitUntil(cacheShell().then(() => self.skipWaiting())));
+self.addEventListener("activate", event => event.waitUntil(dropOldShells().then(() => self.clients.claim())));
 self.addEventListener("fetch", event => event.respondWith(answer(event)));
 
 async function cacheShell() {
