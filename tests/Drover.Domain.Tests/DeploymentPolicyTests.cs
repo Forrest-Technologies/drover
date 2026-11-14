@@ -162,5 +162,20 @@ public sealed class DeploymentPolicyTests
             .Should().BeEmpty();
     }
 
+    [Fact]
+    public void Open_registration_while_private_addresses_are_allowed_cannot_start_and_names_both_settings()
+    {
+        var open = DeploymentPolicy.SelfHosted with { OpenRegistration = true };
+        var closedToPrivate = open with { AllowPrivateAddresses = false };
+
+        open.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, termsVersion: null, protectedServer)
+            .Should().ContainSingle().Which.Should()
+            .Contain($"Drover:Policy:Rules:{nameof(DeploymentPolicy.AllowPrivateAddresses)}")
+            .And.Contain($"Drover:Policy:Rules:{nameof(DeploymentPolicy.OpenRegistration)}");
+        closedToPrivate.FindProblems(DeploymentPolicy.SelfHostedName, DeploymentPolicy.SelfHosted, termsVersion: null, protectedServer)
+            .Should().BeEmpty();
+        DeploymentPolicy.SelfHosted.AllowPrivateAddresses.Should().BeTrue();
+    }
+
     #endregion
 }

@@ -25,7 +25,10 @@ public static class EngineServiceExtensions
             })
             .AddDroverStores();
         services.AddScoped<AccountService>();
+        services.AddScoped<SessionService>();
+        services.AddScoped<PasswordService>();
         services.AddScoped<SpaceService>();
+        services.AddScoped<StatusService>();
         return services;
     }
 

@@ -17,6 +17,8 @@ public sealed class RuleValidatorTests
         ];
 
         RuleValidator.FindProblem("Mail stays inside", RuleCheckpoint.BeforeTool, RuleEffect.Ask, conditions).Should().BeNull();
+        RuleValidator.FindProblem("Addresses stay inside", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Entries = ["example.org"] }])
+            .Should().BeNull("a list with no input named checks every address in the input, for any tool");
         RuleValidator.FindProblem("Always", RuleCheckpoint.BeforeReply, RuleEffect.Block, []).Should().BeNull("no condition means always");
     }
 
@@ -36,8 +38,13 @@ public sealed class RuleValidatorTests
         { "a tool condition on a reply", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["x"] }], "belongs to a rule about a tool" },
         { "no tool named", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs }], "Name at least one tool" },
         { "an argument on a result", RuleCheckpoint.AfterTool, RuleEffect.Block, [Holds() with { Argument = "body" }], "only before a tool is used" },
-        { "a list with no argument", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Entries = ["x"] }], "Name the argument" },
+        { "a list whose input names are only commas", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.ToolIs, Tools = ["email.send"] }, new() { Kind = RuleConditionKind.NotInList, Argument = " , ", Entries = ["x"] }], "Name the input" },
+        { "a list that names an input and no tool", RuleCheckpoint.BeforeTool, RuleEffect.Block, [new() { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["x"] }], "name the tools" },
         { "a blank entry", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", " "] }], "no blank entry" },
+        { "an entry of nothing that can be seen", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", "\u200B\u200D"] }], "no blank entry" },
+        { "two entries that differ in what cannot be seen", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["a", "b", "a\u200B"] }], "read the same" },
+        { "two entries that differ in case", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["Zebra", "zebra"] }], "read the same" },
+        { "two entries that differ in form", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = ["abc", "\uFF41\uFF42\uFF43"] }], "read the same" },
         { "a long list", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextContains, Entries = [.. Enumerable.Range(0, 51).Select(number => $"v{number}")] }], "Keep it to 50" },
         { "a long pattern", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = new string('a', 501) }], "up to 500 characters" },
         { "a pattern that looks behind", RuleCheckpoint.BeforeReply, RuleEffect.Block, [new() { Kind = RuleConditionKind.TextMatches, Pattern = "(?<=a)b" }], "cannot stall" },

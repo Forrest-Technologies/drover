@@ -66,6 +66,24 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
     }
 
     [Fact]
+    public async Task A_tool_server_that_does_not_answer_is_reported_on_the_connection_and_logged_as_a_warning_not_an_error()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var request = new CreateToolConnectionRequest("Nobody home", $"http://127.0.0.1:{ClosedPort()}/mcp", "none", null, null, "trusted");
+
+        var created = await client.Post($"/api/spaces/{alice.SpaceId}/tool-connections", request);
+        var listed = JsonSerializer.Deserialize<ToolConnectionRefresh>(await created.Content.ReadAsStringAsync(Token), JsonSerializerOptions.Web)!;
+
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        listed.Connection.Status.Should().Be("failed");
+        listed.Problem.Should().NotBeNullOrWhiteSpace();
+        Logs.Entries.Should().NotContain(entry => entry.Level >= LogLevel.Error,
+            "a tool server that is down is the server's own state, recorded on the connection; it is not a failure of Drover");
+    }
+
+    [Fact]
     public async Task A_refused_credential_is_reported_in_plain_words_and_a_new_header_fixes_it()
     {
         var secret = NewPassword();
@@ -234,6 +252,10 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
     [InlineData("Last-Event-ID")]
     [InlineData("X-Forwarded-For")]
     [InlineData("x-forwarded-host")]
+    [InlineData("Forwarded")]
+    [InlineData("X-Real-IP")]
+    [InlineData("Via")]
+    [InlineData("True-Client-IP")]
     [InlineData("Host")]
     public async Task A_header_that_belongs_to_the_transport_or_disguises_the_request_is_not_a_credential(string header)
     {
@@ -350,6 +372,20 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
         created.Problem.Should().Contain("private addresses", "a tool server is reached through the checked outbound path, like a model");
         created.Connection.Status.Should().Be("failed");
         created.Tools.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    /// <summary>A loopback port nothing listens on: taken from the system, then let go.</summary>
+    private static int ClosedPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 
     #endregion

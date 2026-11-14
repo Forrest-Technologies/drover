@@ -2,7 +2,7 @@ namespace Drover.Ui.Pages.Bots;
 
 /// <summary>
 /// The bot editor. Its job: make one bot yours, its name, character, purpose, and instructions, then open only the
-/// section you need. The definition is saved together; tools and schedules are saved as each is changed.
+/// section you need. The definition is saved together; tools, rules, and schedules are saved as each is changed.
 /// </summary>
 public sealed partial class BotEditor(
     DroverApi api,
@@ -16,6 +16,8 @@ public sealed partial class BotEditor(
     private const string Model = nameof(Model);
 
     private const string Tools = nameof(Tools);
+
+    private const string Rules = nameof(Rules);
 
     private const string Memory = nameof(Memory);
 
@@ -42,6 +44,8 @@ public sealed partial class BotEditor(
     private IReadOnlyList<ToolConnectionSummary> toolConnections = [];
 
     private IReadOnlyList<BotScheduleResponse>? schedules;
+
+    private IReadOnlyList<BotRuleResponse>? rules;
 
     private IReadOnlyList<BotSummary> otherBots = [];
 
@@ -139,7 +143,7 @@ public sealed partial class BotEditor(
 
     private async Task Load()
     {
-        (saved, draft, baseline, models, tools, schedules) = (null, null, null, null, null, null);
+        (saved, draft, baseline, models, tools, schedules, rules) = (null, null, null, null, null, null, null);
         (loadProblem, saveProblem, actionProblem, notPermitted, missing, justSaved, editingHandle) = (null, null, null, false, false, false, false);
         open.Clear();
 
@@ -153,6 +157,7 @@ public sealed partial class BotEditor(
             toolConnections = await api.ListToolConnections(SpaceId);
             tools = await api.ListBotTools(SpaceId, BotId);
             schedules = await api.ListBotSchedules(SpaceId, BotId);
+            rules = await api.ListBotRules(SpaceId, BotId);
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {

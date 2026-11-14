@@ -121,6 +121,31 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         return withheld;
     }
 
+    public async Task<JsonElement> RuleOnCallArguments(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken)
+    {
+        // The same call read again (a stream and then its summary, or the call as the rules already left it)
+        // keeps its decision. The same id with other arguments is another call and is decided afresh.
+        if (session.RuledCalls.TryGetValue(callId, out var known)
+            && (JsonElement.DeepEquals(known.Written, arguments) || JsonElement.DeepEquals(known.Left, arguments)))
+        {
+            return known.Left;
+        }
+
+        session.NoteCall(callId);
+
+        // Decided here, on the arguments as the model wrote them, and written down by the gate when the call
+        // reaches it. From here on the call exists only as the rules leave it. A call to a tool the bot does not
+        // have never runs, and is still stored only as the rules leave it.
+        var tool = session.FindToolByModelName(toolName);
+        var subject = tool is null
+            ? new RuleSubject { Checkpoint = RuleCheckpoint.BeforeTool, ToolName = toolName, Json = arguments }
+            : CallSubject(tool, arguments);
+        var outcome = await rules.Find(subject, cancellationToken);
+        var left = outcome?.RedactedJson ?? arguments;
+        session.RuledCalls[callId] = new RuledCall(arguments.Clone(), left.Clone(), outcome);
+        return left;
+    }
+
     /// <summary>
     /// A call is waiting for a person. When a rule is why, the rule is written down before the question, so the
     /// person reads which rule asked.
@@ -132,17 +157,9 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             return;
         }
 
-        var subject = new RuleSubject
+        if (await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Ask } outcome)
         {
-            Checkpoint = RuleCheckpoint.BeforeTool,
-            ToolName = tool.Tool.Name,
-            ToolKind = tool.Tool.Sensitivity,
-            Json = arguments,
-        };
-
-        if (await rules.Find(subject, cancellationToken) is { Effect: RuleEffect.Ask } outcome)
-        {
-            await rules.Record(outcome, subject.Checkpoint, ToolCallIds.For(session.RunId, callId));
+            await rules.Record(outcome, RuleCheckpoint.BeforeTool, ToolCallIds.For(session.RunId, callId));
         }
     }
 
@@ -193,15 +210,7 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
     private async Task<ToolGateDecision> RuleOnCall(ToolCallRequest toolCall, RunTool tool, ToolGateDecision granting, CancellationToken cancellationToken)
     {
-        var subject = new RuleSubject
-        {
-            Checkpoint = RuleCheckpoint.BeforeTool,
-            ToolName = tool.Tool.Name,
-            ToolKind = tool.Tool.Sensitivity,
-            Json = toolCall.Arguments,
-        };
-
-        if (await rules.Find(subject, cancellationToken) is not { } outcome)
+        if (await RuleFor(toolCall.CallId, tool, toolCall.Arguments, cancellationToken) is not { } outcome)
         {
             return granting;
         }
@@ -209,7 +218,7 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         // A rule that asks was written down when the person was asked. Their yes is not a second firing.
         if (outcome.Effect is not RuleEffect.Ask || !toolCall.Approved)
         {
-            await rules.Record(outcome, subject.Checkpoint, ToolCallIds.For(session.RunId, toolCall.CallId));
+            await rules.Record(outcome, RuleCheckpoint.BeforeTool, ToolCallIds.For(session.RunId, toolCall.CallId));
         }
 
         switch (outcome.Effect)
@@ -220,11 +229,28 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             case RuleEffect.Block:
                 return ToolGateDecision.Refuse($"The rule \"{outcome.Rule.Name}\" does not allow this: {outcome.Why}.");
             case RuleEffect.Ask:
-                return ToolGateDecision.Ask;
+                // A person is asked about the call as the other rules leave it.
+                return ToolGateDecision.Ask with { Arguments = outcome.RedactedJson };
             default:
                 return granting with { Arguments = outcome.RedactedJson };
         }
     }
+
+    // What the rules say about a call: what they said when the model wrote it, if this execution saw that, and
+    // otherwise what they say about the arguments now (a call taken up again after a wait or a restart, whose
+    // stored arguments already are what the rules left).
+    private async Task<RuleOutcome?> RuleFor(string callId, RunTool tool, JsonElement arguments, CancellationToken cancellationToken) =>
+        session.RuledCalls.TryGetValue(callId, out var ruled) && JsonElement.DeepEquals(ruled.Left, arguments)
+            ? ruled.Outcome
+            : await rules.Find(CallSubject(tool, arguments), cancellationToken);
+
+    private static RuleSubject CallSubject(RunTool tool, JsonElement arguments) => new()
+    {
+        Checkpoint = RuleCheckpoint.BeforeTool,
+        ToolName = tool.Tool.Name,
+        ToolKind = tool.Tool.Sensitivity,
+        Json = arguments,
+    };
 
     private async Task<ToolOutcome> RuleOnResult(ToolCallRequest toolCall, ToolOutcome result, CancellationToken cancellationToken)
     {

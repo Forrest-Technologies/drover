@@ -188,6 +188,33 @@ namespace Drover.Data.Migrations
                     b.ToTable("user_profiles", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Data.Identity.UserSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_sessions");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_user_sessions_user_id");
+
+                    b.ToTable("user_sessions", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1903,6 +1930,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("renew_attempted_at");
 
+                    b.Property<DateTimeOffset?>("RenewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("renewed_at");
+
                     b.Property<Guid>("SecretId")
                         .HasColumnType("uuid")
                         .HasColumnName("secret_id");
@@ -1964,6 +1995,16 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_profiles_users_user_id");
+                });
+
+            modelBuilder.Entity("Drover.Data.Identity.UserSession", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_sessions_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Data.Identity.UserToken", b =>

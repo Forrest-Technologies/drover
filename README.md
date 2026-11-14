@@ -18,7 +18,31 @@ cd drover
 docker compose up --build
 ```
 
-Open [localhost:8080](http://localhost:8080). Create your account and connect a model to start a conversation. Compose creates the database passwords on first startup and keeps them in Docker volumes. The default configuration listens on localhost.
+The log prints the setup address and a one-time setup code. Open [localhost:8080/setup](http://localhost:8080/setup), enter the code, create your account, and connect a model to start a conversation. Compose creates the database passwords on first startup and keeps them in Docker volumes. The default configuration listens on this machine only.
+
+To upgrade, check out a newer commit and run the same command. Pending database migrations are applied before the server starts. `docker compose down` keeps your data; only `docker compose down --volumes` deletes it.
+
+Back up the `drover-db` and `drover-keys` volumes together. The keys volume holds the key ring that encrypts every stored model key and password; a database backup without it cannot be read.
+
+### Reach it from another device
+
+Point a domain name at the machine, open ports 80 and 443 to it, then start Drover with the HTTPS proxy in front:
+
+```sh
+DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy.yaml up --build
+```
+
+The proxy obtains a certificate for that name and forwards requests to Drover. Drover trusts the client address and scheme the proxy forwards, and nothing else forwards them. Put `DROVER_DOMAIN=...` in a file named `.env` beside `compose.yaml` to keep it between runs. With a proxy of your own instead, set `DROVER_PUBLIC_URL` to the address people open and `Drover__Proxy__TrustedAddresses__0` to the proxy's address; see [deployment](docs/architecture/13-deployment-and-push.md#reaching-drover-from-another-device).
+
+### What building it costs
+
+The image is built from source on your machine. The CI compose job builds it inside a 2 GB memory limit on every change and reports these numbers. Measured on a GitHub-hosted runner (4 cores) with an empty build cache, November 2026:
+
+| Measure | Value |
+| --- | --- |
+| Build time | 78 s |
+| Peak memory of the 2 GB builder, page cache included | 1.38 GB, no out-of-memory kill |
+| Image size | 319 MB, plus the PostgreSQL image |
 
 ## A closer look
 

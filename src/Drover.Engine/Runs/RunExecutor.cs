@@ -352,8 +352,8 @@ public sealed class RunExecutor(
     }
 
     /// <summary>
-    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs its
-    /// connection, switched on, and is named for the model with the connection's own prefix, so no server can take
+    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs tool
+    /// connections allowed on this server and its own connection switched on, and is named for the model with the connection's own prefix, so no server can take
     /// another's names or a built-in's.
     /// </summary>
     private RunTool? ToRunTool(GrantedTool granted, IReadOnlyList<ToolConnection> toolConnections)
@@ -367,7 +367,9 @@ public sealed class RunExecutor(
                 builtins.FirstOrDefault(builtin => builtin.Name == granted.Tool.Name));
         }
 
-        return toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
+        // With tool connections turned off on this server, a tool of one cannot be called, so the model is not offered it.
+        return deployment.Value.Rules.AllowToolConnections
+            && toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
             ? new RunTool(granted.Tool, granted.Effect, ToolNames.ForModel(connection.Slug, granted.Tool.Name), null, connection)
             : null;
     }
@@ -525,22 +527,34 @@ public sealed class RunExecutor(
     }
 
     /// <summary>
-    /// What arrived for this execution: the message that started the run, until its first step, and every message
-    /// placed on the thread just now.
+    /// What arrived for this execution. Until the run's first step that is every message of its person it holds: the
+    /// one that started it, those placed on the thread just now, and those an execution that was cut off placed
+    /// before it could check them. After the first step only what was placed just now is new.
     /// </summary>
     private static async Task<IReadOnlyList<Message>> Arrived(RunSession session, LoadedRun loaded, IReadOnlyList<Message> placed)
     {
-        if (loaded.Steps.Count == 0
-            && loaded.Run.TriggerMessageId is { } triggerId
-            && placed.All(message => message.Id != triggerId)
-            && await session.Tenant.Transact(
-                services => services.GetRequiredService<MessageRepository>().FindMessage(triggerId, CancellationToken.None),
-                CancellationToken.None) is { } trigger)
+        if (loaded.Steps.Count > 0)
         {
-            return [trigger, .. placed];
+            return placed;
         }
 
-        return placed;
+        var held = await session.Tenant.Transact(
+            async services =>
+            {
+                var messages = services.GetRequiredService<MessageRepository>();
+                List<Message> found = [.. await messages.ListDeliveredMessages(loaded.Run.ThreadId, loaded.Run.Id, CancellationToken.None)];
+
+                if (loaded.Run.TriggerMessageId is { } triggerId
+                    && found.All(message => message.Id != triggerId)
+                    && await messages.FindMessage(triggerId, CancellationToken.None) is { } trigger)
+                {
+                    found.Insert(0, trigger);
+                }
+
+                return found;
+            },
+            CancellationToken.None);
+        return [.. held, .. placed.Where(message => held.All(known => known.Id != message.Id))];
     }
 
     private static RunExecution BuildExecution(RunSession session, LoadedRun loaded, IModelChatClient model) => new()

@@ -7,6 +7,13 @@ namespace Drover.Data.Repositories;
 /// </summary>
 public sealed class ToolConnectionRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so it cannot collide with another lock taken on the same ids.
+    private const long CredentialLockSeed = 0x44524F56_45520004;
+
+    #endregion
+
     #region Connections
 
     public void Add(ToolConnection connection) => db.ToolConnections.Add(connection);
@@ -68,6 +75,15 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
             credential => credential.ToolConnectionId == connectionId && credential.AudienceUserId == audienceUserId,
             cancellationToken);
 
+    /// <summary>
+    /// Makes the rest of the transaction the only one that adds or replaces this audience's credential of the
+    /// connection. Two requests that both find none would otherwise each add one. Held until the transaction ends.
+    /// </summary>
+    public Task LockCredential(Guid connectionId, Guid audienceUserId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({connectionId}::text || {audienceUserId}::text, {CredentialLockSeed}))",
+            cancellationToken);
+
     /// <summary>The credentials of a connection the transaction can see. Tracked.</summary>
     public Task<List<ToolConnectionCredential>> ListCredentials(Guid connectionId, CancellationToken cancellationToken) =>
         db.ToolConnectionCredentials.Where(credential => credential.ToolConnectionId == connectionId).ToListAsync(cancellationToken);
@@ -116,14 +132,21 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     /// The sign-ins, in every space, whose access token runs out before the given moment. This crosses spaces, so
     /// it goes through <c>sys.tool_sign_ins_running_out</c>, which returns ids only: the caller then works on each
     /// one inside that space's own tenant scope, as the person the sign-in belongs to. A sign-in that was tried
-    /// and not renewed since <paramref name="notTriedSince"/> is left out, and those never tried come first.
+    /// and not renewed since <paramref name="notTriedSince"/> is left out, and so is one renewed since
+    /// <paramref name="notRenewedSince"/>. The spaces take turns: one from each before a second from any, and
+    /// within a space those never tried come first.
     /// </summary>
-    public Task<List<SignInRunningOut>> ListSignInsRunningOut(DateTimeOffset before, DateTimeOffset notTriedSince, int limit, CancellationToken cancellationToken) =>
+    public Task<List<SignInRunningOut>> ListSignInsRunningOut(
+        DateTimeOffset before,
+        DateTimeOffset notTriedSince,
+        DateTimeOffset notRenewedSince,
+        int limit,
+        CancellationToken cancellationToken) =>
         db.Database
             .SqlQuery<SignInRunningOut>(
                 $"""
                 SELECT space_id, audience_user_id, tool_connection_id, credential_id
-                FROM sys.tool_sign_ins_running_out({before}, {notTriedSince}, {limit})
+                FROM sys.tool_sign_ins_running_out({before}, {notTriedSince}, {notRenewedSince}, {limit})
                 """)
             .ToListAsync(cancellationToken);
 

@@ -32,6 +32,26 @@ public sealed partial class DroverApi
         await response.ThrowIfRefused(cancellationToken);
     }
 
+    /// <summary>
+    /// Changes the signed-in person's password, given the current one. Every other session of theirs ends; this one
+    /// stays signed in.
+    /// </summary>
+    public async Task ChangePassword(ChangePasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("api/account/password", request, cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets a new password with the one-time code the operator printed to the server log. Every session of that
+    /// person ends, and they sign in again with the new password.
+    /// </summary>
+    public async Task ResetPassword(ResetPasswordRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PostAsJsonAsync("api/password-reset", request, cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+    }
+
     /// <summary>The signed-in person and their spaces, or nothing when nobody is signed in.</summary>
     public async Task<SessionResponse?> GetSession(CancellationToken cancellationToken = default)
     {

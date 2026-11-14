@@ -99,7 +99,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Sign-Ins Running Out
 
     [Fact]
-    public async Task Sign_ins_running_out_are_found_in_every_space_soonest_first_as_ids_and_only_the_ones_that_can_be_renewed()
+    public async Task Sign_ins_running_out_are_found_in_every_space_each_in_turn_soonest_first_as_ids_and_only_the_ones_that_can_be_renewed()
     {
         await using var scratch = await postgres.CreateScratchDatabase();
         await using var provider = scratch.BuildServices();
@@ -113,23 +113,24 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(1), CredentialStatus.NeedsReconnect);
         await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(1), connectionStatus: ConnectionStatus.Disabled);
         await SaveSignIn(provider, world.SpaceA, world.UserA1, Audience.Everyone, now.AddMinutes(1), authKind: ToolAuthKind.Header);
-        const string Sql = "SELECT space_id, audience_user_id, tool_connection_id, credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @limit)";
+        const string Sql = "SELECT space_id, audience_user_id, tool_connection_id, credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)";
         var since = now.AddMinutes(-30).UtcDateTime;
 
-        var due = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", since), ("limit", 10));
-        var firstTwo = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", since), ("limit", 2));
+        var due = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", since), ("renewed", since), ("limit", 10));
+        var firstTwo = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", since), ("renewed", since), ("limit", 2));
         var shape = await Query(
             scratch.AppConnectionString,
-            "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @limit)",
+            "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)",
             ("before", now.AddMinutes(15).UtcDateTime),
             ("since", since),
+            ("renewed", since),
             ("limit", 1));
 
         due.Select(row => ((Guid)row[0]!, (Guid)row[1]!, (Guid)row[2]!, (Guid)row[3]!)).Should().Equal(
             [
                 (world.SpaceA, world.UserA1, soonest.ConnectionId, soonest.CredentialId),
-                (world.SpaceA, Audience.Everyone, ofTheSpace.ConnectionId, ofTheSpace.CredentialId),
                 (world.SpaceB, world.UserB1, inAnotherSpace.ConnectionId, inAnotherSpace.CredentialId),
+                (world.SpaceA, Audience.Everyone, ofTheSpace.ConnectionId, ofTheSpace.CredentialId),
             ],
             "not the one that lasts, the one with no known end, the one already marked, the removed connection's, or a header");
         firstTwo.Should().HaveCount(2);
@@ -186,16 +187,66 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         var triedLately = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(1), attemptedAt: now.AddMinutes(-5));
         var triedLongAgo = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(2), attemptedAt: now.AddHours(-2));
         var neverTried = await SaveSignIn(provider, world.SpaceB, world.UserB1, world.UserB1, now.AddMinutes(9));
-        const string Sql = "SELECT credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @limit)";
+        const string Sql = "SELECT credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)";
 
-        var due = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-30).UtcDateTime), ("limit", 10));
-        var onlyOne = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-30).UtcDateTime), ("limit", 1));
+        var due = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-30).UtcDateTime), ("renewed", now.UtcDateTime), ("limit", 10));
+        var onlyOne = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-30).UtcDateTime), ("renewed", now.UtcDateTime), ("limit", 1));
 
         due.Select(row => (Guid)row[0]!).Should().Equal(
             [neverTried.CredentialId, triedLongAgo.CredentialId],
             "the one tried five minutes ago waits, though it runs out soonest; the one never tried comes first");
         onlyOne.Single()[0].Should().Be(neverTried.CredentialId, "so a pass of one is not spent on a sign-in that already failed");
         triedLately.CredentialId.Should().NotBe(Guid.Empty);
+    }
+
+    #endregion
+
+    #region Sign-Ins Of A Crowded Space
+
+    [Fact]
+    public async Task One_space_with_more_sign_ins_running_out_than_a_pass_holds_does_not_fill_the_pass()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        List<Guid> crowded = [];
+
+        // Five in one space, every one of them running out before the single sign-in of the other space.
+        foreach (var minutes in (int[])[1, 2, 3, 4, 5])
+        {
+            crowded.Add((await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(minutes))).CredentialId);
+        }
+
+        var theOther = await SaveSignIn(provider, world.SpaceB, world.UserB1, world.UserB1, now.AddMinutes(14));
+        const string Sql = "SELECT credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)";
+
+        var pass = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-5).UtcDateTime), ("renewed", now.AddMinutes(-15).UtcDateTime), ("limit", 2));
+        var all = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-5).UtcDateTime), ("renewed", now.AddMinutes(-15).UtcDateTime), ("limit", 10));
+
+        pass.Select(row => (Guid)row[0]!).Should().Equal(
+            [crowded[0], theOther.CredentialId],
+            "one from each space before a second from any, so the other space's sign-in is renewed in the first pass after it comes due");
+        all.Select(row => (Guid)row[0]!).Should().Equal([crowded[0], theOther.CredentialId, .. crowded[1..]], "after each space has had its turn, soonest first");
+    }
+
+    [Fact]
+    public async Task A_sign_in_renewed_lately_is_left_out_however_soon_it_runs_out()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(5), renewedAt: now.AddMinutes(-5));
+        var renewedLongAgo = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(6), renewedAt: now.AddMinutes(-50));
+        var neverRenewed = await SaveSignIn(provider, world.SpaceA, world.UserA1, world.UserA1, now.AddMinutes(7));
+        const string Sql = "SELECT credential_id FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)";
+
+        var due = await Query(scratch.AppConnectionString, Sql, ("before", now.AddMinutes(15).UtcDateTime), ("since", now.AddMinutes(-5).UtcDateTime), ("renewed", now.AddMinutes(-15).UtcDateTime), ("limit", 10));
+
+        due.Select(row => (Guid)row[0]!).Should().Equal(
+            [renewedLongAgo.CredentialId, neverRenewed.CredentialId],
+            "tokens that last less than the lead are due again the moment they are renewed; they wait out the lead all the same");
     }
 
     #endregion
@@ -239,6 +290,21 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         after.Should().ContainSingle().Which.Should().Equal(2L, 2L, 1L, 1L, 4L);
     }
 
+    [Fact]
+    public async Task Applied_migration_names_the_newest_migration_and_the_application_role_cannot_read_the_history_itself()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var newest = scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database.GetMigrations().Last();
+
+        var applied = await Query(scratch.AppConnectionString, "SELECT sys.applied_migration()");
+        var direct = () => Query(scratch.AppConnectionString, "SELECT count(*) FROM \"__EFMigrationsHistory\"");
+
+        applied.Should().ContainSingle().Which.Should().Equal(newest);
+        (await direct.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+    }
+
     #endregion
 
     #region Audit
@@ -256,10 +322,11 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("find_user_for_sign_in", "SELECT * FROM sys.find_user_for_sign_in(@email)", 1, [("email", $"{world.UserA1:N}@example.test")]),
             ("memberships_for_user", "SELECT * FROM sys.memberships_for_user()", 2, [("as_user", world.Traveler)]),
             ("resolve_oauth_state", "SELECT * FROM sys.resolve_oauth_state(@hash)", 0, [("hash", "none")]),
-            ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("limit", 10)]),
+            ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
+            ("applied_migration", "SELECT sys.applied_migration()", 1, []),
         };
 
         foreach (var call in calls)
@@ -352,9 +419,10 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("spaces", "SELECT", "id kind name slug"),
             .. Columns("oauth_flows", "SELECT", "state_hash space_id audience_user_id tool_connection_id expires_at"),
             .. Columns("sandboxes", "SELECT", "id space_id state"),
-            .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at"),
+            .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
+            .. Columns("__EFMigrationsHistory", "SELECT", "migration_id"),
         ]);
     }
 
@@ -506,7 +574,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         ConnectionStatus connectionStatus = ConnectionStatus.Ready,
         ToolAuthKind authKind = ToolAuthKind.Oauth,
         DateTimeOffset? attemptedAt = null,
-        Guid? connectionId = null)
+        Guid? connectionId = null,
+        DateTimeOffset? renewedAt = null)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
         var connection = NewToolConnection();
@@ -515,7 +584,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
         connection.Status = connectionStatus;
         connection.CredentialScope = audience == Audience.Everyone ? CredentialScope.Space : CredentialScope.PerUser;
         var secret = new Secret { AudienceUserId = audience, Kind = SecretKind.OauthTokens, Ciphertext = [0], CreatedByUserId = userId, CreatedAt = DateTimeOffset.UtcNow };
-        var credential = new ToolConnectionCredential { ToolConnectionId = connection.Id, SecretId = secret.Id, AudienceUserId = audience, ExpiresAt = expiresAt, Status = status, RenewAttemptedAt = attemptedAt };
+        var credential = new ToolConnectionCredential { ToolConnectionId = connection.Id, SecretId = secret.Id, AudienceUserId = audience, ExpiresAt = expiresAt, Status = status, RenewAttemptedAt = attemptedAt, RenewedAt = renewedAt };
         if (connectionId is null)
         {
             session.Db.ToolConnections.Add(connection);

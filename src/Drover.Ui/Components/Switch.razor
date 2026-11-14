@@ -1,12 +1,16 @@
 <label class="dv-switch">
     <input class="dv-switch-input" type="checkbox" role="switch" checked="@Value" disabled="@Disabled" @onchange="Changed" />
     <span class="dv-switch-track" aria-hidden="true"></span>
-    <span class="dv-switch-label">@Label</span>
+    <span class="dv-switch-label">@Label@if (About is not null) {<span class="dv-visually-hidden">, @About</span>}</span>
 </label>
 
 @code {
     [Parameter, EditorRequired]
     public string Label { get; set; } = string.Empty;
+
+    /// <summary>What the switch belongs to, read out after the label and not shown: for a row that already shows it.</summary>
+    [Parameter]
+    public string? About { get; set; }
 
     [Parameter]
     public bool Value { get; set; }

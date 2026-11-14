@@ -56,6 +56,15 @@ public sealed record DeploymentPolicy
                 $"{nameof(RequireTermsAcceptance)} is on with open registration, so Drover:Policy:TermsVersion must name the version people accept.");
         }
 
+        // Strangers who register get a space of their own and can add connections, so they must not be able to aim the
+        // server at its private network. A self-hoster who opens registration keeps local models by naming them
+        // elsewhere or by giving up open registration; the server does not guess which.
+        if (OpenRegistration && AllowPrivateAddresses)
+        {
+            problems.Add(
+                $"{nameof(OpenRegistration)} is on while {nameof(AllowPrivateAddresses)} is on, so anyone who registers could aim a connection at this server's private network. Set Drover:Policy:Rules:{nameof(AllowPrivateAddresses)} to false, or set Drover:Policy:Rules:{nameof(OpenRegistration)} to false.");
+        }
+
         return problems;
     }
 
@@ -188,6 +197,13 @@ public sealed record DeploymentPolicy
     /// <summary>The operator may read tenant content through the product. Never, in any preset.</summary>
     public bool AllowOperatorContentAccess { get; init; }
 
+    /// <summary>
+    /// The owners and admins of a space see the server's own rows on the status page: database role, migrations,
+    /// key ring, public address, and the run queue of every space as counts. On a server for one household they are
+    /// the operator; on a shared service they are strangers, and those rows are the operator's alone.
+    /// </summary>
+    public bool SpaceAdminsSeeServerStatus { get; init; } = true;
+
     #endregion
 
     #region Rule Table
@@ -308,6 +324,10 @@ public sealed record DeploymentPolicy
             nameof(AllowOperatorContentAccess),
             policy => policy.AllowOperatorContentAccess,
             Enforcement.Later("Support access, if it is ever added")),
+        PolicyRule.Permission(
+            nameof(SpaceAdminsSeeServerStatus),
+            policy => policy.SpaceAdminsSeeServerStatus,
+            Enforcement.Now("GET /api/spaces/{spaceId}/status")),
     ];
 
     #endregion

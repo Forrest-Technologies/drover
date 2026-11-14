@@ -5,7 +5,8 @@ namespace Drover.Agents.Governance;
 /// model, so it sees each model call's answer before the framework stores it and before the run streams it on.
 /// When the bot has a rule about replies, the answer is held back until it is complete: nothing a rule forbids is
 /// shown, even for a moment, and nothing of it is stored. A bot with no such rule streams exactly as before.
-/// The governor decides; this class only holds the text and puts back what the governor allows.
+/// A tool call the model writes is passed on only as the bot's rules leave its arguments, with or without a rule
+/// about replies. The governor decides; this class only holds the text and puts back what the governor allows.
 /// </summary>
 public sealed class ReplyRules(IChatClient inner, IRunGovernor governor) : DelegatingChatClient(inner)
 {
@@ -17,15 +18,16 @@ public sealed class ReplyRules(IChatClient inner, IRunGovernor governor) : Deleg
         CancellationToken cancellationToken = default)
     {
         var response = await base.GetResponseAsync(messages, options, cancellationToken);
-
-        if (!await governor.HoldsReplies(cancellationToken))
-        {
-            return response;
-        }
+        var holds = await governor.HoldsReplies(cancellationToken);
 
         foreach (var message in response.Messages)
         {
-            message.Contents = await Rule(message.Contents, cancellationToken);
+            await RuleOnCalls(message.Contents, cancellationToken);
+
+            if (holds)
+            {
+                message.Contents = await Rule(message.Contents, cancellationToken);
+            }
         }
 
         return response;
@@ -40,6 +42,7 @@ public sealed class ReplyRules(IChatClient inner, IRunGovernor governor) : Deleg
         {
             await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))
             {
+                await RuleOnCalls(update.Contents, cancellationToken);
                 yield return update;
             }
 
@@ -52,6 +55,7 @@ public sealed class ReplyRules(IChatClient inner, IRunGovernor governor) : Deleg
 
         await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))
         {
+            await RuleOnCalls(update.Contents, cancellationToken);
             held.Add(update);
         }
 
@@ -83,6 +87,22 @@ public sealed class ReplyRules(IChatClient inner, IRunGovernor governor) : Deleg
     #endregion
 
     #region Private Methods
+
+    // A tool call the model wrote is passed on only as the bot's rules leave it, so the text a rule removes is
+    // never in an event, a stored message, an approval, or what the model is shown again.
+    private async Task RuleOnCalls(IList<AIContent> contents, CancellationToken cancellationToken)
+    {
+        foreach (var call in contents.OfType<FunctionCallContent>())
+        {
+            var written = MessageParts.ToJson(call.Arguments);
+            var left = await governor.RuleOnCallArguments(call.CallId, call.Name, written, cancellationToken);
+
+            if (left.ValueKind is JsonValueKind.Object && !JsonElement.DeepEquals(left, written))
+            {
+                call.Arguments = left.EnumerateObject().ToDictionary(argument => argument.Name, argument => (object?)argument.Value);
+            }
+        }
+    }
 
     private static bool IsSaid(AIContent content) => content is TextContent or TextReasoningContent;
 

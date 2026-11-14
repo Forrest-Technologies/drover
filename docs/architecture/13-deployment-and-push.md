@@ -13,7 +13,9 @@ Goal: clone, `docker compose up`, open the browser, chat. No file to edit.
 | `database-init` | Built from source | Runs `--initialize-database` once as root with bootstrap and owner secrets, then exits. |
 | `drover` | Built from source | Serves API and web UI on localhost port 8080 as non-root, using only the application role. |
 
-Optional services sit behind compose profiles and are off by default: `ntfy` for self-hosted Android push, and a reverse proxy example for HTTPS.
+Optional pieces are off by default. `ntfy`, a self-hosted notification server for Android push, sits behind the `push` profile (`docker compose --profile push up`); Drover sends to it once push lands in Phase 1. The HTTPS reverse proxy is an override file, `compose.proxy.yaml`, rather than a profile, because it must change the `drover` service too: see [Reaching Drover from another device](#reaching-drover-from-another-device).
+
+Every service drops every Linux capability and adds back only what its job needs, cannot gain privileges (`no-new-privileges`), and runs on a read-only root filesystem with `tmpfs` where it needs scratch space. `drover` runs as uid 1654 with no capability at all. `init` keeps `CHOWN`, `FOWNER`, and `DAC_OVERRIDE` to hand each password file to its reader; `database-init` keeps `DAC_READ_SEARCH` to read them; `db` keeps what the PostgreSQL image needs to drop from root to its own user. Every image from elsewhere is pinned by digest, and every port of `compose.yaml` is bound to `127.0.0.1`. `ComposeFileTests` in `Drover.Server.Tests` reads both compose files and fails the build when one of these rules breaks.
 
 Start order is expressed with `depends_on` conditions: `db` waits for `init` to complete successfully, `database-init` waits for `db` to be healthy, and `drover` waits for initialization to complete successfully.
 
@@ -37,9 +39,12 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 2. It calls `DatabaseMigrator` as `drover_owner`, applying pending migrations, and exits. Bootstrap uses an advisory lock; EF Core serializes migrations with its migration lock. Both steps are safe to repeat.
 3. Only after successful initialization does the non-root application start. It builds its connection as `drover_app` from `Database:Host`, optional port/database/timeout settings, and `Database:AppPasswordFile`. It performs no role or schema changes.
 4. `ConnectionStrings:Drover` overrides the file-based connection for custom deployments and tests. Missing or empty connection fields fail startup. An explicit custom role is allowed only when the validated self-hosted policy permits migration credentials in the server. Hosted and tightened self-hosted policies require the actual low-privilege application role, verified against PostgreSQL before startup services access application data. File-based connections, including Compose, always use `drover_app`. Custom deployments must initialize their database separately.
-5. Data Protection uses `DataProtection:KeyPath`, set to `/var/lib/drover/keys` in Compose. If there are no users, the server logs the setup address and code.
+5. Data Protection uses `DataProtection:KeyPath`, set to `/var/lib/drover/keys` in Compose. If there are no users, the server logs the setup address and code once it listens: the public address when one is set, otherwise each address it listens on, with a wildcard host printed as `localhost`.
+6. At start, the server asks PostgreSQL which role its connection really is. A role that is a superuser or can bypass row-level security stops the server where the deployment keeps the migration credential out of it, and is logged as an error everywhere else.
 
 The initializer additionally requires `Database:PasswordFile` and `Database:OwnerPasswordFile`. Run it only as the standalone `--initialize-database` command; never give its secrets to the request-serving process.
+
+`--reset-password person@example.com` is the other standalone command. It connects as the server does (`drover_app`, with the same deployment policy), prints a one-time password reset code for that account to the log, and exits with 1 when no account has the email. In compose: `docker compose run --rm drover --reset-password person@example.com`. See [08-auth-and-secrets.md](08-auth-and-secrets.md).
 
 Upgrading is `git pull` to the new tag and the same `docker compose up --build`. The one-shot initialization command applies pending migrations before the application starts. Migrations are forward-only and written to be safe with existing data; a release that needs a manual step says so in its notes and refuses to start until it is done.
 
@@ -51,22 +56,37 @@ Everything optional stays off until configured. Each feature has a single "is it
 
 ### Status page
 
-`/status` for admins, and `/health/live` and `/health/ready` for the container. Built on ASP.NET Core health checks, used directly.
+`/status` for a space's owners and admins (`GET /api/spaces/{spaceId}/status`), and `/health/live` and `/health/ready` for the container. Built on ASP.NET Core health checks, used directly.
 
-Until the status page exists, `/health/ready` opens a fresh PostgreSQL connection using the same resolved application connection as the server. It touches no tenant data. The `drover` container's compose health check asks this endpoint, with bash over a plain socket, since the runtime image has no `curl`.
+`/health/ready` opens a fresh PostgreSQL connection using the same resolved application connection as the server. It touches no tenant data. The `drover` container's compose health check asks this endpoint, with bash over a plain socket, since the runtime image has no `curl`.
+
+The page calls nothing to build itself: each row says what was last seen. Each row has a state said in words (working, needs attention, not working, off) and a sentence saying what to do when it is not working. The server's rows are shown to a space's owners and admins only where the deployment rule `SpaceAdminsSeeServerStatus` allows it: on by default for a self-hosted server, whose admins are its operator, and off in the hosted preset, where they are strangers.
 
 | Row | Check |
 | --- | --- |
-| Database | Connects as `drover_app`; confirms the role cannot bypass row-level security |
-| Migrations | Applied version equals the build's version |
-| Each model connection | Last call result and time; a "test now" button |
-| Each tool connection | Last list result, credential state |
-| Sandbox provider, push, search, voice | Configured or not, last result |
-| Background work | Queued runs, oldest waiting run, worker heartbeat, expired leases |
-| Key ring | Present, writable, and whether the operator has confirmed a backup |
-| Public address | Whether `DROVER_PUBLIC_URL` is set and reachable, since OAuth connections and push need it |
+| Database | Asks PostgreSQL which role the connection is; red when it is a superuser or can bypass row-level security |
+| Migrations | The newest applied migration, read through `sys.applied_migration()`, equals the newest the build carries |
+| Key ring | The folder is there and writable, how many keys it holds, and a reminder to back it up with the database |
+| Public address | Whether `DROVER_PUBLIC_URL` is set, and a warning when it is plain HTTP on a non-loopback name. Tool server sign-ins and push need it. |
+| Background work | Queued, running, and waiting runs, and runs whose worker lease expired, across every space as counts (`sys.health()`) |
+| Each model connection | Its state and when it was last checked |
+| Each tool connection | Its state and when it last listed its tools; what the server said is on the Tools screen |
+
+Not yet: a "test now" button per connection, whether the public address is reachable from outside, a worker heartbeat, a confirmed key ring backup, and rows for the sandbox provider, push, search, and voice, each of which arrives with its feature.
 
 The first database row is worth its place: if someone points Drover at a superuser connection, isolation silently stops working. The status page turns red and the server logs an error at start.
+
+### Reaching Drover from another device
+
+`compose.yaml` binds the server to `127.0.0.1:8080`, so only the machine it runs on can open it. To reach it from a phone or another computer, put HTTPS in front:
+
+```sh
+DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy.yaml up --build
+```
+
+`compose.proxy.yaml` adds a `proxy` service (Caddy, pinned by digest) that obtains and renews a certificate for `DROVER_DOMAIN`, redirects HTTP to HTTPS, and forwards to `drover:8080` with `X-Forwarded-For` and `X-Forwarded-Proto`. The same file gives the compose network a fixed subnet (`DROVER_PROXY_SUBNET`, default `172.30.80.0/24`) and the proxy a fixed address in it (`DROVER_PROXY_ADDRESS`, default `172.30.80.250`), and tells Drover to trust exactly that address (`Drover:Proxy:TrustedAddresses`) and that its public address is `https://DROVER_DOMAIN`. Drover then counts the real client for the sign-in limit, sees the request as HTTPS, and sends tool server sign-ins back to the right address. Nothing else on the network can claim an address or a scheme. The proxy publishes 80 and 443 on every interface; Drover's own port stays on `127.0.0.1`.
+
+With a proxy of your own: set `DROVER_PUBLIC_URL` to the address people open, and `Drover__Proxy__TrustedAddresses__0` to the proxy's address or network as Drover sees it. Leaving the proxy untrusted still works, but every person then shares the proxy's address for the sign-in limit. Never turn on `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
 
 ### Build cost
 
@@ -79,7 +99,7 @@ The image is built on the self-hoster's machine, so the build must fit a modest 
 - Restore is a separate layer keyed on `Directory.Packages.props` and the project files, so a rebuild after a small change skips it. (There are no lock files.)
 - The build server and parallelism are limited inside the Dockerfile (`-maxcpucount:1`, shared compilation off) to cap peak memory at the cost of some time.
 
-**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time, image size, and the builder's peak memory on every run. BuildKit ignores a memory flag on `docker build`, so CI sets the limit on the builder container (`docker buildx create --driver-opt memory=2g`), which runs every build step; the peak is read from that container's cgroup and includes page cache. These are budgets to hold, not measurements; there is no code to measure yet. Phase 0 step 15 records the first real numbers in the README. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
+**Budget, enforced in CI:** the image must build inside a container limited to 2 GB of memory, and the job reports build time, image size, and the builder's peak memory on every run. BuildKit ignores a memory flag on `docker build`, so CI sets the limit on the builder container (`docker buildx create --driver-opt memory=2g`), which runs every build step; the peak is read from that container's cgroup and includes page cache. The README records the measured numbers. If the build cannot hold 2 GB, that is reported as an adoption risk ([12-risks.md](12-risks.md)), and the answer is not image hosting.
 
 ### Local development
 

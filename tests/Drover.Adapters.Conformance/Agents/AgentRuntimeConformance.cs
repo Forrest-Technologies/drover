@@ -314,6 +314,37 @@ public abstract class AgentRuntimeConformance
     }
 
     [Fact]
+    public async Task A_cut_off_call_that_runs_again_gets_the_arguments_the_gate_left()
+    {
+        var run = await NewRun("Look it up", new ToolSpec("lookup", ToolSensitivity.Read));
+        var received = new ConcurrentQueue<string>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tools = new ScriptedTools().Add("lookup", async (request, cancellationToken) =>
+        {
+            received.Enqueue(request.Arguments.GetRawText());
+
+            if (received.Count == 1)
+            {
+                started.TrySetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return new ToolOutcome(JsonElement.Parse("""{"ok":true}"""));
+        });
+        var decisions = new Dictionary<string, ToolGateDecision>
+        {
+            ["lookup"] = ToolGateDecision.Run with { Arguments = JsonElement.Parse("""{"to":"[removed]"}""") },
+        };
+        var model = new ScriptedModel([new ToolCallOutput("c1", "lookup", """{"to":"sam@example.org"}""")], [new TextOutput("Done")]);
+
+        await Kill(model, started.Task, run, tools, decisions);
+        await using var second = StartHost(model);
+        await Collect(second, run, new ScriptedGovernor(tools, decisions));
+
+        received.Should().HaveCount(2).And.OnlyContain(arguments => !arguments.Contains("sam@example.org"));
+    }
+
+    [Fact]
     public async Task A_read_only_tool_call_cut_off_by_a_kill_runs_again_and_its_result_reaches_the_model()
     {
         var run = await NewRun("Look it up", new ToolSpec("lookup", ToolSensitivity.Read));
@@ -420,10 +451,10 @@ public abstract class AgentRuntimeConformance
     /// Runs on a host until <paramref name="killPoint"/> is reached, then disposes the host without cancelling the run.
     /// The abandoned run stays stuck at that point, so nothing after it happens, exactly as if the process died.
     /// </summary>
-    protected async Task Kill(ScriptedModel model, Task killPoint, RunExecution run, ScriptedTools tools)
+    protected async Task Kill(ScriptedModel model, Task killPoint, RunExecution run, ScriptedTools tools, IReadOnlyDictionary<string, ToolGateDecision>? decisions = null)
     {
         var host = StartHost(model);
-        var abandoned = Collect(host, run, new ScriptedGovernor(tools));
+        var abandoned = Collect(host, run, new ScriptedGovernor(tools, decisions));
 
         var reached = await Task.WhenAny(killPoint, abandoned).WaitAsync(patience, TestContext.Current.CancellationToken);
         reached.Should().BeSameAs(killPoint, "the run must reach the kill point before it can be killed there");

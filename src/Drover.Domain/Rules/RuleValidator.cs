@@ -57,6 +57,12 @@ public static class RuleValidator
             return "A person's own message cannot be redacted: they have already written it. Choose block or stop.";
         }
 
+        if (conditions.Any(condition => condition is { Kind: RuleConditionKind.NotInList, Argument: not null })
+            && !conditions.Any(condition => condition.Kind is RuleConditionKind.ToolIs))
+        {
+            return "A list for a named input has to name the tools it is about: add a condition that says which tools. To check recipients whatever the tool, leave the input unnamed, and every email address in the tool's input is checked.";
+        }
+
         return effect is RuleEffect.Redact && !conditions.Any(FindsText)
             ? "To redact, a rule needs a condition that finds the text to remove: contains, matches a pattern, or holds a built-in kind."
             : null;
@@ -74,6 +80,11 @@ public static class RuleValidator
             return "A condition can name an argument only before a tool is used. Elsewhere it looks at the whole text.";
         }
 
+        if (condition.Argument is { } named && RuleReading.Names(named).Length == 0)
+        {
+            return "Name the input the condition looks at, or several parted by commas.";
+        }
+
         if (condition.Argument is { } argument && (argument.Length == 0 || argument.Length > MaxValueLength))
         {
             return $"Name the argument in up to {MaxValueLength} characters.";
@@ -87,12 +98,12 @@ public static class RuleValidator
             RuleConditionKind.ToolKind => condition.ToolKinds.Count == 0 || condition.ToolKinds.Any(kind => !Enum.IsDefined(kind))
                 ? "Choose whether the tool reads, writes, or is critical."
                 : null,
-            RuleConditionKind.TextContains => FindListProblem(condition.Entries, "Write at least one piece of text to look for", "pieces of text"),
+            RuleConditionKind.TextContains => FindListProblem(condition.Entries, "Write at least one piece of text to look for", "pieces of text")
+                ?? FindSameTextProblem(condition.Entries),
             RuleConditionKind.TextMatches => RulePatterns.Compile(condition.Pattern).Problem,
             RuleConditionKind.TextHolds => condition.Builtin is { } builtin && Enum.IsDefined(builtin)
                 ? null
                 : "Choose what the text holds: an email address, a card number, or a key.",
-            RuleConditionKind.NotInList when condition.Argument is null => "Name the argument whose values must be on the list.",
             RuleConditionKind.NotInList => FindListProblem(condition.Entries, "Write at least one value for the list", "values"),
             RuleConditionKind.TimeIs => FindTimeProblem(condition),
             RuleConditionKind.RunExceeds => condition.Counter is { } counter && Enum.IsDefined(counter) && condition.Limit is >= 0 and <= MaxLimit
@@ -112,6 +123,30 @@ public static class RuleValidator
         return list.Count > MaxListLength || list.Any(entry => entry.Length > MaxValueLength)
             ? $"Keep it to {MaxListLength} {plural} of up to {MaxValueLength} characters each."
             : null;
+    }
+
+    // Text is looked for in its plain form and without regard to case, so two entries that differ only in that
+    // look for one thing. Each would find every match again.
+    private static string? FindSameTextProblem(IReadOnlyList<string> entries)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            var plain = RuleText.Read(entry, new RuleBudget(RuleBudget.MaxWork))?.Plain ?? string.Empty;
+
+            if (plain.Length == 0)
+            {
+                return "Write at least one piece of text to look for, with no blank entry. An entry made only of characters that cannot be seen is blank.";
+            }
+
+            if (!seen.Add(plain))
+            {
+                return "Two of the pieces of text read the same once characters that cannot be seen are set aside and capitals are ignored. Write each one once.";
+            }
+        }
+
+        return null;
     }
 
     private static string? FindTimeProblem(RuleCondition condition)

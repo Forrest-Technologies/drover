@@ -35,6 +35,13 @@ public interface IRunGovernor
     Task<string> RuleOnReply(string text, CancellationToken cancellationToken) => Task.FromResult(text);
 
     /// <summary>
+    /// What a tool call's arguments are after the bot's rules have removed what they remove, asked as soon as the
+    /// model has written the call: before it is shown, stored, or put in front of a person. The gate decides about
+    /// the call later; this only makes sure nothing downstream ever holds the text a rule removes.
+    /// </summary>
+    Task<JsonElement> RuleOnCallArguments(string callId, string toolName, JsonElement arguments, CancellationToken cancellationToken) => Task.FromResult(arguments);
+
+    /// <summary>
     /// Checks a person's messages that arrived during the run, before the model sees them. When a rule does not
     /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
     /// </summary>

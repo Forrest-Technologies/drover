@@ -102,10 +102,19 @@ public sealed class RunSession(
     /// <summary>The bot's rules as they were when the agent was last built, which decides the tools that must ask.</summary>
     public IReadOnlyList<ActiveRule> RulesAtBuild { get; set; } = [];
 
-    /// <summary>How many tool calls the model has asked for in this execution of the run.</summary>
-    public int ToolCallCount => calls.Count;
+    /// <summary>
+    /// How many tool calls the model has asked for in the whole run: the ones its log holds from executions before
+    /// this one, a wait for a person or a restart included, and the ones made since.
+    /// </summary>
+    public int ToolCallCount => requestedBefore.Keys.Concat(calls.Keys.Select(callId => ToolCallIds.For(RunId, callId))).Distinct().Count();
 
     public DateTimeOffset Now => time.GetUtcNow();
+
+    /// <summary>
+    /// What the rules said about each tool call when the model wrote it, on the arguments as written. The gate
+    /// decides from this, because by then the arguments hold only what the rules left.
+    /// </summary>
+    public ConcurrentDictionary<string, RuledCall> RuledCalls { get; } = new(StringComparer.Ordinal);
 
     public bool LeaseLost { get; private set; }
 
@@ -326,6 +335,9 @@ public sealed class RunSession(
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
 
     /// <summary>A call the log already holds <c>tool.requested</c> for, from an earlier execution.</summary>
+    /// <summary>Counts a call the model has written, before anything else is known about it.</summary>
+    public void NoteCall(string callId) => Call(callId);
+
     public void MarkRequested(Guid toolCallId) => requestedBefore[toolCallId] = true;
 
     /// <summary>A call whose end is in the log already: an earlier execution wrote it, or this one just did.</summary>

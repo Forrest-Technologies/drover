@@ -138,6 +138,31 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Self_hosted_on_a_superuser_connection_starts_but_logs_an_error_and_the_status_page_turns_red()
+    {
+        var logs = new LogCapture();
+        await using var server = await Boot(SelfHosted(), useAdminConnection: true, logs: logs);
+        var connection = server.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString;
+
+        var row = await StatusEndpoints.CheckDatabase(connection, NullLogger.Instance, TestContext.Current.CancellationToken);
+
+        logs.Entries.Should().Contain(entry => entry.Level == LogLevel.Error
+            && entry.Category == typeof(DatabaseRoleGuard).FullName
+            && entry.Text.Contains("row-level security", StringComparison.Ordinal));
+        row.State.Should().Be("problem");
+        row.Summary.Should().Contain("drover_app");
+    }
+
+    [Fact]
+    public async Task Self_hosted_on_the_application_role_logs_no_error_about_the_role()
+    {
+        var logs = new LogCapture();
+        await using var server = await Boot(SelfHosted(), logs: logs);
+
+        logs.Entries.Should().NotContain(entry => entry.Category == typeof(DatabaseRoleGuard).FullName && entry.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
     public async Task Hosted_with_the_migration_credential_in_the_server_does_not_start_and_names_the_rule()
     {
         var settings = Hosted(withCertificate: true);
@@ -169,6 +194,42 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var message = await StartupFailure(settings);
 
         message.Should().Contain(nameof(DeploymentPolicy.RequireTermsAcceptance)).And.Contain("TermsVersion");
+    }
+
+    public static TheoryData<int> RefusedCombinations => [.. Enumerable.Range(0, PolicyMatrix.Refusals.Count)];
+
+    [Theory]
+    [MemberData(nameof(RefusedCombinations))]
+    public async Task A_refused_combination_of_settings_does_not_start_and_names_what_to_change(int row)
+    {
+        var refusal = PolicyMatrix.Refusals[row];
+        var settings = new Dictionary<string, string?> { ["DROVER_POLICY"] = refusal.Preset };
+
+        foreach (var (rule, setting) in refusal.Rules)
+        {
+            settings[$"Drover:Policy:Rules:{rule}"] = setting;
+        }
+
+        var message = await StartupFailure(settings);
+
+        foreach (var name in refusal.Names)
+        {
+            message.Should().Contain(name);
+        }
+    }
+
+    [Fact]
+    public async Task Self_hosted_with_open_registration_starts_once_private_addresses_are_forbidden()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:OpenRegistration"] = "true";
+        settings["Drover:Policy:Rules:AllowPrivateAddresses"] = "false";
+
+        await using var server = await Boot(settings);
+
+        var rules = server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        rules.OpenRegistration.Should().BeTrue();
+        rules.AllowPrivateAddresses.Should().BeFalse();
     }
 
     [Fact]
@@ -277,7 +338,11 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         return failure.Which.Message;
     }
 
-    private async Task<RunningServer> Boot(Dictionary<string, string?> settings, bool useAdminConnection = false, bool useSecretFile = false)
+    private async Task<RunningServer> Boot(
+        Dictionary<string, string?> settings,
+        bool useAdminConnection = false,
+        bool useSecretFile = false,
+        LogCapture? logs = null)
     {
         var database = await postgres.CreateDatabase();
 
@@ -299,7 +364,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
             settings["Database:AppPasswordFile"] = passwordFile;
         }
 
-        var factory = new DroverFactory(database, keyRing, new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings, useAppConnection: !useSecretFile);
+        var factory = new DroverFactory(database, keyRing, logs ?? new LogCapture(), new AdjustableTimeProvider(), new HashCounter(), settings, useAppConnection: !useSecretFile);
         var server = new RunningServer(factory, database, keyRing);
 
         try

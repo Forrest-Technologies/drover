@@ -338,13 +338,13 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         var scopes = await world.Transact(services => Task.FromResult(services.GetRequiredService<IServiceScopeFactory>()));
         var (first, firstAccess, firstRefresh) = NewTokenSet();
         var (second, secondAccess, _) = NewTokenSet();
-        var mine = new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId);
+        var mine = new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId, TimeProvider.System);
 
         await mine.Write(first, null, RunWorld.Token);
         var readBack = await mine.Read(RunWorld.Token);
-        var theirOwn = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other).Read(RunWorld.Token);
-        var mineAskedForByThem = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, world.UserId).Read(RunWorld.Token);
-        var theSpaces = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, Audience.Everyone).Read(RunWorld.Token);
+        var theirOwn = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other, TimeProvider.System).Read(RunWorld.Token);
+        var mineAskedForByThem = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, world.UserId, TimeProvider.System).Read(RunWorld.Token);
+        var theSpaces = await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, Audience.Everyone, TimeProvider.System).Read(RunWorld.Token);
         await mine.Write(second, null, RunWorld.Token);
         var renewed = await mine.Read(RunWorld.Token);
         var rows = await world.Transact(services => services.GetRequiredService<DroverDbContext>().ToolConnectionCredentials.CountAsync(RunWorld.Token));
@@ -390,6 +390,34 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         world.Server.Calls.Should().ContainSingle().Which.Endpoint.Headers["Authorization"].Should().Be(replacement);
     }
 
+    [Fact]
+    public async Task Replacing_a_lost_header_from_several_places_at_once_leaves_one_credential_and_a_connection_that_works()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "mail__inbox")], [new TextOutput("Read.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        world.Server.Offer("inbox", "Reads the inbox.", readOnly: true, "[]");
+        var connection = await world.Connect("Mail", TrustLevel.Trusted, "Authorization", RunWorld.NewModelKey());
+        await world.Grant("inbox", GrantEffect.Allow);
+        await world.Transact(async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            db.ToolConnectionCredentials.RemoveRange(await db.ToolConnectionCredentials.Where(found => found.ToolConnectionId == connection.Id).ToListAsync(RunWorld.Token));
+            return true;
+        });
+        string[] replacements = [.. Enumerable.Range(0, 8).Select(_ => RunWorld.NewModelKey())];
+
+        var changes = await Task.WhenAll(
+            replacements.Select(value => world.WithService<ToolConnectionService, ToolConnectionChange>(service => service.ReplaceHeader(connection.Id, "Authorization", value, RunWorld.Token))));
+        var stored = await world.Transact(services => services.GetRequiredService<DroverDbContext>().ToolConnectionCredentials.CountAsync(found => found.ToolConnectionId == connection.Id, RunWorld.Token));
+        world.StartHost();
+        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Read my mail"), RunStatus.Completed, RunStatus.Failed);
+
+        changes.Should().OnlyContain(change => change.Connection != null, "each of them asked for a header to be stored, and one is");
+        stored.Should().Be(1, "two credentials for one audience would make every later use of the connection fail");
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Server.Calls.Should().ContainSingle().Which.Endpoint.Headers["Authorization"].Should().BeOneOf(replacements);
+    }
+
     #endregion
 
     #region Forgetting Every Sign-In
@@ -407,9 +435,9 @@ public sealed class RunToolServerTests(PostgresServer postgres)
             (await services.GetRequiredService<DroverDbContext>().ToolConnections.SingleAsync(found => found.Id == connection.Id, RunWorld.Token)).CredentialScope = CredentialScope.PerUser;
             return true;
         });
-        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId)
+        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, world.UserId), connection.Id, world.UserId, TimeProvider.System)
             .Write("""{"access_token":"mine-00000000000000000000"}""", null, RunWorld.Token);
-        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other)
+        await new KeptToolTokens(new RunTenant(scopes, world.SpaceId, other), connection.Id, other, TimeProvider.System)
             .Write("""{"access_token":"theirs-0000000000000000"}""", null, RunWorld.Token);
         // Counted in the other person's own transaction: row-level security hides their rows from everybody else,
         // which is the reason the remover cannot delete them and a function in schema sys must.

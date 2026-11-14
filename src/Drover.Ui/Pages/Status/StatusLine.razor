@@ -1,0 +1,33 @@
+<li class="dv-status-row">
+    <div class="dv-status-row-head">
+        <span class="dv-status-row-name">@Row.Name</span>
+        <Badge Kind="Kind">@Word</Badge>
+    </div>
+    <p class="dv-status-row-summary">@Row.Summary</p>
+    @if (Row.CheckedAt is { } at)
+    {
+        <p class="dv-status-row-time dv-mono">checked @at.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)</p>
+    }
+</li>
+
+@code {
+    /// <summary>One row of the report. The word in the badge carries the state; the color only adds to it.</summary>
+    [Parameter, EditorRequired]
+    public StatusRow Row { get; set; } = null!;
+
+    private BadgeKind Kind => Row.State switch
+    {
+        "ok" => BadgeKind.Ok,
+        "warning" => BadgeKind.Warn,
+        "problem" => BadgeKind.Danger,
+        _ => BadgeKind.Neutral,
+    };
+
+    private string Word => Row.State switch
+    {
+        "ok" => "Working",
+        "warning" => "Needs attention",
+        "problem" => "Not working",
+        _ => "Off",
+    };
+}
