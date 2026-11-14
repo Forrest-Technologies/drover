@@ -32,6 +32,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     protected string AppConnectionString => database.AppConnectionString;
 
+    /// <summary>The superuser connection, for a test that changes the database itself.</summary>
+    protected string AdminConnectionString => database.AdminConnectionString;
+
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
     /// <summary>Configuration for the server under test. The sign-in rate limit is out of the way unless a test asks.</summary>

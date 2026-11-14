@@ -79,7 +79,7 @@ public static class StatusEndpoints
         {
             var server = await status.ReadServer(cancellationToken);
             rows.Add(await CheckDatabase(database.Value.ConnectionString, logger, cancellationToken));
-            rows.Add(Migrations(server));
+            rows.Add(Migrations(server.Migrations));
             rows.Add(KeyRing(keyRing.Path, logger));
             rows.Add(PublicUrl(signIn.Value.PublicUrl));
             rows.Add(Workload(server.Workload));
@@ -95,13 +95,15 @@ public static class StatusEndpoints
 
     #region Rows
 
-    private static StatusRow Migrations(ServerReadings server) =>
-        server.AppliedMigration switch
+    private static StatusRow Migrations(MigrationState migrations) =>
+        migrations.Verdict switch
         {
-            null => Row(Server, "Migrations", Problem, "No migration is applied. Run the database initialization: docker compose up does it, and elsewhere a one-off run of the image with --initialize-database."),
-            var applied when applied == server.NewestKnownMigration => Row(Server, "Migrations", Ok, $"Up to date at {applied}."),
-            var applied => Row(Server, "Migrations", Problem,
-                $"The database is at {applied} and this build expects {server.NewestKnownMigration}. Run the database initialization: docker compose up does it, and elsewhere a one-off run of the image with --initialize-database."),
+            MigrationVerdict.UpToDate => Row(Server, "Migrations", Ok, $"Up to date at {migrations.Applied}."),
+            MigrationVerdict.NoneApplied => Row(Server, "Migrations", Problem, $"No migration is applied. {MigrationAdvice.Initialize}"),
+            MigrationVerdict.Ahead => Row(Server, "Migrations", Problem,
+                $"The database is at {migrations.Applied}, newer than the {migrations.Newest} this build carries. {MigrationAdvice.Ahead}"),
+            _ => Row(Server, "Migrations", Problem,
+                $"The database is at {migrations.Applied} and this build expects {migrations.Newest}. {MigrationAdvice.Initialize}"),
         };
 
     private static StatusRow KeyRing(string path, ILogger logger)
