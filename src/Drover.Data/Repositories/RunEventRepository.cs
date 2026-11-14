@@ -84,6 +84,22 @@ public sealed class RunEventRepository(DroverDbContext db)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// The events with one of the given types that the root runs wrote themselves, not the runs they started: each
+    /// tree's oldest first, the trees in the order given.
+    /// </summary>
+    public async Task<List<RunEvent>> ListOwnEventsOfRoots(
+        IReadOnlyList<Guid> rootRunIds,
+        IReadOnlyCollection<string> types,
+        CancellationToken cancellationToken)
+    {
+        var found = await db.RunEvents.AsNoTracking()
+            .Where(stored => rootRunIds.Contains(stored.RootRunId) && stored.RunId == stored.RootRunId && types.Contains(stored.Type))
+            .ToListAsync(cancellationToken);
+        var order = rootRunIds.Select((id, index) => (id, index)).ToDictionary(root => root.id, root => root.index);
+        return [.. found.OrderBy(stored => order[stored.RootRunId]).ThenBy(stored => stored.Seq)];
+    }
+
     /// <summary>The newest event of one run with one of the given types, or null.</summary>
     public Task<RunEvent?> FindLastEvent(Guid runId, IReadOnlyCollection<string> types, CancellationToken cancellationToken) =>
         db.RunEvents.AsNoTracking()

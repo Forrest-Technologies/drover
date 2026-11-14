@@ -51,6 +51,7 @@ public static class RunReducer
         _ => view,
     };
 
+    // A run that is over has no call left open: one that still waited for an answer was stopped with it.
     private static RunView ChangeStatus(RunView view, RunStatusChanged changed) =>
         view with
         {
@@ -59,6 +60,9 @@ public static class RunReducer
             Error = changed.Error,
             Attempt = changed.Attempt,
             Usage = changed.Usage ?? view.Usage,
+            ToolCalls = changed.Status is "completed" or "failed" or "cancelled" && view.ToolCalls.Any(tool => tool.IsOpen)
+                ? [.. view.ToolCalls.Select(tool => tool.Settled())]
+                : view.ToolCalls,
         };
 
     private static RunView StartMessage(RunView view, StepChanged step) =>
@@ -117,7 +121,13 @@ public static class RunReducer
         ChangeTool(view, approval.ToolCallId, tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId });
 
     private static RunView AppendOutput(RunView view, ToolOutput output) =>
-        ChangeTool(view, output.ToolCallId, tool => tool with { Output = $"{tool.Output}{output.Text}" });
+        ChangeTool(view, output.ToolCallId, tool => tool with { Pieces = Append(tool.Pieces, output) });
+
+    // A piece on the stream the last one was on joins it, so a screen marks each change of stream once.
+    private static ImmutableList<ToolOutputPiece> Append(ImmutableList<ToolOutputPiece> pieces, ToolOutput output) =>
+        pieces is [.., var last] && last.Stream == output.Stream
+            ? pieces.SetItem(pieces.Count - 1, last with { Text = $"{last.Text}{output.Text}" })
+            : pieces.Add(new ToolOutputPiece(output.Stream, output.Text));
 
     private static RunView CompleteTool(RunView view, ToolCompleted completed) =>
         ChangeTool(

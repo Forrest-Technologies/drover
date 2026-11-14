@@ -13,9 +13,21 @@ public sealed class ThreadService(
     MessageRepository messages,
     BotRepository bots,
     RunRepository runs,
+    RunEventRepository events,
     TimeProvider time)
 {
     #region Private Fields
+
+    private static readonly string[] toolEventTypes =
+    [
+        RunEventTypes.ToolRequested,
+        RunEventTypes.ToolApprovalRequested,
+        RunEventTypes.ToolApproved,
+        RunEventTypes.ToolDenied,
+        RunEventTypes.ToolStarted,
+        RunEventTypes.ToolOutput,
+        RunEventTypes.ToolCompleted,
+    ];
 
     private const int ListLimit = 200;
 
@@ -74,6 +86,16 @@ public sealed class ThreadService(
         await threads.FindThread(threadId, cancellationToken) is null
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
+
+    /// <summary>
+    /// What the thread's runs did with their tools, as their logs hold it, or null when the caller may not see the
+    /// thread: each run's tool events oldest first, the runs oldest first. Arguments, output, and results in them
+    /// were redacted before they were stored. A delegated bot's own calls belong to its own thread and are not here.
+    /// </summary>
+    public async Task<IReadOnlyList<RunEvent>?> ListToolEvents(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) is null
+            ? null
+            : await events.ListOwnEventsOfRoots(await runs.ListRootRunIds(threadId, cancellationToken), toolEventTypes, cancellationToken);
 
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];

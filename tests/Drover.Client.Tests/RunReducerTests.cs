@@ -208,6 +208,106 @@ public sealed class RunReducerTests
 
     #endregion
 
+    #region Tool Call States
+
+    [Fact]
+    public void A_call_is_requested_then_running_then_ends_as_its_completion_says()
+    {
+        var log = Load(Restart);
+        var requested = log.FindIndex(stored => stored.Type == RunEventTypes.ToolRequested);
+        var started = log.FindIndex(stored => stored.Type == RunEventTypes.ToolStarted);
+        var completed = log.FindIndex(stored => stored.Type == RunEventTypes.ToolCompleted);
+
+        RunReducer.Apply(Start(log), log.Take(requested + 1)).ToolCalls.Single().State.Should().Be("requested");
+        RunReducer.Apply(Start(log), log.Take(started + 1)).ToolCalls.Single().State.Should().Be("running");
+        RunReducer.Apply(Start(log), log.Take(completed + 1)).ToolCalls.Single().Should().Match<ToolCallView>(tool =>
+            tool.State == "completed" && tool.DurationMs == 9 && tool.Preview == """{"answer":42}""");
+    }
+
+    [Theory]
+    [InlineData("completed", false)]
+    [InlineData("failed", true)]
+    [InlineData("refused", true)]
+    [InlineData("interrupted", true)]
+    [InlineData("cancelled", true)]
+    [InlineData("denied", true)]
+    public void A_call_ends_in_the_outcome_its_completion_names(string outcome, bool isError)
+    {
+        var running = RunningCall();
+        var call = running.ToolCalls.Single().ToolCallId;
+
+        var ended = RunReducer.Apply(running, After(running, RunEventTypes.ToolCompleted, new ToolCompleted(call, outcome, isError, "preview", 3)));
+
+        ended.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == outcome && tool.IsError == isError && tool.Preview == "preview");
+    }
+
+    [Fact]
+    public void A_call_cut_off_by_a_restart_is_interrupted_with_its_outcome_unknown()
+    {
+        var running = RunningCall();
+        var call = running.ToolCalls.Single().ToolCallId;
+
+        // What the engine writes for a call that may have side effects and was running when the server died.
+        var repaired = RunReducer.Apply(running, After(running, RunEventTypes.ToolCompleted, new ToolCompleted(call, "interrupted", true, "interrupted, outcome unknown", 0)));
+
+        repaired.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "interrupted" && tool.Preview == "interrupted, outcome unknown");
+    }
+
+    [Fact]
+    public void A_call_still_waiting_for_an_answer_when_its_run_is_cancelled_is_stopped_with_it()
+    {
+        var log = Load(Approval);
+        var waiting = log.FindIndex(stored => stored.Type == RunEventTypes.RunWaiting);
+
+        var paused = RunReducer.Apply(Start(log), log.Take(waiting + 1));
+        var ended = RunReducer.Apply(paused, log.Skip(waiting + 1));
+
+        paused.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "awaiting_approval" && tool.IsOpen);
+        ended.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "cancelled" && !tool.IsOpen);
+    }
+
+    [Fact]
+    public void Output_keeps_its_streams_apart_in_the_order_it_arrived_and_joins_pieces_of_one_stream()
+    {
+        var running = RunningCall();
+        var call = running.ToolCalls.Single().ToolCallId;
+        ToolOutput[] pieces =
+        [
+            new(call, "stdout", "building\n"),
+            new(call, "stdout", "step 1\n"),
+            new(call, "stderr", "warning: slow\n"),
+            new(call, "stdout", "done\n"),
+        ];
+
+        var view = pieces.Aggregate(running, (current, piece) => RunReducer.Apply(current, After(current, RunEventTypes.ToolOutput, piece)));
+
+        view.ToolCalls.Single().Pieces.Should().Equal(
+            new ToolOutputPiece("stdout", "building\nstep 1\n"),
+            new ToolOutputPiece("stderr", "warning: slow\n"),
+            new ToolOutputPiece("stdout", "done\n"));
+        view.ToolCalls.Single().Output.Should().Be("building\nstep 1\nwarning: slow\ndone\n");
+    }
+
+    [Fact]
+    public void A_thread_history_rebuilds_each_past_runs_calls_from_its_tool_events()
+    {
+        var restart = Load(Restart);
+        var approval = Load(Approval);
+        bool IsToolEvent(RunEventResponse stored) => stored.Type.StartsWith("tool.", StringComparison.Ordinal);
+
+        var history = ToolHistory.From([.. restart.Where(IsToolEvent), .. approval.Where(IsToolEvent)]);
+        var live = RunReducer.Apply(Start(restart), restart);
+        var waiting = RunReducer.Apply(Start(approval), approval.Take(approval.FindIndex(stored => stored.Type == RunEventTypes.RunWaiting) + 1));
+
+        history.Should().HaveCount(2);
+        history[live.ToolCalls[0].ToolCallId].Should().BeEquivalentTo(live.ToolCalls[0], "a call reads the same from the history as it did live");
+        history[waiting.ToolCalls[0].ToolCallId].State.Should().Be("cancelled", "the approval log ends with the run cancelled and the call settled");
+        history.With(waiting)[waiting.ToolCalls[0].ToolCallId].State.Should().Be("awaiting_approval", "the run being watched wins over the history");
+        history.With(null).Should().BeSameAs(history);
+    }
+
+    #endregion
+
     #region Timeline
 
     [Fact]
@@ -255,6 +355,13 @@ public sealed class RunReducerTests
         JsonSerializer.Deserialize<List<RunEventResponse>>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture)), json)!;
 
     private static RunView Start(List<RunEventResponse> log) => RunView.Start(log[0].RunId);
+
+    /// <summary>The recorded run up to the moment its one tool call started.</summary>
+    private static RunView RunningCall()
+    {
+        var log = Load(Restart);
+        return RunReducer.Apply(Start(log), log.Take(log.FindIndex(stored => stored.Type == RunEventTypes.ToolStarted) + 1));
+    }
 
     /// <summary>The next event of the view's run, as the server would write it.</summary>
     private static RunEventResponse After(RunView view, string type, object payload) =>

@@ -60,7 +60,7 @@
                         <Icon Name="IconName.ArrowLeft" Size="20" />
                     </a>
                     <Avatar Name="@ShownBot.Name" Hue="BotIdentity.Hue(ShownBot.Id)" Size="48"
-                            State="@(Working ? AvatarState.Thinking : AvatarState.Rest)" />
+                            State="@(Working && run?.Status is not "waiting" ? AvatarState.Thinking : AvatarState.Rest)" />
                     <span class="dv-shell-bot dv-mono">@ShownBot.Name</span>
                     @if (AtList)
                     {
@@ -80,9 +80,9 @@
                 else
                 {
                     <MessageList @ref="list" Messages="Messages" BotName="@ShownBot.Name" BotHue="BotIdentity.Hue(ShownBot.Id)" Thinking="Thinking"
-                                 Problem="@problem" Notice="@Notice" />
+                                 Problem="@problem" Notice="@Notice" Decide="Decide" />
                 }
-                <Composer @ref="composer" BotName="@ShownBot.Name" Running="Working" Disabled="loadingThread" Sending="sending" OnSend="Send"
+                <Composer @ref="composer" BotName="@ShownBot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loadingThread" Sending="sending" OnSend="Send"
                           OnCancel="Stop" />
             }
         </main>

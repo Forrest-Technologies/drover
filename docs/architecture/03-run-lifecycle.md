@@ -212,6 +212,10 @@ Both streams belong to the session that opened them. Before each write, a stream
 
 Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 
+### Past tool calls
+
+`GET /api/spaces/{spaceId}/threads/{threadId}/tool-events` returns, as one JSON list of `RunEventResponse`, the `tool.*` events that the thread's root runs wrote themselves: each run's oldest first, the runs oldest first. It is how a conversation shows a finished run's tool calls the way it showed them live: the client feeds each run's events to `RunReducer` (`ToolHistory.From`), and a call's id is also the id of the `tool_call` part that made it. It runs under the tenant scope filter and answers 404 to anyone who may not read the thread, an admin of the space included, exactly as reading the thread's messages does. It returns the events as stored, so arguments, output, and result previews are already redacted. A delegated bot's own calls are in its own thread's log, not here.
+
 ## Approval
 
 1. The gate saves the tool call as `pending_approval`. The framework ends the run with an approval request, and the pending state is part of the saved session. The run becomes `waiting` with `awaiting_approval`, and the log holds `tool.approval_requested`.

@@ -74,44 +74,113 @@
   padding-top: var(--dv-space-3);
 }
 
-/* The picture fills the width it has and keeps the screen's shape, so nothing jumps when it arrives. */
+.dv-sandbox-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--dv-space-1);
+}
+
+.dv-sandbox-zoom-level {
+  min-width: 4ch;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* The picture fills the width it has and keeps the screen's shape (set on the frame from the picture's own size),
+   so nothing jumps when it arrives. Enlarged, it is moved inside the frame; the frame never grows. */
+.dv-sandbox-frame {
+  width: 100%;
+  margin-inline: auto;
+  scroll-margin-top: var(--dv-space-2);
+  touch-action: pan-x pan-y;
+}
+
+/* Enlarged, a finger on the picture moves the picture, not the page. */
+.dv-sandbox-frame-zoomed {
+  touch-action: none;
+}
+
 .dv-sandbox-picture {
   position: relative;
   display: block;
   width: 100%;
+  height: 100%;
   padding: 0;
   border: var(--dv-border) solid var(--dv-line);
   border-radius: var(--dv-radius-control);
   background: var(--dv-bg-2);
+  color: inherit;
+  font: inherit;
   overflow: hidden;
+  contain: paint;
+}
+
+.dv-sandbox-frame-zoomed .dv-sandbox-picture {
+  cursor: grab;
+}
+
+/* Taps land on the frame, so where they land is measured from the frame and not from the moved picture. */
+.dv-sandbox-layer {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  transition: transform var(--dv-dur-2) var(--dv-ease);
+  pointer-events: none;
 }
 
 .dv-sandbox-image {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
 }
 
-.dv-sandbox-picture-control {
+/* In control the frame is drawn in the person's color, and the words above say so too. */
+.dv-sandbox-frame-control .dv-sandbox-picture {
   border-color: var(--dv-ember);
   cursor: crosshair;
-  touch-action: manipulation;
 }
 
-.dv-sandbox-picture-control:focus-visible {
-  outline: var(--dv-focus-width) solid var(--dv-ember);
-  outline-offset: var(--dv-focus-offset);
-}
-
-/* Where the next keyboard click lands. It moves only when a person moves it. */
+/* Where the next keyboard click lands. It moves only when a person moves it, and keeps its size at any zoom. */
 .dv-sandbox-pointer {
   position: absolute;
   width: var(--dv-space-4);
   height: var(--dv-space-4);
   border: var(--dv-focus-width) solid var(--dv-ember);
   border-radius: var(--dv-radius-full);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(calc(1 / var(--dv-sandbox-zoom)));
   pointer-events: none;
+}
+
+/* While the text field has the focus, the picture is sized to what the on-screen keyboard leaves, with the field
+   right under it. The script sets the room and holds the picture at the top of what is visible. */
+.dv-sandbox-typing .dv-sandbox-frame {
+  width: min(100%, calc(var(--dv-sandbox-room) * var(--dv-sandbox-aspect)));
+}
+
+.dv-sandbox-options {
+  display: flex;
+}
+
+/* A phone on its side: the picture takes the whole width; the header and controls scroll away above it. */
+@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+  .dv-sandbox-frame {
+    width: calc(100vw - 2 * var(--dv-space-4));
+    margin-inline: calc(50% - 50vw + var(--dv-space-4));
+  }
+
+  .dv-sandbox-typing .dv-sandbox-frame {
+    width: min(calc(100vw - 2 * var(--dv-space-4)), calc(var(--dv-sandbox-room) * var(--dv-sandbox-aspect)));
+    margin-inline: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-sandbox-layer {
+    transition: none;
+  }
 }
 
 .dv-sandbox-type,
