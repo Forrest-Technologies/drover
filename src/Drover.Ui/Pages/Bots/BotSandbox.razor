@@ -1,0 +1,208 @@
+@page "/bots/{BotId:guid}/sandbox"
+@layout WorkLayout
+@implements IAsyncDisposable
+
+<PageTitle>@(bot is null ? "Sandbox · Drover" : $"{bot.Name}'s sandbox · Drover")</PageTitle>
+
+<SessionGate>
+    <a class="dv-sandbox-back" href="@Addresses.Bot(BotId)"><Icon Name="IconName.ArrowLeft" />@(bot?.Name ?? "Bot")</a>
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load this sandbox" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (notPermitted)
+    {
+        <EmptyState Title="You cannot use this sandbox" Cause="Owners and admins of this space use its bots' sandboxes. You can still talk to the bot."
+                    ActionLabel="Back to threads" ActionHref="@Addresses.Home" />
+    }
+    else if (missing)
+    {
+        <EmptyState Title="This bot is not here" Cause="It was removed, or it belongs to another space." ActionLabel="See the bots" ActionHref="@Addresses.Bots" />
+    }
+    else if (status is null || bot is null)
+    {
+        <p class="dv-sandbox-hint" role="status">Loading the sandbox.</p>
+    }
+    else if (!status.Available)
+    {
+        <EmptyState Title="No sandbox provider is set up"
+                    Cause="This server has no sandbox provider, so no bot has a sandbox yet. The server's operator adds a provider key; the status page says whether one is set."
+                    ActionLabel="Open the status page" ActionHref="@Addresses.Status" />
+    }
+    else if (!status.HasSandbox)
+    {
+        <EmptyState Title="@($"{bot.Name} has no sandbox")" Cause="Give it one in the Sandbox section of its settings."
+                    ActionLabel="Open its settings" ActionHref="@Addresses.Bot(BotId)" />
+    }
+    else
+    {
+        <section class="dv-sandbox" aria-labelledby="dv-sandbox-title">
+            <header class="dv-sandbox-head">
+                <h1 id="dv-sandbox-title" class="dv-sandbox-title" tabindex="-1">@bot.Name's sandbox</h1>
+                <p class="dv-sandbox-state">
+                    <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status.State)</Badge>
+                    @if (status.BotWorking)
+                    {
+                        <Badge Kind="BadgeKind.Live">Bot working</Badge>
+                    }
+                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, DateTimeOffset.UtcNow)</span>
+                </p>
+                <div class="dv-sandbox-power" role="group" aria-label="Power">
+                    @if (status.State is "paused")
+                    {
+                        <Button Kind="ButtonKind.Primary" OnClick="Resume" Disabled="busy">Resume</Button>
+                    }
+                    else
+                    {
+                        <Button OnClick="Pause" Disabled="@(busy || status.State is not "running")">Pause</Button>
+                    }
+                    <Button OnClick="() => rebuilding = true" Disabled="@(busy || !HasOne)">Rebuild</Button>
+                    <Button Kind="ButtonKind.Danger" OnClick="() => turningOff = true" Disabled="@(busy || !HasOne)">Turn off</Button>
+                </div>
+                @if (PowerHint is { } hint)
+                {
+                    <p class="dv-sandbox-hint">@hint</p>
+                }
+            </header>
+
+            <StatusNote Kind="NoteKind.Danger" Text="@actionProblem" />
+
+            <Tabs Label="Sandbox" Items="Views" @bind-Active="view">
+                @if (context.Id is ScreenView)
+                {
+                    <div class="dv-sandbox-screen">
+                        <div class="dv-sandbox-controlbar">
+                            <Switch Label="Take control" Value="control" ValueChanged="SetControl" />
+                            @if (control)
+                            {
+                                <SegmentedControl Label="What a tap on the screen does" Options="clickModes" @bind-Value="clickMode" />
+                            }
+                        </div>
+                        <p class="dv-sandbox-hint" role="status">@ControlWords</p>
+                        @if (control && status.BotWorking)
+                        {
+                            <StatusNote Text="@($"{bot.Name} is working in this sandbox right now. What you do here happens alongside it.")" />
+                        }
+                        @if (ScreenNote is { } note)
+                        {
+                            <p class="dv-sandbox-hint">@note</p>
+                        }
+
+                        @if (picture is not null && control)
+                        {
+                            <button @ref="pictureButton" type="button" class="dv-sandbox-picture dv-sandbox-picture-control"
+                                    aria-label="@($"{bot.Name}'s sandbox screen. Tap to click there; with the keyboard, arrow keys move the pointer and Enter clicks.")"
+                                    aria-describedby="dv-sandbox-pointer-words" @onclick="ClickPicture" @onkeydown="MovePointer">
+                                <img @ref="pictureImage" class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight" alt="" />
+                                <span class="dv-sandbox-pointer" style="@PointerStyle" aria-hidden="true"></span>
+                            </button>
+                            <p id="dv-sandbox-pointer-words" class="dv-visually-hidden">@PointerWords</p>
+                        }
+                        else if (picture is not null)
+                        {
+                            <img class="dv-sandbox-picture dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight"
+                                 alt="@($"{bot.Name}'s sandbox screen, as it was a moment ago. It refreshes every two seconds while this page is open.")" />
+                        }
+                        else if (WatchesScreen && screenProblem is null)
+                        {
+                            <p class="dv-sandbox-hint" role="status">Getting the screen.</p>
+                        }
+
+                        <StatusNote Kind="NoteKind.Danger" Text="@screenProblem" />
+
+                        @if (control)
+                        {
+                            <form class="dv-sandbox-type" @onsubmit="TypeText">
+                                <Field Label="Text to type" @bind-Value="typed" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000" />
+                                <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">Send</Button>
+                            </form>
+                            <p class="dv-sandbox-hint">Text goes to whatever has the keyboard focus in the sandbox.</p>
+                            <div class="dv-sandbox-keys" role="group" aria-label="Keys">
+                                @foreach (var key in keys)
+                                {
+                                    <Button OnClick="() => Press(key.Keys)" Disabled="sending" aria-label="@key.Name">@key.Label</Button>
+                                }
+                                <Menu Label="Key combinations">
+                                    @foreach (var combination in combinations)
+                                    {
+                                        <MenuItem OnSelect="() => Press(combination.Keys)" Disabled="sending">@combination.Label</MenuItem>
+                                    }
+                                </Menu>
+                            </div>
+                            <div class="dv-sandbox-keys" role="group" aria-label="Scroll">
+                                <Button OnClick="() => Scroll(up: true)" Disabled="sending">Scroll up</Button>
+                                <Button OnClick="() => Scroll(up: false)" Disabled="sending">Scroll down</Button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="dv-sandbox-terminal">
+                        @if (entries.Count == 0)
+                        {
+                            <p class="dv-sandbox-hint">@TerminalHint</p>
+                        }
+                        else
+                        {
+                            <ol class="dv-sandbox-history" aria-label="Commands run on this visit">
+                                @foreach (var entry in entries)
+                                {
+                                    <li class="dv-sandbox-entry" @key="entry">
+                                        <p class="dv-sandbox-command dv-mono">@entry.Command</p>
+                                        @if (entry.Problem is not null)
+                                        {
+                                            <StatusNote Kind="NoteKind.Danger" Text="@entry.Problem" />
+                                        }
+                                        else if (entry.Result is not { } result)
+                                        {
+                                            <p class="dv-sandbox-hint" role="status">Running</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="dv-sandbox-exit">@SandboxWords.Outcome(result)</p>
+                                            @if (result.Stdout.Length > 0)
+                                            {
+                                                <CodeBlock Code="@result.Stdout" Language="Output" />
+                                            }
+                                            @if (result.Stderr.Length > 0)
+                                            {
+                                                <CodeBlock Code="@result.Stderr" Language="Errors" />
+                                            }
+                                        }
+                                    </li>
+                                }
+                            </ol>
+                        }
+                        <form class="dv-sandbox-run" @onsubmit="RunCommand">
+                            <Field Label="Command" @bind-Value="command" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4000"
+                                   class="dv-field-input dv-facet dv-mono" />
+                            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(running || string.IsNullOrWhiteSpace(command))">@(running ? "Running" : "Run")</Button>
+                        </form>
+                    </div>
+                }
+            </Tabs>
+        </section>
+
+        <Dialog Title="Rebuild the sandbox" @bind-Open="rebuilding">
+            <ChildContent>
+                <p>@bot.Name gets a fresh sandbox now. Everything in this one is lost: its files, open windows, and anything installed.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => rebuilding = false">Keep this sandbox</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="Rebuild">Rebuild</Button>
+            </Actions>
+        </Dialog>
+
+        <Dialog Title="Turn off the sandbox" @bind-Open="turningOff">
+            <ChildContent>
+                <p>The sandbox is removed now, and everything in it is lost: its files, open windows, and anything installed. A new, empty one starts the next time @bot.Name or you use it.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => turningOff = false">Keep it</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="TurnOff">Turn off</Button>
+            </Actions>
+        </Dialog>
+    }
+</SessionGate>

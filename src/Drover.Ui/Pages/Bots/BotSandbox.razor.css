@@ -1,0 +1,166 @@
+/* A bot's sandbox: its state and power controls on top, then the screen or the terminal, full width on a phone. */
+.dv-sandbox-back {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-touch);
+  padding: 0 var(--dv-space-2);
+  border-radius: var(--dv-radius-control);
+  color: var(--dv-text-2);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.dv-sandbox-back:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+.dv-sandbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-4);
+  min-width: 0;
+}
+
+.dv-sandbox-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-sandbox-title {
+  margin: 0;
+  font-size: var(--dv-text-20);
+  font-weight: var(--dv-weight-heading);
+  line-height: var(--dv-leading-heading);
+  overflow-wrap: anywhere;
+}
+
+.dv-sandbox-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+  margin: 0;
+}
+
+.dv-sandbox-used,
+.dv-sandbox-hint,
+.dv-sandbox-exit {
+  margin: 0;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+}
+
+.dv-sandbox-power,
+.dv-sandbox-keys,
+.dv-sandbox-controlbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+}
+
+.dv-sandbox-screen,
+.dv-sandbox-terminal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding-top: var(--dv-space-3);
+}
+
+/* The picture fills the width it has and keeps the screen's shape, so nothing jumps when it arrives. */
+.dv-sandbox-picture {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-2);
+  overflow: hidden;
+}
+
+.dv-sandbox-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.dv-sandbox-picture-control {
+  border-color: var(--dv-ember);
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.dv-sandbox-picture-control:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+/* Where the next keyboard click lands. It moves only when a person moves it. */
+.dv-sandbox-pointer {
+  position: absolute;
+  width: var(--dv-space-4);
+  height: var(--dv-space-4);
+  border: var(--dv-focus-width) solid var(--dv-ember);
+  border-radius: var(--dv-radius-full);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dv-sandbox-type,
+.dv-sandbox-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--dv-space-2);
+}
+
+.dv-sandbox-type ::deep .dv-field,
+.dv-sandbox-run ::deep .dv-field {
+  flex: 1 1 var(--dv-column-min);
+  min-width: 0;
+}
+
+.dv-sandbox-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dv-sandbox-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-sandbox-command {
+  margin: 0;
+  color: var(--dv-text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+@media (pointer: coarse) {
+  .dv-sandbox ::deep .dv-button,
+  .dv-sandbox ::deep .dv-menu-trigger,
+  .dv-sandbox ::deep .dv-switch,
+  .dv-sandbox ::deep .dv-code-copy,
+  .dv-sandbox ::deep .dv-field-input {
+    min-height: var(--dv-target-touch);
+  }
+
+  .dv-sandbox ::deep .dv-button {
+    min-width: var(--dv-target-touch);
+  }
+}

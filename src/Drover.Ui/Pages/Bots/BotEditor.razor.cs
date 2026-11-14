@@ -51,6 +51,8 @@ public sealed partial class BotEditor(
 
     private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
 
+    private BotSandboxStatus? sandboxStatus;
+
     private IReadOnlyList<BotSummary> otherBots = [];
 
     private Guid? shownBotId;
@@ -164,6 +166,7 @@ public sealed partial class BotEditor(
             writtenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
             sandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             rules = await api.ListBotRules(SpaceId, BotId);
+            sandboxStatus = await ReadSandbox();
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {
@@ -179,6 +182,20 @@ public sealed partial class BotEditor(
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditor));
             loadProblem = Failures.Sentence(exception);
+        }
+    }
+
+    /// <summary>The sandbox's state for the Sandbox section. The editor works without it, so a failure only leaves it out.</summary>
+    private async Task<BotSandboxStatus?> ReadSandbox()
+    {
+        try
+        {
+            return await api.GetBotSandbox(SpaceId, BotId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The sandbox state is left out of the {Screen} screen", nameof(BotEditor));
+            return null;
         }
     }
 

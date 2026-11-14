@@ -2,6 +2,14 @@
 @* The note's live region stays in place; only its text comes and goes. *@
 <StatusNote Text="@(Options.Available ? null : NoProvider)" />
 
+@if (Status is { Available: true, HasSandbox: true } live)
+{
+    <p class="dv-editor-sandbox-live">
+        <span>@SandboxWords.Summary(live, DateTimeOffset.UtcNow)</span>
+        <a href="@Addresses.BotSandbox(BotId)">Open the sandbox</a>
+    </p>
+}
+
 <Select Label="Sandbox" @bind-Value="Draft.SandboxPolicy" @bind-Value:after="Changed">
     @foreach (var policy in policies)
     {
@@ -77,6 +85,13 @@
 
     [Parameter, EditorRequired]
     public BotDraft Draft { get; set; } = new();
+
+    [Parameter, EditorRequired]
+    public Guid BotId { get; set; }
+
+    /// <summary>The bot's sandbox as it is now: its state and last use, with a way to its screen. Null until known.</summary>
+    [Parameter]
+    public BotSandboxStatus? Status { get; set; }
 
     /// <summary>The space's other bots, which a sandbox can be shared with.</summary>
     [Parameter]

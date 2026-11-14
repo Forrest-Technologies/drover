@@ -308,6 +308,32 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task The_sandbox_section_says_how_the_sandbox_is_now_and_leads_to_its_screen()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/sandbox", new BotSandboxStatus(true, true, "paused", DateTimeOffset.UtcNow.AddMinutes(-10.5), Desktop: true, BotWorking: false));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        var live = page.Find(".dv-disclosure-open .dv-editor-sandbox-live");
+        Words(live.QuerySelector("span")!.TextContent).Should().Be("Paused · used 10 minutes ago");
+        var link = live.QuerySelector("a")!;
+        link.TextContent.Should().Be("Open the sandbox");
+        link.GetAttribute("href").Should().Be(Addresses.BotSandbox(botId));
+    }
+
+    [Fact]
+    public async Task The_sandbox_section_leaves_the_state_out_when_it_cannot_be_read()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        page.FindAll(".dv-editor-sandbox-live").Should().BeEmpty();
+        Labels(page).Should().Contain("Sandbox", "the settings stay whatever the state");
+    }
+
+    [Fact]
     public async Task Open_network_is_not_offered_where_the_server_forbids_it_and_the_editor_says_so()
     {
         Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
