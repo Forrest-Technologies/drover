@@ -10,6 +10,7 @@ public sealed class PasswordService(
     UserManager<User> users,
     AccountRepository accounts,
     SessionRepository sessions,
+    SessionRevocations revocations,
     TenantScope scope,
     TenantContext tenant,
     TimeProvider time)
@@ -70,6 +71,7 @@ public sealed class PasswordService(
         await sessions.RemoveAllBut(sessionId, cancellationToken);
         var stamp = await users.GetSecurityStampAsync(user);
         await work.Commit(cancellationToken);
+        revocations.Announce(userId);
         return new PasswordResult(PasswordOutcome.Changed, [], stamp);
     }
 
@@ -144,6 +146,7 @@ public sealed class PasswordService(
         EnsureSucceeded(await users.ResetAccessFailedCountAsync(user));
         await sessions.RemoveAll(cancellationToken);
         await work.Commit(cancellationToken);
+        revocations.Announce(userId);
         return new PasswordResult(PasswordOutcome.Changed, []);
     }
 
