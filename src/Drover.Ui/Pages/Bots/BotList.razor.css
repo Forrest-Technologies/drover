@@ -71,3 +71,11 @@ a.dv-bot-name:focus-visible::after {
 .dv-bot-facts {
   overflow-wrap: anywhere;
 }
+
+@media (pointer: coarse) {
+  .dv-bot-name {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--dv-target-touch);
+  }
+}

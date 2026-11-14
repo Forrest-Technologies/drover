@@ -55,8 +55,16 @@
   border-color: var(--dv-line);
 }
 
+/* The drawn switch stays as it is; the invisible input grows to cover the whole row, which is at least touch size. */
 @media (pointer: coarse) {
   .dv-switch {
+    position: relative;
     min-height: var(--dv-target-touch);
+  }
+
+  .dv-switch-input {
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
 }

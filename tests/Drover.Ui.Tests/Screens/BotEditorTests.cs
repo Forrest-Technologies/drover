@@ -256,6 +256,22 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task The_save_bar_marks_a_problem_so_a_phone_gives_it_a_row_of_its_own()
+    {
+        Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "Give the bot a name of up to 200 characters.");
+        var page = RenderEditor();
+
+        await page.Find(".dv-editor-names input").InputAsync(new ChangeEventArgs { Value = "Scout" });
+        page.Find(".dv-editor-save").ClassList.Should().NotContain("dv-editor-save-problem");
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-editor-save").ClassList.Should().Contain("dv-editor-save-problem"));
+        page.Find(".dv-editor-save [role=alert]").TextContent.Should().Contain("Give the bot a name");
+        page.Find(".dv-editor-save").QuerySelectorAll("button").Select(button => button.TextContent.Trim())
+            .Should().Equal("Discard", "Save changes");
+    }
+
+    [Fact]
     public async Task A_number_that_is_not_a_number_is_said_before_anything_is_sent()
     {
         var page = RenderEditor();
