@@ -194,6 +194,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var options = (await (await client.Get($"/api/spaces/{spaceId}/bots/{Guid.CreateVersion7()}/sandbox/options")).Content.ReadFromJsonAsync<BotSandboxOptions>(Token))!;
 
         options.OpenNetwork.Should().Be(Setting(nameof(DeploymentPolicy.AllowOpenSandboxNetwork)) == "true");
+        options.Desktop.Should().Be(Setting(nameof(DeploymentPolicy.AllowDesktopSandboxes)) == "true");
         options.MaxIdleMinutes.Should().Be(int.Parse(Setting(nameof(DeploymentPolicy.MaxSandboxIdleMinutes)), CultureInfo.InvariantCulture));
         var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
         rules.MaxSandboxCommandSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSandboxCommandSeconds)));

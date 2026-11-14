@@ -52,6 +52,7 @@ public static class DeploymentPolicyExtensions
             MaxSandboxFileBytes = DeploymentPolicy.HostedMaxSandboxFileBytes,
             MaxSandboxIdleMinutes = DeploymentPolicy.HostedMaxSandboxIdleMinutes,
             AllowOpenSandboxNetwork = false,
+            AllowDesktopSandboxes = false,
         };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>

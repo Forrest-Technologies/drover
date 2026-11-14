@@ -36,7 +36,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("GET", $"{bot}/schedules", Array.Empty<BotScheduleResponse>());
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
         Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
-        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: true, MaxIdleMinutes: 60));
+        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: true, MaxIdleMinutes: 60, Desktop: true));
     }
 
     #endregion
@@ -296,7 +296,7 @@ public sealed class BotEditorTests : ScreenTest
         await Open(configured, 5);
         var configuredNotes = configured.FindAll(".dv-disclosure-open [role=status]");
 
-        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: false, OpenNetwork: true, MaxIdleMinutes: 60));
+        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: false, OpenNetwork: true, MaxIdleMinutes: 60, Desktop: true));
         var bare = RenderEditor();
         await Open(bare, 5);
 
@@ -311,7 +311,7 @@ public sealed class BotEditorTests : ScreenTest
     public async Task Open_network_is_not_offered_where_the_server_forbids_it_and_the_editor_says_so()
     {
         Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
-        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15));
+        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -331,6 +331,51 @@ public sealed class BotEditorTests : ScreenTest
         var network = page.FindAll(".dv-disclosure-open .dv-segmented").Single(group => Words(group.QuerySelector("legend")!.TextContent) == "Sandbox network");
         network.QuerySelectorAll(".dv-segment").Select(segment => Words(segment.TextContent)).Should().Equal("Off", "Named hosts", "Open");
         page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(hint => hint.TextContent).Should().NotContain("Open internet access is not available on this server.");
+    }
+
+    [Fact]
+    public async Task The_desktop_switch_says_what_it_costs_and_shows_and_is_saved_with_the_sandbox()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        var desktop = page.FindAll(".dv-disclosure-open input[role=switch]").Single(input => Words(input.ParentElement!.TextContent) == "Desktop");
+        desktop.GetAttribute("type").Should().Be("checkbox");
+        desktop.HasAttribute("checked").Should().BeFalse();
+        var hint = page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => found.TextContent).Single(text => text.Contains("screen", StringComparison.Ordinal));
+        hint.Should().Contain("costs more to run").And.Contain("can show anything on that screen").And.Contain("replaces the sandbox");
+        hint.Should().NotContainEquivalentOf("e2b", "the interface names no vendor");
+
+        await desktop.ChangeAsync(new ChangeEventArgs { Value = true });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which.Should().Contain("\"desktop\":true"));
+    }
+
+    [Fact]
+    public async Task The_desktop_switch_is_not_offered_where_the_server_forbids_it_and_the_editor_says_so()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        page.FindAll(".dv-disclosure-open input[role=switch]").Should().NotContain(input => Words(input.ParentElement!.TextContent) == "Desktop");
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(hint => hint.TextContent).Should().Contain("A sandbox with a screen is not available on this server.");
+    }
+
+    [Fact]
+    public async Task A_bot_saved_with_a_screen_keeps_the_switch_where_the_server_forbids_one_so_it_can_be_turned_off()
+    {
+        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
+        var page = RenderEditor();
+        await Open(page, 5);
+
+        page.FindAll(".dv-disclosure-open input[role=switch]").Single(input => Words(input.ParentElement!.TextContent) == "Desktop").HasAttribute("checked").Should().BeTrue();
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(hint => hint.TextContent).Should().Contain("A sandbox with a screen is not available on this server.");
     }
 
     #endregion

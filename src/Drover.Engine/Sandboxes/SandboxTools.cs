@@ -28,7 +28,7 @@ public static class SandboxTools
 
     #region Public Methods
 
-    /// <summary>Registers the broker and the four tools. Needs an <see cref="ISandboxProvider"/>.</summary>
+    /// <summary>Registers the broker, the four sandbox tools, and the computer tools. Needs an <see cref="ISandboxProvider"/>.</summary>
     public static IServiceCollection AddSandboxTools(this IServiceCollection services)
     {
         services.AddSingleton<SandboxBroker>();
@@ -36,7 +36,7 @@ public static class SandboxTools
         services.AddSingleton(provider => ReadFile(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => WriteFile(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => ListFiles(provider.GetRequiredService<SandboxBroker>()));
-        return services;
+        return services.AddComputerTools();
     }
 
     public static bool IsSandboxTool(string name) => Names.Contains(name, StringComparer.Ordinal);

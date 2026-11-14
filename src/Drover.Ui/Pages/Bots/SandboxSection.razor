@@ -51,6 +51,18 @@
 
     <Field Label="Stop after idle minutes" @bind-Value="Draft.IdleTimeoutMinutes" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
            Placeholder="@IdlePlaceholder" />
+
+    @* A bot already set to have a screen keeps the switch, so it can be turned off; the server refuses to save it on. *@
+    @if (Options.Desktop || Draft.Desktop)
+    {
+        <Switch Label="Desktop" @bind-Value="Draft.Desktop" @bind-Value:after="Changed" />
+        <p class="dv-editor-hint">@DesktopHint</p>
+    }
+
+    @if (!Options.Desktop)
+    {
+        <p class="dv-editor-hint">A sandbox with a screen is not available on this server.</p>
+    }
 }
 
 @code {
@@ -72,7 +84,7 @@
 
     /// <summary>What a sandbox on this server may be. Until it is known, nothing is hidden.</summary>
     [Parameter]
-    public BotSandboxOptions Options { get; set; } = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0);
+    public BotSandboxOptions Options { get; set; } = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
 
     [Parameter]
     public EventCallback OnChanged { get; set; }
@@ -89,6 +101,9 @@
         "named" => "The bots you choose work in the same files as this one and can change its work.",
         _ => "This bot runs no code and keeps no files of its own.",
     };
+
+    private const string DesktopHint =
+        "Gives the sandbox a screen the bot sees in screenshots and uses with the mouse and keyboard, when its model can read images. It costs more to run. Screenshots go to the model as they are, so they can show anything on that screen, passwords included. Changing this replaces the sandbox, and its files, on its next use.";
 
     private Task Changed() => OnChanged.InvokeAsync();
 

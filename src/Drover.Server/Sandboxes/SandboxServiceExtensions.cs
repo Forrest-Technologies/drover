@@ -31,6 +31,7 @@ public static class SandboxServiceExtensions
             options.ApiKey = key;
             options.Domain = section["Domain"] is { Length: > 0 } domain ? domain : options.Domain;
             options.Template = section["Template"] is { Length: > 0 } template ? template : options.Template;
+            options.DesktopTemplate = section["DesktopTemplate"] is { Length: > 0 } desktop ? desktop : options.DesktopTemplate;
         });
         services.AddSandboxTools();
         return services;

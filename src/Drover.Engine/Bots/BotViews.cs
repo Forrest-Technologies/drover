@@ -31,7 +31,7 @@ public static class BotViews
                 bot.MemorySettings.CompactAtTokens,
                 bot.MemorySettings.KeepRecentMessages),
             Words.Of(bot.SandboxPolicy),
-            new SandboxSettingsBody(Words.Of(bot.SandboxSettings.Network), bot.SandboxSettings.AllowedHosts, bot.SandboxSettings.IdleTimeoutMinutes),
+            new SandboxSettingsBody(Words.Of(bot.SandboxSettings.Network), bot.SandboxSettings.AllowedHosts, bot.SandboxSettings.IdleTimeoutMinutes, bot.SandboxSettings.Desktop),
             view.SandboxSharedWith,
             Words.Of(bot.Status),
             bot.ParentBotId,
@@ -130,7 +130,7 @@ public static class BotViews
 
     private static SandboxSettings? Read(SandboxSettingsBody body) =>
         Words.Read<NetworkAccess>(body.Network) is { } network
-            ? new SandboxSettings { Network = network, AllowedHosts = body.AllowedHosts ?? [], IdleTimeoutMinutes = body.IdleTimeoutMinutes }
+            ? new SandboxSettings { Network = network, AllowedHosts = body.AllowedHosts ?? [], IdleTimeoutMinutes = body.IdleTimeoutMinutes, Desktop = body.Desktop }
             : null;
 
     #endregion

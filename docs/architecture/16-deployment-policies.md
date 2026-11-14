@@ -37,6 +37,7 @@ Collected from the rest of this document. Each is a typed property on the `Deplo
 | Sandbox adapters available | All | Only those with a hard isolation boundary; the Docker adapter is off | Plain containers are not a boundary between strangers |
 | Sandbox limits: command time, file size, idle time before pausing | Generous | Tighter | A running sandbox costs the operator money whether it is used or not |
 | Sandbox open internet access | Allowed | Forbidden; off and named hosts only | Under the operator's provider account, what a stranger's sandbox does on the open internet is the operator's liability |
+| Sandboxes with a screen (computer use) | Allowed | Forbidden | A desktop sandbox is a far larger machine; until per-space quotas exist, nothing bounds what it costs the operator |
 | Local-process (stdio) MCP servers | Inside a sandbox only | Inside a sandbox only | Never on the host, in any mode |
 | Subscription sign-in adapters, per provider | On where the provider permits self-hosted use | Off unless the operator has that provider's approval for hosted use, recorded per provider | Provider terms differ for hosted apps |
 | Model providers available | All | A list the operator sets, after reading each provider's terms for hosted use | Same |
@@ -75,6 +76,7 @@ Each rule is a property of `DeploymentPolicy` with the name below. A rule marked
 | `MaxSandboxFileBytes` | `52428800` | `10485760` | Enforced: `SandboxBroker`. A file a bot reads from or writes to a sandbox is at most this large; a larger one is refused, not cut. A limit, as above |
 | `MaxSandboxIdleMinutes` | `60` | `15` | Enforced: `SandboxBroker`, which never keeps a sandbox running longer than this after its last use, and `BotService`, which refuses a bot's idle time above it. A limit, as above |
 | `AllowOpenSandboxNetwork` | `true` | `false` | Enforced: `SandboxBroker` refuses to use a sandbox whose bot is set to open network, `BotService` refuses to save that setting, and the editor does not offer it and says it is not available on this server. Off and named hosts stay. Open still denies private, carrier-grade NAT, and link-local ranges ([07-sandbox.md](07-sandbox.md)) |
+| `AllowDesktopSandboxes` | `true` | `false` | Enforced: `RunExecutor` offers no computer tool, `SandboxBroker` refuses to use (or make) the sandbox of a bot set to have a screen, `BotService` refuses to save that setting, and the editor's sandbox options (`GET .../sandbox/options`, `desktop`) leave the Desktop switch out and say a sandbox with a screen is not available on this server. A bot saved with it on keeps the switch, so it can be turned off. Off in the hosted preset until per-space quotas exist: a sandbox with a screen is a far larger machine (E2B's `desktop` template is 8 vCPU and 8 GB) and nothing yet bounds what strangers run on the operator's account ([07-sandbox.md](07-sandbox.md#computer-use)) |
 | `AllowHostStdioMcp` | `false` | `false` | Later: MCP tool servers (Phase 1) |
 | `SubscriptionSignIn` | `WhereProviderPermits` | `OnlyWithOperatorApproval` | Later: model providers |
 | `ModelProviders` | `All` | `OperatorList` | Later: model providers |
