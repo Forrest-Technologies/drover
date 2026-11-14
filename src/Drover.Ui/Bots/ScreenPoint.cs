@@ -2,8 +2,9 @@ namespace Drover.Ui.Bots;
 
 /// <summary>
 /// Where on a sandbox's screen a person means. The picture is shown scaled to the width it has, on a phone as on a
-/// desk, so a tap on the picture is mapped from the size it is shown at to the size the screen really is. The
-/// keyboard moves a pointer over the picture in screen pixels.
+/// desk, and may be enlarged and moved (<see cref="ScreenZoom"/>), so a tap on the picture is mapped from the size
+/// it is shown at, the zoom, and the offset to the size the screen really is. The keyboard moves a pointer over the
+/// picture in screen pixels.
 /// </summary>
 public static class ScreenPoint
 {
@@ -31,6 +32,31 @@ public static class ScreenPoint
         int screenWidth,
         int screenHeight) =>
         (Scale(offsetX, shownWidth, screenWidth), Scale(offsetY, shownHeight, screenHeight));
+
+    /// <summary>
+    /// The screen pixel under a point of a picture frame <paramref name="shownWidth"/> by <paramref name="shownHeight"/>
+    /// that shows the screen enlarged and moved as <paramref name="view"/> says. <paramref name="offsetX"/> and
+    /// <paramref name="offsetY"/> are from the frame's top left corner. Always on the screen.
+    /// </summary>
+    public static (int X, int Y) FromShown(
+        double offsetX,
+        double offsetY,
+        double shownWidth,
+        double shownHeight,
+        int screenWidth,
+        int screenHeight,
+        ScreenZoom view) =>
+        FromShown(
+            (offsetX - (view.X * shownWidth)) / view.Scale,
+            (offsetY - (view.Y * shownHeight)) / view.Scale,
+            shownWidth,
+            shownHeight,
+            screenWidth,
+            screenHeight);
+
+    /// <summary>A screen pixel's middle as a share of the screen's width and height, from 0 to 1.</summary>
+    public static (double X, double Y) Share((int X, int Y) point, int screenWidth, int screenHeight) =>
+        ((point.X + 0.5) / screenWidth, (point.Y + 0.5) / screenHeight);
 
     /// <summary>The pointer moved by an arrow key, kept on the screen. Null for any other key.</summary>
     public static (int X, int Y)? Move((int X, int Y) from, string key, bool far, int screenWidth, int screenHeight)

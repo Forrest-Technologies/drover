@@ -89,20 +89,43 @@
                             <p class="dv-sandbox-hint">@note</p>
                         }
 
-                        @if (picture is not null && control)
+                        @if (picture is not null)
                         {
-                            <button @ref="pictureButton" type="button" class="dv-sandbox-picture dv-sandbox-picture-control"
-                                    aria-label="@($"{bot.Name}'s sandbox screen. Tap to click there; with the keyboard, arrow keys move the pointer and Enter clicks.")"
-                                    aria-describedby="dv-sandbox-pointer-words" @onclick="ClickPicture" @onkeydown="MovePointer">
-                                <img @ref="pictureImage" class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight" alt="" />
-                                <span class="dv-sandbox-pointer" style="@PointerStyle" aria-hidden="true"></span>
-                            </button>
-                            <p id="dv-sandbox-pointer-words" class="dv-visually-hidden">@PointerWords</p>
-                        }
-                        else if (picture is not null)
-                        {
-                            <img class="dv-sandbox-picture dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight"
-                                 alt="@($"{bot.Name}'s sandbox screen, as it was a moment ago. It refreshes every two seconds while this page is open.")" />
+                            <div class="dv-sandbox-zoom" role="group" aria-label="Zoom">
+                                <Button OnClick="ZoomOut" Disabled="zoom.IsFit">Zoom out</Button>
+                                <span class="dv-sandbox-zoom-level" aria-live="polite">@zoom.Percent</span>
+                                <Button OnClick="ZoomIn" Disabled="zoom.IsMax">Zoom in</Button>
+                                <Button OnClick="FitScreen" Disabled="zoom.IsFit">Fit</Button>
+                            </div>
+                            <div class="@FrameClass" style="@FrameStyle">
+                                @if (control)
+                                {
+                                    <button @ref="pictureButton" type="button" class="dv-sandbox-picture dv-sandbox-picture-control"
+                                            aria-label="@($"{bot.Name}'s sandbox screen. Tap to click there; with the keyboard, arrow keys move the pointer and Enter clicks.")"
+                                            aria-describedby="dv-sandbox-pointer-words" @onclick="ClickPicture" @onkeydown="MovePointer">
+                                        <span class="dv-sandbox-layer" style="@LayerStyle" data-scale="@ViewNumber(zoom.Scale)"
+                                              data-x="@ViewNumber(zoom.X)" data-y="@ViewNumber(zoom.Y)">
+                                            <img class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight" alt="" />
+                                            <span class="dv-sandbox-pointer" style="@PointerStyle" aria-hidden="true"></span>
+                                        </span>
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="dv-sandbox-picture" tabindex="@(zoom.IsFit ? null : "0")" role="@(zoom.IsFit ? null : "group")"
+                                         aria-label="@(zoom.IsFit ? null : "Enlarged screen. Arrow keys move the view.")" @onkeydown="PanView">
+                                        <span class="dv-sandbox-layer" style="@LayerStyle" data-scale="@ViewNumber(zoom.Scale)"
+                                              data-x="@ViewNumber(zoom.X)" data-y="@ViewNumber(zoom.Y)">
+                                            <img class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight"
+                                                 alt="@($"{bot.Name}'s sandbox screen, as it was a moment ago. It refreshes every two seconds while this page is open.")" />
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                            @if (control)
+                            {
+                                <p id="dv-sandbox-pointer-words" class="dv-visually-hidden">@PointerWords</p>
+                            }
                         }
                         else if (WatchesScreen && screenProblem is null)
                         {
@@ -113,10 +136,14 @@
 
                         @if (control)
                         {
-                            <form class="dv-sandbox-type" @onsubmit="TypeText">
-                                <Field Label="Text to type" @bind-Value="typed" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000" />
+                            <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
+                                <Field Label="Text to type" @bind-Value="typed" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000"
+                                       enterkeyhint="send" />
                                 <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">Send</Button>
                             </form>
+                            <div class="dv-sandbox-options">
+                                <Switch Label="Press Enter after" @bind-Value="enterAfter" />
+                            </div>
                             <p class="dv-sandbox-hint">Text goes to whatever has the keyboard focus in the sandbox.</p>
                             <div class="dv-sandbox-keys" role="group" aria-label="Keys">
                                 @foreach (var key in keys)

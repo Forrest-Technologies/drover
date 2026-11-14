@@ -286,6 +286,7 @@ public sealed class BotSandboxTests : ScreenTest
     {
         Answer(Status("running"));
         var page = await RenderInControl();
+        await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = false });
 
         await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "sample text" });
         await page.Find("form.dv-sandbox-type").SubmitAsync();
@@ -305,6 +306,196 @@ public sealed class BotSandboxTests : ScreenTest
 
         page.FindAll(".dv-sandbox-state .dv-badge").Select(badge => badge.TextContent).Should().Contain("Bot working");
         page.Find(".dv-sandbox-screen").TextContent.Should().Contain("Sample bot is working in this sandbox right now.");
+    }
+
+    [Fact]
+    public async Task Text_is_sent_from_the_keyboards_own_action_key_and_Enter_follows_it_by_default()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        var field = page.Find(".dv-sandbox-type input");
+
+        field.GetAttribute("enterkeyhint").Should().Be("send");
+        EnterAfterSwitch(page).HasAttribute("checked").Should().BeTrue();
+        page.Find(".dv-sandbox-options .dv-switch-label").TextContent.Should().Be("Press Enter after");
+        page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Send");
+
+        await field.InputAsync(new ChangeEventArgs { Value = "ls -la" });
+        await page.Find("form.dv-sandbox-type").SubmitAsync();
+
+        page.WaitForAssertion(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().BeEquivalentTo(
+            [new SandboxInputRequest("type", Text: "ls -la"), new SandboxInputRequest("key", Keys: ["enter"])],
+            options => options.WithStrictOrdering()));
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-type input").GetAttribute("value").Should().BeEmpty());
+        module.VerifyInvoke("keepTyping");
+    }
+
+    [Fact]
+    public async Task Text_that_was_refused_stays_in_the_field_and_no_Enter_follows_it()
+    {
+        Answer(Status("running"));
+        Server.Refuse("POST", $"{sandbox}/input", HttpStatusCode.BadRequest, "The text has a character the sandbox cannot type.");
+        var page = await RenderInControl();
+
+        await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "sample" });
+        await page.Find("form.dv-sandbox-type").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen [role=alert]").TextContent.Should().Contain("cannot type"));
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("type");
+        page.Find(".dv-sandbox-type input").GetAttribute("value").Should().Be("sample");
+    }
+
+    [Theory]
+    [InlineData("tap")]
+    [InlineData("text")]
+    [InlineData("key")]
+    [InlineData("scroll")]
+    public async Task Anything_a_person_sends_brings_a_new_picture_at_once_instead_of_on_the_timer(string input)
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        Pictures().Should().Be(1);
+
+        await SendOne(page, input);
+
+        (await PicturesWithin(2)).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Inputs_in_quick_succession_never_pile_up_picture_requests()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        var gate = Server.Hold("POST", $"{sandbox}/screen");
+
+        await SendOne(page, "key");
+        (await PicturesWithin(2)).Should().Be(2);
+        for (var press = 0; press < 4; press++)
+        {
+            await SendOne(page, "key");
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(700), Xunit.TestContext.Current.CancellationToken);
+        Pictures().Should().Be(2, "one picture is in flight, and the inputs behind it wait for it");
+        gate.SetResult();
+        (await PicturesWithin(3)).Should().Be(3);
+        await Task.Delay(TimeSpan.FromMilliseconds(700), Xunit.TestContext.Current.CancellationToken);
+        Pictures().Should().Be(3, "the inputs made while one was in flight add one picture, not one each");
+    }
+
+    #endregion
+
+    #region Zoom
+
+    [Fact]
+    public void The_picture_has_named_zoom_controls_and_starts_fitted()
+    {
+        Answer(Status("running"));
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find("[role=group][aria-label=Zoom]"));
+        var zoom = page.Find("[role=group][aria-label=Zoom]");
+        zoom.QuerySelectorAll("button").Select(button => button.GetAttribute("aria-label") ?? button.TextContent.Trim())
+            .Should().Equal("Zoom out", "Zoom in", "Fit");
+        zoom.QuerySelector("[aria-live=polite]")!.TextContent.Should().Be("100%");
+        ZoomButton(page, "Zoom out").HasAttribute("disabled").Should().BeTrue();
+        ZoomButton(page, "Fit").HasAttribute("disabled").Should().BeTrue();
+        ZoomButton(page, "Zoom in").HasAttribute("disabled").Should().BeFalse();
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("scale(1)");
+        page.Find(".dv-sandbox-frame").GetAttribute("style").Should().Contain("aspect-ratio: 1024 / 768");
+    }
+
+    [Fact]
+    public async Task Zoom_in_enlarges_around_the_middle_and_fit_shows_the_whole_screen_again()
+    {
+        Answer(Status("running"));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find("[role=group][aria-label=Zoom]"));
+
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+
+        page.Find("[role=group][aria-label=Zoom] [aria-live=polite]").TextContent.Should().Be("200%");
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-50%, -50%) scale(2)");
+        page.Find(".dv-sandbox-frame").ClassList.Should().Contain("dv-sandbox-frame-zoomed");
+        ZoomButton(page, "Zoom out").HasAttribute("disabled").Should().BeFalse();
+
+        await ZoomButton(page, "Fit").ClickAsync(new MouseEventArgs());
+
+        page.Find("[role=group][aria-label=Zoom] [aria-live=polite]").TextContent.Should().Be("100%");
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(0%, 0%) scale(1)");
+        page.Find(".dv-sandbox-frame").ClassList.Should().NotContain("dv-sandbox-frame-zoomed");
+    }
+
+    [Fact]
+    public async Task Zoomed_in_view_only_the_picture_takes_the_focus_and_the_arrow_keys_move_it()
+    {
+        Answer(Status("running"));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find("[role=group][aria-label=Zoom]"));
+        page.Find("div.dv-sandbox-picture").HasAttribute("tabindex").Should().BeFalse("at fit there is nothing to move");
+
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+        var picture = page.Find("div.dv-sandbox-picture");
+        picture.GetAttribute("tabindex").Should().Be("0");
+        picture.GetAttribute("aria-label").Should().Be("Enlarged screen. Arrow keys move the view.");
+        page.Find("img.dv-sandbox-image").GetAttribute("alt").Should().StartWith("Sample bot's sandbox screen");
+
+        await picture.KeyDownAsync(new KeyboardEventArgs { Key = "ArrowRight", ShiftKey = true });
+
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-90%, -50%) scale(2)");
+        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty("looking around sends nothing to the sandbox");
+    }
+
+    [Fact]
+    public async Task A_tap_on_the_enlarged_picture_clicks_the_sandbox_pixel_under_it()
+    {
+        Answer(Status("running"));
+        module.Setup<double[]?>("size", _ => true).SetResult([400, 300]);
+        var page = await RenderInControl();
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+
+        await page.Find("button.dv-sandbox-picture").ClickAsync(new MouseEventArgs { Detail = 1, OffsetX = 0, OffsetY = 0 });
+
+        page.WaitForAssertion(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle()
+            .Which.Should().Be(new SandboxInputRequest("click", X: 256, Y: 192, Button: "left", Twice: false)));
+    }
+
+    [Fact]
+    public async Task A_pinch_reported_by_the_script_is_kept_in_bounds_and_taps_follow_it()
+    {
+        Answer(Status("running"));
+        module.Setup<double[]?>("size", _ => true).SetResult([328, 246]);
+        var page = await RenderInControl();
+
+        await page.InvokeAsync(() => page.Instance.ViewChanged(6, -5, -5));
+
+        page.Find("[role=group][aria-label=Zoom] [aria-live=polite]").TextContent.Should().Be("400%");
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-300%, -300%) scale(4)");
+        ZoomButton(page, "Zoom in").HasAttribute("disabled").Should().BeTrue();
+        await page.Find("button.dv-sandbox-picture").ClickAsync(new MouseEventArgs { Detail = 1, OffsetX = 0, OffsetY = 0 });
+        page.WaitForAssertion(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle()
+            .Which.Should().Match<SandboxInputRequest>(input => input.X == 768 && input.Y == 576));
+    }
+
+    [Fact]
+    public async Task Zoomed_in_the_view_follows_the_keyboard_pointer()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+        await ZoomButton(page, "Zoom in").ClickAsync(new MouseEventArgs());
+
+        for (var press = 0; press < 8; press++)
+        {
+            await page.Find("button.dv-sandbox-picture").KeyDownAsync(new KeyboardEventArgs { Key = "ArrowRight", ShiftKey = true });
+        }
+
+        page.Find("#dv-sandbox-pointer-words").TextContent.Should().Be("The pointer is at 1023, 384 of 1024 by 768.");
+        page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-100%, -50%) scale(2)");
     }
 
     #endregion
@@ -361,6 +552,47 @@ public sealed class BotSandboxTests : ScreenTest
         await page.Find(".dv-sandbox-controlbar input[role=switch]").ChangeAsync(new ChangeEventArgs { Value = true });
         page.WaitForAssertion(() => page.Find("button.dv-sandbox-picture"));
         return page;
+    }
+
+    private static IElement EnterAfterSwitch(IRenderedComponent<BotSandbox> page) => page.Find(".dv-sandbox-options input[role=switch]");
+
+    private static IElement ZoomButton(IRenderedComponent<BotSandbox> page, string name) =>
+        page.FindAll("[role=group][aria-label=Zoom] button").Single(button => (button.GetAttribute("aria-label") ?? button.TextContent.Trim()) == name);
+
+    private int Pictures() => Server.Sent("POST", $"{sandbox}/screen").Count();
+
+    /// <summary>
+    /// The pictures asked for, once there are <paramref name="expected"/> or a second has passed: well inside the two
+    /// seconds the timer waits. A request held by the server renders nothing, so this looks instead of waiting for a render.
+    /// </summary>
+    private async Task<int> PicturesWithin(int expected)
+    {
+        for (var look = 0; look < 50 && Pictures() < expected; look++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), Xunit.TestContext.Current.CancellationToken);
+        }
+
+        return Pictures();
+    }
+
+    private static async Task SendOne(IRenderedComponent<BotSandbox> page, string input)
+    {
+        switch (input)
+        {
+            case "tap":
+                await page.Find("button.dv-sandbox-picture").ClickAsync(new MouseEventArgs { Detail = 1, OffsetX = 10, OffsetY = 10 });
+                break;
+            case "text":
+                await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "sample" });
+                await page.Find("form.dv-sandbox-type").SubmitAsync();
+                break;
+            case "key":
+                await page.Find("[role=group][aria-label=Keys] button[aria-label=Escape]").ClickAsync(new MouseEventArgs());
+                break;
+            default:
+                await page.FindAll("[role=group][aria-label=Scroll] button")[0].ClickAsync(new MouseEventArgs());
+                break;
+        }
     }
 
     private static IElement PowerButton(IRenderedComponent<BotSandbox> page, string name) =>

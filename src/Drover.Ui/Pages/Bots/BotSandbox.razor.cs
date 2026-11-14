@@ -4,7 +4,9 @@ namespace Drover.Ui.Pages.Bots;
 /// A bot's sandbox. Its job: show a person what a bot's sandbox is doing right now and let them take over or restart
 /// it. The state and the power controls sit at the top; the screen (for a sandbox with one) and a terminal are tabs.
 /// The screen refreshes on its own every two seconds while it is shown, the sandbox runs, and the page is visible,
-/// and waits longer after each failure. The server does everything; this page asks and shows.
+/// waits longer after each failure, and is fetched again soon after anything a person sends. The picture can be
+/// enlarged and moved (<see cref="ScreenZoom"/>); a tap still lands on the sandbox pixel under it. The server does
+/// everything; this page asks and shows.
 /// </summary>
 public sealed partial class BotSandbox(
     DroverApi api,
@@ -86,7 +88,7 @@ public sealed partial class BotSandbox(
 
     private bool visible = true;
 
-    private bool arrowsKept;
+    private bool enterAfter = true;
 
     private string clickMode = "left";
 
@@ -102,13 +104,18 @@ public sealed partial class BotSandbox(
 
     private (int X, int Y) pointer = (512, 384);
 
+    private ScreenZoom zoom = ScreenZoom.Fit;
+
     private int failures;
 
     private Task? watching;
 
+    /// <summary>Set when a person sent something, so the next picture comes soon. Set twice, it is still one picture.</summary>
+    private TaskCompletionSource soon = NewSoon();
+
     private ElementReference pictureButton;
 
-    private ElementReference pictureImage;
+    private ElementReference typeForm;
 
     private IJSObjectReference? module;
 
@@ -167,6 +174,18 @@ public sealed partial class BotSandbox(
 
     private string PointerWords => $"The pointer is at {pointer.X}, {pointer.Y} of {pictureWidth} by {pictureHeight}.";
 
+    private string FrameClass =>
+        $"dv-sandbox-frame{(control ? " dv-sandbox-frame-control" : string.Empty)}{(zoom.IsFit ? string.Empty : " dv-sandbox-frame-zoomed")}";
+
+    /// <summary>The frame keeps the screen's shape, so it can be sized by its height while the keyboard is up.</summary>
+    private string FrameStyle => string.Create(
+        CultureInfo.InvariantCulture,
+        $"aspect-ratio: {pictureWidth} / {pictureHeight}; --dv-sandbox-aspect: {(double)pictureWidth / pictureHeight:0.####};");
+
+    private string LayerStyle => string.Create(
+        CultureInfo.InvariantCulture,
+        $"transform: translate({zoom.X * 100:0.####}%, {zoom.Y * 100:0.####}%) scale({zoom.Scale:0.####}); --dv-sandbox-zoom: {zoom.Scale:0.####};");
+
     #endregion
 
     #region Interface Implementations
@@ -184,7 +203,7 @@ public sealed partial class BotSandbox(
         {
             try
             {
-                await module.InvokeVoidAsync("stopWatching");
+                await module.InvokeVoidAsync("stop");
                 await module.DisposeAsync();
             }
             catch (JSDisconnectedException)
@@ -215,20 +234,6 @@ public sealed partial class BotSandbox(
         if (status is { Available: true, HasSandbox: true } && watching is null)
         {
             await StartWatching();
-        }
-
-        if (control && picture is not null && !arrowsKept && module is not null)
-        {
-            arrowsKept = true;
-
-            try
-            {
-                await module.InvokeVoidAsync("keepArrows", pictureButton);
-            }
-            catch (JSException exception)
-            {
-                logger.LogWarning(exception, "The arrow keys over the sandbox screen may scroll the page");
-            }
         }
     }
 
@@ -276,12 +281,12 @@ public sealed partial class BotSandbox(
 
             if (module is not null)
             {
-                await module.InvokeVoidAsync("watchVisibility", self);
+                await module.InvokeVoidAsync("start", self);
             }
         }
         catch (JSException exception)
         {
-            logger.LogWarning(exception, "The sandbox screen's script did not load; the screen refreshes whether the page is visible or not");
+            logger.LogWarning(exception, "The sandbox screen's script did not load; the screen refreshes whether the page is visible or not and does not pinch");
         }
 
         watching = Watch(disposal.Token);
@@ -311,17 +316,42 @@ public sealed partial class BotSandbox(
                 await RefreshStatus(stop);
             }
 
-            try
+            if (!await WaitForNextPicture(stop))
             {
-                await Task.Delay(SandboxWords.NextPictureAfter(failures), stop);
-            }
-            catch (OperationCanceledException stopped)
-            {
-                logger.LogDebug(stopped, "The sandbox screen stopped refreshing");
                 return;
             }
         }
     }
+
+    /// <summary>
+    /// Waits the usual time for the next picture, or, once a person has sent something, only as long as the sandbox
+    /// takes to draw it. Pictures are fetched one at a time by this loop alone, so inputs in quick succession never
+    /// pile up requests: one is in flight at most, and one more is due after it.
+    /// </summary>
+    private async Task<bool> WaitForNextPicture(CancellationToken stop)
+    {
+        var sent = soon.Task;
+        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), stop);
+
+        if (await Task.WhenAny(next, sent) == sent)
+        {
+            soon = NewSoon();
+            next = Task.Delay(SandboxWords.PictureAfterInput, stop);
+        }
+
+        try
+        {
+            await next;
+            return true;
+        }
+        catch (OperationCanceledException stopped)
+        {
+            logger.LogDebug(stopped, "The sandbox screen stopped refreshing");
+            return false;
+        }
+    }
+
+    private static TaskCompletionSource NewSoon() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private async Task RefreshPicture(CancellationToken stop)
     {
@@ -420,11 +450,7 @@ public sealed partial class BotSandbox(
 
     #region Taking Control
 
-    private void SetControl(bool on)
-    {
-        control = on;
-        arrowsKept = false;
-    }
+    private void SetControl(bool on) => control = on;
 
     private async Task ClickPicture(MouseEventArgs click)
     {
@@ -432,7 +458,7 @@ public sealed partial class BotSandbox(
         if (click.Detail > 0)
         {
             var (shownWidth, shownHeight) = await ShownSize();
-            pointer = ScreenPoint.FromShown(click.OffsetX, click.OffsetY, shownWidth, shownHeight, pictureWidth, pictureHeight);
+            pointer = ScreenPoint.FromShown(click.OffsetX, click.OffsetY, shownWidth, shownHeight, pictureWidth, pictureHeight, zoom);
         }
 
         await Send(new SandboxInputRequest(
@@ -448,12 +474,18 @@ public sealed partial class BotSandbox(
         if (ScreenPoint.Move(pointer, key.Key, key.ShiftKey, pictureWidth, pictureHeight) is { } moved)
         {
             pointer = moved;
+            var (x, y) = ScreenPoint.Share(pointer, pictureWidth, pictureHeight);
+            zoom = zoom.Showing(x, y);
         }
     }
 
+    /// <summary>
+    /// Types the text and, with Press Enter after on, presses Enter after it, so a command is one action. The field
+    /// clears and keeps the focus, so the on-screen keyboard stays up for the next line.
+    /// </summary>
     private async Task TypeText()
     {
-        if (typed.Length == 0)
+        if (typed.Length == 0 || sending)
         {
             return;
         }
@@ -461,6 +493,28 @@ public sealed partial class BotSandbox(
         if (await Send(new SandboxInputRequest("type", Text: typed)))
         {
             typed = string.Empty;
+
+            if (enterAfter)
+            {
+                await Send(new SandboxInputRequest("key", Keys: ["enter"]));
+            }
+        }
+
+        await KeepTyping();
+    }
+
+    private async Task KeepTyping()
+    {
+        try
+        {
+            if (module is not null)
+            {
+                await module.InvokeVoidAsync("keepTyping", typeForm);
+            }
+        }
+        catch (JSException exception)
+        {
+            logger.LogWarning(exception, "The text field could not keep the focus after sending");
         }
     }
 
@@ -488,20 +542,23 @@ public sealed partial class BotSandbox(
 
         sending = false;
 
-        if (sent && WatchesScreen)
+        if (sent)
         {
-            await RefreshPicture(disposal.Token);
+            soon.TrySetResult();
         }
 
         return sent;
     }
 
-    /// <summary>The size the picture is shown at. Without the script, as large as the screen itself.</summary>
+    /// <summary>
+    /// The size of the frame the picture is shown in, as it was when the person tapped. Without the script, as large
+    /// as the screen itself.
+    /// </summary>
     private async Task<(double Width, double Height)> ShownSize()
     {
         try
         {
-            if (module is not null && await module.InvokeAsync<double[]?>("size", pictureImage) is [var width, var height] && width > 0 && height > 0)
+            if (module is not null && await module.InvokeAsync<double[]?>("size", pictureButton) is [var width, var height] && width > 0 && height > 0)
             {
                 return (width, height);
             }
@@ -513,6 +570,34 @@ public sealed partial class BotSandbox(
 
         return (pictureWidth, pictureHeight);
     }
+
+    #endregion
+
+    #region Zoom
+
+    private void ZoomIn() => zoom = zoom.ZoomedIn();
+
+    private void ZoomOut() => zoom = zoom.ZoomedOut();
+
+    private void FitScreen() => zoom = ScreenZoom.Fit;
+
+    private void PanView(KeyboardEventArgs key)
+    {
+        if (zoom.Moved(key.Key, key.ShiftKey) is { } moved)
+        {
+            zoom = moved;
+        }
+    }
+
+    /// <summary>Called by the page's script when a pinch or a drag has enlarged or moved the picture.</summary>
+    [JSInvokable]
+    public async Task ViewChanged(double scale, double x, double y)
+    {
+        zoom = new ScreenZoom(scale, x, y).Clamped();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string ViewNumber(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     #endregion
 
