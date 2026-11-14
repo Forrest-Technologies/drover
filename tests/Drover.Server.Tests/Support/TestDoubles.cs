@@ -27,6 +27,8 @@ public sealed class HashCounter
 {
     #region Private Fields
 
+    private readonly ConcurrentDictionary<string, int> byHash = new(StringComparer.Ordinal);
+
     private int checks;
 
     #endregion
@@ -39,7 +41,14 @@ public sealed class HashCounter
 
     #region Public Methods
 
-    public void Add() => Interlocked.Increment(ref checks);
+    public void Add(string hashedPassword)
+    {
+        Interlocked.Increment(ref checks);
+        byHash.AddOrUpdate(hashedPassword, 1, (_, count) => count + 1);
+    }
+
+    /// <summary>How many guesses were checked against this one stored hash, as opposed to the decoy.</summary>
+    public int ChecksAgainst(string hashedPassword) => byHash.GetValueOrDefault(hashedPassword);
 
     #endregion
 }
@@ -59,7 +68,7 @@ public sealed class CountingPasswordHasher(HashCounter counter) : IPasswordHashe
 
     public PasswordVerificationResult VerifyHashedPassword(User user, string hashedPassword, string providedPassword)
     {
-        counter.Add();
+        counter.Add(hashedPassword);
         return inner.VerifyHashedPassword(user, hashedPassword, providedPassword);
     }
 

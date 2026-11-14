@@ -32,6 +32,13 @@ public sealed class AccountRepository(DroverDbContext db)
     public Task LockFirstRun(CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock({FirstRunLockKey})", cancellationToken);
 
+    /// <summary>
+    /// Locks the user's own row until the transaction ends, so two sign-in attempts on one account take turns: each
+    /// reads the failure count the other committed. Runs with only the user set; the row is visible to its user.
+    /// </summary>
+    public Task LockUser(Guid userId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync($"SELECT 1 FROM users WHERE id = {userId} FOR UPDATE", cancellationToken);
+
     /// <summary>The signed-in user's own spaces. The user comes from the transaction.</summary>
     public Task<List<SpaceMembership>> ListMemberships(CancellationToken cancellationToken) =>
         db.Database

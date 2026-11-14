@@ -119,6 +119,7 @@ public sealed class AccountService(
 
         tenant.SetUser(id);
         await using var work = await scope.Begin(cancellationToken);
+        await accounts.LockUser(id, cancellationToken);
         var result = signedInBeforeAs == id
             ? await VerifyPasswordFromKnownBrowser(id, password)
             : await VerifyPassword(id, password);
@@ -198,13 +199,12 @@ public sealed class AccountService(
             return CredentialResult.Refused;
         }
 
-        // The password is hashed before the lockout decision, so a locked account takes as long to refuse as any other.
-        var passwordIsRight = await users.CheckPasswordAsync(user, password);
-
         if (await users.IsLockedOutAsync(user))
         {
-            return CredentialResult.Refused;
+            return RefusedLikeAnyOther(password);
         }
+
+        var passwordIsRight = await users.CheckPasswordAsync(user, password);
 
         if (!passwordIsRight)
         {
@@ -229,13 +229,14 @@ public sealed class AccountService(
             return CredentialResult.Refused;
         }
 
-        var passwordIsRight = await users.CheckPasswordAsync(user, password);
         var now = time.GetUtcNow();
 
         if (user.LockoutEnabled && user.KnownBrowserLockoutEnd > now)
         {
-            return CredentialResult.Refused;
+            return RefusedLikeAnyOther(password);
         }
+
+        var passwordIsRight = await users.CheckPasswordAsync(user, password);
 
         if (!passwordIsRight)
         {
@@ -270,6 +271,17 @@ public sealed class AccountService(
         }
 
         EnsureSucceeded(await users.UpdateAsync(user));
+    }
+
+    /// <summary>
+    /// A locked bucket refuses without checking the guess against the real password, so guessing gets no further
+    /// checks however many attempts arrive. The guess is hashed against the decoy instead, so a locked account takes
+    /// as long to refuse as any other.
+    /// </summary>
+    private CredentialResult RefusedLikeAnyOther(string password)
+    {
+        hasher.VerifyHashedPassword(new User(), decoyHash.Value, password);
+        return CredentialResult.Refused;
     }
 
     private async Task<CredentialResult> Accepted(User user) =>
