@@ -371,6 +371,21 @@ public sealed class RunSession(
         await writer.Append(RunId, RunEventTypes.ToolStarted, new ToolStarted(ToolCallIds.For(RunId, callId)));
     }
 
+    /// <summary>
+    /// Streams a piece of a running tool's output into the log as <c>tool.output</c>, redacted. A call streams at most
+    /// <see cref="RunOptions.MaxToolOutputCharacters"/>; past that the log says once that the rest is left out.
+    /// </summary>
+    public async Task ToolOutput(string callId, ToolOutputChunk chunk)
+    {
+        var call = Call(callId);
+        var text = call.TakeOutput(redactor.Redact(chunk.Text), options.MaxToolOutputCharacters);
+
+        if (text.Length > 0)
+        {
+            await writer.Output(RunId, ToolCallIds.For(RunId, callId), chunk.Stream, text);
+        }
+    }
+
     /// <summary>Emits <c>tool.completed</c> once for a call, whichever of the engine or the runtime reports it first.</summary>
     public async Task CompleteTool(string callId, ToolOutcome outcome, string? outcomeName = null)
     {
@@ -464,6 +479,10 @@ public sealed class RunSession(
 
         private int completed;
 
+        private int outputLeft = -1;
+
+        private readonly Lock outputLock = new();
+
         #endregion
 
         #region Properties
@@ -480,6 +499,33 @@ public sealed class RunSession(
         public bool TryMarkRequested() => Interlocked.Exchange(ref requested, 1) == 0;
 
         public bool TryMarkCompleted() => Interlocked.Exchange(ref completed, 1) == 0;
+
+        /// <summary>The part of <paramref name="text"/> the call may still stream, with a note in place of what is cut.</summary>
+        public string TakeOutput(string text, int limit)
+        {
+            lock (outputLock)
+            {
+                if (outputLeft < 0)
+                {
+                    outputLeft = limit;
+                }
+
+                if (outputLeft == 0)
+                {
+                    return string.Empty;
+                }
+
+                if (text.Length < outputLeft)
+                {
+                    outputLeft -= text.Length;
+                    return text;
+                }
+
+                var kept = text[..outputLeft];
+                outputLeft = 0;
+                return $"{kept}\n[The rest of the output is not shown here: a call shows at most {limit} characters.]\n";
+            }
+        }
 
         #endregion
     }

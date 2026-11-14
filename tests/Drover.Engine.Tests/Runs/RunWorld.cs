@@ -19,13 +19,16 @@ public sealed class RunWorld : IAsyncDisposable
 
     private readonly EngineHost seeder;
 
+    private readonly Action<IServiceCollection>? everyHost;
+
     #endregion
 
     #region Constructors
 
-    private RunWorld(TestDatabase database, ScriptedModel script, TestTools tools, string? modelKey)
+    private RunWorld(TestDatabase database, ScriptedModel script, TestTools tools, string? modelKey, Action<IServiceCollection>? everyHost)
     {
         this.database = database;
+        this.everyHost = everyHost;
         ModelKey = modelKey ?? NewModelKey();
         Script = script;
         Tools = tools;
@@ -38,6 +41,9 @@ public sealed class RunWorld : IAsyncDisposable
     #region Properties
 
     public ScriptedModel Script { get; }
+
+    /// <summary>Every host of the world, the one that seeds first.</summary>
+    public IReadOnlyList<EngineHost> Hosts => hosts;
 
     public ScriptedModelProvider Model { get; }
 
@@ -65,9 +71,18 @@ public sealed class RunWorld : IAsyncDisposable
 
     public static string NewModelKey() => $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(24))}";
 
-    public static async Task<RunWorld> Create(PostgresServer postgres, ScriptedModel script, TestTools? tools = null, string? modelKey = null)
+    /// <summary>
+    /// A new world. <paramref name="everyHost"/> adds services to every host of it, the one that seeds included, so
+    /// tools it registers are in the catalog from the start.
+    /// </summary>
+    public static async Task<RunWorld> Create(
+        PostgresServer postgres,
+        ScriptedModel script,
+        TestTools? tools = null,
+        string? modelKey = null,
+        Action<IServiceCollection>? everyHost = null)
     {
-        var world = new RunWorld(await postgres.CreateDatabase(), script, tools ?? new TestTools(), modelKey);
+        var world = new RunWorld(await postgres.CreateDatabase(), script, tools ?? new TestTools(), modelKey, everyHost);
         await world.Seed();
         return world;
     }
@@ -327,6 +342,7 @@ public sealed class RunWorld : IAsyncDisposable
             services =>
             {
                 services.AddSingleton<IToolSource>(Server);
+                everyHost?.Invoke(services);
                 replaceServices?.Invoke(services);
             });
         hosts.Add(host);

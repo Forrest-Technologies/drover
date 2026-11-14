@@ -93,7 +93,7 @@
                     <ScheduleSection SpaceId="SpaceId" BotId="BotId" Schedules="schedules" OnSchedulesChanged="changed => schedules = changed" />
                 </Disclosure>
                 <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
-                    <SandboxSection Draft="draft" OtherBots="otherBots" OnChanged="Changed" />
+                    <SandboxSection Draft="draft" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed" />
                 </Disclosure>
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />

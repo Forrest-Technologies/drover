@@ -11,7 +11,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedModelDiscovery()
             .WithBoundedToolServers()
             .WithoutToolConnections()
-            .WithHardBoundarySandboxesOnly()
+            .WithBoundedSandboxes()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -44,8 +44,19 @@ public static class DeploymentPolicyExtensions
             MaxModelsPerConnection = DeploymentPolicy.HostedMaxModelsPerConnection,
         };
 
-    public static DeploymentPolicy WithHardBoundarySandboxesOnly(this DeploymentPolicy policy) =>
-        policy with { SandboxAdapters = SandboxAdapterSet.HardBoundaryOnly };
+    public static DeploymentPolicy WithBoundedSandboxes(this DeploymentPolicy policy) =>
+        policy with
+        {
+            SandboxAdapters = SandboxAdapterSet.HardBoundaryOnly,
+            MaxSandboxCommandSeconds = DeploymentPolicy.HostedMaxSandboxCommandSeconds,
+            MaxSandboxFileBytes = DeploymentPolicy.HostedMaxSandboxFileBytes,
+            MaxSandboxIdleMinutes = DeploymentPolicy.HostedMaxSandboxIdleMinutes,
+            AllowOpenSandboxNetwork = false,
+        };
+
+    /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
+    public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>
+        hardBoundary || set is SandboxAdapterSet.All;
 
     public static DeploymentPolicy WithOperatorApprovedProviders(this DeploymentPolicy policy) =>
         policy with

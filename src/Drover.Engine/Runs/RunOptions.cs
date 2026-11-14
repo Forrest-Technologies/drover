@@ -28,6 +28,12 @@ public sealed class RunOptions
     /// <summary>A run taken over this many times after a lost lease fails instead of starting again.</summary>
     public int MaxAttempts { get; set; } = 3;
 
+    /// <summary>
+    /// The most characters of output one tool call streams into the run's events. Past it the rest is left out of the
+    /// log, which says so once; the tool's result is not affected.
+    /// </summary>
+    public int MaxToolOutputCharacters { get; set; } = 200_000;
+
     public TimeSpan DeltaFlushInterval { get; set; } = TimeSpan.FromMilliseconds(100);
 
     public int DeltaFlushCharacters { get; set; } = 512;

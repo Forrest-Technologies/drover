@@ -35,7 +35,7 @@ public static class BuiltinTools
                 }
                 """),
             ToolSensitivity.Read,
-            (arguments, _) => Task.FromResult(ReadTime(time, arguments)));
+            (call, _) => Task.FromResult(ReadTime(time, call.Arguments)));
 
     #endregion
 

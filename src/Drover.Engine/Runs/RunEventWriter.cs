@@ -2,8 +2,9 @@ namespace Drover.Engine.Runs;
 
 /// <summary>
 /// Writes one run tree's events, one writer at a time, and publishes them after they commit. Model output arrives
-/// token by token, so deltas are coalesced: a chunk is written when it reaches the size limit or the flush interval
-/// passes, whichever comes first, and always before any other event, so the log keeps the order things happened in.
+/// token by token and a tool's output piece by piece, so both are coalesced: a chunk is written when it reaches the
+/// size limit or the flush interval passes, whichever comes first, and always before any other event, so the log
+/// keeps the order things happened in.
 /// What is published is exactly what was stored: live and replay are the same bytes.
 /// </summary>
 public sealed class RunEventWriter(
@@ -22,7 +23,7 @@ public sealed class RunEventWriter(
 
     private readonly CancellationTokenSource stopping = new();
 
-    private DeltaBuffer? buffer;
+    private ChunkBuffer? buffer;
 
     private Task flushing = Task.CompletedTask;
 
@@ -47,30 +48,15 @@ public sealed class RunEventWriter(
         new(runId, type, JsonElement.Parse(RunEventTypes.Write(payload)));
 
     /// <summary>Adds text to the part being streamed. A change of message or of kind starts a new part.</summary>
-    public async Task Delta(Guid runId, Guid messageId, string kind, string text)
-    {
-        await gate.WaitAsync();
+    public Task Delta(Guid runId, Guid messageId, string kind, string text) =>
+        Buffer($"delta {messageId} {kind}", () => StartDelta(runId, messageId, kind), text);
 
-        try
-        {
-            if (buffer is { } current && (current.MessageId != messageId || current.Kind != kind))
-            {
-                await WriteLocked(null, []);
-            }
-
-            buffer ??= StartBuffer(runId, messageId, kind);
-            buffer.Text.Append(text);
-
-            if (buffer.Text.Length >= options.DeltaFlushCharacters)
-            {
-                await WriteLocked(null, []);
-            }
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
+    /// <summary>Adds output to the tool call's stream. A change of call or of stream starts a new event.</summary>
+    public Task Output(Guid runId, Guid toolCallId, string stream, string text) =>
+        Buffer(
+            $"output {toolCallId} {stream}",
+            () => new ChunkBuffer(chunk => Event(runId, RunEventTypes.ToolOutput, new ToolOutput(toolCallId, stream, chunk))),
+            text);
 
     public Task Append(Guid runId, string type, object payload) => Write(null, [Event(runId, type, payload)]);
 
@@ -113,7 +99,38 @@ public sealed class RunEventWriter(
 
     #region Private Methods
 
-    private DeltaBuffer StartBuffer(Guid runId, Guid messageId, string kind)
+    private async Task Buffer(string key, Func<ChunkBuffer> start, string text)
+    {
+        await gate.WaitAsync();
+
+        try
+        {
+            if (buffer is { } current && current.Key != key)
+            {
+                await WriteLocked(null, []);
+            }
+
+            if (buffer is null)
+            {
+                buffer = start();
+                buffer.Key = key;
+                flushing = FlushLater(buffer);
+            }
+
+            buffer.Text.Append(text);
+
+            if (buffer.Text.Length >= options.DeltaFlushCharacters)
+            {
+                await WriteLocked(null, []);
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private ChunkBuffer StartDelta(Guid runId, Guid messageId, string kind)
     {
         if (messageId != lastMessageId)
         {
@@ -126,9 +143,8 @@ public sealed class RunEventWriter(
 
         lastMessageId = messageId;
         lastKind = kind;
-        var started = new DeltaBuffer(runId, messageId, partIndex, kind);
-        flushing = FlushLater(started);
-        return started;
+        var index = partIndex;
+        return new ChunkBuffer(chunk => Event(runId, RunEventTypes.MessageDelta, new MessageDelta(messageId, index, kind, chunk)));
     }
 
     private async Task WriteLocked(
@@ -140,10 +156,7 @@ public sealed class RunEventWriter(
 
         if (buffer is { Text.Length: > 0 } pending)
         {
-            writing.Add(Event(
-                pending.RunId,
-                RunEventTypes.MessageDelta,
-                new MessageDelta(pending.MessageId, pending.PartIndex, pending.Kind, pending.Text.ToString())));
+            writing.Add(pending.ToEvent());
         }
 
         writing.AddRange(events);
@@ -194,7 +207,7 @@ public sealed class RunEventWriter(
     }
 
     /// <summary>Writes the chunk when the flush interval passes, unless something wrote it first.</summary>
-    private async Task FlushLater(DeltaBuffer started)
+    private async Task FlushLater(ChunkBuffer started)
     {
         try
         {
@@ -236,19 +249,21 @@ public sealed class RunEventWriter(
 
     #region Nested Types
 
-    private sealed class DeltaBuffer(Guid runId, Guid messageId, int partIndex, string kind)
+    /// <summary>Streamed text not written yet: a message part's deltas, or a tool call's output on one stream.</summary>
+    private sealed class ChunkBuffer(Func<string, NewRunEvent> toEvent)
     {
         #region Properties
 
-        public Guid RunId => runId;
-
-        public Guid MessageId => messageId;
-
-        public int PartIndex => partIndex;
-
-        public string Kind => kind;
+        /// <summary>What the text belongs to. Text for anything else writes this first.</summary>
+        public string Key { get; set; } = string.Empty;
 
         public StringBuilder Text { get; } = new();
+
+        #endregion
+
+        #region Public Methods
+
+        public NewRunEvent ToEvent() => toEvent(Text.ToString());
 
         #endregion
     }

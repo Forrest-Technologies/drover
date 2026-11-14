@@ -108,14 +108,31 @@ Every scenario also checks that no vendor type leaves the adapter.
 
 ## The broker
 
-Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` is the only caller of `ISandboxProvider`.
+Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider`. It is registered, with the four sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
 
 For each sandbox tool call it:
 
-1. Resolves which sandbox the calling bot means: its own, or one it names and is allowed to reach.
-2. Checks the sharing policy against the bot tree.
-3. Loads the sandbox row and its access token from the vault, inside the run's tenant transaction.
-4. Builds the handle, calls the provider, and streams output into run events.
+1. **Finds the sandbox, in one short tenant transaction** as the run's person: loads the calling bot, refuses if its sandbox policy is `none`, resolves its sharing group from its path to the root (`SandboxGroups.OwnerOf`, a pure function in `Drover.Domain`), and, when the call names another bot in `environment`, checks the caller may work there (`SandboxGroups.MayEnter`). It loads the owner's live row (`creating`, `running` or `paused`), or inserts a `creating` one, and reveals the access token from the vault. The transaction closes before any provider call. A partial unique index (`ux_sandboxes_one_live_per_owner`, migration `SandboxPerGroup`) allows one live row per owner, so two first uses at once make one row: the loser's insert fails, and it reads the winner's row.
+2. **Makes it ready, with no transaction open.** A new row: `Create` with the row's id as the idempotency key, then a second short transaction stores the token with `ISecretVault.Store(SecretKind.SandboxToken, ...)` as a space secret (every member's runs use the bot's sandbox), sets the provider's id, and marks the row `running`. A stored row: `Resume` with the idle time. Resuming a running sandbox only keeps it longer, and the provider pauses a sandbox on its own, so the row cannot say which it is; one call covers both. A new token from `Resume` replaces the old one in the vault. A sandbox the provider no longer has is marked `destroyed`, its token deleted, and a new one made once; the tool's result then says its earlier files are gone.
+3. **Applies the network rules** when they differ from the last ones it set on that sandbox (kept in memory, so after a restart they are set once again). A change to a bot's network setting reaches its running sandbox on the next use.
+4. **Runs the operation.** A command streams its output into the run as `tool.output` events ([03-run-lifecycle.md](03-run-lifecycle.md)) and returns exit code, stdout and stderr, each cut to half the run's tool result limit. A command's own limit keeps the sandbox up for at least that long plus a minute, and afterwards the sandbox goes back to its idle time.
+5. **Records the use** in a last short transaction: the row's `last_used_at`, `expires_at` and state, and the tool call's `sandbox_id`. When the sandbox's network is not `off`, reading its output (a command, a file, a listing) taints the run, so later consequential tools ask first ([06-mcp.md](06-mcp.md)).
+
+The access token goes from the vault into the handle and nowhere else. Output is scrubbed of it before any event or result, including a token split across two pieces of output (the tail that could start one is held back until more arrives); the run's own redactor applies on top. It is never logged, put in an exception, a tool argument, or a run event. A provider failure reaches the model as Drover's own sentence, never the provider's text.
+
+Limits come from the deployment policy and only narrow ([16-deployment-policies.md](16-deployment-policies.md)): a command runs at most `MaxSandboxCommandSeconds` whatever the bot asks; a file read or written is at most `MaxSandboxFileBytes`; the idle time is the bot's setting, or 15 minutes, never above `MaxSandboxIdleMinutes`; and a bot set to open network is refused where `AllowOpenSandboxNetwork` is off. `BotService` refuses to save an idle time or a network setting past them.
+
+### Operator key
+
+The operator's E2B key is server configuration, not a secret in the vault: the vault is per space under row-level security, and this key belongs to the whole server. It is read at start from `Drover:Sandbox:E2B:ApiKey` (environment `Drover__Sandbox__E2B__ApiKey`) or from the file named by `Drover:Sandbox:E2B:ApiKeyFile` (a container secret, the same pattern as `Database:AppPasswordFile`), and held only in the adapter's options in memory. It is never written to the database or the vault, never returned by an endpoint, and never logged. Optional: `Drover:Sandbox:E2B:Domain` (default `e2b.app`) and `Drover:Sandbox:E2B:Template` (default `base`).
+
+- No key: no provider, no sandbox tools, and not an error. The bot editor's Sandbox section says no provider is set up, and the status page's `Sandboxes` row says "Not configured".
+- A key without the `e2b_` prefix, both settings at once, or a key file that is not there stops the server at start, naming the setting and never the value.
+- The status page shows only "configured" or "not configured", and names no provider. `GET /api/spaces/{spaceId}/bots/{botId}/sandbox/options` tells the editor whether a provider exists, whether open network is allowed, and the most idle minutes.
+
+`SecretKind.SandboxProviderKey` stays reserved for a future hosted service where a space brings its own provider key.
+
+Not built yet: retiring a sandbox when its bot is removed (the table below), a sweeper for a row left in `creating` by a crash between the provider's answer and the vault write (the next use retries the creation with the same idempotency key; how long E2B remembers a key is not documented, so a very late retry can make a second sandbox and leave the first to pause), `sandbox.enter`, and the terminal view in the activity screen. The E2B clients go through the server's checked outbound handler, which does not use an outbound proxy.
 
 ## Sharing policies
 
@@ -146,7 +163,7 @@ Provider accounts: on a self-hosted server each space uses the operator's key. O
 
 ### Working in another bot's environment
 
-`sandbox.run` and the file tools take an optional `environment` argument naming a bot. The broker allows it when the calling bot is in that environment's sharing group, or is an ancestor of its owner and holds the `sandbox.enter` grant. A parent directing a child's work uses this. Siblings cannot, unless a `named` share says so.
+`sandbox.run` and the file tools take an optional `environment` argument: the handle of another bot. The broker resolves that bot's sharing group and allows the call when the caller is in that group, or the group's owner shares by name and lists the caller. A `named` member's own sandbox is its own; it reaches the shared one only by naming the owner. In a `subtree` share the highest bot on the path whose policy is `subtree` owns the sandbox, whatever the bots below it say for themselves. Siblings cannot reach each other's sandboxes, and neither can a parent reach a child's: the `sandbox.enter` grant that would let an ancestor direct a child's work there is not built yet (it waits for delegation).
 
 ### When a bot is removed
 
@@ -209,13 +226,14 @@ For self-hosters who want no account anywhere.
 
 ## Sandbox tools the bot sees
 
-All built-in, all granted per bot like any tool.
+All built-in (`SandboxTools`), all granted per bot like any tool, and none on the list a new bot is granted. A sandbox tool is offered to a model only when the server has a provider, the bot's sandbox policy is not `none`, and the grant allows it through the effective-grant path and the tool gate.
 
-| Tool | Sensitivity |
-| --- | --- |
-| `sandbox.run` | write |
-| `sandbox.read_file`, `sandbox.list_files` | read |
-| `sandbox.write_file` | write |
-| `sandbox.enter` (use another bot's environment) | critical |
+| Tool | Sensitivity | Arguments | Result |
+| --- | --- | --- | --- |
+| `sandbox.run` | write | `command`, `cwd?`, `timeout_seconds?`, `environment?` | `exit_code`, `stdout`, `stderr`, `truncated`; `error` when the time limit stopped it |
+| `sandbox.read_file` | read | `path`, `environment?` | `content` as UTF-8 text, or `binary: true` and `size` |
+| `sandbox.write_file` | write | `path`, `content`, `environment?` | `path`, `bytes` |
+| `sandbox.list_files` | read | `path`, `environment?` | `entries` (name, kind, size), at most 1000 |
+| `sandbox.enter` (use another bot's environment as its ancestor) | critical | Not built yet | |
 
-Command, output, and exit code are run events, so the activity view shows a live terminal for each call.
+`sandbox.run` runs the model's command line with `bash -l -c`: the model wrote the whole command, for its own sandbox, and Drover adds no text of its own to it. Where Drover itself builds a command from model text (computer use, later), it uses an argument list. The command, its output, and its exit code are run events, so the activity view can show a live terminal for each call.

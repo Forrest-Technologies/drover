@@ -100,6 +100,18 @@ public sealed record DeploymentPolicy
 
     public const int ToolSignInRenewalLeadMinutes = 15;
 
+    public const int SelfHostedMaxSandboxCommandSeconds = 3600;
+
+    public const int HostedMaxSandboxCommandSeconds = 600;
+
+    public const int SelfHostedMaxSandboxFileBytes = 50 * 1024 * 1024;
+
+    public const int HostedMaxSandboxFileBytes = 10 * 1024 * 1024;
+
+    public const int SelfHostedMaxSandboxIdleMinutes = 60;
+
+    public const int HostedMaxSandboxIdleMinutes = 15;
+
     #endregion
 
     #region Presets
@@ -122,7 +134,26 @@ public sealed record DeploymentPolicy
     /// <summary>Outbound requests to private and link-local addresses (model base URLs, MCP URLs, OAuth discovery).</summary>
     public bool AllowPrivateAddresses { get; init; } = true;
 
+    /// <summary>Which sandbox providers the server registers. A provider without a hard isolation boundary is left out when strict.</summary>
     public SandboxAdapterSet SandboxAdapters { get; init; } = SandboxAdapterSet.All;
+
+    /// <summary>The most seconds one sandbox command runs before it is stopped, whatever the bot asks for.</summary>
+    public int MaxSandboxCommandSeconds { get; init; } = SelfHostedMaxSandboxCommandSeconds;
+
+    /// <summary>The most bytes of one file a bot reads from or writes to a sandbox.</summary>
+    public int MaxSandboxFileBytes { get; init; } = SelfHostedMaxSandboxFileBytes;
+
+    /// <summary>
+    /// The most minutes a sandbox keeps running after its last use before the provider pauses it. It caps the bot's
+    /// own setting: a running sandbox costs the operator money whether it is used or not.
+    /// </summary>
+    public int MaxSandboxIdleMinutes { get; init; } = SelfHostedMaxSandboxIdleMinutes;
+
+    /// <summary>
+    /// A bot's sandbox may reach the whole internet (private ranges are always denied). Off in the hosted preset: under
+    /// the operator's provider account, what a stranger's sandbox does on the open internet is the operator's liability.
+    /// </summary>
+    public bool AllowOpenSandboxNetwork { get; init; } = true;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -267,7 +298,26 @@ public sealed record DeploymentPolicy
         PolicyRule.Choice(
             nameof(SandboxAdapters),
             policy => policy.SandboxAdapters,
-            Enforcement.Later("Phase 1: sandbox adapter registration")),
+            Enforcement.Now("Sandbox provider registration, at server start")),
+        PolicyRule.Limit(
+            nameof(MaxSandboxCommandSeconds),
+            policy => policy.MaxSandboxCommandSeconds,
+            HostedMaxSandboxCommandSeconds,
+            Enforcement.Now("SandboxBroker, on every sandbox command")),
+        PolicyRule.Limit(
+            nameof(MaxSandboxFileBytes),
+            policy => policy.MaxSandboxFileBytes,
+            HostedMaxSandboxFileBytes,
+            Enforcement.Now("SandboxBroker, on every sandbox file read and write")),
+        PolicyRule.Limit(
+            nameof(MaxSandboxIdleMinutes),
+            policy => policy.MaxSandboxIdleMinutes,
+            HostedMaxSandboxIdleMinutes,
+            Enforcement.Now("SandboxBroker, on every use of a sandbox, and BotService, when a bot is saved")),
+        PolicyRule.Permission(
+            nameof(AllowOpenSandboxNetwork),
+            policy => policy.AllowOpenSandboxNetwork,
+            Enforcement.Now("SandboxBroker, on every use of a sandbox, and BotService, when a bot is saved")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

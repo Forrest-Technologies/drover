@@ -16,6 +16,7 @@ global using Drover.Domain.Models;
 global using Drover.Domain.Permissions;
 global using Drover.Domain.Policy;
 global using Drover.Domain.Rules;
+global using Drover.Domain.Sandboxes;
 global using Drover.Domain.Tools;
 global using Drover.Tests.Common;
 global using Xunit;

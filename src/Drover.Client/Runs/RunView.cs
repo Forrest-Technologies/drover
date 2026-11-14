@@ -87,6 +87,7 @@ public sealed record PartView(
 /// <summary>
 /// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, approved, denied, running,
 /// completed, failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
+/// <see cref="Output"/> is what the tool printed while it ran, both streams in the order they arrived.
 /// </summary>
 public sealed record ToolCallView(
     Guid ToolCallId,
@@ -98,4 +99,5 @@ public sealed record ToolCallView(
     bool IsError = false,
     string Preview = "",
     long DurationMs = 0,
-    string? RequestId = null);
+    string? RequestId = null,
+    string Output = "");

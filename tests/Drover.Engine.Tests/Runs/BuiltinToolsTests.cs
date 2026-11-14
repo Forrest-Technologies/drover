@@ -15,9 +15,9 @@ public sealed class BuiltinToolsTests
     {
         var tool = BuiltinTools.TimeNow(new FixedTime(moment));
 
-        var plain = await tool.Run(JsonElement.Parse("{}"), CancellationToken.None);
-        var zoned = await tool.Run(JsonElement.Parse("""{"time_zone":"Europe/Berlin"}"""), CancellationToken.None);
-        var unknown = await tool.Run(JsonElement.Parse("""{"time_zone":"Nowhere/Land"}"""), CancellationToken.None);
+        var plain = await tool.Run(Call("{}"), CancellationToken.None);
+        var zoned = await tool.Run(Call("""{"time_zone":"Europe/Berlin"}"""), CancellationToken.None);
+        var unknown = await tool.Run(Call("""{"time_zone":"Nowhere/Land"}"""), CancellationToken.None);
 
         plain.GetProperty("utc").GetString().Should().Be("2026-11-12T15:30:00.0000000+00:00");
         zoned.GetProperty("local").GetString().Should().Be("2026-11-12T16:30:00.0000000+01:00");
@@ -35,6 +35,20 @@ public sealed class BuiltinToolsTests
         BuiltinTool.ModelName(tool.Name).Should().Be("time_now");
         tool.DefinitionHash.Should().HaveLength(64);
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static BuiltinToolCall Call(string arguments) =>
+        new(
+            JsonElement.Parse(arguments),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            new RunTenant(new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), Guid.CreateVersion7(), Guid.CreateVersion7()),
+            _ => Task.CompletedTask,
+            () => Task.CompletedTask);
 
     #endregion
 

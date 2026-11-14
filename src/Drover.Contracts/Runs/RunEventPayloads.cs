@@ -40,6 +40,12 @@ public sealed record MessageDelivered(MessageResponse Message);
 public sealed record ToolStarted(Guid ToolCallId);
 
 /// <summary>
+/// Data of <c>tool.output</c>: output a running tool produced, redacted, in the order it arrived. <see cref="Stream"/>
+/// is "stdout" or "stderr". Pieces are joined as they come, so one event can hold several lines or part of one.
+/// </summary>
+public sealed record ToolOutput(Guid ToolCallId, string Stream, string Text);
+
+/// <summary>
 /// Data of <c>tool.completed</c>. <see cref="Outcome"/> is completed, failed, refused, interrupted, or cancelled.
 /// <see cref="Preview"/> is the start of the redacted result.
 /// </summary>

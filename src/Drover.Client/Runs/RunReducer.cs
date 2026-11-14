@@ -43,6 +43,7 @@ public static class RunReducer
         RunEventTypes.ToolApproved => ChangeTool(view, RunEventTypes.Read<ToolDecided>(stored).ToolCallId, tool => tool with { State = "approved" }),
         RunEventTypes.ToolDenied => ChangeTool(view, RunEventTypes.Read<ToolDecided>(stored).ToolCallId, tool => tool with { State = "denied" }),
         RunEventTypes.ToolStarted => ChangeTool(view, RunEventTypes.Read<ToolStarted>(stored).ToolCallId, tool => tool with { State = "running" }),
+        RunEventTypes.ToolOutput => AppendOutput(view, RunEventTypes.Read<ToolOutput>(stored)),
         RunEventTypes.ToolCompleted => CompleteTool(view, RunEventTypes.Read<ToolCompleted>(stored)),
         RunEventTypes.UsageRecorded => AddUsage(view, RunEventTypes.Read<UsageRecorded>(stored)),
 
@@ -114,6 +115,9 @@ public static class RunReducer
 
     private static RunView AwaitApproval(RunView view, ToolApprovalRequested approval) =>
         ChangeTool(view, approval.ToolCallId, tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId });
+
+    private static RunView AppendOutput(RunView view, ToolOutput output) =>
+        ChangeTool(view, output.ToolCallId, tool => tool with { Output = $"{tool.Output}{output.Text}" });
 
     private static RunView CompleteTool(RunView view, ToolCompleted completed) =>
         ChangeTool(

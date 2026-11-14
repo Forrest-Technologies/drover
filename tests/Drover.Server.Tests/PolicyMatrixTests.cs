@@ -184,6 +184,22 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         options.WrittenPatterns.Should().Be(Setting(nameof(DeploymentPolicy.AllowWrittenRulePatterns)) == "true");
     }
 
+    [Fact]
+    public async Task The_sandbox_rules_decide_what_the_bot_editor_offers_and_what_a_bot_may_save()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("sandboxrules");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+
+        var options = (await (await client.Get($"/api/spaces/{spaceId}/bots/{Guid.CreateVersion7()}/sandbox/options")).Content.ReadFromJsonAsync<BotSandboxOptions>(Token))!;
+
+        options.OpenNetwork.Should().Be(Setting(nameof(DeploymentPolicy.AllowOpenSandboxNetwork)) == "true");
+        options.MaxIdleMinutes.Should().Be(int.Parse(Setting(nameof(DeploymentPolicy.MaxSandboxIdleMinutes)), CultureInfo.InvariantCulture));
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        rules.MaxSandboxCommandSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSandboxCommandSeconds)));
+        rules.MaxSandboxFileBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSandboxFileBytes)));
+    }
+
     #endregion
 
     #region Private Methods

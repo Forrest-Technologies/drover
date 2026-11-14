@@ -58,7 +58,7 @@ The engine still talks to the framework through one small interface, `IAgentRunt
 | Harness: file access over `AgentFileStore`, background sub-agents, loop agent with completion evaluators | experimental | `AgentFileStore` is implemented over the bot's sandbox or `IFileStore`. The loop agent backs "work until done" routines with a step and cost budget. |
 | `AIContextProvider`, `TextSearchProvider`, `ChatHistoryMemoryProvider` | stable | Long-term memory and document search are context providers backed by `IMemoryStore` on PostgreSQL. |
 | MCP tasks (`ListAgentToolsWithTasksAsync`) | alpha | Long-running MCP tools with polling and cancel, shown in the activity view as a tool that is still working. |
-| Shell tool with a policy and pluggable executor | preview | Backs `sandbox.run`. Drover supplies an executor that runs the command through `ISandboxProvider`. The local executor is never registered. |
+| Shell tool with a policy and pluggable executor | preview | Not used. `sandbox.run` is a Drover built-in tool (`SandboxTools`), because a tool the framework adds has no catalog row, so it has no grant and the tool gate refuses it. The command goes through `SandboxBroker` to `ISandboxProvider`. The local executor is never registered. |
 | Micro virtual machine code execution | preview | Candidate for a second sandbox adapter that needs no account and no Docker, for "run this snippet" use. Evaluated in Phase 1; it does not replace a full environment. |
 
 ### Skills and reach, Phase 2

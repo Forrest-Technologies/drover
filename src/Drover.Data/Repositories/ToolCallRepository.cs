@@ -31,5 +31,14 @@ public sealed class ToolCallRepository(DroverDbContext db)
 
     public void AddToolCall(ToolCall call) => db.ToolCalls.Add(call);
 
+    /// <summary>Records which sandbox a call worked in. A call whose row is not there yet is left as it is.</summary>
+    public async Task SetSandbox(Guid toolCallId, Guid sandboxId, CancellationToken cancellationToken)
+    {
+        if (await db.ToolCalls.SingleOrDefaultAsync(call => call.Id == toolCallId, cancellationToken) is { } row)
+        {
+            row.SandboxId = sandboxId;
+        }
+    }
+
     #endregion
 }
