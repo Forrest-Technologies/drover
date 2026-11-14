@@ -11,7 +11,9 @@ public sealed class AccountService(
     AccountRepository accounts,
     TenantScope scope,
     TenantContext tenant,
-    ToolCatalog catalog)
+    ToolCatalog catalog,
+    IOptions<IdentityOptions> identity,
+    TimeProvider time)
 {
     #region Private Fields
 
@@ -95,8 +97,17 @@ public sealed class AccountService(
         return result;
     }
 
-    /// <summary>Checks an email and password, counting failures and locking the account as Identity is set to.</summary>
-    public async Task<CredentialResult> CheckCredentials(string email, string password, CancellationToken cancellationToken)
+    /// <summary>
+    /// Checks an email and password, counting failures and locking the account as Identity is set to. Failures are
+    /// counted in one of two buckets: from a browser that has signed in to this account before
+    /// (<paramref name="signedInBeforeAs"/> names this account), or from anyone else. Each bucket locks on its own,
+    /// so strangers cannot keep the owner's own browser out, and guessing stays bounded in both.
+    /// </summary>
+    public async Task<CredentialResult> CheckCredentials(
+        string email,
+        string password,
+        Guid? signedInBeforeAs,
+        CancellationToken cancellationToken)
     {
         var userId = await FindUserId(email, cancellationToken);
 
@@ -108,7 +119,9 @@ public sealed class AccountService(
 
         tenant.SetUser(id);
         await using var work = await scope.Begin(cancellationToken);
-        var result = await VerifyPassword(id, password);
+        var result = signedInBeforeAs == id
+            ? await VerifyPasswordFromKnownBrowser(id, password)
+            : await VerifyPassword(id, password);
         await work.Commit(cancellationToken);
         return result;
     }
@@ -200,12 +213,80 @@ public sealed class AccountService(
         }
 
         await users.ResetAccessFailedCountAsync(user);
-        return new CredentialResult(
+        return await Accepted(user);
+    }
+
+    /// <summary>
+    /// The same check for a browser that has signed in to the account before, counted in that bucket's own fields
+    /// with the same limit and lockout time as Identity's.
+    /// </summary>
+    private async Task<CredentialResult> VerifyPasswordFromKnownBrowser(Guid userId, string password)
+    {
+        var user = await users.FindByIdAsync(userId.ToString());
+
+        if (user is null)
+        {
+            return CredentialResult.Refused;
+        }
+
+        var passwordIsRight = await users.CheckPasswordAsync(user, password);
+        var now = time.GetUtcNow();
+
+        if (user.LockoutEnabled && user.KnownBrowserLockoutEnd > now)
+        {
+            return CredentialResult.Refused;
+        }
+
+        if (!passwordIsRight)
+        {
+            await CountKnownBrowserFailure(user, now);
+            return CredentialResult.Refused;
+        }
+
+        if (user.KnownBrowserAccessFailedCount != 0 || user.KnownBrowserLockoutEnd is not null)
+        {
+            user.KnownBrowserAccessFailedCount = 0;
+            user.KnownBrowserLockoutEnd = null;
+            EnsureSucceeded(await users.UpdateAsync(user));
+        }
+
+        return await Accepted(user);
+    }
+
+    private async Task CountKnownBrowserFailure(User user, DateTimeOffset now)
+    {
+        if (!user.LockoutEnabled)
+        {
+            return;
+        }
+
+        var lockout = identity.Value.Lockout;
+        user.KnownBrowserAccessFailedCount++;
+
+        if (user.KnownBrowserAccessFailedCount >= lockout.MaxFailedAccessAttempts)
+        {
+            user.KnownBrowserLockoutEnd = now + lockout.DefaultLockoutTimeSpan;
+            user.KnownBrowserAccessFailedCount = 0;
+        }
+
+        EnsureSucceeded(await users.UpdateAsync(user));
+    }
+
+    private async Task<CredentialResult> Accepted(User user) =>
+        new(
             true,
             user.Id,
             user.Email ?? string.Empty,
             user.DisplayName,
             await users.GetSecurityStampAsync(user) ?? string.Empty);
+
+    private static void EnsureSucceeded(IdentityResult result)
+    {
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"The account could not be updated: {string.Join(" ", result.Errors.Select(error => error.Code))}");
+        }
     }
 
     private static User NewUser(Guid userId, string email, string displayName) => new()

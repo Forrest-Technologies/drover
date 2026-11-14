@@ -64,6 +64,7 @@ global using Microsoft.AspNetCore.Antiforgery;
 global using Microsoft.AspNetCore.Authentication;
 global using Microsoft.AspNetCore.Authentication.Cookies;
 global using Microsoft.AspNetCore.Builder;
+global using Microsoft.AspNetCore.DataProtection;
 global using Microsoft.AspNetCore.Hosting.Server;
 global using Microsoft.AspNetCore.Hosting.Server.Features;
 global using Microsoft.AspNetCore.Http;
