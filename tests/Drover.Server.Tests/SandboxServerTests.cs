@@ -15,7 +15,7 @@ public sealed class SandboxKeySettingTests
         using var services = Build([]);
 
         services.GetServices<ISandboxProvider>().Should().BeEmpty();
-        services.GetServices<BuiltinTool>().Should().NotContain(tool => SandboxTools.IsSandboxTool(tool.Name));
+        services.GetServices<BuiltinTool>().Should().NotContain(tool => SandboxTools.IsSandboxTool(tool.Name) || ComputerTools.IsComputerTool(tool.Name));
         services.GetRequiredService<SandboxAvailability>().IsConfigured.Should().BeFalse();
     }
 
@@ -24,14 +24,21 @@ public sealed class SandboxKeySettingTests
     {
         var key = NewKey();
 
-        using var services = Build(new() { [SandboxServiceExtensions.KeySetting] = key, ["Drover:Sandbox:E2B:Domain"] = "e2b.example.test" });
+        using var services = Build(new()
+        {
+            [SandboxServiceExtensions.KeySetting] = key,
+            ["Drover:Sandbox:E2B:Domain"] = "e2b.example.test",
+            ["Drover:Sandbox:E2B:DesktopTemplate"] = "my-desktop",
+        });
 
         services.GetRequiredService<ISandboxProvider>().Kind.Should().Be("e2b");
-        services.GetServices<BuiltinTool>().Select(tool => tool.Name).Should().Contain(SandboxTools.Names);
+        services.GetServices<BuiltinTool>().Select(tool => tool.Name).Should().Contain(SandboxTools.Names).And.Contain(ComputerTools.Names);
         services.GetRequiredService<SandboxAvailability>().IsConfigured.Should().BeTrue();
         var options = services.GetRequiredService<IOptions<E2BOptions>>().Value;
         options.ApiKey.Should().Be(key);
         options.Domain.Should().Be("e2b.example.test");
+        options.Template.Should().Be("base");
+        options.DesktopTemplate.Should().Be("my-desktop");
     }
 
     [Fact]

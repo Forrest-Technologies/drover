@@ -13,7 +13,8 @@ public sealed record ToolOutputChunk(string Stream, string Text)
 /// One call of a built-in tool, with the run it belongs to. <see cref="Tenant"/> opens short transactions as the run's
 /// person in the run's space; none is open while the tool runs. <see cref="Output"/> streams output into the run's
 /// events as <c>tool.output</c>, redacted, before the result. <see cref="Taint"/> marks the run as having read text
-/// from an untrusted source.
+/// from an untrusted source. <see cref="Attach"/> hands the model a picture with the result, for its next call only:
+/// pictures are never stored and cannot be redacted.
 /// </summary>
 public sealed record BuiltinToolCall(
     JsonElement Arguments,
@@ -22,7 +23,8 @@ public sealed record BuiltinToolCall(
     Guid ToolCallId,
     RunTenant Tenant,
     Func<ToolOutputChunk, Task> Output,
-    Func<Task> Taint);
+    Func<Task> Taint,
+    Action<ToolImage> Attach);
 
 
 /// <summary>

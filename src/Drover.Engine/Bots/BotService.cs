@@ -11,6 +11,8 @@ public sealed class BotService(
     ToolCatalog catalog,
     AuditLog audit,
     PolicyService policies,
+    SandboxRepository sandboxes,
+    TimeProvider time,
     ILogger<BotService> logger)
 {
     #region Private Fields
@@ -121,6 +123,14 @@ public sealed class BotService(
 
         var before = Snapshot(bot, await bots.ListSandboxShares(id, cancellationToken));
         var sharedWith = edit.SandboxPolicy is SandboxPolicy.Named ? edit.SandboxSharedWith.Distinct().Order().ToList() : [];
+
+        // A screen is part of the machine a sandbox is made from, so a change to it takes the bot's sandbox out of use.
+        // Its next use makes one of the new kind and destroys this one; its files go with it, as the editor says.
+        if (bot.SandboxSettings.Desktop != edit.SandboxSettings!.Desktop
+            && await sandboxes.RetireLiveForOwner(bot.Id, time.GetUtcNow(), cancellationToken))
+        {
+            logger.LogInformation("Bot {BotId} changed its sandbox's screen; its sandbox is retired", bot.Id);
+        }
 
         bot.Name = edit.Name.Trim();
         bot.Handle = edit.Handle;
@@ -426,6 +436,12 @@ public sealed class BotService(
         if (settings.Network is NetworkAccess.Open && !policies.Deployment.AllowOpenSandboxNetwork)
         {
             return "This server does not let a sandbox reach the open internet. Choose Off or Named hosts.";
+        }
+
+        // A sandbox with a screen is a far larger machine; where the operator has not allowed one, it is refused.
+        if (settings.Desktop && !policies.Deployment.AllowDesktopSandboxes)
+        {
+            return "This server does not offer sandboxes with a screen. Turn Desktop off.";
         }
 
         if (settings.AllowedHosts.Count > MaxAllowedHosts)

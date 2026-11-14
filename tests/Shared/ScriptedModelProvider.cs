@@ -18,6 +18,8 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
 
     private readonly ConcurrentQueue<string?> keys = new();
 
+    private readonly ConcurrentQueue<IReadOnlyList<ModelData>> imagesSeen = new();
+
     private int calls;
 
     #endregion
@@ -37,6 +39,9 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
     public IReadOnlyList<bool> TransactionWasOpen => [.. transactionWasOpen];
 
     public IReadOnlyList<string?> KeysSeen => [.. keys];
+
+    /// <summary>The images each model call was sent, in call order, with their bytes.</summary>
+    public IReadOnlyList<IReadOnlyList<ModelData>> ImagesSeen => [.. imagesSeen];
 
     /// <summary>Runs at the start of each model call, with the call's number from zero, before the model answers.</summary>
     public Func<int, Task> BeforeCall { get; set; } = _ => Task.CompletedTask;
@@ -86,6 +91,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
         {
             provider.transactionWasOpen.Enqueue(TenantScope.IsOpenInCurrentFlow);
             provider.toolsOffered.Enqueue([.. (request.Options.Tools ?? []).Select(tool => tool.Name)]);
+            provider.imagesSeen.Enqueue([.. request.Messages.SelectMany(message => message.Contents).OfType<ModelData>()]);
             await provider.BeforeCall(Interlocked.Increment(ref provider.calls) - 1);
 
             if (provider.FailNext is { } failure)
@@ -138,6 +144,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model) : IModelClientPro
                     ModelText text => text.Text,
                     ModelToolCall call => $"call {call.CallId} {call.Name}",
                     ModelToolResult result => $"{result.CallId} = {JsonSerializer.Serialize(result.Result)}",
+                    ModelData data => $"image {data.MediaType}",
                     _ => null,
                 };
 

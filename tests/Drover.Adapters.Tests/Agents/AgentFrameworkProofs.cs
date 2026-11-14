@@ -194,6 +194,45 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
 
     #endregion
 
+    #region A Tool's Picture Is Shown Once
+
+    [Fact]
+    public async Task A_tools_picture_reaches_the_next_model_call_only_and_is_never_stored()
+    {
+        var run = await world.NewRun("Look at the screen", [new ToolSpec("look")]);
+        byte[] picture = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 7, 7, 7];
+        var encoded = Convert.ToBase64String(picture);
+        var tools = new ScriptedTools().Add("look", (_, _) => Task.FromResult(
+            new ToolOutcome(ScriptedTools.Json("""{"screenshot":"attached"}""")) { Images = [new ToolImage(picture, "image/png")] }));
+        var model = new ScriptedModel([new ToolCallOutput("c1", "look")], [new TextOutput("I see it.")]);
+
+        await RunOnce(run, model, tools);
+
+        model.Requests[0].Should().NotContain(message => message.Summary.StartsWith("image", StringComparison.Ordinal));
+        model.Requests[1].TakeLast(3).Should().Equal(
+            new SeenMessage("tool", """c1 = {"screenshot":"attached"}"""),
+            new SeenMessage("user", "The image from the look call c1. It is shown once and not kept."),
+            new SeenMessage("user", $"image image/png {encoded}"));
+
+        var stored = await world.Read(db => db.Messages.Where(message => message.ThreadId == run.ThreadId).ToListAsync());
+        stored.SelectMany(message => message.Parts).OfType<TextPart>().Should().NotContain(part => part.Text.Contains("The image from"));
+        stored.SelectMany(message => message.Parts).Should().NotContain(part => part is ImagePart);
+        stored.Should().OnlyContain(message => !JsonSerializer.Serialize(message.Parts, JsonSerializerOptions.Default).Contains(encoded));
+        var sessions = await world.Read(db => db.AgentSessions.Where(session => session.ThreadId == run.ThreadId).ToListAsync());
+        sessions.Should().OnlyContain(session => !JsonSerializer.Serialize(session, JsonSerializerOptions.Default).Contains(encoded));
+
+        // A later run, in a new process, reads the thread back: the result is there, the picture is not.
+        await world.AddUserMessage(run.ThreadId, "And now?");
+        var later = new ScriptedModel([new TextOutput("Nothing new.")]);
+        await RunOnce(run, later);
+
+        later.Requests.Single().Should().Contain(new SeenMessage("tool", """c1 = {"screenshot":"attached"}"""));
+        later.Requests.Single().Should().NotContain(message => message.Summary.StartsWith("image", StringComparison.Ordinal)
+            || message.Summary.StartsWith("The image from", StringComparison.Ordinal));
+    }
+
+    #endregion
+
     #region Sessions
 
     [Fact]

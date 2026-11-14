@@ -54,6 +54,48 @@ public sealed class SandboxRepositoryTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Retiring_takes_the_live_sandbox_out_of_use_and_it_is_due_from_the_time_given()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world);
+        var live = await AddSandbox(provider, world, bot.Id, SandboxState.Paused);
+        var at = new DateTimeOffset(2026, 11, 14, 12, 0, 0, TimeSpan.Zero);
+
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            (await new SandboxRepository(session.Db).RetireLiveForOwner(bot.Id, at, TestContext.Current.CancellationToken)).Should().BeTrue();
+            await session.Commit();
+        }
+
+        await using var check = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
+        var sandboxes = new SandboxRepository(check.Db);
+        (await sandboxes.FindLiveForOwner(bot.Id, TestContext.Current.CancellationToken)).Should().BeNull("the next use makes a new one");
+        (await sandboxes.ListDueForOwner(bot.Id, at.AddSeconds(-1), TestContext.Current.CancellationToken)).Should().BeEmpty();
+        (await sandboxes.ListDueForOwner(bot.Id, at, TestContext.Current.CancellationToken)).Select(row => row.Id).Should().Equal(live);
+        (await sandboxes.RetireLiveForOwner(bot.Id, at, TestContext.Current.CancellationToken)).Should().BeFalse("nothing is live any more");
+    }
+
+    [Fact]
+    public async Task Another_space_cannot_retire_a_sandbox_or_see_it_due()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world);
+        await AddSandbox(provider, world, bot.Id, SandboxState.Running);
+        var at = DateTimeOffset.UnixEpoch;
+
+        await using (var other = await TenantSession.Open(provider, world.SpaceB, world.UserB1))
+        {
+            (await new SandboxRepository(other.Db).RetireLiveForOwner(bot.Id, at, TestContext.Current.CancellationToken)).Should().BeFalse();
+            await other.Commit();
+        }
+
+        await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
+        (await new SandboxRepository(session.Db).FindLiveForOwner(bot.Id, TestContext.Current.CancellationToken)).Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task A_bots_sandbox_path_runs_from_itself_up_and_leaves_out_removed_bots()
     {
         await using var provider = postgres.BuildServices();

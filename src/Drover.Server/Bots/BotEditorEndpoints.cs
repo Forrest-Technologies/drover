@@ -175,7 +175,8 @@ public static class BotEditorEndpoints
         TypedResults.Ok(new BotSandboxOptions(
             sandboxes.IsConfigured,
             policies.Deployment.AllowOpenSandboxNetwork,
-            policies.Deployment.MaxSandboxIdleMinutes));
+            policies.Deployment.MaxSandboxIdleMinutes,
+            policies.Deployment.AllowDesktopSandboxes));
 
     #endregion
 

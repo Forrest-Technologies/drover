@@ -9,6 +9,9 @@ public sealed record SandboxFileResult(string? Content, long Size, bool NewSandb
 /// <summary>The entries of a folder in a sandbox, at most a fixed number of them.</summary>
 public sealed record SandboxListResult(IReadOnlyList<SandboxEntry> Entries, bool Truncated, bool NewSandbox);
 
+/// <summary>A screenshot of a sandbox's screen, as a PNG file, and the size it says it is.</summary>
+public sealed record SandboxScreenshot(byte[] Png, int Width, int Height, bool NewSandbox);
+
 
 /// <summary>
 /// The only caller of <see cref="ISandboxProvider"/>. For each sandbox tool call it works out which sandbox the bot
@@ -33,6 +36,9 @@ public sealed class SandboxBroker(
 
     private const int MaxEntries = 1000;
 
+    /// <summary>The least time a sandbox stays up for a desktop action: starting the display can take a minute and a half.</summary>
+    private static readonly TimeSpan desktopMargin = TimeSpan.FromMinutes(2);
+
     /// <summary>The network rules last set on each sandbox, so a change to a bot's settings reaches its sandbox on next use.</summary>
     private readonly ConcurrentDictionary<Guid, NetworkPolicy> appliedNetworks = new();
 
@@ -50,7 +56,7 @@ public sealed class SandboxBroker(
         CancellationToken cancellationToken)
     {
         var limit = CommandLimit(timeout);
-        var lease = await Acquire(call, environment, limit + commandMargin, cancellationToken);
+        var lease = await Acquire(call, environment, limit + commandMargin, screen: false, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -89,7 +95,7 @@ public sealed class SandboxBroker(
 
     public async Task<SandboxFileResult> ReadFile(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
-        var lease = await Acquire(call, environment, null, cancellationToken);
+        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
         byte[] bytes;
 
@@ -118,7 +124,7 @@ public sealed class SandboxBroker(
             throw new BuiltinToolException($"The content is {bytes.Length} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
         }
 
-        var lease = await Acquire(call, environment, null, cancellationToken);
+        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
 
         try
         {
@@ -136,7 +142,7 @@ public sealed class SandboxBroker(
 
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
-        var lease = await Acquire(call, environment, null, cancellationToken);
+        var lease = await Acquire(call, environment, null, screen: false, cancellationToken);
         IReadOnlyList<SandboxEntry> entries;
 
         try
@@ -154,15 +160,139 @@ public sealed class SandboxBroker(
 
     #endregion
 
+    #region Computer Use
+
+    /// <summary>
+    /// A screenshot of the bot's sandbox screen. What it shows is read from the sandbox like a file, so it taints the
+    /// run when the sandbox can reach the network; no redaction can reach into its pixels.
+    /// </summary>
+    public async Task<SandboxScreenshot> Screenshot(BuiltinToolCall call, CancellationToken cancellationToken)
+    {
+        var lease = await AcquireScreen(call, cancellationToken);
+        var path = $"/tmp/drover-screen-{Guid.NewGuid():N}.png";
+        var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
+        byte[] png;
+
+        await RunOnScreen(lease, DesktopCommands.Screenshot(path), "take the screenshot", cancellationToken);
+
+        try
+        {
+            await using var content = await provider.ReadFile(lease.Handle, path, cancellationToken);
+            png = await ReadAtMost(content, maxBytes, cancellationToken)
+                ?? throw new BuiltinToolException($"The screenshot is larger than {maxBytes} bytes, the most this server reads from a sandbox.");
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure);
+        }
+        finally
+        {
+            await RemoveQuietly(lease, path);
+        }
+
+        var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
+        await Finish(call, lease, readsSandbox: true, cancellationToken);
+        return new SandboxScreenshot(png, width, height, lease.NewSandbox);
+    }
+
+    /// <summary>
+    /// Runs one mouse or keyboard action on the bot's sandbox screen. The command is a program and its arguments, built
+    /// by <see cref="DesktopCommands"/>; its output is not read, so nothing from the sandbox comes back with it.
+    /// </summary>
+    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken)
+    {
+        var lease = await AcquireScreen(call, cancellationToken);
+        await RunOnScreen(lease, action, doing, cancellationToken);
+        await Finish(call, lease, readsSandbox: false, cancellationToken);
+        return lease.NewSandbox;
+    }
+
+    /// <summary>The bot's own sandbox, which must have a screen, with its display and desktop session running.</summary>
+    private async Task<SandboxLease> AcquireScreen(BuiltinToolCall call, CancellationToken cancellationToken)
+    {
+        var lease = await Acquire(call, null, desktopMargin, screen: true, cancellationToken);
+
+        if (await RunQuietly(lease, DesktopCommands.StartDisplay(), cancellationToken) is not 0)
+        {
+            throw new BuiltinToolException(
+                "The sandbox's screen did not start. Try again in a moment; if it keeps failing, a person can turn the bot's Desktop setting off and on to get a new sandbox.");
+        }
+
+        return lease;
+    }
+
+    private async Task RunOnScreen(SandboxLease lease, CommandRequest command, string doing, CancellationToken cancellationToken)
+    {
+        if (await RunQuietly(lease, command, cancellationToken) is not 0)
+        {
+            throw new BuiltinToolException($"The sandbox could not {doing}.");
+        }
+    }
+
+    /// <summary>Runs a command and returns its exit code, or -1 when it ran out of time. Its output is never read.</summary>
+    private async Task<int> RunQuietly(SandboxLease lease, CommandRequest command, CancellationToken cancellationToken)
+    {
+        var exitCode = 0;
+
+        try
+        {
+            await foreach (var output in provider.Run(lease.Handle, command, cancellationToken))
+            {
+                if (output is CommandExited exited)
+                {
+                    exitCode = exited.ExitCode;
+                }
+            }
+        }
+        catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.TimedOut)
+        {
+            logger.LogInformation("A desktop command in sandbox {SandboxId} ran past its time limit", lease.SandboxId);
+            return -1;
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure);
+        }
+
+        return exitCode;
+    }
+
+    /// <summary>Removes a file Drover made in the sandbox. A failure is logged, not passed on: the file is in /tmp.</summary>
+    private async Task RemoveQuietly(SandboxLease lease, string path)
+    {
+        try
+        {
+            await RunQuietly(lease, DesktopCommands.Remove(path), CancellationToken.None);
+        }
+        catch (BuiltinToolException)
+        {
+            logger.LogInformation("A screenshot file in sandbox {SandboxId} was not removed", lease.SandboxId);
+        }
+    }
+
+    #endregion
+
     #region Finding The Sandbox
 
     /// <summary>
     /// The sandbox the call means, running, for at least <paramref name="keepAtLeast"/>. A sandbox the provider no
     /// longer has is retired and replaced once, and the lease says so, because its files are gone.
     /// </summary>
-    private async Task<SandboxLease> Acquire(BuiltinToolCall call, string? environment, TimeSpan? keepAtLeast, CancellationToken cancellationToken)
+    private async Task<SandboxLease> Acquire(
+        BuiltinToolCall call,
+        string? environment,
+        TimeSpan? keepAtLeast,
+        bool screen,
+        CancellationToken cancellationToken)
     {
         var target = await Locate(call, environment, cancellationToken);
+
+        if (screen && !DesktopFor(target.Owner))
+        {
+            throw new BuiltinToolException("This bot's sandbox has no screen. A person can turn on Desktop in the bot's Sandbox settings.");
+        }
+
+        await DestroyRetired(call.Tenant, target, cancellationToken);
         var network = NetworkFor(target.Owner);
         var idle = IdleFor(target.Owner);
         var keepFor = keepAtLeast is { } longer && longer > idle ? longer : idle;
@@ -226,10 +356,17 @@ public sealed class SandboxBroker(
             sandboxes.Add(row);
         }
 
-        var token = row.AccessSecretId is { } secretId
-            ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
-            : null;
-        return new SandboxTarget(call.Tenant.SpaceId, owner, row, token);
+        var vault = services.GetRequiredService<ISecretVault>();
+        var token = row.AccessSecretId is { } secretId ? await vault.Reveal(secretId, cancellationToken) : null;
+        List<RetiredSandbox> retired = [];
+
+        foreach (var due in await sandboxes.ListDueForOwner(owner.Id, time.GetUtcNow(), cancellationToken))
+        {
+            var retiredToken = due.AccessSecretId is { } dueSecretId ? await vault.Reveal(dueSecretId, cancellationToken) : null;
+            retired.Add(new RetiredSandbox(due.Id, due.ProviderSandboxId, retiredToken));
+        }
+
+        return new SandboxTarget(call.Tenant.SpaceId, owner, row, token, retired);
     }
 
     /// <summary>The owner of the sandbox another bot's handle names, when the caller may work in it.</summary>
@@ -303,6 +440,7 @@ public sealed class SandboxBroker(
     private async Task<SandboxHandle> Create(RunTenant tenant, SandboxTarget target, TimeSpan keepFor, CancellationToken cancellationToken)
     {
         var network = NetworkFor(target.Owner);
+        var desktop = DesktopFor(target.Owner);
         SandboxHandle created;
 
         try
@@ -315,6 +453,8 @@ public sealed class SandboxBroker(
                     IdempotencyKey = target.Row.Id,
                     Network = network,
                     IdleTimeout = keepFor,
+                    Desktop = desktop,
+                    Environment = desktop ? DesktopCommands.Environment : new Dictionary<string, string>(),
                 },
                 cancellationToken);
         }
@@ -369,6 +509,34 @@ public sealed class SandboxBroker(
                 row.State = SandboxState.Destroyed;
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Destroys the owner's sandboxes that were taken out of use and are due, such as the one a bot had before its
+    /// Desktop setting changed. One the provider cannot destroy now is tried again on the next use.
+    /// </summary>
+    private async Task DestroyRetired(RunTenant tenant, SandboxTarget target, CancellationToken cancellationToken)
+    {
+        foreach (var retired in target.Retired)
+        {
+            if (retired.ProviderSandboxId.Length > 0)
+            {
+                try
+                {
+                    await provider.Destroy(
+                        new SandboxHandle(retired.ProviderSandboxId, target.SpaceId, target.Owner.Id, retired.Token ?? string.Empty),
+                        cancellationToken);
+                }
+                catch (SandboxProviderException failure)
+                {
+                    logger.LogWarning("Retired sandbox {SandboxId} could not be destroyed yet: {Failure}", retired.Id, failure.Failure);
+                    continue;
+                }
+            }
+
+            await Retire(tenant, retired.Id, cancellationToken);
+            logger.LogInformation("Destroyed retired sandbox {SandboxId} of bot {BotId}", retired.Id, target.Owner.Id);
+        }
     }
 
     private async Task ApplyNetwork(Guid sandboxId, SandboxHandle handle, NetworkPolicy network, CancellationToken cancellationToken)
@@ -439,6 +607,13 @@ public sealed class SandboxBroker(
             ? throw new BuiltinToolException(
                 $"This server does not let a sandbox reach the open internet ({nameof(DeploymentPolicy.AllowOpenSandboxNetwork)}). In the bot's Sandbox settings, choose Off or Named hosts.")
             : owner.SandboxSettings.ToNetworkPolicy();
+
+    /// <summary>Whether the owner's sandbox has a screen. A bot set to have one where the deployment forbids it is refused.</summary>
+    private bool DesktopFor(Bot owner) =>
+        owner.SandboxSettings.Desktop && !deployment.Value.Rules.AllowDesktopSandboxes
+            ? throw new BuiltinToolException(
+                $"This server does not offer sandboxes with a screen ({nameof(DeploymentPolicy.AllowDesktopSandboxes)}). In the bot's Sandbox settings, turn Desktop off.")
+            : owner.SandboxSettings.Desktop;
 
     /// <summary>The bot's idle time, or 15 minutes, never more than the deployment allows.</summary>
     private TimeSpan IdleFor(Bot owner)
@@ -511,7 +686,10 @@ public sealed class SandboxBroker(
     #region Nested Types
 
     /// <summary>The bot whose sandbox a call uses, its row (new and unsaved, or stored), and its token if it has one.</summary>
-    private sealed record SandboxTarget(Guid SpaceId, Bot Owner, Sandbox Row, string? Token);
+    private sealed record SandboxTarget(Guid SpaceId, Bot Owner, Sandbox Row, string? Token, IReadOnlyList<RetiredSandbox> Retired);
+
+    /// <summary>A sandbox taken out of use and due to be destroyed, with its token if it still has one.</summary>
+    private sealed record RetiredSandbox(Guid Id, string ProviderSandboxId, string? Token);
 
     /// <summary>A sandbox ready for one operation, and what to record when the operation is done.</summary>
     private sealed record SandboxLease(Guid SandboxId, SandboxHandle Handle, NetworkPolicy Network, TimeSpan Idle, TimeSpan KeptFor, bool NewSandbox);

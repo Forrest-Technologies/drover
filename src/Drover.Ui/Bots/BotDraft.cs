@@ -50,6 +50,9 @@ public sealed class BotDraft
 
     public string IdleTimeoutMinutes { get; set; } = string.Empty;
 
+    /// <summary>Whether the sandbox has a screen the bot sees and drives.</summary>
+    public bool Desktop { get; set; }
+
     public IReadOnlyList<Guid> SandboxSharedWith { get; set; } = [];
 
     public string MaxChildren { get; set; } = string.Empty;
@@ -82,6 +85,7 @@ public sealed class BotDraft
         Network = bot.SandboxSettings.Network,
         AllowedHosts = string.Join('\n', bot.SandboxSettings.AllowedHosts),
         IdleTimeoutMinutes = Text(bot.SandboxSettings.IdleTimeoutMinutes),
+        Desktop = bot.SandboxSettings.Desktop,
         SandboxSharedWith = bot.SandboxSharedWith,
         MaxChildren = Text(bot.BuildLimits.MaxChildren),
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
@@ -147,7 +151,7 @@ public sealed class BotDraft
             new ModelSettingsBody(ReadDecimal(Temperature), ReadWhole(MaxOutputTokens), ReasoningEffort.Length == 0 ? null : ReasoningEffort, WebSearch, StructuredOutput),
             new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages)),
             SandboxPolicy,
-            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes)),
+            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)));
 

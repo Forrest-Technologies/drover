@@ -14,6 +14,12 @@ public sealed class E2BOptions
     /// <summary>The template a sandbox starts from when the spec names none.</summary>
     public string Template { get; set; } = "base";
 
+    /// <summary>
+    /// The template a sandbox with a screen starts from: E2B's public <c>desktop</c> (Xvfb, an Xfce session, xdotool,
+    /// scrot). It is a far larger machine than <see cref="Template"/>.
+    /// </summary>
+    public string DesktopTemplate { get; set; } = "desktop";
+
     #endregion
 
     #region Public Methods

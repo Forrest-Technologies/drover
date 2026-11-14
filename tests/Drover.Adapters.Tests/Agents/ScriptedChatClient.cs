@@ -81,6 +81,7 @@ public sealed class ScriptedChatClient(ScriptedModel model) : IChatClient
                 TextContent text => text.Text,
                 FunctionCallContent call => $"call {call.CallId} {call.Name}",
                 FunctionResultContent result => $"{result.CallId} = {MessageJson(result.Result)}",
+                DataContent data => $"image {data.MediaType} {Convert.ToBase64String(data.Data.Span)}",
                 _ => null,
             };
 

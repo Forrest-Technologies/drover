@@ -79,7 +79,7 @@ public static class BotSummaries
     public static string Sandbox(BotDraft draft) =>
         draft.SandboxPolicy is "none"
             ? "No sandbox"
-            : $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}";
+            : $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{(draft.Desktop ? " · desktop" : string.Empty)}";
 
     public static string Team(BotDraft draft) =>
         (draft.MaxChildren.Trim(), draft.MaxDepthBelow.Trim()) switch

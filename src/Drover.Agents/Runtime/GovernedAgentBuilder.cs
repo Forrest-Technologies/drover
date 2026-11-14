@@ -28,8 +28,9 @@ public static class GovernedAgentBuilder
         options.AIContextProviders = [.. (options.AIContextProviders ?? []).Select(provider => new CapabilityGuard(provider, catalogNames))];
 
         var gate = new ToolGate(run, loggerFactory.CreateLogger<ToolGate>());
-        // Rules about replies go between the tool loop and the model, so every model call's answer passes them.
-        return new ReplyRules(chatClient, run.Governor)
+        // Rules about replies go between the tool loop and the model, so every model call's answer passes them. A
+        // tool's picture is added below them, after the framework has handed the call's messages to history.
+        return new ReplyRules(new TransientImages(chatClient, run), run.Governor)
             .AsAIAgent(options, loggerFactory)
             .AsBuilder()
             .Use(gate.Invoke)

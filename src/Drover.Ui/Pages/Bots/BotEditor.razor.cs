@@ -49,7 +49,7 @@ public sealed partial class BotEditor(
 
     private bool writtenPatterns = true;
 
-    private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0);
+    private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
 
     private IReadOnlyList<BotSummary> otherBots = [];
 

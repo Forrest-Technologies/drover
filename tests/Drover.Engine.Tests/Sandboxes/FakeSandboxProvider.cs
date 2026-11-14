@@ -50,6 +50,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
 
     public FakeSandbox Only() => sandboxes.Values.Single();
 
+    /// <summary>The sandbox whose current token this is, as a command's behaviour is handed it.</summary>
+    public FakeSandbox WithToken(string token) => sandboxes.Values.Single(sandbox => sandbox.Token == token);
+
     public void PauseAll()
     {
         foreach (var sandbox in sandboxes.Values)

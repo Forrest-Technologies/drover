@@ -436,7 +436,8 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
             Guid.CreateVersion7(),
             world.Hosts[^1].Services.GetRequiredService<RunScopes>().For(world.SpaceId, world.UserId),
             _ => Task.CompletedTask,
-            () => Task.CompletedTask);
+            () => Task.CompletedTask,
+            _ => { });
 
     private static async IAsyncEnumerable<CommandOutput> PrintSplit(string text, int at)
     {

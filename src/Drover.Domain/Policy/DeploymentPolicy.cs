@@ -155,6 +155,12 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowOpenSandboxNetwork { get; init; } = true;
 
+    /// <summary>
+    /// A bot's sandbox may have a screen it sees and drives (computer use). Off in the hosted preset: a sandbox with a
+    /// screen needs a far larger machine, and there are no per-space quotas to bound what that costs the operator.
+    /// </summary>
+    public bool AllowDesktopSandboxes { get; init; } = true;
+
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
 
@@ -318,6 +324,10 @@ public sealed record DeploymentPolicy
             nameof(AllowOpenSandboxNetwork),
             policy => policy.AllowOpenSandboxNetwork,
             Enforcement.Now("SandboxBroker, on every use of a sandbox, and BotService, when a bot is saved")),
+        PolicyRule.Permission(
+            nameof(AllowDesktopSandboxes),
+            policy => policy.AllowDesktopSandboxes,
+            Enforcement.Now("SandboxBroker, on every use of a sandbox; RunExecutor, which offers no computer tool; BotService, when a bot is saved; the bot editor's sandbox options")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,
