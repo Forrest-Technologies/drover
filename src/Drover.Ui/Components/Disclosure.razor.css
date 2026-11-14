@@ -46,6 +46,15 @@
   font-weight: var(--dv-weight-heading);
 }
 
+.dv-disclosure-title-row {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
 .dv-disclosure-summary {
   grid-column: 1;
   overflow-wrap: anywhere;

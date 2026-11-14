@@ -96,6 +96,17 @@
   padding-top: var(--dv-space-1);
 }
 
+/* Tool calls made without words stand under the bot's words, in line with them. A phone gives them the full width. */
+.dv-message-tools {
+  gap: var(--dv-space-2);
+}
+
+@media (min-width: 560px) {
+  .dv-message-tools {
+    padding-inline-start: calc(var(--dv-avatar-48) + 2 * var(--dv-space-1) + 2 * var(--dv-border) + var(--dv-space-3));
+  }
+}
+
 /* Each block of a streaming reply fades in once, as it first arrives. Text added to it after that is not delayed. */
 .dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
   animation: dv-arrive var(--dv-dur-1) var(--dv-ease);

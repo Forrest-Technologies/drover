@@ -1,0 +1,150 @@
+/* A tool call: a compact card in the bot's turn. Closed, it reads what the bot did, its arguments on one line,
+   and its state in words. Its top edge carries the state: a traveling line while the tool runs (dv-state-tool),
+   then a still line in green or red once it has ended. */
+.dv-tool {
+  min-width: 0;
+}
+
+.dv-tool ::deep .dv-disclosure-summary {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dv-tool ::deep .dv-disclosure-title {
+  font-weight: var(--dv-weight-label);
+}
+
+/* A long state ("Interrupted, outcome unknown") wraps inside the card on a phone instead of running under the mark. */
+.dv-tool ::deep .dv-badge {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.dv-tool ::deep .dv-tool-ended {
+  position: relative;
+}
+
+.dv-tool ::deep .dv-tool-ended::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--dv-focus-width);
+  background: var(--dv-tool-edge);
+}
+
+.dv-tool ::deep .dv-tool-ended-ok {
+  --dv-tool-edge: var(--dv-ok);
+}
+
+.dv-tool ::deep .dv-tool-ended-failed {
+  --dv-tool-edge: var(--dv-danger);
+}
+
+.dv-tool ::deep .dv-tool-ended-unknown {
+  --dv-tool-edge: var(--dv-warn);
+}
+
+.dv-tool-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-tool-part-title {
+  margin: 0;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  color: var(--dv-text-2);
+}
+
+/* Bounded, and laid out bottom-up, so long output scrolls inside the card with its newest line in view. */
+.dv-tool-output {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: var(--dv-output-lines);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-card);
+  background: var(--dv-bg-2);
+}
+
+.dv-tool-output-text {
+  margin: 0;
+  padding: var(--dv-space-3);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  color: var(--dv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Error output is marked in words, and also in color. */
+.dv-tool-stderr {
+  color: var(--dv-danger);
+}
+
+.dv-tool-stream {
+  display: inline-block;
+  margin-inline-end: var(--dv-space-2);
+  padding: 0 var(--dv-space-1);
+  border: var(--dv-border) solid currentColor;
+  border-radius: var(--dv-radius-control);
+  font-size: var(--dv-text-12);
+}
+
+/* Arguments and results wrap, so a phone shows all of a line without scrolling sideways. Long ones scroll down. */
+.dv-tool ::deep .dv-code-body,
+.dv-tool-ask ::deep .dv-code-body {
+  max-height: var(--dv-output-lines);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-tool-exit,
+.dv-tool-quiet {
+  margin: 0;
+  font-size: var(--dv-text-13);
+  color: var(--dv-text-2);
+}
+
+/* A call waiting for a person: what the bot asks to do, and the two answers. */
+.dv-tool-ask {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-warn);
+  --dv-facet-fill: var(--dv-bg-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-3) var(--dv-space-4) var(--dv-space-4);
+}
+
+.dv-tool-ask-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+}
+
+.dv-tool-ask-title {
+  margin: 0;
+  font-size: var(--dv-text-14);
+  font-weight: var(--dv-weight-heading);
+}
+
+.dv-tool-ask-summary {
+  margin: 0;
+  color: var(--dv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-tool-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2);
+}

@@ -126,6 +126,7 @@
   --dv-column-min: 224px;
   --dv-list-width: 288px;
   --dv-composer-lines: 8lh;
+  --dv-output-lines: 12lh;
   --dv-grid-step: 16px;
   --dv-travel-width: 25%;
 

@@ -19,6 +19,8 @@ public sealed partial class Threads(
 
     private IReadOnlyList<MessageResponse> stored = [];
 
+    private ImmutableDictionary<Guid, ToolCallView> history = [];
+
     private ThreadSummary? thread;
 
     private RunView? run;
@@ -75,8 +77,9 @@ public sealed partial class Threads(
 
     private bool Thinking => run?.IsThinking() ?? false;
 
-    // What is stored, then what the active run has said that is not stored yet. Each message appears once.
-    private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run).ToChatMessages();
+    // What is stored, then what the active run has said that is not stored yet. Each message appears once, with the
+    // tool calls it made: as the run being watched has them, or as the thread's past runs left them.
+    private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run).ToChatMessages(history.With(run), run);
 
     private string? Notice => reconnecting ?? notice;
 
@@ -171,6 +174,7 @@ public sealed partial class Threads(
         StopWatching();
         shownThreadId = threadId;
         (thread, run, stored, problem, notice, reconnecting, missing) = (null, null, [], null, null, null, false);
+        history = [];
 
         if (threadId is not { } id)
         {
@@ -182,6 +186,7 @@ public sealed partial class Threads(
         {
             thread = await api.GetThread(SpaceId, id);
             stored = await api.ListMessages(SpaceId, id);
+            history = await LoadToolHistory(thread);
             ResumeActiveRun(thread);
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
@@ -197,6 +202,21 @@ public sealed partial class Threads(
         finally
         {
             loadingThread = false;
+        }
+    }
+
+    // Past tool calls are shown as their runs' logs left them. Without the log the conversation still reads: each call
+    // is then shown as the stored messages tell it.
+    private async Task<ImmutableDictionary<Guid, ToolCallView>> LoadToolHistory(ThreadSummary shown)
+    {
+        try
+        {
+            return ToolHistory.From(await api.ListToolEvents(SpaceId, shown.Id), shown.ActiveRunId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The tool history of thread {ThreadId} could not be loaded", shown.Id);
+            return [];
         }
     }
 
@@ -295,6 +315,26 @@ public sealed partial class Threads(
         }
     }
 
+    // A person's answer to a tool call that waits for one. The run's log then shows what happened.
+    private async Task<string?> Decide(Guid toolCallId, bool approved)
+    {
+        try
+        {
+            await api.DecideToolCall(SpaceId, toolCallId, approved);
+            return null;
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.Conflict)
+        {
+            logger.LogInformation(exception, "Tool call {ToolCallId} was answered already", toolCallId);
+            return "This request was answered already.";
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            return $"Your answer was not sent. {Failures.Sentence(exception)}";
+        }
+    }
+
     private void Remember(ThreadSummary changed)
     {
         threads.RemoveAll(item => item.Id == changed.Id);
@@ -305,9 +345,11 @@ public sealed partial class Threads(
 
     #region Watching A Run
 
+    // The run watched before keeps its tool calls on screen as history.
     private void Watch(Guid runId)
     {
         StopWatching();
+        history = history.With(run);
         run = RunView.Start(runId);
         watch = new();
         _ = WatchUntilDone(thread!.Id, runId, watch.Token);

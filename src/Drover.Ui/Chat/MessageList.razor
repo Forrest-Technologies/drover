@@ -23,6 +23,15 @@
                     }
                 </article>
             }
+            else if (message.Text.Length == 0)
+            {
+                <article @key="message.Key" class="dv-message dv-message-tools" aria-label="What @BotName did">
+                    @foreach (var tool in message.Tools)
+                    {
+                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
+                    }
+                </article>
+            }
             else
             {
                 <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
@@ -38,6 +47,10 @@
                             }
                         </header>
                         <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
+                        @foreach (var tool in message.Tools)
+                        {
+                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
+                        }
                     </div>
                 </article>
             }
@@ -69,6 +82,8 @@
 
     private readonly SentenceAnnouncer announcer = new();
 
+    private readonly ToolAnnouncer tools = new();
+
     private ElementReference scroller;
 
     private Task<IJSObjectReference>? module;
@@ -99,6 +114,10 @@
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     [Parameter]
     public string? Notice { get; set; }
+
+    /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
+    [Parameter]
+    public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
     #endregion
 
@@ -136,13 +155,18 @@
 
     #region Private Methods
 
-    // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page.
+    // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
+    // is read out once each time its state changes.
     protected override void OnParametersSet()
     {
-        if (Messages is [.., { FromPerson: false } newest])
+        var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
+        var changes = tools.Next(Messages.AllTools(), BotName);
+        spoken = (sentences, changes) switch
         {
-            spoken = announcer.Next(newest.Key, newest.Text, newest.Streaming) ?? spoken;
-        }
+            (null, null) => spoken,
+            ({ } said, { } done) => $"{said} {done}",
+            _ => sentences ?? changes,
+        };
     }
 
     #endregion
