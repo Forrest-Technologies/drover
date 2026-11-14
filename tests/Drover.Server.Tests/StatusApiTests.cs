@@ -9,7 +9,7 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
     #region Public Methods
 
     [Fact]
-    public async Task The_owner_sees_the_server_rows_and_each_is_green_on_a_fresh_server_but_the_public_address()
+    public async Task The_owner_sees_the_server_rows_and_each_is_green_on_a_fresh_server_but_the_public_address_and_sandboxes()
     {
         var (client, session, _) = await SetUpFirstAccount();
 
@@ -21,7 +21,8 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
             ("Migrations", "ok"),
             ("Key ring", "ok"),
             ("Public address", "warning"),
-            ("Background work", "ok"));
+            ("Background work", "ok"),
+            ("Sandboxes", "off"));
         Row(report, "Database").Summary.Should().Contain("drover_app");
         Row(report, "Public address").Summary.Should().Contain(PublicAddress.Variable);
     }

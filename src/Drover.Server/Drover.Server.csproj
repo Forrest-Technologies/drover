@@ -14,6 +14,7 @@
     <ProjectReference Include="..\Drover.Adapters.Mcp\Drover.Adapters.Mcp.csproj" />
     <ProjectReference Include="..\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />
     <ProjectReference Include="..\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\Drover.Web\Drover.Web.csproj" />
   </ItemGroup>
 

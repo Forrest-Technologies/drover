@@ -113,6 +113,12 @@ services:
       DataProtection__KeyPath: /var/lib/drover/keys
       # The address people open Drover at. Tool server sign-ins need it. Empty is fine on this machine alone.
       DROVER_PUBLIC_URL: ${DROVER_PUBLIC_URL:-}
+      # Sandboxes (optional): put an E2B API key in ./secrets/e2b_api_key, readable by uid 1654, then uncomment this
+      # line, the secrets entry below, and the top-level secrets at the end. The key is held in memory only.
+      # Drover__Sandbox__E2B__ApiKeyFile: /run/drover-sandbox/e2b_api_key
+    # secrets:
+    #   - source: e2b_api_key
+    #     target: /run/drover-sandbox/e2b_api_key
     volumes:
       - drover-app-secrets:/run/secrets:ro
       - drover-keys:/var/lib/drover/keys
@@ -162,3 +168,8 @@ volumes:
   drover-keys:
   drover-files:
   drover-ntfy:
+
+# Only for sandboxes; see the drover service's environment.
+# secrets:
+#   e2b_api_key:
+#     file: ./secrets/e2b_api_key

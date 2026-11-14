@@ -33,6 +33,7 @@ public sealed class SolutionLayoutTests
             "Drover.Adapters.Mcp",
             "Drover.Adapters.LocalFiles",
             "Drover.Adapters.DataProtection",
+            "Drover.Adapters.E2B",
             "Drover.Web",
         ],
     };

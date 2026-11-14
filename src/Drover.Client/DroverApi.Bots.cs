@@ -70,6 +70,10 @@ public sealed partial class DroverApi
     public Task RemoveBotRule(Guid spaceId, Guid botId, Guid ruleId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/rules/{ruleId}", cancellationToken);
 
+    /// <summary>What a sandbox on this server may be.</summary>
+    public Task<BotSandboxOptions> GetBotSandboxOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotSandboxOptions>($"{Space(spaceId)}/bots/{botId}/sandbox/options", cancellationToken);
+
     /// <summary>What a rule on this server may use.</summary>
     public Task<BotRuleOptions> GetBotRuleOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<BotRuleOptions>($"{Space(spaceId)}/bots/{botId}/rules/options", cancellationToken);

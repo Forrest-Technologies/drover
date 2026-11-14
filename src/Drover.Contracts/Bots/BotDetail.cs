@@ -33,8 +33,15 @@ public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputTokens
 /// <summary>Whether the bot remembers, and how it keeps a long thread inside the model's context.</summary>
 public sealed record MemorySettingsBody(bool Enabled, string Compaction, int? CompactAtTokens, int? KeepRecentMessages);
 
-/// <summary>What a bot's sandbox may reach. Stored now; used once a sandbox provider is set up.</summary>
+/// <summary>What a bot's sandbox may reach, and how long it keeps running after its last use.</summary>
 public sealed record SandboxSettingsBody(string Network, IReadOnlyList<string> AllowedHosts, int? IdleTimeoutMinutes);
 
 /// <summary>How many bots this bot may build, and how deep beneath itself. A null leaves the space's cap.</summary>
 public sealed record BuildLimitsBody(int? MaxChildren, int? MaxDepthBelow);
+
+/// <summary>
+/// What a sandbox on this server may be, so the editor offers only that: whether the server has a sandbox provider at
+/// all, whether a sandbox may reach the open internet (deployment rule AllowOpenSandboxNetwork), and the most idle
+/// minutes before it pauses (MaxSandboxIdleMinutes). Never which provider, and never its key.
+/// </summary>
+public sealed record BotSandboxOptions(bool Available, bool OpenNetwork, int MaxIdleMinutes);

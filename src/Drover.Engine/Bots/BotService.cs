@@ -10,6 +10,7 @@ public sealed class BotService(
     ToolRepository tools,
     ToolCatalog catalog,
     AuditLog audit,
+    PolicyService policies,
     ILogger<BotService> logger)
 {
     #region Private Fields
@@ -27,8 +28,6 @@ public sealed class BotService(
     private const int MaxSymbolLength = 16;
 
     private const int MaxAllowedHosts = 50;
-
-    private const int MaxIdleTimeoutMinutes = 1_440;
 
     private const int MaxBuildLimit = 1_000;
 
@@ -415,9 +414,18 @@ public sealed class BotService(
             return "Sandbox network access is off, allowlist, or open.";
         }
 
-        if (settings.IdleTimeoutMinutes is <= 0 or > MaxIdleTimeoutMinutes)
+        // The deployment caps both: a running sandbox costs the operator money, and open egress is the operator's
+        // liability on a shared server. Limits only narrow, so a setting past them is refused, not quietly lowered.
+        var mostIdleMinutes = policies.Deployment.MaxSandboxIdleMinutes;
+
+        if (settings.IdleTimeoutMinutes is <= 0 || settings.IdleTimeoutMinutes > mostIdleMinutes)
         {
-            return $"A sandbox stops after 1 to {MaxIdleTimeoutMinutes} idle minutes.";
+            return $"A sandbox stops after 1 to {mostIdleMinutes} idle minutes on this server.";
+        }
+
+        if (settings.Network is NetworkAccess.Open && !policies.Deployment.AllowOpenSandboxNetwork)
+        {
+            return "This server does not let a sandbox reach the open internet. Choose Off or Named hosts.";
         }
 
         if (settings.AllowedHosts.Count > MaxAllowedHosts)

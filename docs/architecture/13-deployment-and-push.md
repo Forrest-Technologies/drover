@@ -42,6 +42,8 @@ The project builds and hosts no images. `db` and the .NET base images are pulled
 5. Data Protection uses `DataProtection:KeyPath`, set to `/var/lib/drover/keys` in Compose. If there are no users, the server logs the setup address and code once it listens: the public address when one is set, otherwise each address it listens on, with a wildcard host printed as `localhost`.
 6. At start, the server asks PostgreSQL which role its connection really is. A role that is a superuser or can bypass row-level security stops the server where the deployment keeps the migration credential out of it, and is logged as an error everywhere else.
 
+Sandboxes are optional. To turn them on, give the server an E2B API key: as the value `Drover:Sandbox:E2B:ApiKey` (environment `Drover__Sandbox__E2B__ApiKey`), or as a file named by `Drover:Sandbox:E2B:ApiKeyFile`. `compose.yaml` has a commented example that mounts `./secrets/e2b_api_key` as a Compose secret at `/run/drover-sandbox/e2b_api_key` (outside `/run/secrets`, which holds the app password volume); the file must be readable by uid 1654. The key is read at start and held in memory only. A key without the `e2b_` prefix, both forms at once, or a missing file stops the server and names the setting; no key means no sandboxes. See [07-sandbox.md](07-sandbox.md#operator-key).
+
 The initializer additionally requires the superuser and owner passwords, as files (`Database:PasswordFile`, `Database:OwnerPasswordFile`) or values (`Database:Password`, `Database:OwnerPassword`). Run it only as the standalone `--initialize-database` command; never give its secrets to the request-serving process. Where `AllowMigrationCredentialInServer` is off, a serving process given any of the four settings does not start; where it is on, the server starts and logs an error naming each one. Running on a platform that builds the image and fronts it with its own proxy is in [../platform-deploy.md](../platform-deploy.md).
 
 `--reset-password person@example.com` is the other standalone command. It connects as the server does (`drover_app`, with the same deployment policy), prints a one-time password reset code for that account to the log, and exits with 1 when no account has the email. In compose: `docker compose run --rm drover --reset-password person@example.com`. See [08-auth-and-secrets.md](08-auth-and-secrets.md).
@@ -69,10 +71,11 @@ The page calls nothing to build itself: each row says what was last seen. Each r
 | Key ring | The folder is there and writable, how many keys it holds, and a reminder to back it up with the database |
 | Public address | Whether `DROVER_PUBLIC_URL` is set, and a warning when it is plain HTTP on a non-loopback name. Tool server sign-ins and push need it. |
 | Background work | Queued, running, and waiting runs, and runs whose worker lease expired, across every space as counts (`sys.health()`) |
+| Sandboxes | Whether a sandbox provider key is configured: "configured" or "not configured" (off), and nothing else. It never names the provider or shows anything of the key. |
 | Each model connection | Its state and when it was last checked |
 | Each tool connection | Its state and when it last listed its tools; what the server said is on the Tools screen |
 
-Not yet: a "test now" button per connection, whether the public address is reachable from outside, a worker heartbeat, a confirmed key ring backup, and rows for the sandbox provider, push, search, and voice, each of which arrives with its feature.
+Not yet: a "test now" button per connection, whether the public address is reachable from outside, a worker heartbeat, a confirmed key ring backup, whether the sandbox provider answers, and rows for push, search, and voice, each of which arrives with its feature.
 
 The first database row is worth its place: if someone points Drover at a superuser connection, isolation silently stops working. The status page turns red and the server logs an error at start.
 
