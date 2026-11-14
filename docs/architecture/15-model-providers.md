@@ -41,6 +41,12 @@ Every adapter must pass the model provider conformance suite: list models, plain
 
 Each connection stores a **capability record per model**, in Drover's own shape: context size, maximum output, tool calling, vision, reasoning and its effort levels, structured output, built-in web search, price per million input and output tokens, privacy mode. The bot editor uses it to show only what a model can do, and cost tracking uses its prices. Providers that publish this are read automatically; for a generic compatible endpoint the operator fills in what matters, with sensible defaults.
 
+### Images in requests
+
+The one image a run sends today is a screenshot from the computer tools ([07-sandbox.md](07-sandbox.md#computer-use)). It crosses the boundary as `DataContent` in the agent framework, `ModelData` (bytes and media type) in Drover's transport, and, on the OpenAI-compatible wire that Venice shares, a user message whose content is a `text` part and an `image_url` part holding a `data:image/png;base64,...` URI, placed after the tool result, which stays text (`OpenAICompatibleTests.A_tools_picture_goes_out_as_an_image_url_data_uri_in_a_user_message_after_the_tool_result`). It is sent on one model call and never stored.
+
+**The vision gate.** The run engine offers the computer tools only when the bot's model has `Vision` in its catalog entry. Venice fills it from its model list (`supportsVision`); a generic compatible endpoint claims no vision until the operator marks the model, so a model that cannot look is not handed a screen. Images a person uploads still do not reach the model: `MessageParts` leaves an image part out, and that waits for the file store.
+
 ## Venice, first-party
 
 Venice is supported as a named provider with its own adapter, not as "a compatible endpoint that happens to work". Setup is: choose Venice, paste a key, done.

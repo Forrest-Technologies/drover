@@ -206,7 +206,7 @@ public sealed class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -332,7 +332,7 @@ public sealed class RunExecutor(
         [
             .. loaded.Granted
                 .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
-                .Select(granted => ToRunTool(granted, loaded.ToolConnections))
+                .Select(granted => ToRunTool(granted, loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages))
                 .OfType<RunTool>()
                 .DistinctBy(tool => tool.ModelName, StringComparer.Ordinal),
         ];
@@ -352,19 +352,34 @@ public sealed class RunExecutor(
     }
 
     /// <summary>
-    /// A granted tool as this run uses it. A built-in tool needs its code on this server. A server's tool needs tool
-    /// connections allowed on this server and its own connection switched on, and is named for the model with the connection's own prefix, so no server can take
-    /// another's names or a built-in's.
+    /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
+    /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images. A server's tool
+    /// needs tool connections allowed on this server and its own connection switched on, and is named for the model
+    /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
-    private RunTool? ToRunTool(GrantedTool granted, IReadOnlyList<ToolConnection> toolConnections)
+    private RunTool? ToRunTool(GrantedTool granted, Bot? bot, IReadOnlyList<ToolConnection> toolConnections, bool modelSeesImages)
     {
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
-            return new RunTool(
-                granted.Tool,
-                granted.Effect,
-                BuiltinTool.ModelName(granted.Tool.Name),
-                builtins.FirstOrDefault(builtin => builtin.Name == granted.Tool.Name));
+            var builtin = builtins.FirstOrDefault(found => found.Name == granted.Tool.Name);
+            var hasSandbox = builtin is not null && bot?.SandboxPolicy is not null and not SandboxPolicy.None;
+
+            // A sandbox tool needs a sandbox provider on this server (its code is registered only then) and a bot whose
+            // sandbox policy gives it a sandbox. Without both the model is not offered it, whatever the grant says.
+            if (SandboxTools.IsSandboxTool(granted.Tool.Name) && !hasSandbox)
+            {
+                return null;
+            }
+
+            // A computer tool also needs a screen the deployment allows and a model that can look at a screenshot; a
+            // model that cannot would click blind.
+            if (ComputerTools.IsComputerTool(granted.Tool.Name)
+                && !(hasSandbox && bot!.SandboxSettings.Desktop && deployment.Value.Rules.AllowDesktopSandboxes && modelSeesImages))
+            {
+                return null;
+            }
+
+            return new RunTool(granted.Tool, granted.Effect, BuiltinTool.ModelName(granted.Tool.Name), builtin);
         }
 
         // With tool connections turned off on this server, a tool of one cannot be called, so the model is not offered it.
@@ -925,7 +940,8 @@ public sealed class RunExecutor(
         IReadOnlyList<PendingResponse> Answers,
         IReadOnlyList<Guid> Delivered,
         IReadOnlyList<Guid> RequestedCalls,
-        IReadOnlyList<ToolConnection> ToolConnections);
+        IReadOnlyList<ToolConnection> ToolConnections,
+        bool ModelSeesImages);
 
     #endregion
 }

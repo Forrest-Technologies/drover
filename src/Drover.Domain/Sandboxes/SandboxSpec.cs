@@ -18,6 +18,12 @@ public sealed record SandboxSpec
     /// <summary>The provider's image or template name. Null uses the default the operator configured.</summary>
     public string? Image { get; init; }
 
+    /// <summary>
+    /// A sandbox with a screen: the provider's desktop image, with a display server and a desktop session installed.
+    /// <see cref="Image"/> still wins when it is set.
+    /// </summary>
+    public bool Desktop { get; init; }
+
     /// <summary>How long the sandbox runs without a keep-alive before the provider pauses it.</summary>
     public TimeSpan IdleTimeout { get; init; } = TimeSpan.FromMinutes(15);
 

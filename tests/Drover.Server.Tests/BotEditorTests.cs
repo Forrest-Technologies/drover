@@ -76,7 +76,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             new ModelSettingsBody(0.4, 900, "high", "automatic", true),
             new MemorySettingsBody(true, "summarization", 60_000, 12),
             "named",
-            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30),
+            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true),
             [other.Id],
             new BuildLimitsBody(3, 2));
 
@@ -97,7 +97,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 edit.ModelSettings,
                 edit.MemorySettings,
                 edit.SandboxPolicy,
-                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30),
+                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30, Desktop: true),
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
                 Status = "active",

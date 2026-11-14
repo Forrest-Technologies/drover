@@ -300,8 +300,14 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
         try
         {
-            var result = await builtin.Run(toolCall.Arguments, cancellationToken);
-            return new ToolOutcome(session.Redactor.Redact(result));
+            List<ToolImage> images = [];
+            var result = await builtin.Run(BuiltinCall(toolCall, images), cancellationToken);
+            return new ToolOutcome(session.Redactor.Redact(result)) { Images = images };
+        }
+        catch (BuiltinToolException refused)
+        {
+            logger.LogInformation("Tool {ToolName} could not do what was asked in run {RunId}: {Reason}", toolCall.ToolName, session.RunId, refused.Message);
+            return Error(refused.Message);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -309,6 +315,21 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             return Error("The tool failed.");
         }
     }
+
+    /// <summary>
+    /// The call as a built-in tool sees it: its arguments, its run, and a way to stream output, to taint the run, and to
+    /// attach a picture for the model's next call.
+    /// </summary>
+    private BuiltinToolCall BuiltinCall(ToolCallRequest toolCall, List<ToolImage> images) =>
+        new(
+            toolCall.Arguments,
+            bot.Id,
+            session.RunId,
+            ToolCallIds.For(session.RunId, toolCall.CallId),
+            session.Tenant,
+            chunk => session.ToolOutput(toolCall.CallId, chunk),
+            session.Taint,
+            images.Add);
 
     #endregion
 

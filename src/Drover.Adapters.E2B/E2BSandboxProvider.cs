@@ -40,7 +40,7 @@ public sealed partial class E2BSandboxProvider(
     public async Task<SandboxHandle> Create(SandboxSpec spec, CancellationToken cancellationToken)
     {
         var request = new NewSandboxRequest(
-            spec.Image ?? options.Value.Template,
+            spec.Image ?? (spec.Desktop ? options.Value.DesktopTemplate : options.Value.Template),
             Seconds(spec.IdleTimeout),
             AutoPause: true,
             AutoPauseMemory: true,

@@ -61,6 +61,7 @@ builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
 builder.Services.AddDroverModels();
 builder.Services.AddDroverRunEngine(builder.Configuration);
+builder.Services.AddDroverSandboxes(builder.Configuration, policy.Rules);
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddRequestLimits();

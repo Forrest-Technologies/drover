@@ -108,14 +108,31 @@ Every scenario also checks that no vendor type leaves the adapter.
 
 ## The broker
 
-Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` is the only caller of `ISandboxProvider`.
+Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider`. It is registered, with the four sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
 
 For each sandbox tool call it:
 
-1. Resolves which sandbox the calling bot means: its own, or one it names and is allowed to reach.
-2. Checks the sharing policy against the bot tree.
-3. Loads the sandbox row and its access token from the vault, inside the run's tenant transaction.
-4. Builds the handle, calls the provider, and streams output into run events.
+1. **Finds the sandbox, in one short tenant transaction** as the run's person: loads the calling bot, refuses if its sandbox policy is `none`, resolves its sharing group from its path to the root (`SandboxGroups.OwnerOf`, a pure function in `Drover.Domain`), and, when the call names another bot in `environment`, checks the caller may work there (`SandboxGroups.MayEnter`). It loads the owner's live row (`creating`, `running` or `paused`), or inserts a `creating` one, and reveals the access token from the vault. The transaction closes before any provider call. A partial unique index (`ux_sandboxes_one_live_per_owner`, migration `SandboxPerGroup`) allows one live row per owner, so two first uses at once make one row: the loser's insert fails, and it reads the winner's row.
+2. **Makes it ready, with no transaction open.** A new row: `Create` with the row's id as the idempotency key, then a second short transaction stores the token with `ISecretVault.Store(SecretKind.SandboxToken, ...)` as a space secret (every member's runs use the bot's sandbox), sets the provider's id, and marks the row `running`. A stored row: `Resume` with the idle time. Resuming a running sandbox only keeps it longer, and the provider pauses a sandbox on its own, so the row cannot say which it is; one call covers both. A new token from `Resume` replaces the old one in the vault. A sandbox the provider no longer has is marked `destroyed`, its token deleted, and a new one made once; the tool's result then says its earlier files are gone.
+3. **Applies the network rules** when they differ from the last ones it set on that sandbox (kept in memory, so after a restart they are set once again). A change to a bot's network setting reaches its running sandbox on the next use.
+4. **Runs the operation.** A command streams its output into the run as `tool.output` events ([03-run-lifecycle.md](03-run-lifecycle.md)) and returns exit code, stdout and stderr, each cut to half the run's tool result limit. A command's own limit keeps the sandbox up for at least that long plus a minute, and afterwards the sandbox goes back to its idle time.
+5. **Records the use** in a last short transaction: the row's `last_used_at`, `expires_at` and state, and the tool call's `sandbox_id`. When the sandbox's network is not `off`, reading its output (a command, a file, a listing) taints the run, so later consequential tools ask first ([06-mcp.md](06-mcp.md)).
+
+The access token goes from the vault into the handle and nowhere else. Output is scrubbed of it before any event or result, including a token split across two pieces of output (the tail that could start one is held back until more arrives); the run's own redactor applies on top. It is never logged, put in an exception, a tool argument, or a run event. A provider failure reaches the model as Drover's own sentence, never the provider's text.
+
+Limits come from the deployment policy and only narrow ([16-deployment-policies.md](16-deployment-policies.md)): a command runs at most `MaxSandboxCommandSeconds` whatever the bot asks; a file read or written is at most `MaxSandboxFileBytes`; the idle time is the bot's setting, or 15 minutes, never above `MaxSandboxIdleMinutes`; and a bot set to open network is refused where `AllowOpenSandboxNetwork` is off. `BotService` refuses to save an idle time or a network setting past them.
+
+### Operator key
+
+The operator's E2B key is server configuration, not a secret in the vault: the vault is per space under row-level security, and this key belongs to the whole server. It is read at start from `Drover:Sandbox:E2B:ApiKey` (environment `Drover__Sandbox__E2B__ApiKey`) or from the file named by `Drover:Sandbox:E2B:ApiKeyFile` (a container secret, the same pattern as `Database:AppPasswordFile`), and held only in the adapter's options in memory. It is never written to the database or the vault, never returned by an endpoint, and never logged. Optional: `Drover:Sandbox:E2B:Domain` (default `e2b.app`), `Drover:Sandbox:E2B:Template` (default `base`), and `Drover:Sandbox:E2B:DesktopTemplate` (default `desktop`, the template a sandbox with a screen starts from; see [Computer use](#computer-use)).
+
+- No key: no provider, no sandbox tools, and not an error. The bot editor's Sandbox section says no provider is set up, and the status page's `Sandboxes` row says "Not configured".
+- A key without the `e2b_` prefix, both settings at once, or a key file that is not there stops the server at start, naming the setting and never the value.
+- The status page shows only "configured" or "not configured", and names no provider. `GET /api/spaces/{spaceId}/bots/{botId}/sandbox/options` tells the editor whether a provider exists, whether open network is allowed, and the most idle minutes.
+
+`SecretKind.SandboxProviderKey` stays reserved for a future hosted service where a space brings its own provider key.
+
+Not built yet: retiring a sandbox when its bot is removed (the table below), a sweeper for a row left in `creating` by a crash between the provider's answer and the vault write (the next use retries the creation with the same idempotency key; how long E2B remembers a key is not documented, so a very late retry can make a second sandbox and leave the first to pause), `sandbox.enter`, and the terminal view in the activity screen. The E2B clients go through the server's checked outbound handler, which does not use an outbound proxy.
 
 ## Sharing policies
 
@@ -146,7 +163,7 @@ Provider accounts: on a self-hosted server each space uses the operator's key. O
 
 ### Working in another bot's environment
 
-`sandbox.run` and the file tools take an optional `environment` argument naming a bot. The broker allows it when the calling bot is in that environment's sharing group, or is an ancestor of its owner and holds the `sandbox.enter` grant. A parent directing a child's work uses this. Siblings cannot, unless a `named` share says so.
+`sandbox.run` and the file tools take an optional `environment` argument: the handle of another bot. The broker resolves that bot's sharing group and allows the call when the caller is in that group, or the group's owner shares by name and lists the caller. A `named` member's own sandbox is its own; it reaches the shared one only by naming the owner. In a `subtree` share the highest bot on the path whose policy is `subtree` owns the sandbox, whatever the bots below it say for themselves. Siblings cannot reach each other's sandboxes, and neither can a parent reach a child's: the `sandbox.enter` grant that would let an ancestor direct a child's work there is not built yet (it waits for delegation).
 
 ### When a bot is removed
 
@@ -209,13 +226,44 @@ For self-hosters who want no account anywhere.
 
 ## Sandbox tools the bot sees
 
-All built-in, all granted per bot like any tool.
+All built-in (`SandboxTools`), all granted per bot like any tool, and none on the list a new bot is granted. A sandbox tool is offered to a model only when the server has a provider, the bot's sandbox policy is not `none`, and the grant allows it through the effective-grant path and the tool gate.
 
-| Tool | Sensitivity |
-| --- | --- |
-| `sandbox.run` | write |
-| `sandbox.read_file`, `sandbox.list_files` | read |
-| `sandbox.write_file` | write |
-| `sandbox.enter` (use another bot's environment) | critical |
+| Tool | Sensitivity | Arguments | Result |
+| --- | --- | --- | --- |
+| `sandbox.run` | write | `command`, `cwd?`, `timeout_seconds?`, `environment?` | `exit_code`, `stdout`, `stderr`, `truncated`; `error` when the time limit stopped it |
+| `sandbox.read_file` | read | `path`, `environment?` | `content` as UTF-8 text, or `binary: true` and `size` |
+| `sandbox.write_file` | write | `path`, `content`, `environment?` | `path`, `bytes` |
+| `sandbox.list_files` | read | `path`, `environment?` | `entries` (name, kind, size), at most 1000 |
+| `sandbox.enter` (use another bot's environment as its ancestor) | critical | Not built yet | |
 
-Command, output, and exit code are run events, so the activity view shows a live terminal for each call.
+`sandbox.run` runs the model's command line with `bash -l -c`: the model wrote the whole command, for its own sandbox, and Drover adds no text of its own to it. Where Drover itself builds a command from model text (the computer tools below), it uses an argument list. The command, its output, and its exit code are run events, so the activity view can show a live terminal for each call.
+
+## Computer use
+
+A bot can see a screen in its sandbox and drive it with the mouse and keyboard. This is the bare minimum: five tools, a fixed screen, one picture at a time.
+
+**Turning it on.** In the bot editor's Sandbox section, a bot with a sandbox gets a **Desktop** switch (`SandboxSettings.Desktop`, in the bot's JSON settings column; no migration). Then grant the bot the computer tools on its Tools tab; no new bot is granted them. The tools are offered to a model only when all of these hold: the server has a sandbox provider, the bot's sandbox policy is not `none`, Desktop is on, the deployment allows it (`AllowDesktopSandboxes`, [16-deployment-policies.md](16-deployment-policies.md)), and the bot's model reports `Vision` in its capability record ([15-model-providers.md](15-model-providers.md)). A compatible endpoint claims no vision until the operator says so, so a model that cannot look is never handed a mouse.
+
+**The sandbox.** A sandbox with a screen is made from the provider's desktop image: `SandboxSpec.Desktop`, which the E2B adapter turns into `E2BOptions.DesktopTemplate` (default E2B's public `desktop`: Ubuntu with Xvfb, Xfce, xdotool and scrot; 8 vCPU and 8 GB, so it costs far more than `base`). `DISPLAY=:0` is in its environment. The choice is made when the sandbox is created, so it follows the sandbox's owner (in a shared sandbox, the owner's setting decides). Turning Desktop on or off takes the bot's live sandbox out of use when the bot is saved (`SandboxRepository.RetireLiveForOwner`: state `retiring`, due now); the next sandbox call makes one of the new kind, and the broker destroys the retired one at the provider and deletes its token. Its files go with it, and the editor says so beside the switch. Saving the bot without changing the switch keeps its sandbox.
+
+**The display.** Before every computer action the broker runs one fixed script, written by Drover and holding no model text, that does what E2B's desktop SDK does when it creates a sandbox: if the display does not answer, start `Xvfb :0 -ac -screen 0 1024x768x24 -retro -dpi 96 -nolisten tcp -nolisten unix` and wait for `xdpyinfo`; if the Xfce session is not running, start `startxfce4` and wait until `xfce4-session`, `xfwm4` and `xfdesktop` all run, then three more seconds (a first screenshot was black without them, live). Both start with `setsid -f` and no open output, so they outlive the command. A display that will not start is an error for the model; nothing else runs.
+
+**The tools.** Each works in the bot's own sandbox (no `environment`). The screen is fixed at 1024 by 768.
+
+| Tool | Sensitivity | Arguments | Runs | Result |
+| --- | --- | --- | --- | --- |
+| `computer.screenshot` | read | none | `scrot --pointer /tmp/drover-screen-<random>.png`, read the file, `rm -f -- <file>` | `{"screenshot":"attached","width":1024,"height":768}`, and the picture for the next model call |
+| `computer.click` | write | `x`, `y`, `button?` (left, right, middle), `double?` | `xdotool mousemove X Y click [--repeat 2] 1\|2\|3` | `{"done":true}` |
+| `computer.type` | write | `text` (1 to 2000 characters; no control characters but new line and tab) | `xdotool type --delay 12 -- <text>` | `{"done":true}` |
+| `computer.key` | write | `keys`, 1 to 5 names pressed together | `xdotool key <symbol>+<symbol>` | `{"done":true}` |
+| `computer.scroll` | write | `direction` (up, down), `amount?` (1 to 20, default 3), `x?` and `y?` together | `xdotool [mousemove X Y] click --repeat N 4\|5` | `{"done":true}` |
+
+Every action is a program and its arguments through `ISandboxProvider.Run`, never a shell line: coordinates are whole numbers checked against the screen before the sandbox is touched, a key name must be on a fixed list (letters, digits, F1 to F12, and the names E2B's SDK maps, such as `ctrl`, `enter`, `escape`, `page_down`) and becomes its X key symbol, and typed text is one argument after `--`, so nothing in it is read as an option or by a shell (`DesktopCommands`, unit-tested). An action's output is not read, so nothing from the sandbox comes back with it, and a failure is Drover's own sentence. The move and the click are one xdotool run, so the click lands where the pointer went; `mousemove --sync`, which E2B's SDK uses, is left out because it can wait for a motion that never comes when the pointer is already there.
+
+**The picture.** A tool result is JSON, and a chat completions tool message holds only text. So a built-in tool hands its picture over with `BuiltinToolCall.Attach`, `ToolOutcome.Images` carries it to the tool gate, and the gate keeps the latest one for the run. The `TransientImages` chat-client middleware ([14-agent-framework.md](14-agent-framework.md)) adds it to the next model call alone, as a user message after the tool results: a line naming the call, and the PNG. It is never stored: not in `messages`, not in `tool_calls` (which keep the small JSON result), not in a run event, not in the session. After a restart the model sees the JSON result and takes a new screenshot. Showing screenshots in the activity view, and keeping them as files, waits for the file store.
+
+**What a screenshot can show.** Anything on that screen: a page the bot opened, a password field it typed into, a token in a terminal. Drover's redaction works on text and cannot reach into pixels, so a secret on the screen goes to the model provider as it is. Keep secrets out of a sandbox with a screen. A screenshot is read from the sandbox like a file, so when the sandbox's network is not `off` it taints the run, and later consequential tools ask first ([06-mcp.md](06-mcp.md)); an action, which reads nothing back, does not.
+
+Verified live on 2026-11-14 (`ComputerLiveTests`, explicit): a run with a scripted model took a 1024 by 768 screenshot that arrived as the image of the next model request, clicked the terminal launcher, scrolled, typed `echo drover-$((6*7))`, pressed Enter, and a second screenshot showed the terminal with `drover-42` printed.
+
+Not built: a live view of the screen, screenshots in the activity view, dragging, holding a key down, a screen size other than 1024 by 768, and a smaller Drover-owned desktop image.

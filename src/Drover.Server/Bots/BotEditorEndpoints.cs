@@ -29,6 +29,7 @@ public static class BotEditorEndpoints
         bot.MapDelete("/rules/{ruleId:guid}", RemoveRule).WithName("RemoveBotRule");
         bot.MapPost("/rules/try", TryRules).WithName("TryBotRules");
         bot.MapGet("/rules/options", GetRuleOptions).WithName("GetBotRuleOptions");
+        bot.MapGet("/sandbox/options", GetSandboxOptions).WithName("GetBotSandboxOptions");
         return bots;
     }
 
@@ -163,6 +164,19 @@ public static class BotEditorEndpoints
         await schedules.Remove(botId, scheduleId, context.GetSpaceAccess().UserId, context.RequestAborted)
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
+
+    #endregion
+
+    #region Sandbox
+
+    // What this server lets a sandbox be. The same for every bot; it sits here so the editor asks with the access it
+    // already has.
+    private static Ok<BotSandboxOptions> GetSandboxOptions(SandboxAvailability sandboxes, PolicyService policies) =>
+        TypedResults.Ok(new BotSandboxOptions(
+            sandboxes.IsConfigured,
+            policies.Deployment.AllowOpenSandboxNetwork,
+            policies.Deployment.MaxSandboxIdleMinutes,
+            policies.Deployment.AllowDesktopSandboxes));
 
     #endregion
 

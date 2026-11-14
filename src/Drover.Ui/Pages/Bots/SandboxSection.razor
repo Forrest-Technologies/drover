@@ -1,5 +1,6 @@
 @* The Sandbox section of the bot editor: whether the bot has a place to run code and keep files, and who shares it. *@
-<StatusNote Text="No sandbox provider is set up on this server, so no bot has a sandbox to use yet. This choice is saved for when one is added." />
+@* The note's live region stays in place; only its text comes and goes. *@
+<StatusNote Text="@(Options.Available ? null : NoProvider)" />
 
 <Select Label="Sandbox" @bind-Value="Draft.SandboxPolicy" @bind-Value:after="Changed">
     @foreach (var policy in policies)
@@ -34,8 +35,13 @@
 {
     <div class="dv-editor-choice">
         <span class="dv-editor-choice-label" aria-hidden="true">Network</span>
-        <SegmentedControl Label="Sandbox network" Options="networks" @bind-Value="Draft.Network" @bind-Value:after="Changed" />
+        <SegmentedControl Label="Sandbox network" Options="Networks" @bind-Value="Draft.Network" @bind-Value:after="Changed" />
     </div>
+
+    @if (!Options.OpenNetwork)
+    {
+        <p class="dv-editor-hint">Open internet access is not available on this server.</p>
+    }
 
     @if (Draft.Network is "allowlist")
     {
@@ -44,13 +50,30 @@
     }
 
     <Field Label="Stop after idle minutes" @bind-Value="Draft.IdleTimeoutMinutes" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
-           Placeholder="The provider's own limit" />
+           Placeholder="@IdlePlaceholder" />
+
+    @* A bot already set to have a screen keeps the switch, so it can be turned off; the server refuses to save it on. *@
+    @if (Options.Desktop || Draft.Desktop)
+    {
+        <Switch Label="Desktop" @bind-Value="Draft.Desktop" @bind-Value:after="Changed" />
+        <p class="dv-editor-hint">@DesktopHint</p>
+    }
+
+    @if (!Options.Desktop)
+    {
+        <p class="dv-editor-hint">A sandbox with a screen is not available on this server.</p>
+    }
 }
 
 @code {
-    private static readonly string[] policies = ["none", "private", "subtree", "named"];
+    private const string NoProvider =
+        "No sandbox provider is set up on this server, so no bot has a sandbox to use yet. This choice is saved for when one is added.";
 
-    private static readonly SegmentOption<string>[] networks = [new("off", "Off"), new("allowlist", "Named hosts"), new("open", "Open")];
+    private static readonly string[] policies =["none", "private", "subtree", "named"];
+
+    private static readonly SegmentOption<string>[] allNetworks = [new("off", "Off"), new("allowlist", "Named hosts"), new("open", "Open")];
+
+    private static readonly SegmentOption<string>[] closedNetworks = [.. allNetworks.Where(network => network.Value is not "open")];
 
     [Parameter, EditorRequired]
     public BotDraft Draft { get; set; } = new();
@@ -59,8 +82,17 @@
     [Parameter]
     public IReadOnlyList<BotSummary> OtherBots { get; set; } = [];
 
+    /// <summary>What a sandbox on this server may be. Until it is known, nothing is hidden.</summary>
+    [Parameter]
+    public BotSandboxOptions Options { get; set; } = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
+
     [Parameter]
     public EventCallback OnChanged { get; set; }
+
+    // A bot already set to open keeps the choice visible, so the editor shows what is stored; the server refuses to save it.
+    private SegmentOption<string>[] Networks => Options.OpenNetwork || Draft.Network is "open" ? allNetworks : closedNetworks;
+
+    private string IdlePlaceholder => Options.MaxIdleMinutes > 0 ? $"Up to {Options.MaxIdleMinutes}" : "The server's own limit";
 
     private string Meaning => Draft.SandboxPolicy switch
     {
@@ -69,6 +101,9 @@
         "named" => "The bots you choose work in the same files as this one and can change its work.",
         _ => "This bot runs no code and keeps no files of its own.",
     };
+
+    private const string DesktopHint =
+        "Gives the sandbox a screen the bot sees in screenshots and uses with the mouse and keyboard, when its model can read images. It costs more to run. Screenshots go to the model as they are, so they can show anything on that screen, passwords included. Changing this replaces the sandbox, and its files, on its next use.";
 
     private Task Changed() => OnChanged.InvokeAsync();
 

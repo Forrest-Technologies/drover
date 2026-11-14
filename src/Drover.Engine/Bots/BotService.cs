@@ -10,6 +10,9 @@ public sealed class BotService(
     ToolRepository tools,
     ToolCatalog catalog,
     AuditLog audit,
+    PolicyService policies,
+    SandboxRepository sandboxes,
+    TimeProvider time,
     ILogger<BotService> logger)
 {
     #region Private Fields
@@ -27,8 +30,6 @@ public sealed class BotService(
     private const int MaxSymbolLength = 16;
 
     private const int MaxAllowedHosts = 50;
-
-    private const int MaxIdleTimeoutMinutes = 1_440;
 
     private const int MaxBuildLimit = 1_000;
 
@@ -122,6 +123,14 @@ public sealed class BotService(
 
         var before = Snapshot(bot, await bots.ListSandboxShares(id, cancellationToken));
         var sharedWith = edit.SandboxPolicy is SandboxPolicy.Named ? edit.SandboxSharedWith.Distinct().Order().ToList() : [];
+
+        // A screen is part of the machine a sandbox is made from, so a change to it takes the bot's sandbox out of use.
+        // Its next use makes one of the new kind and destroys this one; its files go with it, as the editor says.
+        if (bot.SandboxSettings.Desktop != edit.SandboxSettings!.Desktop
+            && await sandboxes.RetireLiveForOwner(bot.Id, time.GetUtcNow(), cancellationToken))
+        {
+            logger.LogInformation("Bot {BotId} changed its sandbox's screen; its sandbox is retired", bot.Id);
+        }
 
         bot.Name = edit.Name.Trim();
         bot.Handle = edit.Handle;
@@ -415,9 +424,24 @@ public sealed class BotService(
             return "Sandbox network access is off, allowlist, or open.";
         }
 
-        if (settings.IdleTimeoutMinutes is <= 0 or > MaxIdleTimeoutMinutes)
+        // The deployment caps both: a running sandbox costs the operator money, and open egress is the operator's
+        // liability on a shared server. Limits only narrow, so a setting past them is refused, not quietly lowered.
+        var mostIdleMinutes = policies.Deployment.MaxSandboxIdleMinutes;
+
+        if (settings.IdleTimeoutMinutes is <= 0 || settings.IdleTimeoutMinutes > mostIdleMinutes)
         {
-            return $"A sandbox stops after 1 to {MaxIdleTimeoutMinutes} idle minutes.";
+            return $"A sandbox stops after 1 to {mostIdleMinutes} idle minutes on this server.";
+        }
+
+        if (settings.Network is NetworkAccess.Open && !policies.Deployment.AllowOpenSandboxNetwork)
+        {
+            return "This server does not let a sandbox reach the open internet. Choose Off or Named hosts.";
+        }
+
+        // A sandbox with a screen is a far larger machine; where the operator has not allowed one, it is refused.
+        if (settings.Desktop && !policies.Deployment.AllowDesktopSandboxes)
+        {
+            return "This server does not offer sandboxes with a screen. Turn Desktop off.";
         }
 
         if (settings.AllowedHosts.Count > MaxAllowedHosts)

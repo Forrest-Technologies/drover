@@ -11,6 +11,8 @@ public sealed class RunContext(RunExecution execution, IRunGovernor governor, Ru
 
     private readonly ConcurrentDictionary<string, IReadOnlyList<FunctionCallContent>> batches = new(StringComparer.Ordinal);
 
+    private ShownImage? imageForNextCall;
+
     #endregion
 
     #region Properties
@@ -64,6 +66,16 @@ public sealed class RunContext(RunExecution execution, IRunGovernor governor, Ru
     public Task Finished(string callId) => Completion(callId).Task;
 
     public void MarkFinished(string callId) => Completion(callId).TrySetResult();
+
+    /// <summary>
+    /// Keeps a tool's picture for the model's next call. Only the latest is kept: an older screenshot shows a screen
+    /// that is no longer there.
+    /// </summary>
+    public void ShowOnNextModelCall(string callId, string toolName, ToolImage image) =>
+        Interlocked.Exchange(ref imageForNextCall, new ShownImage(callId, toolName, image));
+
+    /// <summary>The picture kept for the next model call, which only that call sees. Null when there is none.</summary>
+    public ShownImage? TakeImageForModelCall() => Interlocked.Exchange(ref imageForNextCall, null);
 
     #endregion
 

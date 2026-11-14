@@ -69,6 +69,7 @@ public static class StatusEndpoints
         IOptions<DatabaseOptions> database,
         IOptions<ToolSignInOptions> signIn,
         KeyRingLocation keyRing,
+        SandboxAvailability sandboxes,
         ILoggerFactory loggers)
     {
         var logger = loggers.CreateLogger(typeof(StatusEndpoints).FullName!);
@@ -83,6 +84,7 @@ public static class StatusEndpoints
             rows.Add(KeyRing(keyRing.Path, logger));
             rows.Add(PublicUrl(signIn.Value.PublicUrl));
             rows.Add(Workload(server.Workload));
+            rows.Add(Sandboxes(sandboxes));
         }
 
         var space = await status.ReadSpace(cancellationToken);
@@ -145,6 +147,12 @@ public static class StatusEndpoints
                 $"{workload.ExpiredLeases} running {Runs(workload.ExpiredLeases)} lost {(workload.ExpiredLeases == 1 ? "its" : "their")} worker and will be picked up again.")
             : Row(Server, "Background work", Ok,
                 $"{workload.QueuedRuns} queued, {workload.RunningRuns} running, {workload.WaitingRuns} waiting for an answer.");
+
+    /// <summary>Whether bots can have sandboxes here. Only that: never which provider, and never anything of its key.</summary>
+    private static StatusRow Sandboxes(SandboxAvailability sandboxes) =>
+        sandboxes.IsConfigured
+            ? Row(Server, "Sandboxes", Ok, "Configured. Bots given a sandbox can run code in it.")
+            : Row(Server, "Sandboxes", Off, "Not configured. Bots cannot run code until the operator sets a sandbox provider key.");
 
     private static StatusRow ModelRow(ModelConnection connection) =>
         connection.Status switch

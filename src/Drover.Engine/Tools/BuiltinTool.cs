@@ -3,7 +3,8 @@ namespace Drover.Engine.Tools;
 /// <summary>
 /// A tool the server itself implements. Each one is a row in every space's catalog, so it is off until granted and
 /// obeys the grant rules like any other tool. <see cref="Name"/> is the catalog name; the model sees it with dots
-/// replaced, because model providers do not accept a dot in a function name.
+/// replaced, because model providers do not accept a dot in a function name. A failure the model should read is a
+/// <see cref="BuiltinToolException"/>; any other exception reaches the model as "the tool failed" and is logged.
 /// </summary>
 public sealed record BuiltinTool(
     string Name,
@@ -11,7 +12,7 @@ public sealed record BuiltinTool(
     string Description,
     JsonElement InputSchema,
     ToolSensitivity Sensitivity,
-    Func<JsonElement, CancellationToken, Task<JsonElement>> Run)
+    Func<BuiltinToolCall, CancellationToken, Task<JsonElement>> Run)
 {
     #region Properties
 

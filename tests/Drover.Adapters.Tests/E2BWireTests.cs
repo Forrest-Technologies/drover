@@ -228,6 +228,19 @@ public sealed class E2BWireTests
     }
 
     [Fact]
+    public async Task A_sandbox_with_a_screen_starts_from_the_desktop_template_with_its_display_in_the_environment()
+    {
+        var rig = E2BRig.Start(SandboxScenarios.CreatesWithMetadata);
+        var spec = rig.Subject.Spec with { Desktop = true, Environment = new Dictionary<string, string> { ["DISPLAY"] = ":0" } };
+
+        await rig.Subject.Provider.Create(spec, CancellationToken.None);
+
+        var create = rig.Handler.Requests.Single();
+        create.Json.GetProperty("templateID").GetString().Should().Be("desktop");
+        create.Json.GetProperty("envVars").GetProperty("DISPLAY").GetString().Should().Be(":0");
+    }
+
+    [Fact]
     public async Task Every_operation_reads_the_providers_record_before_it_acts()
     {
         var rig = E2BRig.Start(SandboxScenarios.RoundTripsBinary);

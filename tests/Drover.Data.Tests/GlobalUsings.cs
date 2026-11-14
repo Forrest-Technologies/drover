@@ -14,6 +14,7 @@ global using Drover.Contracts.Runs;
 global using Drover.Data;
 global using Drover.Data.Bootstrap;
 global using Drover.Data.Identity;
+global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
 global using Drover.Data.Tests.Isolation;
 global using Drover.Data.Tests.Seeders;

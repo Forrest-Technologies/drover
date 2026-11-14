@@ -34,6 +34,28 @@ public sealed class BotRepository(DroverDbContext db)
     public Task<bool> FileExists(Guid fileId, CancellationToken cancellationToken) =>
         db.Files.AnyAsync(file => file.Id == fileId, cancellationToken);
 
+    /// <summary>The bot that holds this handle, if it has not been removed.</summary>
+    public Task<Bot?> FindBotByHandle(string handle, CancellationToken cancellationToken) =>
+        db.Bots.AsNoTracking().SingleOrDefaultAsync(bot => bot.Handle == handle && bot.Status != BotStatus.Removed, cancellationToken);
+
+    /// <summary>
+    /// The bot and every bot above it that has not been removed, each with its distance and sandbox policy: what
+    /// decides which sandbox the bot works in.
+    /// </summary>
+    public async Task<List<SandboxPathEntry>> ListSandboxPath(Guid botId, CancellationToken cancellationToken)
+    {
+        var path = await db.BotAncestors.AsNoTracking()
+            .Where(row => row.DescendantBotId == botId)
+            .Join(
+                db.Bots.Where(bot => bot.Status != BotStatus.Removed),
+                row => row.AncestorBotId,
+                bot => bot.Id,
+                (row, bot) => new { bot.Id, row.Distance, bot.SandboxPolicy })
+            .OrderBy(entry => entry.Distance)
+            .ToListAsync(cancellationToken);
+        return [.. path.Select(entry => new SandboxPathEntry(entry.Id, entry.Distance, entry.SandboxPolicy))];
+    }
+
     /// <summary>The bots this bot's sandbox is shared with. A removed bot shares nothing, whatever rows remain.</summary>
     public Task<List<Guid>> ListSandboxShares(Guid botId, CancellationToken cancellationToken) =>
         db.BotSandboxShares.AsNoTracking()
