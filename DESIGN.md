@@ -89,7 +89,7 @@ Every bot is a head with a visor: one band of light where a face would be. The v
 - The visor is the state: dark at rest, a slow breath when thinking, steady when writing, a bright bar sweeping across when a tool runs, a pale red when failed. Each state is also said in words.
 - Below 24 px the top and the mark drop out; the head and visor remain.
 - In a conversation the bot speaks from its character: the head stands at 48 px on a faceted plate beside each reply and in the conversation's header, never as a small profile dot. The plate's edge takes the live color only while that bot is thinking or writing.
-- The crew is how a person gets around. The first column is the bot hierarchy, each bot under the one that manages it, and choosing a bot opens its one main conversation. A person talks to a bot, not to a thread. A side chat with the same bot is the exception: it opens beside the main conversation and never replaces it.
+- The crew is how a person gets around. The first column is the bot hierarchy, each bot under the one that manages it, and choosing a bot opens its one main conversation. A person talks to a bot, not to a thread. A side chat with the same bot is the exception: it opens beside the main conversation and never replaces it. The conversation's running summary opens in that same place.
 - The Drover mark is the lead of the crew: the wedge head, cocked, with the visor cut out so it holds in one color.
 - Nothing is a soft blob with eye marks, and nothing resembles another product's avatars.
 

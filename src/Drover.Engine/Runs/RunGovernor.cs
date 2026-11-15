@@ -435,7 +435,8 @@ public sealed class RunGovernor(
             [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
     }
 
-    private static decimal Cost(ToolModelUsage usage) =>
+    /// <summary>What a model call cost at the prices the catalog lists for its model.</summary>
+    internal static decimal Cost(ToolModelUsage usage) =>
         ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m;
 
     #endregion

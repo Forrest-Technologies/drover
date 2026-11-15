@@ -30,6 +30,9 @@ public static class Addresses
     /// <summary>A bot's main conversation.</summary>
     public static string Talk(Guid botId) => $"/talk/{botId}";
 
+    /// <summary>The summary the server keeps of a bot's main conversation.</summary>
+    public static string Summary(Guid botId) => $"/talk/{botId}/summary";
+
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
 

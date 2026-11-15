@@ -15,6 +15,9 @@ public static class ThreadEndpoints
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
+        threads.MapGet("/{threadId:guid}/summary", GetConversationSummary)
+            .WithName("GetConversationSummary")
+            .WithSummary("The server's running summary of a main thread. Text is null until one is written, and always for a side chat.");
         threads.MapGet("/{threadId:guid}/tool-events", ListToolEvents)
             .WithName("ListToolEvents")
             .WithSummary("The tool events of the thread's runs, as their logs hold them, already redacted, so a client can show past tool calls as it showed them live.");
@@ -32,6 +35,14 @@ public static class ThreadEndpoints
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>
         await threads.FindThread(threadId, context.RequestAborted) is { } view
             ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId))
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ConversationSummary>, NotFound>> GetConversationSummary(
+        Guid threadId,
+        HttpContext context,
+        ThreadService threads) =>
+        await threads.GetSummary(threadId, context.RequestAborted) is { } summary
+            ? TypedResults.Ok(summary)
             : TypedResults.NotFound();
 
     private static async Task<Results<Ok<List<MessageResponse>>, NotFound>> ListMessages(

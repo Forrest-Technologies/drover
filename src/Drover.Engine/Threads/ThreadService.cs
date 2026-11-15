@@ -14,7 +14,8 @@ public sealed class ThreadService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
-    TimeProvider time)
+    TimeProvider time,
+    IOptions<DeploymentPolicyOptions> deployment)
 {
     #region Private Fields
 
@@ -124,6 +125,21 @@ public sealed class ThreadService(
         await threads.FindThread(threadId, cancellationToken) is null
             ? null
             : await events.ListOwnEventsOfRoots(await runs.ListRootRunIds(threadId, cancellationToken), toolEventTypes, cancellationToken);
+
+    /// <summary>
+    /// The thread's running summary, or null when the caller may not see the thread. A side chat has none, and a main
+    /// thread has none until the first one is written.
+    /// </summary>
+    public async Task<ConversationSummary?> GetSummary(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) switch
+        {
+            null => null,
+            { IsMain: true, Summary: { } text } thread =>
+                new ConversationSummary(text, thread.SummaryThroughPosition ?? 0, thread.SummaryUpdatedAt, ServerWrites),
+            _ => new ConversationSummary(null, 0, null, ServerWrites),
+        };
+
+    private bool ServerWrites => deployment.Value.Rules.AllowConversationSummaries;
 
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];

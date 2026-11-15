@@ -353,7 +353,7 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
                 bot.SandboxSettings with { Desktop = desktop },
                 [],
                 bot.BuildLimits);
-            return await services.GetRequiredService<BotService>().Update(world.BotId, edit, world.UserId, RunWorld.Token);
+            return await services.GetRequiredService<BotService>().Update(world.BotId, edit, AuditActor.Person(world.UserId), RunWorld.Token);
         });
 
     /// <summary>A tool call of the world's bot, made directly, outside any model step.</summary>

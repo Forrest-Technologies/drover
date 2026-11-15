@@ -101,6 +101,22 @@ public sealed class BotRepository(DroverDbContext db)
             .OrderBy(bot => bot.Depth)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Every bot beneath this one, at any depth, that has not been removed: nearest first, then by name.</summary>
+    public Task<List<Bot>> ListDescendants(Guid botId, CancellationToken cancellationToken) =>
+        db.Bots.AsNoTracking()
+            .Where(bot => bot.Status != BotStatus.Removed)
+            .Where(bot => db.BotAncestors.Any(row => row.AncestorBotId == botId && row.DescendantBotId == bot.Id && row.Distance > 0))
+            .OrderBy(bot => bot.Depth)
+            .ThenBy(bot => bot.Name)
+            .ThenBy(bot => bot.Id)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Whether one bot is beneath another, at any depth. A bot is never beneath itself.</summary>
+    public Task<bool> IsBeneath(Guid botId, Guid ancestorBotId, CancellationToken cancellationToken) =>
+        db.BotAncestors.AnyAsync(
+            row => row.DescendantBotId == botId && row.AncestorBotId == ancestorBotId && row.Distance > 0,
+            cancellationToken);
+
     /// <summary>Adds a bot at the top of the tree, with its own closure row. Without that row a bot gets no grants at all.</summary>
     public void AddRootBot(Bot bot)
     {

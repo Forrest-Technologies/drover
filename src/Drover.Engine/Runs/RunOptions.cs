@@ -37,6 +37,18 @@ public sealed class RunOptions
     /// </summary>
     public int MaxToolOutputCharacters { get; set; } = 200_000;
 
+    /// <summary>
+    /// How many person and bot messages must lie beyond a main thread's summary before the server writes a new one.
+    /// Counted after the run that ends, newest included.
+    /// </summary>
+    public int SummaryAfterMessages { get; set; } = 20;
+
+    /// <summary>
+    /// How many of the newest person and bot messages a summary always leaves out, so it never reaches into the
+    /// exchange still going on. They are summarized later, once newer messages have followed them.
+    /// </summary>
+    public int SummaryKeepsRecentMessages { get; set; } = 6;
+
     public TimeSpan DeltaFlushInterval { get; set; } = TimeSpan.FromMilliseconds(100);
 
     public int DeltaFlushCharacters { get; set; } = 512;

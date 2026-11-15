@@ -51,7 +51,7 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         messages[3].Parts.Should().ContainSingle(part => part.Kind == "text" && part.Text == "It is noon.");
         threads.Should().ContainSingle().Which.Should().Match<ThreadSummary>(found =>
             found.Id == thread.Id && found.Title == "What time is it?" && !found.IsShared && found.ActiveRunId == null);
-        model!.ToolsOffered[0].Should().Equal("time_now");
+        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove"], "a new bot at the top starts with these");
     }
 
     [Fact]

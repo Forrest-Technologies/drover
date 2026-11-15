@@ -1575,6 +1575,18 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
 
+                    b.Property<string>("Summary")
+                        .HasColumnType("text")
+                        .HasColumnName("summary");
+
+                    b.Property<int?>("SummaryThroughPosition")
+                        .HasColumnType("integer")
+                        .HasColumnName("summary_through_position");
+
+                    b.Property<DateTimeOffset?>("SummaryUpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("summary_updated_at");
+
                     b.Property<string>("Title")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -1602,6 +1614,8 @@ namespace Drover.Data.Migrations
                             t.HasCheckConstraint("ck_threads_audience", "audience_user_id IN (sys.everyone(), owner_user_id)");
 
                             t.HasCheckConstraint("ck_threads_origin", "origin IN ('chat', 'schedule', 'delegation')");
+
+                            t.HasCheckConstraint("ck_threads_summary", "(summary IS NULL) = (summary_through_position IS NULL) AND (summary IS NULL OR is_main)");
                         });
                 });
 

@@ -38,6 +38,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxSandboxIdleMinutes), "60", "15"),
         new(nameof(DeploymentPolicy.AllowOpenSandboxNetwork), "true", "false"),
         new(nameof(DeploymentPolicy.AllowDesktopSandboxes), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowBotsBuildingBots), "true", "false"),
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
@@ -56,6 +57,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
         new(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus), "true", "false"),
         new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
+        new(nameof(DeploymentPolicy.AllowConversationSummaries), "true", "false"),
+        new(nameof(DeploymentPolicy.MaxConversationSummarySeconds), "120", "60"),
     ];
 
     /// <summary>

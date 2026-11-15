@@ -37,7 +37,8 @@ public static class RunViews
             bot.ModelConnectionId,
             bot.Model,
             bot.Status.ToString().ToLowerInvariant(),
-            bot.ParentBotId);
+            bot.ParentBotId,
+            bot.CreatedByBotId);
 
     public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId) =>
         new(

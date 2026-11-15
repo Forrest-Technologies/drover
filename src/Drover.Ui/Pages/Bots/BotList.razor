@@ -69,7 +69,7 @@
                     {
                         <span class="dv-bot-name">@node.Bot.Name</span>
                     }
-                    <span class="dv-bot-facts dv-mono">@@@node.Bot.Handle · @node.Bot.Model</span>
+                    <span class="dv-bot-facts dv-mono">@@@node.Bot.Handle · @node.Bot.Model@MadeBy(node.Bot)</span>
                 </div>
                 @if (node.Bot.Status is "paused")
                 {

@@ -118,12 +118,20 @@ public sealed class RunReviewTests(PostgresServer postgres)
         await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
 
         var botId = await world.Transact(async services =>
-            (await services.GetRequiredService<BotService>().Create("Second", string.Empty, world.ConnectionId, null, null, world.UserId, RunWorld.Token)).Bot!.Id);
+            (await services.GetRequiredService<BotService>().Create(new NewBot("Second", string.Empty, string.Empty, world.ConnectionId, null, null), AuditActor.Person(world.UserId), RunWorld.Token)).Bot!.Id);
         var granted = await world.Transact(async services =>
-            (await services.GetRequiredService<ToolRepository>().ListGrantedTools(botId, RunWorld.Token)).Select(tool => tool.Tool.Name).ToList());
+            (await services.GetRequiredService<ToolRepository>().ListGrantedTools(botId, RunWorld.Token)).ToDictionary(tool => tool.Tool.Name, tool => tool.Effect));
 
         BuiltinTools.GrantedToNewBots.Should().Equal("time.now");
-        granted.Should().Equal("time.now");
+        BuiltinTools.AskedOfNewTopBots.Should().Equal("crew.list", "crew.add", "crew.change", "crew.remove");
+        granted.Should().BeEquivalentTo(new Dictionary<string, GrantEffect>
+        {
+            ["time.now"] = GrantEffect.Allow,
+            ["crew.list"] = GrantEffect.Ask,
+            ["crew.add"] = GrantEffect.Ask,
+            ["crew.change"] = GrantEffect.Ask,
+            ["crew.remove"] = GrantEffect.Ask,
+        });
     }
 
     #endregion

@@ -1,9 +1,10 @@
 namespace Drover.Ui.Pages;
 
-/// <summary>What the side chat rail of the workspace shows.</summary>
+/// <summary>What the rail beside the main conversation shows: nothing, the conversation's summary, or the bot's side chats.</summary>
 public enum SideView
 {
     Closed,
+    Summary,
     List,
     New,
     Chat,

@@ -112,6 +112,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSandboxIdleMinutes = 15;
 
+    public const int SelfHostedMaxConversationSummarySeconds = 120;
+
+    public const int HostedMaxConversationSummarySeconds = 60;
+
     #endregion
 
     #region Presets
@@ -160,6 +164,15 @@ public sealed record DeploymentPolicy
     /// screen needs a far larger machine, and there are no per-space quotas to bound what that costs the operator.
     /// </summary>
     public bool AllowDesktopSandboxes { get; init; } = true;
+
+    /// <summary>
+    /// A bot granted the crew tools may make, change, pause, and remove bots beneath itself, inside the space's caps and
+    /// its own build limits, acting with the authority of the person its run is for. Off in the hosted preset until
+    /// per-space quotas exist: the space's cap on its total number of bots is not enforced yet, so nothing bounds how
+    /// many rows a bot left to allow could make on the operator's database. Off, no crew tool is granted to a new bot
+    /// or offered to a model, and a call of one is refused in words naming this rule.
+    /// </summary>
+    public bool AllowBotsBuildingBots { get; init; } = true;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -250,6 +263,21 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowWrittenRulePatterns { get; init; }
 
+    /// <summary>
+    /// The server keeps a running summary of each person's main conversation with a bot, written by the bot's own
+    /// model on the space's own connection after a run ends. Off in the hosted preset: the call is made on the server's
+    /// own initiative, spends a tenant's model credit without a person asking, and holds one of the operator's run
+    /// workers while it lasts, and there are no per-space quotas yet to bound either.
+    /// </summary>
+    public bool AllowConversationSummaries { get; init; } = true;
+
+    /// <summary>
+    /// The most seconds one summary's model call may take. The call holds one of the server's run workers after the
+    /// run it follows has ended, so on a shared server it is bounded more tightly: a slow model must not keep other
+    /// people's runs waiting.
+    /// </summary>
+    public int MaxConversationSummarySeconds { get; init; } = SelfHostedMaxConversationSummarySeconds;
+
     #endregion
 
     #region Rule Table
@@ -329,6 +357,10 @@ public sealed record DeploymentPolicy
             policy => policy.AllowDesktopSandboxes,
             Enforcement.Now("SandboxBroker, on every use of a sandbox; RunExecutor, which offers no computer tool; BotService, when a bot is saved; the bot editor's sandbox options")),
         PolicyRule.Permission(
+            nameof(AllowBotsBuildingBots),
+            policy => policy.AllowBotsBuildingBots,
+            Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot")),
+        PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,
             Enforcement.Later("Phase 1: MCP tool servers (06-mcp.md)")),
@@ -401,6 +433,15 @@ public sealed record DeploymentPolicy
             nameof(AllowWrittenRulePatterns),
             policy => policy.AllowWrittenRulePatterns,
             Enforcement.Now("RuleService, when a rule is saved, tried, or read for a run")),
+        PolicyRule.Permission(
+            nameof(AllowConversationSummaries),
+            policy => policy.AllowConversationSummaries,
+            Enforcement.Now("ConversationSummarizer, after each run on a main thread")),
+        PolicyRule.Limit(
+            nameof(MaxConversationSummarySeconds),
+            policy => policy.MaxConversationSummarySeconds,
+            HostedMaxConversationSummarySeconds,
+            Enforcement.Now("ConversationSummarizer, on every summary's model call")),
     ];
 
     #endregion

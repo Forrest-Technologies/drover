@@ -16,6 +16,8 @@ public sealed partial class Talk(
 
     private const string SideRail = "side";
 
+    private const string SummaryRail = "summary";
+
     private const string NewSideChat = "new";
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
@@ -37,6 +39,9 @@ public sealed partial class Talk(
 
     private Guid? startedThreadId;
 
+    // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
+    private int summaryVersion;
+
     #endregion
 
     #region Properties
@@ -45,7 +50,7 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? BotId { get; set; }
 
-    /// <summary>"side" when the bot's side chats are listed beside its main conversation.</summary>
+    /// <summary>What is open beside the main conversation: "summary" for its summary, "side" for the bot's side chats.</summary>
     [Parameter]
     public string? Rail { get; set; }
 
@@ -76,6 +81,7 @@ public sealed partial class Talk(
         (_, _, not null) => SideView.Chat,
         (_, NewSideChat, _) => SideView.New,
         (_, not null, _) or (SideRail, _, _) => SideView.List,
+        (SummaryRail, _, _) => SideView.Summary,
         _ => SideView.Closed,
     };
 
@@ -129,8 +135,11 @@ public sealed partial class Talk(
     {
         SideView.Chat => threads.GetValueOrDefault(ThreadId!.Value)?.Title ?? "Side chat",
         SideView.New => NewSideChatName,
+        SideView.Summary => "Summary",
         _ => "Side chats",
     };
+
+    private string RailName => Side is SideView.Summary ? $"Summary of the conversation with {Shown!.Name}" : $"Side chats with {Shown!.Name}";
 
     private string PageName => (bots, Shown, Side) switch
     {
@@ -249,7 +258,31 @@ public sealed partial class Talk(
 
     private void Remember(ThreadSummary changed) => threads[changed.Id] = changed;
 
-    private void MainBusyChanged(bool busy) => mainBusy = busy;
+    private async Task MainBusyChanged(bool busy)
+    {
+        mainBusy = busy;
+        if (!busy)
+        {
+            summaryVersion++;
+            await RefreshCrew();
+        }
+    }
+
+    private Task SideBusyChanged(bool busy) => busy ? Task.CompletedTask : RefreshCrew();
+
+    // A bot may have made, changed, or removed bots while it worked. The crew is read again when it stops; if that
+    // fails the crew on screen stays as it was, and the next time shows it.
+    private async Task RefreshCrew()
+    {
+        try
+        {
+            bots = await api.ListBots(SpaceId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The crew could not be read again on the {Screen} screen", nameof(Talk));
+        }
+    }
 
     #endregion
 }

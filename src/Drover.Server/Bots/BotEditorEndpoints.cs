@@ -53,7 +53,7 @@ public static class BotEditorEndpoints
             return TypedResults.NotFound();
         }
 
-        var change = await bots.Update(botId, request.ToEdit(current), context.GetSpaceAccess().UserId, context.RequestAborted);
+        var change = await bots.Update(botId, request.ToEdit(current), AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted);
         return Answer(change);
     }
 
@@ -67,13 +67,13 @@ public static class BotEditorEndpoints
     }
 
     private static async Task<Results<Ok<BotDetail>, NotFound, ProblemHttpResult>> Pause(Guid botId, HttpContext context, BotService bots) =>
-        Answer(await bots.Pause(botId, context.GetSpaceAccess().UserId, context.RequestAborted));
+        Answer(await bots.Pause(botId, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted));
 
     private static async Task<Results<Ok<BotDetail>, NotFound, ProblemHttpResult>> Resume(Guid botId, HttpContext context, BotService bots) =>
-        Answer(await bots.Resume(botId, context.GetSpaceAccess().UserId, context.RequestAborted));
+        Answer(await bots.Resume(botId, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted));
 
     private static async Task<Results<NoContent, NotFound>> Remove(Guid botId, HttpContext context, BotService bots) =>
-        (await bots.Remove(botId, context.GetSpaceAccess().UserId, context.RequestAborted)).Bot is null
+        (await bots.Remove(botId, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted)).Bot is null
             ? TypedResults.NotFound()
             : TypedResults.NoContent();
 

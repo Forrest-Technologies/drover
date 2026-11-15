@@ -29,6 +29,9 @@ public sealed class ToolCardTests : BunitContext
     [InlineData("computer.key", """{"keys":["ctrl","l"]}""", "Pressing keys", "Pressed keys", "ctrl+l")]
     [InlineData("computer.scroll", """{"direction":"down","amount":3}""", "Scrolling", "Scrolled", "down 3")]
     [InlineData("time.now", """{"time_zone":"Europe/Berlin"}""", "Checking the time", "Checked the time", "Europe/Berlin")]
+    [InlineData("crew.add", """{"name":"Sample scout","description":"Finds  sources\nfor a question.","instructions":"Sample"}""", "Making a bot", "Made a bot", "Sample scout: Finds sources for a question.")]
+    [InlineData("crew_add", """{"name":"Sample scout","description":"","instructions":"Sample"}""", "Making a bot", "Made a bot", "Sample scout")]
+    [InlineData("crew.remove", """{"bot_id":"0196f1a0-0000-7000-8000-000000000001"}""", "Removing a bot", "Removed a bot", "0196f1a0-0000-7000-8000-000000000001")]
     [InlineData("issues.create", """{"title":"Broken link","labels":["docs"]}""", "Create issue", "Create issue", """{"title":"Broken link","labels":["docs"]}""")]
     public void A_call_is_named_in_plain_words_with_its_arguments_on_one_line(string tool, string arguments, string doing, string done, string summary)
     {

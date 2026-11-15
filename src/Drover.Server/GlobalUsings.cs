@@ -43,6 +43,7 @@ global using Drover.Domain.Tenancy;
 global using Drover.Domain.Tools;
 global using Drover.Engine;
 global using Drover.Engine.Accounts;
+global using Drover.Engine.Audit;
 global using Drover.Engine.Bots;
 global using Drover.Engine.Models;
 global using Drover.Engine.Policy;

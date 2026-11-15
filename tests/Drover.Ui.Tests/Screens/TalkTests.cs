@@ -188,15 +188,102 @@ public sealed class TalkTests : ScreenTest
 
     #endregion
 
+    #region Summary
+
+    [Fact]
+    public void The_summary_opens_beside_the_main_conversation_and_says_what_it_covers_and_when_it_was_written()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary",
+            new ConversationSummary("Sample **summary** of what was said.", 24, DateTimeOffset.UnixEpoch));
+
+        var page = RenderSummary();
+
+        page.WaitForAssertion(() => page.Find("aside .dv-markdown strong").TextContent.Should().Be("summary"));
+        page.Find("aside").GetAttribute("aria-label").Should().Be("Summary of the conversation with Marshal");
+        page.Find("aside h1").TextContent.Should().Be("Summary");
+        page.Find("aside .dv-summary-facts").TextContent.Should().StartWith("Covers 24 messages · written ");
+        var close = page.Find("aside a.dv-shell-up");
+        close.GetAttribute("aria-label").Should().Be("Close the summary");
+        close.GetAttribute("href").Should().Be($"/talk/{botId}");
+        var way = page.Find("a.dv-shell-side[href$=\"/summary\"]");
+        way.TextContent.Should().Be("Summary");
+        way.GetAttribute("aria-current").Should().Be("true");
+        page.Find("a.dv-shell-side[href$=\"/side\"]").HasAttribute("aria-current").Should().BeFalse();
+        page.FindAll("main article").Should().HaveCount(2, "the main conversation stays beside it");
+    }
+
+    [Fact]
+    public void A_conversation_with_no_summary_yet_says_when_one_is_written()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary(null, 0, null));
+
+        var page = RenderSummary();
+
+        page.WaitForAssertion(() => page.Find("aside .dv-summary-hint").TextContent
+            .Should().Be("No summary yet. Drover writes one when this conversation is long enough to need it, and rewrites it as the conversation goes on."));
+        page.FindAll("aside .dv-markdown").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_server_that_does_not_write_summaries_says_so_and_still_shows_one_written_before()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary(null, 0, null, ServerWrites: false));
+        var page = RenderSummary();
+        page.WaitForAssertion(() => page.Find("aside .dv-summary-hint").TextContent
+            .Should().Be("This server does not write summaries. Its operator has them turned off."));
+
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary("Sample summary.", 12, DateTimeOffset.UnixEpoch, ServerWrites: false));
+        var later = RenderSummary();
+
+        later.WaitForAssertion(() => later.Find("aside .dv-markdown").TextContent.Trim().Should().Be("Sample summary."));
+        later.Find("aside .dv-note").TextContent.Trim().Should().Be("This server no longer writes summaries, so this one stays as it is.");
+    }
+
+    [Fact]
+    public void A_summary_that_fails_to_load_says_why_and_loads_on_a_second_try()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", HttpStatusCode.InternalServerError);
+        var page = RenderSummary();
+        page.WaitForAssertion(() => page.Find("aside .dv-empty-title").TextContent.Should().Be("Drover could not load the summary"));
+
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary("Sample summary.", 1, DateTimeOffset.UnixEpoch));
+        page.Find("aside .dv-empty button").Click();
+
+        page.WaitForAssertion(() => page.Find("aside .dv-summary-facts").TextContent.Should().StartWith("Covers 1 message · written "));
+    }
+
+    [Fact]
+    public async Task When_the_bot_stops_working_the_summary_and_the_crew_are_read_again()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary(null, 0, null));
+        var events = RunStarts();
+        var page = RenderSummary();
+        page.WaitForElement("main article");
+        await page.Find("main textarea").InputAsync(new ChangeEventArgs { Value = "Another sample question" });
+        await page.Find("main form").SubmitAsync();
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        page.WaitForAssertion(() => page.Find("main .dv-composer button").TextContent.Trim().Should().Be("Stop"));
+
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary("Sample summary, rewritten.", 26, DateTimeOffset.UnixEpoch));
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal, Helper with { MadeByBotId = botId } });
+        await events.Send(Event(2, RunEventTypes.RunCompleted, new RunStatusChanged("completed", null, null, 1, null)));
+        await events.End();
+
+        page.WaitForAssertion(() => page.Find("aside .dv-markdown").TextContent.Trim().Should().Be("Sample summary, rewritten."));
+        page.WaitForAssertion(() => page.FindAll("nav[aria-label=Crew] a.dv-crew-bot").Should().HaveCount(2, "a bot the lead made shows up without a reload"));
+    }
+
+    #endregion
+
     #region Side Chats
 
     [Fact]
     public void The_way_to_the_side_chats_says_how_many_there_are()
     {
         var page = RenderMain();
-        page.WaitForAssertion(() => page.Find("a.dv-shell-side").TextContent.Should().Be("Side chats"));
-        page.Find("a.dv-shell-side").GetAttribute("href").Should().Be($"/talk/{botId}/side");
-        page.Find("a.dv-shell-side").HasAttribute("aria-current").Should().BeFalse();
+        page.WaitForAssertion(() => page.Find("a.dv-shell-side[href$=\"/side\"]").TextContent.Should().Be("Side chats"));
+        page.Find("a.dv-shell-side[href$=\"/side\"]").GetAttribute("href").Should().Be($"/talk/{botId}/side");
+        page.Find("a.dv-shell-side[href$=\"/side\"]").HasAttribute("aria-current").Should().BeFalse();
     }
 
     [Fact]
@@ -219,8 +306,8 @@ public sealed class TalkTests : ScreenTest
         var close = page.Find("aside a.dv-shell-up");
         close.GetAttribute("aria-label").Should().Be("Close side chats");
         close.GetAttribute("href").Should().Be($"/talk/{botId}");
-        page.Find("a.dv-shell-side").TextContent.Should().Be("1 side chat");
-        page.Find("a.dv-shell-side").GetAttribute("aria-current").Should().Be("true");
+        page.Find("a.dv-shell-side[href$=\"/side\"]").TextContent.Should().Be("1 side chat");
+        page.Find("a.dv-shell-side[href$=\"/side\"]").GetAttribute("aria-current").Should().Be("true");
     }
 
     [Fact]
@@ -456,6 +543,12 @@ public sealed class TalkTests : ScreenTest
     {
         Navigation.NavigateTo($"/talk/{botId}");
         return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId));
+    }
+
+    private IRenderedComponent<Talk> RenderSummary()
+    {
+        Navigation.NavigateTo($"/talk/{botId}/summary");
+        return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId).Add(page => page.Rail, "summary"));
     }
 
     // The side chats of the bot: their list, or one of them by its thread or as "new".
