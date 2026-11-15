@@ -54,6 +54,11 @@
   color: var(--dv-text-3);
 }
 
+.dv-message-sent-by {
+  max-width: 85%;
+  text-align: end;
+}
+
 .dv-message-from {
   display: flex;
   align-items: center;
