@@ -92,8 +92,8 @@ public sealed partial class BotEditor(
 
     private string BeneathWords => Beneath switch
     {
-        [var only] => $"{only.Name} works beneath it.",
-        _ => $"{Beneath.Count} bots work beneath it.",
+        [var only] => $"{only.Name} works beneath it. Remove it too, or keep it? A kept bot moves up under {MovesUnder}.",
+        _ => $"{Beneath.Count} bots work beneath it. Remove them too, or keep them? Kept bots move up under {MovesUnder}.",
     };
 
     private string RemoveAllWords => Beneath.Count == 1 ? "Remove both" : $"Remove all {Beneath.Count + 1}";
