@@ -68,6 +68,8 @@ public static class InterfaceRules
         .. MarkupRules.FieldsAreLabeled(file, document),
         .. MarkupRules.MediaHasDimensions(file, document),
         .. MarkupRules.NoHypeWords(file, document),
+        .. MarkupRules.NoFillerCopy(file, document),
+        .. MarkupRules.NoDeadLinks(file, document),
     ];
 
     private static bool IsTokensFile(string file) =>

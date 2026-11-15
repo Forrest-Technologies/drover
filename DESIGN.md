@@ -118,9 +118,9 @@ These are the habits that make an interface look generated. Each one is checked 
 
 **States that say nothing**
 
-- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens.
+- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens. (test: filler such as "no data", "coming soon", or an apology in interface text)
 - When a feature needs setup, say what is missing in plain words and link to it.
-- A control that does nothing does not ship. No dead links, no menus with placeholder actions.
+- A control that does nothing does not ship. No dead links, no menus with placeholder actions. (test: a link with no address)
 
 **Decoration**
 

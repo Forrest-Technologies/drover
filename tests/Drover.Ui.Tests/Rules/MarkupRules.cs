@@ -21,13 +21,23 @@ public static class MarkupRules
         """(?<=[\p{L}\p{N}.?!'"’])!(?=\s|$|[<"'!?])""",
         Options | RegexOptions.Multiline);
 
+    /// <summary>
+    /// Words that stand where content should be: filler, a promise of a feature, an apology, or a state that says
+    /// nothing. DESIGN.md asks every state to say what is happening and the one thing to do next.
+    /// </summary>
+    private static readonly Regex fillerCopy = new(
+        @"(?<![\w-])(?:lorem ipsum|coming soon|click here|no data|oops|sorry|whoops|under construction|not implemented)(?![\w-])",
+        Options);
+
+    private static readonly Regex deadAddress = new(@"^\s*(?:#|javascript:.*)?\s*$", Options);
+
     private static readonly Regex implicitExpression = new(@"@[\w.]+", Options);
 
     private static readonly HashSet<string> textAttributes =
     [
         "label", "title", "placeholder", "alt", "aria-label", "aria-description", "aria-placeholder",
         "aria-valuetext", "aria-roledescription", "text", "description", "heading", "subtitle", "message",
-        "hint", "caption", "summary", "tooltip", "help", "error",
+        "hint", "caption", "summary", "tooltip", "help", "error", "cause", "actionlabel", "about", "note",
     ];
 
     private static readonly HashSet<string> colorAttributes =
@@ -121,6 +131,43 @@ public static class MarkupRules
         return inText.Concat(inAttributes)
             .Select(found => new Violation(RuleNames.NoHypeWords, file, found.Line, found.Message));
     }
+
+    /// <summary>
+    /// Filler in interface text: text content and the attributes that hold text.
+    /// </summary>
+    public static IEnumerable<Violation> NoFillerCopy(string file, MarkupDocument document)
+    {
+        var inText =
+            from Match found in fillerCopy.Matches(document.Text)
+            select (Line: SourceText.LineAt(document.Text, found.Index), found.Value);
+        var inAttributes =
+            from tag in document.Tags
+            from attribute in tag.Attributes
+            where textAttributes.Contains(attribute.Name.ToLowerInvariant())
+            from Match found in fillerCopy.Matches(Literal(attribute.Value))
+            select (Line: attribute.Line + attribute.Value.AsSpan(0, found.Index).Count('\n'), found.Value);
+        return inText.Concat(inAttributes).Select(found => new Violation(
+            RuleNames.NoFillerCopy,
+            file,
+            found.Line,
+            $"'{found.Value}' stands where content should be; say what is happening and the one thing to do next"));
+    }
+
+    /// <summary>
+    /// A link that goes nowhere: an empty address, a bare hash, or a script address. A control that does nothing
+    /// does not ship; something that acts on the page is a button.
+    /// </summary>
+    public static IEnumerable<Violation> NoDeadLinks(string file, MarkupDocument document) =>
+        from tag in document.Tags
+        where tag.Name.Equals("a", StringComparison.OrdinalIgnoreCase)
+        from attribute in tag.Attributes
+        where attribute.Name.Equals("href", StringComparison.OrdinalIgnoreCase)
+        where !attribute.Value.Contains('@') && deadAddress.IsMatch(attribute.Value)
+        select new Violation(
+            RuleNames.NoDeadLinks,
+            file,
+            attribute.Line,
+            "this link goes nowhere; give it an address, or make it a button if it acts on the page");
 
     /// <summary>
     /// A raw color in an SVG presentation attribute. Geometry attributes are not CSS values and are not checked.

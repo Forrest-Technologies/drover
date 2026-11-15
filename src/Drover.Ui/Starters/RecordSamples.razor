@@ -1,0 +1,93 @@
+@using Drover.Ui.Pages.Dev
+@* Samples for the starters about files, history, skills, and usage. Every name, text, and figure is a sample. *@
+<GallerySection Title="Files on a message (#151)" Note="Each file says its state in words and can be taken off. A file that cannot go says why before sending.">
+    <AttachmentTray Items="attachments" BotName="Sample bot" />
+</GallerySection>
+
+<GallerySection Title="A file in the conversation (#151, #165)" Note="Text shows its first lines; anything else is a card. A picture is shown with its dimensions set (not sampled here: the gallery loads nothing from another host).">
+    <FileCard File="textFile" />
+    <FileCard File="otherFile" />
+</GallerySection>
+
+<GallerySection Title="Files exchanged with a bot (#165)" Note="Newest first. The filter appears only when files came from both sides.">
+    <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" Files="files" /></div>
+    <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" /></div>
+</GallerySection>
+
+<GallerySection Title="A bot's history (#152)" Note="Each change is a sentence. Long text is compared line by line, marked in signs and words as well as color.">
+    <div class="dv-sample-wide"><HistoryList Entries="history" BotName="Sample bot" CanChange="true" /></div>
+    <div class="dv-sample-wide"><DiffView Label="Sample instructions" Before="@before" After="@after" /></div>
+    <div class="dv-sample-wide"><HistoryList Entries="[]" BotName="Sample bot" /></div>
+</GallerySection>
+
+<GallerySection Title="Skills (#153)" Note="A name, the line a bot reads to decide, and the steps.">
+    <SkillRow Skill="written" Href="/" />
+    <SkillRow Skill="offered" Href="/" />
+    <SkillFields @bind-Draft="draft" />
+</GallerySection>
+
+<GallerySection Title="A bot offers a skill (#166)" Note="Every word is shown and can be changed. What is saved is what the person approved.">
+    <SkillProposalCard BotName="Sample bot" Offered="offer" />
+</GallerySection>
+
+<GallerySection Title="What each bot used (#163)" Note="Cost first, the crew as its hierarchy, the biggest spender first at each level. An unknown price is said, never shown as zero. Sample figures.">
+    <div class="dv-sample-wide"><UsageTable Crew="usage" Currency="USD" Caption="Sample: what each bot used in the last 7 days" BotHref="@(_ => "/")" /></div>
+    <div class="dv-sample-wide"><UsageTable Crew="[]" Currency="USD" Caption="Sample: an empty period" BotHref="@(_ => "/")" /></div>
+</GallerySection>
+
+@code {
+    private const string before = "Sample line one.\nSample line two.\nSample line three.";
+
+    private const string after = "Sample line one.\nSample line two, changed.\nSample line three.\nSample line four.";
+
+    private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    private static readonly AttachmentItem[] attachments =
+    [
+        new(Guid.Parse("00000000-0000-7000-8000-000000000401"), "sample-notes.txt", 2_400, UploadPhase.Ready, 100),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000402"), "sample-report.pdf", 3_400_000, UploadPhase.Uploading, 40),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000403"), "sample-photo.png", 900_000, UploadPhase.Ready, 100, FileRefusal.ModelCannotReadImages),
+    ];
+
+    private static readonly SharedFile textFile = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000404"), "sample-notes.txt", "text/plain", 2_400, "/", true, sampleDay,
+        "/", "A sample caption.", "Sample first line\nSample second line\nSample third line");
+
+    private static readonly SharedFile otherFile = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000405"), "sample-report.pdf", "application/pdf", 3_400_000, "/", false, sampleDay.AddDays(-1));
+
+    private static readonly SharedFile[] files = [textFile, otherFile];
+
+    private static readonly HistoryEntry[] history =
+    [
+        new(Guid.Parse("00000000-0000-7000-8000-000000000501"), HistoryActor.You, "Sample person", null, "bot.updated", sampleDay,
+            [new("instructions", before, after), new("name", "Sample bot", "Sample bot, renamed")], true),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000502"), HistoryActor.Bot, "Sample lead", "Sample person", "grant.changed", sampleDay.AddDays(-1),
+            [new("sandbox.run", "ask", "allow")], false),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000503"), HistoryActor.Member, "Sample member", null, "bot.created", sampleDay.AddDays(-2), [], false),
+    ];
+
+    private static readonly SkillItem written = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000601"), "Sample skill", "Sample: when asked for the weekly sample report.", 2);
+
+    private static readonly SkillItem offered = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000602"), "Sample skill a bot offered", "Sample: when exporting the sample table.", 0,
+        "Sample bot", "you", sampleDay);
+
+    private static readonly SkillDraft offer = new("Sample skill", "Sample: when exporting the sample table.", "1. A sample step.\n2. Another sample step.");
+
+    private static readonly Guid sampleLead = Guid.Parse("00000000-0000-7000-8000-000000000001");
+
+    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
+
+    private static readonly UsageNode[] usage =
+    [
+        new(sampleLead, "Sample lead", "sample-model-a", new(1.24m, 120_400, 18_300), new(3.02m, 410_900, 51_200, true),
+        [
+            new(sampleHelper, "Sample helper", "sample-model-b", new(1.78m, 250_000, 30_100), null, []),
+            new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample bot on a model with no known price", "sample-model-c", new(null, 40_500, 2_800), null, []),
+        ]),
+    ];
+
+    private SkillDraft draft = SkillDraft.Empty;
+}

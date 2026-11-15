@@ -447,6 +447,57 @@ public sealed class InterfaceRuleTests
         Found(MarkupFile, good).Should().BeEmpty();
     }
 
+    [Fact]
+    public void Filler_where_content_should_be_fails()
+    {
+        var bad = """
+            <h1>Usage</h1>
+            <p>No data</p>
+            <p>Coming soon.</p>
+            <EmptyState Title="Oops" Cause="Sorry, something broke" ActionLabel="Click here" />
+            """;
+        var good = """
+            <h1>Usage</h1>
+            @* No data is a comment here, coming soon. *@
+            <p>No bot ran in this period.</p>
+            <EmptyState Title="Drover could not load the notes" Cause="@problem" ActionLabel="Try again" />
+
+            @code {
+                private string problem = "Sorry";
+            }
+            """;
+
+        Found(MarkupFile, bad).Should().Equal(
+            (RuleNames.NoFillerCopy, 2),
+            (RuleNames.NoFillerCopy, 3),
+            (RuleNames.NoFillerCopy, 4),
+            (RuleNames.NoFillerCopy, 4),
+            (RuleNames.NoFillerCopy, 4));
+        Found(MarkupFile, good).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_link_that_goes_nowhere_fails()
+    {
+        var bad = """
+            <a href="#">Usage</a>
+            <a href="">Skills</a>
+            <a href="javascript:void(0)">Activity</a>
+            """;
+        var good = """
+            <a href="/usage">Usage</a>
+            <a href="#summary">Skip to the summary</a>
+            <a href="@Addresses.Skills">Skills</a>
+            <a href="@href">Activity</a>
+            """;
+
+        Found(MarkupFile, bad).Should().Equal(
+            (RuleNames.NoDeadLinks, 1),
+            (RuleNames.NoDeadLinks, 2),
+            (RuleNames.NoDeadLinks, 3));
+        Found(MarkupFile, good).Should().BeEmpty();
+    }
+
     #endregion
 
     #region Allow Comments

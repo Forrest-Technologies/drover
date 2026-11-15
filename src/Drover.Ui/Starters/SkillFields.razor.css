@@ -1,0 +1,6 @@
+.dv-skill-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}

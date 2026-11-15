@@ -1,0 +1,42 @@
+@using Drover.Ui.Pages.Dev
+@* Samples for the routine starters. Every name, time, and count here is a sample. *@
+<GallerySection Title="Routine rows (#157)" Note="The sentence is the heading. Next and last are said in words. Sample content.">
+    <RoutineRow Routine="finished" BotName="Sample bot" CanChange="true" />
+    <RoutineRow Routine="failed" BotName="Sample bot" CanChange="true" />
+    <RoutineRow Routine="custom" BotName="Sample bot" BotPaused="true" CanChange="true" />
+    <RoutineRow Routine="off" BotName="Sample bot" />
+</GallerySection>
+
+<GallerySection Title="Writing when a routine runs (#157)" Note="One rhythm, only its fields, and the sentence it will be listed as.">
+    <RoutineWhenFields @bind-When="when" @bind-TimeZone="zone" />
+</GallerySection>
+
+<GallerySection Title="A routine started by a call (#159)" Note="The address, how to call it, and today's calls. The secret is shown once, in a dialog.">
+    <RoutineCallAddress Address="https://example.org/api/hooks/sample" HeaderName="X-Drover-Secret" BotName="Sample bot"
+                        ReceivedToday="12" RefusedToday="2" CanChange="true" />
+</GallerySection>
+
+@code {
+    private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    private static readonly RoutineItem finished = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000101"), "Sample prompt: gather the sample notes and write a short brief.",
+        "0 8 * * 1-5", "Europe/Berlin", true, sampleDay.AddDays(1), new(sampleDay, RoutineOutcome.Finished, null, "/"));
+
+    private static readonly RoutineItem failed = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000102"), "Sample prompt: check the sample inbox.",
+        "30 7 * * 1,3,5", "Europe/Berlin", true, sampleDay.AddDays(2),
+        new(sampleDay, RoutineOutcome.Failed, "the model connection could not be reached", "/"));
+
+    private static readonly RoutineItem custom = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000103"), "Sample prompt on a custom schedule.",
+        "*/20 9-17 * * 1-5", "UTC", true, sampleDay.AddDays(1), null);
+
+    private static readonly RoutineItem off = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000104"), "Sample prompt that is turned off.",
+        "0 9 1 * *", "America/New_York", false, null, new(sampleDay, RoutineOutcome.DidNotRun, "Sample bot was paused", null));
+
+    private RoutineWhen when = RoutineWhen.Start;
+
+    private string zone = "Europe/Berlin";
+}
