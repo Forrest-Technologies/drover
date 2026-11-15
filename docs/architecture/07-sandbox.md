@@ -262,6 +262,8 @@ All built-in (`SandboxTools`), all granted per bot like any tool, and none on th
 | `sandbox.list_files` | read | `path`, `environment?` | `entries` (name, kind, size), at most 1000 |
 | `sandbox.enter` (use another bot's environment as its ancestor) | critical | Not built yet | |
 
+A file a person attaches that the bot's model cannot read directly (anything but text, and a picture for a model that does not read images) is copied into the bot's own sandbox by the server, at `attachments/{file id}/{name}` in the home folder, and the model is told the path. It is copied only for a run that was given a sandbox tool, through the broker like any write, under `MaxSandboxFileBytes`, and once a run ([14-agent-framework.md](14-agent-framework.md)).
+
 `sandbox.run` runs the model's command line with `bash -l -c`: the model wrote the whole command, for its own sandbox, and Drover adds no text of its own to it. Where Drover itself builds a command from model text (the computer tools below), it uses an argument list. The command, its output, and its exit code are run events, so the activity view can show a live terminal for each call.
 
 ## Computer use
