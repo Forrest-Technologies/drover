@@ -56,13 +56,14 @@ public sealed class BotListTests : ScreenTest
     public async Task A_bot_can_be_made_under_another_and_the_list_sets_it_in_beneath()
     {
         var helperId = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
-        var helper = Marshal with { Id = helperId, Name = "Sample helper", Handle = "sample-helper", Status = "active", ParentBotId = botId };
+        var helper = Marshal with { Id = helperId, Name = "Sample helper", Handle = "sample-helper", Status = "active", ParentBotId = botId, MadeByBotId = botId };
         Space(bots: [Marshal, helper]);
         Server.Answer("POST", $"{space}/bots", Marshal with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
         var page = Render<BotList>();
         page.WaitForElement(".dv-bot-add");
 
         page.Find($"ul.dv-bots > li > ul[aria-label='Bots under Marshal'] a.dv-bot-name").TextContent.Should().Be("Sample helper");
+        page.FindAll(".dv-bot-facts")[1].TextContent.Should().Be("@sample-helper · sample-default · made by Marshal");
         var add = page.FindAll("button.dv-bot-add");
         add.Select(button => button.GetAttribute("aria-label")).Should().Equal("New bot under Marshal", "New bot under Sample helper");
 

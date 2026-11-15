@@ -146,8 +146,11 @@
   margin-left: var(--dv-space-3);
 }
 
-/* The way to the side chats sits at the far end of the header, apart from the bot it belongs to. */
-.dv-shell-side {
+/* What opens beside the conversation sits at the far end of the header, apart from the bot it belongs to. */
+.dv-shell-beside {
+  flex: none;
+  display: flex;
+  gap: var(--dv-space-2);
   margin-left: auto;
 }
 

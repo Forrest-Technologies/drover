@@ -80,7 +80,7 @@ public sealed class MeetBotTests : ScreenTest
         var start = page.Find("a.dv-meet-start");
         start.TextContent.Should().Be("Talk to Marshal");
         start.GetAttribute("href").Should().Be($"/talk/{Marshal.Id}");
-        sent.Instructions.Should().StartWith("You are Marshal, the lead of this person's crew of bots");
+        sent.Instructions.Should().StartWith("You are Marshal, the lead of this person's crew of bots").And.Contain("make it beneath you with your crew tools");
         sent.ParentBotId.Should().BeNull("the first bot leads the crew");
     }
 

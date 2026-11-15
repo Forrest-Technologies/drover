@@ -71,19 +71,23 @@
                     {
                         <Badge Kind="BadgeKind.Warn">Paused</Badge>
                     }
-                    <a class="dv-shell-side dv-facet" href="@Addresses.SideChats(Shown.Id)"
-                       aria-current="@(Side is SideView.Closed ? null : "true")">@SideChatsLabel</a>
+                    <nav class="dv-shell-beside" aria-label="Beside the conversation">
+                        <a class="dv-shell-side dv-facet" href="@Addresses.Summary(Shown.Id)"
+                           aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
+                        <a class="dv-shell-side dv-facet" href="@Addresses.SideChats(Shown.Id)"
+                           aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
+                    </nav>
                 </header>
                 <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
         {
-            <aside class="dv-shell-rail" aria-label="Side chats with @Shown.Name">
+            <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List)
+                    @if (Side is SideView.List or SideView.Summary)
                     {
-                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="Close side chats">
+                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@(Side is SideView.Summary ? "Close the summary" : "Close side chats")">
                             <Icon Name="IconName.Close" Size="20" />
                         </a>
                     }
@@ -96,7 +100,11 @@
                     <span class="dv-shell-bot dv-mono">@Shown.Name</span>
                     <h1 class="dv-shell-title">@SideTitle</h1>
                 </header>
-                @if (Side is SideView.List)
+                @if (Side is SideView.Summary)
+                {
+                    <SummaryPanel @key="Shown.Id" Bot="Shown" Version="summaryVersion" />
+                }
+                else if (Side is SideView.List)
                 {
                     <div class="dv-shell-rail-body">
                         <p class="dv-shell-hint">A side chat is a separate conversation with @Shown.Name. What is said there stays out of the main conversation.</p>
@@ -112,7 +120,7 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" />
+                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
                 }
             </aside>
         }

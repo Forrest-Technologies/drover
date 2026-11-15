@@ -93,6 +93,12 @@ public sealed partial class BotList(
         }
     }
 
+    // A bot that another bot made says which one, when that bot is still here.
+    private string MadeBy(BotSummary bot) =>
+        bot.MadeByBotId is { } maker && bots!.FirstOrDefault(candidate => candidate.Id == maker) is { } made
+            ? $" · made by {made.Name}"
+            : string.Empty;
+
     // The connection's own default, then the model a bot already uses on it, then the first one it lists.
     private async Task<string?> FindModel(ModelConnectionSummary connection) =>
         connection.DefaultModel

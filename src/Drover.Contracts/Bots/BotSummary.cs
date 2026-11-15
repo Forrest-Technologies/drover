@@ -12,4 +12,5 @@ public sealed record BotSummary(
     Guid ModelConnectionId,
     string Model,
     string Status,
-    Guid? ParentBotId = null);
+    Guid? ParentBotId = null,
+    Guid? MadeByBotId = null);

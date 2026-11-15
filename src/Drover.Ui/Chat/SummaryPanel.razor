@@ -1,0 +1,20 @@
+@* The summary the server keeps of a bot's main conversation, read as it stands now. *@
+<div class="dv-summary">
+    @if (problem is not null)
+    {
+        <EmptyState Title="Drover could not load the summary" Cause="@problem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (summary is null)
+    {
+        <p class="dv-summary-hint" role="status">Loading the summary.</p>
+    }
+    else if (string.IsNullOrWhiteSpace(summary.Text))
+    {
+        <p class="dv-summary-hint">No summary yet. Drover writes one when this conversation is long enough to need it, and rewrites it as the conversation goes on.</p>
+    }
+    else
+    {
+        <p class="dv-summary-facts dv-mono">@Facts</p>
+        <MarkdownView Text="@summary.Text" />
+    }
+</div>

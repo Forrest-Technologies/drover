@@ -27,7 +27,7 @@
             <p class="dv-meet-name">@bot.Name</p>
             <p class="dv-meet-model"><code>@bot.Model</code></p>
         </div>
-        <p class="dv-entry-lead">@bot.Name is ready. It leads your crew: the bots you add later work beneath it.</p>
+        <p class="dv-entry-lead">@bot.Name is ready. It leads your crew: ask it for the bots you need and it makes them beneath itself, once you approve each one.</p>
         <a class="dv-meet-start" href="@Addresses.Talk(bot.Id)">Talk to @bot.Name</a>
     }
     else if (connection is null)
@@ -37,7 +37,7 @@
     }
     else
     {
-        <p class="dv-entry-lead">Your first bot leads the crew. You talk to it, and the bots you add later work beneath it. Name it and choose the model it thinks with.</p>
+        <p class="dv-entry-lead">Your first bot leads the crew. You talk to it, and the bots it makes for you work beneath it. Name it and choose the model it thinks with.</p>
 
         <form class="dv-entry-form" @onsubmit="Create">
             <Field Label="Name" @bind-Value="name" name="bot-name" autocomplete="off" required="true" maxlength="80" Disabled="busy" />
@@ -145,12 +145,13 @@
             ?? string.Empty;
     }
 
-    // What the lead is told. It says only what this version of Drover lets a bot do: a bot cannot make bots yet,
-    // so the lead says which bot a job needs and the person adds it.
+    // What the lead is told. It makes bots with its crew tools, and the person approves each use.
     private static string LeadInstructions(string leadName) =>
         $"You are {leadName}, the lead of this person's crew of bots: their chief of staff. Take what they ask and do what you can yourself. "
-        + "When a job would be better done by a bot of its own, say so plainly: name that bot, say in two sentences what it is for, "
-        + "and list the tools it needs, so the person can add it beneath you. Answer plainly and keep it short unless asked for more.";
+        + "When a job would be better done by a bot of its own, or the person asks for one, make it beneath you with your crew tools: "
+        + "give it a name, say in two sentences what it is for, and write its instructions. The person is asked to approve each bot before it exists. "
+        + "A new bot starts with few tools, so say which tools it still needs and the person can allow them. "
+        + "Answer plainly and keep it short unless asked for more.";
 
     private async Task Create()
     {

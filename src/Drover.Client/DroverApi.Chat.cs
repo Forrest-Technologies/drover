@@ -32,6 +32,9 @@ public sealed partial class DroverApi
     public Task<ThreadSummary> OpenMainThread(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/main-thread", null, cancellationToken);
 
+    public Task<ConversationSummary> GetConversationSummary(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<ConversationSummary>($"{Space(spaceId)}/threads/{threadId}/summary", cancellationToken);
+
     /// <summary>One thread. <see cref="ThreadSummary.ActiveRunId"/> is the run to watch, if one is still working.</summary>
     public Task<ThreadSummary> GetThread(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ThreadSummary>($"{Space(spaceId)}/threads/{threadId}", cancellationToken);
