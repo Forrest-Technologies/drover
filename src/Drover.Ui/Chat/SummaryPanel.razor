@@ -8,6 +8,10 @@
     {
         <p class="dv-summary-hint" role="status">Loading the summary.</p>
     }
+    else if (string.IsNullOrWhiteSpace(summary.Text) && !summary.ServerWrites)
+    {
+        <p class="dv-summary-hint">This server does not write summaries. Its operator has them turned off.</p>
+    }
     else if (string.IsNullOrWhiteSpace(summary.Text))
     {
         <p class="dv-summary-hint">No summary yet. Drover writes one when this conversation is long enough to need it, and rewrites it as the conversation goes on.</p>
@@ -15,6 +19,10 @@
     else
     {
         <p class="dv-summary-facts dv-mono">@Facts</p>
+        @if (!summary.ServerWrites)
+        {
+            <StatusNote Text="This server no longer writes summaries, so this one stays as it is." />
+        }
         <MarkdownView Text="@summary.Text" />
     }
 </div>

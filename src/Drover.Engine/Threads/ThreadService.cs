@@ -14,7 +14,8 @@ public sealed class ThreadService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
-    TimeProvider time)
+    TimeProvider time,
+    IOptions<DeploymentPolicyOptions> deployment)
 {
     #region Private Fields
 
@@ -133,9 +134,12 @@ public sealed class ThreadService(
         await threads.FindThread(threadId, cancellationToken) switch
         {
             null => null,
-            { IsMain: true, Summary: { } text } thread => new ConversationSummary(text, thread.SummaryThroughPosition ?? 0, thread.SummaryUpdatedAt),
-            _ => new ConversationSummary(null, 0, null),
+            { IsMain: true, Summary: { } text } thread =>
+                new ConversationSummary(text, thread.SummaryThroughPosition ?? 0, thread.SummaryUpdatedAt, ServerWrites),
+            _ => new ConversationSummary(null, 0, null, ServerWrites),
         };
+
+    private bool ServerWrites => deployment.Value.Rules.AllowConversationSummaries;
 
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];
