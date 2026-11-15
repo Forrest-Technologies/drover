@@ -104,7 +104,7 @@ public sealed class MainThreadTests(PostgresFixture postgres)
         var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
         var otherBot = await SaveBot(provider, world.SpaceA, world.UserA1);
         var botInB = await SaveBot(provider, world.SpaceB, world.UserB1);
-        await MigrateTo(scratch, "MessageWithheld");
+        await MigrateTo(scratch, "SandboxSweep");
         var now = DateTimeOffset.UtcNow;
 
         var older = await InsertOldThread(provider, world.SpaceA, world.UserA1, bot.Id, "chat", now.AddHours(-2));

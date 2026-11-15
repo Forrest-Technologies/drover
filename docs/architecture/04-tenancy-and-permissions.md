@@ -306,7 +306,7 @@ This is computed when a run assembles its tools and again when a tool is called,
 - A child can never hold more than its parent, even if a row says otherwise.
 - Narrowing or revoking a parent's grant takes effect on the whole subtree at once, with no cascade of writes to get wrong.
 
-Writes are validated too: granting a child an effect above its parent's effective grant is rejected with a clear message ("raise it on Atlas first"). The read-time rule is the guarantee; the write-time rule keeps stored data honest.
+Writes are validated too: granting a child an effect above its parent's effective grant is rejected with a clear message ("raise it on Marshal first"). The read-time rule is the guarantee; the write-time rule keeps stored data honest.
 
 A `needs_review` grant counts as `ask` until a human confirms it. On top of that, a run leaves a tool server's tool with such a grant out altogether, so its changed text is not shown to the model ([06-mcp.md](06-mcp.md)). A bot whose own row (distance 0) is missing from `bot_ancestors` is not in the tree and gets no grants at all.
 
