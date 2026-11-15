@@ -817,7 +817,7 @@ public sealed class BotEditorTests : ScreenTest
         screen.TextContent.Should().Contain("This bot may not use the screen yet.");
         screen.QuerySelector("button")!.TextContent.Trim().Should().Be("Allow screen tools");
         var note = page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent));
-        note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model that can in the Model section.");
+        note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. In the Model section, choose a model to read the screen for it, or a model that can see.");
         var openModel = page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Single(button => button.TextContent.Trim() == "Open the Model section");
 
         await screen.QuerySelector("button")!.ClickAsync(new MouseEventArgs());
@@ -828,7 +828,7 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
-    public async Task A_text_only_bot_can_choose_a_model_of_another_connection_to_read_its_screen()
+    public async Task A_text_only_bot_can_choose_a_model_of_another_connection_to_read_its_screen_in_the_model_section()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
@@ -836,25 +836,46 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
+        page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent))
+            .Should().Contain(text => text.Contains("cannot use the screen", StringComparison.Ordinal));
+        await page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Single(button => button.TextContent.Trim() == "Open the Model section")
+            .ClickAsync(new MouseEventArgs());
 
+        page.WaitForAssertion(() => Labels(page).Should().Contain("Reads the screen for this bot"));
         var reader = Select(page, "Reads the screen for this bot");
         reader.Id.Should().NotBeEmpty();
         page.Find($"label[for='{reader.Id}']").TextContent.Should().Be("Reads the screen for this bot");
         Options(page, "Reads the screen for this bot").Should().Equal("Its own model (cannot read images)", "sample-eyes");
         reader.QuerySelector("optgroup")!.GetAttribute("label").Should().Be("Eyes connection");
         reader.GetAttribute("value").Should().BeEmpty();
-        var note = page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent));
-        note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model to read the screen for it above, or a model that can see in the Model section.");
-        page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Should().Contain(button => button.TextContent.Trim() == "Open the Model section");
 
         await reader.ChangeAsync(new ChangeEventArgs { Value = $"{eyesConnectionId}/sample-eyes" });
 
         page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent)).Should().NotContain(text => text.Contains("cannot use the screen", StringComparison.Ordinal));
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
+            .Should().Contain("sample-eyes reads the screen for this bot. Change it in the Model section.");
         await Open(page, 5);
         page.FindAll(".dv-disclosure-toggle")[5].TextContent.Should().Contain("screen read by sample-eyes", "the closed section says which model reads the screen");
         await page.Find("form").SubmitAsync();
         page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which.Should()
             .Contain($"\"screenReader\":{{\"modelConnectionId\":\"{eyesConnectionId}\",\"model\":\"sample-eyes\"}}"));
+    }
+
+    [Fact]
+    public async Task A_text_only_bot_without_a_screen_is_offered_a_screen_reader_with_a_way_to_give_it_a_screen()
+    {
+        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { Model("sample-eyes", toolCalling: true, vision: true) });
+        var page = RenderEditor();
+        await Open(page, 0);
+
+        page.WaitForAssertion(() => Options(page, "Reads the screen for this bot").Should().Equal("Its own model (cannot read images)", "sample-eyes"));
+        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
+            .Should().Contain("It is used when this bot has a screen. Give it a sandbox with Desktop on, in the Sandbox section.");
+        await page.FindAll(".dv-disclosure-open .dv-editor-sandbox-grant button").Single(button => button.TextContent.Trim() == "Open the Sandbox section")
+            .ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle")[5].GetAttribute("aria-expanded").Should().Be("true"));
     }
 
     [Fact]
@@ -867,12 +888,13 @@ public sealed class BotEditorTests : ScreenTest
         var page = RenderEditor();
 
         page.FindAll(".dv-disclosure-toggle")[5].TextContent.Should().Contain("Private · network off · desktop · screen read by sample-eyes");
-        await Open(page, 5);
+        await Open(page, 0);
 
-        Select(page, "Reads the screen for this bot").GetAttribute("value").Should().Be($"{eyesConnectionId}/sample-eyes");
+        page.WaitForAssertion(() => Select(page, "Reads the screen for this bot").GetAttribute("value").Should().Be($"{eyesConnectionId}/sample-eyes"));
         var hint = page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
             .Single(text => text.Contains("description", StringComparison.Ordinal));
         hint.Should().Be("The bot gets a description of each screenshot in words instead of the picture. That is slower and less exact than a model that sees for itself, and each screenshot is also a call to sample-eyes.");
+        await Open(page, 5);
         page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent)).Should().NotContain(text => text.Contains("cannot use the screen", StringComparison.Ordinal));
     }
 
@@ -881,26 +903,29 @@ public sealed class BotEditorTests : ScreenTest
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         var page = RenderEditor();
-        await Open(page, 5);
+        await Open(page, 0);
 
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
+            .Should().Contain("This model cannot see images, and no model of this space is listed as reading them, so no other model can read the screen for this bot."));
         Labels(page).Should().NotContain("Reads the screen for this bot");
-        page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
-            .Should().Contain("No model of this space is listed as reading images, so no other model can read the screen for this bot.");
         var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Connect a model");
         link.GetAttribute("href").Should().Be(Addresses.SetupModel);
+        await Open(page, 5);
         page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent))
-            .Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. Choose a model that can in the Model section.");
+            .Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. In the Model section, choose a model to read the screen for it, or a model that can see.");
     }
 
     [Fact]
-    public async Task Without_a_screen_nothing_about_reading_it_is_shown()
+    public async Task A_bot_that_sees_or_has_no_screen_and_no_reader_to_choose_is_not_asked_about_reading_it()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
+        await Open(page, 0);
         await Open(page, 5);
 
         Labels(page).Should().NotContain("Reads the screen for this bot");
-        page.Find(".dv-disclosure-open").TextContent.Should().NotContain("reading images");
+        page.Find(".dv-disclosure-open").TextContent.Should().NotContain("reading them");
+        page.FindAll(".dv-disclosure-open")[1].TextContent.Should().NotContain("reads the screen");
     }
 
     #endregion

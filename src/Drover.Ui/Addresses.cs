@@ -33,6 +33,9 @@ public static class Addresses
     /// <summary>The summary the server keeps of a bot's main conversation.</summary>
     public static string Summary(Guid botId) => $"/talk/{botId}/summary";
 
+    /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
+    public static string Screen(Guid botId) => $"/talk/{botId}/screen";
+
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
 

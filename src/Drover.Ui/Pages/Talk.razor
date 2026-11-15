@@ -7,7 +7,7 @@
 <PageTitle>@PageName</PageTitle>
 
 <SessionGate>
-    <div class="dv-shell dv-shell-at-@At @(Side is SideView.Closed ? null : "dv-shell-with-rail")">
+    <div class="dv-shell dv-shell-at-@At @(Side is SideView.Closed ? null : "dv-shell-with-rail") @(Side is SideView.Screen ? "dv-shell-with-screen" : null)">
         <div class="dv-shell-list">
             <header class="dv-shell-list-header">
                 <span class="dv-wordmark"><DroverMark />Drover</span>
@@ -74,6 +74,11 @@
                     <nav class="dv-shell-beside" aria-label="Beside the conversation">
                         <a class="dv-shell-side dv-facet" href="@Addresses.Summary(Shown.Id)"
                            aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
+                        @if (hasScreen || Side is SideView.Screen)
+                        {
+                            <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
+                               aria-current="@(Side is SideView.Screen ? "true" : null)">Screen</a>
+                        }
                         <a class="dv-shell-side dv-facet" href="@Addresses.SideChats(Shown.Id)"
                            aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
                     </nav>
@@ -85,9 +90,9 @@
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List or SideView.Summary)
+                    @if (Side is SideView.List or SideView.Summary or SideView.Screen)
                     {
-                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@(Side is SideView.Summary ? "Close the summary" : "Close side chats")">
+                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
                         </a>
                     }
@@ -103,6 +108,10 @@
                 @if (Side is SideView.Summary)
                 {
                     <SummaryPanel @key="Shown.Id" Bot="Shown" Version="summaryVersion" />
+                }
+                else if (Side is SideView.Screen)
+                {
+                    <ScreenPanel @key="Shown.Id" Bot="Shown" />
                 }
                 else if (Side is SideView.List)
                 {

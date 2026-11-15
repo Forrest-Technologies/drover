@@ -1,0 +1,39 @@
+@* A bot's sandbox screen beside the conversation, so a person watches the bot work and can take over. *@
+@implements IAsyncDisposable
+
+<div class="dv-screen-panel">
+    @if (problem is not null)
+    {
+        <EmptyState Title="Drover could not load the screen" Cause="@problem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (notPermitted)
+    {
+        <p class="dv-screen-panel-hint">Owners and admins of this space watch and use its bots' screens. You can still talk to @Bot.Name.</p>
+    }
+    else if (status is null)
+    {
+        <p class="dv-screen-panel-hint" role="status">Loading the screen.</p>
+    }
+    else if (!status.Available)
+    {
+        <EmptyState Title="No sandbox provider is set up" Cause="This server has no sandbox provider, so no bot has a screen yet."
+                    ActionLabel="Open the status page" ActionHref="@Addresses.Status" />
+    }
+    else if (!status.HasSandbox || !status.Desktop)
+    {
+        <EmptyState Title="@($"{Bot.Name} has no screen")" Cause="Give it a sandbox with Desktop on, in the Sandbox section of its settings."
+                    ActionLabel="Open its settings" ActionHref="@Addresses.Bot(Bot.Id)" />
+    }
+    else
+    {
+        <p class="dv-screen-panel-state">
+            <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status.State)</Badge>
+            @if (status.BotWorking)
+            {
+                <Badge Kind="BadgeKind.Live">Bot working</Badge>
+            }
+            <a class="dv-screen-panel-more" href="@Addresses.BotSandbox(Bot.Id)">Power and terminal</a>
+        </p>
+        <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" />
+    }
+</div>

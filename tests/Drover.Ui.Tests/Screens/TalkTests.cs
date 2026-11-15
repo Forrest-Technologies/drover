@@ -188,6 +188,73 @@ public sealed class TalkTests : ScreenTest
 
     #endregion
 
+    #region Screen
+
+    [Fact]
+    public void A_bot_with_a_screen_offers_it_beside_the_conversation_live_and_ready_to_take_control()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        Server.Answer("POST", $"{space}/bots/{botId}/sandbox/input", HttpStatusCode.NoContent);
+        Navigation.NavigateTo($"/talk/{botId}/screen");
+
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+
+        page.WaitForAssertion(() => page.Find("aside img.dv-sandbox-image").GetAttribute("alt").Should().StartWith("Marshal's sandbox screen"));
+        page.Find("aside").GetAttribute("aria-label").Should().Be("Marshal's screen");
+        page.Find("aside h1").TextContent.Should().Be("Screen");
+        page.Find("aside a.dv-shell-up").GetAttribute("aria-label").Should().Be("Close the screen");
+        page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Running");
+        page.Find("aside a.dv-screen-panel-more").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox");
+        var way = page.Find("a.dv-shell-side[href$=\"/screen\"]");
+        way.TextContent.Should().Be("Screen");
+        way.GetAttribute("aria-current").Should().Be("true");
+        page.FindAll("main article").Should().HaveCount(2, "the conversation stays beside the screen");
+
+        page.Find("aside input[role=switch]").Change(true);
+
+        page.Find("aside button.dv-sandbox-picture").GetAttribute("aria-label").Should().StartWith("Marshal's sandbox screen. Tap to click there");
+        page.Find("aside .dv-sandbox-screen [role=status]").TextContent.Should().Contain("You have control");
+    }
+
+    [Fact]
+    public void A_bot_whose_sandbox_has_no_screen_offers_no_way_to_one()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: false));
+
+        var page = RenderMain();
+
+        page.WaitForAssertion(() => page.FindAll("main article").Should().HaveCount(2));
+        page.FindAll("a.dv-shell-side[href$=\"/screen\"]").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_screen_opened_for_a_bot_without_one_says_how_to_give_it_one()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: false));
+        Navigation.NavigateTo($"/talk/{botId}/screen");
+
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-empty-title").TextContent.Should().Be("Marshal has no screen"));
+        page.Find("aside .dv-empty-action").GetAttribute("href").Should().Be($"/bots/{botId}");
+    }
+
+    [Fact]
+    public void A_person_who_may_not_use_the_screen_is_told_so_and_can_still_talk()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", HttpStatusCode.Forbidden);
+        Navigation.NavigateTo($"/talk/{botId}/screen");
+
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-hint").TextContent
+            .Should().Be("Owners and admins of this space watch and use its bots' screens. You can still talk to Marshal."));
+        page.FindAll("main textarea").Should().ContainSingle();
+    }
+
+    #endregion
+
     #region Summary
 
     [Fact]
@@ -544,6 +611,13 @@ public sealed class TalkTests : ScreenTest
         Navigation.NavigateTo($"/talk/{botId}");
         return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId));
     }
+
+    private static BotSandboxStatus ScreenStatus(bool desktop) =>
+        new(Available: true, HasSandbox: true, "running", DateTimeOffset.UnixEpoch, Desktop: desktop, BotWorking: false);
+
+    // The header of a 1024 by 768 PNG: as much of one as the screen reads.
+    private static byte[] ScreenPng { get; } =
+        [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R', 0, 0, 4, 0, 0, 0, 3, 0, 8, 6, 0, 0, 0, 0, 0, 0, 0];
 
     private IRenderedComponent<Talk> RenderSummary()
     {

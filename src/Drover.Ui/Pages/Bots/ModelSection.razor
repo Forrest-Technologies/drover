@@ -34,6 +34,47 @@ else
     <p class="dv-editor-hint">Drover does not know what this model can do, so only the settings every model has are shown.</p>
 }
 
+@* A model that cannot see images uses a screen through another model that reads it, with the centre of each thing to click. *@
+@if (ReaderShown)
+{
+    @if (Readers is null)
+    {
+        <p class="dv-editor-hint" role="status">The models that can read the screen are not known yet.</p>
+    }
+    else if (Readers.Count == 0 && Draft.ScreenReader is null)
+    {
+        <p class="dv-editor-hint">This model cannot see images, and no model of this space is listed as reading them, so no other model can read the screen for this bot.</p>
+        <p class="dv-editor-hint"><a href="@Addresses.SetupModel">Connect a model</a></p>
+    }
+    else
+    {
+        <Select Label="Reads the screen for this bot" Value="@ReaderValue" ValueChanged="ChooseReader">
+            <option value="">@OwnModel</option>
+            @if (Draft.ScreenReader is { } stored && Chosen is null)
+            {
+                <option value="@ScreenReaderChoice.ValueOf(stored.ModelConnectionId, stored.Model)">@stored.Model</option>
+            }
+            @foreach (var connection in Readers.GroupBy(reader => (reader.ConnectionId, reader.ConnectionName)))
+            {
+                <optgroup label="@connection.Key.ConnectionName">
+                    @foreach (var reader in connection)
+                    {
+                        <option value="@reader.Value">@reader.DisplayName</option>
+                    }
+                </optgroup>
+            }
+        </Select>
+        <p class="dv-editor-hint">@ReaderHint</p>
+        @if (!Draft.Desktop)
+        {
+            <div class="dv-editor-sandbox-grant">
+                <p class="dv-editor-hint">It is used when this bot has a screen. Give it a sandbox with Desktop on, in the Sandbox section.</p>
+                <Button OnClick="() => OnOpenSection.InvokeAsync(SandboxSection)">Open the Sandbox section</Button>
+            </div>
+        }
+    }
+}
+
 @if (Known is { ReasoningEfforts.Count: > 0 } reasoning)
 {
     <Select Label="Reasoning effort" @bind-Value="Draft.ReasoningEffort" @bind-Value:after="Changed">
@@ -78,6 +119,21 @@ else
     [Parameter]
     public IReadOnlyList<ModelCatalogResponse>? Models { get; set; }
 
+    /// <summary>Whether the bot's model can see images: null while unknown, false when it cannot or is not in the catalog.</summary>
+    [Parameter]
+    public bool? ModelSeesImages { get; set; }
+
+    /// <summary>
+    /// The space's models that can read the screen for this bot, those the catalog lists as reading images, or null
+    /// while they are not known.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<ScreenReaderChoice>? Readers { get; set; }
+
+    /// <summary>Opens another section of the editor, by name.</summary>
+    [Parameter]
+    public EventCallback<string> OnOpenSection { get; set; }
+
     /// <summary>Raised after the draft changed, so the page can show that there is something to save.</summary>
     [Parameter]
     public EventCallback OnChanged { get; set; }
@@ -90,6 +146,33 @@ else
         [.. (Models ?? []).Where(entry => entry.State is "available").OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)];
 
     private ModelCapabilitiesResponse? Known => Models?.FirstOrDefault(entry => entry.Model == Draft.Model)?.Capabilities;
+
+    private const string SandboxSection = "Sandbox";
+
+    // Offered wherever it can matter: a reader is set, or the model cannot see and there is a model that can, or the
+    // bot has a screen it cannot see. A bot that sees for itself and has none set is not asked.
+    private bool ReaderShown =>
+        Draft.ScreenReader is not null
+        || (ModelSeesImages is false && (Draft.Desktop || Readers is { Count: > 0 }));
+
+    private ScreenReaderChoice? Chosen =>
+        Draft.ScreenReader is { } reader
+            ? Readers?.FirstOrDefault(choice => choice.ConnectionId == reader.ModelConnectionId && choice.Model == reader.Model)
+            : null;
+
+    private string ReaderValue => Draft.ScreenReader is { } reader ? ScreenReaderChoice.ValueOf(reader.ModelConnectionId, reader.Model) : string.Empty;
+
+    private string OwnModel => ModelSeesImages is false ? "Its own model (cannot read images)" : "Its own model";
+
+    private string ReaderHint => Draft.ScreenReader is null
+        ? "This model cannot see images. Choose a model that can, and it reads each screenshot for the bot: what is on the screen, and where to click."
+        : $"The bot gets a description of each screenshot in words instead of the picture. That is slower and less exact than a model that sees for itself, and each screenshot is also a call to {Chosen?.DisplayName ?? Draft.ScreenReader.Model}.";
+
+    private Task ChooseReader(string value)
+    {
+        Draft.ScreenReader = ScreenReaderChoice.Read(value);
+        return Changed();
+    }
 
     private Task Changed() => OnChanged.InvokeAsync();
 

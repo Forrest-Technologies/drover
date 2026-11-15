@@ -24,7 +24,7 @@ public sealed class ScreenDescriber(
     /// <summary>The most characters of a description the bot is given. A longer one is cut, and says so.</summary>
     public const int MaxDescriptionCharacters = 6_000;
 
-    private const string ElsewhereNote = "A person can choose another model, or none, in the bot's Sandbox settings.";
+    private const string ElsewhereNote = "A person can choose another model, or none, in the bot's Model settings.";
 
     #endregion
 
