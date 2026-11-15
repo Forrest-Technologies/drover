@@ -10,9 +10,13 @@ public static class RequestLimits
 {
     #region Public Methods
 
-    public static TBuilder WithBodyLimit<TBuilder>(this TBuilder builder, long size)
+    /// <summary>
+    /// A body limit for one endpoint. With <paramref name="refusal"/>, a body declared larger is refused with that
+    /// sentence as a problem, given the declared length, instead of a bare 413.
+    /// </summary>
+    public static TBuilder WithBodyLimit<TBuilder>(this TBuilder builder, long size, Func<long, string>? refusal = null)
         where TBuilder : IEndpointConventionBuilder =>
-        builder.WithMetadata(new BodyLimit(size));
+        builder.WithMetadata(new BodyLimit(size, refusal));
 
     /// <summary>The server's own cap, for bodies sent without a declared length, and no header naming the server.</summary>
     public static IServiceCollection AddRequestLimits(this IServiceCollection services) =>
@@ -26,22 +30,33 @@ public static class RequestLimits
     public static IApplicationBuilder UseRequestLimits(this IApplicationBuilder app) =>
         app.Use((context, next) =>
         {
-            var limit = context.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>()?.MaxRequestBodySize
-                ?? Default;
+            var metadata = context.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>();
+            var limit = metadata?.MaxRequestBodySize ?? Default;
 
             if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } feature)
             {
                 feature.MaxRequestBodySize = limit;
             }
 
-            if (context.Request.ContentLength > limit)
+            if (context.Request.ContentLength is { } declared && declared > limit)
             {
-                context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-                return Task.CompletedTask;
+                return metadata is BodyLimit { Refusal: { } refusal }
+                    ? TypedResults.Problem(title: refusal(declared), statusCode: StatusCodes.Status413PayloadTooLarge).ExecuteAsync(context)
+                    : TooLarge(context);
             }
 
             return next(context);
         });
+
+    #endregion
+
+    #region Private Methods
+
+    private static Task TooLarge(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+        return Task.CompletedTask;
+    }
 
     #endregion
 
@@ -57,7 +72,7 @@ public static class RequestLimits
 
     #region Nested Types
 
-    private sealed record BodyLimit(long? MaxRequestBodySize) : IRequestSizeLimitMetadata;
+    private sealed record BodyLimit(long? MaxRequestBodySize, Func<long, string>? Refusal = null) : IRequestSizeLimitMetadata;
 
     #endregion
 }

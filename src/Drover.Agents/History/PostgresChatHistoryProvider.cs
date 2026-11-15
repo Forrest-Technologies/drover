@@ -66,16 +66,21 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         // Messages that arrived during the run pass the bot's rules before they are put in front of the model.
         await run.Governor.RuleOnArrivals(steers, cancellationToken);
-        List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage())];
-        steering = [.. steered.Select(message => message.MessageId!)];
-        context.RequestMessages = [.. request, .. steered];
 
         // The tools run here, after the transaction above has closed: no transaction is ever held across a tool call.
         var complete = cutOff.Count == 0 ? history : [.. history, await RunAgain(cutOff, cancellationToken)];
         var ordered = MessageOrder.ResultsAfterCalls(complete);
+        var shown = summary is null ? ordered : MessageOrder.After(ordered, summary.ThroughPosition);
+
+        // Attached files are opened with no transaction open too: copying one into a sandbox waits on the network.
+        var files = await run.Governor.OpenFiles([.. shown.Concat(steers).FileIds()], cancellationToken);
+        List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage(files))];
+        steering = [.. steered.Select(message => message.MessageId!)];
+        context.RequestMessages = [.. request, .. steered];
+
         return summary is null
-            ? ordered.Select(message => message.ToChatMessage())
-            : [ToSummaryMessage(summary), .. MessageOrder.After(ordered, summary.ThroughPosition).Select(message => message.ToChatMessage())];
+            ? shown.Select(message => message.ToChatMessage(files))
+            : [ToSummaryMessage(summary), .. shown.Select(message => message.ToChatMessage(files))];
     }
 
     protected override async ValueTask StoreChatHistoryAsync(

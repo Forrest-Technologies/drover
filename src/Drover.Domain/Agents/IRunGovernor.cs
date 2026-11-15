@@ -46,4 +46,12 @@ public interface IRunGovernor
     /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
     /// </summary>
     Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// What the model is given for each of these attached files, by file id, read as the run's person. A picture the
+    /// model reads is read each time; anything copied into the sandbox is copied once a run. A file left out of the
+    /// answer is given to the model as a line saying it could not be opened.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, FileForModel>>(new Dictionary<Guid, FileForModel>());
 }

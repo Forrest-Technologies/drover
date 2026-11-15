@@ -17,6 +17,8 @@ public sealed class RunExecutor(
     RunSignal signal,
     UserSignalHub signals,
     ConversationSummarizer summarizer,
+    IFileStore fileStore,
+    IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
@@ -415,6 +417,23 @@ public sealed class RunExecutor(
             : null;
     }
 
+    /// <summary>
+    /// The files people attached, as this run gives them to its model: by whether the model reads pictures and
+    /// whether the run was given a sandbox tool, which takes a sandbox on this server, on the bot, and in its grants.
+    /// </summary>
+    private RunFiles NewRunFiles(RunSession session, LoadedRun loaded)
+    {
+        var hasSandbox = loaded.Granted.Any(granted => SandboxTools.IsSandboxTool(granted.Tool.Name)
+            && session.FindTool(granted.Tool.Id) is not null);
+        return new RunFiles(
+            session.Tenant,
+            loaded.Bot!.Id,
+            new FileAbilities(loaded.ModelSeesImages, hasSandbox),
+            fileStore,
+            sandboxBrokers.FirstOrDefault(),
+            loggers.CreateLogger<RunFiles>());
+    }
+
     #endregion
 
     #region Running
@@ -457,7 +476,8 @@ public sealed class RunExecutor(
             toolSources.FirstOrDefault(source => source.Kind is ToolSourceKind.Mcp),
             rules,
             loggers.CreateLogger<RunGovernor>(),
-            loaded.ModelSeesImages);
+            loaded.ModelSeesImages,
+            NewRunFiles(session, loaded));
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
             session,

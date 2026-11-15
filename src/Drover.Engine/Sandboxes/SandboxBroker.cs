@@ -161,6 +161,34 @@ public sealed class SandboxBroker(
         return lease.NewSandbox;
     }
 
+    /// <summary>
+    /// Puts a file a person attached into the bot's own sandbox, made on first use, for the bot to work on. Not a tool
+    /// call: the server does it while it builds what the model reads, for a bot whose grants let it use a sandbox. The
+    /// same file size limit binds it as a bot's own writes. Refusals are <see cref="BuiltinToolException"/>.
+    /// </summary>
+    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, CancellationToken cancellationToken)
+    {
+        var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
+
+        if (size > maxBytes)
+        {
+            throw new BuiltinToolException($"It is {size} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
+        }
+
+        var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
+
+        try
+        {
+            await provider.WriteFile(lease.Handle, path, content, cancellationToken);
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure, path);
+        }
+
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
+    }
+
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
         var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
