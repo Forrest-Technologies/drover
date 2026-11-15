@@ -22,7 +22,7 @@ The log prints the setup address and a one-time setup code. Open [localhost:8080
 
 To upgrade, check out a newer commit and run the same command. Pending database migrations are applied before the server starts. `docker compose down` keeps your data; only `docker compose down --volumes` deletes it.
 
-Back up the `drover-db` and `drover-keys` volumes together. The keys volume holds the key ring that encrypts every stored model key and password; a database backup without it cannot be read.
+Back up the `drover-db`, `drover-keys`, and `drover-files` volumes together. The keys volume holds the key ring that encrypts every stored model key and password; a database backup without it cannot be read. The files volume holds the files people attach to messages. Drover does not scan them for viruses: anyone who can sign in can store a file there, so treat the volume as untrusted content.
 
 ### Reach it from another device
 
