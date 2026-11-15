@@ -77,6 +77,34 @@ public sealed class BotEditorTests : ScreenTest
     #region At Rest
 
     [Fact]
+    public async Task Removing_a_bot_with_bots_beneath_asks_whether_they_go_too_and_sends_the_answer()
+    {
+        var helper = new BotSummary(Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), "Sample helper", "sample-helper", string.Empty, connectionId, "sample-large", "active", botId);
+        var deeper = helper with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a2"), Name = "Sample deeper", ParentBotId = helper.Id };
+        Server.Answer("GET", $"{space}/bots", new[] { helper, deeper });
+        Server.Answer("DELETE", $"{space}/bots/{botId}", HttpStatusCode.NoContent);
+        var page = RenderEditor();
+        var dialog = await AskToRemove(page);
+        dialog.TextContent.Should().Contain("2 bots work beneath it. Remove them too, or keep them? Kept bots move up under the top of the crew.");
+        var choices = dialog.QuerySelectorAll("button.dv-button").Select(button => button.TextContent.Trim()).ToList();
+        choices.Should().Equal("Keep bot", "Remove it, keep the rest", "Remove all 3");
+
+        await dialog.QuerySelectorAll("button.dv-button")[1].ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Addresses.Should().Contain($"DELETE {space}/bots/{botId}?beneath=keep"));
+    }
+
+    [Fact]
+    public async Task Removing_a_bot_with_nothing_beneath_asks_nothing_more()
+    {
+        var page = RenderEditor();
+
+        var dialog = await AskToRemove(page);
+
+        dialog.QuerySelectorAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Keep bot", "Remove bot");
+    }
+
+    [Fact]
     public void The_editor_shows_who_the_bot_is_and_seven_closed_sections_each_with_its_summary_in_its_name()
     {
         var page = RenderEditor();
@@ -878,6 +906,14 @@ public sealed class BotEditorTests : ScreenTest
     #endregion
 
     #region Helpers
+
+    // Chooses Remove in the editor's menu and returns the dialog that asks about it.
+    private static async Task<IElement> AskToRemove(IRenderedComponent<BotEditor> page)
+    {
+        page.WaitForElement("[role=menuitem]");
+        await page.FindAll("[role=menuitem]").First(item => item.TextContent.Trim() == "Remove").ClickAsync(new MouseEventArgs());
+        return page.FindAll("dialog").First(candidate => candidate.TextContent.Contains("Remove Marshal", StringComparison.Ordinal));
+    }
 
     private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 

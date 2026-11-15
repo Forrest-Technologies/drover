@@ -59,7 +59,10 @@ public static partial class ToolCards
             CoversAll(arguments, summary),
             resultText.Length == 0 ? null : resultText,
             ExitCodeIn(resultText),
-            call.Pieces);
+            call.Pieces)
+        {
+            Facts = FactsOf(Canonical(call.ToolName), arguments),
+        };
     }
 
     /// <summary>
@@ -157,6 +160,40 @@ public static partial class ToolCards
             "crew.add" => NameAndPurpose(values),
             _ => Generic(values),
         };
+    }
+
+    // Every detail of a bot a bot asks to make or remove, each under its own name, so one look decides it.
+    private static IReadOnlyList<ToolFact> FactsOf(string toolName, JsonElement values)
+    {
+        if (values.ValueKind is not JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        (string Name, string Value)[] facts = toolName switch
+        {
+            "crew.add" =>
+            [
+                ("Name", Text(values, "name")),
+                ("What it is for", Text(values, "description")),
+                ("Instructions", Text(values, "instructions")),
+                ("Model", Text(values, "model")),
+                ("Works beneath", Text(values, "parent_name")),
+            ],
+            "crew.remove" =>
+            [
+                ("Bot", Text(values, "bot_name")),
+                ("The bots beneath it", Text(values, "beneath") switch
+                {
+                    "remove" => "Removed too",
+                    "keep" => "Kept, and moved up",
+                    _ => string.Empty,
+                }),
+            ],
+            _ => [],
+        };
+
+        return [.. facts.Where(fact => fact.Value.Trim().Length > 0).Select(fact => new ToolFact(fact.Name, fact.Value.Trim()))];
     }
 
     // The new bot as a person would say it: its name, then what it is for.

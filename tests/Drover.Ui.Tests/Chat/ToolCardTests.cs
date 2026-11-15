@@ -138,6 +138,36 @@ public sealed class ToolCardTests : BunitContext
     }
 
     [Fact]
+    public void A_bot_asking_to_make_a_bot_shows_every_detail_of_it_under_its_own_name_in_one_card()
+    {
+        var call = Call(
+            "crew.add",
+            """{"name":"Sample scout","description":"Finds sources.","instructions":"Line one.\nLine two.","model":"sample-model","parent_name":"Sample lead"}""",
+            "awaiting_approval");
+
+        var card = Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Sample lead"));
+
+        card.Find("h2").TextContent.Should().Be("Sample lead asks to make a bot");
+        card.FindAll("dl.dv-tool-facts dt").Select(name => name.TextContent).Should().Equal("Name", "What it is for", "Instructions", "Model", "Works beneath");
+        card.FindAll("dl.dv-tool-facts dd").Select(value => value.TextContent)
+            .Should().Equal("Sample scout", "Finds sources.", "Line one.\nLine two.", "sample-model", "Sample lead");
+        card.FindAll(".dv-code-body").Should().BeEmpty("the details are said in words, not left as JSON");
+        card.FindAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Approve", "Deny");
+    }
+
+    [Fact]
+    public void A_bot_asking_to_remove_a_bot_says_what_happens_to_the_bots_beneath_it()
+    {
+        var call = Call("crew.remove", """{"bot_id":"0196f1a0-0000-7000-8000-000000000001","bot_name":"Sample scout","beneath":"keep"}""", "awaiting_approval");
+
+        var facts = call.ToCard().Facts;
+
+        facts.Should().Equal(new ToolFact("Bot", "Sample scout"), new ToolFact("The bots beneath it", "Kept, and moved up"));
+    }
+
+    [Fact]
     public void A_call_waiting_for_an_answer_asks_in_plain_words_and_shows_every_argument_the_summary_leaves_out()
     {
         List<(Guid, bool)> answers = [];

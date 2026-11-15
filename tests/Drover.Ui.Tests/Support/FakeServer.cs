@@ -24,6 +24,9 @@ public sealed class FakeServer : HttpMessageHandler
 
     public List<(string Method, string Path, string Body)> Requests { get; } = [];
 
+    /// <summary>Every request's method and address with its query, in order, for a test that checks what a query carried.</summary>
+    public List<string> Addresses { get; } = [];
+
     /// <summary>The antiforgery token each request carried, by request, or null when it carried none.</summary>
     public List<string?> AntiforgeryTokens { get; } = [];
 
@@ -122,6 +125,7 @@ public sealed class FakeServer : HttpMessageHandler
     {
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
         Requests.Add((request.Method.Method, request.RequestUri!.AbsolutePath, body));
+        Addresses.Add($"{request.Method.Method} {request.RequestUri.PathAndQuery}");
         AntiforgeryTokens.Add(request.Headers.TryGetValues("X-XSRF-TOKEN", out var tokens) ? tokens.Single() : null);
 
         if (Unreachable)

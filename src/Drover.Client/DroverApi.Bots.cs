@@ -23,8 +23,11 @@ public sealed partial class DroverApi
     public Task<BotDetail> ResumeBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Post<BotDetail>($"{Space(spaceId)}/bots/{botId}/resume", null, cancellationToken);
 
-    public Task RemoveBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
-        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}", cancellationToken);
+    public Task RemoveBot(Guid spaceId, Guid botId, bool? removeBeneath = null, CancellationToken cancellationToken = default) =>
+        SendForNothing(
+            HttpMethod.Delete,
+            removeBeneath is { } remove ? $"{Space(spaceId)}/bots/{botId}?beneath={(remove ? "remove" : "keep")}" : $"{Space(spaceId)}/bots/{botId}",
+            cancellationToken);
 
     #endregion
 
