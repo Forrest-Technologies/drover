@@ -37,9 +37,9 @@ public sealed class BotWordsTests
     [Fact]
     public void A_draft_differs_only_when_it_would_save_something_else()
     {
-        var saved = new BotDraft { Name = "Atlas", Handle = "atlas", Model = "sample" };
-        var same = new BotDraft { Name = "Atlas", Handle = "atlas ", Model = "sample", MaxChildren = " " };
-        var changed = new BotDraft { Name = "Atlas", Handle = "atlas", Model = "sample", AllowedHosts = "example.com\nexample.org" };
+        var saved = new BotDraft { Name = "Marshal", Handle = "marshal", Model = "sample" };
+        var same = new BotDraft { Name = "Marshal", Handle = "marshal ", Model = "sample", MaxChildren = " " };
+        var changed = new BotDraft { Name = "Marshal", Handle = "marshal", Model = "sample", AllowedHosts = "example.com\nexample.org" };
 
         same.DiffersFrom(saved).Should().BeFalse();
         changed.DiffersFrom(saved).Should().BeTrue();
@@ -55,12 +55,12 @@ public sealed class BotWordsTests
         fresh.Rename("Scout the 2nd!");
         fresh.Rename("Scout");
         chosen.Rename("Scout");
-        var emptied = new BotDraft { Name = "Atlas", Handle = "atlas" };
+        var emptied = new BotDraft { Name = "Marshal", Handle = "marshal" };
         emptied.Rename(" ");
 
         fresh.Handle.Should().Be("scout");
         chosen.Handle.Should().Be("helper");
-        emptied.Handle.Should().Be("atlas", "a name that makes no handle leaves the one there is");
+        emptied.Handle.Should().Be("marshal", "a name that makes no handle leaves the one there is");
     }
 
     [Fact]

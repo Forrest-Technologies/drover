@@ -1,6 +1,9 @@
 namespace Drover.Contracts.Bots;
 
-/// <summary>A bot as lists and the chat screen show it.</summary>
+/// <summary>
+/// A bot as lists and the chat screen show it. <see cref="ParentBotId"/> places it in the space's tree: null for a
+/// bot at the top.
+/// </summary>
 public sealed record BotSummary(
     Guid Id,
     string Name,
@@ -8,4 +11,5 @@ public sealed record BotSummary(
     string Instructions,
     Guid ModelConnectionId,
     string Model,
-    string Status);
+    string Status,
+    Guid? ParentBotId = null);

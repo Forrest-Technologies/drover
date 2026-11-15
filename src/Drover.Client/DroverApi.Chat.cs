@@ -25,6 +25,13 @@ public sealed partial class DroverApi
     public Task<ThreadSummary> CreateThread(Guid spaceId, Guid botId, string? title = null, CancellationToken cancellationToken = default) =>
         Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title), cancellationToken);
 
+    /// <summary>
+    /// The caller's one main thread with the bot, made the first time it is asked for. Asking again returns the same
+    /// thread; every other thread with the bot is a side chat.
+    /// </summary>
+    public Task<ThreadSummary> OpenMainThread(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/main-thread", null, cancellationToken);
+
     /// <summary>One thread. <see cref="ThreadSummary.ActiveRunId"/> is the run to watch, if one is still working.</summary>
     public Task<ThreadSummary> GetThread(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ThreadSummary>($"{Space(spaceId)}/threads/{threadId}", cancellationToken);

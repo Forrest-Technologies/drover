@@ -13,6 +13,7 @@ public static class BotEndpoints
         bots.MapGet("/{botId:guid}", GetBot).WithName("GetBot");
         bots.MapGet("/{botId:guid}/threads", ListThreads).WithName("ListThreads");
         bots.MapPost("/{botId:guid}/threads", CreateThread).WithName("CreateThread");
+        bots.MapPut("/{botId:guid}/main-thread", OpenMainThread).WithName("OpenMainThread");
         bots.MapBotEditorEndpoints();
         return space;
     }
@@ -35,6 +36,7 @@ public static class BotEndpoints
             request.Instructions ?? string.Empty,
             request.ModelConnectionId,
             request.Model,
+            request.ParentBotId,
             access.UserId,
             context.RequestAborted);
 
@@ -71,6 +73,16 @@ public static class BotEndpoints
         return thread is null
             ? TypedResults.NotFound()
             : TypedResults.Created($"/api/spaces/{access.SpaceId}/threads/{thread.Id}", thread.ToSummary(null));
+    }
+
+    /// <summary>The caller's main thread with the bot, made on first use. Asking again returns the same thread.</summary>
+    private static async Task<Results<Ok<ThreadSummary>, NotFound>> OpenMainThread(
+        Guid botId,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var main = await threads.OpenMainThread(botId, context.GetSpaceAccess().UserId, context.RequestAborted);
+        return main is null ? TypedResults.NotFound() : TypedResults.Ok(main.Thread.ToSummary(main.ActiveRunId));
     }
 
     #endregion

@@ -36,7 +36,8 @@ public static class RunViews
             bot.Instructions,
             bot.ModelConnectionId,
             bot.Model,
-            bot.Status.ToString().ToLowerInvariant());
+            bot.Status.ToString().ToLowerInvariant(),
+            bot.ParentBotId);
 
     public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId) =>
         new(
@@ -45,7 +46,8 @@ public static class RunViews
             thread.Title,
             thread.AudienceUserId == Audience.Everyone,
             thread.LastActivityAt,
-            activeRunId);
+            activeRunId,
+            thread.IsMain);
 
     public static MessageResponse ToResponse(this Message message) =>
         new(

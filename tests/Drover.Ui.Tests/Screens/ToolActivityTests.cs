@@ -2,7 +2,7 @@ namespace Drover.Ui.Tests.Screens;
 
 /// <summary>
 /// The conversation's tool cards and approvals, fed with an event log recorded from a real server: a stub model had
-/// Atlas check the time (allowed), then ask to run a command (granted "ask"); the command was approved and failed,
+/// Marshal check the time (allowed), then ask to run a command (granted "ask"); the command was approved and failed,
 /// because that server's sandbox key was not a real one. Output streaming is added to that log where a test says so:
 /// no sandbox ran there, so no output was recorded.
 /// </summary>
@@ -34,7 +34,7 @@ public sealed class ToolActivityTests : ScreenTest
     {
         SignedIn();
         Server.Answer("GET", $"{space}/model-connections", new[] { new ModelConnectionSummary(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null) });
-        Server.Answer("GET", $"{space}/bots", new[] { new BotSummary(botId, "Atlas", "atlas", "Sample instructions", connectionId, "sample-default", "active") });
+        Server.Answer("GET", $"{space}/bots", new[] { new BotSummary(botId, "Marshal", "marshal", "Sample instructions", connectionId, "sample-default", "active") });
         Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null) });
     }
 
@@ -63,7 +63,7 @@ public sealed class ToolActivityTests : ScreenTest
         page.WaitForAssertion(() => page.Find(".dv-composer-frame").ClassList.Should().NotContain("dv-state-tool", "nothing moves while the run waits"));
 
         var turns = page.FindAll("article");
-        turns.Select(turn => turn.GetAttribute("aria-label")).Should().Equal("You said", "Atlas said", "Atlas said");
+        turns.Select(turn => turn.GetAttribute("aria-label")).Should().Equal("You said", "Marshal said", "Marshal said");
         turns[1].QuerySelector(".dv-markdown")!.TextContent.Trim().Should().Be("Let me check the time first.");
         var timeCard = turns[1].QuerySelector(".dv-tool .dv-disclosure-toggle")!;
         timeCard.TextContent.Should().Contain("Checked the time").And.Contain("Done");
@@ -74,7 +74,7 @@ public sealed class ToolActivityTests : ScreenTest
         var ask = turns[2].QuerySelector("section.dv-tool-ask")!;
         var title = ask.QuerySelector("h2")!;
         ask.GetAttribute("aria-labelledby").Should().Be(title.Id);
-        title.TextContent.Should().Be("Atlas asks to run a command");
+        title.TextContent.Should().Be("Marshal asks to run a command");
         ask.QuerySelector(".dv-tool-ask-summary")!.TextContent.Should().Be("ls -la /home/user && echo done");
         var answers = ask.QuerySelectorAll("button");
         answers.Select(button => button.TextContent.Trim()).Should().Equal("Approve", "Deny");
@@ -82,7 +82,7 @@ public sealed class ToolActivityTests : ScreenTest
         page.FindAll(".dv-message-state").Should().BeEmpty("the bot is not thinking while it waits for a person");
         page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop");
         page.FindAll("main [role=status] .dv-note").Should().BeEmpty("the card says what is waiting; no notice repeats it");
-        Spoken(page).Should().Contain("Atlas asks to run a command. Waiting for you.");
+        Spoken(page).Should().Contain("Marshal asks to run a command. Waiting for you.");
     }
 
     [Fact]
@@ -106,6 +106,7 @@ public sealed class ToolActivityTests : ScreenTest
 
         Server.Answer("GET", $"{space}/threads/{threadId}/messages", messages);
         Server.Answer("GET", $"{space}/threads/{threadId}", Thread(null));
+        Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(null));
         await Feed(events, CommandStarted + 1, log[^1].Seq);
         await events.End();
 
@@ -179,6 +180,7 @@ public sealed class ToolActivityTests : ScreenTest
     public void Reopening_a_finished_thread_shows_the_same_cards_from_its_runs_tool_events()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}", Thread(null));
+        Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(null));
         Server.Answer("GET", $"{space}/threads/{threadId}/messages", messages);
         Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", Load<List<RunEventResponse>>($"{Fixture}.tool-events.json"));
 
@@ -204,6 +206,7 @@ public sealed class ToolActivityTests : ScreenTest
     public void A_thread_whose_tool_events_cannot_be_read_still_shows_its_calls_as_the_messages_tell_them()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}", Thread(null));
+        Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(null));
         Server.Answer("GET", $"{space}/threads/{threadId}/messages", messages);
         Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", HttpStatusCode.InternalServerError);
 
@@ -222,23 +225,24 @@ public sealed class ToolActivityTests : ScreenTest
         JsonSerializer.Deserialize<T>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", name)), json)!;
 
     private static ThreadSummary Thread(Guid? activeRunId) =>
-        new(threadId, botId, "Sample thread", false, DateTimeOffset.UnixEpoch, activeRunId);
+        new(threadId, botId, null, false, DateTimeOffset.UnixEpoch, activeRunId, IsMain: true);
 
     private RunSummary Run(string status) =>
         new(RunId, threadId, botId, RunId, status, null, null, 1, 0, new(0, 0, 0, 0), null, null);
 
-    private static string Spoken(IRenderedComponent<Threads> page) => page.Find("[aria-live=polite]").TextContent;
+    private static string Spoken(IRenderedComponent<Talk> page) => page.Find("[aria-live=polite]").TextContent;
 
-    private IRenderedComponent<Threads> RenderThread()
+    private IRenderedComponent<Talk> RenderThread()
     {
-        Navigation.NavigateTo($"/threads/{threadId}");
-        return Render<Threads>(parameters => parameters.Add(page => page.ThreadId, threadId));
+        Navigation.NavigateTo($"/talk/{botId}");
+        return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId));
     }
 
     // The recorded run is under way when the page opens: the person's message is stored, and the run's events follow.
-    private (IRenderedComponent<Threads> Page, LiveEvents Events) WatchActiveRun()
+    private (IRenderedComponent<Talk> Page, LiveEvents Events) WatchActiveRun()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}", Thread(RunId));
+        Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(RunId));
         Server.Answer("GET", $"{space}/threads/{threadId}/messages", messages.Take(1).ToList());
         Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", new List<RunEventResponse>());
         var events = Server.Stream($"{space}/runs/{RunId}/events");

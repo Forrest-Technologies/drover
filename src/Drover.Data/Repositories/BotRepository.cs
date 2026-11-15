@@ -82,11 +82,49 @@ public sealed class BotRepository(DroverDbContext db)
         }
     }
 
+    /// <summary>
+    /// The bot, tracked and locked until the transaction ends, or null when there is none or it was removed. Adding a
+    /// bot beneath it takes this lock first, so two additions count its children one after the other.
+    /// </summary>
+    public async Task<Bot?> LockBot(Guid id, CancellationToken cancellationToken) =>
+        (await db.Bots.FromSql($"SELECT * FROM bots WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
+            .SingleOrDefault(bot => bot.Status != BotStatus.Removed);
+
+    /// <summary>How many bots directly beneath this one have not been removed.</summary>
+    public Task<int> CountChildren(Guid parentId, CancellationToken cancellationToken) =>
+        db.Bots.CountAsync(bot => bot.ParentBotId == parentId && bot.Status != BotStatus.Removed, cancellationToken);
+
+    /// <summary>The bot and every bot above it, read through the closure table.</summary>
+    public Task<List<Bot>> ListSelfAndAncestors(Guid botId, CancellationToken cancellationToken) =>
+        db.Bots.AsNoTracking()
+            .Where(bot => db.BotAncestors.Any(row => row.DescendantBotId == botId && row.AncestorBotId == bot.Id))
+            .OrderBy(bot => bot.Depth)
+            .ToListAsync(cancellationToken);
+
     /// <summary>Adds a bot at the top of the tree, with its own closure row. Without that row a bot gets no grants at all.</summary>
     public void AddRootBot(Bot bot)
     {
         db.Bots.Add(bot);
         db.BotAncestors.Add(new BotAncestor { AncestorBotId = bot.Id, DescendantBotId = bot.Id, Distance = 0 });
+    }
+
+    /// <summary>
+    /// Adds a bot beneath its <see cref="Bot.ParentBotId"/>, with its own closure row and one to every bot above it,
+    /// each a step further than that bot is from the parent.
+    /// </summary>
+    public async Task AddChildBot(Bot bot, CancellationToken cancellationToken)
+    {
+        var above = await db.BotAncestors.AsNoTracking()
+            .Where(row => row.DescendantBotId == bot.ParentBotId)
+            .ToListAsync(cancellationToken);
+
+        db.Bots.Add(bot);
+        db.BotAncestors.Add(new BotAncestor { AncestorBotId = bot.Id, DescendantBotId = bot.Id, Distance = 0 });
+
+        foreach (var row in above)
+        {
+            db.BotAncestors.Add(new BotAncestor { AncestorBotId = row.AncestorBotId, DescendantBotId = bot.Id, Distance = row.Distance + 1 });
+        }
     }
 
     #endregion

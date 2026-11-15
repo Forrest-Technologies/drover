@@ -29,7 +29,7 @@ public sealed class BotEditorTests : ScreenTest
     public BotEditorTests()
     {
         SignedIn();
-        Server.Answer("GET", $"{bot}/definition", Atlas);
+        Server.Answer("GET", $"{bot}/definition", Marshal);
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
         Server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
         Server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Model("sample-large", toolCalling: true), Model("sample-plain", toolCalling: false) });
@@ -51,10 +51,10 @@ public sealed class BotEditorTests : ScreenTest
     private static ModelConnectionSummary EyesConnection { get; } =
         new(eyesConnectionId, "Eyes connection", "openai_compatible", "https://models.example.test/v1", true, "connected", "sample-eyes", [], null, null);
 
-    private static BotDetail Atlas { get; } = new(
+    private static BotDetail Marshal { get; } = new(
         botId,
-        "Atlas",
-        "atlas",
+        "Marshal",
+        "marshal",
         new BotAvatarBody(null, null),
         "Sample purpose",
         "Sample instructions",
@@ -81,8 +81,8 @@ public sealed class BotEditorTests : ScreenTest
     {
         var page = RenderEditor();
 
-        page.Find("h1").TextContent.Should().Be("Edit Atlas");
-        page.Find(".dv-avatar").GetAttribute("aria-label").Should().Be("Atlas");
+        page.Find("h1").TextContent.Should().Be("Edit Marshal");
+        page.Find(".dv-avatar").GetAttribute("aria-label").Should().Be("Marshal");
         page.FindAll("form > .dv-textarea .dv-textarea-label").Select(label => label.TextContent).Should().Equal("What this bot is for", "Instructions");
         var toggles = page.FindAll(".dv-disclosure-toggle");
         toggles.Select(toggle => toggle.GetAttribute("aria-expanded")).Should().AllBe("false");
@@ -153,7 +153,7 @@ public sealed class BotEditorTests : ScreenTest
         var page = RenderEditor();
         await Open(page, 1);
 
-        page.Find(".dv-segmented legend").TextContent.Should().Be("Current time for Atlas");
+        page.Find(".dv-segmented legend").TextContent.Should().Be("Current time for Marshal");
         page.FindAll(".dv-segment").Select(segment => Words(segment.TextContent)).Should().Equal("Off", "Ask", "Allow");
         await page.FindAll(".dv-segment-input")[1].ChangeAsync(new ChangeEventArgs { Value = "on" });
 
@@ -200,7 +200,7 @@ public sealed class BotEditorTests : ScreenTest
             "Quiet server 0 of 0 on");
         page.FindAll(".dv-tools-group > .dv-editor-hint").Should().ContainSingle().Which.TextContent.Should().Be("Quiet server has listed no tools. Sample failure.");
         page.Find(".dv-tool-review .dv-badge").TextContent.Should().Be("Changed, needs review");
-        page.Find(".dv-tool-review").TextContent.Should().Contain("Atlas asks before each use");
+        page.Find(".dv-tool-review").TextContent.Should().Contain("Marshal asks before each use");
         page.FindAll(".dv-tool-compare dd").Select(words => words.TextContent).Should().Equal("Look upSample old words", "Look upSample new words");
         page.FindAll(".dv-tool-limit").Select(limit => limit.TextContent).Should().Contain("Sample server no longer lists this tool, so it cannot be used.");
 
@@ -232,7 +232,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task An_edit_shows_the_save_bar_and_saving_sends_the_whole_definition()
     {
-        Server.Answer("PUT", $"{bot}/definition", Atlas with { Name = "Scout" });
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout" });
         var page = RenderEditor();
 
         await page.Find(".dv-editor-names input").InputAsync(new ChangeEventArgs { Value = "Scout" });
@@ -315,7 +315,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task The_sandbox_section_says_how_the_sandbox_is_now_and_leads_to_its_screen()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/sandbox", new BotSandboxStatus(true, true, "paused", DateTimeOffset.UtcNow.AddMinutes(-10.5), Desktop: true, BotWorking: false));
         var page = RenderEditor();
         await Open(page, 5);
@@ -330,7 +330,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task The_sandbox_section_leaves_the_state_out_when_it_cannot_be_read()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -341,7 +341,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Open_network_is_not_offered_where_the_server_forbids_it_and_the_editor_says_so()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
         var page = RenderEditor();
         await Open(page, 5);
@@ -355,7 +355,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Open_network_is_offered_where_the_server_allows_it()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -367,8 +367,8 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task The_desktop_switch_says_what_it_costs_and_shows_and_is_saved_with_the_sandbox()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
-        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -388,7 +388,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task The_desktop_switch_is_not_offered_where_the_server_forbids_it_and_the_editor_says_so()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
         var page = RenderEditor();
         await Open(page, 5);
@@ -400,7 +400,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task A_bot_saved_with_a_screen_keeps_the_switch_where_the_server_forbids_one_so_it_can_be_turned_off()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: false, MaxIdleMinutes: 15, Desktop: false));
         var page = RenderEditor();
         await Open(page, 5);
@@ -680,8 +680,8 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task A_sandbox_the_bot_may_not_use_says_so_and_one_tap_stages_the_four_grants_that_save_applies()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
-        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var sandboxTools = SandboxToolEntries("off", "allow", null);
         Server.Answer("GET", $"{bot}/tools", sandboxTools);
 
@@ -719,7 +719,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Discarding_drops_the_staged_grants()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "allow", null));
         var page = RenderEditor();
         await Open(page, 5);
@@ -735,7 +735,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Allowed_sandbox_tools_are_said_quietly_with_a_way_to_the_tools_section()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("allow", "allow", null));
         var page = RenderEditor();
         Words(page.FindAll(".dv-disclosure-toggle")[5].TextContent).Should().Be("Sandbox, Private · network off · may run commands");
@@ -751,7 +751,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task A_parent_that_keeps_the_tools_off_is_named_and_nothing_is_offered()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "off", "Sample parent"));
         var page = RenderEditor();
         await Open(page, 5);
@@ -764,7 +764,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Under_a_parent_that_only_asks_the_tap_stages_ask()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("GET", $"{bot}/tools", SandboxToolEntries("off", "ask", "Sample parent"));
         var page = RenderEditor();
         await Open(page, 5);
@@ -780,7 +780,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task With_a_screen_the_screen_tools_are_offered_and_a_model_that_cannot_see_is_named_with_a_way_to_the_model_section()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[.. SandboxToolEntries("allow", "allow", null), .. ScreenToolEntries("off")]);
         var page = RenderEditor();
         await Open(page, 5);
@@ -802,10 +802,10 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task A_text_only_bot_can_choose_a_model_of_another_connection_to_read_its_screen()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
         Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { Model("sample-eyes", toolCalling: true, vision: true), Model("sample-blind", toolCalling: true) });
-        Server.Answer("PUT", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -833,7 +833,7 @@ public sealed class BotEditorTests : ScreenTest
     public async Task A_chosen_screen_reader_is_shown_with_what_it_costs_and_in_the_summary()
     {
         var chosen = new SandboxSettingsBody("off", [], null, Desktop: true, new ScreenReaderBody(eyesConnectionId, "sample-eyes"));
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = chosen });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = chosen });
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
         Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { Model("sample-eyes", toolCalling: true, vision: true) });
         var page = RenderEditor();
@@ -851,7 +851,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_connecting_one()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -867,7 +867,7 @@ public sealed class BotEditorTests : ScreenTest
     [Fact]
     public async Task Without_a_screen_nothing_about_reading_it_is_shown()
     {
-        Server.Answer("GET", $"{bot}/definition", Atlas with { SandboxPolicy = "private" });
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var page = RenderEditor();
         await Open(page, 5);
 
@@ -907,7 +907,7 @@ public sealed class BotEditorTests : ScreenTest
         new(toolId, "time.now", "Current time", "Sample description", "builtin", null, null, "read", grant, ceiling, parent, "available");
 
     private static BotRuleResponse Rule(string name, string checkpoint, string effect, params RuleConditionBody[] conditions) =>
-        new(ruleId, botId, "Atlas", false, name, true, 0, checkpoint, effect, conditions);
+        new(ruleId, botId, "Marshal", false, name, true, 0, checkpoint, effect, conditions);
 
     private static IElement Select(IRenderedComponent<BotEditor> page, string label) =>
         page.FindAll(".dv-disclosure-open .dv-select").First(select => Words(select.QuerySelector("label")!.TextContent) == label).QuerySelector("select")!;

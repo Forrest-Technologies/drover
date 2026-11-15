@@ -19,18 +19,54 @@ public sealed class ChatComponentTests : BunitContext
 
     #endregion
 
-    #region Thread List
+    #region Crew And Side Chats
 
     [Fact]
-    public void Each_thread_is_a_link_and_the_open_one_is_marked_as_the_current_page()
+    public void Each_bot_is_a_link_to_its_main_conversation_under_the_bot_that_manages_it()
     {
-        var list = Render<ThreadList>(parameters => parameters
-            .Add(component => component.Threads, [new(first, "Sample thread one", "Sample bot", 2, false), new(second, "Sample thread two", "Sample bot", 2, true)])
+        var lead = new BotSummary(first, "Sample lead", "sample-lead", string.Empty, Guid.Empty, "sample-model", "active");
+        var helper = new BotSummary(second, "Sample helper", "sample-helper", string.Empty, Guid.Empty, "sample-model", "active", first);
+
+        var list = Render<CrewList>(parameters => parameters
+            .Add(component => component.Crew, CrewTree.From([helper, lead]))
+            .Add(component => component.SelectedId, second)
+            .Add(component => component.Working, ImmutableHashSet.Create(second)));
+
+        var links = list.FindAll("a");
+        links.Select(link => link.GetAttribute("href")).Should().Equal($"/talk/{first}", $"/talk/{second}");
+        links[0].HasAttribute("aria-current").Should().BeFalse();
+        links[1].GetAttribute("aria-current").Should().Be("page");
+        links[1].QuerySelector("[role=img]")!.GetAttribute("aria-label").Should().Be("Sample helper, thinking");
+        links[1].QuerySelector(".dv-crew-name")!.GetAttribute("aria-hidden").Should().Be("true", "the head already says the name");
+        list.Find("ul.dv-crew > li > ul.dv-crew-branch a").GetAttribute("href").Should().Be($"/talk/{second}");
+    }
+
+    [Fact]
+    public void A_bot_whose_parent_is_not_listed_or_points_back_at_it_is_still_in_the_crew()
+    {
+        var orphan = new BotSummary(first, "Sample orphan", "sample-orphan", string.Empty, Guid.Empty, "sample-model", "paused", Guid.Parse("0196f1a0-0000-7000-8000-00000000000c"));
+        var looped = new BotSummary(second, "Sample loop", "sample-loop", string.Empty, Guid.Empty, "sample-model", "active", second);
+
+        var crew = CrewTree.From([orphan, looped]);
+
+        crew.Select(node => node.Bot.Id).Should().Equal(first, second);
+        CrewTree.Lead([orphan, looped])!.Id.Should().Be(second, "the lead is the first bot at the top that can answer");
+    }
+
+    [Fact]
+    public void Each_side_chat_is_a_link_and_the_one_whose_bot_is_working_says_so()
+    {
+        var list = Render<SideChatList>(parameters => parameters
+            .Add(component => component.Chats,
+            [
+                new(first, "Sample side chat one", $"/talk/{second}/side/{first}", "Sample bot", 2, false),
+                new(second, "Sample side chat two", $"/talk/{second}/side/{second}", "Sample bot", 2, true),
+            ])
             .Add(component => component.SelectedId, second));
 
         var links = list.FindAll("a");
-        links.Select(link => link.GetAttribute("href")).Should().Equal($"/threads/{first}", $"/threads/{second}");
-        links.Select(link => link.QuerySelector(".dv-thread-title")!.TextContent).Should().Equal("Sample thread one", "Sample thread two");
+        links.Select(link => link.GetAttribute("href")).Should().Equal($"/talk/{second}/side/{first}", $"/talk/{second}/side/{second}");
+        links.Select(link => link.QuerySelector(".dv-side-chat-title")!.TextContent).Should().Equal("Sample side chat one", "Sample side chat two");
         links[0].HasAttribute("aria-current").Should().BeFalse();
         links[1].GetAttribute("aria-current").Should().Be("page");
         links[1].QuerySelector("[role=img]")!.GetAttribute("aria-label").Should().Be("Sample bot, thinking");

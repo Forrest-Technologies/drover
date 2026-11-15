@@ -28,7 +28,7 @@ public sealed class MeetBotTests : ScreenTest
     private static ModelConnectionSummary Connection { get; } =
         new(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null);
 
-    private static BotSummary Atlas { get; } = new(botId, "Atlas", "atlas", "Sample instructions", connectionId, "sample-default", "active");
+    private static BotSummary Marshal { get; } = new(botId, "Marshal", "marshal", "Sample instructions", connectionId, "sample-default", "active");
 
     #endregion
 
@@ -46,7 +46,7 @@ public sealed class MeetBotTests : ScreenTest
         page.Find("[aria-current=step]").TextContent.Should().Contain("Meet your first bot");
         page.Find($"label[for={page.Find("select").Id}]").TextContent.Should().Be("Model");
         page.FindAll("option").Select(option => option.TextContent).Should().Equal("sample-default", "sample-large");
-        page.Find("button[type=submit]").TextContent.Trim().Should().Be("Create Atlas");
+        page.Find("button[type=submit]").TextContent.Trim().Should().Be("Create Marshal");
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public sealed class MeetBotTests : ScreenTest
 
         var page = Render<MeetBot>();
 
-        page.WaitForAssertion(() => page.Find(".dv-field-label").TextContent.Should().Be("Model name"));
+        page.WaitForAssertion(() => page.FindAll(".dv-field-label").Select(label => label.TextContent).Should().Equal("Name", "Model name"));
         page.Find(".dv-field-hint").TextContent.Should().Be("This endpoint does not list its models. Type the name it expects.");
         page.FindAll("select").Should().BeEmpty();
     }
@@ -65,21 +65,42 @@ public sealed class MeetBotTests : ScreenTest
     public void Creating_the_bot_shows_it_with_its_name_its_model_and_a_way_into_a_conversation()
     {
         ProviderLists(Model("sample-default", ["default"]));
-        Server.Answer("POST", $"{space}/bots", Atlas, HttpStatusCode.Created);
+        Server.Answer("POST", $"{space}/bots", Marshal, HttpStatusCode.Created);
         var page = Render<MeetBot>();
         page.WaitForElement("form");
 
         page.Find("form").Submit();
 
-        page.WaitForAssertion(() => page.Find("[role=img]").GetAttribute("aria-label").Should().Be("Atlas"));
+        page.WaitForAssertion(() => page.Find("[role=img]").GetAttribute("aria-label").Should().Be("Marshal"));
         var sent = JsonSerializer.Deserialize<CreateBotRequest>(Server.Sent("POST", $"{space}/bots").Single(), JsonSerializerOptions.Web)!;
-        sent.Name.Should().Be("Atlas");
+        sent.Name.Should().Be("Marshal");
         sent.ModelConnectionId.Should().Be(connectionId);
         sent.Model.Should().Be("sample-default");
         page.Find(".dv-meet-model code").TextContent.Should().Be("sample-default");
         var start = page.Find("a.dv-meet-start");
-        start.TextContent.Should().Be("Start a conversation");
-        start.GetAttribute("href").Should().Be("/new");
+        start.TextContent.Should().Be("Talk to Marshal");
+        start.GetAttribute("href").Should().Be($"/talk/{Marshal.Id}");
+        sent.Instructions.Should().StartWith("You are Marshal, the lead of this person's crew of bots");
+        sent.ParentBotId.Should().BeNull("the first bot leads the crew");
+    }
+
+    [Fact]
+    public void The_lead_takes_the_name_the_person_types_and_is_told_who_it_is_by_that_name()
+    {
+        ProviderLists(Model("sample-default", ["default"]));
+        Server.Answer("POST", $"{space}/bots", Marshal with { Name = "Sample lead" }, HttpStatusCode.Created);
+        var page = Render<MeetBot>();
+        page.WaitForElement("form");
+        page.Find("input[name=bot-name]").GetAttribute("value").Should().Be("Marshal", "the name on offer says the job");
+
+        page.Find("input[name=bot-name]").Input(" Sample lead ");
+        page.Find("button[type=submit]").TextContent.Trim().Should().Be("Create Sample lead");
+        page.Find("form").Submit();
+
+        page.WaitForAssertion(() => page.Find(".dv-meet-name").TextContent.Should().Be("Sample lead"));
+        var sent = JsonSerializer.Deserialize<CreateBotRequest>(Server.Sent("POST", $"{space}/bots").Single(), JsonSerializerOptions.Web)!;
+        sent.Name.Should().Be("Sample lead");
+        sent.Instructions.Should().StartWith("You are Sample lead, the lead of this person's crew of bots");
     }
 
     [Fact]
@@ -99,11 +120,11 @@ public sealed class MeetBotTests : ScreenTest
     [Fact]
     public void A_space_that_already_has_a_bot_meets_that_bot_and_makes_no_other()
     {
-        Server.Answer("GET", $"{space}/bots", new[] { Atlas });
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
 
         var page = Render<MeetBot>();
 
-        page.WaitForAssertion(() => page.Find(".dv-meet-name").TextContent.Should().Be("Atlas"));
+        page.WaitForAssertion(() => page.Find(".dv-meet-name").TextContent.Should().Be("Marshal"));
         page.FindAll("form").Should().BeEmpty();
     }
 

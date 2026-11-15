@@ -27,8 +27,8 @@
             <p class="dv-meet-name">@bot.Name</p>
             <p class="dv-meet-model"><code>@bot.Model</code></p>
         </div>
-        <p class="dv-entry-lead">@bot.Name is ready. It answers with the model above and keeps each conversation as a thread.</p>
-        <a class="dv-meet-start" href="@Addresses.NewThread">Start a conversation</a>
+        <p class="dv-entry-lead">@bot.Name is ready. It leads your crew: the bots you add later work beneath it.</p>
+        <a class="dv-meet-start" href="@Addresses.Talk(bot.Id)">Talk to @bot.Name</a>
     }
     else if (connection is null)
     {
@@ -37,9 +37,10 @@
     }
     else
     {
-        <p class="dv-entry-lead">@StarterName is a general helper to start with. Choose the model it thinks with.</p>
+        <p class="dv-entry-lead">Your first bot leads the crew. You talk to it, and the bots you add later work beneath it. Name it and choose the model it thinks with.</p>
 
         <form class="dv-entry-form" @onsubmit="Create">
+            <Field Label="Name" @bind-Value="name" name="bot-name" autocomplete="off" required="true" maxlength="80" Disabled="busy" />
             @if (models.Count > 0)
             {
                 <Select Label="Model" @bind-Value="model" Disabled="busy">
@@ -55,7 +56,7 @@
                        Disabled="busy" Hint="@(listProblem ?? "This endpoint does not list its models. Type the name it expects.")" />
             }
             <StatusNote Kind="NoteKind.Danger" Text="@problem" />
-            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? $"Creating {StarterName}" : $"Create {StarterName}")</Button>
+            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? $"Creating {ShownName}" : $"Create {ShownName}")</Button>
         </form>
     }
 </SessionGate>
@@ -63,9 +64,8 @@
 @code {
     #region Private Fields
 
-    private const string StarterName = "Atlas";
-
-    private const string StarterInstructions = "You are Atlas, a general helper. Answer plainly and keep it short unless asked for more.";
+    // A role, said plainly: the one who marshals the crew. The person can type any other name.
+    private const string StarterName = "Marshal";
 
     private const string DefaultTrait = "default";
 
@@ -74,6 +74,8 @@
     private ModelConnectionSummary? connection;
 
     private BotSummary? bot;
+
+    private string name = StarterName;
 
     private string model = string.Empty;
 
@@ -92,6 +94,8 @@
     #region Properties
 
     private Guid SpaceId => Session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
+
+    private string ShownName => name.Trim().Length == 0 ? "the bot" : name.Trim();
 
     #endregion
 
@@ -141,13 +145,20 @@
             ?? string.Empty;
     }
 
+    // What the lead is told. It says only what this version of Drover lets a bot do: a bot cannot make bots yet,
+    // so the lead says which bot a job needs and the person adds it.
+    private static string LeadInstructions(string leadName) =>
+        $"You are {leadName}, the lead of this person's crew of bots: their chief of staff. Take what they ask and do what you can yourself. "
+        + "When a job would be better done by a bot of its own, say so plainly: name that bot, say in two sentences what it is for, "
+        + "and list the tools it needs, so the person can add it beneath you. Answer plainly and keep it short unless asked for more.";
+
     private async Task Create()
     {
         busy = true;
         problem = null;
         try
         {
-            bot = await Api.CreateBot(SpaceId, new(StarterName, StarterInstructions, connection!.Id, model.Trim()));
+            bot = await Api.CreateBot(SpaceId, new(name.Trim(), LeadInstructions(name.Trim()), connection!.Id, model.Trim()));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {

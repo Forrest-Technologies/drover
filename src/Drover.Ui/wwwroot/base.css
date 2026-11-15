@@ -96,6 +96,25 @@ samp {
   outline-offset: var(--dv-focus-offset);
 }
 
+/* What can be used shows the hand, and what is turned off says so. Set once here, for every control. */
+a[href],
+button,
+summary,
+select,
+label[for],
+label:has(input),
+[role="button"],
+[role="tab"],
+[role="switch"] {
+  cursor: pointer;
+}
+
+:disabled,
+[aria-disabled="true"],
+label:has(input:disabled) {
+  cursor: not-allowed;
+}
+
 /* A page heading takes focus after navigation so the new page is announced. It is not a control. */
 h1[tabindex="-1"]:focus {
   outline: none; /* design: allow focus-always-visible because the heading is focused by the router to announce the page, never by the person */

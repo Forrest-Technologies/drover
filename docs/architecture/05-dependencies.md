@@ -57,7 +57,6 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
 | Inter 4.1 (variable), JetBrains Mono 2.304 (regular, medium) | SIL OFL 1.1, the one license outside the code list, accepted for fonts only | Their respective projects | UI and monospace type, bundled as WOFF2 in `Drover.Ui/wwwroot/fonts` with each license file beside them. Nothing loads from another host. | Assets |
-| Lucide icons 0.468.0, twenty shapes copied into `Drover.Ui/Icons` | ISC | Lucide contributors, active | The one icon set, drawn inline by the `Icon` component. The license file sits beside the shapes. | Assets. No package reference. |
 
 ### Experimental APIs in use
 
