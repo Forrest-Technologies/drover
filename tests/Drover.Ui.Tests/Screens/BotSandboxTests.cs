@@ -8,7 +8,7 @@ public sealed class BotSandboxTests : ScreenTest
 {
     #region Private Fields
 
-    private const string ModulePath = "./_content/Drover.Ui/Pages/Bots/BotSandbox.razor.js";
+    private const string ModulePath = "./_content/Drover.Ui/Bots/SandboxScreen.razor.js";
 
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-000000000004");
 
@@ -81,7 +81,7 @@ public sealed class BotSandboxTests : ScreenTest
         page.Find(".dv-sandbox-used").TextContent.Should().Be("Not used yet");
         page.FindAll("[role=group][aria-label=Power] button").Should().OnlyContain(button => button.HasAttribute("disabled"));
         page.Find(".dv-sandbox-head").TextContent.Should().Contain("Nothing to pause, rebuild, or turn off yet.");
-        page.Find(".dv-sandbox-screen").TextContent.Should().Contain("It starts when the bot first uses it, or when you run a command in the terminal.");
+        page.Find(".dv-sandbox-screen").TextContent.Should().Contain("It starts when the bot first uses it.");
         Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty();
     }
 
@@ -242,7 +242,7 @@ public sealed class BotSandboxTests : ScreenTest
         page.Find(".dv-sandbox-screen [role=status]").TextContent.Should().Contain("You have control");
         var screen = page.Find("button.dv-sandbox-picture");
         screen.GetAttribute("aria-label").Should().Contain("Tap to click there").And.Contain("arrow keys move the pointer");
-        page.Find("#dv-sandbox-pointer-words").TextContent.Should().Be("The pointer is at 512, 384 of 1024 by 768.");
+        page.Find("[id^=dv-sandbox-pointer-words]").TextContent.Should().Be("The pointer is at 512, 384 of 1024 by 768.");
         page.FindAll(".dv-sandbox-type label").Select(label => label.TextContent).Should().Equal("Text to type");
         var keys = page.Find("[role=group][aria-label=Keys]");
         keys.QuerySelectorAll("button.dv-button").Select(button => button.GetAttribute("aria-label"))
@@ -278,7 +278,7 @@ public sealed class BotSandboxTests : ScreenTest
 
         page.WaitForAssertion(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle()
             .Which.Should().Match<SandboxInputRequest>(input => input.Kind == "click" && input.X == 528 && input.Y == 448));
-        page.Find("#dv-sandbox-pointer-words").TextContent.Should().Be("The pointer is at 528, 448 of 1024 by 768.");
+        page.Find("[id^=dv-sandbox-pointer-words]").TextContent.Should().Be("The pointer is at 528, 448 of 1024 by 768.");
     }
 
     [Fact]
@@ -471,7 +471,8 @@ public sealed class BotSandboxTests : ScreenTest
         module.Setup<double[]?>("size", _ => true).SetResult([328, 246]);
         var page = await RenderInControl();
 
-        await page.InvokeAsync(() => page.Instance.ViewChanged(6, -5, -5));
+        var screen = page.FindComponent<SandboxScreen>();
+        await screen.InvokeAsync(() => screen.Instance.ViewChanged(6, -5, -5));
 
         page.Find("[role=group][aria-label=Zoom] [aria-live=polite]").TextContent.Should().Be("400%");
         page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-300%, -300%) scale(4)");
@@ -494,7 +495,7 @@ public sealed class BotSandboxTests : ScreenTest
             await page.Find("button.dv-sandbox-picture").KeyDownAsync(new KeyboardEventArgs { Key = "ArrowRight", ShiftKey = true });
         }
 
-        page.Find("#dv-sandbox-pointer-words").TextContent.Should().Be("The pointer is at 1023, 384 of 1024 by 768.");
+        page.Find("[id^=dv-sandbox-pointer-words]").TextContent.Should().Be("The pointer is at 1023, 384 of 1024 by 768.");
         page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(-100%, -50%) scale(2)");
     }
 

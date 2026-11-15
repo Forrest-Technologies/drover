@@ -182,7 +182,7 @@ public sealed class ScreenReaderTests(PostgresServer postgres)
         (await setup.World.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
 
         var error = (await setup.World.ReadToolCalls(runId)).Single().Result!.Value.GetProperty("error").GetString();
-        error.Should().Contain(expected).And.Contain("Sandbox settings");
+        error.Should().Contain(expected).And.Contain("Model settings");
         setup.Provider.Created.Should().Be(0, "the reader is found before the screen is touched");
         setup.World.Model.ImagesSeen.Should().OnlyContain(images => images.Count == 0, "a bot that sees is not shown the picture in the reader's place");
         setup.Reader.Requests.Should().BeEmpty();

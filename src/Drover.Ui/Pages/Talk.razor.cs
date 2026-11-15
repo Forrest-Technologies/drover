@@ -18,6 +18,8 @@ public sealed partial class Talk(
 
     private const string SummaryRail = "summary";
 
+    private const string ScreenRail = "screen";
+
     private const string NewSideChat = "new";
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
@@ -39,6 +41,11 @@ public sealed partial class Talk(
 
     private Guid? startedThreadId;
 
+    // The bot whose sandbox was last asked whether it has a screen, and whether it does and this person may see it.
+    private Guid? screenAskedFor;
+
+    private bool hasScreen;
+
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
 
@@ -50,7 +57,7 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? BotId { get; set; }
 
-    /// <summary>What is open beside the main conversation: "summary" for its summary, "side" for the bot's side chats.</summary>
+    /// <summary>What is open beside the main conversation: "summary" for its summary, "screen" for the bot's screen, "side" for its side chats.</summary>
     [Parameter]
     public string? Rail { get; set; }
 
@@ -82,6 +89,7 @@ public sealed partial class Talk(
         (_, NewSideChat, _) => SideView.New,
         (_, not null, _) or (SideRail, _, _) => SideView.List,
         (SummaryRail, _, _) => SideView.Summary,
+        (ScreenRail, _, _) => SideView.Screen,
         _ => SideView.Closed,
     };
 
@@ -136,10 +144,23 @@ public sealed partial class Talk(
         SideView.Chat => threads.GetValueOrDefault(ThreadId!.Value)?.Title ?? "Side chat",
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
+        SideView.Screen => "Screen",
         _ => "Side chats",
     };
 
-    private string RailName => Side is SideView.Summary ? $"Summary of the conversation with {Shown!.Name}" : $"Side chats with {Shown!.Name}";
+    private string RailName => Side switch
+    {
+        SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
+        SideView.Screen => $"{Shown!.Name}'s screen",
+        _ => $"Side chats with {Shown!.Name}",
+    };
+
+    private string CloseRailName => Side switch
+    {
+        SideView.Summary => "Close the summary",
+        SideView.Screen => "Close the screen",
+        _ => "Close side chats",
+    };
 
     private string PageName => (bots, Shown, Side) switch
     {
@@ -177,6 +198,7 @@ public sealed partial class Talk(
         }
 
         KeepOrRenewSidePane();
+        await AskForScreen();
     }
 
     private async Task LoadSpace()
@@ -230,6 +252,28 @@ public sealed partial class Talk(
 
     #region Private Methods
 
+    // The way to the screen is offered only for a bot whose sandbox has one that this person may watch. A person who
+    // may not, or a failure to ask, leaves it out; the conversation does not need it.
+    private async Task AskForScreen()
+    {
+        if (Shown is not { } bot || screenAskedFor == bot.Id)
+        {
+            return;
+        }
+
+        screenAskedFor = bot.Id;
+        hasScreen = false;
+
+        try
+        {
+            hasScreen = await api.GetBotSandbox(SpaceId, bot.Id) is { Available: true, HasSandbox: true, Desktop: true };
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "Whether bot {BotId} has a screen is not known on the {Screen} screen", bot.Id, nameof(Talk));
+        }
+    }
+
     // A different side chat gets a pane of its own. The one exception is a new side chat whose first message has
     // just made its thread: the address changes and the conversation on screen stays as it is.
     private void KeepOrRenewSidePane()
@@ -266,6 +310,10 @@ public sealed partial class Talk(
             summaryVersion++;
             await RefreshCrew();
         }
+
+        // A bot may have been given a screen, or started its sandbox, while it worked.
+        screenAskedFor = null;
+        await AskForScreen();
     }
 
     private Task SideBusyChanged(bool busy) => busy ? Task.CompletedTask : RefreshCrew();

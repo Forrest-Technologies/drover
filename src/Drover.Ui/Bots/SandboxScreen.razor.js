@@ -12,7 +12,7 @@ const arrows = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 const tapSlop = 10;
 const maxScale = 4;
 
-let owner = null;
+let owner = null; // the screen component on view
 let gesture = null;
 let swallowClick = false;
 let typing = null;
