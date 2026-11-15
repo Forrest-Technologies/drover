@@ -31,14 +31,37 @@ public sealed class DeploymentPolicyTests
     }
 
     [Fact]
-    public void The_hosted_preset_is_at_its_strictest_for_every_locked_rule_that_has_a_stricter_value()
+    public void The_hosted_preset_is_at_its_strictest_for_every_locked_rule_the_owner_has_not_decided_to_allow_there()
     {
-        var strictest = DeploymentPolicy.Rules
-            .Where(rule => rule.IsLocked)
+        var loose = DeploymentPolicy.Rules
+            .Where(rule => rule.IsLocked && !rule.IsAllowedWhenHosted)
             .Where(rule => rule.Looseness(DeploymentPolicy.Hosted) > 0)
             .Select(rule => rule.Name);
 
-        strictest.Should().BeEmpty();
+        loose.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_rules_allowed_when_hosted_are_exactly_the_owners_decisions_and_each_is_on_there_and_can_be_turned_off()
+    {
+        var allowed = DeploymentPolicy.Rules.Where(rule => rule.IsAllowedWhenHosted).ToList();
+
+        allowed.Select(rule => rule.Name).Should().Equal(
+            nameof(DeploymentPolicy.AllowBotsBuildingBots),
+            nameof(DeploymentPolicy.AllowConversationSummaries));
+        allowed.Select(rule => $"{rule.IsLocked} {rule.ReadText(DeploymentPolicy.Hosted)}").Should().AllBe("True true", "each is locked and on in the hosted preset");
+        (DeploymentPolicy.Hosted with { AllowBotsBuildingBots = false, AllowConversationSummaries = false })
+            .FindLoosenedRules(DeploymentPolicy.Hosted).Should().BeEmpty("an operator may always turn one off");
+    }
+
+    [Fact]
+    public void A_rule_allowed_when_hosted_does_not_hide_any_other_rule_left_loose()
+    {
+        var accidentallyLoose = DeploymentPolicy.Hosted with { AllowDesktopSandboxes = true };
+
+        accidentallyLoose.FindLoosenedRules(DeploymentPolicy.Hosted).Should().Equal(nameof(DeploymentPolicy.AllowDesktopSandboxes));
+        DeploymentPolicy.Rules.Where(rule => rule.IsLocked && !rule.IsAllowedWhenHosted && rule.Looseness(accidentallyLoose) > 0)
+            .Select(rule => rule.Name).Should().Equal(nameof(DeploymentPolicy.AllowDesktopSandboxes));
     }
 
     [Fact]

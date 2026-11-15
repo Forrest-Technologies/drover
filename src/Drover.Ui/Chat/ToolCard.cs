@@ -19,6 +19,12 @@ public sealed record ToolCard(
     int? ExitCode,
     ImmutableList<ToolOutputPiece> Output)
 {
+    /// <summary>
+    /// What the call would do, as named facts a person can read without the JSON: for a new bot, its name, what it is
+    /// for, its instructions. Empty for a call that has no such wording; then the arguments are shown as written.
+    /// </summary>
+    public IReadOnlyList<ToolFact> Facts { get; init; } = [];
+
     /// <summary>True while the bot is working on the call.</summary>
     public bool IsLive => Phase is ToolPhase.Starting or ToolPhase.Approved or ToolPhase.Running;
 

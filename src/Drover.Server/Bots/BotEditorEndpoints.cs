@@ -57,10 +57,16 @@ public static class BotEditorEndpoints
         return Answer(change);
     }
 
-    private static async Task<Results<Created<BotDetail>, NotFound>> Duplicate(Guid botId, HttpContext context, BotService bots)
+    private static async Task<Results<Created<BotDetail>, NotFound, ProblemHttpResult>> Duplicate(Guid botId, HttpContext context, BotService bots)
     {
         var access = context.GetSpaceAccess();
         var change = await bots.Duplicate(botId, access.UserId, context.RequestAborted);
+
+        if (change.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
         return change.View is { } copy
             ? TypedResults.Created($"/api/spaces/{access.SpaceId}/bots/{copy.Bot.Id}/definition", copy.ToDetail())
             : TypedResults.NotFound();
@@ -72,10 +78,32 @@ public static class BotEditorEndpoints
     private static async Task<Results<Ok<BotDetail>, NotFound, ProblemHttpResult>> Resume(Guid botId, HttpContext context, BotService bots) =>
         Answer(await bots.Resume(botId, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted));
 
-    private static async Task<Results<NoContent, NotFound>> Remove(Guid botId, HttpContext context, BotService bots) =>
-        (await bots.Remove(botId, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted)).Bot is null
-            ? TypedResults.NotFound()
-            : TypedResults.NoContent();
+    /// <summary>
+    /// Removes the bot. <c>beneath</c> is "remove" or "keep", and is required when the bot has bots beneath it: without
+    /// it the answer is 400 with a title saying a choice is needed, so no client can skip asking the person.
+    /// </summary>
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> Remove(
+        Guid botId,
+        string? beneath,
+        HttpContext context,
+        BotService bots)
+    {
+        var choice = Words.Read<BotsBeneath>(beneath);
+
+        if (beneath is not null && choice is null)
+        {
+            return TypedResults.Problem(title: "Choose remove or keep for the bots beneath it.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var change = await bots.Remove(botId, choice, AuditActor.Person(context.GetSpaceAccess().UserId), context.RequestAborted);
+
+        if (change.Problem is { } problem)
+        {
+            return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return change.Bot is null ? TypedResults.NotFound() : TypedResults.NoContent();
+    }
 
     #endregion
 

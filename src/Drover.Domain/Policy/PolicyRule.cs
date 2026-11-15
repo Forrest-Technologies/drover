@@ -12,6 +12,17 @@ public sealed record PolicyRule(
     bool IsLocked = true,
     Func<DeploymentPolicy, bool>? IsDefined = null)
 {
+    #region Properties
+
+    /// <summary>
+    /// A permission the hosted preset leaves on by the owner's decision, because what it could cost a shared server
+    /// is bounded by other rules. Every other locked rule is at its strictest in the hosted preset, so a rule left
+    /// loose there by accident is still caught. An operator may still turn such a rule off.
+    /// </summary>
+    public bool IsAllowedWhenHosted { get; init; }
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>A rule that allows something when true.</summary>
@@ -19,8 +30,12 @@ public sealed record PolicyRule(
         string name,
         Func<DeploymentPolicy, bool> read,
         Enforcement enforcement,
-        bool isLocked = true) =>
-        new(name, policy => read(policy), policy => read(policy) ? 1 : 0, enforcement, isLocked);
+        bool isLocked = true,
+        bool allowedWhenHosted = false) =>
+        new(name, policy => read(policy), policy => read(policy) ? 1 : 0, enforcement, isLocked)
+        {
+            IsAllowedWhenHosted = allowedWhenHosted,
+        };
 
     /// <summary>A rule that demands something when true.</summary>
     public static PolicyRule Requirement(

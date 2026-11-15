@@ -87,6 +87,22 @@ public sealed partial class BotEditor(
 
     #region Properties
 
+    // Every bot under this one, however far down.
+    private IReadOnlyList<BotSummary> Beneath => CrewTree.Beneath(otherBots, BotId);
+
+    private string BeneathWords => Beneath switch
+    {
+        [var only] => $"{only.Name} works beneath it. Remove it too, or keep it? A kept bot moves up under {MovesUnder}.",
+        _ => $"{Beneath.Count} bots work beneath it. Remove them too, or keep them? Kept bots move up under {MovesUnder}.",
+    };
+
+    private string RemoveAllWords => Beneath.Count == 1 ? "Remove both" : $"Remove all {Beneath.Count + 1}";
+
+    private string MovesUnder =>
+        saved?.ParentBotId is { } parent && otherBots.FirstOrDefault(bot => bot.Id == parent) is { } above
+            ? above.Name
+            : "the top of the crew";
+
     [Parameter]
     public Guid BotId { get; set; }
 
@@ -336,13 +352,14 @@ public sealed partial class BotEditor(
             },
             problem => actionProblem = problem);
 
-    private async Task Remove()
+    // With bots beneath, the person has said whether they go too. Without any there is nothing to ask.
+    private async Task Remove(bool? removeBeneath)
     {
         removing = false;
         await Try(
             async () =>
             {
-                await api.RemoveBot(SpaceId, BotId);
+                await api.RemoveBot(SpaceId, BotId, removeBeneath);
                 toasts.Show($"{saved!.Name} was removed.");
                 leaveConfirmed = true;
                 navigation.NavigateTo(Addresses.Bots);

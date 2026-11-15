@@ -57,7 +57,7 @@ public static class CrewTools
         new(
             "crew.add",
             "Make a bot",
-            "Makes a new bot beneath this bot, or beneath a bot already beneath it. The new bot talks to the same model as this bot and starts with no more tools than the bot it sits beneath. Returns the new bot.",
+            "Makes a new bot beneath this bot, or beneath a bot already beneath it. The new bot talks to the same model as this bot and starts with no more tools than the bot it sits beneath. A person is always asked to approve each new bot before it is made. Returns the new bot.",
             Schema(
                 """
                 "name": { "type": "string", "description": "The new bot's name." },
@@ -79,7 +79,13 @@ public static class CrewTools
                     services => services.GetRequiredService<CrewService>().Add(call.BotId, addition, cancellationToken),
                     cancellationToken);
                 return Result(Describe(made));
-            });
+            })
+        {
+            AlwaysAsks = true,
+            DescribeForApproval = (call, cancellationToken) => call.Tenant.Transact(
+                services => services.GetRequiredService<CrewService>().DescribeAddition(call.BotId, OptionalId(call.Arguments, "parent_id"), cancellationToken),
+                cancellationToken),
+        };
 
     public static BuiltinTool ChangeCrew() =>
         new(
@@ -115,16 +121,30 @@ public static class CrewTools
         new(
             "crew.remove",
             "Remove a bot",
-            "Removes a bot beneath this bot. It stops working; its conversations are kept, and a person can still read them.",
-            Schema(BotIdProperty, "bot_id"),
+            "Removes a bot beneath this bot. It stops working; its conversations are kept, and a person can still read them. If it has bots beneath it, first ask the person whether those are removed with it or kept, and pass their answer as beneath; never choose for them.",
+            Schema(
+                $$"""
+                {{BotIdProperty.Trim()}},
+                "beneath": { "type": "string", "enum": ["remove", "keep"], "description": "Only when the bot has bots beneath it, and only as the person chose: remove takes them all with it; keep moves them up beneath the bot it sat beneath." }
+                """,
+                "bot_id"),
             ToolSensitivity.Write,
             async (call, cancellationToken) =>
             {
                 var targetId = RequiredId(call.Arguments, "bot_id");
-                var removed = await call.Tenant.Transact(
-                    services => services.GetRequiredService<CrewService>().Remove(call.BotId, targetId, cancellationToken),
+                var beneath = Beneath(call.Arguments);
+                var removal = await call.Tenant.Transact(
+                    services => services.GetRequiredService<CrewService>().Remove(call.BotId, targetId, beneath, cancellationToken),
                     cancellationToken);
-                return Result(new { id = removed.Id, name = removed.Name, status = Words.Of(removed.Status) });
+                var moved = removal.Beneath.Count > 0 ? removal.Beneath : null;
+                return Result(new
+                {
+                    id = removal.Bot!.Id,
+                    name = removal.Bot.Name,
+                    status = Words.Of(removal.Bot.Status),
+                    beneath = moved is null || beneath is not { } chosen ? null : Words.Of(chosen),
+                    bots_beneath = moved,
+                });
             });
 
     #endregion
@@ -177,6 +197,11 @@ public static class CrewTools
             : Guid.TryParse(text.Trim(), out var id)
                 ? id
                 : throw new BuiltinToolException($"The argument {name} must be a bot's id, as crew_list gives it.");
+
+    private static BotsBeneath? Beneath(JsonElement arguments) =>
+        Optional(arguments, "beneath") is not { } word
+            ? null
+            : Words.Read<BotsBeneath>(word) ?? throw new BuiltinToolException("The argument beneath is remove or keep, as the person chose.");
 
     private static BotStatus? Status(JsonElement arguments) =>
         Optional(arguments, "status") switch

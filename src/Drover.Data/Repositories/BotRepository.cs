@@ -3,6 +3,13 @@ namespace Drover.Data.Repositories;
 /// <summary>Bots as rows, with the closure rows that place each one in the tree. Runs inside the caller's tenant scope.</summary>
 public sealed class BotRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so it cannot collide with another lock taken on the same space.
+    private const long TreeLockSeed = 0x44524F56_45520005;
+
+    #endregion
+
     #region Public Methods
 
     public Task<Bot?> FindBot(Guid id, CancellationToken cancellationToken) =>
@@ -89,6 +96,62 @@ public sealed class BotRepository(DroverDbContext db)
     public async Task<Bot?> LockBot(Guid id, CancellationToken cancellationToken) =>
         (await db.Bots.FromSql($"SELECT * FROM bots WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
             .SingleOrDefault(bot => bot.Status != BotStatus.Removed);
+
+    /// <summary>
+    /// Makes changes to the shape of one space's bot tree take turns until the transaction ends: adding a bot, and
+    /// removing one with what is beneath it. So two additions count the space's bots one after the other, and a bot
+    /// is never added beneath a branch that is being removed or moved. Spaces never wait on each other.
+    /// </summary>
+    public Task LockTree(CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended(sys.current_space()::text, {TreeLockSeed}))",
+            cancellationToken);
+
+    /// <summary>How many bots of the space have not been removed.</summary>
+    public Task<int> CountLiveBots(CancellationToken cancellationToken) =>
+        db.Bots.CountAsync(bot => bot.Status != BotStatus.Removed, cancellationToken);
+
+    /// <summary>The bots directly beneath this one that have not been removed, by name.</summary>
+    public Task<List<Bot>> ListChildren(Guid parentId, CancellationToken cancellationToken) =>
+        db.Bots.AsNoTracking()
+            .Where(bot => bot.ParentBotId == parentId && bot.Status != BotStatus.Removed)
+            .OrderBy(bot => bot.Name)
+            .ThenBy(bot => bot.Id)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Every bot beneath this one, at any depth, that has not been removed, tracked: nearest first.</summary>
+    public Task<List<Bot>> ListDescendantsForUpdate(Guid botId, CancellationToken cancellationToken) =>
+        db.Bots
+            .Where(bot => bot.Status != BotStatus.Removed)
+            .Where(bot => db.BotAncestors.Any(row => row.AncestorBotId == botId && row.DescendantBotId == bot.Id && row.Distance > 0))
+            .OrderBy(bot => bot.Depth)
+            .ThenBy(bot => bot.Id)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Moves a bot and everything beneath it one level up, from beneath <paramref name="formerParentId"/> to beneath
+    /// that bot's own parent, or to the top when <paramref name="newParentId"/> is null. Every bot of the branch loses
+    /// its closure row to the former parent and comes a step nearer to each bot above it, and its depth drops by one.
+    /// Bots already removed inside the branch move with it, so the tree stays whole.
+    /// </summary>
+    public async Task MoveUp(Guid botId, Guid formerParentId, Guid? newParentId, CancellationToken cancellationToken)
+    {
+        var branch = db.BotAncestors.Where(row => row.AncestorBotId == botId).Select(row => row.DescendantBotId);
+        var above = db.BotAncestors.Where(row => row.DescendantBotId == formerParentId && row.Distance > 0).Select(row => row.AncestorBotId);
+
+        await db.BotAncestors
+            .Where(row => row.AncestorBotId == formerParentId && branch.Contains(row.DescendantBotId))
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.BotAncestors
+            .Where(row => branch.Contains(row.DescendantBotId) && above.Contains(row.AncestorBotId))
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.Distance, row => row.Distance - 1), cancellationToken);
+        await db.Bots
+            .Where(bot => branch.Contains(bot.Id))
+            .ExecuteUpdateAsync(set => set.SetProperty(bot => bot.Depth, bot => bot.Depth - 1), cancellationToken);
+        await db.Bots
+            .Where(bot => bot.Id == botId)
+            .ExecuteUpdateAsync(set => set.SetProperty(bot => bot.ParentBotId, newParentId), cancellationToken);
+    }
 
     /// <summary>How many bots directly beneath this one have not been removed.</summary>
     public Task<int> CountChildren(Guid parentId, CancellationToken cancellationToken) =>

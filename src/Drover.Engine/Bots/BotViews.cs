@@ -84,7 +84,8 @@ public static class BotViews
             GrantService.Word(view.Own),
             GrantService.Word(view.Ceiling),
             view.CeilingBotName,
-            Words.Of(view.Tool.State))
+            Words.Of(view.Tool.State),
+            view.AlwaysAsks)
         {
             NeedsReview = view.NeedsReview,
             Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),

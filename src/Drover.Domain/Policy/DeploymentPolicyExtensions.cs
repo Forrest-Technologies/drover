@@ -4,7 +4,11 @@ public static class DeploymentPolicyExtensions
 {
     #region Public Methods
 
-    /// <summary>The hosted preset: every rule at its strict value. Registration stays off until the operator turns it on.</summary>
+    /// <summary>
+    /// The hosted preset: every rule at its strict value, except the permissions the owner decided stay on because
+    /// other rules bound them (<see cref="PolicyRule.IsAllowedWhenHosted"/>). Registration stays off until the
+    /// operator turns it on.
+    /// </summary>
     public static DeploymentPolicy AsHosted(this DeploymentPolicy policy) =>
         policy
             .WithoutPrivateAddresses()
@@ -12,7 +16,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedToolServers()
             .WithoutToolConnections()
             .WithBoundedSandboxes()
-            .WithoutBotsBuildingBots()
+            .WithBoundedBotsPerSpace()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -57,8 +61,8 @@ public static class DeploymentPolicyExtensions
             AllowDesktopSandboxes = false,
         };
 
-    public static DeploymentPolicy WithoutBotsBuildingBots(this DeploymentPolicy policy) =>
-        policy with { AllowBotsBuildingBots = false };
+    public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
+        policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
     public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>
@@ -99,11 +103,7 @@ public static class DeploymentPolicyExtensions
         policy with { AllowWrittenRulePatterns = false };
 
     public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
-        policy with
-        {
-            AllowConversationSummaries = false,
-            MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds,
-        };
+        policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
 
     #endregion
 }

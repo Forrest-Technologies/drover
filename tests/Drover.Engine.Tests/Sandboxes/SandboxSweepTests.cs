@@ -204,7 +204,7 @@ public sealed class SandboxSweepTests(PostgresServer postgres)
     private static Task<bool> Remove(RunWorld world, Guid botId) =>
         world.Transact(async services =>
         {
-            (await services.GetRequiredService<BotService>().Remove(botId, AuditActor.Person(world.UserId), RunWorld.Token)).Bot.Should().NotBeNull();
+            (await services.GetRequiredService<BotService>().Remove(botId, null, AuditActor.Person(world.UserId), RunWorld.Token)).Bot.Should().NotBeNull();
             return true;
         });
 

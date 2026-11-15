@@ -116,6 +116,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxConversationSummarySeconds = 60;
 
+    public const int SelfHostedMaxBotsPerSpace = 1000;
+
+    public const int HostedMaxBotsPerSpace = 100;
+
     #endregion
 
     #region Presets
@@ -167,12 +171,19 @@ public sealed record DeploymentPolicy
 
     /// <summary>
     /// A bot granted the crew tools may make, change, pause, and remove bots beneath itself, inside the space's caps and
-    /// its own build limits, acting with the authority of the person its run is for. Off in the hosted preset until
-    /// per-space quotas exist: the space's cap on its total number of bots is not enforced yet, so nothing bounds how
-    /// many rows a bot left to allow could make on the operator's database. Off, no crew tool is granted to a new bot
-    /// or offered to a model, and a call of one is refused in words naming this rule.
+    /// its own build limits, acting with the authority of the person its run is for. On in both presets, by the
+    /// owner's decision: what it could cost is bounded by <see cref="MaxBotsPerSpace"/> on every path that makes a bot,
+    /// and by <c>crew.add</c> always waiting for a person, whatever its grant. An operator may still turn it off; off,
+    /// no crew tool is granted to a new bot or offered to a model, and a call of one is refused in words naming this rule.
     /// </summary>
     public bool AllowBotsBuildingBots { get; init; } = true;
+
+    /// <summary>
+    /// The most bots a space may hold that have not been removed, however they are made: by a person at the top or
+    /// beneath a parent, by duplicating, or by a bot. A space's own <c>max_bots</c> may only lower it. Each is a row on
+    /// the operator's database and a bot that can be run, so a shared server bounds it more tightly.
+    /// </summary>
+    public int MaxBotsPerSpace { get; init; } = SelfHostedMaxBotsPerSpace;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -265,9 +276,10 @@ public sealed record DeploymentPolicy
 
     /// <summary>
     /// The server keeps a running summary of each person's main conversation with a bot, written by the bot's own
-    /// model on the space's own connection after a run ends. Off in the hosted preset: the call is made on the server's
-    /// own initiative, spends a tenant's model credit without a person asking, and holds one of the operator's run
-    /// workers while it lasts, and there are no per-space quotas yet to bound either.
+    /// model on the space's own connection after a run ends. On in both presets, by the owner's decision: a summary is
+    /// due only once enough new messages lie beyond the last one, so there are never more summaries than the runs
+    /// people start, each is bounded in what it reads and writes, and each call is cut off at
+    /// <see cref="MaxConversationSummarySeconds"/>. An operator may still turn it off.
     /// </summary>
     public bool AllowConversationSummaries { get; init; } = true;
 
@@ -359,7 +371,13 @@ public sealed record DeploymentPolicy
         PolicyRule.Permission(
             nameof(AllowBotsBuildingBots),
             policy => policy.AllowBotsBuildingBots,
-            Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot")),
+            Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot"),
+            allowedWhenHosted: true),
+        PolicyRule.Limit(
+            nameof(MaxBotsPerSpace),
+            policy => policy.MaxBotsPerSpace,
+            HostedMaxBotsPerSpace,
+            Enforcement.Now("BotService, on every path that makes a bot: created, created beneath a parent, duplicated, or made by a bot")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,
@@ -436,7 +454,8 @@ public sealed record DeploymentPolicy
         PolicyRule.Permission(
             nameof(AllowConversationSummaries),
             policy => policy.AllowConversationSummaries,
-            Enforcement.Now("ConversationSummarizer, after each run on a main thread")),
+            Enforcement.Now("ConversationSummarizer, after each run on a main thread"),
+            allowedWhenHosted: true),
         PolicyRule.Limit(
             nameof(MaxConversationSummarySeconds),
             policy => policy.MaxConversationSummarySeconds,

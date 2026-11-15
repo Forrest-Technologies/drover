@@ -29,6 +29,21 @@ public static class CrewTree
         return [.. top, .. Branch(bots.Where(bot => !placed.Contains(bot.Id)))];
     }
 
+    /// <summary>Every bot under <paramref name="botId"/>, however far down, nearest first.</summary>
+    public static IReadOnlyList<BotSummary> Beneath(IReadOnlyList<BotSummary> bots, Guid botId)
+    {
+        List<BotSummary> found = [];
+        HashSet<Guid> above = [botId];
+
+        // Each pass takes the bots whose parent is already in the branch, so a loop of parents ends when a pass adds none.
+        while (bots.Where(bot => bot.ParentBotId is { } parent && above.Contains(parent) && above.Add(bot.Id)).ToList() is { Count: > 0 } level)
+        {
+            found.AddRange(level);
+        }
+
+        return found;
+    }
+
     /// <summary>
     /// The bot a person talks to when they have not chosen one: the first bot at the top that can answer, then any
     /// that can, then the first there is.

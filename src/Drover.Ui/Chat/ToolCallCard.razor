@@ -5,13 +5,28 @@
             <h2 class="dv-tool-ask-title" id="@askId">@BotName asks to @Card.Request</h2>
             <Badge Kind="BadgeKind.Warn">@Card.State</Badge>
         </div>
-        @if (Card.Summary.Length > 0)
+        @if (Card.Facts.Count > 0)
         {
-            <p class="dv-tool-ask-summary dv-mono">@Card.Summary</p>
+            <dl class="dv-tool-facts">
+                @foreach (var fact in Card.Facts)
+                {
+                    <div class="dv-tool-fact">
+                        <dt>@fact.Name</dt>
+                        <dd>@fact.Value</dd>
+                    </div>
+                }
+            </dl>
         }
-        @if (!Card.ShowsAllArguments)
+        else
         {
-            <CodeBlock Code="@Card.Arguments" Language="Arguments" />
+            @if (Card.Summary.Length > 0)
+            {
+                <p class="dv-tool-ask-summary dv-mono">@Card.Summary</p>
+            }
+            @if (!Card.ShowsAllArguments)
+            {
+                <CodeBlock Code="@Card.Arguments" Language="Arguments" />
+            }
         }
         <div class="dv-tool-ask-actions">
             <Button Kind="ButtonKind.Primary" Disabled="deciding" OnClick="() => Answer(true)" aria-describedby="@askId">Approve</Button>

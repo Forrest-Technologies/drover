@@ -559,10 +559,11 @@ public sealed class RunExecutor(
                 case ApprovalRequested approval:
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
                     await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
+                    var details = await governor.DescribeForApproval(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     await session.Writer.Append(
                         session.RunId,
                         RunEventTypes.ToolApprovalRequested,
-                        new ToolApprovalRequested(ToolCallIds.For(session.RunId, approval.CallId), approval.RequestId, approval.CallId));
+                        new ToolApprovalRequested(ToolCallIds.For(session.RunId, approval.CallId), approval.RequestId, approval.CallId, details));
                     break;
                 case RunFinished ended:
                     outcome = ended.Outcome;

@@ -118,7 +118,10 @@ public static class RunReducer
             };
 
     private static RunView AwaitApproval(RunView view, ToolApprovalRequested approval) =>
-        ChangeTool(view, approval.ToolCallId, tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId });
+        ChangeTool(
+            view,
+            approval.ToolCallId,
+            tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId, Details = approval.Details ?? tool.Details });
 
     private static RunView AppendOutput(RunView view, ToolOutput output) =>
         ChangeTool(view, output.ToolCallId, tool => tool with { Pieces = Append(tool.Pieces, output) });

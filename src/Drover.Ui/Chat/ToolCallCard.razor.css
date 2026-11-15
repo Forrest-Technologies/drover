@@ -143,6 +143,34 @@
   overflow-wrap: anywhere;
 }
 
+/* What the call would do, one named fact to a row; a long value, such as instructions, keeps its lines. */
+.dv-tool-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+}
+
+.dv-tool-fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  min-width: 0;
+}
+
+.dv-tool-fact dt {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-12);
+  font-weight: var(--dv-weight-label);
+}
+
+.dv-tool-fact dd {
+  margin: 0;
+  color: var(--dv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .dv-tool-ask-actions {
   display: flex;
   flex-wrap: wrap;

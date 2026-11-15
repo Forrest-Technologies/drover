@@ -23,8 +23,12 @@ public sealed partial class DroverApi
     public Task<BotDetail> ResumeBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Post<BotDetail>($"{Space(spaceId)}/bots/{botId}/resume", null, cancellationToken);
 
-    public Task RemoveBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
-        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}", cancellationToken);
+    /// <summary>
+    /// Removes the bot. A bot with bots beneath it needs <paramref name="removeBeneath"/>: true removes them with it,
+    /// false keeps them and moves them up beneath its parent. Left null for such a bot, the server refuses.
+    /// </summary>
+    public Task RemoveBot(Guid spaceId, Guid botId, bool? removeBeneath = null, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}{BeneathQuery(removeBeneath)}", cancellationToken);
 
     #endregion
 
@@ -119,6 +123,17 @@ public sealed partial class DroverApi
     /// <summary>What the bot's rules would do with a sample. The server decides, with the evaluator a run uses.</summary>
     public Task<TryRulesResponse> TryBotRules(Guid spaceId, Guid botId, TryRulesRequest sample, CancellationToken cancellationToken = default) =>
         Post<TryRulesResponse>($"{Space(spaceId)}/bots/{botId}/rules/try", sample, cancellationToken);
+
+    #endregion
+
+    #region Removing
+
+    private static string BeneathQuery(bool? removeBeneath) => removeBeneath switch
+    {
+        true => "?beneath=remove",
+        false => "?beneath=keep",
+        null => string.Empty,
+    };
 
     #endregion
 }
