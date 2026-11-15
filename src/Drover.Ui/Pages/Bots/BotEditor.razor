@@ -77,7 +77,8 @@
 
             <div class="dv-editor-sections">
                 <Disclosure Title="Model" Summary="@BotSummaries.Model(draft, ConnectionName)" Open="@IsOpen(Model)" OpenChanged="open => Toggle(Model, open)">
-                    <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection" />
+                    <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection"
+                                  ModelSeesImages="ModelSeesImages" Readers="readers" OnOpenSection="section => Toggle(section, true)" />
                 </Disclosure>
                 <Disclosure Title="Tools" Summary="@BotSummaries.Tools(tools, ModelCallsTools)" Open="@IsOpen(Tools)" OpenChanged="open => Toggle(Tools, open)">
                     <ToolsSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" Tools="tools" Connections="toolConnections" ModelCallsTools="ModelCallsTools"
@@ -94,7 +95,7 @@
                 </Disclosure>
                 <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft, tools, ScreenReaderName)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
                     <SandboxSection Draft="draft" BotId="BotId" Status="sandboxStatus" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed"
-                                    Tools="tools" ModelSeesImages="ModelSeesImages" Readers="readers" OnOpenSection="section => Toggle(section, true)" />
+                                    Tools="tools" ModelSeesImages="ModelSeesImages" ScreenReaderName="@ScreenReaderName" OnOpenSection="section => Toggle(section, true)" />
                 </Disclosure>
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />

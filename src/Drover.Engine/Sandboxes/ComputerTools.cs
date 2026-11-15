@@ -63,7 +63,7 @@ public static class ComputerTools
 
                 if (reader is null && !call.ModelSeesImages)
                 {
-                    throw new BuiltinToolException("This bot's model cannot read images and no model is set to read the screen for it, so a screenshot cannot be shown. A person can set one in the bot's Sandbox settings.");
+                    throw new BuiltinToolException("This bot's model cannot read images and no model is set to read the screen for it, so a screenshot cannot be shown. A person can set one in the bot's Model settings.");
                 }
 
                 var shot = await broker.Screenshot(call, cancellationToken);
