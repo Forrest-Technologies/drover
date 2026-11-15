@@ -320,28 +320,25 @@ Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQ
 | A bot | Its strict descendants only | Built-in management tools, each needing its own grant |
 | A bot | Its siblings, ancestors, or unrelated bots | Nothing. The check is one lookup in `bot_ancestors`. |
 
-Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. One default, set when a person creates a bot through the API: the bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`. That is a grant row like any other, visible and removable. The list is by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should.
+Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. Two defaults, set when a person creates a bot through the API. Every new bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`, a child no higher than its parent's effective grant. A bot a person creates at the top of the tree is also granted the four crew tools (`BuiltinTools.AskedOfNewTopBots`) as `ask`, so the first bot of a space can lead its crew and a person approves each thing it does to it; a bot created beneath a parent, by a person or by a bot, is not, and a person grants them where they are wanted. Where the deployment rule `AllowBotsBuildingBots` is off, no bot is granted them. These are grant rows like any other, visible and removable. The lists are by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should.
 
-| Tool | Does | Suggested default when a human turns it on |
-| --- | --- | --- |
-| `bots.list` | See own descendants and their status | allow |
-| `bots.create` | Create a child | ask |
-| `bots.update` | Edit a descendant's definition or grants | ask |
-| `bots.pause`, `bots.resume` | Pause or resume a descendant | allow |
-| `bots.remove` | Remove a descendant and its subtree | ask |
-| `delegate` | Hand a task to a child and get the result | allow |
-| `runs.cancel` | Cancel a descendant's run | allow |
-| `sandbox.*` | Work in a sandbox the bot can reach | per tool |
+| Tool | Does | Sensitivity | Default |
+| --- | --- | --- | --- |
+| `crew.list` | List the bots beneath the caller, at every depth: id, name, handle, what it is for, status, parent | read | `ask` on a new bot at the top |
+| `crew.add` | Make a bot beneath the caller, or beneath one of its descendants | write | `ask` on a new bot at the top |
+| `crew.change` | Change a descendant's name, what it is for, or instructions, or pause or resume it | write | `ask` on a new bot at the top |
+| `crew.remove` | Remove a descendant, as a person's remove does | write | `ask` on a new bot at the top |
+| `delegate` | Hand a task to a child and get the result (not built yet) | | |
+| `runs.cancel` | Cancel a descendant's run (not built yet) | | |
+| `sandbox.*` | Work in a sandbox the bot can reach | per tool | none |
 
-Creating a bot, in one transaction with the parent row locked:
+A crew tool's call passes the tool gate and its approval like any other call. What it may touch is then decided by `CrewService`, in one short tenant transaction as the run's person, from the run's own bot, never from an id or a name the model wrote:
 
-1. The caller holds `bots.create`, and is active.
-2. Caps hold: space depth and width limits, the caller's own `build_limits`, the space's total.
-3. The child's grants are each no higher than the caller's effective grant. Anything else is refused, not silently lowered, so the model learns the rule.
-4. The child's sandbox policy and model connection are ones the caller itself may use.
-5. Rows are written to `bots`, `bot_ancestors`, `tool_grants`, and `audit_log`.
-
-A child can receive `bots.create` only if its parent holds it and the depth cap leaves room.
+1. The deployment allows it (`AllowBotsBuildingBots`), and the calling bot is active.
+2. The run's person is a member of the space. Every tool but `crew.list` changes bots, which through the API only owners and admins may do, so for a member those are refused: a bot never has more authority than the person its run is for, and a member could otherwise reshape a tree the whole space shares by asking a bot to.
+3. The target, and for `crew.add` the parent, is strictly beneath the calling bot: one lookup in `bot_ancestors` at a distance above zero. The caller itself, its ancestors, its siblings, and any bot of another space (which row-level security does not show) are refused with the same sentence.
+4. The change then goes through `BotService`, the path a person's change takes, in the same transaction. A new bot uses the caller's model connection and model, no sandbox, and the tools every bot beneath a parent starts with, lowered to its parent's effective grants; the parent row is locked, and the space caps and every `build_limits` above it are checked. A refusal reaches the model as the tool's error, in the sentence the API gives a person. A change is checked as the editor's is.
+5. Rows are written to `bots` (with `created_by_bot_id` set to the caller and `created_by_user_id` to the run's person), `bot_ancestors`, `tool_grants` (with `granted_by_bot_id`), and `audit_log`, whose entry has the bot as its actor and the person in `data.for_user_id`.
 
 A person creating a bot beneath another through the API (`CreateBotRequest.ParentBotId`, owners and admins only) goes through the same tree rules: the parent row is locked, the space caps and the `build_limits` of the parent and every bot above it are checked, and the closure rows are written. The tools a new bot starts with are lowered to the parent's effective grants instead of refused, because the person did not choose them; see [02-data-model.md](02-data-model.md#bots).
 

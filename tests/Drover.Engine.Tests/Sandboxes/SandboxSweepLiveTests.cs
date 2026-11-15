@@ -57,7 +57,7 @@ public sealed class SandboxSweepLiveTests(PostgresServer postgres)
             var handle = new SandboxHandle(row.ProviderSandboxId, row.SpaceId, row.OwnerBotId, string.Empty);
 
             await world.Transact(async services =>
-                (await services.GetRequiredService<BotService>().Remove(world.BotId, world.UserId, RunWorld.Token)).Bot is not null);
+                (await services.GetRequiredService<BotService>().Remove(world.BotId, AuditActor.Person(world.UserId), RunWorld.Token)).Bot is not null);
             var paused = await Sweep(world, host, TimeSpan.Zero);
             var whilePaused = await provider.Describe(handle, RunWorld.Token);
             var destroyed = await Sweep(world, host, SandboxSweep.Retention + TimeSpan.FromMinutes(1));

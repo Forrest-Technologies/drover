@@ -19,6 +19,18 @@ public sealed record BotEdit(
     IReadOnlyList<Guid> SandboxSharedWith,
     BuildLimits BuildLimits);
 
+/// <summary>
+/// A bot to create: its name, what it is for as other bots read it, its instructions, and the model it talks to. It
+/// goes beneath <see cref="ParentBotId"/>, or at the top of the tree when that is null.
+/// </summary>
+public sealed record NewBot(
+    string Name,
+    string DescriptionForBots,
+    string Instructions,
+    Guid ModelConnectionId,
+    string? Model,
+    Guid? ParentBotId);
+
 /// <summary>The result of a change to a bot. With neither a bot nor a problem, there is no such bot.</summary>
 public sealed record BotChange(Bot? Bot, string? Problem)
 {

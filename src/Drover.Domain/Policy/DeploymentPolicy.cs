@@ -165,6 +165,15 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowDesktopSandboxes { get; init; } = true;
 
+    /// <summary>
+    /// A bot granted the crew tools may make, change, pause, and remove bots beneath itself, inside the space's caps and
+    /// its own build limits, acting with the authority of the person its run is for. Off in the hosted preset until
+    /// per-space quotas exist: the space's cap on its total number of bots is not enforced yet, so nothing bounds how
+    /// many rows a bot left to allow could make on the operator's database. Off, no crew tool is granted to a new bot
+    /// or offered to a model, and a call of one is refused in words naming this rule.
+    /// </summary>
+    public bool AllowBotsBuildingBots { get; init; } = true;
+
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
 
@@ -347,6 +356,10 @@ public sealed record DeploymentPolicy
             nameof(AllowDesktopSandboxes),
             policy => policy.AllowDesktopSandboxes,
             Enforcement.Now("SandboxBroker, on every use of a sandbox; RunExecutor, which offers no computer tool; BotService, when a bot is saved; the bot editor's sandbox options")),
+        PolicyRule.Permission(
+            nameof(AllowBotsBuildingBots),
+            policy => policy.AllowBotsBuildingBots,
+            Enforcement.Now("RunExecutor, which offers no crew tool; CrewService, on every crew tool call; BotService, which grants no crew tool to a new bot")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

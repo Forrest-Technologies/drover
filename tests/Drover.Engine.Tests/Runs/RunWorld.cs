@@ -391,7 +391,7 @@ public sealed class RunWorld : IAsyncDisposable
 
         BotId = await Transact(async services =>
         {
-            var change = await services.GetRequiredService<BotService>().Create("Helper", "Answer briefly.", ConnectionId, null, null, UserId, Token);
+            var change = await services.GetRequiredService<BotService>().Create(new NewBot("Helper", string.Empty, "Answer briefly.", ConnectionId, null, null), AuditActor.Person(UserId), Token);
             change.Problem.Should().BeNull();
             return change.Bot!.Id;
         });

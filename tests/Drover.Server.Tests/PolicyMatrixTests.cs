@@ -210,6 +210,35 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         rules.MaxConversationSummarySeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxConversationSummarySeconds)));
     }
 
+    [Fact]
+    public async Task AllowBotsBuildingBots_decides_whether_a_new_bot_at_the_top_is_given_the_crew_tools()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("crewlead");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+        var connection = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections",
+            new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
+        connection.StatusCode.Should().Be(HttpStatusCode.Created, await connection.Content.ReadAsStringAsync(Token));
+        var connectionId = (await connection.Content.ReadFromJsonAsync<ModelConnectionSummary>(Token))!.Id;
+        var created = await client.Post($"/api/spaces/{spaceId}/bots", new CreateBotRequest("Lead", "Lead the crew.", connectionId, null));
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Token));
+        var botId = (await created.Content.ReadFromJsonAsync<BotSummary>(Token))!.Id;
+
+        var tools = (await (await client.Get($"/api/spaces/{spaceId}/bots/{botId}/tools")).Content.ReadFromJsonAsync<List<BotToolEntry>>(Token))!;
+
+        var crew = tools.Where(tool => tool.Name.StartsWith("crew.", StringComparison.Ordinal)).Select(tool => tool.Grant).ToList();
+        crew.Should().HaveCount(4, "the crew tools are in every server's catalog");
+        crew.Should().OnlyContain(grant => grant == (Setting(nameof(DeploymentPolicy.AllowBotsBuildingBots)) == "true" ? "ask" : "off"));
+    }
+
+    #endregion
+
+    #region Overrides
+
+    protected override void ConfigureServices(IServiceCollection services) =>
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+
     #endregion
 
     #region Private Methods

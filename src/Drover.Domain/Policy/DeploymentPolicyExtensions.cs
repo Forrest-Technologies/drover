@@ -12,6 +12,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedToolServers()
             .WithoutToolConnections()
             .WithBoundedSandboxes()
+            .WithoutBotsBuildingBots()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -55,6 +56,9 @@ public static class DeploymentPolicyExtensions
             AllowOpenSandboxNetwork = false,
             AllowDesktopSandboxes = false,
         };
+
+    public static DeploymentPolicy WithoutBotsBuildingBots(this DeploymentPolicy policy) =>
+        policy with { AllowBotsBuildingBots = false };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
     public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>

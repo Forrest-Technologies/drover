@@ -62,20 +62,21 @@ public sealed class BotService(
 
     /// <summary>
     /// Creates a bot, at the top of the tree or beneath a parent of this space, and gives it the tools every new bot
-    /// starts with. A bot beneath a parent gets each of those tools only as far as the parent holds it now.
+    /// starts with. A bot beneath a parent gets each of those tools only as far as the parent holds it now. The maker
+    /// is a person, or a bot acting for one; the new bot records both.
     /// </summary>
-    public async Task<BotChange> Create(
-        string name,
-        string instructions,
-        Guid modelConnectionId,
-        string? model,
-        Guid? parentBotId,
-        Guid createdByUserId,
-        CancellationToken cancellationToken)
+    public async Task<BotChange> Create(NewBot request, AuditActor maker, CancellationToken cancellationToken)
     {
+        var (name, description, instructions) = (request.Name, request.DescriptionForBots, request.Instructions);
+
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > MaxNameLength)
         {
             return new BotChange(null, $"Give the bot a name of up to {MaxNameLength} characters.");
+        }
+
+        if (description.Length > MaxDescriptionLength)
+        {
+            return new BotChange(null, $"Keep what this bot is for under {MaxDescriptionLength} characters.");
         }
 
         if (instructions.Length > MaxInstructionsLength)
@@ -83,14 +84,14 @@ public sealed class BotService(
             return new BotChange(null, $"Keep the instructions under {MaxInstructionsLength} characters.");
         }
 
-        var connection = await connections.FindConnection(modelConnectionId, cancellationToken);
+        var connection = await connections.FindConnection(request.ModelConnectionId, cancellationToken);
 
         if (connection is null)
         {
             return new BotChange(null, "Choose a model connection of this space.");
         }
 
-        var chosen = string.IsNullOrWhiteSpace(model) ? connection.DefaultModel : model.Trim();
+        var chosen = string.IsNullOrWhiteSpace(request.Model) ? connection.DefaultModel : request.Model.Trim();
 
         if (string.IsNullOrWhiteSpace(chosen) || chosen.Length > MaxModelLength)
         {
@@ -99,7 +100,7 @@ public sealed class BotService(
 
         Bot? parent = null;
 
-        if (parentBotId is { } parentId)
+        if (request.ParentBotId is { } parentId)
         {
             parent = await bots.LockBot(parentId, cancellationToken);
 
@@ -118,23 +119,25 @@ public sealed class BotService(
         {
             Name = name.Trim(),
             Handle = await FindFreeHandle(name, cancellationToken),
+            DescriptionForBots = description,
             Instructions = instructions,
             ModelConnectionId = connection.Id,
             Model = chosen,
             ParentBotId = parent?.Id,
             Depth = parent is null ? 0 : parent.Depth + 1,
-            CreatedByUserId = createdByUserId,
+            CreatedByUserId = maker.UserId,
+            CreatedByBotId = maker.BotId,
         };
-        var granted = await AddToTree(bot, parent, createdByUserId, cancellationToken);
+        var granted = await AddToTree(bot, parent, maker, cancellationToken);
         var about = parent is null ? null : new JsonObject { ["parent_bot_id"] = parent.Id };
-        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted), about);
+        audit.Record(maker, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted), about);
 
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
     }
 
     /// <summary>Replaces a bot's definition with the edit, when every part of the edit holds.</summary>
-    public async Task<BotChange> Update(Guid id, BotEdit edit, Guid actorUserId, CancellationToken cancellationToken)
+    public async Task<BotChange> Update(Guid id, BotEdit edit, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
@@ -175,7 +178,7 @@ public sealed class BotService(
         bot.BuildLimits = edit.BuildLimits;
         await bots.ReplaceSandboxShares(id, sharedWith, cancellationToken);
 
-        if (audit.Record(actorUserId, "bot.updated", AuditTargets.Bot, bot.Id, before, Snapshot(bot, sharedWith)))
+        if (audit.Record(actor, "bot.updated", AuditTargets.Bot, bot.Id, before, Snapshot(bot, sharedWith)))
         {
             logger.LogInformation("Bot {BotId} updated", bot.Id);
         }
@@ -224,16 +227,16 @@ public sealed class BotService(
     }
 
     /// <summary>Pauses a bot: it starts no run and uses no tool until it is resumed.</summary>
-    public Task<BotChange> Pause(Guid id, Guid actorUserId, CancellationToken cancellationToken) =>
-        SetStatus(id, BotStatus.Paused, "bot.paused", actorUserId, cancellationToken);
+    public Task<BotChange> Pause(Guid id, AuditActor actor, CancellationToken cancellationToken) =>
+        SetStatus(id, BotStatus.Paused, "bot.paused", actor, cancellationToken);
 
-    public Task<BotChange> Resume(Guid id, Guid actorUserId, CancellationToken cancellationToken) =>
-        SetStatus(id, BotStatus.Active, "bot.resumed", actorUserId, cancellationToken);
+    public Task<BotChange> Resume(Guid id, AuditActor actor, CancellationToken cancellationToken) =>
+        SetStatus(id, BotStatus.Active, "bot.resumed", actor, cancellationToken);
 
     /// <summary>Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing.</summary>
-    public async Task<BotChange> Remove(Guid id, Guid actorUserId, CancellationToken cancellationToken)
+    public async Task<BotChange> Remove(Guid id, AuditActor actor, CancellationToken cancellationToken)
     {
-        var change = await SetStatus(id, BotStatus.Removed, "bot.removed", actorUserId, cancellationToken);
+        var change = await SetStatus(id, BotStatus.Removed, "bot.removed", actor, cancellationToken);
 
         if (change.Bot is not null)
         {
@@ -294,7 +297,7 @@ public sealed class BotService(
         return $"{name[..Math.Min(name.Length, MaxNameLength - Suffix.Length)]}{Suffix}";
     }
 
-    private async Task<BotChange> SetStatus(Guid id, BotStatus status, string action, Guid actorUserId, CancellationToken cancellationToken)
+    private async Task<BotChange> SetStatus(Guid id, BotStatus status, string action, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
@@ -304,7 +307,7 @@ public sealed class BotService(
         var before = new JsonObject { ["status"] = Words.Of(bot.Status) };
         bot.Status = status;
 
-        if (audit.Record(actorUserId, action, AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(status) }))
+        if (audit.Record(actor, action, AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(status) }))
         {
             logger.LogInformation("Bot {BotId} is now {Status}", bot.Id, status);
         }
@@ -587,26 +590,27 @@ public sealed class BotService(
     private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     /// <summary>Places the bot in the tree and gives it the tools every new bot starts with, as far as its parent holds them.</summary>
-    private async Task<List<(string Tool, ToolGrant Grant)>> AddToTree(Bot bot, Bot? parent, Guid createdByUserId, CancellationToken cancellationToken)
+    private async Task<List<(string Tool, ToolGrant Grant)>> AddToTree(Bot bot, Bot? parent, AuditActor maker, CancellationToken cancellationToken)
     {
         if (parent is null)
         {
             bots.AddRootBot(bot);
-            return await GrantDefaultTools(bot, createdByUserId, null, cancellationToken);
+            return await GrantDefaultTools(bot, maker, null, cancellationToken);
         }
 
         await bots.AddChildBot(bot, cancellationToken);
         var ceilings = await tools.ListEffectiveGrants(parent.Id, cancellationToken);
-        return await GrantDefaultTools(bot, createdByUserId, ceilings, cancellationToken);
+        return await GrantDefaultTools(bot, maker, ceilings, cancellationToken);
     }
 
     /// <summary>
     /// Grants the tools every new bot starts with. With <paramref name="ceilings"/>, the parent's effective grants, a
-    /// tool the parent lacks is left out and one it holds lower is lowered to match: a child never starts above its parent.
+    /// tool the parent lacks is left out and one it holds lower is lowered to match: a child never starts above its
+    /// parent. A bot at the top also gets the crew tools as ask, where this server allows bots to build bots.
     /// </summary>
     private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(
         Bot bot,
-        Guid grantedByUserId,
+        AuditActor maker,
         Dictionary<Guid, GrantEffect>? ceilings,
         CancellationToken cancellationToken)
     {
@@ -614,7 +618,7 @@ public sealed class BotService(
 
         foreach (var tool in await catalog.EnsureBuiltins(cancellationToken))
         {
-            if (!BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
+            if (StartingEffect(tool.Name, atTheTop: ceilings is null) is not { } standard)
             {
                 continue;
             }
@@ -624,13 +628,34 @@ public sealed class BotService(
                 continue;
             }
 
-            var effect = ceilings is null ? GrantEffect.Allow : GrantRules.Min(GrantEffect.Allow, ceilings[tool.Id]);
-            var grant = new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = effect, GrantedByUserId = grantedByUserId };
+            var grant = new ToolGrant
+            {
+                BotId = bot.Id,
+                ToolId = tool.Id,
+                Effect = ceilings is null ? standard : GrantRules.Min(standard, ceilings[tool.Id]),
+                GrantedByUserId = maker.UserId,
+                GrantedByBotId = maker.BotId,
+            };
             tools.Add(grant);
             granted.Add((tool.Name, grant));
         }
 
         return granted;
+    }
+
+    /// <summary>The effect a new bot starts with on a built-in tool, or null when it starts without the tool.</summary>
+    private GrantEffect? StartingEffect(string toolName, bool atTheTop)
+    {
+        if (BuiltinTools.GrantedToNewBots.Contains(toolName, StringComparer.Ordinal))
+        {
+            return GrantEffect.Allow;
+        }
+
+        return atTheTop
+            && policies.Deployment.AllowBotsBuildingBots
+            && BuiltinTools.AskedOfNewTopBots.Contains(toolName, StringComparer.Ordinal)
+                ? GrantEffect.Ask
+                : null;
     }
 
     /// <summary>

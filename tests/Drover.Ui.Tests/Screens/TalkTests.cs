@@ -225,6 +225,21 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
+    public void A_server_that_does_not_write_summaries_says_so_and_still_shows_one_written_before()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary(null, 0, null, ServerWrites: false));
+        var page = RenderSummary();
+        page.WaitForAssertion(() => page.Find("aside .dv-summary-hint").TextContent
+            .Should().Be("This server does not write summaries. Its operator has them turned off."));
+
+        Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary("Sample summary.", 12, DateTimeOffset.UnixEpoch, ServerWrites: false));
+        var later = RenderSummary();
+
+        later.WaitForAssertion(() => later.Find("aside .dv-markdown").TextContent.Trim().Should().Be("Sample summary."));
+        later.Find("aside .dv-note").TextContent.Trim().Should().Be("This server no longer writes summaries, so this one stays as it is.");
+    }
+
+    [Fact]
     public void A_summary_that_fails_to_load_says_why_and_loads_on_a_second_try()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}/summary", HttpStatusCode.InternalServerError);

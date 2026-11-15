@@ -370,7 +370,7 @@ public sealed class RunExecutor(
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
     /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
-    /// read the screen for the bot. A server's tool
+    /// read the screen for the bot, and a crew tool a server that lets bots build bots. A server's tool
     /// needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
@@ -395,6 +395,12 @@ public sealed class RunExecutor(
                     && bot!.SandboxSettings.Desktop
                     && deployment.Value.Rules.AllowDesktopSandboxes
                     && (modelSeesImages || bot.SandboxSettings.ScreenReader is not null)))
+            {
+                return null;
+            }
+
+            // Where the server does not let bots build bots, the crew tools are not offered, whatever the grant says.
+            if (CrewTools.IsCrewTool(granted.Tool.Name) && !deployment.Value.Rules.AllowBotsBuildingBots)
             {
                 return null;
             }

@@ -174,7 +174,7 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
         var client = await SignIn(alice);
         var connection = await CreateConnection(client, alice.SpaceId);
         var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
-        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools")).Single(entry => entry.Name == "time.now");
         var atlasTool = $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools/{tool.ToolId}";
 
         var underAllow = await CreateBot(client, alice.SpaceId, connection.Id, "Under allow", atlas.Id);

@@ -2,7 +2,7 @@ namespace Drover.Contracts.Bots;
 
 /// <summary>
 /// A bot as lists and the chat screen show it. <see cref="ParentBotId"/> places it in the space's tree: null for a
-/// bot at the top.
+/// bot at the top. <see cref="MadeByBotId"/> is the bot that made it with a crew tool, or null when a person made it.
 /// </summary>
 public sealed record BotSummary(
     Guid Id,
