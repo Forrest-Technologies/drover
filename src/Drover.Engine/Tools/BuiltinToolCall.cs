@@ -40,6 +40,15 @@ public sealed record BuiltinToolCall(
     /// <summary>Records what a model call the tool made cost, against the run, as the run's own model calls are.</summary>
     public Func<ToolModelUsage, Task> RecordModelUsage { get; init; } = _ => Task.CompletedTask;
 
+    /// <summary>The conversation the run works in. Null outside a run.</summary>
+    public Guid? ThreadId { get; init; }
+
+    /// <summary>
+    /// Takes out of a text anything the run knows to be secret, as the run's events and stored results are. A tool
+    /// that keeps text the model wrote calls it first, so no secret is kept or given to a later run.
+    /// </summary>
+    public Func<string, string> Redact { get; init; } = text => text;
+
     #endregion
 }
 

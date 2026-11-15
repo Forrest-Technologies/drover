@@ -19,6 +19,7 @@ public static class DataServiceExtensions
         services.AddScoped<SpaceStampInterceptor>();
         services.AddScoped<AccountRepository>();
         services.AddScoped<SessionRepository>();
+        services.AddScoped<MemoryRepository>();
         services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();

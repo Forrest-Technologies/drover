@@ -47,6 +47,20 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void A_bots_limits_on_its_notes_are_saved_back_unchanged_though_the_editor_does_not_show_them()
+    {
+        var bot = new BotDetail(
+            Guid.CreateVersion7(), "Marshal", "marshal", new BotAvatarBody(null, null), "Sample purpose", "Sample instructions",
+            Guid.CreateVersion7(), "sample", new ModelSettingsBody(null, null, null, "off", false),
+            new MemorySettingsBody(true, "none", null, null, 300, 4000), "none", new SandboxSettingsBody("off", [], null), [],
+            "active", null, 0, new BuildLimitsBody(null, null), null, null);
+
+        var request = BotDraft.From(bot).ToRequest();
+
+        request.MemorySettings.Should().Be(new MemorySettingsBody(true, "none", null, null, 300, 4000));
+    }
+
+    [Fact]
     public void A_handle_follows_the_name_until_someone_chooses_it()
     {
         var fresh = new BotDraft { Name = "New bot", Handle = "new-bot" };

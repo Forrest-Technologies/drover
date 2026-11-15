@@ -222,7 +222,13 @@ public sealed class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false);
+        // The notes the bot keeps about the run's person, read in this transaction, as that person. Whether the run is
+        // given them is decided once its tools are known: only a run offered a memory tool is.
+        var memory = bot is null || thread is null
+            ? null
+            : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -348,7 +354,7 @@ public sealed class RunExecutor(
         [
             .. loaded.Granted
                 .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
-                .Select(granted => ToRunTool(granted, loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages))
+                .Select(granted => ToRunTool(granted, loaded))
                 .OfType<RunTool>()
                 .DistinctBy(tool => tool.ModelName, StringComparer.Ordinal),
         ];
@@ -370,12 +376,14 @@ public sealed class RunExecutor(
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
     /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
-    /// read the screen for the bot, and a crew tool a server that lets bots build bots. A server's tool
-    /// needs tool connections allowed on this server and its own connection switched on, and is named for the model
+    /// read the screen for the bot, a crew tool a server that lets bots build bots, and a memory tool a bot with memory
+    /// on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
-    private RunTool? ToRunTool(GrantedTool granted, Bot? bot, IReadOnlyList<ToolConnection> toolConnections, bool modelSeesImages)
+    private RunTool? ToRunTool(GrantedTool granted, LoadedRun loaded)
     {
+        var (bot, toolConnections, modelSeesImages) = (loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages);
+
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
             var builtin = builtins.FirstOrDefault(found => found.Name == granted.Tool.Name);
@@ -401,6 +409,14 @@ public sealed class RunExecutor(
 
             // Where the server does not let bots build bots, the crew tools are not offered, whatever the grant says.
             if (CrewTools.IsCrewTool(granted.Tool.Name) && !deployment.Value.Rules.AllowBotsBuildingBots)
+            {
+                return null;
+            }
+
+            // A memory tool needs memory on for the bot and a conversation private to the run's person: a note is
+            // that person's own, so it is never kept from a conversation other people read.
+            if (MemoryTools.IsMemoryTool(granted.Tool.Name)
+                && !(bot is { MemorySettings.Enabled: true } && loaded.Thread?.AudienceUserId == loaded.Run.PrincipalUserId))
             {
                 return null;
             }
@@ -624,7 +640,12 @@ public sealed class RunExecutor(
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, tool))],
         Model = model,
+        Memory = OffersMemory(session, loaded) ? loaded.Memory : null,
     };
+
+    /// <summary>Whether the run is offered one of the memory tools. A bot that cannot keep notes is given none.</summary>
+    private static bool OffersMemory(RunSession session, LoadedRun loaded) =>
+        loaded.Granted.Any(granted => session.FindTool(granted.Tool.Id) is { Builtin: not null } tool && MemoryTools.IsMemoryTool(tool.Tool.Name));
 
     private static ToolDefinition ToDefinition(RunSession session, RunTool tool) => new()
     {
@@ -977,7 +998,8 @@ public sealed class RunExecutor(
         IReadOnlyList<Guid> Delivered,
         IReadOnlyList<Guid> RequestedCalls,
         IReadOnlyList<ToolConnection> ToolConnections,
-        bool ModelSeesImages);
+        bool ModelSeesImages,
+        RecalledMemory? Memory);
 
     #endregion
 }

@@ -27,7 +27,8 @@ public static class DeploymentPolicyExtensions
             .WithGuaranteedDataRights()
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
-            .WithBoundedConversationSummaries();
+            .WithBoundedConversationSummaries()
+            .WithBoundedMemory();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -104,6 +105,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
         policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
+
+    public static DeploymentPolicy WithBoundedMemory(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
+            MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
+        };
 
     #endregion
 }

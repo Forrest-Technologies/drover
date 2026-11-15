@@ -49,3 +49,16 @@ public sealed class AuditLogEntrySeeder : PlainSeeder<AuditLogEntry>
         ["action"] = "example.action",
     };
 }
+
+public sealed class MemoryNoteSeeder : PlainSeeder<MemoryNote>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["bot_id"] = seed.Parent("bots"),
+        ["text"] = "Prefers short answers.",
+        ["written_by_bot_id"] = seed.Parent("bots"),
+        ["source_thread_id"] = seed.Grandparent("messages", "threads"),
+        ["source_message_id"] = seed.Parent("messages"),
+    };
+}

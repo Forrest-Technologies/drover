@@ -76,7 +76,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             second.Id,
             "other-model",
             new ModelSettingsBody(0.4, 900, "high", "automatic", true),
-            new MemorySettingsBody(true, "summarization", 60_000, 12),
+            new MemorySettingsBody(true, "summarization", 60_000, 12, 300, 4000),
             "named",
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
@@ -175,6 +175,9 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "an answer longer than any model writes", nothing with { ModelSettings = new ModelSettingsBody(null, int.MaxValue, null, "off", false) }, "longest answer" },
             { "a threshold larger than any context", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", int.MaxValue, null) }, "at most" },
             { "more kept messages than a thread holds", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", null, int.MaxValue) }, "at most" },
+            { "a note longer than the server allows", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, DeploymentPolicy.SelfHostedMaxMemoryNoteCharacters + 1) }, "A note may hold at most 1000 characters on this server" },
+            { "an empty allowance for one note", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, 0) }, "A note may hold at most" },
+            { "more notes than the server allows", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, null, DeploymentPolicy.SelfHostedMaxMemoryCharactersPerPerson + 1) }, "notes about one person may hold at most 20000 characters" },
             { "a host that is nothing", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [null!], null) }, "is not a host name" },
             { "a blank host", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [" "], null) }, "is not a host name" },
         };

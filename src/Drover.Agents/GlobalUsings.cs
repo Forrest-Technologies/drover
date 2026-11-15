@@ -11,6 +11,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 global using Drover.Agents.Governance;
 global using Drover.Agents.History;
+global using Drover.Agents.Memory;
 global using Drover.Agents.Runtime;
 global using Drover.Agents.Sessions;
 global using Drover.Agents.Workflows;

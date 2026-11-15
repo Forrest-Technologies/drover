@@ -343,6 +343,8 @@ public sealed class RunGovernor(
             ModelSeesImages = modelSeesImages,
             BeginModelCall = session.BeginToolModelCall,
             RecordModelUsage = Record,
+            ThreadId = session.Thread.Id,
+            Redact = session.Redactor.Redact,
         };
 
     #endregion

@@ -52,7 +52,7 @@ CREATE POLICY space_isolation ON threads FOR ALL
 
 `FORCE` makes the policy apply to the table owner too. `USING` filters what can be read, updated, or deleted. `WITH CHECK` rejects inserting a row for another space or moving a row into one.
 
-Tables with an audience (`threads`, `messages`, `run_events`, `tool_calls`, `files`, `secrets`, `tool_connection_credentials`, `oauth_flows`, later `memories`) add a restrictive policy, which is combined with the first using AND. `sys.everyone()` returns the all-zero UUID.
+Tables with an audience (`threads`, `messages`, `run_events`, `tool_calls`, `files`, `secrets`, `tool_connection_credentials`, `oauth_flows`, `memories`) add a restrictive policy, which is combined with the first using AND. `sys.everyone()` returns the all-zero UUID.
 
 ```sql
 CREATE POLICY audience ON threads AS RESTRICTIVE FOR ALL
@@ -320,7 +320,7 @@ Pure functions in `Drover.Domain` implement the ordering and the minimum. The SQ
 | A bot | Its strict descendants only | Built-in management tools, each needing its own grant |
 | A bot | Its siblings, ancestors, or unrelated bots | Nothing. The check is one lookup in `bot_ancestors`. |
 
-Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. Two defaults, set when a person creates a bot through the API. Every new bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`, a child no higher than its parent's effective grant. A bot a person creates at the top of the tree is also granted the four crew tools (`BuiltinTools.AskedOfNewTopBots`) as `ask`, so the first bot of a space can lead its crew and a person approves each thing it does to it; a bot created beneath a parent, by a person or by a bot, is not, and a person grants them where they are wanted. Where the deployment rule `AllowBotsBuildingBots` is off, no bot is granted them. These are grant rows like any other, visible and removable. The lists are by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should.
+Built-in tools. Each is a row in `tools`, so each is off until granted, and each obeys the narrowing rule like any other tool. Two defaults, set when a person creates a bot through the API. Every new bot is granted the built-in tools on a short explicit list (`BuiltinTools.GrantedToNewBots`, today only `time.now`) as `allow`, a child no higher than its parent's effective grant. A bot a person creates at the top of the tree is also granted the four crew tools (`BuiltinTools.AskedOfNewTopBots`) as `ask`, so the first bot of a space can lead its crew and a person approves each thing it does to it; a bot created beneath a parent, by a person or by a bot, is not, and a person grants them where they are wanted. Where the deployment rule `AllowBotsBuildingBots` is off, no bot is granted them. These are grant rows like any other, visible and removable. The lists are by name, never "every tool that only reads", so a later built-in that reads the web, a file, or memory reaches no bot until someone decides it should. The four memory tools are on neither list.
 
 | Tool | Does | Sensitivity | Default |
 | --- | --- | --- | --- |
@@ -378,3 +378,5 @@ A handoff inside a team is not a tool call and passes no gate ([14-agent-framewo
 ### What a prompt injection can and cannot do
 
 The model never decides what it is allowed to do. It can only ask for a tool that was sent to it, and the gate checks the grant again when it asks. Further limits on untrusted tool output are in [06-mcp.md](06-mcp.md).
+
+A bot's notes about its person ([02-data-model.md](02-data-model.md)) are text the model wrote, and a note may repeat what a tool result said, so an injection can reach a later run through them. They are given to the model as a labeled message that says they are reference material and not instructions, never in the system instructions, and they change no grant: a run that recalls a note is offered the same tools, through the same gate, as one that does not. A note is only ever the run's own person's, read only in a conversation private to that person.

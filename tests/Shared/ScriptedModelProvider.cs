@@ -113,7 +113,7 @@ public sealed class ScriptedModelProvider(ScriptedModel model, string kind = Scr
                 throw failure;
             }
 
-            var turn = provider.Model.NextTurn([.. request.Messages.SelectMany(Seen)]);
+            var turn = provider.Model.NextTurn([.. request.Messages.SelectMany(Seen)], request.Options.Instructions);
 
             foreach (var output in turn)
             {
