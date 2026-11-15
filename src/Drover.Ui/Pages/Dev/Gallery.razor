@@ -40,7 +40,7 @@ else
                 <option value="a">Sample model A</option>
                 <option value="b">Sample model B</option>
             </Select>
-            <Switch Label="Remember threads" @bind-Value="remember" />
+            <Switch Label="Remember conversations" @bind-Value="remember" />
             <SegmentedControl TValue="string" Label="Tool access" Options="access" @bind-Value="chosenAccess" />
         </GallerySection>
 
@@ -89,8 +89,12 @@ else
             <SetupSteps Current="2" />
         </GallerySection>
 
-        <GallerySection Title="Thread list" Note="The open thread is marked. A ring breathes on a thread whose bot is working.">
-            <ThreadList Threads="threads" SelectedId="threads[0].Id" />
+        <GallerySection Title="Crew" Note="Each bot sits under the one that manages it. The bot being talked to is marked, and a visor breathes on a bot that is working.">
+            <CrewList Crew="crew" SelectedId="crew[0].Bot.Id" Working="working" />
+        </GallerySection>
+
+        <GallerySection Title="Side chats" Note="The other conversations a person has with one bot. A visor breathes on a chat whose bot is working in it.">
+            <SideChatList Chats="sideChats" />
         </GallerySection>
 
         <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
@@ -152,11 +156,24 @@ else
 
     private const string command = "docker compose up --build";
 
-    private static readonly ThreadListItem[] threads =
+    private static readonly Guid sampleLead = Guid.Parse("00000000-0000-7000-8000-000000000001");
+
+    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
+
+    private static readonly IReadOnlyList<CrewNode> crew = CrewTree.From(
     [
-        new(Guid.Parse("00000000-0000-7000-8000-000000000001"), "Sample thread, open", "Sample bot", 6, false),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000002"), "Sample thread with a bot at work", "Sample bot", 6, true),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample thread with a title long enough to be cut short", "Other sample bot", 2, false),
+        new(sampleLead, "Sample lead bot", "sample-lead", string.Empty, Guid.Empty, "sample-model", "active"),
+        new(sampleHelper, "Sample bot at work", "sample-helper", string.Empty, Guid.Empty, "sample-model", "active", sampleLead),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample bot with a name long enough to be cut short", "sample-long", string.Empty, Guid.Empty, "sample-model", "paused", sampleHelper),
+    ]);
+
+    private static readonly IReadOnlySet<Guid> working = ImmutableHashSet.Create(sampleHelper);
+
+    private static readonly SideChatItem[] sideChats =
+    [
+        Chat("00000000-0000-7000-8000-000000000004", "Sample side chat", false),
+        Chat("00000000-0000-7000-8000-000000000005", "Sample side chat with a bot at work", true),
+        Chat("00000000-0000-7000-8000-000000000006", "Sample side chat with a title long enough to be cut short", false),
     ];
 
     private static readonly ChatMessage[] messages =
@@ -167,6 +184,10 @@ else
     ];
 
     private string address = string.Empty;
+
+    // A sample row opens the workspace, which says that the sample bot is not there.
+    private static SideChatItem Chat(string id, string title, bool working) =>
+        new(Guid.Parse(id), title, Addresses.SideChat(sampleLead, Guid.Parse(id)), "Sample bot", 6, working);
 
     private string model = "a";
 

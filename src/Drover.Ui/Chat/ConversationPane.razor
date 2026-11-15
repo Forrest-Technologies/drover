@@ -1,0 +1,26 @@
+@* One conversation with a bot: what was said, what the bot is doing, and the field to write in. *@
+<div class="dv-talk">
+    @if (missing)
+    {
+        <div class="dv-talk-center">
+            <EmptyState Title="This side chat is not here" Cause="It was removed, or it belongs to someone else."
+                        ActionLabel="@($"Back to {Bot.Name}")" ActionHref="@Addresses.Talk(Bot.Id)" />
+        </div>
+    }
+    else
+    {
+        @if (loading)
+        {
+            <div class="dv-talk-center">
+                <p class="dv-talk-hint" role="status">Loading the conversation.</p>
+            </div>
+        }
+        else
+        {
+            <MessageList @ref="list" Messages="Messages" BotName="@Bot.Name" BotHue="BotIdentity.Hue(Bot.Id)" Thinking="Thinking"
+                         Problem="@problem" Notice="@Notice" Decide="Decide" />
+        }
+        <Composer @ref="composer" BotName="@Bot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loading" Sending="sending"
+                  OnSend="Send" OnCancel="Stop" />
+    }
+</div>

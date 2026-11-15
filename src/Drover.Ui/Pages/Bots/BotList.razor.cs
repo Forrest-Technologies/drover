@@ -64,8 +64,11 @@ public sealed partial class BotList(
         }
     }
 
-    /// <summary>Makes a bot on the connection that last answered, and opens it so that everything else is set there.</summary>
-    private async Task Create()
+    /// <summary>
+    /// Makes a bot on the connection that last answered, at the top of the crew or under <paramref name="parentBotId"/>,
+    /// and opens it so that everything else is set there.
+    /// </summary>
+    private async Task Create(Guid? parentBotId)
     {
         var connection = connections!
             .OrderByDescending(candidate => candidate.Status is "connected")
@@ -76,7 +79,7 @@ public sealed partial class BotList(
 
         try
         {
-            var bot = await api.CreateBot(SpaceId, new(NewBotName, string.Empty, connection.Id, await FindModel(connection)));
+            var bot = await api.CreateBot(SpaceId, new(NewBotName, string.Empty, connection.Id, await FindModel(connection), parentBotId));
             navigation.NavigateTo(Addresses.Bot(bot.Id));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

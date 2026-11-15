@@ -10,4 +10,5 @@ public sealed record ThreadSummary(
     string? Title,
     bool IsShared,
     DateTimeOffset LastActivityAt,
-    Guid? ActiveRunId);
+    Guid? ActiveRunId,
+    bool IsMain = false);

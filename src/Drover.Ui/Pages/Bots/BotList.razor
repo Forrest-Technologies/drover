@@ -8,7 +8,7 @@
         <h1 class="dv-bots-title">Bots</h1>
         @if (CanEdit && bots is { Count: > 0 } && connections is { Count: > 0 })
         {
-            <Button Kind="ButtonKind.Primary" OnClick="Create" Disabled="creating">
+            <Button Kind="ButtonKind.Primary" OnClick="() => Create(null)" Disabled="creating">
                 <Icon Name="IconName.Plus" />
                 @(creating ? "Making a bot" : "New bot")
             </Button>
@@ -33,7 +33,7 @@
     else if (bots.Count == 0 && CanEdit)
     {
         <EmptyState Title="No bot yet" Cause="Make one, then give it a name, a purpose, and its tools."
-                    ActionLabel="@(creating ? "Making a bot" : "Make a bot")" OnAction="Create" />
+                    ActionLabel="@(creating ? "Making a bot" : "Make a bot")" OnAction="() => Create(null)" />
     }
     else if (bots.Count == 0)
     {
@@ -46,27 +46,49 @@
             <p class="dv-bots-hint">Owners and admins of this space change its bots. You can see them and talk to them.</p>
         }
         <ul class="dv-bots" aria-label="Bots">
-            @foreach (var bot in bots)
+            @foreach (var node in CrewTree.From(bots))
             {
-                <li class="dv-bot dv-facet" @key="bot.Id">
-                    <Avatar Name="@bot.Name" Hue="BotIdentity.Hue(bot.Id)" Size="48" />
-                    <div class="dv-bot-text">
-                        @if (CanEdit)
-                        {
-                            <a class="dv-bot-name" href="@Addresses.Bot(bot.Id)">@bot.Name</a>
-                        }
-                        else
-                        {
-                            <span class="dv-bot-name">@bot.Name</span>
-                        }
-                        <span class="dv-bot-facts dv-mono">@@@bot.Handle · @bot.Model</span>
-                    </div>
-                    @if (bot.Status is "paused")
-                    {
-                        <Badge Kind="BadgeKind.Warn">Paused</Badge>
-                    }
-                </li>
+                @Row(node)
             }
         </ul>
     }
 </SessionGate>
+
+@code {
+    // A bot, then the bots it manages, set in beneath it.
+    private RenderFragment Row(CrewNode node) =>
+        @<li @key="node.Bot.Id">
+            <div class="dv-bot dv-facet">
+                <Avatar Name="@node.Bot.Name" Hue="BotIdentity.Hue(node.Bot.Id)" Size="48" />
+                <div class="dv-bot-text">
+                    @if (CanEdit)
+                    {
+                        <a class="dv-bot-name" href="@Addresses.Bot(node.Bot.Id)">@node.Bot.Name</a>
+                    }
+                    else
+                    {
+                        <span class="dv-bot-name">@node.Bot.Name</span>
+                    }
+                    <span class="dv-bot-facts dv-mono">@@@node.Bot.Handle · @node.Bot.Model</span>
+                </div>
+                @if (node.Bot.Status is "paused")
+                {
+                    <Badge Kind="BadgeKind.Warn">Paused</Badge>
+                }
+                @if (CanEdit && connections is { Count: > 0 })
+                {
+                    <IconButton Icon="IconName.Plus" Label="@($"New bot under {node.Bot.Name}")" Disabled="creating"
+                                OnClick="() => Create(node.Bot.Id)" class="dv-icon-button dv-bot-add" />
+                }
+            </div>
+            @if (node.Children.Count > 0)
+            {
+                <ul class="dv-bots dv-bots-beneath" aria-label="@($"Bots under {node.Bot.Name}")">
+                    @foreach (var child in node.Children)
+                    {
+                        @Row(child)
+                    }
+                </ul>
+            }
+        </li>;
+}

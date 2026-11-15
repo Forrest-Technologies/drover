@@ -9,8 +9,6 @@ public static class Addresses
 
     public const string Home = "/";
 
-    public const string NewThread = "/new";
-
     public const string SignIn = "/sign-in";
 
     public const string Setup = "/setup";
@@ -29,7 +27,16 @@ public static class Addresses
 
     #region Public Methods
 
-    public static string Thread(Guid threadId) => $"/threads/{threadId}";
+    /// <summary>A bot's main conversation.</summary>
+    public static string Talk(Guid botId) => $"/talk/{botId}";
+
+    /// <summary>The side chats a person has with a bot.</summary>
+    public static string SideChats(Guid botId) => $"/talk/{botId}/side";
+
+    /// <summary>A side chat that its first message will make.</summary>
+    public static string NewSideChat(Guid botId) => $"/talk/{botId}/side/new";
+
+    public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
 
     public static string Bot(Guid botId) => $"/bots/{botId}";
 

@@ -1,9 +1,9 @@
 @* The Memory section of the bot editor. *@
-<StatusNote Text="These settings are saved with the bot. This version of Drover does not yet shorten threads or keep memories, so they change nothing today." />
+<StatusNote Text="These settings are saved with the bot. This version of Drover does not yet shorten conversations or keep memories, so they change nothing today." />
 
-<Switch Label="Remember across threads" @bind-Value="Draft.MemoryEnabled" @bind-Value:after="Changed" />
+<Switch Label="Remember across conversations" @bind-Value="Draft.MemoryEnabled" @bind-Value:after="Changed" />
 
-<Select Label="When a thread grows long" @bind-Value="Draft.Compaction" @bind-Value:after="Changed">
+<Select Label="When a conversation grows long" @bind-Value="Draft.Compaction" @bind-Value:after="Changed">
     @foreach (var strategy in strategies)
     {
         <option value="@strategy">@BotSummaries.Compaction(strategy)</option>

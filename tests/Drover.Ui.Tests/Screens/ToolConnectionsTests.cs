@@ -201,7 +201,7 @@ public sealed class ToolConnectionsTests : ScreenTest
         SignedIn();
         Navigation.NavigateTo($"/?tool-sign-in=connected&space={SpaceId}&connection={connectionId}&extra=sample");
 
-        Render<Threads>();
+        Render<Talk>();
 
         Address.Should().Be($"tools?sign-in=connected&connection={connectionId}");
     }

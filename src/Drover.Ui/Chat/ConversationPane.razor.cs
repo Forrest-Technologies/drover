@@ -1,21 +1,16 @@
-namespace Drover.Ui.Pages;
+namespace Drover.Ui.Chat;
 
 /// <summary>
-/// The workspace: the thread list and one conversation. The person reads what a bot said and writes to it.
+/// One conversation with a bot, live: it loads what was said, follows the run that is answering, and sends what the
+/// person writes. A bot's main conversation is opened by the bot alone; a side chat by its thread, or by nothing
+/// when it is new and its first message makes it.
 /// </summary>
-public sealed partial class Threads(
+public sealed partial class ConversationPane(
     DroverApi api,
     SessionState session,
-    NavigationManager navigation,
-    ILogger<Threads> logger) : IDisposable
+    ILogger<ConversationPane> logger) : IDisposable
 {
     #region Private Fields
-
-    private readonly List<ThreadSummary> threads = [];
-
-    private IReadOnlyList<BotSummary>? bots;
-
-    private IReadOnlyList<ModelConnectionSummary>? connections;
 
     private IReadOnlyList<MessageResponse> stored = [];
 
@@ -27,8 +22,6 @@ public sealed partial class Threads(
 
     private string? reconnecting;
 
-    private Guid? shownThreadId;
-
     private CancellationTokenSource? watch;
 
     private MessageList? list;
@@ -37,67 +30,59 @@ public sealed partial class Threads(
 
     private bool returnToComposer;
 
-    private string? spaceProblem;
-
     private string? problem;
 
     private string? notice;
 
-    private bool loadingThread;
+    private bool loading;
 
     private bool sending;
 
     private bool missing;
 
+    private bool reportedBusy;
+
     #endregion
 
     #region Properties
 
+    /// <summary>The bot this conversation is with.</summary>
+    [Parameter, EditorRequired]
+    public BotSummary Bot { get; set; } = null!;
+
+    /// <summary>True for the bot's main conversation, which the server keeps one of for each person.</summary>
+    [Parameter]
+    public bool Main { get; set; }
+
+    /// <summary>The side chat to open. Read once, when the pane is first shown.</summary>
     [Parameter]
     public Guid? ThreadId { get; set; }
 
-    /// <summary>Set when the browser comes back from a tool server's sign-in page: "connected" or "failed".</summary>
-    [SupplyParameterFromQuery(Name = "tool-sign-in")]
-    public string? ToolSignIn { get; set; }
+    /// <summary>A new side chat got its thread from its first message.</summary>
+    [Parameter]
+    public EventCallback<ThreadSummary> OnThreadStarted { get; set; }
 
-    /// <summary>The tool connection that sign-in was for.</summary>
-    [SupplyParameterFromQuery(Name = "connection")]
-    public Guid? ToolSignInConnection { get; set; }
+    /// <summary>The thread's title, activity, or working run changed.</summary>
+    [Parameter]
+    public EventCallback<ThreadSummary> OnThreadChanged { get; set; }
+
+    /// <summary>The bot started or stopped working here. Waiting for a person's answer is not working.</summary>
+    [Parameter]
+    public EventCallback<bool> OnBusyChanged { get; set; }
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
-
-    // A phone shows the list or the conversation. The list is the start page; every other address is a conversation.
-    private bool AtList => ThreadId is null && navigation.ToBaseRelativePath(navigation.Uri).Length == 0;
-
-    private BotSummary? Bot => bots is [var first, ..] ? bots.FirstOrDefault(bot => bot.Status is "active") ?? first : null;
-
-    private BotSummary ShownBot => bots!.FirstOrDefault(bot => bot.Id == thread?.BotId) ?? Bot!;
 
     private bool Working => run?.IsActive ?? false;
 
     private bool Thinking => run?.IsThinking() ?? false;
+
+    private bool Busy => Working && run?.Status is not "waiting";
 
     // What is stored, then what the active run has said that is not stored yet. Each message appears once, with the
     // tool calls it made: as the run being watched has them, or as the thread's past runs left them.
     private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run).ToChatMessages(history.With(run), run);
 
     private string? Notice => reconnecting ?? notice;
-
-    private string ThreadName => thread?.Title ?? "New thread";
-
-    private string PageName => ThreadId is null ? "Drover" : $"{ThreadName} · Drover";
-
-    private IReadOnlyList<ThreadListItem> ThreadItems =>
-    [
-        .. threads
-            .OrderByDescending(item => item.LastActivityAt)
-            .Select(item => new ThreadListItem(
-                item.Id,
-                item.Title ?? "New thread",
-                BotNamed(item.BotId).Name,
-                BotIdentity.Hue(item.BotId),
-                item.Id == thread?.Id ? Working : item.ActiveRunId is not null)),
-    ];
 
     #endregion
 
@@ -113,95 +98,41 @@ public sealed partial class Threads(
 
     #region Loading
 
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnInitializedAsync()
     {
-        if (await session.Load() is null)
+        if (!Main && ThreadId is null)
         {
             return;
         }
 
-        // A sign-in at a tool server ends here, at the start page. The tool connections screen says how it went.
-        if (ToolSignIn is "connected" or "failed")
-        {
-            navigation.NavigateTo(Addresses.ToolSignIn(ToolSignIn, ToolSignInConnection?.ToString()), replace: true);
-            return;
-        }
-
-        if (bots is null && spaceProblem is null)
-        {
-            await LoadSpace();
-        }
-
-        if (bots is { Count: > 0 } && ThreadId != shownThreadId)
-        {
-            await ShowThread(ThreadId);
-        }
-    }
-
-    private async Task LoadSpace()
-    {
-        spaceProblem = null;
+        loading = true;
         try
         {
-            connections = await api.ListModelConnections(SpaceId);
-            var found = await api.ListBots(SpaceId);
-            threads.Clear();
-            foreach (var bot in found)
+            thread = Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await api.GetThread(SpaceId, ThreadId!.Value);
+            if (thread.BotId != Bot.Id)
             {
-                threads.AddRange(await api.ListThreads(SpaceId, bot.Id));
+                (thread, missing) = (null, true);
+                return;
             }
 
-            bots = found;
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
-            spaceProblem = Failures.Sentence(exception);
-        }
-    }
-
-    private async Task Reload()
-    {
-        await LoadSpace();
-        if (bots is { Count: > 0 })
-        {
-            await ShowThread(ThreadId);
-        }
-    }
-
-    private async Task ShowThread(Guid? threadId)
-    {
-        StopWatching();
-        shownThreadId = threadId;
-        (thread, run, stored, problem, notice, reconnecting, missing) = (null, null, [], null, null, null, false);
-        history = [];
-
-        if (threadId is not { } id)
-        {
-            return;
-        }
-
-        loadingThread = true;
-        try
-        {
-            thread = await api.GetThread(SpaceId, id);
-            stored = await api.ListMessages(SpaceId, id);
+            stored = await api.ListMessages(SpaceId, thread.Id);
             history = await LoadToolHistory(thread);
             ResumeActiveRun(thread);
+            await ReportBusy();
         }
-        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
+        catch (DroverApiException exception) when (!Main && exception.StatusCode is HttpStatusCode.NotFound)
         {
-            logger.LogInformation(exception, "Thread {ThreadId} was not found", id);
+            logger.LogInformation(exception, "Thread {ThreadId} was not found", ThreadId);
             missing = true;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             problem = Failures.Sentence(exception);
         }
         finally
         {
-            loadingThread = false;
+            loading = false;
         }
     }
 
@@ -234,7 +165,7 @@ public sealed partial class Threads(
 
     #region Sending
 
-    // Starting a thread changes the address, and the router then moves focus to the page heading. The person
+    // Starting a side chat changes the address, and the router then moves focus to the page heading. The person
     // is in the middle of a conversation, so the cursor goes back to the message field once that has happened.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -252,21 +183,23 @@ public sealed partial class Threads(
         (problem, notice) = (null, null);
         try
         {
-            thread ??= await StartThread();
+            thread ??= Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await StartSideChat();
             var sent = await api.SendMessage(SpaceId, thread.Id, text);
             stored = [.. stored, sent.Message];
-            thread = thread with { Title = thread.Title ?? text, ActiveRunId = sent.Run.Id };
-            Remember(thread);
+            thread = thread with { Title = thread.Title ?? (thread.IsMain ? null : text), ActiveRunId = sent.Run.Id };
+            await Changed(thread);
             if (run is not { IsActive: true } || run.RunId != sent.Run.Id)
             {
                 Watch(sent.Run.Id);
             }
 
+            await ReportBusy();
+
             await ShowNewest();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             problem = $"Your message was not sent. {Failures.Sentence(exception)}";
         }
         finally
@@ -275,14 +208,12 @@ public sealed partial class Threads(
         }
     }
 
-    // The first message of a new conversation makes its thread, and the address follows.
-    private async Task<ThreadSummary> StartThread()
+    // The first message of a new side chat makes its thread, and the address follows.
+    private async Task<ThreadSummary> StartSideChat()
     {
-        var started = await api.CreateThread(SpaceId, Bot!.Id);
-        shownThreadId = started.Id;
+        var started = await api.CreateThread(SpaceId, Bot.Id);
         returnToComposer = true;
-        Remember(started);
-        navigation.NavigateTo(Addresses.Thread(started.Id), replace: true);
+        await OnThreadStarted.InvokeAsync(started);
         return started;
     }
 
@@ -310,7 +241,7 @@ public sealed partial class Threads(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
         }
     }
@@ -330,15 +261,9 @@ public sealed partial class Threads(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             return $"Your answer was not sent. {Failures.Sentence(exception)}";
         }
-    }
-
-    private void Remember(ThreadSummary changed)
-    {
-        threads.RemoveAll(item => item.Id == changed.Id);
-        threads.Add(changed with { LastActivityAt = DateTimeOffset.UtcNow });
     }
 
     #endregion
@@ -373,35 +298,35 @@ public sealed partial class Threads(
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
+                await ReportBusy();
                 StateHasChanged();
             }
 
             stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
             (run, problem, notice) = (view, view.Problem(), view.Notice());
-            if (thread?.Id == threadId)
+
+            // A message sent just as the run ended is answered by a run of its own, which is followed next.
+            thread = await api.GetThread(SpaceId, threadId, cancellationToken);
+            await Changed(thread);
+            if (thread.ActiveRunId is { } next && next != runId)
             {
-                // A message sent just as the run ended is answered by a run of its own, which is followed next.
-                thread = await api.GetThread(SpaceId, threadId, cancellationToken);
-                Remember(thread);
-                if (thread.ActiveRunId is { } next && next != runId)
-                {
-                    Watch(next);
-                    return;
-                }
+                Watch(next);
+                return;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // The person opened another thread or left. Nothing to show.
+            // The person went to another conversation or left. Nothing to show.
             logger.LogDebug("Stopped watching run {RunId}", runId);
             return;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Threads));
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             (run, reconnecting, problem) = (null, null, $"Drover lost track of this reply. {Failures.Sentence(exception)} Reload the page to see how it ended.");
         }
 
+        await ReportBusy();
         StateHasChanged();
     }
 
@@ -417,7 +342,17 @@ public sealed partial class Threads(
 
     #region Private Methods
 
-    private BotSummary BotNamed(Guid botId) => bots!.FirstOrDefault(bot => bot.Id == botId) ?? Bot!;
+    private Task Changed(ThreadSummary changed) => OnThreadChanged.InvokeAsync(changed with { LastActivityAt = DateTimeOffset.UtcNow });
+
+    // The screen around the pane lights the bot's head while it works here, so it is told when that starts and stops.
+    private async Task ReportBusy()
+    {
+        if (Busy != reportedBusy)
+        {
+            reportedBusy = Busy;
+            await OnBusyChanged.InvokeAsync(reportedBusy);
+        }
+    }
 
     #endregion
 }

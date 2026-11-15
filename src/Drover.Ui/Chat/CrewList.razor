@@ -1,0 +1,43 @@
+@* The crew: every bot under the one that manages it. Choosing a bot opens its main conversation. *@
+<ul class="dv-crew">
+    @foreach (var node in Crew)
+    {
+        @Row(node)
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CrewNode> Crew { get; set; } = [];
+
+    /// <summary>The bot whose conversation is open.</summary>
+    [Parameter]
+    public Guid? SelectedId { get; set; }
+
+    /// <summary>The bots that are working for this person now.</summary>
+    [Parameter]
+    public IReadOnlySet<Guid> Working { get; set; } = ImmutableHashSet<Guid>.Empty;
+
+    // The head carries the bot's name and what it is doing, so the written name is not read out a second time.
+    private RenderFragment Row(CrewNode node) =>
+        @<li @key="node.Bot.Id">
+            <a class="dv-crew-bot dv-facet" href="@Addresses.Talk(node.Bot.Id)" aria-current="@(node.Bot.Id == SelectedId ? "page" : null)">
+                <Avatar Name="@node.Bot.Name" Hue="BotIdentity.Hue(node.Bot.Id)" Size="32"
+                        State="@(Working.Contains(node.Bot.Id) ? AvatarState.Thinking : AvatarState.Rest)" />
+                <span class="dv-crew-name" aria-hidden="true">@node.Bot.Name</span>
+                @if (node.Bot.Status is "paused")
+                {
+                    <span class="dv-crew-note dv-mono">Paused</span>
+                }
+            </a>
+            @if (node.Children.Count > 0)
+            {
+                <ul class="dv-crew-branch">
+                    @foreach (var child in node.Children)
+                    {
+                        @Row(child)
+                    }
+                </ul>
+            }
+        </li>;
+}

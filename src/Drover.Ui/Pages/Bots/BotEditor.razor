@@ -13,7 +13,7 @@
     else if (notPermitted)
     {
         <EmptyState Title="You cannot change this bot" Cause="Owners and admins of this space change its bots. You can still talk to them."
-                    ActionLabel="Back to threads" ActionHref="@Addresses.Home" />
+                    ActionLabel="Back to the crew" ActionHref="@Addresses.Home" />
     }
     else if (missing)
     {
@@ -118,7 +118,7 @@
 
         <Dialog Title="@($"Remove {saved.Name}")" @bind-Open="removing">
             <ChildContent>
-                <p>Its threads and history are kept. It stops answering and leaves the list of bots.</p>
+                <p>Its conversations are kept. It stops answering and leaves the list of bots.</p>
             </ChildContent>
             <Actions>
                 <Button OnClick="() => removing = false">Keep bot</Button>

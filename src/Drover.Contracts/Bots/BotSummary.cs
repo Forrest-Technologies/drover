@@ -8,4 +8,5 @@ public sealed record BotSummary(
     string Instructions,
     Guid ModelConnectionId,
     string Model,
-    string Status);
+    string Status,
+    Guid? ParentBotId = null);

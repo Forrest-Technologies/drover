@@ -125,6 +125,7 @@
   --dv-work-width: 720px;
   --dv-column-min: 224px;
   --dv-list-width: 288px;
+  --dv-rail-width: 400px;
   --dv-composer-lines: 8lh;
   --dv-output-lines: 12lh;
   --dv-grid-step: 16px;

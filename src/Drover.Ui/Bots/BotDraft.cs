@@ -131,7 +131,7 @@ public sealed class BotDraft
         (string Name, string Value)[] wholeNumbers =
         [
             ("The longest answer", MaxOutputTokens),
-            ("The size at which a thread is shortened", CompactAtTokens),
+            ("The size at which a conversation is shortened", CompactAtTokens),
             ("The number of recent messages to keep", KeepRecentMessages),
             ("The idle time", IdleTimeoutMinutes),
             ("The number of bots it may build", MaxChildren),
