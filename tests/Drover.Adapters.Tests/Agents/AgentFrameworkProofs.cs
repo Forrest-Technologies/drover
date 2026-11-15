@@ -162,7 +162,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
     {
         var governor = new ScriptedGovernor(new ScriptedTools());
         var model = new ScriptedModel([new PauseOutput()]);
-        var member = new GovernedAgent(new ScriptedChatClient(model).AsAIAgent(name: "slow"), governor, Guid.CreateVersion7());
+        var member = new GovernedAgent(new ScriptedChatClient(model).AsAIAgent(name: "slow"), governor, new DelegationRequest(Guid.CreateVersion7(), "slow"));
         using var cancellation = new CancellationTokenSource();
 
         var running = member.RunAsync("Take your time", cancellationToken: cancellation.Token);
@@ -336,7 +336,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
             run,
             new ChatClientAgentOptions { Id = name, Name = name, Description = $"The {name} agent." },
             NullLoggerFactory.Instance);
-        return new GovernedAgent(agent, run.Governor, parentRunId);
+        return new GovernedAgent(agent, run.Governor, new DelegationRequest(parentRunId, name));
     }
 
     private async Task<IReadOnlyList<AgentEvent>> RunOnce(RunExecution run, ScriptedModel model, ScriptedTools? tools = null)

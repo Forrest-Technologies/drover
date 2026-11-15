@@ -11,6 +11,12 @@ public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, Bu
 {
     /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
+
+    /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
+    public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
+
+    /// <summary>A call cut off by a restart is asked again: it only reads, or it resolves to the same child run.</summary>
+    public bool MayRunAgain => IsKnownToOnlyRead || IsDelegation;
 }
 
 /// <summary>
@@ -36,7 +42,8 @@ public sealed class RunSession(
     TimeProvider time,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
-    bool escalateWhenTainted = true) : IAsyncDisposable
+    bool escalateWhenTainted = true,
+    RunSession? parent = null) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -55,6 +62,8 @@ public sealed class RunSession(
     private readonly SemaphoreSlim announcing = new(1, 1);
 
     private readonly HashSet<Guid> delivered = [.. alreadyDelivered];
+
+    private readonly ConcurrentDictionary<string, bool> waitingOnChildren = new(StringComparer.Ordinal);
 
     private int step = stepsSoFar;
 
@@ -81,8 +90,24 @@ public sealed class RunSession(
 
     public int Attempt => run.Attempt;
 
-    /// <summary>This execution's claim. Every write it makes is checked against it.</summary>
-    public RunFence Fence { get; } = new(workerId, run.Attempt);
+    /// <summary>
+    /// This execution's claim. Every write it makes is checked against it. A child run has no claim of its own: the
+    /// root's lease covers the tree, so a child's writes are checked against the root's claim.
+    /// </summary>
+    public RunFence Fence { get; } = parent?.Fence ?? new(workerId, run.Attempt);
+
+    /// <summary>The run whose lease covers this one: the run itself for a root, the tree's root for a child.</summary>
+    public Guid LeaseRunId => parent is null ? run.Id : run.RootRunId;
+
+    /// <summary>The session of the run that delegated to this one, executing in the same worker. Null for a root.</summary>
+    public RunSession? Parent => parent;
+
+    public Guid? ParentToolCallId => run.ParentToolCallId;
+
+    public int Depth => run.Depth;
+
+    /// <summary>A delegation beneath this run waits for a person, so this run stops here and waits with it.</summary>
+    public bool PausedForChild { get; private set; }
 
     public ChatThread Thread => thread;
 
@@ -165,6 +190,17 @@ public sealed class RunSession(
                 _ => true,
             }));
 
+    /// <summary>
+    /// A child run of this one waits for a person. This run stops where it is and waits too: its call to the child
+    /// stays open, and is asked again when the answer arrives, which takes it to the same child run.
+    /// </summary>
+    public void PauseForChild(string callId)
+    {
+        waitingOnChildren[callId] = true;
+        PausedForChild = true;
+        Stop();
+    }
+
     public void CancelByUser()
     {
         CancelledByUser = true;
@@ -226,7 +262,7 @@ public sealed class RunSession(
     public async Task EndStep()
     {
         var lease = await tenant.Transact(
-            services => services.GetRequiredService<RunRepository>().ReadLease(RunId, Fence, CancellationToken.None),
+            services => services.GetRequiredService<RunRepository>().ReadLease(LeaseRunId, Fence, CancellationToken.None),
             CancellationToken.None);
 
         if (!lease.Held)
@@ -468,6 +504,12 @@ public sealed class RunSession(
 
         foreach (var (callId, call) in calls)
         {
+            // A delegation whose child waits for a person is not over: it is asked again when the answer arrives.
+            if (waitingOnChildren.ContainsKey(callId))
+            {
+                continue;
+            }
+
             if (call.StartedAt is not null && call.TryMarkCompleted())
             {
                 closing.Add(RunEventWriter.Event(

@@ -317,7 +317,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                 ToolId = tool.ToolId,
                 Arguments = call.Arguments,
             };
-            var (status, outcome) = await RunAgain(request, cancellationToken);
+            var (status, outcome) = await RunAgain(request, tool, cancellationToken);
             await ledger.Finish(request, tool.ToolId, status, outcome, cancellationToken);
             results.Add(new ToolResultPart(call.ToolCallId, call.CallId, outcome.IsError, outcome.Result));
             logger.LogInformation("Tool call {CallId} of run {RunId} was cut off and ran again: {Status}", call.CallId, request.RunId, status);
@@ -331,7 +331,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     }
 
     /// <summary>The grant is checked again, as for any call. A call that may no longer run is settled as interrupted.</summary>
-    private async Task<(ToolCallStatus Status, ToolOutcome Outcome)> RunAgain(ToolCallRequest request, CancellationToken cancellationToken)
+    private async Task<(ToolCallStatus Status, ToolOutcome Outcome)> RunAgain(ToolCallRequest request, ToolDefinition tool, CancellationToken cancellationToken)
     {
         var decision = await run.Governor.Decide(request, cancellationToken);
 
@@ -345,7 +345,10 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         try
         {
-            var outcome = await run.Governor.InvokeTool(ruled, cancellationToken);
+            // A delegation asked again resolves to the child run it began, which goes on where it was.
+            var outcome = tool.IsDelegation
+                ? await Delegation.Hand(run, ruled, cancellationToken)
+                : await run.Governor.InvokeTool(ruled, cancellationToken);
             return (outcome.IsError ? ToolCallStatus.Failed : ToolCallStatus.Completed, outcome);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
