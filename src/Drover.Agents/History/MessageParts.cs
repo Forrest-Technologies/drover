@@ -9,12 +9,31 @@ public static class MessageParts
 {
     #region Public Methods
 
-    public static ChatMessage ToChatMessage(this Message message) =>
-        new(ToChatRole(message.Role), [.. message.Parts.Select(ToContent).OfType<AIContent>()])
+    /// <summary>
+    /// The message as the model reads it. A file part becomes what <paramref name="files"/> holds for it, and a line
+    /// saying it could not be opened when it holds nothing.
+    /// </summary>
+    public static ChatMessage ToChatMessage(this Message message, IReadOnlyDictionary<Guid, FileForModel>? files = null) =>
+        new(ToChatRole(message.Role), [.. message.Parts.SelectMany(part => ToContents(part, files))])
         {
             MessageId = message.Id.ToString("N"),
             CreatedAt = message.CreatedAt,
         };
+
+    /// <summary>The ids of the files the messages carry, each once.</summary>
+    public static IReadOnlyCollection<Guid> FileIds(this IEnumerable<Message> messages) =>
+    [
+        .. messages
+            .SelectMany(message => message.Parts)
+            .Select(part => part switch
+            {
+                ImagePart image => image.FileId,
+                FilePart file => file.FileId,
+                _ => Guid.Empty,
+            })
+            .Where(id => id != Guid.Empty)
+            .Distinct(),
+    ];
 
     /// <summary>
     /// Null when the message holds nothing Drover stores. A model's reply keeps the id its model call gave it
@@ -50,6 +69,29 @@ public static class MessageParts
     #endregion
 
     #region Private Methods
+
+    private static IEnumerable<AIContent> ToContents(MessagePart part, IReadOnlyDictionary<Guid, FileForModel>? files) => part switch
+    {
+        ImagePart image => ToContents(image.FileId, image.Name ?? "a picture", files),
+        FilePart file => ToContents(file.FileId, file.Name, files),
+        _ => ToContent(part) is { } content ? [content] : [],
+    };
+
+    private static IEnumerable<AIContent> ToContents(Guid fileId, string name, IReadOnlyDictionary<Guid, FileForModel>? files)
+    {
+        if (files is null || !files.TryGetValue(fileId, out var given))
+        {
+            yield return new TextContent($"[The person attached {name} here. It could not be opened.]");
+            yield break;
+        }
+
+        yield return new TextContent(given.Text);
+
+        if (given is { Image: { } image, MediaType: { } mediaType })
+        {
+            yield return new DataContent(image, mediaType);
+        }
+    }
 
     private static AIContent? ToContent(MessagePart part) => part switch
     {

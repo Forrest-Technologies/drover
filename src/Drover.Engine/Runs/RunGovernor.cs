@@ -12,7 +12,8 @@ public sealed class RunGovernor(
     IToolSource? toolServers,
     RunRules rules,
     ILogger logger,
-    bool modelSeesImages = false) : IRunGovernor
+    bool modelSeesImages = false,
+    RunFiles? files = null) : IRunGovernor
 {
     #region Private Fields
 
@@ -21,6 +22,9 @@ public sealed class RunGovernor(
     #endregion
 
     #region Interface Implementations
+
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
+        files is null ? new Dictionary<Guid, FileForModel>() : await files.Open(fileIds, cancellationToken);
 
     public async Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {
