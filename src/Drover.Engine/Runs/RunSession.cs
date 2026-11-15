@@ -298,13 +298,18 @@ public sealed class RunSession(
     #region Taint
 
     /// <summary>
-    /// What the bot may do with the tool right now. In a tainted run, "allow" on a tool that can change something
-    /// behaves as "ask": text from an untrusted source must not lead to an unattended action.
+    /// What the bot may do with the tool right now. "Allow" on a built-in tool that always asks behaves as "ask", and
+    /// so, in a tainted run, does "allow" on a tool that can change something: text from an untrusted source must not
+    /// lead to an unattended action.
     /// </summary>
     public GrantEffect EffectNow(RunTool tool, GrantEffect granted) =>
-        granted is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
+        AsTheToolAllows(tool, granted) is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
             ? GrantEffect.Ask
-            : granted;
+            : AsTheToolAllows(tool, granted);
+
+    /// <summary>The grant as the tool itself lets it count: a built-in tool that always asks never runs on allow alone.</summary>
+    private static GrantEffect AsTheToolAllows(RunTool tool, GrantEffect granted) =>
+        granted is GrantEffect.Allow && tool.Builtin is { AlwaysAsks: true } ? GrantEffect.Ask : granted;
 
     /// <summary>
     /// True when the run became tainted after its agent was built and the agent holds a tool that must now ask. The
@@ -380,7 +385,7 @@ public sealed class RunSession(
                 tool?.Tool.Name ?? modelName,
                 tool?.Tool.Title ?? tool?.Tool.Name ?? modelName,
                 redactor.Redact(arguments).GetRawText(),
-                (tool?.Effect ?? GrantEffect.Deny).ToString().ToLowerInvariant()));
+                (tool is null ? GrantEffect.Deny : AsTheToolAllows(tool, tool.Effect)).ToString().ToLowerInvariant()));
     }
 
     public async Task StartTool(string callId)

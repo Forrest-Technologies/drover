@@ -60,6 +60,31 @@ public sealed class CrewService(
         return bot;
     }
 
+    /// <summary>
+    /// What a person approving a new bot should see beside the call's arguments: the model it will use, which is the
+    /// calling bot's, and the name of the bot it will go beneath. A parent that is not the caller or beneath it is not
+    /// named; the call itself is refused for it.
+    /// </summary>
+    public async Task<IReadOnlyList<ToolApprovalDetail>> DescribeAddition(Guid botId, Guid? parentId, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } caller)
+        {
+            return [];
+        }
+
+        List<ToolApprovalDetail> details = [new(ToolApprovalRequested.ModelDetail, caller.Model)];
+        var parent = parentId is not { } id || id == botId
+            ? caller
+            : await bots.IsBeneath(id, botId, cancellationToken) ? await bots.FindBot(id, cancellationToken) : null;
+
+        if (parent is not null)
+        {
+            details.Add(new(ToolApprovalRequested.BeneathDetail, parent.Name));
+        }
+
+        return details;
+    }
+
     /// <summary>Changes the name, what it is for, the instructions, or whether it is paused, of a bot beneath the caller.</summary>
     public async Task<Bot> Change(Guid botId, Guid targetId, CrewChange change, CancellationToken cancellationToken)
     {
@@ -80,14 +105,30 @@ public sealed class CrewService(
         };
     }
 
-    /// <summary>Removes a bot beneath the caller, as a person's remove does: its sandbox is retired, its history kept.</summary>
-    public async Task<Bot> Remove(Guid botId, Guid targetId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Removes a bot beneath the caller, as a person's remove does: its sandbox is retired, its history kept. A bot
+    /// with bots beneath it needs the person's choice for them, and without one the model is told to ask for it.
+    /// </summary>
+    public async Task<BotChange> Remove(Guid botId, Guid targetId, BotsBeneath? beneath, CancellationToken cancellationToken)
     {
         var (_, actor) = await CheckCaller(botId, changesBots: true, cancellationToken);
         await RequireBeneath(botId, targetId, cancellationToken);
-        var removed = Accepted(await botService.Remove(targetId, actor, cancellationToken), targetId);
+        var change = await botService.Remove(targetId, beneath, actor, cancellationToken);
+
+        // Without a choice the one refusal a remove has is that the bot has bots beneath it.
+        if (change.Problem is { } problem && beneath is null)
+        {
+            throw new BuiltinToolException(
+                $"{problem} Ask the person which they want, then call crew_remove again with beneath set to remove or keep.");
+        }
+
+        if (change.Bot is null)
+        {
+            throw new BuiltinToolException(change.Problem ?? NotBeneath(targetId));
+        }
+
         logger.LogInformation("Bot {BotId} removed bot {RemovedBotId}", botId, targetId);
-        return removed;
+        return change;
     }
 
     #endregion

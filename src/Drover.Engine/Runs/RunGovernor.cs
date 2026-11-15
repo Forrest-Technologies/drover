@@ -143,6 +143,35 @@ public sealed class RunGovernor(
         }
     }
 
+    /// <summary>
+    /// What the person asked about a call is shown beside its arguments, when the tool is a built-in one that says,
+    /// redacted as the arguments are. Never throws for the tool: a call whose details cannot be read still waits, with
+    /// none, and the reason is logged.
+    /// </summary>
+    public async Task<IReadOnlyList<ToolApprovalDetail>?> DescribeForApproval(
+        string callId,
+        string modelName,
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        if (session.FindToolByModelName(modelName)?.Builtin is not { DescribeForApproval: { } describe })
+        {
+            return null;
+        }
+
+        try
+        {
+            var call = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = modelName, Arguments = arguments };
+            var details = await describe(BuiltinCall(call, []), cancellationToken);
+            return [.. details.Select(detail => detail with { Text = session.Redactor.Redact(detail.Text) })];
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogInformation(exception, "The details of tool {ToolName} waiting in run {RunId} could not be read", modelName, session.RunId);
+            return null;
+        }
+    }
+
     public async Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken)
     {
         if (await rules.CheckArrivals(messages, cancellationToken) is { } refused)

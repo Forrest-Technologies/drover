@@ -141,6 +141,26 @@ public sealed class RunReducerTests
     }
 
     [Fact]
+    public void An_approval_request_carries_what_the_server_added_for_the_person_and_one_without_any_carries_none()
+    {
+        var log = Load(Approval);
+        var requested = RunReducer.Apply(Start(log), log.Take(log.FindIndex(stored => stored.Type == RunEventTypes.ToolRequested) + 1));
+        var call = requested.ToolCalls.Single().ToolCallId;
+        ToolApprovalDetail[] details =
+        [
+            new(ToolApprovalRequested.ModelDetail, "sample-model"),
+            new(ToolApprovalRequested.BeneathDetail, "Sample lead"),
+        ];
+
+        var withDetails = RunReducer.Apply(requested, After(requested, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(call, "request", "call", details)));
+        var plain = RunReducer.Apply(Start(log), log.Take(log.FindIndex(stored => stored.Type == RunEventTypes.RunWaiting) + 1));
+
+        withDetails.ToolCalls.Single().Should().Match<ToolCallView>(tool => tool.State == "awaiting_approval" && tool.RequestId == "request");
+        withDetails.ToolCalls.Single().Details.Should().Equal(details);
+        plain.ToolCalls.Single().Details.Should().BeNull("the recorded log is from before the server added details");
+    }
+
+    [Fact]
     public void An_event_type_this_client_does_not_know_is_skipped()
     {
         var log = Load(Approval);

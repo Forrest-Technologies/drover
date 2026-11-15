@@ -16,6 +16,19 @@ public sealed record BuiltinTool(
 {
     #region Properties
 
+    /// <summary>
+    /// The tool waits for a person before every use, on every server, whatever its grant says: the tool gate treats
+    /// allow as ask, when the agent is built and again when the call is made. A property of the tool, not of a grant,
+    /// so no grant, editor, or client can take it away.
+    /// </summary>
+    public bool AlwaysAsks { get; init; }
+
+    /// <summary>
+    /// What a person asked to approve a call should also see that the call's arguments do not say, read on the server
+    /// when the call starts to wait. It must only read. Null for a tool that adds nothing.
+    /// </summary>
+    public Func<BuiltinToolCall, CancellationToken, Task<IReadOnlyList<ToolApprovalDetail>>>? DescribeForApproval { get; init; }
+
     /// <summary>A hash of what the model is told about the tool. A change to it is a change to the definition.</summary>
     public string DefinitionHash { get; } = Convert.ToHexString(
         SHA256.HashData(Encoding.UTF8.GetBytes($"{Name}\n{Description}\n{InputSchema.GetRawText()}")));

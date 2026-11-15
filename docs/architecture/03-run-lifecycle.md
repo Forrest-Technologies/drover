@@ -86,7 +86,7 @@ The model and tool loop is the agent framework's. Drover supplies storage and go
    | Gate decision | When | Effect |
    | --- | --- | --- |
    | Run it | Effect is `allow` | A `tool_calls` row is saved as `running`, the tool runs, the redacted result is saved and returned to the model |
-   | Ask | Effect is `ask`, or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. The wrapping happens when the agent is built: the framework can only stop for approval before it invokes a tool. A gate decision of `ask` for a tool that was not wrapped (a run that became tainted mid-step) is returned to the model as a refusal that says approval is needed; see open points in [14-agent-framework.md](14-agent-framework.md#results-of-the-step-7-spike). |
+   | Ask | Effect is `ask`; or it is `allow` on a built-in tool that always asks (`crew.add`); or the run is tainted and the tool is sensitive | The tool is wrapped as approval-required, so the framework ends the run with an approval request. The row is saved as `pending_approval`. The wrapping happens when the agent is built: the framework can only stop for approval before it invokes a tool. A gate decision of `ask` for a tool that was not wrapped (a run that became tainted mid-step) is returned to the model as a refusal that says approval is needed; see open points in [14-agent-framework.md](14-agent-framework.md#results-of-the-step-7-spike). |
    | Refuse | No grant, bot paused, budget or loop check failed | A structured error result goes back to the model |
 
 6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. The status change and the event that reports it commit in one transaction.
@@ -179,7 +179,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `message.completed` | The final message as stored. Written for each model reply, once the runtime has stored it: before the reply's first tool is decided, before the next step, or when the run ends. |
 | `message.delivered` | A message that was pending, as stored now that it has its position. Written when a run starts with pending messages, and before the `message.completed` of a step a message steered. |
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
-| `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name |
+| `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name. `details`, when the tool adds any: things the person should see beside the arguments, each a name and a redacted text (`crew.add` adds `model` and `beneath`, the new bot's model and the name of the bot it goes beneath) |
 | `rule.fired` | A rule of the bot applied: rule id and name, checkpoint, effect, a sentence saying why, and the tool call id when there is one. Never the text that matched. |
 | `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, while the run waits. |
 | `tool.started` | Tool call id |

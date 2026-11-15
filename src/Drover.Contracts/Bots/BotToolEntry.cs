@@ -4,7 +4,8 @@ namespace Drover.Contracts.Bots;
 /// One tool as a bot's editor shows it: what it is, what this bot is set to, and the most it may be set to.
 /// The source is "builtin" or "connection". The grant is this bot's own setting and the ceiling is what its parent
 /// holds, each "off", "ask", or "allow"; the ceiling's bot name is that parent, when the bot has one. The state is
-/// "available", or "missing" when its server no longer lists it.
+/// "available", or "missing" when its server no longer lists it. <see cref="AlwaysAsks"/> is a built-in tool that waits
+/// for a person before every use on every server, whatever its grant: allow behaves as ask.
 /// </summary>
 public sealed record BotToolEntry(
     Guid ToolId,
@@ -18,7 +19,8 @@ public sealed record BotToolEntry(
     string Grant,
     string Ceiling,
     string? CeilingBotName,
-    string State)
+    string State,
+    bool AlwaysAsks = false)
 {
     #region Properties
 

@@ -98,6 +98,11 @@ public sealed class BotService(
             return new BotChange(null, "Choose a model for the bot.");
         }
 
+        if (await FindCountProblem(cancellationToken) is { } full)
+        {
+            return new BotChange(null, full);
+        }
+
         Bot? parent = null;
 
         if (request.ParentBotId is { } parentId)
@@ -197,6 +202,11 @@ public sealed class BotService(
             return BotChange.NotFound;
         }
 
+        if (await FindCountProblem(cancellationToken) is { } full)
+        {
+            return new BotChange(null, full);
+        }
+
         var name = CopyName(source.Name);
         var copy = new Bot
         {
@@ -233,26 +243,54 @@ public sealed class BotService(
     public Task<BotChange> Resume(Guid id, AuditActor actor, CancellationToken cancellationToken) =>
         SetStatus(id, BotStatus.Active, "bot.resumed", actor, cancellationToken);
 
-    /// <summary>Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing.</summary>
-    public async Task<BotChange> Remove(Guid id, AuditActor actor, CancellationToken cancellationToken)
+    /// <summary>
+    /// Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing. A bot with bots
+    /// beneath it needs a choice for them, and is refused in words without one, so no caller can skip the question:
+    /// <see cref="BotsBeneath.Remove"/> removes the whole branch, each bot as this one; <see cref="BotsBeneath.Keep"/>
+    /// moves the bots directly beneath it, with everything beneath them, up beneath its parent, or to the top. Either
+    /// happens whole or not at all, in the caller's scope.
+    /// </summary>
+    public async Task<BotChange> Remove(Guid id, BotsBeneath? beneath, AuditActor actor, CancellationToken cancellationToken)
     {
-        var change = await SetStatus(id, BotStatus.Removed, "bot.removed", actor, cancellationToken);
+        await bots.LockTree(cancellationToken);
 
-        if (change.Bot is not null)
+        if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
-            // A share that outlived its bot would name a bot no edit can keep, and make the other bot unsaveable.
-            await bots.RemoveSandboxSharesOf(id, cancellationToken);
-
-            // Its own sandbox is retired, not destroyed: kept, paused, for the retention period so a person can still
-            // recover its files. The server's sweep pauses it at the provider and destroys it when that is over.
-            if (await sandboxes.RetireLiveForOwner(id, time.GetUtcNow() + SandboxSweep.Retention, cancellationToken))
-            {
-                logger.LogInformation("Bot {BotId} was removed; its sandbox is retired", id);
-            }
+            return BotChange.NotFound;
         }
 
-        return change;
+        var children = await bots.ListChildren(id, cancellationToken);
+
+        if (children.Count > 0 && beneath is null)
+        {
+            return new BotChange(null, HasBotsBeneath(bot, children.Count));
+        }
+
+        var branch = beneath is BotsBeneath.Remove ? await bots.ListDescendantsForUpdate(id, cancellationToken) : [];
+
+        if (beneath is BotsBeneath.Keep && children.Count > 0
+            && await MoveUp(bot, children, actor, cancellationToken) is { } problem)
+        {
+            return new BotChange(null, problem);
+        }
+
+        await RemoveOne(bot, actor, null, cancellationToken);
+        var with = new JsonObject { ["removed_with"] = bot.Id };
+
+        foreach (var below in branch)
+        {
+            await RemoveOne(below, actor, with, cancellationToken);
+        }
+
+        return new BotChange(bot, null)
+        {
+            Beneath = beneath is BotsBeneath.Remove ? [.. branch.Select(below => below.Id)] : [.. children.Select(child => child.Id)],
+        };
     }
+
+    /// <summary>The sentence a remove is refused with when the bot has bots beneath it and no choice was made for them.</summary>
+    public static string HasBotsBeneath(Bot bot, int children) =>
+        $"{bot.Name} has {Count(children, "bot")} directly beneath it. Choose whether they are removed with it or kept and moved up.";
 
     #endregion
 
@@ -290,6 +328,127 @@ public sealed class BotService(
             bot.BuildLimits,
             bot.Status,
         });
+
+    /// <summary>
+    /// Marks one bot removed, ends the sandbox shares it gives or was given, and retires its own sandbox. A share
+    /// that outlived its bot would name a bot no edit can keep. The sandbox is retired, not destroyed: kept, paused,
+    /// for the retention period so a person can still recover its files; the server's sweep destroys it after.
+    /// </summary>
+    private async Task RemoveOne(Bot bot, AuditActor actor, JsonObject? about, CancellationToken cancellationToken)
+    {
+        var before = new JsonObject { ["status"] = Words.Of(bot.Status) };
+        bot.Status = BotStatus.Removed;
+        audit.Record(actor, "bot.removed", AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(BotStatus.Removed) }, about);
+        await bots.RemoveSandboxSharesOf(bot.Id, cancellationToken);
+
+        if (await sandboxes.RetireLiveForOwner(bot.Id, time.GetUtcNow() + SandboxSweep.Retention, cancellationToken))
+        {
+            logger.LogInformation("Bot {BotId} was removed; its sandbox is retired", bot.Id);
+        }
+
+        logger.LogInformation("Bot {BotId} is now {Status}", bot.Id, BotStatus.Removed);
+    }
+
+    /// <summary>
+    /// Moves the bots directly beneath a bot being removed up beneath its parent, or to the top, each with everything
+    /// beneath it. The parent's own cap on bots directly beneath it, and the space's, are checked first, and the move
+    /// is refused whole when they would be exceeded. Moving up never makes a branch deeper. Each moved bot's own
+    /// grants are lowered to what the removed bot could do, and one it could not use at all is taken away, so no bot
+    /// of a moved branch can do more after the move than before it, and none holds more than its new parent.
+    /// </summary>
+    private async Task<string?> MoveUp(Bot removed, List<Bot> children, AuditActor actor, CancellationToken cancellationToken)
+    {
+        var newParent = removed.ParentBotId is { } parentId ? await bots.FindBot(parentId, cancellationToken) : null;
+
+        if (newParent is not null && await FindRoomProblem(removed, newParent, children.Count, cancellationToken) is { } problem)
+        {
+            return problem;
+        }
+
+        var ceilings = await tools.ListEffectiveGrants(removed.Id, cancellationToken);
+
+        foreach (var child in children)
+        {
+            await LowerGrants(child, ceilings, actor, cancellationToken);
+            await bots.MoveUp(child.Id, removed.Id, newParent?.Id, cancellationToken);
+            audit.Record(
+                actor,
+                "bot.moved",
+                AuditTargets.Bot,
+                child.Id,
+                new JsonObject { ["parent_bot_id"] = removed.Id },
+                new JsonObject { ["parent_bot_id"] = newParent?.Id },
+                new JsonObject { ["removed_bot_id"] = removed.Id });
+            logger.LogInformation("Bot {BotId} moved up from beneath {RemovedBotId}", child.Id, removed.Id);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Why the bots beneath a removed bot cannot move up beneath its parent, or null when they can. They take the
+    /// removed bot's place, so the parent's count grows by one less than the number moved; moving a single bot up
+    /// never changes it, and is never refused.
+    /// </summary>
+    private async Task<string?> FindRoomProblem(Bot removed, Bot newParent, int moving, CancellationToken cancellationToken)
+    {
+        var after = await bots.CountChildren(newParent.Id, cancellationToken) - 1 + moving;
+        var caps = await GetSpaceCaps(cancellationToken);
+        var most = new[] { caps.MaxChildrenPerBot, newParent.BuildLimits.MaxChildren }.Min();
+
+        return moving > 1 && most is { } cap && after > cap
+            ? $"{newParent.Name} may have at most {Count(cap, "bot")} directly beneath it, so the {moving} bots beneath {removed.Name} cannot move up to it. Remove them with {removed.Name}, or remove some of them first."
+            : null;
+    }
+
+    /// <summary>A moved bot's own grants, each lowered to the removed bot's effective grant, or taken away where it had none.</summary>
+    private async Task LowerGrants(Bot moved, Dictionary<Guid, GrantEffect> ceilings, AuditActor actor, CancellationToken cancellationToken)
+    {
+        var own = await tools.ListOwnGrants(moved.Id, cancellationToken);
+        var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
+
+        foreach (var grant in own)
+        {
+            var lowered = ceilings.TryGetValue(grant.ToolId, out var ceiling) ? GrantRules.Min(grant.Effect, ceiling) : (GrantEffect?)null;
+
+            if (lowered == grant.Effect)
+            {
+                continue;
+            }
+
+            var before = GrantService.Snapshot(grant);
+
+            if (lowered is { } effect)
+            {
+                grant.Effect = effect;
+            }
+            else
+            {
+                tools.Remove(grant);
+            }
+
+            var about = new JsonObject { ["tool_id"] = grant.ToolId, ["tool"] = names.GetValueOrDefault(grant.ToolId, grant.ToolId.ToString()) };
+            audit.Record(actor, "grant.changed", AuditTargets.Bot, moved.Id, before, GrantService.Snapshot(lowered is null ? null : grant), about);
+        }
+    }
+
+    private async Task<SpaceSettings> GetSpaceCaps(CancellationToken cancellationToken) =>
+        tenant.SpaceId is { } spaceId ? (await accounts.GetSpace(spaceId, cancellationToken))?.Settings ?? new() : new();
+
+    /// <summary>
+    /// Why the space cannot hold another bot, or null when it can: its bots that have not been removed, against the
+    /// deployment's cap narrowed by the space's own. Takes the tree lock first, so two additions count one after the other.
+    /// </summary>
+    private async Task<string?> FindCountProblem(CancellationToken cancellationToken)
+    {
+        await bots.LockTree(cancellationToken);
+        var most = policies.MaxBots(await GetSpaceCaps(cancellationToken));
+        var live = await bots.CountLiveBots(cancellationToken);
+
+        return live >= most
+            ? $"This space allows at most {Count(most, "bot")}, and already has {live}. Remove a bot to make room for another."
+            : null;
+    }
 
     private static string CopyName(string name)
     {
@@ -559,17 +718,17 @@ public sealed class BotService(
     /// </summary>
     private async Task<string?> FindTreeProblem(Bot parent, CancellationToken cancellationToken)
     {
-        var caps = tenant.SpaceId is { } spaceId ? (await accounts.GetSpace(spaceId, cancellationToken))?.Settings : null;
+        var caps = await GetSpaceCaps(cancellationToken);
         var depth = parent.Depth + 1;
 
-        if (caps?.MaxBotDepth is { } maxDepth && depth > maxDepth)
+        if (caps.MaxBotDepth is { } maxDepth && depth > maxDepth)
         {
             return $"This space allows bots at most {Count(maxDepth, "level")} below the top, so {parent.Name} cannot have a bot beneath it.";
         }
 
         var children = await bots.CountChildren(parent.Id, cancellationToken);
 
-        if (caps?.MaxChildrenPerBot is { } maxChildren && children >= maxChildren)
+        if (caps.MaxChildrenPerBot is { } maxChildren && children >= maxChildren)
         {
             return $"This space allows at most {Count(maxChildren, "bot")} directly beneath one bot, and {parent.Name} already has {children}.";
         }

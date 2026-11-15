@@ -88,7 +88,8 @@ public sealed record PartView(
 /// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, approved, denied, running,
 /// completed, failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
 /// <see cref="Pieces"/> is what the tool printed while it ran, in the order it arrived, a piece for each run of one
-/// stream; <see cref="Output"/> is the same text with the streams joined.
+/// stream; <see cref="Output"/> is the same text with the streams joined. <see cref="Details"/> is what the server
+/// added for the person asked to approve the call, beside its arguments; see <see cref="ToolApprovalRequested"/>.
 /// </summary>
 public sealed record ToolCallView(
     Guid ToolCallId,
@@ -100,7 +101,8 @@ public sealed record ToolCallView(
     bool IsError = false,
     string Preview = "",
     long DurationMs = 0,
-    string? RequestId = null)
+    string? RequestId = null,
+    IReadOnlyList<ToolApprovalDetail>? Details = null)
 {
     public ImmutableList<ToolOutputPiece> Pieces { get; init; } = [];
 

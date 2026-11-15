@@ -211,6 +211,18 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var cap = int.Parse(Setting(nameof(DeploymentPolicy.MaxBotsPerSpace)), CultureInfo.InvariantCulture);
+
+        policies.MaxBots(new SpaceSettings()).Should().Be(cap);
+        policies.MaxBots(new SpaceSettings { MaxBots = cap + 1 }).Should().Be(cap);
+        policies.MaxBots(new SpaceSettings { MaxBots = 2 }).Should().Be(2);
+    }
+
+    [Fact]
     public async Task AllowBotsBuildingBots_decides_whether_a_new_bot_at_the_top_is_given_the_crew_tools()
     {
         var (email, password, _, spaceId) = await SeedPerson("crewlead");

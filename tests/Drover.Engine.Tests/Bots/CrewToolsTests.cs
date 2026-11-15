@@ -28,6 +28,11 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         world.StartHost();
 
         var runId = await world.Post(await world.NewThread(), "We need someone to find sources.");
+        var waiting = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        waiting.Status.Should().Be(RunStatus.Waiting, "making a bot always waits for a person, even where crew.add is set to allow");
+        (await CountBots(world)).Should().Be(1, "nothing is made before a person says yes");
+        (await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
         var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
         run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
@@ -71,6 +76,10 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         (await CountBots(world)).Should().Be(1, "nothing is made before a person says yes");
         var requested = (await world.ReadEvents(runId)).Single(stored => stored.Type == RunEventTypes.ToolRequested);
         RunWorld.Data<ToolRequested>(requested).Effect.Should().Be("ask");
+        var asked = RunWorld.Data<ToolApprovalRequested>((await world.ReadEvents(runId)).Single(stored => stored.Type == RunEventTypes.ToolApprovalRequested));
+        asked.Details.Should().Equal(
+            new ToolApprovalDetail(ToolApprovalRequested.ModelDetail, "scripted"),
+            new ToolApprovalDetail(ToolApprovalRequested.BeneathDetail, "Helper"));
 
         (await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
         var done = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
@@ -116,7 +125,7 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         var paused = await ReadBot(world, trackerId);
         await Run(world, host, scoutId, "crew.change", $$"""{"bot_id":"{{trackerId}}","status":"active"}""");
         var resumed = await ReadBot(world, trackerId);
-        var removed = await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}"}""");
+        var removed = await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}","beneath":"remove"}""");
 
         listed.GetProperty("bots").EnumerateArray().Select(bot => (bot.GetProperty("id").GetGuid(), bot.GetProperty("parent_id").GetGuid(), bot.GetProperty("description").GetString()))
             .Should().Equal((scoutId, world.BotId, "Finds sources."), (trackerId, scoutId, "Follows leads."));
@@ -125,13 +134,17 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         paused.Status.Should().Be(BotStatus.Paused);
         resumed.Status.Should().Be(BotStatus.Active, "a bot beneath the tracker's parent may resume it too");
         removed.GetProperty("status").GetString().Should().Be("removed");
+        removed.GetProperty("beneath").GetString().Should().Be("remove");
+        removed.GetProperty("bots_beneath").EnumerateArray().Select(id => id.GetGuid()).Should().Equal(trackerId);
         (await ReadBot(world, scoutId)).Status.Should().Be(BotStatus.Removed);
+        (await ReadBot(world, trackerId)).Status.Should().Be(BotStatus.Removed, "the person chose to remove the bots beneath with it");
         (await AuditAbout(world, trackerId)).Where(entry => entry.Action != "bot.created")
             .Select(entry => (entry.Action, entry.ActorKind, entry.ActorId))
             .Should().Equal(
                 ("bot.updated", ActorKind.Bot, world.BotId),
                 ("bot.paused", ActorKind.Bot, world.BotId),
-                ("bot.resumed", ActorKind.Bot, scoutId));
+                ("bot.resumed", ActorKind.Bot, scoutId),
+                ("bot.removed", ActorKind.Bot, world.BotId));
         (await AuditAbout(world, scoutId)).Should().ContainSingle(entry => entry.Action == "bot.removed" && entry.ActorId == world.BotId);
     }
 
@@ -209,7 +222,7 @@ public sealed class CrewToolsTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task Removing_a_bot_beneath_retires_its_sandbox_as_a_persons_remove_does()
+    public async Task Removing_a_branch_retires_the_sandbox_of_every_bot_in_it_as_a_persons_remove_does()
     {
         var provider = new FakeSandboxProvider();
         await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
@@ -219,16 +232,91 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         });
         var host = world.StartHost();
         var scoutId = await Add(world, host, world.BotId, """{"name":"Scout"}""");
+        var trackerId = await Add(world, host, world.BotId, $$"""{"name":"Tracker","parent_id":"{{scoutId}}"}""");
         await world.Read(async db =>
         {
-            (await db.Bots.SingleAsync(bot => bot.Id == scoutId, RunWorld.Token)).SandboxPolicy = SandboxPolicy.Private;
+            foreach (var bot in await db.Bots.Where(bot => bot.Id == scoutId || bot.Id == trackerId).ToListAsync(RunWorld.Token))
+            {
+                bot.SandboxPolicy = SandboxPolicy.Private;
+            }
+
             return true;
         });
         await host.Services.GetRequiredService<SandboxBroker>().Run(Call(world, host, scoutId, "{}"), null, "true", null, null, RunWorld.Token);
+        await host.Services.GetRequiredService<SandboxBroker>().Run(Call(world, host, trackerId, "{}"), null, "true", null, null, RunWorld.Token);
 
+        await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}","beneath":"remove"}""");
+
+        (await world.Read(db => db.Sandboxes.AsNoTracking().Select(sandbox => sandbox.State).ToListAsync(RunWorld.Token)))
+            .Should().Equal(SandboxState.Retiring, SandboxState.Retiring);
+        (await world.Read(db => db.Bots.AsNoTracking().CountAsync(bot => bot.Status == BotStatus.Removed, RunWorld.Token))).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Removing_a_bot_with_bots_beneath_tells_the_model_to_ask_the_person_and_keep_moves_them_up()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.StartHost();
+        var scoutId = await Add(world, host, world.BotId, """{"name":"Scout"}""");
+        var trackerId = await Add(world, host, world.BotId, $$"""{"name":"Tracker","parent_id":"{{scoutId}}"}""");
+
+        var unasked = async () => await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}"}""");
+        var refusal = (await unasked.Should().ThrowAsync<BuiltinToolException>()).Which.Message;
+        var untouched = await CountBots(world, BotStatus.Removed);
+        var kept = await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}","beneath":"keep"}""");
+
+        refusal.Should().Be("Scout has 1 bot directly beneath it. Choose whether they are removed with it or kept and moved up. Ask the person which they want, then call crew_remove again with beneath set to remove or keep.");
+        untouched.Should().Be(0, "nothing is removed until the person has chosen");
+        Tool(host, "crew.remove").Description.Should().Contain("ask the person");
+        kept.GetProperty("beneath").GetString().Should().Be("keep");
+        (await ReadBot(world, scoutId)).Status.Should().Be(BotStatus.Removed);
+        (await ReadBot(world, trackerId)).Should().Match<Bot>(bot => bot.Status == BotStatus.Active && bot.ParentBotId == world.BotId && bot.Depth == 1);
+        (await world.Read(db => db.BotAncestors.AsNoTracking().Where(row => row.DescendantBotId == trackerId)
+                .OrderBy(row => row.Distance).Select(row => new { row.AncestorBotId, row.Distance }).ToListAsync(RunWorld.Token)))
+            .Should().Equal(new { AncestorBotId = trackerId, Distance = 0 }, new { AncestorBotId = world.BotId, Distance = 1 });
+        (await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{trackerId}}"}""")).GetProperty("status").GetString()
+            .Should().Be("removed", "a bot with nothing beneath it needs no choice");
+    }
+
+    [Fact]
+    public async Task Making_a_bot_is_refused_at_the_spaces_cap_on_its_bots_and_a_removed_bot_frees_its_place()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.StartHost();
+        await world.Read(async db =>
+        {
+            (await db.Spaces.SingleAsync(found => found.Id == world.SpaceId, RunWorld.Token)).Settings = new SpaceSettings { MaxBots = 2 };
+            return true;
+        });
+        var scoutId = await Add(world, host, world.BotId, """{"name":"Scout"}""");
+
+        var full = async () => await Run(world, host, world.BotId, "crew.add", """{"name":"Third"}""");
+        (await full.Should().ThrowAsync<BuiltinToolException>()).Which.Message.Should().Be(
+            "This space allows at most 2 bots, and already has 2. Remove a bot to make room for another.");
         await Run(world, host, world.BotId, "crew.remove", $$"""{"bot_id":"{{scoutId}}"}""");
+        await Add(world, host, world.BotId, """{"name":"Third"}""");
 
-        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).State.Should().Be(SandboxState.Retiring);
+        (await CountBots(world)).Should().Be(3, "the removed bot's row stays");
+        (await CountBots(world, BotStatus.Active)).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Making_a_bot_always_asks_and_says_what_model_it_will_use_and_which_bot_it_will_go_beneath()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.StartHost();
+        var scoutId = await Add(world, host, world.BotId, """{"name":"Scout"}""");
+        var tool = Tool(host, "crew.add");
+
+        var beneathScout = await tool.DescribeForApproval!(Call(world, host, world.BotId, $$"""{"name":"Deep","parent_id":"{{scoutId}}"}"""), RunWorld.Token);
+        var elsewhere = await tool.DescribeForApproval!(Call(world, host, scoutId, $$"""{"name":"Up","parent_id":"{{world.BotId}}"}"""), RunWorld.Token);
+
+        tool.AlwaysAsks.Should().BeTrue();
+        CrewTools.Names.Where(name => Tool(host, name).AlwaysAsks).Should().Equal(["crew.add"], "changing and removing follow their grant");
+        beneathScout.Should().Equal(
+            new ToolApprovalDetail(ToolApprovalRequested.ModelDetail, "scripted"),
+            new ToolApprovalDetail(ToolApprovalRequested.BeneathDetail, "Scout"));
+        elsewhere.Should().Equal([new ToolApprovalDetail(ToolApprovalRequested.ModelDetail, "scripted")], "a bot not beneath the caller is not named");
     }
 
     #endregion
@@ -262,6 +350,9 @@ public sealed class CrewToolsTests(PostgresServer postgres)
         world.Read(db => db.Bots.AsNoTracking().SingleAsync(bot => bot.Id == botId, RunWorld.Token));
 
     private static Task<int> CountBots(RunWorld world) => world.Read(db => db.Bots.CountAsync(RunWorld.Token));
+
+    private static Task<int> CountBots(RunWorld world, BotStatus status) =>
+        world.Read(db => db.Bots.CountAsync(bot => bot.Status == status, RunWorld.Token));
 
     private static Task<Dictionary<string, ToolGrant>> OwnGrants(RunWorld world, Guid botId) =>
         world.Read(db => db.ToolGrants.AsNoTracking()

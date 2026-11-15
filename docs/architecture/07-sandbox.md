@@ -182,7 +182,7 @@ As built:
 
 - `BotService.Remove` retires the removed bot's own live sandbox in the same transaction (`SandboxRepository.RetireLiveForOwner`: state `retiring`, due after the retention period) and removes the shares that name it. The provider is not called inside that transaction; the sweep pauses the sandbox within a minute.
 - A member that is not the owner keeps nothing: a removed bot can make no tool call, its shares are gone, and the shared sandbox carries on for the rest untouched. Stopping its processes and rotating the token by recreating the handle are not built.
-- Removing a bot does not remove its subtree. Its descendants stay; the removed bot no longer counts on their path, so a `subtree` child becomes the owner of a new sandbox on its next use, and the removed owner's sandbox is retired like any other.
+- Removing a bot with bots beneath it asks what happens to them, whatever its sandbox policy ([04-tenancy-and-permissions.md](04-tenancy-and-permissions.md#pausing-and-removing)). With `remove`, every bot of the branch is removed, and each one's own live sandbox is retired the same way. With `keep`, they move up beneath the removed bot's parent and the removed bot is no longer on their path, so a `subtree` child becomes the owner of a new sandbox on its next use, or joins the share of a `subtree` bot above, and the removed owner's sandbox is retired like any other.
 - The retention period is not a space setting yet: every space keeps seven days (`SandboxSweep.Retention`). There is no screen yet to recover files from a retired sandbox or give it to another bot.
 
 ### Retiring and the sweep

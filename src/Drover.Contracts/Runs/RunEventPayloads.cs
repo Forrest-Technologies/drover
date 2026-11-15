@@ -24,9 +24,20 @@ public sealed record ToolRequested(Guid ToolCallId, string ToolName, string Titl
 
 /// <summary>
 /// Data of <c>tool.approval_requested</c>: the call waits for a person. The request id and the model's call id are
-/// what an answer must name.
+/// what an answer must name. <see cref="Details"/> is what the server adds for the person to decide on that the call's
+/// arguments do not say, redacted like them; null when the tool adds nothing. <c>crew.add</c> adds
+/// <see cref="ModelDetail"/>, the model the new bot will use, and <see cref="BeneathDetail"/>, the name of the bot it
+/// will go beneath.
 /// </summary>
-public sealed record ToolApprovalRequested(Guid ToolCallId, string RequestId, string CallId);
+public sealed record ToolApprovalRequested(Guid ToolCallId, string RequestId, string CallId, IReadOnlyList<ToolApprovalDetail>? Details = null)
+{
+    public const string ModelDetail = "model";
+
+    public const string BeneathDetail = "beneath";
+}
+
+/// <summary>One thing a person is shown about a call that waits for them: a stable name a screen can find it by, and its text.</summary>
+public sealed record ToolApprovalDetail(string Name, string Text);
 
 /// <summary>Data of <c>tool.approved</c> and <c>tool.denied</c>: who answered the approval request.</summary>
 public sealed record ToolDecided(Guid ToolCallId, Guid DecidedByUserId);

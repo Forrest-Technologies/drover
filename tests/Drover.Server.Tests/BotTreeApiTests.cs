@@ -197,6 +197,180 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
 
     #endregion
 
+    #region The Space's Cap On Its Bots
+
+    [Fact]
+    public async Task The_spaces_cap_on_its_bots_refuses_a_bot_at_the_top_beneath_a_parent_and_a_duplicate_and_removed_bots_do_not_count()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        await SetSpaceCaps(alice.SpaceId, alice.UserId, new SpaceSettings { MaxBots = 2 });
+
+        var atTheTop = await TryCreate(client, alice.SpaceId, connection.Id, null);
+        var beneath = await TryCreate(client, alice.SpaceId, connection.Id, atlas.Id);
+        var duplicate = await client.Post($"{Space(alice.SpaceId)}/bots/{atlas.Id}/duplicate", null);
+        (await client.Delete($"{Space(alice.SpaceId)}/bots/{scout.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var afterRemoval = await TryCreate(client, alice.SpaceId, connection.Id, atlas.Id);
+
+        foreach (var refused in new[] { atTheTop, beneath, duplicate })
+        {
+            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await Title(refused)).Should().Be("This space allows at most 2 bots, and already has 2. Remove a bot to make room for another.");
+        }
+
+        afterRemoval.StatusCode.Should().Be(HttpStatusCode.Created, "a removed bot does not count");
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Select(bot => bot.Name).Should().BeEquivalentTo(["Atlas", "Child"]);
+    }
+
+    #endregion
+
+    #region Removing
+
+    [Fact]
+    public async Task Removing_a_bot_with_bots_beneath_and_no_choice_is_refused_and_changes_nothing()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+
+        var unasked = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}");
+        var misspelled = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}?beneath=both");
+
+        unasked.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(unasked)).Should().Be("Atlas has 1 bot directly beneath it. Choose whether they are removed with it or kept and moved up.");
+        misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(misspelled)).Should().Be("Choose remove or keep for the bots beneath it.");
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Should().HaveCount(2, "nothing was removed");
+    }
+
+    [Fact]
+    public async Task Removing_with_remove_takes_the_whole_branch_and_nothing_beside_it()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
+        var finder = await CreateBot(client, alice.SpaceId, connection.Id, "Finder", tracker.Id);
+        await CreateBot(client, alice.SpaceId, connection.Id, "Ranger", atlas.Id);
+
+        var removed = await client.Delete($"{Space(alice.SpaceId)}/bots/{scout.Id}?beneath=remove");
+
+        removed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Select(bot => bot.Name).Should().BeEquivalentTo(["Atlas", "Ranger"]);
+        foreach (var below in new[] { tracker.Id, finder.Id })
+        {
+            (await Audit(alice, below)).Should().ContainSingle(entry => entry.Action == "bot.removed")
+                .Which.Data.GetProperty("removed_with").GetGuid().Should().Be(scout.Id);
+        }
+    }
+
+    [Fact]
+    public async Task Removing_with_keep_moves_the_bots_beneath_up_and_rewrites_the_tree_beneath_them()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var root = await CreateBot(client, alice.SpaceId, connection.Id, "Root");
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas", root.Id);
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
+
+        var kept = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}?beneath=keep");
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{scout.Id}/definition"))
+            .Should().Match<BotDetail>(bot => bot.ParentBotId == root.Id && bot.Depth == 1 && bot.Status == "active");
+        (await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{tracker.Id}/definition"))
+            .Should().Match<BotDetail>(bot => bot.ParentBotId == scout.Id && bot.Depth == 2);
+        (await Closure(alice, tracker.Id)).Should().Equal((tracker.Id, 0), (scout.Id, 1), (root.Id, 2));
+        (await Closure(alice, scout.Id)).Should().Equal((scout.Id, 0), (root.Id, 1));
+        (await Audit(alice, scout.Id)).Should().ContainSingle(entry => entry.Action == "bot.moved");
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Select(bot => bot.Name).Should().BeEquivalentTo(["Root", "Scout", "Tracker"]);
+    }
+
+    [Fact]
+    public async Task Bots_kept_from_beneath_a_removed_bot_and_moved_to_the_top_can_do_no_more_than_before()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var tools = await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools");
+        var time = tools.Single(entry => entry.Name == "time.now").ToolId;
+        var list = tools.Single(entry => entry.Name == "crew.list").ToolId;
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
+        await SetGrant(client, alice.SpaceId, scout.Id, list, "ask");
+        await SetGrant(client, alice.SpaceId, atlas.Id, time, "ask");
+        await SetGrant(client, alice.SpaceId, atlas.Id, list, "off");
+
+        var kept = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}?beneath=keep");
+        var scoutTools = await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{scout.Id}/tools");
+        var effective = await InSpace(alice.SpaceId, alice.UserId, services =>
+            services.GetRequiredService<ToolRepository>().ListEffectiveGrants(tracker.Id, Token));
+
+        kept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{scout.Id}/definition"))
+            .Should().Match<BotDetail>(bot => bot.ParentBotId == null && bot.Depth == 0);
+        (await Closure(alice, tracker.Id)).Should().Equal((tracker.Id, 0), (scout.Id, 1));
+        scoutTools.Single(entry => entry.ToolId == time).Grant.Should().Be("ask", "it was lowered to what Atlas could do");
+        scoutTools.Single(entry => entry.ToolId == list).Grant.Should().Be("off", "Atlas could not use it, so it was taken away");
+        effective.Should().Equal(new Dictionary<Guid, GrantEffect> { [time] = GrantEffect.Ask });
+        (await Audit(alice, scout.Id)).Where(entry => entry.Action == "grant.changed" && entry.ActorId == alice.UserId).Should().HaveCount(3,
+            "the person's own change and the two the move made are each recorded");
+    }
+
+    [Fact]
+    public async Task Keeping_more_bots_than_the_parent_has_room_for_is_refused_whole()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var root = await CreateBot(client, alice.SpaceId, connection.Id, "Root");
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas", root.Id);
+        await CreateBot(client, alice.SpaceId, connection.Id, "Other", root.Id);
+        var first = await CreateBot(client, alice.SpaceId, connection.Id, "First", atlas.Id);
+        await CreateBot(client, alice.SpaceId, connection.Id, "Second", atlas.Id);
+        await SetBuildLimits(client, alice.SpaceId, root.Id, new BuildLimitsBody(2, null));
+
+        var kept = await client.Delete($"{Space(alice.SpaceId)}/bots/{atlas.Id}?beneath=keep");
+
+        kept.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(kept)).Should().Be("Root may have at most 2 bots directly beneath it, so the 2 bots beneath Atlas cannot move up to it. Remove them with Atlas, or remove some of them first.");
+        (await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{first.Id}/definition")).ParentBotId.Should().Be(atlas.Id);
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Should().HaveCount(5, "nothing was removed or moved");
+    }
+
+    [Fact]
+    public async Task A_bot_with_nothing_beneath_it_is_removed_without_a_choice_through_the_client()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var atlas = await CreateBot(client, alice.SpaceId, connection.Id, "Atlas");
+        var scout = await CreateBot(client, alice.SpaceId, connection.Id, "Scout", atlas.Id);
+        var tracker = await CreateBot(client, alice.SpaceId, connection.Id, "Tracker", scout.Id);
+        var api = new DroverApi(NewRelay(client)) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
+
+        await api.RemoveBot(alice.SpaceId, tracker.Id, cancellationToken: Token);
+        var unasked = async () => await api.RemoveBot(alice.SpaceId, atlas.Id, cancellationToken: Token);
+        var refused = await unasked.Should().ThrowAsync<DroverApiException>();
+        await api.RemoveBot(alice.SpaceId, atlas.Id, removeBeneath: false, Token);
+
+        refused.Which.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        refused.Which.Message.Should().Be("Atlas has 1 bot directly beneath it. Choose whether they are removed with it or kept and moved up.");
+        (await GetFor<List<BotSummary>>(client, $"{Space(alice.SpaceId)}/bots")).Select(bot => bot.Name).Should().Equal("Scout");
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
@@ -238,6 +412,21 @@ public sealed class BotTreeApiTests(PostgresServer postgres) : ServerTestBase(po
             space.Settings = settings;
             return await db.SaveChangesAsync(Token);
         });
+
+    private static async Task SetGrant(ApiClient client, Guid spaceId, Guid botId, Guid toolId, string grant) =>
+        (await client.Put($"{Space(spaceId)}/bots/{botId}/tools/{toolId}", new SetToolGrantRequest(grant))).EnsureSuccessStatusCode();
+
+    /// <summary>The bot's closure rows, nearest first: each bot above it, and itself at distance 0.</summary>
+    private async Task<List<(Guid, int)>> Closure((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid botId) =>
+        [
+            .. (await InSpace(person.SpaceId, person.UserId, services =>
+                services.GetRequiredService<DroverDbContext>().BotAncestors.AsNoTracking()
+                    .Where(row => row.DescendantBotId == botId)
+                    .OrderBy(row => row.Distance)
+                    .Select(row => new { row.AncestorBotId, row.Distance })
+                    .ToListAsync(Token)))
+                .Select(row => (row.AncestorBotId, row.Distance)),
+        ];
 
     private Task<List<AuditLogEntry>> Audit((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid botId) =>
         InSpace(person.SpaceId, person.UserId, services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(botId, Token));

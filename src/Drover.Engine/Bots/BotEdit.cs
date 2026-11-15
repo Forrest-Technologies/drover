@@ -39,8 +39,21 @@ public sealed record BotChange(Bot? Bot, string? Problem)
     /// <summary>The bots the changed bot's sandbox is shared with, as they are once the change is saved.</summary>
     public IReadOnlyList<Guid> SandboxSharedWith { get; init; } = [];
 
+    /// <summary>The bots beneath a removed bot that went with it or moved up, by the choice the person made.</summary>
+    public IReadOnlyList<Guid> Beneath { get; init; } = [];
+
     /// <summary>The changed bot as its editor shows it, or null when the change did not happen.</summary>
     public BotView? View => Bot is null ? null : new BotView(Bot, SandboxSharedWith);
+}
+
+/// <summary>
+/// What happens to the bots beneath a bot that is removed: they are removed with it, or they are kept and move up
+/// beneath its parent, or to the top. A bot with nothing beneath it needs no choice.
+/// </summary>
+public enum BotsBeneath
+{
+    Remove,
+    Keep,
 }
 
 /// <summary>A bot with the bots its sandbox is shared with.</summary>
