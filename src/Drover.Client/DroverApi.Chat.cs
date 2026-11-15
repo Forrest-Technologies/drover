@@ -25,6 +25,10 @@ public sealed partial class DroverApi
     public Task<ThreadSummary> CreateThread(Guid spaceId, Guid botId, string? title = null, CancellationToken cancellationToken = default) =>
         Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title), cancellationToken);
 
+    /// <summary>
+    /// The caller's one main thread with the bot, made the first time it is asked for. Asking again returns the same
+    /// thread; every other thread with the bot is a side chat.
+    /// </summary>
     public Task<ThreadSummary> OpenMainThread(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/main-thread", null, cancellationToken);
 
@@ -34,13 +38,6 @@ public sealed partial class DroverApi
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
-
-    /// <summary>
-    /// The tool events of the thread's runs, each run's oldest first, already redacted. Feed them to
-    /// <see cref="ToolHistory.From"/> to show past tool calls as they were shown live.
-    /// </summary>
-    public Task<List<RunEventResponse>> ListToolEvents(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
-        Get<List<RunEventResponse>>($"{Space(spaceId)}/threads/{threadId}/tool-events", cancellationToken);
 
     /// <summary>
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:

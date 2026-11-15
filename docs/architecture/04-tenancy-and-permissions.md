@@ -25,7 +25,7 @@ The SQL and the EF Core mechanism in this section were run against PostgreSQL 16
 
 `DatabaseBootstrap` creates the roles and the schema-level grants. It runs before the migrations, over a superuser connection (granting `BYPASSRLS` needs one), holds an advisory lock, and is safe to run again from several servers at once. `drover_owner` is made a member of `drover_system` so that a migration can hand a `sys` function to it. `drover_owner` creates the `sys` schema's functions, so it owns the schema; `drover_app` has `USAGE` on `sys` and on `public`, and `drover_owner` alone has `CREATE`. `PUBLIC` has no privileges on the database, `public`, or `sys`, which also takes away temporary tables.
 
-`drover_app` has `SELECT, INSERT, UPDATE, DELETE` on mutable tenant tables. `audit_log` is append-only: only `SELECT, INSERT` are granted. `threads` permits `UPDATE` only on `id`, `space_id`, `audience_user_id`, `bot_id`, `title`, `origin`, `last_activity_at`, and `archived_at`. No tenant table permits `TRUNCATE`. The isolation suite checks these declared grants independently of the catalog, alongside behavioral isolation checks. The role has `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
+`drover_app` has `SELECT, INSERT, UPDATE, DELETE` on mutable tenant tables. `audit_log` is append-only: only `SELECT, INSERT` are granted. `threads` permits `UPDATE` only on `id`, `space_id`, `audience_user_id`, `bot_id`, `title`, `origin`, `last_activity_at`, `archived_at`, and `is_main`. No tenant table permits `TRUNCATE`. The isolation suite checks these declared grants independently of the catalog, alongside behavioral isolation checks. The role has `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
 
 ### Policies
 
@@ -342,6 +342,8 @@ Creating a bot, in one transaction with the parent row locked:
 5. Rows are written to `bots`, `bot_ancestors`, `tool_grants`, and `audit_log`.
 
 A child can receive `bots.create` only if its parent holds it and the depth cap leaves room.
+
+A person creating a bot beneath another through the API (`CreateBotRequest.ParentBotId`, owners and admins only) goes through the same tree rules: the parent row is locked, the space caps and the `build_limits` of the parent and every bot above it are checked, and the closure rows are written. The tools a new bot starts with are lowered to the parent's effective grants instead of refused, because the person did not choose them; see [02-data-model.md](02-data-model.md#bots).
 
 ### Delegation targets
 

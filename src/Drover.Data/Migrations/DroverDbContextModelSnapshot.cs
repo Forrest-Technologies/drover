@@ -1551,6 +1551,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("bot_id");
 
+                    b.Property<bool>("IsMain")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_main");
+
                     b.Property<DateTimeOffset>("LastActivityAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1587,6 +1591,11 @@ namespace Drover.Data.Migrations
 
                     b.HasIndex("SpaceId", "BotId")
                         .HasDatabaseName("ix_threads_space_id_bot_id");
+
+                    b.HasIndex("SpaceId", "BotId", "OwnerUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_threads_space_id_bot_id_owner_user_id")
+                        .HasFilter("is_main");
 
                     b.ToTable("threads", null, t =>
                         {

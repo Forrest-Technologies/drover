@@ -15,7 +15,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     {
         [nameof(Bot.Id)] = "identity",
         [nameof(Bot.SpaceId)] = "the tenant, stamped by the database layer",
-        [nameof(Bot.ParentBotId)] = "the tree changes only when a bot builds a bot, which is not part of the editor",
+        [nameof(Bot.ParentBotId)] = "set once, when the bot is created; the editor does not move a bot",
         [nameof(Bot.Depth)] = "follows the parent",
         [nameof(Bot.CreatedByUserId)] = "provenance",
         [nameof(Bot.CreatedByBotId)] = "provenance",
@@ -678,7 +678,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         return result;
     }
 
-    /// <summary>A bot beneath another, which only a bot building a bot makes; the editor has no route for it.</summary>
+    /// <summary>A bot beneath another, made directly in the database so the test controls every column.</summary>
     private Task<Guid> SeedChild(Guid spaceId, Guid userId, Guid parentId, string name) =>
         InSpace(spaceId, userId, async services =>
         {

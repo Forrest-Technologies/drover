@@ -29,5 +29,8 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
 
     public DateTimeOffset? ArchivedAt { get; set; }
 
+    /// <summary>The owner's one main conversation with the bot. A person has at most one per bot, and it takes no title.</summary>
+    public bool IsMain { get; set; }
+
     #endregion
 }

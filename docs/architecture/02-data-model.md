@@ -47,7 +47,7 @@ What is shared by the whole space, and has no audience column: bots, grants, con
 | --- | --- | --- | --- |
 | Delete the space, transfer ownership, change billing | Yes | No | No |
 | Manage members and roles | Yes | Yes, except owners | No |
-| Create and edit connections, top-level bots, grants, caps | Yes | Yes | No |
+| Create and edit connections, bots (at the top or beneath another), grants, caps | Yes | Yes | No |
 | See and override the whole bot tree, cancel any run | Yes | Yes | No |
 | Chat with bots, own threads, sign in to per-user connections | Yes | Yes | Yes |
 | Approve "ask" tool calls | Own runs, and any run | Own runs, and any run | Own runs |
@@ -70,6 +70,7 @@ Notes:
 - `status` is `active`, `paused`, or `removed`. A bot is effectively paused when it or any ancestor is paused.
 - `sandbox_policy` is `none`, `private`, `subtree`, or `named`. A bot with a sandbox defaults to `private`.
 - `build_limits` narrows the space caps for one bot: how many children it may create and how deep beneath itself.
+- A person who may create bots (owner or admin) creates one at the top of the tree or beneath a parent of the same space that has not been removed. The parent row is locked while the child is added, so two additions count its children one after the other. The space caps `max_bot_depth` (the deepest a bot may sit, the top being 0) and `max_children_per_bot`, the parent's `build_limits.max_children`, and the `build_limits.max_depth_below` of the parent and of every bot above it each refuse the request in words when they would be exceeded; a cap left empty does not limit, and removed children do not count. `max_bots` is stored and not yet enforced. The child's `depth` is the parent's plus one, and its `bot_ancestors` rows are its own at distance 0 and the parent's rows each one step further. Of the tools every new bot starts with, the child gets each only as far as the parent's `effective_grants` give it: lowered to the parent's effect, and left out when the parent has none. The `bot.created` audit entry names the parent.
 - `bot_ancestors` is a closure table that includes each bot's row to itself at distance 0. "Is X beneath Y" is one primary key lookup; "everything beneath Y" is one indexed scan. It is plain relational data, needs no extension, and is rewritten only when the tree changes, which is rare.
 - `bot_rules` holds a bot's rules: limits a person writes and the server enforces in code, described in [04-tenancy-and-permissions.md](04-tenancy-and-permissions.md). `checkpoint` is `before_tool`, `after_tool`, `before_reply`, or `message_arrives`; `effect` is `redact`, `ask`, `block`, or `stop`; `conditions` is a list of at most ten typed conditions, validated at save. A bot has at most fifty. A bot follows its own rules and those of every bot above it, read through `bot_ancestors`; no row and no column lets a child switch an ancestor's rule off.
 - `tool_grants.effect` is `allow`, `ask`, or `deny`. No row means the bot cannot see the tool. `review_state` is `current` or `needs_review`; see tool definition pinning in [06-mcp.md](06-mcp.md).
@@ -119,7 +120,7 @@ Notes:
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null` |
+| `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null`, `is_main` |
 | `messages` | Space-owned with an audience, inherited from the thread | `id`, `thread_id`, `audience_user_id`, `position null`, `steers`, `withheld`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `parts jsonb`, `created_at` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at` |
 | `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq, created_at)`, because PostgreSQL requires the partition column in every unique key |
@@ -139,6 +140,7 @@ Notes:
 - `tool_calls.arguments` and `result` are stored after redaction ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Large results go to a file and the row keeps a preview.
 - A thread is private to its owner by default. Sharing it with the space sets its audience to everyone, and the cascade carries that to its messages, events, and tool calls. A check constraint allows only two audiences for a thread, its owner or everyone, and the app role has no privilege to update `owner_user_id`, so one member cannot take over another's thread.
 - A delegated child run's thread inherits the audience of the root thread.
+- `is_main` marks a person's one main thread with a bot, the conversation a person lands in when they pick the bot; every other thread with it is a side chat. A unique index over `(space_id, bot_id, owner_user_id) where is_main` allows at most one per person per bot. `PUT .../bots/{botId}/main-thread` returns the caller's main thread and makes it when there is none: private to them, origin `chat`, no title. It makes one only while the bot is active, the same rule as making any thread. Two requests that race insert with `ON CONFLICT DO NOTHING` on that index, so the one that loses stores nothing, keeps a usable transaction, and reads the winner's row. A side chat with no title is named after its first message; a main thread never takes a title that way. The migration that added the column made each person's open (not archived) `chat` thread with the latest `last_activity_at` their main one with that bot. Because the policies are forced on the table's owner too and a migration has no tenant, that one statement runs with the policies switched off for the owner and forced again inside the migration's transaction.
 - A foreign key to an audience table must carry `audience_user_id` (the isolation suite checks this), so a table with no audience column cannot have one. That is why these are plain `uuid` columns with no foreign key: `runs.thread_id`, `runs.trigger_message_id`, `runs.parent_tool_call_id` (runs are metadata with no audience), `tool_calls.result_file_id`, `model_connections.secret_id`, `sandboxes.access_secret_id`. The application sets them from rows it has just read inside the same space.
 - Sharing a thread is one `UPDATE threads SET audience_user_id = ...`. The audience is part of an alternate key, so EF Core refuses to change it through a tracked entity; the service uses `ExecuteUpdate` or SQL.
 - Settings and value records (`model_settings`, `memory_settings`, `sandbox_settings`, `build_limits`, `avatar`, `usage`, `error`, `capabilities`, `pricing`, `balance`, `oauth`, message `parts`) are records in `Drover.Domain`, stored as snake_case JSON. Message parts are defined in `Drover.Domain`, not `Drover.Contracts`. Open-shaped payloads (`input_schema`, `annotations`, tool `arguments` and `result`, event `data`, session `state`) are plain JSON.
@@ -169,6 +171,7 @@ Phase 1 adds `memories` (space-owned with an audience, with a `vector` column) a
 | `run_events (space_id, root_run_id, seq, created_at)` primary key | Replay from a cursor |
 | `tool_calls (space_id, status)` partial on `pending_approval` | Approval inbox |
 | `messages (space_id, thread_id, position)` unique | Thread paging |
+| `threads (space_id, bot_id, owner_user_id)` unique, partial on `is_main` | One main thread per person per bot |
 | `bot_ancestors (space_id, ancestor_bot_id)` and primary key `(space_id, descendant_bot_id, ancestor_bot_id)` | Hierarchy checks both directions |
 | `tools (space_id, tool_connection_id, name)` unique | Catalog upsert |
 

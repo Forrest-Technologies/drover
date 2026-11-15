@@ -106,7 +106,7 @@ public sealed class RunService(
                 }
 
                 await messages.AppendMessages(thread, [message], cancellationToken);
-                thread.Title ??= ThreadService.Shorten(text.Trim()[..Math.Min(text.Trim().Length, TitleLength)]);
+                TitleFromFirstMessage(thread, text);
                 (run, appended) = await queue.Queue(thread, message, userId, cancellationToken);
             }
 
@@ -214,6 +214,15 @@ public sealed class RunService(
         Parts = [new TextPart(text)],
         CreatedAt = time.GetUtcNow(),
     };
+
+    /// <summary>A side chat is named after its first message. A main thread is the bot's conversation and takes no title.</summary>
+    private static void TitleFromFirstMessage(ChatThread thread, string text)
+    {
+        if (!thread.IsMain)
+        {
+            thread.Title ??= ThreadService.Shorten(text.Trim()[..Math.Min(text.Trim().Length, TitleLength)]);
+        }
+    }
 
     private static NewRunEvent CancelledEvent(Run run) =>
         RunEventWriter.Event(

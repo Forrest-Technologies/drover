@@ -21,6 +21,28 @@ public sealed class ThreadRepository(DroverDbContext db)
         (await db.Threads.FromSql($"SELECT * FROM threads WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
             .SingleOrDefault();
 
+    /// <summary>The person's main thread with the bot, or null when they have none yet.</summary>
+    public Task<ChatThread?> FindMainThread(Guid botId, Guid ownerUserId, CancellationToken cancellationToken) =>
+        db.Threads.AsNoTracking()
+            .SingleOrDefaultAsync(
+                thread => thread.BotId == botId && thread.OwnerUserId == ownerUserId && thread.IsMain,
+                cancellationToken);
+
+    /// <summary>
+    /// Stores a new private chat thread as its owner's main thread with its bot, unless they already have one, and
+    /// says whether it was stored. When two requests race, the unique index lets one in; the other waits for it and
+    /// stores nothing without failing its transaction, so it can read the winner's row. The space is the
+    /// transaction's own.
+    /// </summary>
+    public async Task<bool> AddMainThread(Guid botId, Guid ownerUserId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO threads (id, space_id, bot_id, owner_user_id, audience_user_id, origin, last_activity_at, is_main)
+            VALUES ({Guid.CreateVersion7()}, sys.current_space(), {botId}, {ownerUserId}, {ownerUserId}, 'chat', {now}, true)
+            ON CONFLICT (space_id, bot_id, owner_user_id) WHERE is_main DO NOTHING
+            """,
+            cancellationToken) == 1;
+
     /// <summary>The threads with one bot that the caller may see and has not archived, newest activity first.</summary>
     public Task<List<ChatThread>> ListThreadsForBot(Guid botId, int limit, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking()

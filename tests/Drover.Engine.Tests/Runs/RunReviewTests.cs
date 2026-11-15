@@ -118,7 +118,7 @@ public sealed class RunReviewTests(PostgresServer postgres)
         await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
 
         var botId = await world.Transact(async services =>
-            (await services.GetRequiredService<BotService>().Create("Second", string.Empty, world.ConnectionId, null, world.UserId, RunWorld.Token)).Bot!.Id);
+            (await services.GetRequiredService<BotService>().Create("Second", string.Empty, world.ConnectionId, null, null, world.UserId, RunWorld.Token)).Bot!.Id);
         var granted = await world.Transact(async services =>
             (await services.GetRequiredService<ToolRepository>().ListGrantedTools(botId, RunWorld.Token)).Select(tool => tool.Tool.Name).ToList());
 

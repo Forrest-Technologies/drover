@@ -70,6 +70,34 @@ public sealed class ThreadService(
         return thread;
     }
 
+    /// <summary>
+    /// The caller's main thread with the bot, made now when they have none: private to them, with no title. Null
+    /// when the bot does not exist here, or when there is no main thread yet and the bot cannot be talked to.
+    /// </summary>
+    public async Task<ThreadView?> OpenMainThread(Guid botId, Guid ownerUserId, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var main = await threads.FindMainThread(botId, ownerUserId, cancellationToken);
+
+        if (main is null)
+        {
+            if (bot.Status is not BotStatus.Active)
+            {
+                return null;
+            }
+
+            // Whether this request stored it or a racing one did, the row is there to read now.
+            await threads.AddMainThread(botId, ownerUserId, time.GetUtcNow(), cancellationToken);
+            main = await threads.FindMainThread(botId, ownerUserId, cancellationToken);
+        }
+
+        return main is null ? null : new ThreadView(main, (await runs.FindActiveRun(main.Id, cancellationToken))?.Id);
+    }
+
     public async Task<ThreadView?> FindThread(Guid threadId, CancellationToken cancellationToken)
     {
         var thread = await threads.FindThread(threadId, cancellationToken);

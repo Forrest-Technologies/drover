@@ -9,6 +9,8 @@ public sealed class BotService(
     ModelConnectionRepository connections,
     ToolRepository tools,
     ToolCatalog catalog,
+    AccountRepository accounts,
+    TenantContext tenant,
     AuditLog audit,
     PolicyService policies,
     SandboxRepository sandboxes,
@@ -58,12 +60,16 @@ public sealed class BotService(
             ? new BotView(bot, await bots.ListSandboxShares(id, cancellationToken))
             : null;
 
-    /// <summary>Creates a bot with no parent and gives it the tools every new bot starts with.</summary>
+    /// <summary>
+    /// Creates a bot, at the top of the tree or beneath a parent of this space, and gives it the tools every new bot
+    /// starts with. A bot beneath a parent gets each of those tools only as far as the parent holds it now.
+    /// </summary>
     public async Task<BotChange> Create(
         string name,
         string instructions,
         Guid modelConnectionId,
         string? model,
+        Guid? parentBotId,
         Guid createdByUserId,
         CancellationToken cancellationToken)
     {
@@ -91,6 +97,23 @@ public sealed class BotService(
             return new BotChange(null, "Choose a model for the bot.");
         }
 
+        Bot? parent = null;
+
+        if (parentBotId is { } parentId)
+        {
+            parent = await bots.LockBot(parentId, cancellationToken);
+
+            if (parent is null)
+            {
+                return new BotChange(null, "Choose a parent bot of this space.");
+            }
+
+            if (await FindTreeProblem(parent, cancellationToken) is { } problem)
+            {
+                return new BotChange(null, problem);
+            }
+        }
+
         var bot = new Bot
         {
             Name = name.Trim(),
@@ -98,11 +121,13 @@ public sealed class BotService(
             Instructions = instructions,
             ModelConnectionId = connection.Id,
             Model = chosen,
+            ParentBotId = parent?.Id,
+            Depth = parent is null ? 0 : parent.Depth + 1,
             CreatedByUserId = createdByUserId,
         };
-        bots.AddRootBot(bot);
-        var granted = await GrantDefaultTools(bot, createdByUserId, cancellationToken);
-        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted));
+        var granted = await AddToTree(bot, parent, createdByUserId, cancellationToken);
+        var about = parent is null ? null : new JsonObject { ["parent_bot_id"] = parent.Id };
+        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted), about);
 
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
@@ -524,18 +549,85 @@ public sealed class BotService(
             ? $"A build limit is a whole number from 0 to {MaxBuildLimit}."
             : null;
 
-    private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Why a bot cannot be added beneath this parent, or null when it can: the space's caps on depth and on bots
+    /// beneath one bot, the parent's own limit on its children, and each bot above's limit on how deep beneath it
+    /// the tree may go. A cap left empty does not limit.
+    /// </summary>
+    private async Task<string?> FindTreeProblem(Bot parent, CancellationToken cancellationToken)
+    {
+        var caps = tenant.SpaceId is { } spaceId ? (await accounts.GetSpace(spaceId, cancellationToken))?.Settings : null;
+        var depth = parent.Depth + 1;
+
+        if (caps?.MaxBotDepth is { } maxDepth && depth > maxDepth)
+        {
+            return $"This space allows bots at most {Count(maxDepth, "level")} below the top, so {parent.Name} cannot have a bot beneath it.";
+        }
+
+        var children = await bots.CountChildren(parent.Id, cancellationToken);
+
+        if (caps?.MaxChildrenPerBot is { } maxChildren && children >= maxChildren)
+        {
+            return $"This space allows at most {Count(maxChildren, "bot")} directly beneath one bot, and {parent.Name} already has {children}.";
+        }
+
+        if (parent.BuildLimits.MaxChildren is { } ownMax && children >= ownMax)
+        {
+            return $"{parent.Name} may have at most {Count(ownMax, "bot")} directly beneath it, and already has {children}.";
+        }
+
+        var limiting = (await bots.ListSelfAndAncestors(parent.Id, cancellationToken))
+            .FirstOrDefault(above => above.BuildLimits.MaxDepthBelow is { } below && depth - above.Depth > below);
+
+        return limiting is { BuildLimits.MaxDepthBelow: { } limit }
+            ? $"{limiting.Name} allows bots at most {Count(limit, "level")} beneath it."
+            : null;
+    }
+
+    private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    /// <summary>Places the bot in the tree and gives it the tools every new bot starts with, as far as its parent holds them.</summary>
+    private async Task<List<(string Tool, ToolGrant Grant)>> AddToTree(Bot bot, Bot? parent, Guid createdByUserId, CancellationToken cancellationToken)
+    {
+        if (parent is null)
+        {
+            bots.AddRootBot(bot);
+            return await GrantDefaultTools(bot, createdByUserId, null, cancellationToken);
+        }
+
+        await bots.AddChildBot(bot, cancellationToken);
+        var ceilings = await tools.ListEffectiveGrants(parent.Id, cancellationToken);
+        return await GrantDefaultTools(bot, createdByUserId, ceilings, cancellationToken);
+    }
+
+    /// <summary>
+    /// Grants the tools every new bot starts with. With <paramref name="ceilings"/>, the parent's effective grants, a
+    /// tool the parent lacks is left out and one it holds lower is lowered to match: a child never starts above its parent.
+    /// </summary>
+    private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(
+        Bot bot,
+        Guid grantedByUserId,
+        Dictionary<Guid, GrantEffect>? ceilings,
+        CancellationToken cancellationToken)
     {
         List<(string Tool, ToolGrant Grant)> granted = [];
 
         foreach (var tool in await catalog.EnsureBuiltins(cancellationToken))
         {
-            if (BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
+            if (!BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
             {
-                var grant = new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = grantedByUserId };
-                tools.Add(grant);
-                granted.Add((tool.Name, grant));
+                continue;
             }
+
+            if (ceilings is not null && !ceilings.ContainsKey(tool.Id))
+            {
+                continue;
+            }
+
+            var effect = ceilings is null ? GrantEffect.Allow : GrantRules.Min(GrantEffect.Allow, ceilings[tool.Id]);
+            var grant = new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = effect, GrantedByUserId = grantedByUserId };
+            tools.Add(grant);
+            granted.Add((tool.Name, grant));
         }
 
         return granted;
