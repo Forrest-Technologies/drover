@@ -28,7 +28,9 @@ public sealed class SpaceMapping : IEntityTypeConfiguration<Space>
             .HasConversion(
                 settings => JsonSerializer.Serialize(settings, settingsJson),
                 json => JsonSerializer.Deserialize<SpaceSettings>(json, settingsJson) ?? new SpaceSettings());
+        builder.Property(space => space.StoredFileBytes).HasDefaultValue(0L);
         builder.ToTable(table => table.HasCheckConstraint("ck_spaces_kind", "kind IN ('personal', 'shared')"));
+        builder.ToTable(table => table.HasCheckConstraint("ck_spaces_stored_file_bytes", "stored_file_bytes >= 0"));
     }
 
     #endregion

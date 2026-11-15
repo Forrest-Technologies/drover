@@ -19,6 +19,8 @@ public sealed class StoredFileSeeder : PlainSeeder<StoredFile>
     {
         ["id"] = Guid.CreateVersion7(),
         ["storage_key"] = seed.Unique("key"),
+        ["thread_id"] = seed.Parent("threads"),
+        ["message_id"] = Guid.CreateVersion7(),
         ["name"] = "notes.txt",
         ["content_type"] = "text/plain",
         ["size"] = 1L,
