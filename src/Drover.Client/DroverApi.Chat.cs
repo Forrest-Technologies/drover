@@ -57,15 +57,20 @@ public sealed partial class DroverApi
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
     /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
     /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it
-    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered.
+    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered. <paramref name="fileIds"/> are
+    /// files uploaded with <see cref="UploadFile"/> for this message.
     /// </summary>
     public Task<SendMessageResponse> SendMessage(
         Guid spaceId,
         Guid threadId,
         string text,
         string? whenBusy = null,
+        IReadOnlyList<Guid>? fileIds = null,
         CancellationToken cancellationToken = default) =>
-        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text, whenBusy), cancellationToken);
+        Post<SendMessageResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/messages",
+            new SendMessageRequest(text, whenBusy, fileIds is { Count: > 0 } ? fileIds : null),
+            cancellationToken);
 
     #endregion
 
