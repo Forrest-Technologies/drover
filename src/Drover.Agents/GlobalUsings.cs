@@ -18,6 +18,7 @@ global using Drover.Contracts.Runs;
 global using Drover.Data.Repositories;
 global using Drover.Data.Tenancy;
 global using Drover.Domain.Agents;
+global using Drover.Domain.Bots;
 global using Drover.Domain.Models;
 global using Drover.Domain.Runs;
 global using Drover.Domain.Threads;

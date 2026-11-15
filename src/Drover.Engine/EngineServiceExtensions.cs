@@ -49,6 +49,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunEventHub>();
         services.AddSingleton<UserSignalHub>();
         services.AddSingleton<RunEventFeed>();
+        services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();

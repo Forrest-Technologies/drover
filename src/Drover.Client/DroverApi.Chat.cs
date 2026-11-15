@@ -39,6 +39,13 @@ public sealed partial class DroverApi
     public Task<ThreadSummary> GetThread(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ThreadSummary>($"{Space(spaceId)}/threads/{threadId}", cancellationToken);
 
+    /// <summary>
+    /// The server's running summary of a main thread. <see cref="ConversationSummary.Text"/> is null until the first
+    /// one is written, and always for a side chat.
+    /// </summary>
+    public Task<ConversationSummary> GetConversationSummary(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<ConversationSummary>($"{Space(spaceId)}/threads/{threadId}/summary", cancellationToken);
+
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 

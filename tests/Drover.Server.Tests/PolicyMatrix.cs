@@ -56,6 +56,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
         new(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus), "true", "false"),
         new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
+        new(nameof(DeploymentPolicy.AllowConversationSummaries), "true", "false"),
+        new(nameof(DeploymentPolicy.MaxConversationSummarySeconds), "120", "60"),
     ];
 
     /// <summary>

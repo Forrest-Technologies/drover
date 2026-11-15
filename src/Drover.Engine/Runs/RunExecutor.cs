@@ -16,6 +16,7 @@ public sealed class RunExecutor(
     RunEventHub hub,
     RunSignal signal,
     UserSignalHub signals,
+    ConversationSummarizer summarizer,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
@@ -41,7 +42,8 @@ public sealed class RunExecutor(
 
     /// <summary>
     /// Runs the claimed run as <paramref name="workerId"/>. <paramref name="stopping"/> is the server shutting down:
-    /// the run is left as it is and its lease released, so the next server takes it over at once.
+    /// the run is left as it is and its lease released, so the next server takes it over at once. A run on a main
+    /// thread that completed is followed by the thread's summary, once the run has ended and its person has been told.
     /// </summary>
     public async Task Execute(ClaimedRun claimed, string workerId, CancellationToken stopping)
     {
@@ -55,6 +57,19 @@ public sealed class RunExecutor(
             return;
         }
 
+        if (await ExecuteLoaded(loaded, tenant, workerId, stopping) && loaded.Thread is { IsMain: true })
+        {
+            await summarizer.Summarize(tenant, loaded.Run, stopping);
+        }
+    }
+
+    #endregion
+
+    #region Executing
+
+    /// <summary>Executes a loaded run until it ends or waits. True when it completed.</summary>
+    private async Task<bool> ExecuteLoaded(LoadedRun loaded, RunTenant tenant, string workerId, CancellationToken stopping)
+    {
         await using var session = NewSession(loaded, tenant, workerId);
 
         // What the log already says about a call is not said again: a call an earlier execution saw through keeps
@@ -70,17 +85,18 @@ public sealed class RunExecutor(
         }
 
         session.Writer.LeaseLost = session.LoseLease;
-        using var executing = signal.Executing(claimed.RunId, session.CancelByUser);
+        using var executing = signal.Executing(loaded.Run.Id, session.CancelByUser);
         using var watchStop = new CancellationTokenSource();
         var watching = Watch(session, watchStop.Token);
 
         try
         {
-            await Run(session, loaded, stopping);
+            return await Run(session, loaded, stopping);
         }
         catch (LeaseLostException)
         {
-            logger.LogWarning("Run {RunId} was taken over by another worker; this one stops without writing", claimed.RunId);
+            logger.LogWarning("Run {RunId} was taken over by another worker; this one stops without writing", loaded.Run.Id);
+            return false;
         }
         finally
         {
@@ -397,7 +413,8 @@ public sealed class RunExecutor(
 
     #region Running
 
-    private async Task Run(RunSession session, LoadedRun loaded, CancellationToken stopping)
+    /// <summary>Runs the agent and ends the run. True when the run completed.</summary>
+    private async Task<bool> Run(RunSession session, LoadedRun loaded, CancellationToken stopping)
     {
         if (loaded.Thread is null)
         {
@@ -405,7 +422,7 @@ public sealed class RunExecutor(
                 services => SetStatus(services, session, RunStatus.Failed, null, new RunError("thread_not_visible", "The run's thread is no longer visible to the person it acts for.")),
                 CancellationToken.None);
             logger.LogWarning("Run {RunId} failed: its thread is not visible to its person", session.RunId);
-            return;
+            return false;
         }
 
         var placed = await session.Tenant.Transact(
@@ -416,7 +433,7 @@ public sealed class RunExecutor(
         if (FindReasonNotToStart(loaded) is { } refusal)
         {
             await Finish(session, refusal.Status, refusal.Reason, refusal.Error);
-            return;
+            return false;
         }
 
         var bot = loaded.Bot!;
@@ -451,7 +468,7 @@ public sealed class RunExecutor(
             if (await rules.CheckArrivals(await Arrived(session, loaded, placed), cancellation.Token) is not null)
             {
                 await FinishAfterFailure(session, new OperationCanceledException(), stopping);
-                return;
+                return false;
             }
 
             var outcome = await DriveToAStop(session, loaded, model, governor, rules, cancellation.Token);
@@ -460,17 +477,23 @@ public sealed class RunExecutor(
             if (session.EndedByRule is not null)
             {
                 await FinishAfterFailure(session, new OperationCanceledException(), stopping);
-                return;
+                return false;
             }
 
-            await (outcome is RunOutcome.Waiting
-                ? Finish(session, RunStatus.Waiting, RunReasons.AwaitingApproval, null)
-                : Finish(session, RunStatus.Completed, null, null));
+            if (outcome is RunOutcome.Waiting)
+            {
+                await Finish(session, RunStatus.Waiting, RunReasons.AwaitingApproval, null);
+                return false;
+            }
+
+            await Finish(session, RunStatus.Completed, null, null);
+            return true;
         }
         catch (Exception exception) when (exception is not LeaseLostException)
         {
             logger.LogDebug(exception, "Run {RunId} stopped before the agent finished", session.RunId);
             await FinishAfterFailure(session, exception, stopping);
+            return false;
         }
     }
 
@@ -590,6 +613,7 @@ public sealed class RunExecutor(
             Instructions = loaded.Bot.Instructions,
             ModelConnectionId = loaded.Bot.ModelConnectionId,
             Model = loaded.Bot.Model,
+            Compaction = loaded.Bot.MemorySettings.Compaction,
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, tool))],
         Model = model,

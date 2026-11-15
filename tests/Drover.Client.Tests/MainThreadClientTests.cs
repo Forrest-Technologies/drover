@@ -1,6 +1,9 @@
 namespace Drover.Client.Tests;
 
-/// <summary>The typed client's call for a person's main thread with a bot: what it sends and what it reads back.</summary>
+/// <summary>
+/// The typed client's calls for a person's main thread with a bot and its running summary: what they send and what
+/// they read back.
+/// </summary>
 public sealed class MainThreadClientTests
 {
     #region Public Methods
@@ -21,6 +24,34 @@ public sealed class MainThreadClientTests
         server.Path.Should().Be($"/api/spaces/{spaceId}/bots/{botId}/main-thread");
         server.Token.Should().Be("token");
         server.HadBody.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reading_the_summary_gets_the_threads_summary_and_reads_it_back()
+    {
+        var spaceId = Guid.CreateVersion7();
+        var threadId = Guid.CreateVersion7();
+        var summary = new ConversationSummary("They planned the week.", 14, DateTimeOffset.UnixEpoch);
+        var server = new RecordingHandler(HttpStatusCode.OK, JsonSerializer.Serialize(summary, JsonSerializerOptions.Web));
+        var api = new DroverApi(Http(server));
+
+        var read = await api.GetConversationSummary(spaceId, threadId, TestContext.Current.CancellationToken);
+
+        read.Should().Be(summary);
+        server.Method.Should().Be(HttpMethod.Get);
+        server.Path.Should().Be($"/api/spaces/{spaceId}/threads/{threadId}/summary");
+        server.HadBody.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_summary_not_written_yet_reads_back_with_no_text()
+    {
+        var server = new RecordingHandler(HttpStatusCode.OK, """{"text":null,"messagesCovered":0,"updatedAt":null}""");
+        var api = new DroverApi(Http(server));
+
+        var read = await api.GetConversationSummary(Guid.CreateVersion7(), Guid.CreateVersion7(), TestContext.Current.CancellationToken);
+
+        read.Should().Be(new ConversationSummary(null, 0, null));
     }
 
     [Fact]

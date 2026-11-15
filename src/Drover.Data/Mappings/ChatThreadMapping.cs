@@ -26,6 +26,11 @@ public sealed class ChatThreadMapping : IEntityTypeConfiguration<ChatThread>
         builder.ToTable(table => table.HasCheckConstraint(
             "ck_threads_audience",
             "audience_user_id IN (sys.everyone(), owner_user_id)"));
+
+        // A summary always says how far it reaches, and only a main thread has one.
+        builder.ToTable(table => table.HasCheckConstraint(
+            "ck_threads_summary",
+            "(summary IS NULL) = (summary_through_position IS NULL) AND (summary IS NULL OR is_main)"));
         builder.HasAlternateKey(thread => new { thread.SpaceId, thread.Id, thread.AudienceUserId });
         builder.WithinSpace<ChatThread, Bot>(nameof(ChatThread.BotId));
         builder.ReferencesUser(nameof(ChatThread.OwnerUserId));

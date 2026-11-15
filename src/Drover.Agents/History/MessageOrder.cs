@@ -50,6 +50,36 @@ public static class MessageOrder
         return ordered;
     }
 
+    /// <summary>
+    /// The messages placed after <paramref name="position"/>, in the order given, for a history that begins with a
+    /// summary of everything up to it. A tool result whose call is not among them is left out with it: a model is
+    /// never given a result without the call it answers.
+    /// </summary>
+    public static IReadOnlyList<Message> After(IReadOnlyList<Message> ordered, int position)
+    {
+        List<Message> kept = [.. ordered.Where(message => message.Position is not { } placed || placed > position)];
+        HashSet<Guid> called = [.. kept.SelectMany(message => message.Parts.OfType<ToolCallPart>()).Select(call => call.ToolCallId)];
+        List<Message> answered = [];
+
+        foreach (var message in kept)
+        {
+            if (message.Role is not MessageRole.Tool)
+            {
+                answered.Add(message);
+                continue;
+            }
+
+            List<MessagePart> parts = [.. message.Parts.Where(part => part is not ToolResultPart result || called.Contains(result.ToolCallId))];
+
+            if (parts.Count > 0)
+            {
+                answered.Add(parts.Count == message.Parts.Count ? message : WithParts(message, parts));
+            }
+        }
+
+        return answered;
+    }
+
     #endregion
 
     #region Private Methods

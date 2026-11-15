@@ -21,7 +21,8 @@ public static class DeploymentPolicyExtensions
             .WithEnforcedAuditRetention()
             .WithGuaranteedDataRights()
             .WithServerStatusForTheOperatorOnly()
-            .WithoutWrittenRulePatterns();
+            .WithoutWrittenRulePatterns()
+            .WithBoundedConversationSummaries();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -92,6 +93,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithoutWrittenRulePatterns(this DeploymentPolicy policy) =>
         policy with { AllowWrittenRulePatterns = false };
+
+    public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
+        policy with
+        {
+            AllowConversationSummaries = false,
+            MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds,
+        };
 
     #endregion
 }

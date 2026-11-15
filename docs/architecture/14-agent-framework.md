@@ -40,7 +40,7 @@ The engine still talks to the framework through one small interface, `IAgentRunt
 | `ApprovalRequiredAIFunction`, `ToolApprovalRequestContent`, `ToolApprovalResponseContent` | stable in `Microsoft.Extensions.AI` 10.11 | Tools whose effective grant is `ask` are wrapped. The run ends with an approval request; the framework records the pending request in the session, and on resume binds the response to it by request id, so a response cannot approve a call that was never surfaced. A pending request left unanswered on the next run is rejected by the framework. The run resumes with the response after any number of restarts. |
 | Run and chat-client middleware | stable | Usage and cost recording, cancellation, secret redaction on the way to the provider's log. `ReplyRules`, a delegating chat client, holds each model call's answer until the bot's `before_reply` rules have seen all of it. `TransientImages`, a delegating chat client below it, shows the model a tool's picture on the next call only (below). |
 | `UseOpenTelemetry` | stable | On for agents and workflows. Traces are exported only if the operator sets an endpoint. Message content is never attached. |
-| Compaction strategies (sliding window, summarization, tool-result, truncation, pipeline) | experimental | A bot's memory settings choose a strategy and thresholds. Long threads stay usable without Drover writing a summarizer. |
+| Compaction strategies (sliding window, summarization, tool-result, truncation, pipeline) | experimental | Not used yet. A bot's memory settings name a strategy, and none of the framework's is set on an agent. The one compaction applied is a main thread's running summary: a summary of the conversation is product data a person reads, so Drover writes it to its own `threads` row after a run (`ConversationSummarizer`, [03-run-lifecycle.md](03-run-lifecycle.md#conversation-summaries)), and `PostgresChatHistoryProvider` hands it to the model in place of the messages it covers when the bot's compaction is `summarization`. The framework's summarization strategy rewrites one call's messages and keeps nothing a client could be served. |
 | Evaluation (`EvaluateAsync`, local evaluators, expected tool calls) | stable | Used in Drover's own tests from Phase 0. Offered to users as per-bot checks in Phase 2. |
 
 ### Teams and delegation, Phase 1
@@ -102,6 +102,10 @@ The framework does not provide these, so Drover does:
 | Prompt-injection containment | The framework's proposed design for this has no .NET implementation. Drover's tainted-run rule and definition pinning stay ([06-mcp.md](06-mcp.md)). |
 | Skill content is injected unsanitized | The framework's own source notes this. Drover keeps approval on, treats imports as untrusted, and runs scripts only in a sandbox. |
 | Cost | Usage arrives in responses; pricing, roll-up, and budgets are Drover's. |
+
+Added for conversation summaries ([03-run-lifecycle.md](03-run-lifecycle.md#conversation-summaries)), at the history seam:
+
+1. **A main thread's summary replaces the messages it covers.** For a bot whose compaction is `summarization`, `PostgresChatHistoryProvider` reads the thread's `summary` and `summary_through_position` from Drover's own row in the transaction that reads the history, and returns a labeled user message with the summary, then the messages after it (`MessageOrder.After`, which also leaves out a tool result whose call the summary covered). The framework stamps what a history provider returns as history and does not store it again, so the summary message is never written to `messages`. Nothing is read from the session. Proof: `ConversationSummaryTests.A_bot_that_compacts_by_summarization_is_given_the_summary_and_then_only_the_messages_after_it`, and the same tests for every other compaction value and for a side chat, which get the whole conversation.
 
 ## Staying current
 

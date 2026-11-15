@@ -32,5 +32,19 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
     /// <summary>The owner's one main conversation with the bot. A person has at most one per bot, and it takes no title.</summary>
     public bool IsMain { get; set; }
 
+    /// <summary>
+    /// The server's running summary of a main thread, rewritten as the conversation goes on. Null until one is
+    /// written, and always null on a side chat. It is part of the thread's row, so it has the thread's audience.
+    /// </summary>
+    public string? Summary { get; set; }
+
+    /// <summary>
+    /// The position of the last message the summary covers. Positions start at one and have no gaps, so this is also
+    /// how many messages it covers. Written in the same statement as <see cref="Summary"/>.
+    /// </summary>
+    public int? SummaryThroughPosition { get; set; }
+
+    public DateTimeOffset? SummaryUpdatedAt { get; set; }
+
     #endregion
 }

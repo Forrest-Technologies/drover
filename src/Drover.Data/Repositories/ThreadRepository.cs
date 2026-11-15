@@ -43,6 +43,28 @@ public sealed class ThreadRepository(DroverDbContext db)
             """,
             cancellationToken) == 1;
 
+    /// <summary>
+    /// Replaces a main thread's summary, text and reach together in one statement, and says whether it did. It does
+    /// so only while the summary still reaches exactly as far as <paramref name="previousThrough"/> and the new one
+    /// reaches further: a summary written meanwhile by another worker is never overwritten by an older one.
+    /// </summary>
+    public async Task<bool> ReplaceSummary(
+        Guid threadId,
+        int? previousThrough,
+        string summary,
+        int throughPosition,
+        DateTimeOffset now,
+        CancellationToken cancellationToken) =>
+        throughPosition > (previousThrough ?? 0)
+        && await db.Threads
+            .Where(thread => thread.Id == threadId && thread.IsMain && thread.SummaryThroughPosition == previousThrough)
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(thread => thread.Summary, summary)
+                    .SetProperty(thread => thread.SummaryThroughPosition, throughPosition)
+                    .SetProperty(thread => thread.SummaryUpdatedAt, now),
+                cancellationToken) == 1;
+
     /// <summary>The threads with one bot that the caller may see and has not archived, newest activity first.</summary>
     public Task<List<ChatThread>> ListThreadsForBot(Guid botId, int limit, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking()

@@ -201,6 +201,15 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         rules.MaxSandboxFileBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSandboxFileBytes)));
     }
 
+    [Fact]
+    public void The_conversation_summary_rules_decide_whether_summaries_are_written_and_how_long_one_may_take()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.AllowConversationSummaries.Should().Be(Setting(nameof(DeploymentPolicy.AllowConversationSummaries)) == "true");
+        rules.MaxConversationSummarySeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxConversationSummarySeconds)));
+    }
+
     #endregion
 
     #region Private Methods

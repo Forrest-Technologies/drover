@@ -125,6 +125,13 @@ public sealed class RunWorld : IAsyncDisposable
     public async Task<Guid> NewThread() =>
         (await Transact(services => services.GetRequiredService<ThreadService>().Create(BotId, null, UserId, Token)))!.Id;
 
+    /// <summary>The person's main thread with the bot, opened through the engine as the API opens it.</summary>
+    public async Task<Guid> NewMainThread() =>
+        (await Transact(services => services.GetRequiredService<ThreadService>().OpenMainThread(BotId, UserId, Token)))!.Thread.Id;
+
+    public Task<ChatThread> ReadThread(Guid threadId) =>
+        Read(db => db.Threads.AsNoTracking().SingleAsync(thread => thread.Id == threadId, Token));
+
     /// <summary>Posts a message through the engine, as the API does, on any host. Returns the run it started.</summary>
     public async Task<Guid> Post(Guid threadId, string text, EngineHost? through = null)
     {
