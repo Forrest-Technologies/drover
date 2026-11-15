@@ -90,6 +90,24 @@ public sealed class TalkTests : ScreenTest
         page.WaitForAssertion(() => page.Find("textarea").GetAttribute("aria-label").Should().Be("Message to Marshal"));
     }
 
+    [Fact]
+    public void The_pages_title_is_drawn_while_the_space_is_still_loading_and_names_the_bot_once_it_has()
+    {
+        var bots = Server.Hold("GET", $"{space}/bots");
+
+        var page = Render(builder =>
+        {
+            builder.OpenComponent<HeadOutlet>(0);
+            builder.CloseComponent();
+            builder.OpenComponent<Talk>(1);
+            builder.CloseComponent();
+        });
+
+        page.WaitForAssertion(() => page.Find("title").TextContent.Should().Be("Drover"));
+        bots.SetResult();
+        page.WaitForAssertion(() => page.Find("title").TextContent.Should().Be("Marshal · Drover"));
+    }
+
     #endregion
 
     #region Reading

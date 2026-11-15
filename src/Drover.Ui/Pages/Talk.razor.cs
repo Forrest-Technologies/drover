@@ -89,7 +89,13 @@ public sealed partial class Talk(
 
     private IReadOnlyList<CrewNode> Crew => CrewTree.From(bots!);
 
-    private BotSummary? Shown => BotId is { } id ? bots!.FirstOrDefault(bot => bot.Id == id) : CrewTree.Lead(bots!);
+    // Asked for before the space has loaded too: the page's title is drawn outside the session gate.
+    private BotSummary? Shown => (bots, BotId) switch
+    {
+        (null, _) => null,
+        (_, { } id) => bots.FirstOrDefault(bot => bot.Id == id),
+        _ => CrewTree.Lead(bots),
+    };
 
     private IReadOnlySet<Guid> WorkingBots =>
         threads.Values
