@@ -61,7 +61,7 @@ public static partial class ToolCards
             ExitCodeIn(resultText),
             call.Pieces)
         {
-            Facts = FactsOf(Canonical(call.ToolName), arguments),
+            Facts = FactsOf(Canonical(call.ToolName), arguments, call.Details),
         };
     }
 
@@ -163,8 +163,11 @@ public static partial class ToolCards
     }
 
     // Every detail of a bot a bot asks to make or remove, each under its own name, so one look decides it.
-    private static IReadOnlyList<ToolFact> FactsOf(string toolName, JsonElement values)
+    // What the arguments do not hold (the model a new bot will use, the bot it goes beneath) the server adds.
+    private static IReadOnlyList<ToolFact> FactsOf(string toolName, JsonElement values, IReadOnlyList<ToolApprovalDetail>? details)
     {
+        string Detail(string name) => details?.FirstOrDefault(detail => detail.Name == name)?.Text ?? string.Empty;
+
         if (values.ValueKind is not JsonValueKind.Object)
         {
             return [];
@@ -177,12 +180,11 @@ public static partial class ToolCards
                 ("Name", Text(values, "name")),
                 ("What it is for", Text(values, "description")),
                 ("Instructions", Text(values, "instructions")),
-                ("Model", Text(values, "model")),
-                ("Works beneath", Text(values, "parent_name")),
+                ("Model", Detail(ToolApprovalRequested.ModelDetail)),
+                ("Works beneath", Detail(ToolApprovalRequested.BeneathDetail)),
             ],
             "crew.remove" =>
             [
-                ("Bot", Text(values, "bot_name")),
                 ("The bots beneath it", Text(values, "beneath") switch
                 {
                     "remove" => "Removed too",

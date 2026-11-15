@@ -142,8 +142,11 @@ public sealed class ToolCardTests : BunitContext
     {
         var call = Call(
             "crew.add",
-            """{"name":"Sample scout","description":"Finds sources.","instructions":"Line one.\nLine two.","model":"sample-model","parent_name":"Sample lead"}""",
-            "awaiting_approval");
+            """{"name":"Sample scout","description":"Finds sources.","instructions":"Line one.\nLine two."}""",
+            "awaiting_approval") with
+        {
+            Details = [new(ToolApprovalRequested.ModelDetail, "sample-model"), new(ToolApprovalRequested.BeneathDetail, "Sample lead")],
+        };
 
         var card = Render<ToolCallCard>(parameters => parameters
             .Add(component => component.Card, call.ToCard())
@@ -160,11 +163,11 @@ public sealed class ToolCardTests : BunitContext
     [Fact]
     public void A_bot_asking_to_remove_a_bot_says_what_happens_to_the_bots_beneath_it()
     {
-        var call = Call("crew.remove", """{"bot_id":"0196f1a0-0000-7000-8000-000000000001","bot_name":"Sample scout","beneath":"keep"}""", "awaiting_approval");
+        var call = Call("crew.remove", """{"bot_id":"0196f1a0-0000-7000-8000-000000000001","beneath":"keep"}""", "awaiting_approval");
 
         var facts = call.ToCard().Facts;
 
-        facts.Should().Equal(new ToolFact("Bot", "Sample scout"), new ToolFact("The bots beneath it", "Kept, and moved up"));
+        facts.Should().Equal(new ToolFact("The bots beneath it", "Kept, and moved up"));
     }
 
     [Fact]

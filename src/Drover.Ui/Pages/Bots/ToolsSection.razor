@@ -42,6 +42,10 @@ else
                             {
                                 <p class="dv-tool-limit">@group.Name no longer lists this tool, so it cannot be used.</p>
                             }
+                            @if (tool.AlwaysAsks)
+                            {
+                                <p class="dv-tool-limit">Asks every time. A person approves each use, whatever this is set to.</p>
+                            }
                             @if (Limit(tool) is { } limit)
                             {
                                 <p class="dv-tool-limit">@limit</p>
@@ -171,7 +175,7 @@ else
     [
         new("off", "Off"),
         new("ask", "Ask", Disabled: tool.Ceiling is "off"),
-        new("allow", "Allow", Disabled: tool.Ceiling is not "allow"),
+        new("allow", "Allow", Disabled: tool.Ceiling is not "allow" || tool.AlwaysAsks),
     ];
 
     private async Task Set(BotToolEntry tool, string grant)
