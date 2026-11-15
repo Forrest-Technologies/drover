@@ -65,8 +65,17 @@ public static class LineDiff
 
     #region Private Methods
 
-    private static string[] Lines(string? text) =>
-        string.IsNullOrEmpty(text) ? [] : text.ReplaceLineEndings("\n").Split('\n');
+    // A text that ends with a line ending has no empty line after that ending. Blank lines before it are lines.
+    private static string[] Lines(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return [];
+        }
+
+        var lines = text.ReplaceLineEndings("\n");
+        return (lines.EndsWith('\n') ? lines[..^1] : lines).Split('\n');
+    }
 
     // shared[i, j] is how many lines old[i..] and now[j..] have in common, in order.
     private static int[,] SharedLengths(string[] old, string[] now)

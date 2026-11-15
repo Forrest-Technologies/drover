@@ -27,6 +27,8 @@ public static class UsageWords
     public static string Money(decimal? cost, string currency) => cost switch
     {
         null => "price not known",
+        <= -0.01m => $"a credit of {currency} {(-cost.Value).ToString("N2", CultureInfo.InvariantCulture)}",
+        < 0 => $"a credit under {currency} 0.01",
         0 => $"{currency} 0.00",
         < 0.01m => $"under {currency} 0.01",
         _ => $"{currency} {cost.Value.ToString("N2", CultureInfo.InvariantCulture)}",

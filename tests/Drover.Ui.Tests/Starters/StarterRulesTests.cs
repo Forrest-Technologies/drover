@@ -10,11 +10,7 @@ public sealed partial class StarterRulesTests
 
     private static readonly string startersFolder = Path.Combine(RepositoryFiles.Root, "src", "Drover.Ui", "Starters");
 
-    private static readonly string[] mayNameStarters =
-    [
-        "src/Drover.Ui/Starters/",
-        "src/Drover.Ui/Pages/Dev/StarterGallery.razor",
-    ];
+    private static readonly string[] mayNameStarters = ["src/Drover.Ui/Starters/"];
 
     #endregion
 
@@ -50,11 +46,30 @@ public sealed partial class StarterRulesTests
         leaning.Should().BeEmpty("a starter is moved to its real home and renamed, never used from where it sits");
     }
 
+    [Fact]
+    public void The_copy_in_every_words_file_has_no_hype_and_no_filler()
+    {
+        var problems =
+            from path in Directory.EnumerateFiles(Path.Combine(RepositoryFiles.Root, "src", "Drover.Ui"), "*Words.cs", SearchOption.AllDirectories)
+            let relative = RepositoryFiles.Relative(path)
+            where !relative.Contains("/bin/", StringComparison.Ordinal) && !relative.Contains("/obj/", StringComparison.Ordinal)
+            from line in File.ReadLines(path).Select((text, index) => (Text: text, Number: index + 1))
+            where !line.Text.TrimStart().StartsWith("//", StringComparison.Ordinal)
+            from Match literal in StringLiteral().Matches(line.Text)
+            from problem in MarkupRules.ProblemsInCopy(literal.Groups["text"].Value)
+            select $"{relative}:{line.Number} {problem}";
+
+        problems.Should().BeEmpty("most of the starters' copy lives in their words files, where the markup rules cannot see it");
+    }
+
     #endregion
 
     #region Private Methods
 
-    [GeneratedRegex(@"`(?<name>[A-Za-z]+(?:\.razor(?:\.js)?|\.cs))`")]
+    [GeneratedRegex(@"\$?""(?<text>(?:[^""\\]|\\.)*)""")]
+    private static partial Regex StringLiteral();
+
+    [GeneratedRegex(@"`(?<name>_?[A-Za-z]+(?:\.razor(?:\.js)?|\.cs))`")]
     private static partial Regex FileName();
 
     #endregion

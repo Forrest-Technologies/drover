@@ -68,8 +68,9 @@ public static class TreeLayout
             Place(crew[index], null, 0, index + 1, crew.Count);
         }
 
-        // Top row first, left to right, so the order in the page is the order the tree is read in.
-        return new([.. places.OrderBy(place => place.Depth).ThenBy(place => place.Column)], edges, nextSlot * 2, deepest + 1);
+        // Depth first: each bot followed by the bots beneath it. Assistive technology works out who belongs to
+        // whom from this order and each item's level, so it is the order the tree is written in the page.
+        return new([.. DepthFirst(places)], edges, nextSlot * 2, deepest + 1);
 
         // Returns the column the bot starts at, in half slots.
         int Place(CrewBot bot, Guid? parentId, int depth, int position, int siblings)
@@ -96,9 +97,10 @@ public static class TreeLayout
     }
 
     /// <summary>
-    /// Where a key moves the selection on the canvas, by position: up to the bot above, down to the first bot
-    /// beneath, left and right to the nearest bot on the same row. Home goes to the first bot at the top, End to
-    /// the last bot on the lowest row. Any other key, or a move with nowhere to go, stays.
+    /// Where a key moves the selection, as a tree view does: down and up to the next and previous bot in reading
+    /// order (each bot, then the bots beneath it), right to the first bot beneath, left to the bot above, Home and
+    /// End to the first and last. The tree is always fully open. Any other key, or a move with nowhere to go,
+    /// stays. A bot that is not in the plan moves from the first.
     /// </summary>
     public static Guid? Move(TreePlan plan, Guid? current, string key)
     {
@@ -107,20 +109,23 @@ public static class TreeLayout
             return null;
         }
 
-        var here = plan.Places.FirstOrDefault(place => place.Bot.Id == current) ?? plan.Places.OrderBy(place => place.Depth).ThenBy(place => place.Column).First();
-        var row = plan.Places.Where(place => place.Depth == here.Depth).OrderBy(place => place.Column).ToList();
+        var index = Math.Max(plan.Places.ToList().FindIndex(place => place.Bot.Id == current), 0);
+        var here = plan.Places[index];
         var next = key switch
         {
-            "ArrowUp" => plan.Places.FirstOrDefault(place => place.Bot.Id == here.ParentId),
-            "ArrowDown" => plan.Places.Where(place => place.ParentId == here.Bot.Id).OrderBy(place => place.Column).FirstOrDefault(),
-            "ArrowLeft" => row.LastOrDefault(place => place.Column < here.Column),
-            "ArrowRight" => row.FirstOrDefault(place => place.Column > here.Column),
-            "Home" => plan.Places.OrderBy(place => place.Depth).ThenBy(place => place.Column).First(),
-            "End" => plan.Places.OrderByDescending(place => place.Depth).ThenByDescending(place => place.Column).First(),
+            "ArrowDown" => plan.Places[Math.Min(index + 1, plan.Places.Count - 1)],
+            "ArrowUp" => plan.Places[Math.Max(index - 1, 0)],
+            "ArrowRight" => plan.Places.FirstOrDefault(place => place.ParentId == here.Bot.Id),
+            "ArrowLeft" => plan.Places.FirstOrDefault(place => place.Bot.Id == here.ParentId),
+            "Home" => plan.Places[0],
+            "End" => plan.Places[^1],
             _ => here,
         };
         return (next ?? here).Bot.Id;
     }
+
+    /// <summary>True for a bot with bots beneath it: a tree view says it is expanded.</summary>
+    public static bool HasBeneath(TreePlan plan, TreePlace place) => plan.Places.Any(other => other.ParentId == place.Bot.Id);
 
     /// <summary>How full a bot's cap is, as the quiet counter on its node: "3 of 5".</summary>
     public static string Cap((int Has, int Most) cap) => $"{cap.Has} of {cap.Most}";
@@ -145,6 +150,19 @@ public static class TreeLayout
         }
 
         return string.Join(", ", parts);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static IEnumerable<TreePlace> DepthFirst(IReadOnlyCollection<TreePlace> places)
+    {
+        var beneath = places.ToLookup(place => place.ParentId);
+        return Walk(null);
+
+        IEnumerable<TreePlace> Walk(Guid? parent) =>
+            beneath[parent].OrderBy(place => place.Column).SelectMany(place => Walk(place.Bot.Id).Prepend(place));
     }
 
     #endregion

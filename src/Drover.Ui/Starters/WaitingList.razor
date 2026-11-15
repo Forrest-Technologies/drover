@@ -65,7 +65,7 @@
             </ul>
         </ChildContent>
         <Actions>
-            <Button Kind="ButtonKind.Primary" OnClick="DecideChosen">@ActivityWords.Bulk(confirming ?? true, Chosen.Count)</Button>
+            <Button Kind="ButtonKind.Primary" Disabled="@(Deciding || Chosen.Count is 0)" OnClick="DecideChosen">@ActivityWords.Bulk(confirming ?? true, Chosen.Count)</Button>
             <Button OnClick="() => confirming = null">Go back</Button>
         </Actions>
     </Dialog>
@@ -108,6 +108,17 @@
 
     #region Private Methods
 
+    // A call answered elsewhere, or gone, leaves the selection; with nothing left chosen, a confirmation in
+    // progress is dropped instead of waiting to reappear when the next call arrives.
+    protected override void OnParametersSet()
+    {
+        chosen.IntersectWith(Calls.Where(call => call.Decided is null).Select(call => call.Id));
+        if (chosen.Count is 0)
+        {
+            confirming = null;
+        }
+    }
+
     private static string SentenceId(WaitingCall call) => $"dv-waiting-call-{call.Id:N}";
 
     private void Choose(Guid id, bool isChosen)
@@ -124,7 +135,7 @@
 
     private async Task DecideChosen()
     {
-        if (confirming is not { } approved)
+        if (confirming is not { } approved || Chosen.Count is 0)
         {
             return;
         }

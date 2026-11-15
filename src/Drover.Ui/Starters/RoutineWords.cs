@@ -65,9 +65,18 @@ public static class RoutineWords
         DayOfWeek.Saturday, DayOfWeek.Sunday,
     ];
 
+    // Cron's */N restarts at midnight, so only a step that divides 24 repeats evenly all day.
+    private static readonly int[] evenHours = [1, 2, 3, 4, 6, 8, 12];
+
     #endregion
 
     #region Properties
+
+    /// <summary>The steps "every N hours" offers: the ones that divide the day, so the gaps stay equal.</summary>
+    public static IReadOnlyList<int> EvenHours => evenHours;
+
+    /// <summary>The last day of the month a routine may name: every month has it.</summary>
+    public const int LastDayEveryMonthHas = 28;
 
     /// <summary>The days of the week in the order the editor lists them, Monday first.</summary>
     public static IReadOnlyList<DayOfWeek> Week => week;
@@ -83,9 +92,9 @@ public static class RoutineWords
         RoutineRhythm.Weekdays => $"{when.Time.Minute} {when.Time.Hour} * * 1-5",
         RoutineRhythm.ChosenDays when when.Days.Count > 0 =>
             $"{when.Time.Minute} {when.Time.Hour} * * {string.Join(',', when.Days.Select(day => (int)day).Order())}",
-        RoutineRhythm.DayOfMonth when when.DayOfMonth is >= 1 and <= 31 =>
+        RoutineRhythm.DayOfMonth when when.DayOfMonth is >= 1 and <= LastDayEveryMonthHas =>
             $"{when.Time.Minute} {when.Time.Hour} {when.DayOfMonth} * *",
-        RoutineRhythm.EveryHours when when.Hours is >= 1 and <= 23 => $"{when.Time.Minute} */{when.Hours} * * *",
+        RoutineRhythm.EveryHours when evenHours.Contains(when.Hours) => $"{when.Time.Minute} */{when.Hours} * * *",
         RoutineRhythm.Custom when !string.IsNullOrWhiteSpace(when.Cron) => when.Cron.Trim(),
         _ => null,
     };
@@ -102,7 +111,7 @@ public static class RoutineWords
 
         if (hourText.StartsWith("*/", StringComparison.Ordinal))
         {
-            return (dayText, weekText) is ("*", "*") && Number(hourText[2..], 1, 23, out var hours)
+            return (dayText, weekText) is ("*", "*") && Number(hourText[2..], 1, 23, out var hours) && evenHours.Contains(hours)
                 ? custom with { Rhythm = RoutineRhythm.EveryHours, Time = new TimeOnly(0, minute), Hours = hours }
                 : custom;
         }
@@ -118,7 +127,7 @@ public static class RoutineWords
             ("*", "*") => timed with { Rhythm = RoutineRhythm.EveryDay },
             ("*", "1-5") => timed with { Rhythm = RoutineRhythm.Weekdays },
             ("*", _) when ReadDays(weekText) is { } days => timed with { Rhythm = RoutineRhythm.ChosenDays, Days = days },
-            (_, "*") when Number(dayText, 1, 31, out var dayOfMonth) =>
+            (_, "*") when Number(dayText, 1, LastDayEveryMonthHas, out var dayOfMonth) =>
                 timed with { Rhythm = RoutineRhythm.DayOfMonth, DayOfMonth = dayOfMonth },
             _ => custom,
         };

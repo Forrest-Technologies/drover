@@ -2,9 +2,10 @@
 @inject IJSRuntime JS
 @inject ILogger<ArrowKeyZone> Logger
 
-@* Starter for #164 and #167. A region whose arrow keys move between its own items. Blazor gets the key; this
-   only stops the page behind from scrolling on the same press. Tab still leaves the region as usual. *@
-<div @ref="zone" class="@Class" role="@Role" aria-label="@Label" @onkeydown="OnKey">
+@* Starter for #164 and #167. A region whose items move focus among themselves with the arrow keys. Each item
+   marks itself with data-arrow-item and handles its own keydown; this stops the page behind from scrolling on
+   the same press, and only for those items, so a field or a scrolling box inside the region keeps its keys. *@
+<div @ref="zone" class="@Class" role="@Role" aria-label="@Label">
     @ChildContent
 </div>
 
@@ -32,9 +33,6 @@
     public string? Class { get; set; }
 
     [Parameter]
-    public EventCallback<KeyboardEventArgs> OnKey { get; set; }
-
-    [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
     #endregion
@@ -43,9 +41,18 @@
 
     public async ValueTask DisposeAsync()
     {
-        if (module is not null)
+        if (module is null)
+        {
+            return;
+        }
+
+        try
         {
             await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogTrace(exception, "The browser was gone before the arrow key module could be released");
         }
     }
 

@@ -26,8 +26,10 @@ public static class MarkupRules
     /// nothing. DESIGN.md asks every state to say what is happening and the one thing to do next.
     /// </summary>
     private static readonly Regex fillerCopy = new(
-        @"(?<![\w-])(?:lorem ipsum|coming soon|click here|no data|oops|sorry|whoops|under construction|not implemented)(?![\w-])",
-        Options);
+        """(?<![\w-])(?:lorem ipsum|coming soon|click here|oops|sorry|whoops|under construction|not implemented)(?![\w-])|(?<=^|[>"])\s*(?:no data|nothing here|no results|n/a)\.?\s*(?=$|[<"])""",
+        Options | RegexOptions.Multiline);
+
+    private static readonly Regex quotedExpression = new(@"^\s*@\(\s*""(?<text>[^""]*)""\s*\)\s*$", Options);
 
     private static readonly Regex deadAddress = new(@"^\s*(?:#|javascript:.*)?\s*$", Options);
 
@@ -139,13 +141,13 @@ public static class MarkupRules
     {
         var inText =
             from Match found in fillerCopy.Matches(document.Text)
-            select (Line: SourceText.LineAt(document.Text, found.Index), found.Value);
+            select (Line: SourceText.LineAt(document.Text, found.Index), Value: found.Value.Trim());
         var inAttributes =
             from tag in document.Tags
             from attribute in tag.Attributes
             where textAttributes.Contains(attribute.Name.ToLowerInvariant())
             from Match found in fillerCopy.Matches(Literal(attribute.Value))
-            select (Line: attribute.Line + attribute.Value.AsSpan(0, found.Index).Count('\n'), found.Value);
+            select (Line: attribute.Line + attribute.Value.AsSpan(0, found.Index).Count('\n'), Value: found.Value.Trim());
         return inText.Concat(inAttributes).Select(found => new Violation(
             RuleNames.NoFillerCopy,
             file,
@@ -154,19 +156,19 @@ public static class MarkupRules
     }
 
     /// <summary>
-    /// A link that goes nowhere: an empty address, a bare hash, or a script address. A control that does nothing
-    /// does not ship; something that acts on the page is a button.
+    /// A link that goes nowhere: no address at all, an empty one, a bare hash, or a script address, written out
+    /// or as a string in an expression. A control that does nothing does not ship; something that acts on the
+    /// page is a button.
     /// </summary>
     public static IEnumerable<Violation> NoDeadLinks(string file, MarkupDocument document) =>
         from tag in document.Tags
-        where tag.Name.Equals("a", StringComparison.OrdinalIgnoreCase)
-        from attribute in tag.Attributes
-        where attribute.Name.Equals("href", StringComparison.OrdinalIgnoreCase)
-        where !attribute.Value.Contains('@') && deadAddress.IsMatch(attribute.Value)
+        where !tag.IsClosing && tag.Name.Equals("a", StringComparison.OrdinalIgnoreCase)
+        let address = tag.Attributes.FirstOrDefault(attribute => attribute.Name.Equals("href", StringComparison.OrdinalIgnoreCase))
+        where address is null || deadAddress.IsMatch(LiteralAddress(address.Value))
         select new Violation(
             RuleNames.NoDeadLinks,
             file,
-            attribute.Line,
+            address?.Line ?? tag.Line,
             "this link goes nowhere; give it an address, or make it a button if it acts on the page");
 
     /// <summary>
@@ -199,6 +201,20 @@ public static class MarkupRules
 
     private static string Literal(string value) =>
         SourceText.BlankMatches(Markup.MaskExpressions(value), implicitExpression);
+
+    // An address written as a string in an expression, such as @("#"), is checked as that string. Any other
+    // expression is taken to be a real address: the rule cannot know what it holds.
+    private static string LiteralAddress(string value) => value switch
+    {
+        _ when quotedExpression.Match(value) is { Success: true } match => match.Groups["text"].Value,
+        _ when value.Contains('@') => "/",
+        _ => value,
+    };
+
+    /// <summary>Hype, an exclamation mark, or filler in a piece of interface copy written as a C# string.</summary>
+    public static IEnumerable<string> ProblemsInCopy(string text) =>
+        Hype(text).Select(found => found.Message)
+            .Concat(fillerCopy.Matches($"\"{text}\"").Select(found => $"'{found.Value.Trim()}' stands where content should be"));
 
     private static IEnumerable<(int Index, string Message)> Hype(string text) =>
         hypeWord.Matches(text)

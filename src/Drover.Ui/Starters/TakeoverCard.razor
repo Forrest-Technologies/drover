@@ -44,6 +44,8 @@
 
     private string note = string.Empty;
 
+    private TakeoverPhase? seen;
+
     #endregion
 
     #region Properties
@@ -95,6 +97,14 @@
     #endregion
 
     #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        if (seen != Phase)
+        {
+            (seen, declining, note) = (Phase, false, string.Empty);
+        }
+    }
 
     private async Task Decline()
     {

@@ -31,6 +31,7 @@ public sealed class StarterWordsTests
     [InlineData("15 6 1 * *", "On the 1st of every month at 06:15")]
     [InlineData("0 6 22 * *", "On the 22nd of every month at 06:00")]
     [InlineData("0 */4 * * *", "Every 4 hours, on the hour")]
+    [InlineData("0 */12 * * *", "Every 12 hours, on the hour")]
     [InlineData("20 */1 * * *", "Every hour, at 20 past")]
     public void A_schedule_the_editor_builds_reads_as_a_sentence(string cron, string sentence)
     {
@@ -42,6 +43,10 @@ public sealed class StarterWordsTests
     [InlineData("0 8 * 6 *")]
     [InlineData("0 8 1 * 1")]
     [InlineData("61 8 * * *")]
+    [InlineData("0 */5 * * *")]
+    [InlineData("0 */13 * * *")]
+    [InlineData("0 9 31 * *")]
+    [InlineData("0 9 29 * *")]
     [InlineData("not a schedule")]
     public void A_schedule_the_editor_could_not_build_has_no_sentence_and_reads_as_custom(string cron)
     {
@@ -65,8 +70,9 @@ public sealed class StarterWordsTests
     public void Fields_that_do_not_make_a_schedule_build_nothing()
     {
         RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.ChosenDays, Days = [] }).Should().BeNull();
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.DayOfMonth, DayOfMonth = 32 }).Should().BeNull();
+        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.DayOfMonth, DayOfMonth = 29 }).Should().BeNull("not every month has a 29th");
         RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.EveryHours, Hours = 0 }).Should().BeNull();
+        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.EveryHours, Hours = 5 }).Should().BeNull("every 5 hours from midnight leaves a 4 hour gap at the end of the day");
         RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.Custom, Cron = " " }).Should().BeNull();
     }
 
@@ -196,6 +202,8 @@ public sealed class StarterWordsTests
         LineDiff.Between(null, "new").Should().Equal(new DiffLine(DiffKind.Added, "new"));
         LineDiff.Between("same", "same").Should().OnlyContain(line => line.Kind == DiffKind.Same);
         LineDiff.Summary(LineDiff.Between("same", "same")).Should().Be("No lines changed");
+        LineDiff.Summary(LineDiff.Between("a\n", "a")).Should().Be("No lines changed", "a final line ending is not a line");
+        LineDiff.Summary(LineDiff.Between("a\n\n\n", "a")).Should().Be("2 lines removed", "blank lines before the final ending are lines");
     }
 
     [Fact]
@@ -249,6 +257,8 @@ public sealed class StarterWordsTests
         UsageWords.Money(0, "USD").Should().Be("USD 0.00");
         UsageWords.Money(0.004m, "USD").Should().Be("under USD 0.01");
         UsageWords.Money(1234.5m, "USD").Should().Be("USD 1,234.50");
+        UsageWords.Money(-1.24m, "USD").Should().Be("a credit of USD 1.24");
+        UsageWords.Money(-0.004m, "USD").Should().Be("a credit under USD 0.01");
         UsageWords.LeftOut(new(3.02m, 1, 1, true)).Should().Be("Not counting models whose price is not known");
         UsageWords.LeftOut(new(3.02m, 1, 1)).Should().BeNull();
         UsageWords.LeftOut(new(null, 1, 1, true)).Should().BeNull("a figure with no cost at all already says its price is not known");
@@ -331,7 +341,7 @@ public sealed class StarterWordsTests
         plan.Columns.Should().Be(6);
         plan.Rows.Should().Be(3);
         plan.Places.Select(place => (place.Bot.Name, place.Column, place.Depth)).Should().Equal(
-            ("Lead", 2, 0), ("Helper", 0, 1), ("Scout", 2, 1), ("Writer", 4, 1), ("Under helper", 0, 2));
+            ("Lead", 2, 0), ("Helper", 0, 1), ("Under helper", 0, 2), ("Scout", 2, 1), ("Writer", 4, 1));
         plan.Places.Single(place => place.Bot.Name == "Scout").Should().Match<TreePlace>(place => place.Level == 2 && place.Position == 2 && place.Siblings == 3);
         plan.Edges.Should().HaveCount(4);
         plan.Edges.Single(edge => edge.ChildId == scout).Path.Should().Be("M3 0.5V1H3V1.5");
@@ -340,15 +350,18 @@ public sealed class StarterWordsTests
 
     [Theory]
     [InlineData("Lead", "ArrowDown", "Helper")]
-    [InlineData("Helper", "ArrowUp", "Lead")]
-    [InlineData("Helper", "ArrowRight", "Scout")]
-    [InlineData("Scout", "ArrowLeft", "Helper")]
-    [InlineData("Writer", "ArrowRight", "Writer")]
-    [InlineData("Scout", "ArrowDown", "Scout")]
+    [InlineData("Helper", "ArrowDown", "Under helper")]
+    [InlineData("Under helper", "ArrowDown", "Scout")]
+    [InlineData("Scout", "ArrowUp", "Under helper")]
+    [InlineData("Writer", "ArrowDown", "Writer")]
     [InlineData("Lead", "ArrowUp", "Lead")]
-    [InlineData("Writer", "Home", "Lead")]
-    [InlineData("Lead", "End", "Under helper")]
-    public void Arrow_keys_move_around_the_tree_by_position(string from, string key, string to)
+    [InlineData("Helper", "ArrowRight", "Under helper")]
+    [InlineData("Scout", "ArrowRight", "Scout")]
+    [InlineData("Under helper", "ArrowLeft", "Helper")]
+    [InlineData("Lead", "ArrowLeft", "Lead")]
+    [InlineData("Under helper", "Home", "Lead")]
+    [InlineData("Lead", "End", "Writer")]
+    public void Arrow_keys_move_through_the_tree_as_in_any_tree_view(string from, string key, string to)
     {
         var plan = TreeLayout.Plan(Crew());
         Guid Id(string name) => plan.Places.Single(place => place.Bot.Name == name).Bot.Id;

@@ -1,10 +1,10 @@
 @* Starter for #167. The crew as a top-down tree on the yard: each bot a node with its head, its name, the
    first line of what it is for, and what it is doing in words. Connectors are thin lines; one carries the
    violet pulse while work passes along it, out and back, and is still otherwise. The canvas scrolls inside
-   itself, so the page never scrolls sideways. It is a tree view to assistive technology: arrow keys move by
-   position, Enter opens the chosen bot. The list view with the same data is the caller's toggle. *@
+   itself, so the page never scrolls sideways. It is a tree view to assistive technology, written in reading
+   order: arrow keys move as in any tree view, Enter opens the chosen bot. The list view with the same data is the caller's toggle. *@
 <div class="dv-canvas dv-yard">
-<ArrowKeyZone Label="@Label" Role="tree" OnKey="OnKey">
+<ArrowKeyZone Label="@Label" Role="tree">
     <div class="dv-canvas-grid" style="--dv-canvas-columns: @plan.Columns; --dv-canvas-rows: @plan.Rows">
         <svg class="dv-canvas-lines" viewBox="0 0 @plan.Columns @plan.Rows" preserveAspectRatio="none" aria-hidden="true" focusable="false">
             @foreach (var edge in plan.Edges)
@@ -14,12 +14,14 @@
         </svg>
         @foreach (var place in plan.Places)
         {
-            <div class="dv-canvas-cell" style="grid-column: @(place.Column + 1) / span 2; grid-row: @(place.Depth + 1)">
-                <button @key="place.Bot.Id" @ref="buttons[place.Bot.Id]" type="button" role="treeitem"
+            <div @key="place.Bot.Id" class="dv-canvas-cell" style="grid-column: @(place.Column + 1) / span 2; grid-row: @(place.Depth + 1)">
+                <button @ref="buttons[place.Bot.Id]" type="button" role="treeitem" data-arrow-item
                         class="dv-canvas-node dv-facet @(place.Bot.Id == SelectedId ? "dv-canvas-selected" : null)"
                         aria-level="@place.Level" aria-posinset="@place.Position" aria-setsize="@place.Siblings"
+                        aria-expanded="@(TreeLayout.HasBeneath(plan, place) ? "true" : null)"
                         aria-selected="@(place.Bot.Id == SelectedId ? "true" : "false")" aria-label="@TreeLayout.Announce(place.Bot)"
-                        tabindex="@(place.Bot.Id == Focused ? 0 : -1)" @onclick="() => Choose(place.Bot.Id)">
+                        tabindex="@(place.Bot.Id == Focused ? 0 : -1)" @onclick="() => Choose(place.Bot.Id)"
+                        @onkeydown="key => OnKey(place.Bot.Id, key)">
                     <Avatar Name="@place.Bot.Name" Hue="BotIdentity.Hue(place.Bot.Id)" Size="48" State="place.Bot.State" />
                     <span class="dv-canvas-name">@place.Bot.Name</span>
                     @if (place.Bot.Role.Length > 0)
@@ -78,8 +80,12 @@
     [Parameter]
     public EventCallback<Guid> OnSelect { get; set; }
 
-    // The one node in the tab order: the last one moved to, else the selected one, else the first at the top.
-    private Guid? Focused => focused ?? SelectedId ?? TreeLayout.Move(plan, null, "Home");
+    // The one node in the tab order: the last one moved to, else the selected one, else the first. A bot that
+    // has left the crew never holds it, so the tree can always be reached with Tab.
+    private Guid? Focused => Candidates.FirstOrDefault(id => id is { } bot && plan.Places.Any(place => place.Bot.Id == bot))
+        ?? TreeLayout.Move(plan, null, "Home");
+
+    private IEnumerable<Guid?> Candidates => [focused, SelectedId];
 
     #endregion
 
@@ -88,9 +94,12 @@
     protected override void OnParametersSet()
     {
         plan = TreeLayout.Plan(Crew);
-        if (focused is { } id && plan.Places.All(place => place.Bot.Id != id))
+
+        // An @ref is captured once, when its element is made, so a kept button's reference is kept too. Only a
+        // bot that left the crew is forgotten.
+        foreach (var gone in buttons.Keys.Where(id => plan.Places.All(place => place.Bot.Id != id)).ToList())
         {
-            focused = null;
+            buttons.Remove(gone);
         }
     }
 
@@ -103,10 +112,11 @@
         }
     }
 
-    private void OnKey(KeyboardEventArgs key)
+    // Enter and Space reach the button as a click, which opens the bot; only movement is handled here.
+    private void OnKey(Guid id, KeyboardEventArgs key)
     {
-        var next = TreeLayout.Move(plan, Focused, key.Key);
-        if (next != Focused)
+        var next = TreeLayout.Move(plan, id, key.Key);
+        if (next != id)
         {
             (focused, moveFocus) = (next, true);
         }

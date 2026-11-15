@@ -26,10 +26,16 @@
             break;
         case RoutineRhythm.DayOfMonth:
             <Field Label="Day of the month" Type="number" Value="@Number(When.DayOfMonth)" ValueChanged="SetDayOfMonth"
-                   Hint="1 to 31. A month without that day is skipped." min="1" max="31" />
+                   Hint="@($"1 to {RoutineWords.LastDayEveryMonthHas}, so it runs every month. For the end of the month, use Custom.")"
+                   min="1" max="@RoutineWords.LastDayEveryMonthHas" />
             break;
         case RoutineRhythm.EveryHours:
-            <Field Label="Every how many hours" Type="number" Value="@Number(When.Hours)" ValueChanged="SetHours" min="1" max="23" />
+            <Select Label="Every how many hours" Value="@Number(When.Hours)" ValueChanged="SetHours">
+                @foreach (var hours in RoutineWords.EvenHours)
+                {
+                    <option value="@Number(hours)">@Words.Count(hours, "hour")</option>
+                }
+            </Select>
             <Field Label="Minutes past the hour" Type="number" Value="@Number(When.Time.Minute)" ValueChanged="SetMinute" min="0" max="59" />
             break;
         case RoutineRhythm.Custom:

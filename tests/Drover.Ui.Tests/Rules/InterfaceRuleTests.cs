@@ -460,6 +460,7 @@ public sealed class InterfaceRuleTests
             <h1>Usage</h1>
             @* No data is a comment here, coming soon. *@
             <p>No bot ran in this period.</p>
+            <p>This bot sends no data outside your server.</p>
             <EmptyState Title="Drover could not load the notes" Cause="@problem" ActionLabel="Try again" />
 
             @code {
@@ -483,18 +484,23 @@ public sealed class InterfaceRuleTests
             <a href="#">Usage</a>
             <a href="">Skills</a>
             <a href="javascript:void(0)">Activity</a>
+            <a @onclick="Open">Files</a>
+            <a href="@("#")">Memory</a>
             """;
         var good = """
             <a href="/usage">Usage</a>
             <a href="#summary">Skip to the summary</a>
             <a href="@Addresses.Skills">Skills</a>
             <a href="@href">Activity</a>
+            <a href="@("/files")">Files</a>
             """;
 
         Found(MarkupFile, bad).Should().Equal(
             (RuleNames.NoDeadLinks, 1),
             (RuleNames.NoDeadLinks, 2),
-            (RuleNames.NoDeadLinks, 3));
+            (RuleNames.NoDeadLinks, 3),
+            (RuleNames.NoDeadLinks, 4),
+            (RuleNames.NoDeadLinks, 5));
         Found(MarkupFile, good).Should().BeEmpty();
     }
 

@@ -18,6 +18,7 @@
             }
             break;
         default:
+            <StatusNote Kind="NoteKind.Danger" Text="@saveProblem" />
             <form class="dv-memory-add" @onsubmit="Add">
                 <TextArea Label="Add a note" Rows="2" @bind-Value="adding" Hint="@($"Something {BotName} should know about you from now on.")" />
                 <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(adding)">Add the note</Button>
@@ -42,7 +43,7 @@
                                     <TextArea Label="Note" Rows="3" @bind-Value="draft" />
                                     <div class="dv-memory-actions">
                                         <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(draft)">Save</Button>
-                                        <Button OnClick="() => editing = null">Cancel</Button>
+                                        <Button OnClick="() => (editing, saveProblem) = (null, null)">Cancel</Button>
                                     </div>
                                 </form>
                             }
@@ -78,6 +79,9 @@
 
     private string draft = string.Empty;
 
+    // Why the last add or change was not saved. The text stays where it was typed, so nothing is lost.
+    private string? saveProblem;
+
     #endregion
 
     #region Properties
@@ -103,11 +107,19 @@
     [Parameter]
     public string? EditorHref { get; set; }
 
+    /// <summary>
+    /// Saves a new note. Returns why it was not saved, or nothing when it was. Unlike an event callback this does
+    /// not re-render the caller: the caller updates <see cref="Notes"/> itself once the note is saved.
+    /// </summary>
     [Parameter]
-    public EventCallback<string> OnAdd { get; set; }
+    public Func<string, Task<string?>>? OnAdd { get; set; }
 
+    /// <summary>
+    /// Saves a changed note. Returns why it was not saved, or nothing when it was. As with <see cref="OnAdd"/>,
+    /// the caller updates <see cref="Notes"/> itself.
+    /// </summary>
     [Parameter]
-    public EventCallback<(Guid Id, string Text)> OnChange { get; set; }
+    public Func<Guid, string, Task<string?>>? OnChange { get; set; }
 
     /// <summary>Removes at once. The caller offers Undo in a toast: a note is small and restoring it is exact.</summary>
     [Parameter]
@@ -120,29 +132,36 @@
 
     #region Private Methods
 
+    // The field empties only once the server has the note.
     private async Task Add()
     {
-        if (string.IsNullOrWhiteSpace(adding))
+        if (string.IsNullOrWhiteSpace(adding) || OnAdd is null)
         {
             return;
         }
 
-        var text = adding.Trim();
-        adding = string.Empty;
-        await OnAdd.InvokeAsync(text);
+        saveProblem = await OnAdd(adding.Trim());
+        if (saveProblem is null)
+        {
+            adding = string.Empty;
+        }
     }
 
-    private void Edit(MemoryNote note) => (editing, draft) = (note.Id, note.Text);
+    private void Edit(MemoryNote note) => (editing, draft, saveProblem) = (note.Id, note.Text, null);
 
+    // The note stays open for change until the server has it.
     private async Task Save(MemoryNote note)
     {
-        if (string.IsNullOrWhiteSpace(draft))
+        if (string.IsNullOrWhiteSpace(draft) || OnChange is null)
         {
             return;
         }
 
-        editing = null;
-        await OnChange.InvokeAsync((note.Id, draft.Trim()));
+        saveProblem = await OnChange(note.Id, draft.Trim());
+        if (saveProblem is null)
+        {
+            editing = null;
+        }
     }
 
     #endregion

@@ -131,6 +131,22 @@ public sealed class StarterComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_new_phase_of_the_takeover_starts_without_the_last_ones_half_written_answer()
+    {
+        var card = Render<TakeoverCard>(set => set
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.Reason, "Sign in.")
+            .Add(view => view.Phase, TakeoverPhase.Asked));
+
+        Button(card, "I cannot do it").Click();
+        card.FindAll("textarea").Should().ContainSingle();
+
+        card.Render(set => set.Add(view => view.Phase, TakeoverPhase.Holding));
+
+        card.FindAll("textarea").Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_note_is_changed_in_place_and_named_for_what_it_says()
     {
         (Guid Id, string Text)? changed = null;
@@ -139,7 +155,11 @@ public sealed class StarterComponentTests : BunitContext
             .Add(view => view.State, MemoryPanelState.Ready)
             .Add(view => view.BotName, "Sample bot")
             .Add(view => view.Notes, [note])
-            .Add(view => view.OnChange, change => changed = change));
+            .Add(view => view.OnChange, (id, text) =>
+            {
+                changed = (id, text);
+                return Task.FromResult<string?>(null);
+            }));
 
         panel.Find("ul").GetAttribute("aria-label").Should().Be("What Sample bot remembers about you");
         panel.Find(".dv-memory-origin").TextContent.Should().Contain("Sample bot noted this").And.Contain("Open that moment");
@@ -149,6 +169,21 @@ public sealed class StarterComponentTests : BunitContext
 
         changed.Should().Be((note.Id, "Prefers short answers, with sources."));
         panel.FindAll(".dv-memory-edit").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_note_that_was_not_saved_keeps_its_text_and_says_why()
+    {
+        var panel = Render<MemoryPanel>(set => set
+            .Add(view => view.State, MemoryPanelState.Ready)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.OnAdd, _ => Task.FromResult<string?>("The server did not answer. Try again.")));
+
+        panel.Find(".dv-memory-add textarea").Input("Works in Berlin time.");
+        panel.Find(".dv-memory-add").Submit();
+
+        panel.Find(".dv-memory-add textarea").GetAttribute("value").Should().Be("Works in Berlin time.");
+        panel.Find("[role=alert]").TextContent.Should().Contain("The server did not answer. Try again.");
     }
 
     [Theory]
@@ -376,13 +411,57 @@ public sealed class StarterComponentTests : BunitContext
         timeline.FindAll(".dv-timeline-branch").Should().ContainSingle();
         timeline.FindAll(".dv-state-tool").Should().ContainSingle("only the tool that is running carries the traveling line");
 
-        timeline.Find("[aria-label='What happened in this run']").KeyDown("ArrowDown");
+        timeline.FindAll("button.dv-timeline-node")[0].KeyDown("ArrowDown");
         timeline.FindAll("button.dv-timeline-node").Select(node => node.GetAttribute("tabindex")).Should().Equal("-1", "0", "-1");
+        timeline.FindAll("[data-arrow-item]").Should().HaveCount(3, "only the nodes take the arrow keys, never what is open inside them");
 
         timeline.FindAll("button.dv-timeline-node")[2].Click();
 
         timeline.Find("#detail").TextContent.Should().Be("Ran a command");
         timeline.FindAll("button.dv-timeline-node")[2].GetAttribute("aria-expanded").Should().Be("true");
+    }
+
+    [Fact]
+    public void An_event_that_arrives_late_with_an_earlier_start_does_not_move_the_open_node_or_the_tab_stop()
+    {
+        var timeline = Render<Timeline>(set => set
+            .Add(view => view.Model, Run())
+            .Add(view => view.Label, "What happened in this run")
+            .Add(view => view.EmptyText, "Nothing has run in this conversation yet.")
+            .Add(view => view.Detail, node => $"<p class=\"detail\">{node.Event.Label}</p>"));
+        timeline.FindAll("button.dv-timeline-node")[2].Click();
+
+        var late = new TimelineEvent(Guid.NewGuid(), lead, TimelineKind.Rule, "A rule fired", TimelineState.Done, start.AddSeconds(-1));
+        timeline.Render(set => set.Add(view => view.Model, Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], [.. RunEvents(), late])));
+
+        timeline.Find(".detail").TextContent.Should().Be("Ran a command");
+        timeline.Find("button.dv-timeline-node[tabindex='0']").GetAttribute("aria-label").Should().StartWith("Helper: Ran a command");
+    }
+
+    [Fact]
+    public void Arrow_keys_still_move_focus_on_the_timeline_after_its_parent_renders_again()
+    {
+        var timeline = Render<Timeline>(set => set
+            .Add(view => view.Model, Run())
+            .Add(view => view.Label, "What happened in this run")
+            .Add(view => view.EmptyText, "Nothing has run in this conversation yet."));
+
+        timeline.Render(set => set.Add(view => view.Model, Run()));
+        timeline.FindAll("button.dv-timeline-node")[0].KeyDown("ArrowDown");
+
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>();
+    }
+
+    [Fact]
+    public void Arrow_keys_still_move_focus_in_the_crew_after_its_parent_renders_again()
+    {
+        CrewBot[] crew = [new(lead, "Lead", "Sample", [new(helper, "Helper", "Sample", [])])];
+        var canvas = Render<CrewCanvas>(set => set.Add(view => view.Crew, crew).Add(view => view.Label, "The crew"));
+
+        canvas.Render(set => set.Add(view => view.Crew, [crew[0] with { Role = "Sample, again" }]).Add(view => view.SelectedId, lead));
+        canvas.FindAll("[role=treeitem]")[0].KeyDown("ArrowDown");
+
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>();
     }
 
     [Fact]
@@ -406,28 +485,41 @@ public sealed class StarterComponentTests : BunitContext
     public void The_crew_is_a_tree_view_with_one_tab_stop_and_a_pulse_only_where_work_is_passing()
     {
         Guid? chosen = null;
+        var under = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a5");
+        var scout = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a3");
         CrewBot[] crew =
         [
             new(lead, "Lead", "Decides who does what.",
-                [new(helper, "Helper", "Writes drafts.", [], AvatarState.Thinking, "Thinking", Attention.WaitingForYou, Receiving: true, MadeBy: "Lead")],
-                Cap: (1, 3)),
+            [
+                new(helper, "Helper", "Writes drafts.", [new(under, "Under helper", "Checks drafts.", [])],
+                    AvatarState.Thinking, "Thinking", Attention.WaitingForYou, Receiving: true, MadeBy: "Lead"),
+                new(scout, "Scout", "Finds sources.", []),
+            ],
+            Cap: (2, 3)),
         ];
         var canvas = Render<CrewCanvas>(set => set.Add(view => view.Crew, crew).Add(view => view.Label, "The crew").Add(view => view.OnSelect, id => chosen = id));
 
         canvas.Find("[role=tree]").GetAttribute("aria-label").Should().Be("The crew");
-        var items = canvas.FindAll("[role=treeitem]");
-        items.Select(item => (item.GetAttribute("aria-level"), item.GetAttribute("aria-label"), item.GetAttribute("tabindex"))).Should().Equal(
-            ("1", "Lead, 1 of 3 bots beneath it", "0"),
-            ("2", "Helper, thinking, waiting for you", "-1"));
+        canvas.FindAll("[role=treeitem]").Select(item => (item.GetAttribute("aria-level"), item.GetAttribute("aria-expanded"), item.GetAttribute("aria-label"), item.GetAttribute("tabindex")))
+            .Should().Equal(
+                ("1", "true", "Lead, 2 of 3 bots beneath it", "0"),
+                ("2", "true", "Helper, thinking, waiting for you", "-1"),
+                ("3", null, "Under helper", "-1"),
+                ("2", null, "Scout", "-1"));
         canvas.FindAll("path.dv-state-delegation").Should().ContainSingle();
         canvas.Find(".dv-canvas-maker").TextContent.Should().Be("Made by Lead");
 
-        canvas.Find("[role=tree]").KeyDown("ArrowDown");
-        canvas.FindAll("[role=treeitem]").Select(item => item.GetAttribute("tabindex")).Should().Equal("-1", "0");
+        canvas.FindAll("[role=treeitem]")[0].KeyDown("ArrowDown");
+        canvas.FindAll("[role=treeitem]").Select(item => item.GetAttribute("tabindex")).Should().Equal("-1", "0", "-1", "-1");
 
         canvas.FindAll("[role=treeitem]")[1].Click();
 
         chosen.Should().Be(helper);
+
+        canvas.Render(set => set.Add(view => view.Crew, [crew[0] with { Children = [crew[0].Children[1]] }]).Add(view => view.SelectedId, helper));
+
+        canvas.FindAll("[role=treeitem][tabindex='0']").Should().ContainSingle("the tree can still be reached with Tab after the chosen bot left it")
+            .Which.GetAttribute("aria-label").Should().StartWith("Lead");
     }
 
     [Fact]
@@ -458,6 +550,23 @@ public sealed class StarterComponentTests : BunitContext
 
         decided!.Value.Approved.Should().BeTrue();
         decided.Value.Calls.Should().Equal(calls[0].Id, calls[1].Id);
+    }
+
+    [Fact]
+    public void A_confirmation_whose_calls_were_answered_elsewhere_does_not_come_back_by_itself()
+    {
+        (IReadOnlyList<Guid> Calls, bool Approved)? decided = null;
+        var first = new WaitingCall(Guid.NewGuid(), lead, "Lead", "Lead asks to run a command", "npm test", start);
+        var list = Render<WaitingList>(set => set.Add(view => view.Calls, [first]).Add(view => view.OnDecide, answer => decided = answer));
+        list.Find("input[type=checkbox]").Change(true);
+        Button(list, "Approve the 1 chosen").Click();
+
+        list.Render(set => set.Add(view => view.Calls, [first with { Decided = "Approved on another device." }]));
+        list.Render(set => set.Add(view => view.Calls, [new WaitingCall(Guid.NewGuid(), helper, "Helper", "Helper asks to write a file", "/notes.md", start)]));
+
+        list.FindAll(".dv-waiting-confirm").Should().BeEmpty();
+        list.FindAll("input[type=checkbox]").Should().OnlyContain(box => !box.HasAttribute("checked"));
+        decided.Should().BeNull();
     }
 
     [Fact]
@@ -493,13 +602,14 @@ public sealed class StarterComponentTests : BunitContext
     private static IElement Button(IRenderedComponent<IComponent> component, string text) =>
         component.FindAll("button").First(button => button.TextContent.Trim() == text);
 
-    private static TimelineModel Run() => Timelines.Build(
-        [new(lead, "Lead"), new(helper, "Helper")],
-        [
-            new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1"), lead, TimelineKind.Step, "Thought", TimelineState.Done, start, TimeSpan.FromSeconds(4)),
-            new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e2"), lead, TimelineKind.Delegation, "Handed work", TimelineState.Done, start.AddSeconds(4), TimeSpan.FromSeconds(30), null, helper),
-            new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e3"), helper, TimelineKind.Tool, "Ran a command", TimelineState.Live, start.AddSeconds(6)),
-        ]);
+    private static TimelineModel Run() => Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], RunEvents());
+
+    private static TimelineEvent[] RunEvents() =>
+    [
+        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1"), lead, TimelineKind.Step, "Thought", TimelineState.Done, start, TimeSpan.FromSeconds(4)),
+        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e2"), lead, TimelineKind.Delegation, "Handed work", TimelineState.Done, start.AddSeconds(4), TimeSpan.FromSeconds(30), null, helper),
+        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e3"), helper, TimelineKind.Tool, "Ran a command", TimelineState.Live, start.AddSeconds(6)),
+    ];
 
     #endregion
 }
