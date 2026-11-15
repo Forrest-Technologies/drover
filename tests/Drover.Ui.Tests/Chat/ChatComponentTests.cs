@@ -162,6 +162,22 @@ public sealed class ChatComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_message_a_schedule_sent_says_so_in_words_and_is_named_for_it_not_for_the_person()
+    {
+        var list = RenderMessages(
+        [
+            new("1", true, "Brief me on what changed overnight.") { SentBy = "Sent by the schedule 'Every weekday at 09:30'" },
+            new("2", true, "Thanks"),
+        ]);
+
+        var articles = list.FindAll("article.dv-message-person");
+        articles[0].GetAttribute("aria-label").Should().Be("Sent by the schedule 'Every weekday at 09:30'");
+        articles[0].QuerySelector(".dv-message-sent-by")!.TextContent.Trim().Should().Be("Sent by the schedule 'Every weekday at 09:30'");
+        articles[1].GetAttribute("aria-label").Should().Be("You said");
+        articles[1].QuerySelector(".dv-message-sent-by").Should().BeNull();
+    }
+
+    [Fact]
     public void A_failed_reply_is_reported_in_an_alert()
     {
         var list = Render<MessageList>(parameters => parameters

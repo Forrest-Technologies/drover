@@ -39,6 +39,12 @@ public sealed class Message : ISpaceOwned, IAudienceScoped
 
     public Guid? RunId { get; set; }
 
+    /// <summary>
+    /// The schedule that sent this message for its author, who did not type it. Kept when the schedule is removed, so
+    /// the message still reads as sent by a schedule.
+    /// </summary>
+    public Guid? ScheduleId { get; set; }
+
     public IReadOnlyList<MessagePart> Parts { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; }

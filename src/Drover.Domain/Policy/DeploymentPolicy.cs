@@ -120,6 +120,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxBotsPerSpace = 100;
 
+    public const int SelfHostedMinScheduleIntervalMinutes = 1;
+
+    public const int HostedMinScheduleIntervalMinutes = 15;
+
+    public const int SelfHostedMaxSchedulesPerSpace = 1000;
+
+    public const int HostedMaxSchedulesPerSpace = 100;
+
     #endregion
 
     #region Presets
@@ -184,6 +192,16 @@ public sealed record DeploymentPolicy
     /// the operator's database and a bot that can be run, so a shared server bounds it more tightly.
     /// </summary>
     public int MaxBotsPerSpace { get; init; } = SelfHostedMaxBotsPerSpace;
+
+    /// <summary>
+    /// The fewest minutes allowed between two times a schedule is due. Every time a schedule fires is a run on the
+    /// operator's server that nobody is watching, so a shared server spaces them out. A shorter one is refused when it
+    /// is saved.
+    /// </summary>
+    public int MinScheduleIntervalMinutes { get; init; } = SelfHostedMinScheduleIntervalMinutes;
+
+    /// <summary>The most schedules a space may hold, across all of its bots. Each is unattended work on the operator's server.</summary>
+    public int MaxSchedulesPerSpace { get; init; } = SelfHostedMaxSchedulesPerSpace;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -378,6 +396,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxBotsPerSpace,
             HostedMaxBotsPerSpace,
             Enforcement.Now("BotService, on every path that makes a bot: created, created beneath a parent, duplicated, or made by a bot")),
+        PolicyRule.Floor(
+            nameof(MinScheduleIntervalMinutes),
+            policy => policy.MinScheduleIntervalMinutes,
+            HostedMinScheduleIntervalMinutes,
+            Enforcement.Now("ScheduleService, when a schedule is added or changed")),
+        PolicyRule.Limit(
+            nameof(MaxSchedulesPerSpace),
+            policy => policy.MaxSchedulesPerSpace,
+            HostedMaxSchedulesPerSpace,
+            Enforcement.Now("ScheduleService, when a schedule is added")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

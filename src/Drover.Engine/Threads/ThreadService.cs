@@ -14,6 +14,7 @@ public sealed class ThreadService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
+    BotScheduleRepository schedules,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -115,6 +116,15 @@ public sealed class ThreadService(
         await threads.FindThread(threadId, cancellationToken) is null
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
+
+    /// <summary>
+    /// The time of each schedule that sent one of these messages and still exists, by schedule id, so the conversation
+    /// can say which schedule sent it.
+    /// </summary>
+    public async Task<Dictionary<Guid, string>> ListScheduleCrons(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
+        sent.Any(message => message.ScheduleId is not null)
+            ? await schedules.ListCrons([.. sent.Select(message => message.ScheduleId).OfType<Guid>().Distinct()], cancellationToken)
+            : [];
 
     /// <summary>
     /// What the thread's runs did with their tools, as their logs hold it, or null when the caller may not see the

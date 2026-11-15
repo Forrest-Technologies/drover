@@ -59,6 +59,12 @@ public sealed class RunRepository(DroverDbContext db)
             .Select(run => run.Id)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The status of each of these runs that exists, by id.</summary>
+    public Task<Dictionary<Guid, RunStatus>> ListStatuses(IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .Where(run => runIds.Contains(run.Id))
+            .ToDictionaryAsync(run => run.Id, run => run.Status, cancellationToken);
+
     /// <summary>For each of the threads that has one, the id of its active root run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListActiveRunIds(IReadOnlyCollection<Guid> threadIds, CancellationToken cancellationToken)
     {

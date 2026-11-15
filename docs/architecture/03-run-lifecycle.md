@@ -352,4 +352,26 @@ Connected clients see the stream drop, reconnect with their last `seq`, and cont
 
 ## Schedules
 
-A schedule row holds a cron expression and time zone. A scheduler loop calls `sys.claim_due_schedules`, which returns due rows and advances `next_run_at` in one statement. For each, it opens a tenant scope with the schedule's owner as principal and creates a thread, message, and run exactly as the API endpoint does. From there a scheduled run is an ordinary run. The schema ships in Phase 0; the loop is Phase 1.
+A schedule row holds a cron expression, a time zone, a prompt, a thread mode, and `next_run_at`, the next time it is due in UTC. `ScheduleService` computes `next_run_at` when the schedule is saved and refuses a schedule that breaks a deployment rule ([16-deployment-policies.md](16-deployment-policies.md)): times closer together than `MinScheduleIntervalMinutes`, or more schedules in the space than `MaxSchedulesPerSpace`.
+
+**The loop.** `ScheduleLoop` is a hosted service in `Drover.Server`; every server runs one. It calls `ScheduleRunner.SendDue` in `Drover.Engine` when the server starts and every 30 seconds after.
+
+1. **Claim.** In a transaction with no tenant, call `sys.claim_due_schedules(now, claim_until, limit)`. It selects enabled schedules whose `next_run_at` has passed, `FOR UPDATE SKIP LOCKED`, sets their `next_run_at` to `claim_until` (five minutes ahead), and returns only `(space_id, schedule_id, owner_user_id)`, in one statement. A second server asking at the same moment skips the locked rows and, once they commit, no longer sees them as due. PostgreSQL cannot read cron, which is why the function moves `next_run_at` to a claim rather than to the schedule's next time.
+2. **Enter scope.** For each, open a tenant scope for that space with the schedule's owner as the person (`ScheduleFiring`). Lock the schedule row. If `next_run_at` no longer equals this pass's claim, the schedule was changed, turned off, removed, or claimed again by another server since, and nothing is done.
+3. **Decide.** If the owner is no longer a member of the space, nothing is sent and the schedule is turned off (`enabled = false`, no `next_run_at`): nobody it may act for is left. If the bot is paused or removed, nothing is sent and the schedule stays on. Otherwise:
+4. **Send.** Store the prompt as a user message whose author is the owner and whose `schedule_id` names the schedule, and queue its run, exactly as [From message to run](#from-message-to-run) does: under the thread's lock, in the same transaction, with `run.queued` and the `NOTIFY`. The run's `trigger` is `schedule` and its principal the owner. The conversation is the thread mode's:
+
+   | `thread_mode` | Conversation |
+   | --- | --- |
+   | `new_thread` | A new thread each time, private to the owner, `origin = schedule`, named after the prompt |
+   | `same_thread` | The owner's main thread with the bot ([Conversation summaries](#conversation-summaries) and [02-data-model.md](02-data-model.md)), made then if they have none |
+
+   When that thread already has a run under way, the message is stored pending and waits (as `whenBusy = queue`): when the run ends, it starts the next run, and `ThreadLine` gives a run started by a schedule's message the trigger `schedule` too.
+5. **Record.** In the same transaction write `last_run_at`, `last_outcome` (`started`, `waiting_for_reply`, `bot_paused`, `bot_removed`, or `owner_left`), `last_run_id` when a run was queued, and the real `next_run_at`: the schedule's first time after now. Counting from now, not from the time it was due, is what makes a server that was down across several due times send the schedule once, not once for each.
+6. **Commit, then signal** the workers and the owner's open screens.
+
+One schedule that fails to send does not stop the pass. Its row keeps the claim, so it is due again when the claim runs out and is tried again then, never lost and never sent twice for one due time. A person who changes a schedule while it is claimed replaces the claim with the schedule's new time, so the claimed send is dropped.
+
+**What people see.** The message is the owner's for every purpose a run has (whose steering it takes, whose pending messages it answers), and is marked as not typed by them: `MessageResponse.scheduleId`, with `scheduleCron` while the schedule exists, and the conversation shows "Sent by the schedule 'Every weekday at 09:30'" under it, or that the schedule has since been removed. A schedule's read contract carries `lastRunId`, `lastRunAt`, and `lastOutcome`, which for a run it started is that run's status now (`queued` through `completed` or `failed`). The status page has a Scheduler row: working while this server looked for due schedules in the last 90 seconds, otherwise when it last looked.
+
+From there a scheduled run is an ordinary run.

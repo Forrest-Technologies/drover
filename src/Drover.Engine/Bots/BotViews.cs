@@ -92,7 +92,7 @@ public static class BotViews
         };
     }
 
-    public static BotScheduleResponse ToResponse(this BotSchedule schedule) =>
+    public static BotScheduleResponse ToResponse(this BotSchedule schedule, RunStatus? lastRunStatus = null) =>
         new(
             schedule.Id,
             schedule.BotId,
@@ -102,7 +102,12 @@ public static class BotViews
             schedule.Prompt,
             Words.Of(schedule.ThreadMode),
             schedule.Enabled,
-            schedule.NextRunAt);
+            schedule.NextRunAt,
+            schedule.LastRunId,
+            schedule.LastRunAt,
+            LastOutcome(schedule, lastRunStatus));
+
+    public static BotScheduleResponse ToResponse(this ScheduleView view) => view.Schedule.ToResponse(view.LastRunStatus);
 
     public static ScheduleEdit ToEdit(this BotScheduleBody body) =>
         new(body.Cron ?? string.Empty, body.TimeZone ?? string.Empty, body.Prompt ?? string.Empty, Words.Read<ScheduleThreadMode>(body.ThreadMode), body.Enabled);
@@ -110,6 +115,15 @@ public static class BotViews
     #endregion
 
     #region Private Methods
+
+    /// <summary>A run the schedule started reads as that run's status; anything else as what the schedule recorded.</summary>
+    private static string? LastOutcome(BotSchedule schedule, RunStatus? lastRunStatus) =>
+        (schedule.LastOutcome, lastRunStatus) switch
+        {
+            (ScheduleOutcome.Started, { } status) => status.ToWireName(),
+            ({ } outcome, _) => Words.Of(outcome),
+            _ => null,
+        };
 
     private static ModelSettings? Read(ModelSettingsBody body) =>
         Words.Read<WebSearchMode>(body.WebSearch) is { } webSearch

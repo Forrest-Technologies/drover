@@ -98,9 +98,20 @@ public static class Conversations
 
     private static ChatMessage ToChatMessage(MessageView message, List<ToolCard> cards)
     {
-        var shown = new ChatMessage(message.Id.ToString(), message.Role is PersonRole, Words(message), message.IsStreaming, message.IsPending);
+        var shown = new ChatMessage(message.Id.ToString(), message.Role is PersonRole, Words(message), message.IsStreaming, message.IsPending)
+        {
+            SentBy = SentBy(message),
+        };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
+
+    /// <summary>Who sent a message the person did not type: the schedule, by its time, or one removed since.</summary>
+    private static string? SentBy(MessageView message) => message switch
+    {
+        { ScheduleId: null } => null,
+        { ScheduleCron: { } cron } => $"Sent by the schedule '{ScheduleWords.Describe(cron)}'",
+        _ => "Sent by a schedule that has since been removed",
+    };
 
     // A call part without an id cannot be followed, so it is left out.
     private static IEnumerable<ToolCard> CardsOf(

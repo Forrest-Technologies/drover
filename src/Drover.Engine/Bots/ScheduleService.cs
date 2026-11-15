@@ -9,14 +9,21 @@ public sealed record ScheduleChange(BotSchedule? Schedule, string? Problem)
     public static ScheduleChange NotFound { get; } = new(null, null);
 }
 
+/// <summary>A schedule and, when the last time it was due started a run, that run's status now.</summary>
+public sealed record ScheduleView(BotSchedule Schedule, RunStatus? LastRunStatus);
+
 /// <summary>
-/// A bot's schedules. They are checked and stored here, with the next time each is due. Nothing here runs one.
+/// A bot's schedules. They are checked and stored here, with the next time each is due; <see cref="ScheduleFiring"/>
+/// sends one when that time comes. A schedule is checked against the deployment's rules on the shortest time between
+/// two runs and the most schedules a space may hold.
 /// </summary>
 public sealed class ScheduleService(
     BotRepository bots,
     BotScheduleRepository schedules,
+    RunRepository runs,
     AuditLog audit,
     TimeProvider time,
+    IOptions<DeploymentPolicyOptions> deployment,
     ILogger<ScheduleService> logger)
 {
     #region Private Fields
@@ -27,13 +34,36 @@ public sealed class ScheduleService(
 
     private const int MaxCronLength = 100;
 
+    /// <summary>How far ahead a schedule's times are compared to find the shortest gap between two of them.</summary>
+    private static readonly TimeSpan gapSearch = TimeSpan.FromDays(366);
+
     #endregion
 
     #region Public Methods
 
-    /// <summary>The bot's schedules, or null when there is no such bot.</summary>
-    public async Task<List<BotSchedule>?> ListSchedules(Guid botId, CancellationToken cancellationToken) =>
-        await FindBot(botId, cancellationToken) is null ? null : await schedules.ListSchedules(botId, cancellationToken);
+    /// <summary>The bot's schedules, each with how its last run is going, or null when there is no such bot.</summary>
+    public async Task<List<ScheduleView>?> ListSchedules(Guid botId, CancellationToken cancellationToken)
+    {
+        if (await FindBot(botId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var found = await schedules.ListSchedules(botId, cancellationToken);
+        var statuses = await runs.ListStatuses([.. found.Select(schedule => schedule.LastRunId).OfType<Guid>()], cancellationToken);
+        return [.. found.Select(schedule => new ScheduleView(schedule, schedule.LastRunId is { } runId && statuses.TryGetValue(runId, out var status) ? status : null))];
+    }
+
+    /// <summary>
+    /// The first time the schedule is due after <paramref name="after"/>, in UTC, or null when it is off. Counted from
+    /// a moment, not from the last time it was due, so a schedule that missed several times while the server was down
+    /// is due once, not once for each.
+    /// </summary>
+    public static DateTimeOffset? NextOccurrence(BotSchedule schedule, DateTimeOffset after) =>
+        schedule.Enabled
+            ? CronExpression.Parse(schedule.Cron, CronFormat.Standard)
+                .GetNextOccurrence(after, TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZone))?.ToUniversalTime()
+            : null;
 
     public async Task<ScheduleChange> Create(Guid botId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken)
     {
@@ -45,6 +75,13 @@ public sealed class ScheduleService(
         if (FindProblem(edit) is { } problem)
         {
             return new ScheduleChange(null, problem);
+        }
+
+        var maxPerSpace = deployment.Value.Rules.MaxSchedulesPerSpace;
+
+        if (await schedules.CountSchedules(cancellationToken) >= maxPerSpace)
+        {
+            return new ScheduleChange(null, $"A space on this server holds at most {maxPerSpace} schedules. Remove one first.");
         }
 
         if ((await schedules.ListSchedules(botId, cancellationToken)).Count >= MaxSchedulesPerBot)
@@ -124,7 +161,9 @@ public sealed class ScheduleService(
 
     private static JsonObject About(BotSchedule schedule) => new() { ["schedule_id"] = schedule.Id };
 
-    private static string? FindProblem(ScheduleEdit edit)
+    private string? FindProblem(ScheduleEdit edit) => FindWritingProblem(edit) ?? FindIntervalProblem(edit);
+
+    private static string? FindWritingProblem(ScheduleEdit edit)
     {
         if (edit.Cron.Trim().Length > MaxCronLength || !CronExpression.TryParse(edit.Cron.Trim(), CronFormat.Standard, out _))
         {
@@ -144,11 +183,38 @@ public sealed class ScheduleService(
         return edit.ThreadMode is null ? "A schedule posts to a new_thread each time or to the same_thread." : null;
     }
 
-    private DateTimeOffset? NextRun(BotSchedule schedule) =>
-        schedule.Enabled
-            ? CronExpression.Parse(schedule.Cron, CronFormat.Standard)
-                .GetNextOccurrence(time.GetUtcNow(), TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZone))?.ToUniversalTime()
-            : null;
+    /// <summary>
+    /// Says so when two of the schedule's times in the coming year are closer together than the deployment allows. A
+    /// floor of one minute or less allows every schedule, since cron has nothing finer.
+    /// </summary>
+    private string? FindIntervalProblem(ScheduleEdit edit)
+    {
+        var minutes = deployment.Value.Rules.MinScheduleIntervalMinutes;
+
+        if (minutes <= 1)
+        {
+            return null;
+        }
+
+        var from = time.GetUtcNow();
+        var times = CronExpression.Parse(edit.Cron.Trim(), CronFormat.Standard)
+            .GetOccurrences(from, from + gapSearch, TimeZoneInfo.FindSystemTimeZoneById(edit.TimeZone.Trim()));
+        DateTimeOffset? previous = null;
+
+        foreach (var next in times)
+        {
+            if (previous is { } last && next - last < TimeSpan.FromMinutes(minutes))
+            {
+                return $"Schedules on this server run at most once every {minutes} minutes. Choose a time that repeats less often.";
+            }
+
+            previous = next;
+        }
+
+        return null;
+    }
+
+    private DateTimeOffset? NextRun(BotSchedule schedule) => NextOccurrence(schedule, time.GetUtcNow());
 
     private async Task<Bot?> FindBot(Guid botId, CancellationToken cancellationToken) =>
         await bots.FindBot(botId, cancellationToken) is { Status: not BotStatus.Removed } bot ? bot : null;

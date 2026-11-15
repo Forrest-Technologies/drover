@@ -25,7 +25,10 @@ public sealed class ThreadLine(
 
     #region Public Methods
 
-    /// <summary>Queues the run that answers a message, appends <c>run.queued</c>, and wakes the workers at commit.</summary>
+    /// <summary>
+    /// Queues the run that answers a message, appends <c>run.queued</c>, and wakes the workers at commit. A message a
+    /// schedule sent starts a run triggered by the schedule, whenever it starts one.
+    /// </summary>
     public async Task<QueuedRun> Queue(ChatThread thread, Message trigger, Guid principalUserId, CancellationToken cancellationToken)
     {
         var run = new Run
@@ -33,7 +36,7 @@ public sealed class ThreadLine(
             ThreadId = thread.Id,
             BotId = thread.BotId,
             PrincipalUserId = principalUserId,
-            Trigger = RunTrigger.Message,
+            Trigger = trigger.ScheduleId is null ? RunTrigger.Message : RunTrigger.Schedule,
             TriggerMessageId = trigger.Id,
         };
         run.RootRunId = run.Id;

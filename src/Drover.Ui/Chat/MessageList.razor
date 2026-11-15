@@ -15,8 +15,12 @@
         {
             if (message.FromPerson)
             {
-                <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
+                <article @key="message.Key" class="dv-message dv-message-person" aria-label="@(message.SentBy ?? "You said")">
                     <p class="dv-message-bubble dv-facet">@message.Text</p>
+                    @if (message.SentBy is { } sentBy)
+                    {
+                        <p class="dv-message-sent-by">@sentBy</p>
+                    }
                     @if (message.Pending)
                     {
                         <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>

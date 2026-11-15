@@ -91,6 +91,9 @@ public sealed class RunWorld : IAsyncDisposable
     public EngineHost StartHost(Action<RunOptions>? configure = null, Action<IServiceCollection>? replaceServices = null) =>
         NewHost(configure, replaceServices).Start();
 
+    /// <summary>A server process that executes no runs, for work that only queues them, such as the scheduler.</summary>
+    public EngineHost IdleHost(Action<IServiceCollection>? replaceServices = null) => NewHost(null, replaceServices);
+
     public Task<T> Transact<T>(Func<IServiceProvider, Task<T>> work) => TransactAs(SpaceId, UserId, work);
 
     public async Task<T> TransactAs<T>(Guid spaceId, Guid userId, Func<IServiceProvider, Task<T>> work)

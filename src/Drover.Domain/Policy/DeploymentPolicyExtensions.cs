@@ -17,6 +17,7 @@ public static class DeploymentPolicyExtensions
             .WithoutToolConnections()
             .WithBoundedSandboxes()
             .WithBoundedBotsPerSpace()
+            .WithBoundedSchedules()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -63,6 +64,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
+
+    public static DeploymentPolicy WithBoundedSchedules(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MinScheduleIntervalMinutes = DeploymentPolicy.HostedMinScheduleIntervalMinutes,
+            MaxSchedulesPerSpace = DeploymentPolicy.HostedMaxSchedulesPerSpace,
+        };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
     public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>

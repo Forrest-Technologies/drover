@@ -50,7 +50,8 @@ public static class RunViews
             activeRunId,
             thread.IsMain);
 
-    public static MessageResponse ToResponse(this Message message) =>
+    /// <summary>The message as the API returns it. <paramref name="scheduleCron"/> is the time of the schedule that sent it, while that schedule exists.</summary>
+    public static MessageResponse ToResponse(this Message message, string? scheduleCron = null) =>
         new(
             message.Id,
             message.ThreadId,
@@ -60,7 +61,9 @@ public static class RunViews
             [.. message.Parts.Select(ToResponse)],
             message.CreatedAt,
             message.Steers,
-            message.Withheld);
+            message.Withheld,
+            message.ScheduleId,
+            message.ScheduleId is null ? null : scheduleCron);
 
     #endregion
 
