@@ -183,6 +183,26 @@
   padding: var(--dv-space-2);
 }
 
+/* On a phone the bot's name keeps the header's first row, and the ways beside the conversation take a second. */
+@media (max-width: 559px) {
+  .dv-shell-main-header {
+    flex-wrap: wrap;
+  }
+
+  .dv-shell-main-header .dv-shell-title {
+    flex: 1;
+  }
+
+  .dv-shell-beside {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .dv-shell-beside .dv-shell-side {
+    flex: 1;
+  }
+}
+
 @media (pointer: coarse) {
   .dv-shell-new,
   .dv-shell-side,

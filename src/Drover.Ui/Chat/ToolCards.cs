@@ -25,6 +25,10 @@ public static partial class ToolCards
         ("computer.type", new("Typing", "Typed", "type")),
         ("computer.key", new("Pressing keys", "Pressed keys", "press keys")),
         ("computer.scroll", new("Scrolling", "Scrolled", "scroll")),
+        ("crew.list", new("Looking over its crew", "Looked over its crew", "look over its crew")),
+        ("crew.add", new("Making a bot", "Made a bot", "make a bot")),
+        ("crew.change", new("Changing a bot", "Changed a bot", "change a bot")),
+        ("crew.remove", new("Removing a bot", "Removed a bot", "remove a bot")),
         ("time.now", new("Checking the time", "Checked the time", "check the time")));
 
     #endregion
@@ -150,9 +154,19 @@ public static partial class ToolCards
                 ? string.Join("+", keys.EnumerateArray().Select(key => key.ToString()))
                 : string.Empty,
             "computer.scroll" => $"{Text(values, "direction")} {Text(values, "amount")}".Trim(),
+            "crew.add" => NameAndPurpose(values),
             _ => Generic(values),
         };
     }
+
+    // The new bot as a person would say it: its name, then what it is for.
+    private static string NameAndPurpose(JsonElement values) =>
+        (Text(values, "name"), OneLine(Text(values, "description"))) switch
+        {
+            (var name, "") => name,
+            ("", var purpose) => purpose,
+            (var name, var purpose) => $"{name}: {purpose}",
+        };
 
     // One text value says it all; anything else is the arguments as written, on one line.
     private static string Generic(JsonElement values) =>
