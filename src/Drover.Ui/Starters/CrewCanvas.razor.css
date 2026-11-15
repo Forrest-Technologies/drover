@@ -1,0 +1,93 @@
+/* The crew as a tree. Half-slot columns let a bot sit centered over the bots beneath it. The canvas scrolls
+   inside itself in both directions, so a wide crew never pushes the page sideways. */
+.dv-canvas {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--dv-space-5);
+}
+
+.dv-canvas-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--dv-canvas-columns), calc(var(--dv-column-min) / 2));
+  grid-template-rows: repeat(var(--dv-canvas-rows), 1fr);
+  width: max-content;
+  margin-inline: auto;
+}
+
+/* The connectors, drawn across the whole grid in the grid's own units and stretched to fit it. Each runs from
+   the center of one cell to the center of another; the nodes sit on top and cover both ends. */
+.dv-canvas-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.dv-canvas-line {
+  fill: none;
+  stroke: var(--dv-line);
+  stroke-width: var(--dv-border);
+  vector-effect: non-scaling-stroke;
+}
+
+/* Work is passing along this connector. The pulse comes from dv-state-delegation; the color is the signal for
+   reduced motion, where nothing travels. */
+.dv-canvas-passing {
+  stroke: var(--dv-violet);
+}
+
+.dv-canvas-cell {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: var(--dv-space-4) var(--dv-space-2);
+}
+
+.dv-canvas-node {
+  --dv-facet-fill: var(--dv-bg-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dv-space-1);
+  width: 100%;
+  min-height: var(--dv-target-touch);
+  padding: var(--dv-space-3);
+  color: var(--dv-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.dv-canvas-selected {
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-3);
+}
+
+.dv-canvas-name {
+  max-width: 100%;
+  font-weight: var(--dv-weight-heading);
+  overflow-wrap: anywhere;
+}
+
+.dv-canvas-role {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+}
+
+.dv-canvas-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dv-space-1) var(--dv-space-2);
+}

@@ -21,13 +21,25 @@ public static class MarkupRules
         """(?<=[\p{L}\p{N}.?!'"’])!(?=\s|$|[<"'!?])""",
         Options | RegexOptions.Multiline);
 
+    /// <summary>
+    /// Words that stand where content should be: filler, a promise of a feature, an apology, or a state that says
+    /// nothing. DESIGN.md asks every state to say what is happening and the one thing to do next.
+    /// </summary>
+    private static readonly Regex fillerCopy = new(
+        """(?<![\w-])(?:lorem ipsum|coming soon|click here|oops|sorry|whoops|under construction|not implemented)(?![\w-])|(?<=^|[>"])\s*(?:no data|nothing here|no results|n/a)\.?\s*(?=$|[<"])""",
+        Options | RegexOptions.Multiline);
+
+    private static readonly Regex quotedExpression = new(@"^\s*@\(\s*""(?<text>[^""]*)""\s*\)\s*$", Options);
+
+    private static readonly Regex deadAddress = new(@"^\s*(?:#|javascript:.*)?\s*$", Options);
+
     private static readonly Regex implicitExpression = new(@"@[\w.]+", Options);
 
     private static readonly HashSet<string> textAttributes =
     [
         "label", "title", "placeholder", "alt", "aria-label", "aria-description", "aria-placeholder",
         "aria-valuetext", "aria-roledescription", "text", "description", "heading", "subtitle", "message",
-        "hint", "caption", "summary", "tooltip", "help", "error",
+        "hint", "caption", "summary", "tooltip", "help", "error", "cause", "actionlabel", "about", "note",
     ];
 
     private static readonly HashSet<string> colorAttributes =
@@ -123,6 +135,43 @@ public static class MarkupRules
     }
 
     /// <summary>
+    /// Filler in interface text: text content and the attributes that hold text.
+    /// </summary>
+    public static IEnumerable<Violation> NoFillerCopy(string file, MarkupDocument document)
+    {
+        var inText =
+            from Match found in fillerCopy.Matches(document.Text)
+            select (Line: SourceText.LineAt(document.Text, found.Index), Value: found.Value.Trim());
+        var inAttributes =
+            from tag in document.Tags
+            from attribute in tag.Attributes
+            where textAttributes.Contains(attribute.Name.ToLowerInvariant())
+            from Match found in fillerCopy.Matches(Literal(attribute.Value))
+            select (Line: attribute.Line + attribute.Value.AsSpan(0, found.Index).Count('\n'), Value: found.Value.Trim());
+        return inText.Concat(inAttributes).Select(found => new Violation(
+            RuleNames.NoFillerCopy,
+            file,
+            found.Line,
+            $"'{found.Value}' stands where content should be; say what is happening and the one thing to do next"));
+    }
+
+    /// <summary>
+    /// A link that goes nowhere: no address at all, an empty one, a bare hash, or a script address, written out
+    /// or as a string in an expression. A control that does nothing does not ship; something that acts on the
+    /// page is a button.
+    /// </summary>
+    public static IEnumerable<Violation> NoDeadLinks(string file, MarkupDocument document) =>
+        from tag in document.Tags
+        where !tag.IsClosing && tag.Name.Equals("a", StringComparison.OrdinalIgnoreCase)
+        let address = tag.Attributes.FirstOrDefault(attribute => attribute.Name.Equals("href", StringComparison.OrdinalIgnoreCase))
+        where address is null || deadAddress.IsMatch(LiteralAddress(address.Value))
+        select new Violation(
+            RuleNames.NoDeadLinks,
+            file,
+            address?.Line ?? tag.Line,
+            "this link goes nowhere; give it an address, or make it a button if it acts on the page");
+
+    /// <summary>
     /// A raw color in an SVG presentation attribute. Geometry attributes are not CSS values and are not checked.
     /// </summary>
     public static IEnumerable<Violation> NoRawColors(string file, MarkupDocument document) =>
@@ -152,6 +201,20 @@ public static class MarkupRules
 
     private static string Literal(string value) =>
         SourceText.BlankMatches(Markup.MaskExpressions(value), implicitExpression);
+
+    // An address written as a string in an expression, such as @("#"), is checked as that string. Any other
+    // expression is taken to be a real address: the rule cannot know what it holds.
+    private static string LiteralAddress(string value) => value switch
+    {
+        _ when quotedExpression.Match(value) is { Success: true } match => match.Groups["text"].Value,
+        _ when value.Contains('@') => "/",
+        _ => value,
+    };
+
+    /// <summary>Hype, an exclamation mark, or filler in a piece of interface copy written as a C# string.</summary>
+    public static IEnumerable<string> ProblemsInCopy(string text) =>
+        Hype(text).Select(found => found.Message)
+            .Concat(fillerCopy.Matches($"\"{text}\"").Select(found => $"'{found.Value.Trim()}' stands where content should be"));
 
     private static IEnumerable<(int Index, string Message)> Hype(string text) =>
         hypeWord.Matches(text)

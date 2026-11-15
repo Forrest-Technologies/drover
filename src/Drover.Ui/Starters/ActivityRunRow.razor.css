@@ -1,0 +1,12 @@
+::deep .dv-run-working {
+  --dv-facet-edge: var(--dv-ion);
+}
+
+.dv-run-when,
+.dv-run-failure {
+  margin: 0;
+}
+
+.dv-run-link {
+  color: var(--dv-text-2);
+}
