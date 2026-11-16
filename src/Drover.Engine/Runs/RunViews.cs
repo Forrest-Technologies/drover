@@ -40,7 +40,7 @@ public static class RunViews
             bot.ParentBotId,
             bot.CreatedByBotId);
 
-    public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId) =>
+    public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId, ThreadAttention? attention = null) =>
         new(
             thread.Id,
             thread.BotId,
@@ -48,7 +48,8 @@ public static class RunViews
             thread.AudienceUserId == Audience.Everyone,
             thread.LastActivityAt,
             activeRunId,
-            thread.IsMain);
+            thread.IsMain,
+            attention);
 
     public static MessageResponse ToResponse(this Message message) =>
         new(

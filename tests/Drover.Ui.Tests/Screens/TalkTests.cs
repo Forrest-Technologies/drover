@@ -18,6 +18,8 @@ public sealed class TalkTests : ScreenTest
 
     private static readonly Guid sideId = Guid.Parse("0196f1a0-0000-7000-8000-000000000009");
 
+    private static readonly Guid failedRunId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000a");
+
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
     private readonly FakeTimeProvider time = new();
@@ -50,6 +52,8 @@ public sealed class TalkTests : ScreenTest
         new(helperId, "Sample helper", "sample-helper", "Sample instructions", connectionId, "sample-default", "paused", botId);
 
     private static ThreadSummary Side { get; } = new(sideId, botId, "Sample side chat", false, DateTimeOffset.UnixEpoch, null);
+
+    private static RunFailure Failure { get; } = new(failedRunId, FailureCauses.ModelUnreachable, "invalid_key: Sample report of the failure.");
 
     #endregion
 
@@ -109,6 +113,73 @@ public sealed class TalkTests : ScreenTest
         page.WaitForAssertion(() => page.Find("title").TextContent.Should().Be("Drover"));
         bots.SetResult();
         page.WaitForAssertion(() => page.Find("title").TextContent.Should().Be("Marshal · Drover"));
+    }
+
+    #endregion
+
+    #region What Each Bot Has For You
+
+    [Fact]
+    public void Each_bot_says_in_words_what_it_has_for_the_person_and_the_tab_counts_who_waits()
+    {
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal, Helper });
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null) with { Attention = new(false, true, true, Failure) }, Side with { Attention = new(true, false, false, null) } });
+        Server.Answer("GET", $"{space}/bots/{helperId}/threads", new[] { new ThreadSummary(Guid.NewGuid(), helperId, null, false, DateTimeOffset.UnixEpoch, null, true, new(false, false, true, null)) });
+
+        var page = Render(builder =>
+        {
+            builder.OpenComponent<HeadOutlet>(0);
+            builder.CloseComponent();
+            builder.OpenComponent<Talk>(1);
+            builder.CloseComponent();
+        });
+
+        page.WaitForAssertion(() => page.FindAll("nav[aria-label=Crew] a.dv-crew-bot").Select(link => link.GetAttribute("aria-label"))
+            .Should().Equal("Marshal, waiting for you", "Sample helper, paused, new"));
+        page.FindAll("nav[aria-label=Crew] .dv-attention").Select(note => note.TextContent).Should().Equal("Waiting for you", "New");
+        page.FindAll("nav[aria-label=Crew] .dv-attention .dv-badge-warn").Should().ContainSingle("waiting has the attention color as well as the word");
+        page.FindAll("nav[aria-label=Crew] .dv-attention [class*=dv-state-]").Should().BeEmpty("nothing moves for a fact");
+        page.WaitForAssertion(() => page.Find("title").TextContent.Should().Be("(1) Marshal · Drover"));
+        Server.Sent("PUT", $"{space}/threads/{threadId}/seen").Should().BeEmpty("on the start page a phone shows the crew: nothing was opened");
+    }
+
+    [Fact]
+    public async Task A_signal_from_another_screen_changes_the_crew_without_a_reload()
+    {
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal, Helper });
+        var helperThread = new ThreadSummary(Guid.NewGuid(), helperId, null, false, DateTimeOffset.UnixEpoch, null, true, new(true, false, false, null));
+        Server.Answer("GET", $"{space}/bots/{helperId}/threads", new[] { helperThread });
+        var signals = Server.Stream($"{space}/stream");
+        var page = Render<Talk>();
+        page.WaitForAssertion(() => page.FindAll("nav[aria-label=Crew] .dv-attention").Select(note => note.TextContent).Should().Equal("Waiting for you"));
+
+        Server.Answer("GET", $"{space}/threads/{helperThread.Id}", helperThread with { Attention = new(false, false, false, null) });
+        await signals.Send(new UserSignal(UserSignalKinds.ThreadChanged, helperThread.Id, null));
+
+        page.WaitForAssertion(() => page.FindAll("nav[aria-label=Crew] .dv-attention").Should().BeEmpty("the approval was answered on another screen"));
+    }
+
+    [Fact]
+    public void Opening_a_conversation_marks_it_seen_and_its_bot_has_nothing_new_while_it_is_open()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null) with { Attention = new(false, false, true, null) } });
+        Main(Thread(null) with { Attention = new(false, false, true, null) });
+        Server.Answer("PUT", $"{space}/threads/{threadId}/seen", HttpStatusCode.NoContent);
+
+        var page = RenderMain();
+
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{space}/threads/{threadId}/seen").Should().ContainSingle());
+        page.FindAll("nav[aria-label=Crew] .dv-attention").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_side_chat_says_what_it_has_so_a_word_in_the_crew_can_be_traced_to_it()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null), Side with { Attention = new(false, false, true, null) } });
+
+        var page = RenderSide();
+
+        page.WaitForAssertion(() => page.Find("aside a.dv-side-chat .dv-attention").TextContent.Should().Be("New"));
     }
 
     #endregion
@@ -627,20 +698,59 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
-    public async Task A_run_that_fails_says_why_in_an_alert()
+    public async Task A_run_that_fails_ends_the_conversation_with_what_failed_and_says_it_aloud()
     {
         var events = RunStarts();
         var page = RenderMain();
         page.WaitForElement("article");
         await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Another sample question" });
         await page.Find("form").SubmitAsync();
+        Main(Thread(null) with { Attention = new(false, true, false, Failure) });
 
-        await events.Send(Event(1, RunEventTypes.RunFailed, new RunStatusChanged("failed", null, new("unauthorized", "The provider rejected the API key."), 1, null)));
+        await events.Send(Event(1, RunEventTypes.RunFailed, new RunStatusChanged("failed", null, new("invalid_key", "The provider rejected the API key."), 1, null)));
         await events.End();
 
-        page.WaitForAssertion(() => page.Find("main [role=alert]").TextContent.Trim()
-            .Should().Be("The provider rejected the API key. Send your message again to retry."));
+        page.WaitForAssertion(() => page.Find("main .dv-failure h3").TextContent
+            .Should().Be("Marshal could not reach its model. Check the model connection, then try again."));
+        page.Find(".dv-messages ~ [aria-live]").TextContent.Should().Be(page.Find("main .dv-failure h3").TextContent);
         page.Find(".dv-composer button").TextContent.Trim().Should().Be("Send");
+        page.Find("main .dv-failure").TextContent.Should().NotContain("rejected the API key", "the server's report is shown only when asked for");
+    }
+
+    [Fact]
+    public async Task Try_again_starts_a_new_run_from_the_same_message_and_follows_it()
+    {
+        Main(Thread(null) with { Attention = new(false, true, false, Failure) });
+        Server.Answer("POST", $"{space}/runs/{failedRunId}/retry", Run("queued"), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{space}/runs/{runId}/events");
+        var page = RenderMain();
+
+        page.WaitForAssertion(() => page.Find("main .dv-failure button").TextContent.Trim().Should().Be("Try again"));
+        await page.Find("main .dv-failure button").ClickAsync(new MouseEventArgs());
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop"));
+        page.FindAll("main .dv-failure").Should().BeEmpty("a run after the failure is under way");
+        Server.Sent("POST", $"{space}/runs/{failedRunId}/retry").Should().ContainSingle();
+
+        // Focus goes to the composer, where Stop took the place of Try again. The composer is the one thing on this
+        // screen that moves focus, and this page renders no element ids to compare a reference with.
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
+    }
+
+    [Fact]
+    public async Task A_retry_the_server_refuses_says_why()
+    {
+        Main(Thread(null) with { Attention = new(false, false, false, Failure) });
+        Server.Refuse("POST", $"{space}/runs/{failedRunId}/retry", HttpStatusCode.Conflict, "This run cannot be tried again: something came after it, or it did not fail.");
+        var page = RenderMain();
+        page.WaitForElement("main .dv-failure button");
+
+        await page.Find("main .dv-failure button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find("main [role=alert]").TextContent.Trim()
+            .Should().StartWith("It was not tried again. This run cannot be tried again"));
+        page.Find("main .dv-failure button").HasAttribute("disabled").Should().BeFalse("the button the person pressed keeps focus");
     }
 
     [Fact]

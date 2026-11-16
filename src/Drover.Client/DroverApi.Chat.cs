@@ -67,6 +67,13 @@ public sealed partial class DroverApi
         CancellationToken cancellationToken = default) =>
         Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text, whenBusy), cancellationToken);
 
+    /// <summary>
+    /// Marks the thread seen by the signed-in person as far as its newest message. Their other screens hear
+    /// <see cref="UserSignalKinds.ThreadSeen"/>.
+    /// </summary>
+    public Task MarkThreadSeen(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/seen", null, cancellationToken);
+
     #endregion
 
     #region Runs
@@ -76,6 +83,13 @@ public sealed partial class DroverApi
 
     public Task<RunSummary> CancelRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
         Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/cancel", null, cancellationToken);
+
+    /// <summary>
+    /// Starts a new run from the message a failed run answered, and returns it. Throws <see cref="DroverApiException"/>
+    /// with 409 when the run cannot be tried again: something came after it, or the bot cannot answer.
+    /// </summary>
+    public Task<RunSummary> RetryRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/retry", null, cancellationToken);
 
     /// <summary>
     /// Answers a tool call that waits for approval (<see cref="ToolCallView.State"/> is awaiting_approval). The

@@ -93,11 +93,10 @@ public sealed class ConversationsTests
     }
 
     [Fact]
-    public void A_failed_run_says_why_in_the_servers_words_and_what_to_do()
+    public void A_failed_run_is_not_a_notice_because_the_conversation_ends_with_its_failure_line()
     {
         var failed = RunView.Start(Guid.CreateVersion7()) with { Status = "failed", Error = new("unauthorized", "The provider rejected the API key.") };
 
-        failed.Problem().Should().Be("The provider rejected the API key. Send your message again to retry.");
         failed.Notice().Should().BeNull();
     }
 
@@ -106,7 +105,6 @@ public sealed class ConversationsTests
     {
         var stopped = RunView.Start(Guid.CreateVersion7()) with { Status = "cancelled" };
 
-        stopped.Problem().Should().BeNull();
         stopped.Notice().Should().Be("You stopped this reply.");
         (stopped with { Status = "completed" }).Notice().Should().BeNull();
     }

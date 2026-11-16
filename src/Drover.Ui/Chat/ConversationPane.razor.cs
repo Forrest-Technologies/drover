@@ -38,6 +38,10 @@ public sealed partial class ConversationPane(
 
     private bool sending;
 
+    private bool retrying;
+
+    private bool markedOnOpen;
+
     private bool missing;
 
     private bool reportedBusy;
@@ -53,6 +57,13 @@ public sealed partial class ConversationPane(
     /// <summary>True for the bot's main conversation, which the server keeps one of for each person.</summary>
     [Parameter]
     public bool Main { get; set; }
+
+    /// <summary>
+    /// The person chose this conversation, so having it open is seeing it. False where the pane is there without being
+    /// chosen: at the start page a phone shows the crew, not the lead's conversation.
+    /// </summary>
+    [Parameter]
+    public bool Opened { get; set; } = true;
 
     /// <summary>The side chat to open. Read once, when the pane is first shown.</summary>
     [Parameter]
@@ -83,6 +94,9 @@ public sealed partial class ConversationPane(
     private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run).ToChatMessages(history.With(run), run);
 
     private string? Notice => reconnecting ?? notice;
+
+    // The conversation ends with its failed run until a run after it is under way.
+    private RunFailure? Failure => Working ? null : thread?.Attention?.LastFailure;
 
     #endregion
 
@@ -119,6 +133,8 @@ public sealed partial class ConversationPane(
             history = await LoadToolHistory(thread);
             ResumeActiveRun(thread);
             await ReportBusy();
+            await MarkSeen();
+            markedOnOpen = Opened;
         }
         catch (DroverApiException exception) when (!Main && exception.StatusCode is HttpStatusCode.NotFound)
         {
@@ -133,6 +149,16 @@ public sealed partial class ConversationPane(
         finally
         {
             loading = false;
+        }
+    }
+
+    // The start page's conversation becomes seen when the person chooses its bot: the pane stays, the address changes.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Opened && !markedOnOpen && thread is not null && !loading)
+        {
+            markedOnOpen = true;
+            await MarkSeen();
         }
     }
 
@@ -266,6 +292,38 @@ public sealed partial class ConversationPane(
         }
     }
 
+    // The failed run's message is answered again by a new run, which is followed like any other.
+    private async Task Retry()
+    {
+        if (retrying || thread?.Attention?.LastFailure is not { } failure)
+        {
+            return;
+        }
+
+        retrying = true;
+        (problem, notice) = (null, null);
+        try
+        {
+            var started = await api.RetryRun(SpaceId, failure.RunId);
+            thread = thread with { ActiveRunId = started.Id, Attention = thread.Attention with { Failed = false, LastFailure = null } };
+            await Changed(thread);
+            Watch(started.Id);
+            await ReportBusy();
+
+            // The line and its button are gone; Stop, in the composer, took their place.
+            returnToComposer = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            retrying = false;
+        }
+    }
+
     #endregion
 
     #region Watching A Run
@@ -303,11 +361,12 @@ public sealed partial class ConversationPane(
             }
 
             stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
-            (run, problem, notice) = (view, view.Problem(), view.Notice());
+            (run, problem, notice) = (view, null, view.Notice());
 
             // A message sent just as the run ended is answered by a run of its own, which is followed next.
             thread = await api.GetThread(SpaceId, threadId, cancellationToken);
             await Changed(thread);
+            await MarkSeen();
             if (thread.ActiveRunId is { } next && next != runId)
             {
                 Watch(next);
@@ -341,6 +400,30 @@ public sealed partial class ConversationPane(
     #endregion
 
     #region Private Methods
+
+    // Having the conversation open is seeing it, on every screen of the person's. If the server does not hear it, the
+    // crew may still say there is something here until the next time; the conversation itself is unaffected.
+    private async Task MarkSeen()
+    {
+        if (thread is null || !Opened)
+        {
+            return;
+        }
+
+        try
+        {
+            await api.MarkThreadSeen(SpaceId, thread.Id);
+            if (thread.Attention is { } attention)
+            {
+                thread = thread with { Attention = attention with { Failed = false, HasNew = false } };
+                await Changed(thread);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "Thread {ThreadId} could not be marked seen", thread.Id);
+        }
+    }
 
     private Task Changed(ThreadSummary changed) => OnThreadChanged.InvokeAsync(changed with { LastActivityAt = DateTimeOffset.UtcNow });
 

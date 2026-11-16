@@ -23,7 +23,7 @@
                 }
                 else
                 {
-                    <CrewList Crew="Crew" SelectedId="Shown?.Id" Working="WorkingBots" />
+                    <CrewList Crew="Crew" SelectedId="Shown?.Id" Working="WorkingBots" ForYou="ForYou" />
                 }
             </nav>
             <footer class="dv-shell-list-footer">
@@ -83,7 +83,7 @@
                            aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
                     </nav>
                 </header>
-                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
+                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)

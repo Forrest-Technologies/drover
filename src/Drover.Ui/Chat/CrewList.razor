@@ -18,13 +18,31 @@
     [Parameter]
     public IReadOnlySet<Guid> Working { get; set; } = ImmutableHashSet<Guid>.Empty;
 
-    // The head carries the bot's name and what it is doing, so the written name is not read out a second time.
+    /// <summary>What each bot has for this person. A bot that is not here has nothing.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<Guid, Attention> ForYou { get; set; } = ImmutableDictionary<Guid, Attention>.Empty;
+
+    private Attention For(Guid botId) => ForYou.GetValueOrDefault(botId);
+
+    // The row is read out as one sentence: the name, what the bot is doing, that it is paused, and what it has for
+    // this person. What is written inside it says the same to the eye.
+    private string RowName(BotSummary bot)
+    {
+        var spoken = Working.Contains(bot.Id) ? $"{bot.Name}, thinking" : bot.Name;
+        return AttentionWords.Announce(bot.Status is "paused" ? $"{spoken}, paused" : spoken, For(bot.Id));
+    }
+
+    // The link is read out by its label, so the written name and the word inside it are for the eye only.
     private RenderFragment Row(CrewNode node) =>
         @<li @key="node.Bot.Id">
-            <a class="dv-crew-bot dv-facet" href="@Addresses.Talk(node.Bot.Id)" aria-current="@(node.Bot.Id == SelectedId ? "page" : null)">
+            <a class="dv-crew-bot dv-facet" href="@Addresses.Talk(node.Bot.Id)" aria-label="@RowName(node.Bot)"
+               aria-current="@(node.Bot.Id == SelectedId ? "page" : null)">
                 <Avatar Name="@node.Bot.Name" Hue="BotIdentity.Hue(node.Bot.Id)" Size="32"
                         State="@(Working.Contains(node.Bot.Id) ? AvatarState.Thinking : AvatarState.Rest)" />
-                <span class="dv-crew-name" aria-hidden="true">@node.Bot.Name</span>
+                <span class="dv-crew-text">
+                    <span class="dv-crew-name" aria-hidden="true">@node.Bot.Name</span>
+                    <AttentionNote Attention="For(node.Bot.Id)" />
+                </span>
                 @if (node.Bot.Status is "paused")
                 {
                     <span class="dv-crew-note dv-mono">Paused</span>

@@ -15,6 +15,9 @@ public static class RunEndpoints
         space.MapPost("/runs/{runId:guid}/cancel", CancelRun)
             .WithName("CancelRun")
             .WithSummary("Asks the run and the runs below it to stop. The run's own person or a space admin may.");
+        space.MapPost("/runs/{runId:guid}/retry", RetryRun)
+            .WithName("RetryRun")
+            .WithSummary("Starts a new run from the message a failed run answered. Only the run's own person may, while it is their newest run in the thread.");
         space.MapPost("/tool-calls/{toolCallId:guid}/decision", DecideToolCall)
             .WithName("DecideToolCall")
             .WithSummary("Approves or denies a tool call that waits for a person. The run's own person or a space admin may, if they can see the call.");
@@ -43,6 +46,28 @@ public static class RunEndpoints
             CancelOutcome.NotFound => TypedResults.NotFound(),
             CancelOutcome.Forbidden => TypedResults.Forbid(),
             _ => TypedResults.Ok(cancel.Run!.ToSummary()),
+        };
+    }
+
+    private static async Task<Results<Accepted<RunSummary>, NotFound, ForbidHttpResult, ProblemHttpResult>> RetryRun(
+        Guid runId,
+        HttpContext context,
+        RunService runs)
+    {
+        var access = context.GetSpaceAccess();
+        var retry = await runs.Retry(runId, access.UserId, context.RequestAborted);
+
+        return retry.Outcome switch
+        {
+            RetryOutcome.NotFound => TypedResults.NotFound(),
+            RetryOutcome.Forbidden => TypedResults.Forbid(),
+            RetryOutcome.NotRetryable => TypedResults.Problem(
+                title: "This run cannot be tried again: something came after it, or it did not fail.",
+                statusCode: StatusCodes.Status409Conflict),
+            RetryOutcome.BotUnavailable => TypedResults.Problem(
+                title: "This bot is paused or removed, so it cannot answer.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => TypedResults.Accepted($"/api/spaces/{access.SpaceId}/runs/{retry.Run!.Id}", retry.Run.ToSummary()),
         };
     }
 
