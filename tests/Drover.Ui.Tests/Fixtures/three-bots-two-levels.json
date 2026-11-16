@@ -1,0 +1,716 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.queued",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"queued\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:47.048835+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:47.078168+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "step.started",
+    "data": "{\"step\": 1, \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\"}",
+    "createdAt": "2026-11-16T14:32:47.100854+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"I will hand \", \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:47.259188+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"the research to \", \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:47.387765+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Scout and check \", \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:47.515003+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"the clock while \", \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:47.644221+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"it works.\", \"messageId\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:47.719302+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 1, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:47.719955+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Hand work to a bot\", \"effect\": \"allow\", \"toolName\": \"delegate\", \"arguments\": \"{\\\"bot_id\\\":\\\"01a1e4c5-788a-7364-b7be-858e25e736da\\\",\\\"task\\\":\\\"Find three sources on night-time bird migration.\\\\nList each with one line on why it matters.\\\"}\", \"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:47.734594+00:00"
+  },
+  {
+    "seq": 11,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-5afa-7d08-9bfc-d61f1540e55b\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"I will hand the research to Scout and check the clock while it works.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"file\": null, \"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"delegate\", \"arguments\": \"{\\\"task\\\": \\\"Find three sources on night-time bird migration.\\\\nList each with one line on why it matters.\\\", \\\"bot_id\\\": \\\"01a1e4c5-788a-7364-b7be-858e25e736da\\\"}\", \"mediaType\": null, \"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}], \"runId\": \"01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb\", \"steers\": false, \"position\": 10, \"threadId\": \"01a1e4c6-01eb-7c42-8ae5-6aa0a46413f6\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:47.727501+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:47.740754+00:00"
+  },
+  {
+    "seq": 12,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:47.767731+00:00"
+  },
+  {
+    "seq": 13,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "delegation.started",
+    "data": "{\"childBotId\": \"01a1e4c5-788a-7364-b7be-858e25e736da\", \"childRunId\": \"01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb\", \"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:47.837038+00:00"
+  },
+  {
+    "seq": 14,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:47.867897+00:00"
+  },
+  {
+    "seq": 15,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "step.started",
+    "data": "{\"step\": 1, \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\"}",
+    "createdAt": "2026-11-16T14:32:47.884986+00:00"
+  },
+  {
+    "seq": 16,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"I will look \", \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.035659+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"over the crew \", \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.165883+00:00"
+  },
+  {
+    "seq": 18,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"first, then ask \", \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.299012+00:00"
+  },
+  {
+    "seq": 19,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Checker to verify \", \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.426386+00:00"
+  },
+  {
+    "seq": 20,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"the sources.\", \"messageId\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.499835+00:00"
+  },
+  {
+    "seq": 21,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 1, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:48.500807+00:00"
+  },
+  {
+    "seq": 22,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.requested",
+    "data": "{\"title\": \"List the crew\", \"effect\": \"allow\", \"toolName\": \"crew.list\", \"arguments\": \"{}\", \"toolCallId\": \"b1a46b68-55d7-8517-b65a-0c89bbecf03f\"}",
+    "createdAt": "2026-11-16T14:32:48.515152+00:00"
+  },
+  {
+    "seq": 23,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-5e0b-71ea-a848-aa6f201ae960\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"I will look over the crew first, then ask Checker to verify the sources.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"file\": null, \"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"crew_list\", \"arguments\": \"{}\", \"mediaType\": null, \"toolCallId\": \"b1a46b68-55d7-8517-b65a-0c89bbecf03f\"}], \"runId\": \"01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb\", \"steers\": false, \"position\": 2, \"threadId\": \"01a1e4c6-5dcd-7ce7-87e5-c451cc194ab1\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:48.508557+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:48.521131+00:00"
+  },
+  {
+    "seq": 24,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"b1a46b68-55d7-8517-b65a-0c89bbecf03f\"}",
+    "createdAt": "2026-11-16T14:32:48.531132+00:00"
+  },
+  {
+    "seq": 25,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"{\\\"bots\\\":[{\\\"id\\\":\\\"01a1e4c5-78cb-7812-af8d-160a1fb98db2\\\",\\\"name\\\":\\\"Checker\\\",\\\"handle\\\":\\\"checker\\\",\\\"description\\\":\\\"\\\",\\\"status\\\":\\\"active\\\",\\\"parent_id\\\":\\\"01a1e4c5-788a-7364-b7be-858e25e736da\\\"}]}\", \"durationMs\": 30, \"toolCallId\": \"b1a46b68-55d7-8517-b65a-0c89bbecf03f\"}",
+    "createdAt": "2026-11-16T14:32:48.561604+00:00"
+  },
+  {
+    "seq": 26,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "step.started",
+    "data": "{\"step\": 2, \"messageId\": \"01a1e4c6-60bd-721f-9f72-f26ac90dccf7\"}",
+    "createdAt": "2026-11-16T14:32:48.574975+00:00"
+  },
+  {
+    "seq": 27,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 2, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:48.585146+00:00"
+  },
+  {
+    "seq": 28,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Hand work to a bot\", \"effect\": \"allow\", \"toolName\": \"delegate\", \"arguments\": \"{\\\"bot_id\\\":\\\"01a1e4c5-78cb-7812-af8d-160a1fb98db2\\\",\\\"task\\\":\\\"Check that these three sources are real and current:\\\\n1. Radar ornithology survey\\\\n2. Acoustic monitoring study\\\\n3. Moon-watching counts\\\"}\", \"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:48.600546+00:00"
+  },
+  {
+    "seq": 29,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-60bd-721f-9f72-f26ac90dccf7\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"delegate\", \"arguments\": \"{\\\"task\\\": \\\"Check that these three sources are real and current:\\\\n1. Radar ornithology survey\\\\n2. Acoustic monitoring study\\\\n3. Moon-watching counts\\\", \\\"bot_id\\\": \\\"01a1e4c5-78cb-7812-af8d-160a1fb98db2\\\"}\", \"mediaType\": null, \"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}], \"runId\": \"01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb\", \"steers\": false, \"position\": 4, \"threadId\": \"01a1e4c6-5dcd-7ce7-87e5-c451cc194ab1\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:48.593798+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:48.607086+00:00"
+  },
+  {
+    "seq": 30,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:48.619842+00:00"
+  },
+  {
+    "seq": 31,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "delegation.started",
+    "data": "{\"childBotId\": \"01a1e4c5-78cb-7812-af8d-160a1fb98db2\", \"childRunId\": \"01a1e4c6-60f8-74f2-ab5e-446e98dd265d\", \"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:48.640486+00:00"
+  },
+  {
+    "seq": 32,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:48.667349+00:00"
+  },
+  {
+    "seq": 33,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "step.started",
+    "data": "{\"step\": 1, \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\"}",
+    "createdAt": "2026-11-16T14:32:48.686058+00:00"
+  },
+  {
+    "seq": 34,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Checking \", \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:48.912755+00:00"
+  },
+  {
+    "seq": 35,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"when \", \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:49.033864+00:00"
+  },
+  {
+    "seq": 36,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"this \", \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:49.15415+00:00"
+  },
+  {
+    "seq": 37,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"was \", \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:49.277558+00:00"
+  },
+  {
+    "seq": 38,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"asked.\", \"messageId\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:49.299094+00:00"
+  },
+  {
+    "seq": 39,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 1, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:49.300117+00:00"
+  },
+  {
+    "seq": 40,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Current time\", \"effect\": \"ask\", \"toolName\": \"time.now\", \"arguments\": \"{}\", \"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\"}",
+    "createdAt": "2026-11-16T14:32:49.316233+00:00"
+  },
+  {
+    "seq": 41,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "tool.approval_requested",
+    "data": "{\"callId\": \"call_678be2c9d3b7\", \"details\": null, \"requestId\": \"ficc_call_678be2c9d3b7\", \"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\"}",
+    "createdAt": "2026-11-16T14:32:49.323776+00:00"
+  },
+  {
+    "seq": 42,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-612c-7aa8-ac71-3a2b8c98de78\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"Checking when this was asked.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"file\": null, \"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"time_now\", \"arguments\": \"{}\", \"mediaType\": null, \"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\"}], \"runId\": \"01a1e4c6-60f8-74f2-ab5e-446e98dd265d\", \"steers\": false, \"position\": 2, \"threadId\": \"01a1e4c6-60f8-7439-b057-fd8f57a6c442\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:49.329214+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:49.408447+00:00"
+  },
+  {
+    "seq": 43,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "run.waiting",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 120, \"cached\": 0, \"output\": 40}, \"reason\": \"awaiting_approval\", \"status\": \"waiting\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:49.416762+00:00"
+  },
+  {
+    "seq": 44,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "run.waiting",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 240, \"cached\": 0, \"output\": 80}, \"reason\": \"awaiting_approval\", \"status\": \"waiting\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:49.443809+00:00"
+  },
+  {
+    "seq": 45,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.waiting",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 120, \"cached\": 0, \"output\": 40}, \"reason\": \"awaiting_approval\", \"status\": \"waiting\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:49.455042+00:00"
+  },
+  {
+    "seq": 46,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "tool.approved",
+    "data": "{\"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\", \"decidedByUserId\": \"01a1e4c5-73bb-7d5d-b973-ad72da7a66be\"}",
+    "createdAt": "2026-11-16T14:32:50.851029+00:00"
+  },
+  {
+    "seq": 47,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:50.885572+00:00"
+  },
+  {
+    "seq": 48,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:50.90819+00:00"
+  },
+  {
+    "seq": 49,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:50.94315+00:00"
+  },
+  {
+    "seq": 50,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:50.963177+00:00"
+  },
+  {
+    "seq": 51,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:50.998093+00:00"
+  },
+  {
+    "seq": 52,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\"}",
+    "createdAt": "2026-11-16T14:32:51.033828+00:00"
+  },
+  {
+    "seq": 53,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"{\\\"utc\\\":\\\"2026-11-16T14:32:51.0362136\\\\u002B00:00\\\"}\", \"durationMs\": 7, \"toolCallId\": \"b2730d0b-4d95-8eb8-89b6-ba8248b9243e\"}",
+    "createdAt": "2026-11-16T14:32:51.040973+00:00"
+  },
+  {
+    "seq": 54,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "step.started",
+    "data": "{\"step\": 2, \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\"}",
+    "createdAt": "2026-11-16T14:32:51.056543+00:00"
+  },
+  {
+    "seq": 55,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"All three \", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.225146+00:00"
+  },
+  {
+    "seq": 56,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"are real. \", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.330183+00:00"
+  },
+  {
+    "seq": 57,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"The radar \", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.440583+00:00"
+  },
+  {
+    "seq": 58,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"survey is \", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.54519+00:00"
+  },
+  {
+    "seq": 59,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"the most \", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.659098+00:00"
+  },
+  {
+    "seq": 60,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"current.\", \"messageId\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.670218+00:00"
+  },
+  {
+    "seq": 61,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 2, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:51.67111+00:00"
+  },
+  {
+    "seq": 62,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-6a6e-729a-ad60-4f84ed257ce0\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"All three are real. The radar survey is the most current.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}], \"runId\": \"01a1e4c6-60f8-74f2-ab5e-446e98dd265d\", \"steers\": false, \"position\": 4, \"threadId\": \"01a1e4c6-60f8-7439-b057-fd8f57a6c442\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:51.677952+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:51.691359+00:00"
+  },
+  {
+    "seq": 63,
+    "runId": "01a1e4c6-60f8-74f2-ab5e-446e98dd265d",
+    "type": "run.completed",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 240, \"cached\": 0, \"output\": 80}, \"reason\": null, \"status\": \"completed\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:51.700121+00:00"
+  },
+  {
+    "seq": 64,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "delegation.completed",
+    "data": "{\"outcome\": \"completed\", \"summary\": \"All three are real. The radar survey is the most current.\", \"childBotId\": \"01a1e4c5-78cb-7812-af8d-160a1fb98db2\", \"childRunId\": \"01a1e4c6-60f8-74f2-ab5e-446e98dd265d\", \"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:51.710951+00:00"
+  },
+  {
+    "seq": 65,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"All three are real. The radar survey is the most current.\", \"durationMs\": 751, \"toolCallId\": \"5e45349c-b118-8bf9-adec-93f5276aab18\"}",
+    "createdAt": "2026-11-16T14:32:51.714505+00:00"
+  },
+  {
+    "seq": 66,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "step.started",
+    "data": "{\"step\": 3, \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\"}",
+    "createdAt": "2026-11-16T14:32:51.733992+00:00"
+  },
+  {
+    "seq": 67,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Three sources, checked \", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.874768+00:00"
+  },
+  {
+    "seq": 68,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"by Checker:\\n\\n1. \", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:51.996559+00:00"
+  },
+  {
+    "seq": 69,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Radar ornithology survey\\n\", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.10641+00:00"
+  },
+  {
+    "seq": 70,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"2. Acoustic monitoring \", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.220466+00:00"
+  },
+  {
+    "seq": 71,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"study\\n3. Moon-watching \", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.337458+00:00"
+  },
+  {
+    "seq": 72,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"counts\", \"messageId\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.351155+00:00"
+  },
+  {
+    "seq": 73,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 3, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:52.352161+00:00"
+  },
+  {
+    "seq": 74,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-6d14-7ac3-a4fe-2338cddeadcf\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"Three sources, checked by Checker:\\n\\n1. Radar ornithology survey\\n2. Acoustic monitoring study\\n3. Moon-watching counts\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}], \"runId\": \"01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb\", \"steers\": false, \"position\": 6, \"threadId\": \"01a1e4c6-5dcd-7ce7-87e5-c451cc194ab1\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:52.35859+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:52.373449+00:00"
+  },
+  {
+    "seq": 75,
+    "runId": "01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb",
+    "type": "run.completed",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 360, \"cached\": 0, \"output\": 120}, \"reason\": null, \"status\": \"completed\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:52.383809+00:00"
+  },
+  {
+    "seq": 76,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "delegation.completed",
+    "data": "{\"outcome\": \"completed\", \"summary\": \"Three sources, checked by Checker:\\n\\n1. Radar ornithology survey\\n2. Acoustic monitoring study\\n3. Moon-watching counts\", \"childBotId\": \"01a1e4c5-788a-7364-b7be-858e25e736da\", \"childRunId\": \"01a1e4c6-5dce-76f3-8879-ec7fad8ce7eb\", \"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:52.39256+00:00"
+  },
+  {
+    "seq": 77,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"Three sources, checked by Checker:\\n\\n1. Radar ornithology survey\\n2. Acoustic monitoring study\\n3. Moon-watching counts\", \"durationMs\": 1487, \"toolCallId\": \"2e0439aa-6839-8705-a620-5c4597d967ee\"}",
+    "createdAt": "2026-11-16T14:32:52.395533+00:00"
+  },
+  {
+    "seq": 78,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "step.started",
+    "data": "{\"step\": 2, \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\"}",
+    "createdAt": "2026-11-16T14:32:52.409637+00:00"
+  },
+  {
+    "seq": 79,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Scout is \", \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.566712+00:00"
+  },
+  {
+    "seq": 80,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"back. One more \", \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.67151+00:00"
+  },
+  {
+    "seq": 81,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"check of \", \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.816663+00:00"
+  },
+  {
+    "seq": 82,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"the clock \", \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:52.920708+00:00"
+  },
+  {
+    "seq": 83,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"before I answer.\", \"messageId\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:53.024811+00:00"
+  },
+  {
+    "seq": 84,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 2, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:53.025681+00:00"
+  },
+  {
+    "seq": 85,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Current time\", \"effect\": \"ask\", \"toolName\": \"time.now\", \"arguments\": \"{}\", \"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\"}",
+    "createdAt": "2026-11-16T14:32:53.038951+00:00"
+  },
+  {
+    "seq": 86,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.approval_requested",
+    "data": "{\"callId\": \"call_f39e27bd3316\", \"details\": null, \"requestId\": \"ficc_call_f39e27bd3316\", \"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\"}",
+    "createdAt": "2026-11-16T14:32:53.045661+00:00"
+  },
+  {
+    "seq": 87,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-6fb7-7c81-bee3-91414417dbd8\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"Scout is back. One more check of the clock before I answer.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"file\": null, \"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"time_now\", \"arguments\": \"{}\", \"mediaType\": null, \"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\"}], \"runId\": \"01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb\", \"steers\": false, \"position\": 12, \"threadId\": \"01a1e4c6-01eb-7c42-8ae5-6aa0a46413f6\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:53.054076+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:53.067834+00:00"
+  },
+  {
+    "seq": 88,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.waiting",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 240, \"cached\": 0, \"output\": 80}, \"reason\": \"awaiting_approval\", \"status\": \"waiting\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:53.075081+00:00"
+  },
+  {
+    "seq": 89,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.approved",
+    "data": "{\"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\", \"decidedByUserId\": \"01a1e4c5-73bb-7d5d-b973-ad72da7a66be\"}",
+    "createdAt": "2026-11-16T14:32:54.561471+00:00"
+  },
+  {
+    "seq": 90,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:54.587962+00:00"
+  },
+  {
+    "seq": 91,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\"}",
+    "createdAt": "2026-11-16T14:32:54.607624+00:00"
+  },
+  {
+    "seq": 92,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"{\\\"utc\\\":\\\"2026-11-16T14:32:54.6089807\\\\u002B00:00\\\"}\", \"durationMs\": 5, \"toolCallId\": \"31871a9b-9527-8841-ab0a-90cc47158b5b\"}",
+    "createdAt": "2026-11-16T14:32:54.612657+00:00"
+  },
+  {
+    "seq": 93,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "step.started",
+    "data": "{\"step\": 3, \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\"}",
+    "createdAt": "2026-11-16T14:32:54.626543+00:00"
+  },
+  {
+    "seq": 94,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Scout and Checker found \", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:54.764403+00:00"
+  },
+  {
+    "seq": 95,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"three sources. **Radar studies** \", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:54.880545+00:00"
+  },
+  {
+    "seq": 96,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"show peak passage after \", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:54.999719+00:00"
+  },
+  {
+    "seq": 97,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"midnight; the rest is \", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:55.10936+00:00"
+  },
+  {
+    "seq": 98,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"in the list Scout \", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:55.22937+00:00"
+  },
+  {
+    "seq": 99,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"returned.\", \"messageId\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-16T14:32:55.243859+00:00"
+  },
+  {
+    "seq": 100,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 3, \"input\": 120, \"cached\": 0, \"output\": 40, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-16T14:32:55.244732+00:00"
+  },
+  {
+    "seq": 101,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1e4c6-7860-75a3-921a-f0a1df17d2a2\", \"role\": \"assistant\", \"parts\": [{\"file\": null, \"kind\": \"text\", \"text\": \"Scout and Checker found three sources. **Radar studies** show peak passage after midnight; the rest is in the list Scout returned.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}], \"runId\": \"01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb\", \"steers\": false, \"position\": 14, \"threadId\": \"01a1e4c6-01eb-7c42-8ae5-6aa0a46413f6\", \"withheld\": false, \"createdAt\": \"2026-11-16T14:32:55.250705+00:00\", \"scheduleId\": null, \"scheduleCron\": null}}",
+    "createdAt": "2026-11-16T14:32:55.26138+00:00"
+  },
+  {
+    "seq": 102,
+    "runId": "01a1e4c6-5ac3-7f14-a780-5b12d7ffa2bb",
+    "type": "run.completed",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 360, \"cached\": 0, \"output\": 120}, \"reason\": null, \"status\": \"completed\", \"attempt\": 0}",
+    "createdAt": "2026-11-16T14:32:55.269714+00:00"
+  }
+]

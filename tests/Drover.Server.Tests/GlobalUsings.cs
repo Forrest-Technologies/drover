@@ -53,6 +53,7 @@ global using Drover.Domain.Runs;
 global using Drover.Domain.Sandboxes;
 global using Drover.Domain.Secrets;
 global using Drover.Domain.Spaces;
+global using Drover.Domain.Tenancy;
 global using Drover.Domain.Tools;
 global using Drover.Engine.Accounts;
 global using Drover.Engine.Bots;

@@ -78,6 +78,21 @@
   color: var(--dv-text-2);
 }
 
+/* The way from a reply to what its run did, at the far end of the line that names the bot. */
+.dv-message-run {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-pointer);
+  margin-inline-start: auto;
+  font-weight: var(--dv-weight-body);
+}
+
+@media (pointer: coarse) {
+  .dv-message-run {
+    min-height: var(--dv-target-touch);
+  }
+}
+
 .dv-message-state,
 .dv-message-writing {
   color: var(--dv-ion);

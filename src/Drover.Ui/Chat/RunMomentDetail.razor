@@ -1,0 +1,283 @@
+@* What one node of a run's timeline holds, opened under it: what a step wrote, a call's arguments, its output
+   as it streams, its result, a wait's answer, the task handed over and what came back. Everything a model or a
+   tool wrote is untrusted text: words go through MarkdownView, which never injects markup, and machine text is
+   shown as text in monospace. A sandbox command reads as a terminal: the command, then what it printed. *@
+<div class="dv-moment">
+    @if (Facts.Count > 0)
+    {
+        <dl class="dv-moment-facts">
+            @foreach (var (name, value) in Facts)
+            {
+                <div class="dv-moment-fact">
+                    <dt>@name</dt>
+                    <dd>@value</dd>
+                </div>
+            }
+        </dl>
+    }
+    @switch (Moment.Kind)
+    {
+        case RunMomentKind.Step:
+            @if (RunTimelines.TextOf(Tree, Moment) is { Length: > 0 } text)
+            {
+                <MarkdownView Text="@text" Streaming="@(Moment.EndedAt is null)" />
+            }
+            else
+            {
+                <p class="dv-moment-quiet">@(Moment.EndedAt is null ? "Nothing written yet." : "It wrote nothing here and went on to its tools.")</p>
+            }
+            break;
+        case RunMomentKind.Tool when Card is { } card:
+            @if (IsCommand(card))
+            {
+                <div class="dv-moment-part">
+                    <h3 class="dv-moment-title">Command</h3>
+                    <div class="dv-moment-terminal" tabindex="0" role="group" aria-label="Command and its output">
+                        <pre class="dv-moment-terminal-text"><span class="dv-moment-prompt" aria-hidden="true">$ </span>@($"{card.Summary}\n")@foreach (var piece in card.Output)
+                            {
+                                if (piece.Stream is "stderr")
+                                {
+                                    <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span>@piece.Text</span>
+                                }
+                                else
+                                {
+                                    <text>@piece.Text</text>
+                                }
+                            }</pre>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @if (card.Arguments is not ("{}" or ""))
+                {
+                    <div class="dv-moment-part">
+                        <h3 class="dv-moment-title">Arguments</h3>
+                        <CodeBlock Code="@card.Arguments" />
+                    </div>
+                }
+                @if (card.Output.Count > 0)
+                {
+                    <div class="dv-moment-part">
+                        <h3 class="dv-moment-title">Output</h3>
+                        <div class="dv-moment-output" tabindex="0" role="group" aria-label="Output">
+                            <pre class="dv-moment-output-text">@foreach (var piece in card.Output)
+                                {
+                                    if (piece.Stream is "stderr")
+                                    {
+                                        <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span>@piece.Text</span>
+                                    }
+                                    else
+                                    {
+                                        <text>@piece.Text</text>
+                                    }
+                                }</pre>
+                        </div>
+                    </div>
+                }
+            }
+            @if (card.ExitCode is not null || card.Result is not null)
+            {
+                <div class="dv-moment-part">
+                    <h3 class="dv-moment-title">Result</h3>
+                    @if (card.ExitCode is { } exitCode)
+                    {
+                        <p class="dv-moment-quiet">Exit code @exitCode</p>
+                    }
+                    @if (card.Result is { } result)
+                    {
+                        <CodeBlock Code="@result" />
+                    }
+                    @if (IsCut(card))
+                    {
+                        <p class="dv-moment-quiet">This is the start of the result, as the run's log keeps it.</p>
+                    }
+                </div>
+            }
+            @if (card.IsLive && card.Output.Count == 0)
+            {
+                <p class="dv-moment-quiet">No output yet.</p>
+            }
+            break;
+        case RunMomentKind.Approval:
+            @if (IsOpenQuestion && Decide is not null)
+            {
+                <p id="@askId">@BotName asks to @(Card?.Request ?? "go on").</p>
+            }
+            else
+            {
+                <p>@Answered</p>
+            }
+            @if (Card is { } asked)
+            {
+                @if (asked.Facts.Count > 0)
+                {
+                    <dl class="dv-moment-facts">
+                        @foreach (var fact in asked.Facts)
+                        {
+                            <div class="dv-moment-fact">
+                                <dt>@fact.Name</dt>
+                                <dd>@fact.Value</dd>
+                            </div>
+                        }
+                    </dl>
+                }
+                else if (asked.Arguments is not ("{}" or ""))
+                {
+                    <CodeBlock Code="@asked.Arguments" Language="Arguments" />
+                }
+            }
+            @if (IsOpenQuestion && Decide is not null)
+            {
+                <div class="dv-moment-actions">
+                    <Button Kind="ButtonKind.Primary" Disabled="deciding" OnClick="() => Answer(true)" aria-describedby="@askId">Approve</Button>
+                    <Button Disabled="deciding" OnClick="() => Answer(false)" aria-describedby="@askId">Deny</Button>
+                </div>
+                <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            }
+            break;
+        case RunMomentKind.Delegation:
+            <div class="dv-moment-part">
+                <h3 class="dv-moment-title">The task @BotName handed to @ChildName</h3>
+                @if (Task is { Length: > 0 } task)
+                {
+                    <MarkdownView Text="@task" />
+                }
+            </div>
+            break;
+        case RunMomentKind.Answer:
+            <div class="dv-moment-part">
+                <h3 class="dv-moment-title">@(Moment.Outcome is "completed" ? $"What {ChildName} answered" : $"Why {ChildName} has no answer")</h3>
+                @if (Moment.Text is { Length: > 0 } answer)
+                {
+                    <MarkdownView Text="@answer" />
+                }
+                else
+                {
+                    <p class="dv-moment-quiet">@(Moment.Outcome is "cancelled" ? "The work was stopped before it was done." : "The work ended without an answer.")</p>
+                }
+            </div>
+            break;
+        case RunMomentKind.Rule:
+            <p>@RuleSentence</p>
+            @if (Moment.Why is { Length: > 0 } why)
+            {
+                <p class="dv-moment-quiet">@why</p>
+            }
+            break;
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    // The log keeps this many characters of a call's result. A stored result says all of it.
+    private const int ResultKept = 500;
+
+    private readonly string askId = $"dv-ask-{Guid.NewGuid():N}";
+
+    private bool deciding;
+
+    private string? problem;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public RunTreeView Tree { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public RunMoment Moment { get; set; } = null!;
+
+    /// <summary>The name of the bot whose node this is.</summary>
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The name of the bot work went to, for a hand-off and its answer.</summary>
+    [Parameter]
+    public string ChildName { get; set; } = string.Empty;
+
+    /// <summary>Sends a person's answer to a call that waits for one. Returns why it failed, or nothing when it was sent.</summary>
+    [Parameter]
+    public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Stored results of calls, where the conversation has them.</summary>
+    [Parameter]
+    public IReadOnlyDictionary<Guid, PartView>? Results { get; set; }
+
+    private ToolCard? Card => RunTimelines.CardOf(Tree, Moment, Results);
+
+    private string? Task => Card is { } card && JsonElement.Parse(card.Arguments) is { ValueKind: JsonValueKind.Object } arguments
+        && arguments.TryGetProperty("task", out var task) && task.ValueKind is JsonValueKind.String
+        ? task.GetString()
+        : null;
+
+    private IReadOnlyList<(string Name, string Value)> Facts =>
+    [
+        .. Took is { } took ? [("Took", Words.Duration(took))] : Array.Empty<(string, string)>(),
+        .. Cost is { } cost ? [("Cost", cost)] : Array.Empty<(string, string)>(),
+    ];
+
+    private TimeSpan? Took => Moment.Kind switch
+    {
+        RunMomentKind.Tool => RunTimelines.CallOf(Tree, Moment) is { IsOpen: false, DurationMs: > 0 } call ? TimeSpan.FromMilliseconds(call.DurationMs) : null,
+        RunMomentKind.Answer or RunMomentKind.Rule => null,
+        _ => Moment.EndedAt - Moment.At,
+    };
+
+    // A step's own model call, or for work handed over, everything the other bot's run used.
+    private string? Cost => Moment switch
+    {
+        { Kind: RunMomentKind.Step, Cost: { } cost } => Money(cost, Moment.Currency),
+        { Kind: RunMomentKind.Answer, ChildRunId: { } child } when Tree.RunOf(child).Usage.Cost > 0 => Money(Tree.RunOf(child).Usage.Cost, null),
+        _ => null,
+    };
+
+    // A wait no one has answered yet, in a run still going: the person can answer it here, wherever in the tree it is.
+    private bool IsOpenQuestion => Moment.Outcome is null && RunTimelines.CallOf(Tree, Moment) is { State: "awaiting_approval" };
+
+    private string Answered => (Moment.Outcome, Tree.RunOf(Moment.RunId).IsActive) switch
+    {
+        ("approved", _) => "This was approved.",
+        ("denied", _) => "This was denied.",
+        (_, false) => "The run ended before it was answered.",
+        _ => "This waits for your answer.",
+    };
+
+    private string RuleSentence => Moment.Outcome switch
+    {
+        "redact" => $"The rule \"{Moment.Text}\" hid what matched.",
+        "ask" => $"The rule \"{Moment.Text}\" asked you first.",
+        "block" => $"The rule \"{Moment.Text}\" stopped the call.",
+        "stop" => $"The rule \"{Moment.Text}\" stopped the run.",
+        _ => $"The rule \"{Moment.Text}\" applied.",
+    };
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task Answer(bool approved)
+    {
+        if (Moment.ToolCallId is not { } call || Decide is null)
+        {
+            return;
+        }
+
+        deciding = true;
+        problem = await Decide(call, approved);
+        deciding = false;
+    }
+
+    private bool IsCommand(ToolCard card) =>
+        RunTimelines.CallOf(Tree, Moment)?.ToolName is "sandbox.run" && card.Summary.Length > 0;
+
+    private bool IsCut(ToolCard card) =>
+        Results?.ContainsKey(card.Id) is not true && card.Result is { Length: >= ResultKept };
+
+    private static string Money(decimal cost, string? currency) =>
+        $"{cost.ToString("0.######", CultureInfo.InvariantCulture)}{(currency is { Length: > 0 } ? $" {currency}" : string.Empty)}";
+
+    #endregion
+}

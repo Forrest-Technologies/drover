@@ -50,6 +50,7 @@ public sealed record RunView
 /// <see cref="IsPending"/> is true for a message sent while the bot was working that no run has taken yet, and
 /// <see cref="Steers"/> says it joins at the working run's next step and not after the run. <see cref="ScheduleId"/> is
 /// set on a message a schedule sent, and <see cref="ScheduleCron"/> is that schedule's time while it exists.
+/// <see cref="RunId"/> is the run that wrote a stored reply.
 /// </summary>
 public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> Parts, bool IsStreaming, int? Step)
 {
@@ -60,6 +61,9 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
     public Guid? ScheduleId { get; init; }
 
     public string? ScheduleCron { get; init; }
+
+    /// <summary>The run that wrote the message, once it is stored; null for a person's message.</summary>
+    public Guid? RunId { get; init; }
 
     public static MessageView From(MessageResponse stored) =>
         new(
@@ -73,6 +77,7 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
             Steers = stored.Steers,
             ScheduleId = stored.ScheduleId,
             ScheduleCron = stored.ScheduleCron,
+            RunId = stored.RunId,
         };
 }
 

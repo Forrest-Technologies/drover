@@ -67,7 +67,7 @@ public static class Conversations
 
         conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
         AddUnplaced(conversation, unplaced, run);
-        return conversation;
+        return LeadToRuns(conversation, shown);
     }
 
     /// <summary>Every tool call the conversation shows.</summary>
@@ -113,6 +113,24 @@ public static class Conversations
                 ],
         };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
+    }
+
+    // Each run is reached from its last reply that has words, so a run of many steps is offered once, at its end.
+    private static List<ChatMessage> LeadToRuns(List<ChatMessage> conversation, IEnumerable<MessageView> shown)
+    {
+        var runs = shown.Where(message => message.RunId is not null).ToDictionary(message => message.Id.ToString(), message => message.RunId!.Value);
+        HashSet<Guid> offered = [];
+        for (var index = conversation.Count - 1; index >= 0; index--)
+        {
+            if (conversation[index] is { FromPerson: false, Text.Length: > 0 } reply
+                && runs.TryGetValue(reply.Key, out var runId)
+                && offered.Add(runId))
+            {
+                conversation[index] = reply with { RunId = runId };
+            }
+        }
+
+        return conversation;
     }
 
     /// <summary>Who sent a message the person did not type: the schedule, by its time, or one removed since.</summary>

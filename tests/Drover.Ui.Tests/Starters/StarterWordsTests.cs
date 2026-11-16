@@ -198,52 +198,6 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Timeline
-
-    [Fact]
-    public void A_run_is_laid_out_with_a_lane_for_each_bot_in_the_order_they_joined()
-    {
-        var model = Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], Run());
-
-        model.Lanes.Select(lane => lane.Name).Should().Equal("Lead", "Helper");
-        model.Nodes.Select(node => (node.Event.Label, node.Lane, node.Row, node.BranchLane)).Should().Equal(
-            ("Thought", 0, 0, null),
-            ("Handed work", 0, 1, 1),
-            ("Ran a command", 1, 2, null),
-            ("Answered", 0, 3, null));
-        Timelines.Sentence(model, model.Nodes[1]).Should().Be("Lead: Handed work to Helper. Done, took 30 seconds.");
-        Timelines.Sentence(model, model.Nodes[2]).Should().Be("Helper: Ran a command. Working.");
-    }
-
-    [Fact]
-    public void A_bot_that_was_removed_still_has_a_lane_and_events_given_out_of_order_are_put_in_time_order()
-    {
-        var model = Timelines.Build([], Run().Reverse());
-
-        model.Lanes.Should().OnlyContain(lane => lane.Name == "A bot that was removed");
-        model.Nodes.Select(node => node.Event.Label).Should().Equal("Thought", "Handed work", "Ran a command", "Answered");
-    }
-
-    [Theory]
-    [InlineData(1, "ArrowDown", 2)]
-    [InlineData(1, "ArrowUp", 0)]
-    [InlineData(0, "ArrowUp", 0)]
-    [InlineData(3, "ArrowDown", 3)]
-    [InlineData(1, "ArrowRight", 2)]
-    [InlineData(2, "ArrowLeft", 1)]
-    [InlineData(2, "ArrowRight", 2)]
-    [InlineData(2, "Home", 0)]
-    [InlineData(0, "End", 3)]
-    [InlineData(1, "a", 1)]
-    public void Arrow_keys_move_through_time_and_across_lanes(int from, string key, int to)
-    {
-        var model = Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], Run());
-
-        Timelines.Move(model, from, key).Should().Be(to);
-    }
-
-    #endregion
-
     #region Crew Tree
 
     [Fact]
@@ -326,14 +280,6 @@ public sealed class StarterWordsTests
     #endregion
 
     #region Private Methods
-
-    private static TimelineEvent[] Run() =>
-    [
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1"), lead, TimelineKind.Step, "Thought", TimelineState.Done, start, TimeSpan.FromSeconds(4)),
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e2"), lead, TimelineKind.Delegation, "Handed work", TimelineState.Done, start.AddSeconds(4), TimeSpan.FromSeconds(30), null, helper),
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e3"), helper, TimelineKind.Tool, "Ran a command", TimelineState.Live, start.AddSeconds(6)),
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e4"), lead, TimelineKind.Step, "Answered", TimelineState.Done, start.AddSeconds(40), TimeSpan.FromSeconds(2)),
-    ];
 
     private static CrewBot[] Crew() =>
     [

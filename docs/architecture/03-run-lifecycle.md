@@ -190,7 +190,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `delegation.started`, `delegation.completed` | Tool call id, child run id, child bot id, result summary |
 | `usage.recorded` | Tokens and cost for one model call |
 
-Tool activity is not a side channel. The activity view is a projection of these events plus the `tool_calls` rows.
+Tool activity is not a side channel. The activity rail is a projection of these events alone, read from the root run's one stream: each event goes to its own run's view, and `delegation.started` names the bot of each child run, so one stream lays out the whole tree. The whole result of a call the thread's own bot made comes from the thread's stored messages (the `tool_result` part); a call further down shows the start of its result that `tool.completed` keeps.
 
 The log closes what it opens. Every `step.started` is followed by that step's `message.completed` or by `step.discarded`, and every `tool.requested` by a `tool.completed` or a `tool.approval_requested`, whether the run finished, failed, was cancelled, or was taken over after a crash. The one call left open is a delegation whose child waits for a person: it has `delegation.started`, and is closed when the tree resumes and the child ends. A client that replays the log therefore shows what a reload of the thread would show. Payload records and type names are in `Drover.Contracts.Runs`; both sides read and write them through `RunEventTypes.Read` and `RunEventTypes.Write`. A contract carries free-form JSON (an event's data, a tool's arguments and result) as JSON text, never as a JSON type: the check that no contract can carry a secret reads every property a contract reaches, and a JSON type reaches everything.
 

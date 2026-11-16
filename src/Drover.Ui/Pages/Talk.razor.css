@@ -269,8 +269,8 @@
     display: flex;
   }
 
-  /* A screen needs room to be read: it shares the width evenly with the conversation. */
-  .dv-shell-with-screen {
+  /* A screen, or a run as a timeline, needs room to be read: it shares the width evenly with the conversation. */
+  .dv-shell-with-wide-rail {
     grid-template-columns: var(--dv-list-width) minmax(0, 1fr) minmax(var(--dv-rail-width), 1fr);
   }
 

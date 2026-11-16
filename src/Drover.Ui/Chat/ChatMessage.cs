@@ -6,6 +6,7 @@ namespace Drover.Ui.Chat;
 /// <see cref="Tools"/> are the bot's tool calls that follow its words, in the order it made them. <see cref="Files"/>
 /// are the files the message carries.
 /// <see cref="SentBy"/> says, in words, that a schedule sent the message for the person, who did not type it.
+/// <see cref="RunId"/> is set on the last reply a run wrote, the one that leads to what the run did.
 /// </summary>
 public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool Streaming = false, bool Pending = false)
 {
@@ -16,6 +17,8 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
     public string? SentBy { get; init; }
 
     public IReadOnlyList<SharedFile> Files { get; init; } = [];
+
+    public Guid? RunId { get; init; }
 
     #endregion
 }

@@ -20,6 +20,8 @@ public sealed partial class Talk(
 
     private const string ScreenRail = "screen";
 
+    private const string ActivityRail = "activity";
+
     private const string NewSideChat = "new";
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
@@ -49,6 +51,9 @@ public sealed partial class Talk(
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
 
+    // Raised each time the bot starts or stops working in the main conversation, so the activity rail finds the newest run.
+    private int activityVersion;
+
     // Follows the person's signals while the page is open, so what each bot has for them changes without a reload.
     private CancellationTokenSource? listening;
 
@@ -60,13 +65,17 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? BotId { get; set; }
 
-    /// <summary>What is open beside the main conversation: "summary" for its summary, "screen" for the bot's screen, "side" for its side chats.</summary>
+    /// <summary>What is open beside the main conversation: "summary" for its summary, "screen" for the bot's screen, "activity" for its newest run, "side" for its side chats.</summary>
     [Parameter]
     public string? Rail { get; set; }
 
     /// <summary>The side chat that is open: its thread, or "new" for one its first message will make.</summary>
     [Parameter]
     public string? SideChat { get; set; }
+
+    /// <summary>An earlier run of the main conversation, opened in the activity rail from its reply.</summary>
+    [Parameter]
+    public Guid? ActivityRunId { get; set; }
 
     /// <summary>A thread opened by the address it had before conversations were reached through their bot.</summary>
     [Parameter]
@@ -93,6 +102,8 @@ public sealed partial class Talk(
         (_, not null, _) or (SideRail, _, _) => SideView.List,
         (SummaryRail, _, _) => SideView.Summary,
         (ScreenRail, _, _) => SideView.Screen,
+        (ActivityRail, _, _) => SideView.Activity,
+        _ when ActivityRunId is not null => SideView.Activity,
         _ => SideView.Closed,
     };
 
@@ -156,6 +167,7 @@ public sealed partial class Talk(
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
+        SideView.Activity => "Activity",
         _ => "Side chats",
     };
 
@@ -163,6 +175,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
+        SideView.Activity => $"What {Shown!.Name} and its crew did in a run",
         _ => $"Side chats with {Shown!.Name}",
     };
 
@@ -170,6 +183,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => "Close the summary",
         SideView.Screen => "Close the screen",
+        SideView.Activity => "Close the activity",
         _ => "Close side chats",
     };
 
@@ -407,6 +421,7 @@ public sealed partial class Talk(
     private async Task MainBusyChanged(bool busy)
     {
         mainBusy = busy;
+        activityVersion++;
         if (!busy)
         {
             summaryVersion++;

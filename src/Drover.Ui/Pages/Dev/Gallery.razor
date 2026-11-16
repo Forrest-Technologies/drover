@@ -103,6 +103,20 @@ else
             </div>
         </GallerySection>
 
+        <GallerySection Title="Timeline" Note="A run with a lane for each bot. Work handed across leaves in violet and its answer comes back the same way. Only the node being worked on moves. One tab stop: arrow keys move, Enter opens.">
+            <div class="dv-gallery-timeline">
+                <Timeline Model="run" Label="Sample run" EmptyText="Nothing has run in this sample conversation yet.">
+                    <Detail Context="node">
+                        <p>Sample details for "@node.Event.Label": the arguments, the output as it streams, the result, how long it took, and its cost.</p>
+                    </Detail>
+                </Timeline>
+            </div>
+            <div class="dv-gallery-timeline">
+                <Timeline Model="run" Label="Sample run as a list" EmptyText="Nothing has run in this sample conversation yet." AsList="true" />
+            </div>
+            <Timeline Model="TimelineModel.Empty" Label="Sample empty run" EmptyText="Nothing has run in this sample conversation yet." />
+        </GallerySection>
+
         <GallerySection Title="Composer" Note="One field. Send is the primary action; Stop takes its place while a run is active.">
             <Composer BotName="Sample bot" />
             <Composer BotName="Sample bot" Running="true" />
@@ -184,9 +198,28 @@ else
         new("sample-3", true, "A sample follow-up."),
     ];
 
+    private static readonly DateTimeOffset sampleStart = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    private static readonly TimelineModel run = Timelines.Build(
+        [new(sampleLead, "Sample lead bot"), new(sampleHelper, "Sample helper bot")],
+        [
+            Sample(1, sampleLead, TimelineKind.Step, "Thought", TimelineState.Done, 0, 3),
+            Sample(2, sampleLead, TimelineKind.Delegation, "Handed work", TimelineState.Done, 3, 30, "Sample task", sampleHelper),
+            Sample(3, sampleHelper, TimelineKind.Tool, "Ran a command", TimelineState.Done, 5, 12, "sample --command"),
+            Sample(4, sampleHelper, TimelineKind.Tool, "Wrote a file", TimelineState.Failed, 18, 1, "/sample/path.txt"),
+            Sample(5, sampleLead, TimelineKind.Answer, "Got the answer", TimelineState.Done, 33, null, null, sampleHelper),
+            Sample(6, sampleLead, TimelineKind.Waiting, "Asked to run a command", TimelineState.Waiting, 36, null, "sample --other"),
+            Sample(7, sampleLead, TimelineKind.Tool, "Reading a file", TimelineState.Live, 40, null, "/sample/notes.md"),
+        ]);
+
     private string address = string.Empty;
 
     // A sample row opens the workspace, which says that the sample bot is not there.
+    private static TimelineEvent Sample(
+        int number, Guid bot, TimelineKind kind, string label, TimelineState state, int startsAfter, int? took, string? summary = null, Guid? child = null) =>
+        new(new Guid(number, 0, 0x7000, 0x80, 0, 0, 0, 0, 0, 0, 0x09), bot, kind, label, state, sampleStart.AddSeconds(startsAfter),
+            took is { } seconds ? TimeSpan.FromSeconds(seconds) : null, summary, child);
+
     private static SideChatItem Chat(string id, string title, bool working) =>
         new(Guid.Parse(id), title, Addresses.SideChat(sampleLead, Guid.Parse(id)), "Sample bot", 6, working);
 

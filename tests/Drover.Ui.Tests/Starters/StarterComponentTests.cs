@@ -333,65 +333,6 @@ public sealed class StarterComponentTests : BunitContext
     #region The Bold Screens
 
     [Fact]
-    public void The_timeline_is_one_tab_stop_whose_nodes_are_named_as_sentences_and_open_in_place()
-    {
-        var timeline = Render<Timeline>(set => set
-            .Add(view => view.Model, Run())
-            .Add(view => view.Label, "What happened in this run")
-            .Add(view => view.EmptyText, "Nothing has run in this conversation yet.")
-            .Add(view => view.Detail, node => $"<p id=\"detail\">{node.Event.Label}</p>"));
-
-        var nodes = timeline.FindAll("button.dv-timeline-node");
-        nodes.Select(node => node.GetAttribute("tabindex")).Should().Equal("0", "-1", "-1");
-        nodes.Select(node => node.GetAttribute("aria-label")).Should().Equal(
-            "Lead: Thought. Done, took 4 seconds.",
-            "Lead: Handed work to Helper. Done, took 30 seconds.",
-            "Helper: Ran a command. Working.");
-        timeline.FindAll(".dv-timeline-branch").Should().ContainSingle();
-        timeline.FindAll(".dv-state-tool").Should().ContainSingle("only the tool that is running carries the traveling line");
-
-        timeline.FindAll("button.dv-timeline-node")[0].KeyDown("ArrowDown");
-        timeline.FindAll("button.dv-timeline-node").Select(node => node.GetAttribute("tabindex")).Should().Equal("-1", "0", "-1");
-        timeline.FindAll("[data-arrow-item]").Should().HaveCount(3, "only the nodes take the arrow keys, never what is open inside them");
-
-        timeline.FindAll("button.dv-timeline-node")[2].Click();
-
-        timeline.Find("#detail").TextContent.Should().Be("Ran a command");
-        timeline.FindAll("button.dv-timeline-node")[2].GetAttribute("aria-expanded").Should().Be("true");
-    }
-
-    [Fact]
-    public void An_event_that_arrives_late_with_an_earlier_start_does_not_move_the_open_node_or_the_tab_stop()
-    {
-        var timeline = Render<Timeline>(set => set
-            .Add(view => view.Model, Run())
-            .Add(view => view.Label, "What happened in this run")
-            .Add(view => view.EmptyText, "Nothing has run in this conversation yet.")
-            .Add(view => view.Detail, node => $"<p class=\"detail\">{node.Event.Label}</p>"));
-        timeline.FindAll("button.dv-timeline-node")[2].Click();
-
-        var late = new TimelineEvent(Guid.NewGuid(), lead, TimelineKind.Rule, "A rule fired", TimelineState.Done, start.AddSeconds(-1));
-        timeline.Render(set => set.Add(view => view.Model, Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], [.. RunEvents(), late])));
-
-        timeline.Find(".detail").TextContent.Should().Be("Ran a command");
-        timeline.Find("button.dv-timeline-node[tabindex='0']").GetAttribute("aria-label").Should().StartWith("Helper: Ran a command");
-    }
-
-    [Fact]
-    public void Arrow_keys_still_move_focus_on_the_timeline_after_its_parent_renders_again()
-    {
-        var timeline = Render<Timeline>(set => set
-            .Add(view => view.Model, Run())
-            .Add(view => view.Label, "What happened in this run")
-            .Add(view => view.EmptyText, "Nothing has run in this conversation yet."));
-
-        timeline.Render(set => set.Add(view => view.Model, Run()));
-        timeline.FindAll("button.dv-timeline-node")[0].KeyDown("ArrowDown");
-
-        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>();
-    }
-
-    [Fact]
     public void Arrow_keys_still_move_focus_in_the_crew_after_its_parent_renders_again()
     {
         CrewBot[] crew = [new(lead, "Lead", "Sample", [new(helper, "Helper", "Sample", [])])];
@@ -401,23 +342,6 @@ public sealed class StarterComponentTests : BunitContext
         canvas.FindAll("[role=treeitem]")[0].KeyDown("ArrowDown");
 
         JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>();
-    }
-
-    [Fact]
-    public void The_timeline_as_a_list_holds_the_same_nodes_and_an_empty_one_says_so()
-    {
-        var list = Render<Timeline>(set => set
-            .Add(view => view.Model, Run())
-            .Add(view => view.Label, "What happened in this run")
-            .Add(view => view.EmptyText, "Nothing has run in this conversation yet.")
-            .Add(view => view.AsList, true));
-
-        list.FindAll("ol > li").Should().HaveCount(3);
-        list.Find("ol").TextContent.Should().Contain("Lead: Handed work to Helper. Done, took 30 seconds.");
-
-        list.Render(set => set.Add(view => view.Model, TimelineModel.Empty));
-
-        list.Find(".dv-timeline-hint").TextContent.Should().Be("Nothing has run in this conversation yet.");
     }
 
     [Fact]
@@ -541,14 +465,6 @@ public sealed class StarterComponentTests : BunitContext
     private static IElement Button(IRenderedComponent<IComponent> component, string text) =>
         component.FindAll("button").First(button => button.TextContent.Trim() == text);
 
-    private static TimelineModel Run() => Timelines.Build([new(lead, "Lead"), new(helper, "Helper")], RunEvents());
-
-    private static TimelineEvent[] RunEvents() =>
-    [
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e1"), lead, TimelineKind.Step, "Thought", TimelineState.Done, start, TimeSpan.FromSeconds(4)),
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e2"), lead, TimelineKind.Delegation, "Handed work", TimelineState.Done, start.AddSeconds(4), TimeSpan.FromSeconds(30), null, helper),
-        new(Guid.Parse("0196f1a0-0000-7000-8000-0000000000e3"), helper, TimelineKind.Tool, "Ran a command", TimelineState.Live, start.AddSeconds(6)),
-    ];
 
     #endregion
 }
