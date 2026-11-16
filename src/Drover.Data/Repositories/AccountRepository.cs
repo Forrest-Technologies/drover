@@ -204,6 +204,16 @@ public sealed class AccountRepository(DroverDbContext db)
         return role;
     }
 
+    /// <summary>
+    /// Whether the space is personal and has exactly one member, so nobody but that person can reach what is in it.
+    /// Runs inside the space's tenant scope, where every membership of the space can be read.
+    /// </summary>
+    public Task<bool> IsPersonalWithOneMember(Guid spaceId, CancellationToken cancellationToken) =>
+        db.Spaces
+            .Where(space => space.Id == spaceId && space.Kind == SpaceKind.Personal)
+            .Select(space => db.Memberships.Count(membership => membership.SpaceId == space.Id) == 1)
+            .SingleOrDefaultAsync(cancellationToken);
+
     public Task<Space?> GetSpace(Guid id, CancellationToken cancellationToken) =>
         db.Spaces.AsNoTracking().SingleOrDefaultAsync(space => space.Id == id, cancellationToken);
 

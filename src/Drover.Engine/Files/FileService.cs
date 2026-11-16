@@ -59,8 +59,8 @@ public sealed class FileService(
             return null;
         }
 
-        var can = await abilities.Read(bot, cancellationToken);
-        return new AttachmentRules(Rules.MaxFileBytes, Rules.MaxFilesPerMessage, can.ModelReadsImages, can.HasSandbox);
+        var can = await abilities.Read(bot, thread, cancellationToken);
+        return new AttachmentRules(Rules.MaxFileBytes, Rules.MaxFilesPerMessage, can.ModelReadsImages, can is { HasSandbox: true, AudienceCoversSandbox: true });
     }
 
     /// <summary>
@@ -94,7 +94,10 @@ public sealed class FileService(
         var id = Guid.CreateVersion7();
         var key = FileStorageKeys.For(SpaceId, id);
         var inspector = new FileInspector();
-        await using var metered = new MeteredStream(content, Rules.MaxFileBytes, inspector);
+        // A body with no declared length is cut off at the space's room as well as at the file limit, so it never
+        // fills the disk past what the space may hold. Keep reserves the bytes for good once the size is known.
+        var limit = Math.Min(Rules.MaxFileBytes, prepared.Room);
+        await using var metered = new MeteredStream(content, limit, inspector);
 
         try
         {
@@ -102,8 +105,10 @@ public sealed class FileService(
         }
         catch (FileTooLargeException tooLarge)
         {
-            logger.LogInformation(tooLarge, "An upload to thread {ThreadId} went past {MaxBytes} bytes and was refused", threadId, Rules.MaxFileBytes);
-            return Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
+            logger.LogInformation(tooLarge, "An upload to thread {ThreadId} went past {MaxBytes} bytes and was refused", threadId, limit);
+            return limit < Rules.MaxFileBytes
+                ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
+                : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
         }
 
         var facts = inspector.Finish(clean);
@@ -223,13 +228,14 @@ public sealed class FileService(
             return null;
         }
 
-        var can = await abilities.Read(bot, cancellationToken);
+        var can = await abilities.Read(bot, thread, cancellationToken);
         var stored = await files.GetStoredBytes(SpaceId, cancellationToken);
         await work.Commit(cancellationToken);
 
-        return stored + declaredLength > MaxSpaceBytes
-            ? new Prepared(bot.Name, can, Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes)))
-            : new Prepared(bot.Name, can, null);
+        var room = Math.Max(0, MaxSpaceBytes - stored);
+        return declaredLength > room
+            ? new Prepared(bot.Name, can, room, Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes)))
+            : new Prepared(bot.Name, can, room, null);
     }
 
     /// <summary>
@@ -264,7 +270,8 @@ public sealed class FileService(
 
     #region Nested Types
 
-    private sealed record Prepared(string BotName, FileAbilities Abilities, FileUpload? Refusal);
+    /// <summary>What an upload needs before its bytes move. <see cref="Room"/> is how many more bytes the space may hold.</summary>
+    private sealed record Prepared(string BotName, FileAbilities Abilities, long Room, FileUpload? Refusal);
 
     #endregion
 }

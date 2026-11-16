@@ -37,6 +37,7 @@ public sealed class FileWordsTests
     [InlineData(FileRefusals.SpaceFull, FileRefusal.SpaceFull)]
     [InlineData(FileRefusals.ModelCannotReadImages, FileRefusal.ModelCannotReadImages)]
     [InlineData(FileRefusals.NothingCanOpenIt, FileRefusal.NothingCanOpenIt)]
+    [InlineData(FileRefusals.PrivateConversation, FileRefusal.PrivateConversation)]
     [InlineData("unheard_of", FileRefusal.None)]
     public void Each_refusal_the_server_names_is_said_in_the_composers_words(string code, FileRefusal refusal) =>
         FileWords.RefusalFrom(code).Should().Be(refusal);
@@ -55,6 +56,15 @@ public sealed class FileWordsTests
         var item = new AttachmentItem(Guid.NewGuid(), "a.txt", 10, UploadPhase.Ready, 100, FileRefusal.SpaceFull);
 
         FileWords.Status(item, "Sample bot").Should().Be("This space has no room left for files on this server.");
+    }
+
+    [Fact]
+    public void A_file_refused_in_a_private_conversation_says_what_failed_and_why()
+    {
+        var item = new AttachmentItem(Guid.NewGuid(), "report.pdf", 10, UploadPhase.Ready, 100, FileRefusal.PrivateConversation);
+
+        FileWords.Status(item, "Sample bot").Should().Be(
+            "This conversation is private, and others in this space can reach Sample bot's sandbox, so this file cannot go there.");
     }
 
     [Fact]

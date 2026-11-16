@@ -739,6 +739,27 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
+    public void A_file_refused_because_the_conversation_is_private_says_so_in_the_composer()
+    {
+        AttachmentsAllowed();
+        Server.Answer(
+            "POST",
+            $"{space}/threads/{threadId}/files",
+            new { title = "This conversation is private, and others in this space can reach Marshal's sandbox, so this file cannot go there.", status = 422, refusal = FileRefusals.PrivateConversation },
+            HttpStatusCode.UnprocessableEntity);
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary([0, 1, 2], "report.pdf"));
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-problem .dv-attached-status").TextContent
+            .Should().Be("This conversation is private, and others in this space can reach Marshal's sandbox, so this file cannot go there."));
+        page.Find("[aria-label='Files attached to this message'] ~ [role=status]").TextContent.Should().Be("1 file cannot be sent.");
+        page.Find("button[aria-label='Remove report.pdf']").Should().NotBeNull();
+        page.Find("button[type=submit]").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_file_past_the_servers_limit_is_refused_without_being_sent()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}/attachment-rules", new AttachmentRules(2, 10, false, false));

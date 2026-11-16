@@ -23,5 +23,11 @@ public static class FileRefusals
     /// <summary>Neither a picture nor text, for a bot with no sandbox.</summary>
     public const string NothingCanOpenIt = "nothing_can_open_it";
 
+    /// <summary>
+    /// A file the bot could open only in its sandbox, in a private conversation of a space where others can reach the
+    /// sandbox. Such a file is never copied there.
+    /// </summary>
+    public const string PrivateConversation = "private_conversation";
+
     #endregion
 }

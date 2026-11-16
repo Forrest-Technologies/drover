@@ -47,6 +47,9 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>When set, every check of a handle finds another group's metadata.</summary>
     public bool MetadataMismatch { get; set; }
 
+    /// <summary>Called with the path after a file is written, as when the caller is cancelled right after.</summary>
+    public Action<string>? AfterWrite { get; set; }
+
     /// <summary>How a command runs. The default prints the command line and exits 0.</summary>
     public Func<CommandRequest, string, CancellationToken, IAsyncEnumerable<CommandOutput>> Behaviour { get; set; } = PrintCommand;
 
@@ -170,6 +173,7 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         using var copy = new MemoryStream();
         await content.CopyToAsync(copy, cancellationToken);
         found.Files[path] = copy.ToArray();
+        AfterWrite?.Invoke(path);
     }
 
     public Task<IReadOnlyList<SandboxEntry>> ListFiles(SandboxHandle sandbox, string path, CancellationToken cancellationToken) =>

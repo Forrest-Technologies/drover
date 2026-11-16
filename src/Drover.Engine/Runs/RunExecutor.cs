@@ -474,7 +474,8 @@ public sealed partial class RunExecutor(
         return new RunFiles(
             session.Tenant,
             loaded.Bot!.Id,
-            new FileAbilities(loaded.ModelSeesImages, hasSandbox),
+            loaded.ModelSeesImages,
+            hasSandbox,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
             session.Taint,

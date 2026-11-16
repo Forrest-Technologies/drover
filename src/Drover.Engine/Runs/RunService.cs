@@ -323,7 +323,7 @@ public sealed class RunService(
             return new AttachedFiles([], "This bot is paused or removed, so it cannot answer.");
         }
 
-        var can = await abilities.Read(bot, cancellationToken);
+        var can = await abilities.Read(bot, thread, cancellationToken);
         var refused = ordered
             .Select(file => (file.Name, Refusal: FileUses.RefusalFor(FileInspector.KindOf(file.ContentType), can)))
             .FirstOrDefault(pair => pair.Refusal is not null);

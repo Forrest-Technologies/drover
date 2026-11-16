@@ -27,6 +27,7 @@ public static class FileWords
     public static string CannotOpen(string refusal, string botName) => refusal switch
     {
         FileRefusals.ModelCannotReadImages => $"{botName}'s model cannot read pictures, and {botName} has no sandbox to put this one in.",
+        FileRefusals.PrivateConversation => $"This conversation is private, and others in this space can reach {botName}'s sandbox, so this file cannot go there.",
         _ => $"{botName} has no way to open this kind of file. It needs a sandbox for it.",
     };
 

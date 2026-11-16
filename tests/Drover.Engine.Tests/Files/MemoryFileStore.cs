@@ -7,11 +7,16 @@ public sealed class MemoryFileStore : IFileStore
 
     private readonly ConcurrentDictionary<string, byte[]> files = new(StringComparer.Ordinal);
 
+    private int saved;
+
     #endregion
 
     #region Properties
 
     public int Count => files.Count;
+
+    /// <summary>How many saves took their whole content, including any removed since.</summary>
+    public int Saved => saved;
 
     #endregion
 
@@ -23,6 +28,7 @@ public sealed class MemoryFileStore : IFileStore
         using var copy = new MemoryStream();
         await content.CopyToAsync(copy, cancellationToken);
         files[storageKey] = copy.ToArray();
+        Interlocked.Increment(ref saved);
     }
 
     public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken)

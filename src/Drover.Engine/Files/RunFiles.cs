@@ -4,13 +4,16 @@ namespace Drover.Engine.Files;
 /// What one run's model is given for the files people attached to its conversation. Rows are read as the run's
 /// person, so a file they cannot see is never given. A picture goes to a model that reads pictures; text goes in as
 /// text, up to <see cref="MaxTextCharacters"/>; anything else is copied into the bot's sandbox, once a run, and the
-/// model is told where. Nothing here holds a transaction while it reads a file or copies one. A file is text from
-/// outside Drover, so a run given one, its content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
+/// model is told where, but only from a conversation everyone who can reach the sandbox can see, checked when the rows
+/// are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>). Nothing here holds a
+/// transaction while it reads a file or copies one. A file is text from outside Drover, so a run given one, its
+/// content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
 /// </summary>
 public sealed class RunFiles(
     RunTenant tenant,
     Guid botId,
-    FileAbilities abilities,
+    bool modelReadsImages,
+    bool hasSandbox,
     IFileStore store,
     SandboxBroker? sandboxes,
     Func<Task> taint,
@@ -39,11 +42,27 @@ public sealed class RunFiles(
             return opened;
         }
 
-        var rows = await tenant.Transact(services => services.GetRequiredService<FileRepository>().ListFiles(fileIds, cancellationToken), cancellationToken);
+        // Each row's audience is its conversation's as it is now, and the space's members are read in the same
+        // transaction, so a conversation made private, or a personal space that gained a member, takes no copy.
+        var rows = await tenant.Transact(
+            async services =>
+            {
+                var files = await services.GetRequiredService<FileRepository>().ListFiles(fileIds, cancellationToken);
+                var accounts = services.GetRequiredService<AccountRepository>();
+                List<(StoredFile File, bool Covered)> read = [];
 
-        foreach (var file in rows)
+                foreach (var file in files)
+                {
+                    read.Add((file, await FileAbilityReader.AudienceCoversSandbox(tenant.SpaceId, file.AudienceUserId, accounts, cancellationToken)));
+                }
+
+                return read;
+            },
+            cancellationToken);
+
+        foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, cancellationToken);
+            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), cancellationToken);
         }
 
         return opened;
@@ -57,7 +76,7 @@ public sealed class RunFiles(
     #region Private Methods
 
     /// <summary>A picture is read each time it is given, so its bytes are not held for the whole run.</summary>
-    private async Task<FileForModel> Give(StoredFile file, CancellationToken cancellationToken)
+    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
         {
@@ -65,7 +84,7 @@ public sealed class RunFiles(
         }
 
         var kind = FileInspector.KindOf(file.ContentType);
-        var use = FileUses.For(kind, abilities);
+        var use = FileUses.For(kind, can);
 
         if (use is not FileUse.None)
         {
@@ -77,9 +96,12 @@ public sealed class RunFiles(
             FileUse.Image => await Picture(file, cancellationToken),
             FileUse.Text => await Text(file, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
-            _ => Note(file, kind is FileKind.Image
-                ? "this bot's model cannot read pictures and it has no sandbox, so it cannot open it"
-                : "this bot has no sandbox to open it in, so it cannot open it"),
+            _ => Note(file, FileUses.RefusalFor(kind, can) switch
+            {
+                FileRefusals.PrivateConversation => "this conversation is private and others in this space can reach your sandbox, so it was not put there and you cannot open it",
+                FileRefusals.ModelCannotReadImages => "this bot's model cannot read pictures and it has no sandbox, so it cannot open it",
+                _ => "this bot has no sandbox to open it in, so it cannot open it",
+            }),
         };
 
         if (use is not FileUse.Image)

@@ -131,6 +131,7 @@ public sealed record DeploymentPolicy
     public const int SelfHostedMaxSpaceFileMegabytes = 10 * 1024;
 
     public const int HostedMaxSpaceFileMegabytes = 1024;
+
     public const int DelegationDepth = 5;
 
     public const int RunsPerDelegationTree = 50;

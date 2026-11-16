@@ -110,7 +110,7 @@ public sealed class SandboxBroker(
         }
 
         await transcript.Finish();
-        await Finish(caller, lease, Use.Reads, cancellationToken);
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
         return new SandboxCommandResult(timedOut ? null : exitCode ?? 0, transcript.Stdout, transcript.Stderr, transcript.Truncated, timedOut, lease.NewSandbox);
     }
 
@@ -131,7 +131,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(SandboxCaller.Of(call), lease, Use.Reads, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: true, cancellationToken);
         return new SandboxFileResult(ReadText(bytes, lease.Handle.AccessToken), bytes.Length, lease.NewSandbox);
     }
 
@@ -157,7 +157,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(SandboxCaller.Of(call), lease, Use.Writes, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
@@ -176,6 +176,7 @@ public sealed class SandboxBroker(
         }
 
         var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
+        await MarkTainted(caller, lease, cancellationToken);
 
         try
         {
@@ -186,7 +187,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(caller, lease, Use.TakesAttachment, cancellationToken);
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
     }
 
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
@@ -203,7 +204,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(SandboxCaller.Of(call), lease, Use.Reads, cancellationToken);
+        await Finish(SandboxCaller.Of(call), lease, readsSandbox: true, cancellationToken);
         return new SandboxListResult([.. entries.Take(MaxEntries)], entries.Count > MaxEntries, lease.NewSandbox);
     }
 
@@ -247,7 +248,7 @@ public sealed class SandboxBroker(
         }
 
         var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
-        await Finish(caller, lease, Use.Reads, cancellationToken);
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
         return new SandboxScreenshot(png, width, height, lease.NewSandbox);
     }
 
@@ -270,7 +271,7 @@ public sealed class SandboxBroker(
         }
 
         await RunOnScreen(lease, action, doing, cancellationToken);
-        await Finish(caller, lease, Use.Writes, cancellationToken);
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
@@ -398,7 +399,7 @@ public sealed class SandboxBroker(
             return false;
         }
 
-        await Finish(person, lease, Use.Writes, cancellationToken);
+        await Finish(person, lease, readsSandbox: false, cancellationToken);
         return true;
     }
 
@@ -419,7 +420,7 @@ public sealed class SandboxBroker(
 
         // Finding it again finds the retired one due, destroys it, and makes the new one.
         var lease = await Acquire(person, null, null, screen: false, cancellationToken);
-        await Finish(person, lease, Use.Writes, cancellationToken);
+        await Finish(person, lease, readsSandbox: false, cancellationToken);
     }
 
     /// <summary>
@@ -769,10 +770,10 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
-    /// longer for a long command goes back to its idle time. A sandbox given an attached file is marked tainted for
-    /// good. Text read from a sandbox that can reach the network, or from a tainted one, taints the run.
+    /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network, or
+    /// from one marked tainted (<see cref="MarkTainted"/>), taints the run.
     /// </summary>
-    private async Task Finish(SandboxCaller caller, SandboxLease lease, Use use, CancellationToken cancellationToken)
+    private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
         if (lease.KeptFor > lease.Idle)
         {
@@ -796,7 +797,6 @@ public sealed class SandboxBroker(
                     MarkRunning(row);
                     row.LastUsedAt = now;
                     row.ExpiresAt = now + lease.Idle;
-                    row.Tainted |= use is Use.TakesAttachment;
                     tainted = row.Tainted;
                 }
 
@@ -808,9 +808,35 @@ public sealed class SandboxBroker(
             cancellationToken);
 
         // A person reading their bot's sandbox is in no run, so there is nothing to taint.
-        if (use is Use.Reads && (tainted || lease.Network.Access is not NetworkAccess.Off) && caller.Call is { } reading)
+        if (readsSandbox && (tainted || lease.Network.Access is not NetworkAccess.Off) && caller.Call is { } reading)
         {
             await reading.Taint();
+        }
+    }
+
+    /// <summary>
+    /// Marks the sandbox as holding a file a person attached, for good, in its own committed transaction before the
+    /// file is written: a write that is cancelled or fails after the provider took it still leaves the mark. A sandbox
+    /// whose row is gone is not written to, since nothing could carry the mark.
+    /// </summary>
+    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        var marked = await caller.Tenant.Transact(
+            async services =>
+            {
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                {
+                    return false;
+                }
+
+                row.Tainted = true;
+                return true;
+            },
+            cancellationToken);
+
+        if (!marked)
+        {
+            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
         }
     }
 
@@ -932,14 +958,6 @@ public sealed class SandboxBroker(
     private sealed record RetiredSandbox(Guid Id, string ProviderSandboxId, string? Token);
 
     /// <summary>A sandbox ready for one operation, and what to record when the operation is done.</summary>
-    /// <summary>What a use did with the sandbox, which decides whether it taints the sandbox or the run.</summary>
-    private enum Use
-    {
-        Writes,
-        Reads,
-        TakesAttachment,
-    }
-
     private sealed record SandboxLease(Guid SandboxId, SandboxHandle Handle, NetworkPolicy Network, TimeSpan Idle, TimeSpan KeptFor, bool NewSandbox);
 
     #endregion
