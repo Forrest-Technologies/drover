@@ -1,0 +1,93 @@
+@* Samples for the two bold screens and the Activity list. Every name, text, and time is a sample. *@
+<GallerySection Title="A run as a timeline (#164)" Note="One lane for each bot. Work handed across is violet. Only the node being worked on moves. Arrow keys move, Enter opens.">
+    <div class="dv-sample-wide">
+        <Timeline Model="run" Label="Sample run" EmptyText="Nothing has run in this conversation yet.">
+            <Detail Context="node">
+                <p>Sample details for "@node.Event.Label": arguments, output, result, and how long it took go here.</p>
+            </Detail>
+        </Timeline>
+    </div>
+</GallerySection>
+
+<GallerySection Title="The same run as a list (#164)" Note="The same nodes as sentences. The default for screen readers.">
+    <div class="dv-sample-wide"><Timeline Model="run" Label="Sample run as a list" EmptyText="Nothing has run in this conversation yet." AsList="true" /></div>
+    <Timeline Model="TimelineModel.Empty" Label="Sample empty run" EmptyText="Nothing has run in this conversation yet." />
+</GallerySection>
+
+<GallerySection Title="The crew as a tree (#167)" Note="A bot sits centered over the bots beneath it. A connector is violet and pulses once out and back while work passes along it. Arrow keys move by position.">
+    <div class="dv-sample-wide"><CrewCanvas Crew="crew" Label="Sample crew" SelectedId="sampleHelper" /></div>
+</GallerySection>
+
+<GallerySection Title="Waiting for you (#168)" Note="Each call is its approval sentence, answered in place. Several can be chosen; the confirmation lists every one.">
+    <div class="dv-sample-wide"><WaitingList Calls="waiting" /></div>
+</GallerySection>
+
+<GallerySection Title="Runs (#168)" Note="The outcome leads, in words. Opened, a run shows its timeline.">
+    <div class="dv-sample-wide"><ActivityRunRow Run="finished" /></div>
+    <div class="dv-sample-wide"><ActivityRunRow Run="failedRun" /></div>
+    <div class="dv-sample-wide"><ActivityRunRow Run="workingRun" /></div>
+</GallerySection>
+
+@code {
+    private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    private static readonly Guid sampleLead = Guid.Parse("00000000-0000-7000-8000-000000000001");
+
+    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
+
+    private static readonly Guid sampleScout = Guid.Parse("00000000-0000-7000-8000-000000000003");
+
+    private static readonly TimelineModel run = Timelines.Build(
+        [new(sampleLead, "Sample lead"), new(sampleHelper, "Sample helper")],
+        [
+            Event(1, sampleLead, TimelineKind.Step, "Thought and wrote", TimelineState.Done, 0, 4),
+            Event(2, sampleLead, TimelineKind.Delegation, "Handed work", TimelineState.Done, 4, 30, "Sample task", sampleHelper),
+            Event(3, sampleHelper, TimelineKind.Tool, "Ran a command", TimelineState.Done, 6, 12, "sample --command"),
+            Event(4, sampleHelper, TimelineKind.Tool, "Wrote a file", TimelineState.Failed, 20, 1, "/sample/path.txt"),
+            Event(5, sampleLead, TimelineKind.Waiting, "Asks to run a command", TimelineState.Waiting, 36, null, "sample --other"),
+            Event(6, sampleLead, TimelineKind.Tool, "Reading a file", TimelineState.Live, 40, null, "/sample/notes.md"),
+        ]);
+
+    private static readonly CrewBot[] crew =
+    [
+        new(sampleLead, "Sample lead", "Sample role: decides who does what.",
+        [
+            new(sampleHelper, "Sample helper", "Sample role: writes the sample drafts.",
+            [
+                new(Guid.Parse("00000000-0000-7000-8000-000000000004"), "Sample bot beneath the helper", string.Empty, [], MadeBy: "Sample helper"),
+            ],
+            AvatarState.Thinking, "Thinking", Receiving: true, Cap: (1, 3)),
+            new(sampleScout, "Sample scout", "Sample role: finds sample sources.", [], Attention: Attention.WaitingForYou),
+            new(Guid.Parse("00000000-0000-7000-8000-000000000005"), "Sample paused bot", string.Empty, [], StateWords: "Paused"),
+        ],
+        Cap: (3, 5)),
+    ];
+
+    private static readonly WaitingCall[] waiting =
+    [
+        new(Guid.Parse("00000000-0000-7000-8000-000000000701"), sampleLead, "Sample lead", "Sample lead asks to run a command", "sample --command", sampleDay),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000702"), sampleHelper, "Sample helper", "Sample helper asks to write a file", "/sample/path.txt", sampleDay.AddMinutes(5)),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000703"), sampleHelper, "Sample helper", "Sample helper asks to make a bot", "Sample scout", sampleDay.AddMinutes(9), "You approved this."),
+    ];
+
+    private static readonly ActivityRun finished = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000801"), sampleLead, "Sample lead", RunOutcome.Finished, RunStart.Routine,
+        "Sample prompt: write the sample brief.", sampleDay, "/", TimeSpan.FromSeconds(48), null, "Every weekday at 08:00, Berlin time");
+
+    private static readonly ActivityRun failedRun = finished with
+    {
+        Id = Guid.Parse("00000000-0000-7000-8000-000000000802"), Outcome = RunOutcome.Failed, Start = RunStart.Message, StartName = null,
+        Asked = "A sample question.", FailureSentence = "Sample lead could not reach its model. Check the model connection, then try again.",
+    };
+
+    private static readonly ActivityRun workingRun = finished with
+    {
+        Id = Guid.Parse("00000000-0000-7000-8000-000000000803"), Outcome = RunOutcome.Working, Start = RunStart.Call, StartName = null,
+        Asked = "Sample material from a call.", Took = null,
+    };
+
+    private static TimelineEvent Event(
+        int number, Guid bot, TimelineKind kind, string label, TimelineState state, int startsAfter, int? took, string? summary = null, Guid? child = null) =>
+        new(new Guid(number, 0, 0x7000, 0x80, 0, 0, 0, 0, 0, 0, 0x09), bot, kind, label, state, sampleDay.AddSeconds(startsAfter),
+            took is { } seconds ? TimeSpan.FromSeconds(seconds) : null, summary, child);
+}

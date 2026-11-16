@@ -1,0 +1,38 @@
+@* Starter for #153. One skill in the library: its name, the line a bot reads to decide, and how many bots have
+   it. A skill a bot offered says so. *@
+<article class="dv-skill dv-facet" aria-labelledby="@titleId">
+    <h3 class="dv-skill-name" id="@titleId"><a href="@Href">@Skill.Name</a></h3>
+    <p class="dv-skill-when">@Skill.WhenToUse</p>
+    <p class="dv-skill-facts dv-mono">
+        @SkillWords.GivenTo(Skill.BotCount)
+        @if (SkillWords.Origin(Skill, Skill.ApprovedOn is { } on ? ScheduleWords.Moment(on) : string.Empty) is { } origin)
+        {
+            <span class="dv-skill-origin">@origin</span>
+        }
+    </p>
+</article>
+
+@code {
+    #region Private Fields
+
+    private string titleId = string.Empty;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public SkillItem Skill { get; set; } = null!;
+
+    /// <summary>Where the skill is read and changed.</summary>
+    [Parameter, EditorRequired]
+    public string Href { get; set; } = string.Empty;
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet() => titleId = $"dv-skill-{Skill.Id:N}";
+
+    #endregion
+}
