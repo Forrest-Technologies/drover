@@ -16,24 +16,13 @@ public sealed class ServerAddress
 
     #region Public Methods
 
-    public bool Set(string address)
+    public void Set(Uri origin)
     {
-        var origin = Parse(address);
-        if (origin is null)
-        {
-            return false;
-        }
-
         Preferences.Default.Set(Preference, origin.AbsoluteUri);
         Current = origin;
-        return true;
     }
 
-    #endregion
-
-    #region Private Methods
-
-    private static Uri? Parse(string address) =>
+    public static Uri? Parse(string address) =>
         Uri.TryCreate(address.Trim(), UriKind.Absolute, out var uri)
             && uri.Scheme == Uri.UriSchemeHttps
             && uri.Host.Length > 0

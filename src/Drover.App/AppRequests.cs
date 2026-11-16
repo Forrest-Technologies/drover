@@ -20,6 +20,16 @@ public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new Ht
 
     #endregion
 
+    #region Public Methods
+
+    public async Task<bool> IsDroverServer(Uri origin, CancellationToken cancellationToken)
+    {
+        await IssueToken(origin, cancellationToken);
+        return ReadCookie(origin) is { Length: > 0 };
+    }
+
+    #endregion
+
     #region Interface Implementations
 
     protected override async Task<HttpResponseMessage> SendAsync(
@@ -47,17 +57,27 @@ public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new Ht
 
     private async Task<string> ReadToken(Uri origin, Uri address, CancellationToken cancellationToken)
     {
-        var cookies = ((HttpClientHandler)InnerHandler!).CookieContainer;
-        var token = cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
+        var token = ReadCookie(origin);
         if (string.IsNullOrEmpty(token) || address.AbsolutePath is "/api/sign-in" or "/api/setup" or "/api/register")
         {
-            using var issue = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, "api/antiforgery"));
-            using var response = await base.SendAsync(issue, cancellationToken);
-            response.EnsureSuccessStatusCode();
-            token = cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
+            await IssueToken(origin, cancellationToken);
+            token = ReadCookie(origin);
         }
 
         return token ?? throw new HttpRequestException("Drover did not issue a request token.");
+    }
+
+    private string? ReadCookie(Uri origin) =>
+        ((HttpClientHandler)InnerHandler!).CookieContainer.GetCookies(origin)[AntiforgeryCookie]?.Value;
+
+    private async Task IssueToken(Uri origin, CancellationToken cancellationToken)
+    {
+        using var issue = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, "api/antiforgery"));
+        using var response = await base.SendAsync(issue, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.NoContent)
+        {
+            throw new HttpRequestException("The server did not answer with a Drover antiforgery token.");
+        }
     }
 
     #endregion

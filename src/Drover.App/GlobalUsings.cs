@@ -12,6 +12,7 @@ global using Drover.Ui.Session;
 global using Microsoft.AspNetCore.Components.Web;
 global using Microsoft.AspNetCore.Components.WebView.Maui;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
 global using Microsoft.Maui;
 global using Microsoft.Maui.Controls;
 global using Microsoft.Maui.Hosting;

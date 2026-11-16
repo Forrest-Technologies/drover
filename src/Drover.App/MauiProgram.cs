@@ -11,11 +11,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<ServerAddress>();
         builder.Services.AddSingleton<AppRequests>();
         builder.Services.AddScoped<IPushRegistration, PreviewPushRegistration>();
-        builder.Services.AddScoped(services => new DroverApi(new HttpClient(
+        builder.Services.AddScoped(services => new HttpClient(
             services.GetRequiredService<AppRequests>(), disposeHandler: false)
         {
             BaseAddress = AppRequests.Placeholder,
-        }));
+        });
+        builder.Services.AddScoped<DroverApi>();
         return builder.Build();
     }
 }

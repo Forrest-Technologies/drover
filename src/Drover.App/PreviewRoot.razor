@@ -2,6 +2,8 @@
 @using Drover.Ui.Layouts
 @using Microsoft.AspNetCore.Components.Web
 @inject ServerAddress Server
+@inject AppRequests Requests
+@inject ILogger<PreviewRoot> Logger
 
 @if (Server.Current is not null)
 {
@@ -16,9 +18,11 @@ else
             <p class="dv-entry-lead">Enter the HTTPS address of your Drover server.</p>
             <form class="dv-entry-form" @onsubmit="Connect" @onsubmit:preventDefault>
                 <Field Label="Server address" Type="url" @bind-Value="address"
-                       Placeholder="https://drover.example.org" required="true" />
+                       Placeholder="https://drover.example.org" required="true" Disabled="busy" />
                 <StatusNote Kind="NoteKind.Danger" Text="@problem" />
-                <Button Kind="ButtonKind.Primary" Type="submit">Continue to sign in</Button>
+                <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">
+                    @(busy ? "Connecting" : "Connect")
+                </Button>
             </form>
         </Body>
     </EntryLayout>
@@ -31,13 +35,43 @@ else
 
     private string? problem;
 
+    private bool busy;
+
     #endregion
 
     #region Private Methods
 
-    private void Connect()
+    private async Task Connect()
     {
-        problem = Server.Set(address) ? null : "Enter an HTTPS address without a path, such as https://drover.example.org.";
+        if (ServerAddress.Parse(address) is not { } origin)
+        {
+            problem = "Enter an HTTPS address without a path.";
+            return;
+        }
+
+        busy = true;
+        problem = null;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        try
+        {
+            if (await Requests.IsDroverServer(origin, timeout.Token))
+            {
+                Server.Set(origin);
+            }
+            else
+            {
+                problem = "That address did not respond as a Drover server.";
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "Could not connect to the Drover server");
+            problem = "Could not reach Drover. Check the address and try again.";
+        }
+        finally
+        {
+            busy = false;
+        }
     }
 
     #endregion
