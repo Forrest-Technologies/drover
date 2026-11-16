@@ -7,7 +7,7 @@ public static class Failures
 {
     #region Properties
 
-    public const string Unreachable = "Drover could not reach its server. Check that it is running, then try again.";
+    public const string Unreachable = "Drover could not reach its server. Check that it is running.";
 
     public const string TooSlow = "Drover's server did not answer in time.";
 
