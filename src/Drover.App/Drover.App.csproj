@@ -18,4 +18,10 @@
     <PackageReference Include="Microsoft.Maui.Controls" />
     <ProjectReference Include="../Drover.Ui/Drover.Ui.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Blazor Hybrid creates the head outlet and routes by type after Android links the app. -->
+    <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components.Web" />
+    <TrimmerRootAssembly Include="Drover.Ui" />
+    <TrimmerRootAssembly Include="Drover.Contracts" />
+  </ItemGroup>
 </Project>
