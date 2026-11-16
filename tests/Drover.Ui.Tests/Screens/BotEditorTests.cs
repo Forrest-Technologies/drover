@@ -119,7 +119,7 @@ public sealed class BotEditorTests : ScreenTest
             "Tools, 1 allowed",
             "Rules, No rules",
             "Memory, Does not remember · keeps every message",
-            "Schedule, None",
+            "Routines, No routines",
             "Sandbox, No sandbox",
             "Team, The space's caps");
         page.FindAll(".dv-disclosure-body").Should().OnlyContain(body => body.HasAttribute("hidden") && body.ChildElementCount == 0, "a closed section shows no settings");
@@ -439,28 +439,199 @@ public sealed class BotEditorTests : ScreenTest
 
     #endregion
 
-    #region Schedules
+    #region Routines
 
     [Fact]
-    public async Task A_schedule_is_made_from_plain_choices_and_shown_as_a_sentence()
+    public async Task With_no_routines_the_section_says_what_one_is_and_offers_the_one_button()
     {
-        var made = new BotScheduleResponse(Guid.Parse("0196f1a0-0000-7000-8000-000000000006"), botId, Person.UserId, "30 9 * * 1-5", "UTC", "Sample prompt", "new_thread", true, null);
+        var page = RenderEditor();
+        await Open(page, 4);
+
+        page.Find(".dv-disclosure-open .dv-editor-hint").TextContent.Should().Be("A routine is a prompt Marshal is sent on its own, at the times you choose.");
+        page.FindAll(".dv-disclosure-open .dv-routine-add button").Select(button => button.TextContent.Trim()).Should().Equal("Add a routine");
+        page.FindAll(".dv-routine").Should().BeEmpty();
+        page.Find(".dv-routine-add").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_routine_is_written_from_plain_choices_saved_off_and_listed_as_its_sentence()
+    {
+        var made = Routine(enabled: false) with { Cron = "30 9 * * 1-5", TimeZone = "Europe/Berlin" };
         Server.Answer("POST", $"{bot}/schedules", made, HttpStatusCode.Created);
+        Server.Answer("POST", $"{bot}/schedules/check", new ScheduleCheckResponse(null, []));
         var page = RenderEditor();
         await Open(page, 4);
 
         await page.Find(".dv-disclosure-open .dv-button").ClickAsync(new MouseEventArgs());
-        await page.Find(".dv-schedule-form select").ChangeAsync(new ChangeEventArgs { Value = "Weekdays" });
-        await page.Find(".dv-schedule-form input[type=time]").InputAsync(new ChangeEventArgs { Value = "09:30" });
-        await page.Find(".dv-schedule-form textarea").InputAsync(new ChangeEventArgs { Value = "Sample prompt" });
-        await page.Find(".dv-schedule-form .dv-button-primary").ClickAsync(new MouseEventArgs());
+        await page.Find(".dv-routine-form textarea").InputAsync(new ChangeEventArgs { Value = "Sample prompt" });
+        await page.Find(".dv-routine-form select").ChangeAsync(new ChangeEventArgs { Value = "Weekdays" });
+        await page.Find(".dv-routine-form input[type=time]").InputAsync(new ChangeEventArgs { Value = "09:30" });
+        await Field(page, "Time zone").InputAsync(new ChangeEventArgs { Value = "Europe/Berlin" });
+        page.Find(".dv-when-reads").TextContent.Should().Be("Reads as: Every weekday at 09:30, Berlin time.");
+        await page.Find(".dv-routine-form .dv-button-primary").ClickAsync(new MouseEventArgs());
 
-        page.WaitForAssertion(() => page.Find(".dv-schedule-when").TextContent.Should().Be("Every weekday at 09:30"));
-        Server.Sent("POST", $"{bot}/schedules").Should().ContainSingle().Which.Should().Contain("\"cron\":\"30 9 * * 1-5\"").And.Contain("\"threadMode\":\"new_thread\"");
-        page.FindAll(".dv-schedule-actions button").Select(button => button.GetAttribute("aria-label")).Should().Equal(
-            "Change the schedule Every weekday at 09:30",
-            "Remove the schedule Every weekday at 09:30");
+        page.WaitForAssertion(() => page.Find(".dv-routine-when").TextContent.Should().Be("Every weekday at 09:30, Berlin time"));
+        Server.Sent("POST", $"{bot}/schedules").Should().ContainSingle().Which.Should()
+            .Contain("\"cron\":\"30 9 * * 1-5\"").And.Contain("\"timeZone\":\"Europe/Berlin\"").And.Contain("\"enabled\":false");
+        page.Find(".dv-routine-prompt").TextContent.Should().Be("Sample prompt");
+        page.Find(".dv-disclosure-open [role=status]").TextContent.Should().StartWith("Routine added, turned off");
     }
+
+    [Fact]
+    public async Task A_custom_expression_is_explained_or_refused_by_the_server_before_it_is_saved()
+    {
+        Server.Refuse("POST", $"{bot}/schedules", HttpStatusCode.BadRequest, "not expected");
+        Server.Answer("POST", $"{bot}/schedules/check", new ScheduleCheckResponse("Schedules on this server run at most once every 60 minutes. Choose a time that repeats less often.", []));
+        var page = RenderEditor();
+        await Open(page, 4);
+
+        await page.Find(".dv-disclosure-open .dv-button").ClickAsync(new MouseEventArgs());
+        await page.Find(".dv-routine-form select").ChangeAsync(new ChangeEventArgs { Value = "Custom" });
+        await Field(page, "Cron expression").InputAsync(new ChangeEventArgs { Value = "*/20 * * * *" });
+
+        page.WaitForAssertion(() => page.Find(".dv-when [role=alert]").TextContent.Trim().Should().Be(
+            "Schedules on this server run at most once every 60 minutes. Choose a time that repeats less often."));
+        page.Find(".dv-when-reads").TextContent.Should().Be("The expression */20 * * * * cannot be saved as it is.");
+        Server.Sent("POST", $"{bot}/schedules/check").Last().Should().Contain("\"cron\":\"*/20 * * * *\"");
+        Server.Sent("POST", $"{bot}/schedules").Should().BeEmpty("nothing is saved until the person saves");
+    }
+
+    [Fact]
+    public async Task A_routine_the_server_refuses_on_save_says_why_by_the_buttons()
+    {
+        const string Refusal = "A space on this server holds at most 2 schedules. Remove one first.";
+        Server.Refuse("POST", $"{bot}/schedules", HttpStatusCode.BadRequest, Refusal);
+        Server.Answer("POST", $"{bot}/schedules/check", new ScheduleCheckResponse(null, []));
+        var page = RenderEditor();
+        await Open(page, 4);
+
+        await page.Find(".dv-disclosure-open .dv-button").ClickAsync(new MouseEventArgs());
+        page.Find(".dv-routine-form").TextContent.Should().Contain("It is saved turned off. Run it once to try it, then turn it on.");
+        await page.Find(".dv-routine-form textarea").InputAsync(new ChangeEventArgs { Value = "Sample prompt" });
+        await page.Find(".dv-routine-form .dv-button-primary").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-routine-form > .dv-note-region")[0].TextContent.Trim().Should().Be(Refusal));
+        page.Find(".dv-when [role=alert]").TextContent.Trim().Should().BeEmpty("a refusal that is not about the time is not said beside it");
+    }
+
+    [Fact]
+    public async Task Running_a_routine_once_links_to_its_conversation_and_its_last_failure_is_said_in_words()
+    {
+        var threadId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
+        var failed = Routine(enabled: true) with
+        {
+            LastRunAt = new DateTimeOffset(2026, 1, 5, 8, 0, 0, TimeSpan.Zero),
+            LastOutcome = "failed",
+            LastThreadId = threadId,
+            LastReason = "The model connection could not be reached.",
+        };
+        Server.Answer("GET", $"{bot}/schedules", new[] { failed });
+        Server.Answer("POST", $"{bot}/schedules/{failed.Id}/run-once", new ScheduleRunOnceResponse(threadId, Guid.CreateVersion7()), HttpStatusCode.Accepted);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        page.Find(".dv-routine-facts").TextContent.Should().Contain("Failed").And.Contain(": The model connection could not be reached.");
+        page.Find(".dv-routine-facts a").GetAttribute("href").Should().Be($"/threads/{threadId}");
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-routine-started a").GetAttribute("href").Should().Be($"/threads/{threadId}"));
+        Server.Sent("POST", $"{bot}/schedules/{failed.Id}/run-once").Should().ContainSingle();
+        Server.Sent("PUT", $"{bot}/schedules/{failed.Id}").Should().BeEmpty("running once does not change the routine");
+    }
+
+    [Fact]
+    public async Task Running_another_persons_routine_once_shows_its_whole_prompt_first()
+    {
+        var theirs = Routine(enabled: true) with
+        {
+            OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1"),
+            Prompt = "Sample prompt.\nSecond line of the sample.",
+        };
+        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Answer("POST", $"{bot}/schedules/{theirs.Id}/run-once", new ScheduleRunOnceResponse(Guid.CreateVersion7(), Guid.CreateVersion7()), HttpStatusCode.Accepted);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").ClickAsync(new MouseEventArgs());
+
+        Server.Sent("POST", $"{bot}/schedules/{theirs.Id}/run-once").Should().BeEmpty("someone who did not write it reads it first");
+        page.Find(".dv-routine-run-prompt").TextContent.Should().Be("Sample prompt.\nSecond line of the sample.");
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Run it once now").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Sent("POST", $"{bot}/schedules/{theirs.Id}/run-once").Should().ContainSingle());
+        page.WaitForAssertion(() => page.Find(".dv-routine-started a").TextContent.Should().Be("Open the conversation it started"));
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>("focus moves to the link that took the disabled button's place");
+    }
+
+    [Fact]
+    public async Task A_refused_run_of_another_persons_routine_puts_focus_back_on_run_once_now_beside_the_reason()
+    {
+        const string Refusal = "Marshal is paused, so its routines do not run. Resume it first.";
+        const string Focus = "Blazor._internal.domWrapper.focus";
+        var theirs = Routine(enabled: true) with { OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1") };
+        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Refuse("POST", $"{bot}/schedules/{theirs.Id}/run-once", HttpStatusCode.Conflict, Refusal);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").ClickAsync(new MouseEventArgs());
+        var before = JSInterop.Invocations.Count(call => call.Identifier == Focus);
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Run it once now").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-routine [role=alert]").TextContent.Trim().Should().Be(Refusal));
+        page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").HasAttribute("disabled").Should().BeFalse();
+        page.FindAll(".dv-routine-started").Should().BeEmpty("there is no conversation to go to");
+        JSInterop.Invocations.Count(call => call.Identifier == Focus).Should().Be(before + 1,
+            "focus moves once, after the answer is in, to the only place left: Run once now, enabled again beside the refusal");
+    }
+
+    [Fact]
+    public async Task Removing_a_routine_asks_first()
+    {
+        var routine = Routine(enabled: true);
+        Server.Answer("GET", $"{bot}/schedules", new[] { routine });
+        Server.Answer("DELETE", $"{bot}/schedules/{routine.Id}", HttpStatusCode.NoContent);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Remove").ClickAsync(new MouseEventArgs());
+
+        Server.Sent("DELETE", $"{bot}/schedules/{routine.Id}").Should().BeEmpty("removing asks first");
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Remove routine").ClickAsync(new MouseEventArgs());
+        page.WaitForAssertion(() => page.FindAll(".dv-routine").Should().BeEmpty());
+        Server.Sent("DELETE", $"{bot}/schedules/{routine.Id}").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Another_admins_routine_offers_no_change_and_a_member_reads_routines_without_controls()
+    {
+        var theirs = Routine(enabled: true) with { OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1") };
+        Services.GetRequiredService<SessionState>().Begin(Person);
+
+        var asOwner = Render<RoutinesSection>(set => set
+            .Add(view => view.SpaceId, SpaceId).Add(view => view.BotId, botId).Add(view => view.BotName, "Marshal")
+            .Add(view => view.Schedules, [theirs]));
+
+        asOwner.FindAll(".dv-routine-actions button, .dv-routine-add button").Select(button => button.TextContent.Trim()).Should().Equal(
+            "Run once now", "Remove", "Add a routine");
+        asOwner.FindAll("[role=switch]").Should().ContainSingle("another admin may turn it off");
+
+        Services.GetRequiredService<SessionState>().Begin(Person with { Spaces = [Person.Spaces[0] with { Role = "member" }] });
+        var asMember = Render<RoutinesSection>(set => set
+            .Add(view => view.SpaceId, SpaceId).Add(view => view.BotId, botId).Add(view => view.BotName, "Marshal")
+            .Add(view => view.Schedules, [theirs]));
+
+        asMember.FindAll(".dv-routine button, .dv-routine-add, [role=switch]").Should().BeEmpty("a member reads routines");
+        asMember.Find(".dv-routine-when").TextContent.Should().Be("Every day at 09:00, UTC");
+        var emptyForMember = Render<RoutinesSection>(set => set
+            .Add(view => view.SpaceId, SpaceId).Add(view => view.BotId, botId).Add(view => view.BotName, "Marshal")
+            .Add(view => view.Schedules, []));
+        emptyForMember.Find(".dv-editor-hint").TextContent.Should().Be("Marshal has no routines. Owners and admins of this space add them.");
+    }
+
+    private BotScheduleResponse Routine(bool enabled) =>
+        new(Guid.Parse("0196f1a0-0000-7000-8000-000000000006"), botId, Person.UserId, "0 9 * * *", "UTC", "Sample prompt", "new_thread", enabled,
+            enabled ? new DateTimeOffset(2026, 1, 6, 9, 0, 0, TimeSpan.Zero) : null);
 
     #endregion
 
@@ -990,6 +1161,9 @@ public sealed class BotEditorTests : ScreenTest
     private static IElement Select(IRenderedComponent<BotEditor> page, string label) =>
         page.FindAll(".dv-disclosure-open .dv-select").First(select => Words(select.QuerySelector("label")!.TextContent) == label).QuerySelector("select")!;
 
+    private static IElement Field(IRenderedComponent<BotEditor> page, string label) =>
+        page.FindAll(".dv-disclosure-open .dv-field").First(field => Words(field.QuerySelector("label")!.TextContent) == label).QuerySelector("input")!;
+
     private static List<string> Options(IRenderedComponent<BotEditor> page, string label) =>
         [.. Select(page, label).QuerySelectorAll("option").Select(option => option.TextContent)];
 
@@ -999,7 +1173,7 @@ public sealed class BotEditorTests : ScreenTest
     private IRenderedComponent<BotEditor> RenderEditor(string loaded = "Rules, No rules")
     {
         var page = Render<BotEditor>(parameters => parameters.Add(editor => editor.BotId, botId));
-        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle").Select(toggle => Words(toggle.TextContent)).Should().Contain("Schedule, None").And.Contain(loaded));
+        page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle").Select(toggle => Words(toggle.TextContent)).Should().Contain(toggle => toggle.StartsWith("Routines, ") && toggle != "Routines, Loading").And.Contain(loaded));
         return page;
     }
 

@@ -139,12 +139,12 @@ public static class Conversations
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
 
-    /// <summary>Who sent a message the person did not type: the schedule, by its time, or one removed since.</summary>
+    /// <summary>Who sent a message the person did not type: the routine, by its time, or one removed since.</summary>
     private static string? SentBy(MessageView message) => message switch
     {
         { ScheduleId: null } => null,
-        { ScheduleCron: { } cron } => $"Sent by the schedule '{ScheduleWords.Describe(cron)}'",
-        _ => "Sent by a schedule that has since been removed",
+        { ScheduleCron: { } cron } => $"Sent by the routine '{RoutineWords.Describe(cron) ?? cron}'",
+        _ => "Sent by a routine that has since been removed",
     };
 
     // A call part without an id cannot be followed, so it is left out.

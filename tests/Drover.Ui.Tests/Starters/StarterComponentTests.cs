@@ -107,49 +107,6 @@ public sealed class StarterComponentTests : BunitContext
 
     #endregion
 
-    #region Routines
-
-    [Fact]
-    public void A_routine_is_headed_by_its_sentence_and_only_those_who_may_change_it_get_controls()
-    {
-        var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.\nKeep it short.", "0 8 * * 1-5", "Europe/Berlin", true, start, null);
-        var row = Render<RoutineRow>(set => set.Add(view => view.Routine, routine).Add(view => view.BotName, "Sample bot"));
-
-        row.Find("h3").TextContent.Should().Be("Every weekday at 08:00, Berlin time");
-        row.Find(".dv-routine-prompt").TextContent.Should().Be("Write the brief.");
-        row.Find("article").GetAttribute("aria-labelledby").Should().Be(row.Find("h3").Id);
-        row.FindAll("button").Should().BeEmpty();
-
-        row.Render(set => set.Add(view => view.CanChange, true).Add(view => view.BotPaused, true));
-
-        row.FindAll("button").Select(button => button.TextContent.Trim()).Should().Contain(["Run once now", "Change", "Remove"]);
-        row.Find(".dv-routine-facts").TextContent.Should().Contain("Does not run while Sample bot is paused.").And.Contain("Has not run yet");
-    }
-
-    [Fact]
-    public void Choosing_when_shows_only_that_choices_fields_and_reads_the_schedule_back()
-    {
-        var when = RoutineWhen.Start;
-        var fields = Render<RoutineWhenFields>(set => set
-            .Add(view => view.When, when)
-            .Add(view => view.TimeZone, "Europe/Berlin")
-            .Add(view => view.WhenChanged, value => when = value));
-
-        fields.Find("[role=status]").TextContent.Should().Be("Reads as: Every weekday at 09:00, Berlin time.");
-        fields.FindAll("fieldset").Should().BeEmpty();
-
-        fields.Render(set => set.Add(view => view.When, when with { Rhythm = RoutineRhythm.ChosenDays, Days = [] }));
-
-        fields.FindAll("fieldset input[type=checkbox]").Should().HaveCount(7);
-        fields.Find("[role=status]").TextContent.Should().Be("Choose at least one day.");
-
-        fields.FindAll("fieldset input[type=checkbox]")[2].Change(true);
-
-        when.Days.Should().Equal(DayOfWeek.Wednesday);
-    }
-
-    #endregion
-
     #region Records
 
     [Fact]

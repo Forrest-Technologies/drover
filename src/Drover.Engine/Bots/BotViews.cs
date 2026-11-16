@@ -94,7 +94,11 @@ public static class BotViews
         };
     }
 
-    public static BotScheduleResponse ToResponse(this BotSchedule schedule, RunStatus? lastRunStatus = null) =>
+    /// <summary>
+    /// A schedule as its response. The last run's id, conversation, and reason are given only with
+    /// <paramref name="lastRun"/>, which is there only when the caller can see that run's conversation.
+    /// </summary>
+    public static BotScheduleResponse ToResponse(this BotSchedule schedule, RunGlance? lastRun = null) =>
         new(
             schedule.Id,
             schedule.BotId,
@@ -105,11 +109,15 @@ public static class BotViews
             Words.Of(schedule.ThreadMode),
             schedule.Enabled,
             schedule.NextRunAt,
-            schedule.LastRunId,
+            lastRun is null ? null : schedule.LastRunId,
             schedule.LastRunAt,
-            LastOutcome(schedule, lastRunStatus));
+            LastOutcome(schedule, lastRun?.Status),
+            lastRun?.ThreadId,
+            lastRun?.Reason);
 
-    public static BotScheduleResponse ToResponse(this ScheduleView view) => view.Schedule.ToResponse(view.LastRunStatus);
+    public static BotScheduleResponse ToResponse(this ScheduleView view) => view.Schedule.ToResponse(view.LastRun);
+
+    public static BotScheduleResponse ToResponse(this ScheduleChange change) => change.Schedule!.ToResponse(change.LastRun);
 
     public static ScheduleEdit ToEdit(this BotScheduleBody body) =>
         new(body.Cron ?? string.Empty, body.TimeZone ?? string.Empty, body.Prompt ?? string.Empty, Words.Read<ScheduleThreadMode>(body.ThreadMode), body.Enabled);
@@ -118,7 +126,10 @@ public static class BotViews
 
     #region Private Methods
 
-    /// <summary>A run the schedule started reads as that run's status; anything else as what the schedule recorded.</summary>
+    /// <summary>
+    /// A run the schedule started reads as that run's status when the caller can see it, and as "started" when it
+    /// is another person's private conversation; anything else as what the schedule recorded.
+    /// </summary>
     private static string? LastOutcome(BotSchedule schedule, RunStatus? lastRunStatus) =>
         (schedule.LastOutcome, lastRunStatus) switch
         {

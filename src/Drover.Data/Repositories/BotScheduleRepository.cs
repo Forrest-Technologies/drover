@@ -40,6 +40,10 @@ public sealed class BotScheduleRepository(DroverDbContext db)
             .Where(schedule => ids.Contains(schedule.Id))
             .ToDictionaryAsync(schedule => schedule.Id, schedule => schedule.Cron, cancellationToken);
 
+    /// <summary>The bot's schedule, read only.</summary>
+    public Task<BotSchedule?> FindSchedule(Guid botId, Guid id, CancellationToken cancellationToken) =>
+        db.BotSchedules.AsNoTracking().SingleOrDefaultAsync(schedule => schedule.Id == id && schedule.BotId == botId, cancellationToken);
+
     /// <summary>The schedule, tracked, so that a change to it is saved when the scope commits.</summary>
     public Task<BotSchedule?> GetScheduleForUpdate(Guid botId, Guid id, CancellationToken cancellationToken) =>
         db.BotSchedules.SingleOrDefaultAsync(schedule => schedule.Id == id && schedule.BotId == botId, cancellationToken);
