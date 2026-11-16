@@ -282,6 +282,38 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_refresh_finishing_after_pause_leaves_the_sandbox_paused()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.BeforeRead = (_, cancellation) =>
+        {
+            reading.TrySetResult();
+            return release.Task.WaitAsync(cancellation);
+        };
+
+        var refresh = control.Screen(world.SpaceId, world.UserId, world.BotId, wake: false, RunWorld.Token);
+        try
+        {
+            await reading.Task.WaitAsync(RunWorld.Token);
+            (await control.Pause(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!.State.Should().Be("paused");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await refresh;
+        (await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!.State.Should().Be("paused");
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, wake: false, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.Refused);
+        provider.Only().State.Should().Be(ProviderSandboxState.Paused);
+    }
+
+    [Fact]
     public async Task A_sandbox_without_a_screen_refuses_the_screen_in_words()
     {
         await using var world = await ControlWorld(DesktopProvider(), desktop: false);

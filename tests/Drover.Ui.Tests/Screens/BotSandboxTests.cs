@@ -60,6 +60,7 @@ public sealed class BotSandboxTests : ScreenTest
         power.QuerySelectorAll("button").Should().OnlyContain(button => !button.HasAttribute("disabled"));
         page.FindAll("[role=tab]").Select(tab => tab.TextContent.Trim()).Should().Equal("Screen", "Terminal");
         var image = page.Find("img.dv-sandbox-image");
+        Server.Addresses.Should().Contain($"POST {sandbox}/screen?wake=false");
         image.GetAttribute("width").Should().Be("1024");
         image.GetAttribute("height").Should().Be("768");
         image.GetAttribute("src").Should().StartWith("data:image/png;base64,");
@@ -332,6 +333,7 @@ public sealed class BotSandboxTests : ScreenTest
         await WakeButton(page).ClickAsync(new MouseEventArgs());
 
         (await PicturesWithin(1)).Should().Be(1, "asking for the screen resumes the sandbox");
+        Server.Addresses.Should().Contain($"POST {sandbox}/screen");
         page.FindAll(".dv-sandbox-screen [role=status]").Select(note => note.TextContent).Should().Contain("Resuming the sandbox.");
         page.FindAll(".dv-sandbox-wake").Should().BeEmpty("one start at a time");
         page.Find(".dv-sandbox-screen").TextContent.Should().NotContain("Resume it to see the screen");

@@ -298,10 +298,14 @@ public sealed class TalkTests : ScreenTest
         await events.Send(Event(3, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(callId, "r1", "c1")));
         await events.Send(Event(4, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_takeover", null, 1, null)));
 
-        page.WaitForAssertion(() => page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen"));
-        page.FindAll(".dv-message-state").Should().BeEmpty("nothing thinks while the bot waits for the person");
-        page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
-        await page.FindAll("main .dv-takeover button").Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs());
+        page.WaitForAssertion(() =>
+        {
+            page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen");
+            page.FindAll(".dv-message-state").Should().BeEmpty("nothing thinks while the bot waits for the person");
+            page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
+        });
+        await page.InvokeAsync(() => page.FindAll("main .dv-takeover button")
+            .Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs()));
 
         page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/screen?held={callId}"));
         Server.Sent("POST", $"{space}/tool-calls/{callId}/takeover").Should().ContainSingle();
