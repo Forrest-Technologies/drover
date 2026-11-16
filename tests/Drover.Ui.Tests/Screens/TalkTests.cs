@@ -265,6 +265,82 @@ public sealed class TalkTests : ScreenTest
     #region Screen
 
     [Fact]
+    public async Task A_bot_asking_for_its_screen_is_taken_over_from_its_card_and_handed_back_beside_the_screen()
+    {
+        var callId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c9");
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        Server.Answer("POST", $"{space}/tool-calls/{callId}/takeover", Run("waiting"));
+        Server.Answer("POST", $"{space}/tool-calls/{callId}/handback", Run("waiting"));
+        Main(Thread(runId));
+        var events = Server.Stream($"{space}/runs/{runId}/events");
+        var page = RenderMain();
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await events.Send(Event(2, RunEventTypes.ToolRequested, new ToolRequested(callId, "computer.handover", "computer.handover", """{"reason":"Sign in with your passkey."}""", "allow")));
+        await events.Send(Event(3, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(callId, "r1", "c1")));
+        await events.Send(Event(4, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_takeover", null, 1, null)));
+
+        page.WaitForAssertion(() => page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen"));
+        page.FindAll(".dv-message-state").Should().BeEmpty("nothing thinks while the bot waits for the person");
+        page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
+        await page.FindAll("main .dv-takeover button").Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/screen"));
+        Server.Sent("POST", $"{space}/tool-calls/{callId}/takeover").Should().ContainSingle();
+        page.Render(parameters => parameters.Add(talk => talk.Rail, "screen"));
+        page.WaitForAssertion(() => page.Find("aside .dv-takeover h3").TextContent.Should().Be("You have Marshal's screen"));
+        page.Find("main .dv-takeover .dv-takeover-note").TextContent.Should().Be("Use I'm done at the screen when you have finished.");
+        page.FindAll("main .dv-takeover button").Should().BeEmpty("one set of controls, beside the screen");
+        page.WaitForAssertion(() => page.Find("aside [role=switch]").HasAttribute("checked").Should().BeTrue("the person opened the screen to act on it"));
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke(calledTimes: 1));
+
+        await page.FindAll("aside .dv-takeover button").Single(button => button.TextContent.Trim() == "I'm done").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll("aside .dv-takeover").Should().BeEmpty());
+        Server.Sent("POST", $"{space}/tool-calls/{callId}/handback").Single().Should().Contain("\"done\":true");
+        page.Find("aside [role=switch]").HasAttribute("checked").Should().BeFalse("the screen is the bot's again");
+        // The focus moves to the screen's close control, the one way on once the controls are gone.
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke(calledTimes: 2));
+    }
+
+    [Fact]
+    public async Task Taking_over_with_the_screen_already_open_turns_control_on()
+    {
+        var callId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c7");
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        Server.Answer("POST", $"{space}/tool-calls/{callId}/takeover", Run("waiting"));
+        Main(Thread(runId));
+        var events = Server.Stream($"{space}/runs/{runId}/events");
+        var page = RenderScreen();
+        await events.Send(Event(1, RunEventTypes.ToolRequested, new ToolRequested(callId, "computer.handover", "computer.handover", """{"reason":"Sign in."}""", "allow")));
+        await events.Send(Event(2, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(callId, "r1", "c1")));
+        await events.Send(Event(3, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_takeover", null, 1, null)));
+        page.WaitForAssertion(() => page.Find("aside [role=switch]").HasAttribute("checked").Should().BeFalse());
+
+        await page.WaitForElement("main .dv-takeover button.dv-button-primary").ClickAsync(new MouseEventArgs());
+        page.Render(parameters => parameters.Add(talk => talk.Rail, "screen"));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-takeover h3").TextContent.Should().Be("You have Marshal's screen"));
+        page.Find("aside [role=switch]").HasAttribute("checked").Should().BeTrue();
+    }
+
+    [Fact]
+    public void Opening_the_screen_by_its_link_does_not_take_over_a_waiting_request()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        Main(Thread(null));
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", (List<MessageResponse>)[Handover()]);
+
+        var page = RenderScreen();
+
+        page.WaitForAssertion(() => page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen"));
+        page.FindAll("aside .dv-takeover").Should().BeEmpty();
+        page.FindAll("main .dv-takeover button").Select(button => button.TextContent.Trim()).Should().Equal("Open the screen", "I cannot do it");
+    }
+
+    [Fact]
     public void A_bot_with_a_screen_offers_it_beside_the_conversation_live_and_ready_to_take_control()
     {
         Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
@@ -1057,6 +1133,12 @@ public sealed class TalkTests : ScreenTest
         Navigation.NavigateTo($"/talk/{botId}/screen");
         return Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
     }
+
+    // A stored call asking for a person at the screen, with no result yet: the request still waits.
+    private static MessageResponse Handover() =>
+        new(Guid.CreateVersion7(), threadId, 1, "assistant", runId,
+            [new("tool_call") { ToolCallId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c8"), ToolName = "computer_handover", Arguments = """{"reason":"Sign in."}""" }],
+            DateTimeOffset.UnixEpoch);
 
     private static BotSandboxStatus ScreenStatus(bool desktop) =>
         new(Available: true, HasSandbox: true, "running", DateTimeOffset.UnixEpoch, Desktop: desktop, BotWorking: false, DesktopOffered: true);

@@ -25,6 +25,9 @@ public sealed record ToolCard(
     /// </summary>
     public IReadOnlyList<ToolFact> Facts { get; init; } = [];
 
+    /// <summary>Set for a call that asks a person to take over the bot's screen, which shows as its own card.</summary>
+    public Takeover? Takeover { get; init; }
+
     /// <summary>True while the bot is working on the call.</summary>
     public bool IsLive => Phase is ToolPhase.Starting or ToolPhase.Approved or ToolPhase.Running;
 

@@ -74,7 +74,7 @@
                     <nav class="dv-shell-beside" aria-label="Beside the conversation">
                         <a class="dv-shell-side dv-facet" href="@Addresses.Summary(Shown.Id)"
                            aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
-                        @if (hasScreen || Side is SideView.Screen)
+                        @if (hasScreenLink || Side is SideView.Screen)
                         {
                             <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
                                aria-current="@(Side is SideView.Screen ? "true" : null)">Screen</a>
@@ -83,7 +83,8 @@
                            aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
                     </nav>
                 </header>
-                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
+                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged"
+                                  HeldCallId="HeldCallId" ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" OnTakeoverChanged="MainTakeoverChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
@@ -92,7 +93,7 @@
                 <header class="dv-shell-rail-header">
                     @if (Side is SideView.List or SideView.Summary or SideView.Screen)
                     {
-                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
+                        <a @ref="railClose" class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
                         </a>
                     }
@@ -111,7 +112,7 @@
                 }
                 else if (Side is SideView.Screen)
                 {
-                    <ScreenPanel @key="Shown.Id" Bot="Shown" />
+                    <ScreenPanel @key="Shown.Id" Bot="Shown" Takeover="HeldTakeover" OnHandedBack="HandedBack" />
                 }
                 else if (Side is SideView.List)
                 {
@@ -129,7 +130,8 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
+                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
+                                      ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" />
                 }
             </aside>
         }

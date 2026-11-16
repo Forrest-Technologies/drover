@@ -44,7 +44,26 @@ public sealed partial class Talk(
     // The bot whose sandbox was last asked whether it has a screen, and whether it does and this person may see it.
     private Guid? screenAskedFor;
 
-    private bool hasScreen;
+    private Guid? screenKnownFor;
+
+    private ScreenAccess screenAccess;
+
+    private bool hasScreenLink;
+
+    private string? screenSetupHref;
+
+    private bool focusRailClose;
+
+    private ElementReference railClose;
+
+    // A request for the person at the bot's screen: the one waiting in the main conversation, the one the person took
+    // over (from a side chat too, which the screen replaces), and the one they handed back while its events were on
+    // their way. The screen beside the conversation shows the controls for whichever is held.
+    private Takeover? mainTakeover;
+
+    private Takeover? openedTakeover;
+
+    private Guid? handedBack;
 
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
@@ -103,6 +122,11 @@ public sealed partial class Talk(
         (_, _, SideView.Closed) => "main",
         _ => "side",
     };
+
+    // Only a request the person took over here is held: opening the screen another way does not answer anything.
+    private Takeover? HeldTakeover => openedTakeover is { } held && held.ToolCallId != handedBack ? held : null;
+
+    private Guid? HeldCallId => Side is SideView.Screen ? HeldTakeover?.ToolCallId : null;
 
     private IReadOnlyList<CrewNode> Crew => CrewTree.From(bots!);
 
@@ -284,6 +308,15 @@ public sealed partial class Talk(
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusRailClose)
+        {
+            focusRailClose = false;
+            await railClose.FocusAsync();
+        }
+    }
+
     #endregion
 
     #region Following Signals
@@ -354,6 +387,34 @@ public sealed partial class Talk(
 
     #region Private Methods
 
+    private void ScreenTakenOver(Takeover takeover)
+    {
+        (openedTakeover, handedBack) = (takeover, null);
+
+        if (Shown is { } bot)
+        {
+            navigation.NavigateTo(Addresses.Screen(bot.Id));
+        }
+    }
+
+    private void MainTakeoverChanged(Takeover? takeover)
+    {
+        if (takeover is null && openedTakeover?.ToolCallId == mainTakeover?.ToolCallId)
+        {
+            openedTakeover = null;
+        }
+
+        mainTakeover = takeover;
+    }
+
+    // The controls the person used are gone, so the focus goes to the screen's close control, the one way on.
+    private void HandedBack(Guid toolCallId)
+    {
+        handedBack = toolCallId;
+        openedTakeover = null;
+        focusRailClose = true;
+    }
+
     // The way to the screen is offered only for a bot whose sandbox has one that this person may watch. A person who
     // may not, or a failure to ask, leaves it out; the conversation does not need it.
     private async Task AskForScreen()
@@ -364,16 +425,37 @@ public sealed partial class Talk(
         }
 
         screenAskedFor = bot.Id;
-        hasScreen = false;
+
+        // Asked again for the same bot, the last answer stands until the new one comes.
+        if (screenKnownFor != bot.Id)
+        {
+            screenAccess = ScreenAccess.Unknown;
+        }
 
         try
         {
-            hasScreen = await api.GetBotSandbox(SpaceId, bot.Id) is { Available: true, HasSandbox: true, Desktop: true };
+            // A sandbox that is stopped or not made yet still has a screen: the screen itself offers to start it.
+            var sandbox = await api.GetBotSandbox(SpaceId, bot.Id);
+            screenAccess = sandbox is { Available: true, HasSandbox: true, Desktop: true } ? ScreenAccess.Usable : ScreenAccess.Missing;
+            screenSetupHref = sandbox.Available ? Addresses.Bot(bot.Id) : Addresses.Status;
+        }
+        catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
+        {
+            logger.LogInformation(refused, "This person does not use bot {BotId}'s screen", bot.Id);
+            screenAccess = ScreenAccess.NotPermitted;
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
+            // Not known: a request to take the screen over still offers it, and the screen says what failed.
             logger.LogInformation(exception, "Whether bot {BotId} has a screen is not known on the {Screen} screen", bot.Id, nameof(Talk));
+            screenAccess = screenAccess is ScreenAccess.Unknown ? ScreenAccess.Usable : screenAccess;
+            hasScreenLink = false;
+            screenKnownFor = bot.Id;
+            return;
         }
+
+        hasScreenLink = screenAccess is ScreenAccess.Usable;
+        screenKnownFor = bot.Id;
     }
 
     // A different side chat gets a pane of its own. The one exception is a new side chat whose first message has

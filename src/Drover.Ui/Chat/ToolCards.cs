@@ -25,6 +25,7 @@ public static partial class ToolCards
         ("computer.type", new("Typing", "Typed", "type")),
         ("computer.key", new("Pressing keys", "Pressed keys", "press keys")),
         ("computer.scroll", new("Scrolling", "Scrolled", "scroll")),
+        ("computer.handover", new("Asking for you at the screen", "Asked for you at the screen", "have you take over the screen")),
         ("crew.list", new("Looking over its crew", "Looked over its crew", "look over its crew")),
         ("crew.add", new("Making a bot", "Made a bot", "make a bot")),
         ("crew.change", new("Changing a bot", "Changed a bot", "change a bot")),
@@ -62,6 +63,7 @@ public static partial class ToolCards
             call.Pieces)
         {
             Facts = FactsOf(Canonical(call.ToolName), arguments, call.Details),
+            Takeover = TakeoverOf(call, arguments, resultText),
         };
     }
 
@@ -78,6 +80,40 @@ public static partial class ToolCards
             "allow",
             result is null ? "requested" : result.IsError ? "failed" : "completed",
             result?.IsError ?? false);
+
+    #endregion
+
+    #region Takeover
+
+    /// <summary>
+    /// A request for a person at the screen, while it waits and once the person answered it. Anything else that ended
+    /// it (the run was stopped, a restart cut it off) is told by the plain tool card, which says so in its own words.
+    /// </summary>
+    private static Takeover? TakeoverOf(ToolCallView call, JsonElement arguments, string result)
+    {
+        if (Canonical(call.ToolName) is not "computer.handover")
+        {
+            return null;
+        }
+
+        TakeoverPhase? phase = call.State switch
+        {
+            "requested" or "awaiting_approval" => TakeoverPhase.Asked,
+            "approved" or "running" => TakeoverPhase.Done,
+            "completed" when IsDone(result) => TakeoverPhase.Done,
+            // Only the person's answer denies it; its result arrives after the answer's event, which says so already.
+            "denied" when result.Length == 0 || IsCouldNot(result) => TakeoverPhase.CouldNot,
+            _ => null,
+        };
+        var reason = arguments.ValueKind is JsonValueKind.Object ? Text(arguments, "reason") : string.Empty;
+        return phase is { } known ? new Takeover(call.ToolCallId, reason, known) : null;
+    }
+
+    // The person's "I could not do it" is the call's result, whole or as the start of it; any other refusal is an error.
+    private static bool IsCouldNot(string result) => NotDone().IsMatch(result);
+
+    // "I'm done" lets the call run, and its result says so. A result that does not is a refusal or a failure.
+    private static bool IsDone(string result) => DoneResult().IsMatch(result);
 
     #endregion
 
@@ -245,6 +281,12 @@ public static partial class ToolCards
 
     [GeneratedRegex("\"exit_code\"\\s*:\\s*(-?\\d+)")]
     private static partial Regex ExitCode();
+
+    [GeneratedRegex("^\\s*\\{\\s*\"done\"\\s*:\\s*false\\b")]
+    private static partial Regex NotDone();
+
+    [GeneratedRegex("^\\s*\\{\\s*\"done\"\\s*:\\s*true\\b")]
+    private static partial Regex DoneResult();
 
     #endregion
 
