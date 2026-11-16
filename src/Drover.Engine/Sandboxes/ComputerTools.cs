@@ -118,7 +118,7 @@ public static class ComputerTools
         new(
             "computer.type",
             "Type text",
-            "Types text into the focused window. A new line presses Enter. If a website or app needs a password, ask the person to sign in from Screen using Type a password. Keep the password out of the conversation. Continue when the person says they signed in.",
+            $"Types text into the focused window. A new line presses Enter. If a website or app needs a password, ask the person to sign in at the screen with {HandoverName}, and never type a password yourself or ask for it in the conversation. Continue once they hand the screen back.",
             Schema(
                 $$"""
                 "text": { "type": "string", "minLength": 1, "maxLength": {{DesktopCommands.MaxTypedCharacters}} }

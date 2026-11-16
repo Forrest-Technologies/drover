@@ -288,6 +288,7 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
         var call = (await world.ReadToolCalls(runId)).Single();
         var typed = $"typed-{Guid.NewGuid():N}";
+        var password = $"pw-{Guid.NewGuid():N}";
         var control = host.Services.GetRequiredService<SandboxControlService>();
 
         (await world.WithService<ApprovalService, ToolDecision>(approvals => approvals.TakeOver(call.Id, world.UserId, isSpaceAdmin: true, RunWorld.Token)))
@@ -295,16 +296,21 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
         (await control.Input(world.SpaceId, world.UserId, world.BotId, new SandboxInputRequest("type", Text: typed), RunWorld.Token))
             .Refusal.Should().Be(SandboxControlRefusal.None, "the hold stops the bots, not the person");
+        (await control.Input(world.SpaceId, world.UserId, world.BotId, new SandboxInputRequest("password", Text: password), RunWorld.Token))
+            .Refusal.Should().Be(SandboxControlRefusal.None, "a password the person types is theirs to type while they hold the screen");
         (await HandBack(world, call.Id, done: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
         await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
         provider.Commands.Should().Contain(command => command.Arguments.Contains(typed), "the text reached the screen");
-        (await world.ReadEvents(runId)).Should().OnlyContain(stored => !stored.Data.Contains(typed));
-        (await world.ReadToolCalls(runId)).Should().OnlyContain(row => !row.Arguments.GetRawText().Contains(typed) && !(row.Result ?? default).ToString().Contains(typed));
-        script.Requests.SelectMany(request => request).Should().OnlyContain(seen => !seen.Summary.Contains(typed));
+        List<string> piped = [.. provider.Commands.Select(command => command.StandardInput?.ToArray()).OfType<byte[]>().Select(Encoding.UTF8.GetString)];
+        piped.Should().Contain(input => input.Contains(password), "the password reached the screen");
+        string[] secrets = [typed, password];
+        (await world.ReadEvents(runId)).Should().OnlyContain(stored => secrets.All(secret => !stored.Data.Contains(secret)));
+        (await world.ReadToolCalls(runId)).Should().OnlyContain(row => secrets.All(secret => !row.Arguments.GetRawText().Contains(secret) && !(row.Result ?? default).ToString().Contains(secret)));
+        script.Requests.SelectMany(request => request).Should().OnlyContain(seen => secrets.All(secret => !seen.Summary.Contains(secret)));
         var entries = await world.Read(db => db.AuditLog.AsNoTracking().Where(entry => entry.Action.StartsWith("sandbox.")).OrderBy(entry => entry.Id).ToListAsync(RunWorld.Token));
-        entries.Select(entry => entry.Action).Should().Equal("sandbox.taken_over", "sandbox.input", "sandbox.handed_back");
-        entries.Should().OnlyContain(entry => entry.ActorId == world.UserId && entry.TargetId == world.BotId && !entry.Data.GetRawText().Contains(typed));
+        entries.Select(entry => entry.Action).Should().Equal("sandbox.taken_over", "sandbox.input", "sandbox.input", "sandbox.handed_back");
+        entries.Should().OnlyContain(entry => entry.ActorId == world.UserId && entry.TargetId == world.BotId && secrets.All(secret => !entry.Data.GetRawText().Contains(secret)));
         entries[^1].Data.GetProperty("outcome").GetString().Should().Be("done");
     }
 
