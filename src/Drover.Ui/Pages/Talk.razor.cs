@@ -20,6 +20,10 @@ public sealed partial class Talk(
 
     private const string ScreenRail = "screen";
 
+    private const string FilesRail = "files";
+
+    private const string MomentPrefix = "#message-";
+
     private const string NewSideChat = "new";
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
@@ -48,6 +52,9 @@ public sealed partial class Talk(
 
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
+
+    /// <summary>Changes each time a conversation with the shown bot has moved on, so the files rail reads its list again.</summary>
+    private int conversationVersion;
 
     // Follows the person's signals while the page is open, so what each bot has for them changes without a reload.
     private CancellationTokenSource? listening;
@@ -93,6 +100,7 @@ public sealed partial class Talk(
         (_, not null, _) or (SideRail, _, _) => SideView.List,
         (SummaryRail, _, _) => SideView.Summary,
         (ScreenRail, _, _) => SideView.Screen,
+        (FilesRail, _, _) => SideView.Files,
         _ => SideView.Closed,
     };
 
@@ -103,6 +111,16 @@ public sealed partial class Talk(
         (_, _, SideView.Closed) => "main",
         _ => "side",
     };
+
+    // The message a link to a moment names, from the address's fragment.
+    private Guid? Moment
+    {
+        get
+        {
+            var fragment = new Uri(navigation.Uri).Fragment;
+            return fragment.StartsWith(MomentPrefix, StringComparison.Ordinal) && Guid.TryParse(fragment[MomentPrefix.Length..], out var id) ? id : null;
+        }
+    }
 
     private IReadOnlyList<CrewNode> Crew => CrewTree.From(bots!);
 
@@ -156,6 +174,7 @@ public sealed partial class Talk(
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
+        SideView.Files => "Files",
         _ => "Side chats",
     };
 
@@ -163,6 +182,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
+        SideView.Files => $"Files exchanged with {Shown!.Name}",
         _ => $"Side chats with {Shown!.Name}",
     };
 
@@ -170,6 +190,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => "Close the summary",
         SideView.Screen => "Close the screen",
+        SideView.Files => "Close the files",
         _ => "Close side chats",
     };
 
@@ -410,6 +431,7 @@ public sealed partial class Talk(
         if (!busy)
         {
             summaryVersion++;
+            conversationVersion++;
             await RefreshCrew();
         }
 
@@ -418,7 +440,16 @@ public sealed partial class Talk(
         await AskForScreen();
     }
 
-    private Task SideBusyChanged(bool busy) => busy ? Task.CompletedTask : RefreshCrew();
+    private Task SideBusyChanged(bool busy)
+    {
+        if (busy)
+        {
+            return Task.CompletedTask;
+        }
+
+        conversationVersion++;
+        return RefreshCrew();
+    }
 
     // A bot may have made, changed, or removed bots while it worked. The crew is read again when it stops; if that
     // fails the crew on screen stays as it was, and the next time shows it.
