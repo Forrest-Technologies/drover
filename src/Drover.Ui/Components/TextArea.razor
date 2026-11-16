@@ -1,6 +1,6 @@
 <div class="dv-textarea">
     <label class="dv-textarea-label" for="@id">@Label</label>
-    <textarea class="dv-textarea-input dv-facet @(Machine ? "dv-textarea-machine" : null)" id="@id" rows="@Rows" value="@Value"
+    <textarea @ref="input" class="dv-textarea-input dv-facet @(Machine ? "dv-textarea-machine" : null)" id="@id" rows="@Rows" value="@Value"
               placeholder="@Placeholder" disabled="@Disabled" aria-describedby="@(Hint is null ? null : hintId)"
               @oninput="Changed" @attributes="Attributes"></textarea>
     @if (Hint is not null)
@@ -10,6 +10,8 @@
 </div>
 
 @code {
+    private ElementReference input;
+
     private readonly string id = $"dv-textarea-{Guid.NewGuid():N}";
 
     private string hintId => $"{id}-hint";
@@ -43,6 +45,9 @@
 
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    /// <summary>Moves the focus into the field, for when it takes the place of the control a person just used.</summary>
+    public ValueTask Focus() => input.FocusAsync();
 
     private Task Changed(ChangeEventArgs change) => ValueChanged.InvokeAsync(change.Value?.ToString() ?? string.Empty);
 }

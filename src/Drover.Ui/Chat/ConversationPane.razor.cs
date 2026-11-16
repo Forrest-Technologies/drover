@@ -8,11 +8,15 @@ namespace Drover.Ui.Chat;
 public sealed partial class ConversationPane(
     DroverApi api,
     SessionState session,
+    ToastService toasts,
     ILogger<ConversationPane> logger) : IDisposable
 {
     #region Private Fields
 
     private readonly AttachmentDraft draft = new();
+
+    // The notes forgotten from this conversation's cards, so each card says so, and says so no longer once undone.
+    private readonly HashSet<Guid> forgottenNotes = [];
 
     private IReadOnlyList<MessageResponse> stored = [];
 
@@ -364,6 +368,61 @@ public sealed partial class ConversationPane(
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             return $"Your answer was not sent. {Failures.Sentence(exception)}";
+        }
+    }
+
+    // "Forget" on a note the bot saved in this conversation removes the note while it still says what the card shows;
+    // the card then says so, and a toast offers Undo as the memory panel does.
+    private async Task<ForgetOutcome> Forget(Guid noteId, string text)
+    {
+        try
+        {
+            var receipt = await api.ForgetMemoryNote(SpaceId, Bot.Id, noteId, text);
+            Forgotten(noteId, true);
+            toasts.Show(
+                MemoryWords.Removed(text),
+                ToastKind.Info,
+                new ToastAction("Undo", () => Restore(noteId, receipt.Undo), MemoryWords.UndoRemoving(text), receipt.UndoUntil));
+            return new(true);
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
+        {
+            // Removed already, in the panel or by the bot: what the person asked for is so, and the card says it.
+            logger.LogInformation(exception, "Note {NoteId} was gone before it was forgotten", noteId);
+            Forgotten(noteId, true);
+            return new(true);
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.Conflict)
+        {
+            logger.LogInformation(exception, "Note {NoteId} changed after its card was drawn", noteId);
+            return new(false, Changed: true);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception)}");
+        }
+    }
+
+    private async Task Restore(Guid noteId, string undo)
+    {
+        try
+        {
+            await api.RestoreMemoryNote(SpaceId, Bot.Id, undo);
+            await InvokeAsync(() => Forgotten(noteId, false));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception), ToastKind.Error);
+        }
+    }
+
+    private void Forgotten(Guid noteId, bool forgotten)
+    {
+        if (forgotten ? forgottenNotes.Add(noteId) : forgottenNotes.Remove(noteId))
+        {
+            StateHasChanged();
         }
     }
 

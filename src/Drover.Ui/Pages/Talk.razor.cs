@@ -22,6 +22,8 @@ public sealed partial class Talk(
 
     private const string FilesRail = "files";
 
+    private const string MemorySide = "memory";
+
     private const string MomentPrefix = "#message-";
 
     private const string NewSideChat = "new";
@@ -72,7 +74,10 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? BotId { get; set; }
 
-    /// <summary>What is open beside the main conversation: "summary" for its summary, "screen" for the bot's screen, "side" for its side chats.</summary>
+    /// <summary>
+    /// What is open beside the main conversation: "summary" for its summary, "memory" for what the bot remembers about
+    /// the person, "screen" for the bot's screen, "files" for the files exchanged with it, "side" for its side chats.
+    /// </summary>
     [Parameter]
     public string? Rail { get; set; }
 
@@ -115,6 +120,7 @@ public sealed partial class Talk(
         (SummaryRail, _, _) => SideView.Summary,
         (ScreenRail, _, _) => SideView.Screen,
         (FilesRail, _, _) => SideView.Files,
+        (MemorySide, _, _) => SideView.Memory,
         _ => SideView.Closed,
     };
 
@@ -205,6 +211,7 @@ public sealed partial class Talk(
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
         SideView.Files => "Files",
+        SideView.Memory => "Memory",
         _ => "Side chats",
     };
 
@@ -214,6 +221,7 @@ public sealed partial class Talk(
         SideView.Screen => $"{Shown!.Name}'s screen",
         SideView.Work => $"{WorkName}'s side of work handed to it",
         SideView.Files => $"Files exchanged with {Shown!.Name}",
+        SideView.Memory => $"What {Shown!.Name} remembers about you",
         _ => $"Side chats with {Shown!.Name}",
     };
 
@@ -223,6 +231,7 @@ public sealed partial class Talk(
         SideView.Screen => "Close the screen",
         SideView.Work => $"Close {WorkName}'s side",
         SideView.Files => "Close the files",
+        SideView.Memory => "Close memory",
         _ => "Close side chats",
     };
 

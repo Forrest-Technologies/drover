@@ -1,8 +1,10 @@
-<button type="@Type" class="dv-button dv-facet dv-button-@Kind.ToString().ToLowerInvariant()" disabled="@Disabled" @onclick="OnClick" @attributes="Attributes">
+<button @ref="element" type="@Type" class="dv-button dv-facet dv-button-@Kind.ToString().ToLowerInvariant()" disabled="@Disabled" @onclick="OnClick" @attributes="Attributes">
     @ChildContent
 </button>
 
 @code {
+    private ElementReference element;
+
     [Parameter, EditorRequired]
     public RenderFragment? ChildContent { get; set; }
 
@@ -20,4 +22,7 @@
 
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? Attributes { get; set; }
+
+    /// <summary>Moves the focus here, for when this button takes the place of the control a person just used.</summary>
+    public ValueTask Focus() => element.FocusAsync();
 }

@@ -75,6 +75,8 @@
                     <nav class="dv-shell-beside" aria-label="Beside the conversation">
                         <a class="dv-shell-side dv-facet" href="@Addresses.Summary(Shown.Id)"
                            aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
+                        <a class="dv-shell-side dv-facet" href="@Addresses.Memory(Shown.Id)"
+                           aria-current="@(Side is SideView.Memory ? "true" : null)">Memory</a>
                         @if (hasScreen || Side is SideView.Screen)
                         {
                             <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
@@ -95,7 +97,7 @@
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List or SideView.Summary or SideView.Screen or SideView.Files or SideView.Work)
+                    @if (Side is SideView.List or SideView.Summary or SideView.Memory or SideView.Screen or SideView.Files or SideView.Work)
                     {
                         <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
@@ -117,6 +119,10 @@
                 else if (Side is SideView.Screen)
                 {
                     <ScreenPanel @key="Shown.Id" Bot="Shown" />
+                }
+                else if (Side is SideView.Memory)
+                {
+                    <MemoryRail @key="Shown.Id" Bot="Shown" Version="conversationVersion" />
                 }
                 else if (Side is SideView.Work)
                 {
