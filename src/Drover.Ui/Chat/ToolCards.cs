@@ -50,11 +50,15 @@ public static partial class ToolCards
         var phase = PhaseOf(call);
         var words = WordsFor(call);
         var arguments = JsonElement.Parse(call.Arguments);
-        var summary = Summarize(Canonical(call.ToolName), arguments);
+        var toolName = Canonical(call.ToolName);
+        var summary = Summarize(toolName, arguments);
 
         // A stored result is JSON. The preview in the call's events is the start of it, which may be cut off.
         var resultText = result?.Result is { Length: > 0 } stored ? Pretty(JsonElement.Parse(stored)) : call.Preview;
 
+        var command = toolName == "sandbox.run" && ParsedOrNull(resultText) is { ValueKind: JsonValueKind.Object } parsed
+            ? parsed
+            : (JsonElement?)null;
         var card = new ToolCard(
             call.ToolCallId,
             phase,
@@ -65,12 +69,14 @@ public static partial class ToolCards
             CoversAll(arguments, summary),
             resultText.Length == 0 ? null : resultText,
             ExitCodeIn(resultText),
-            call.Pieces)
+            call.Pieces.Count == 0 && command is { } returned ? CommandOutput(returned) : call.Pieces)
         {
-            Facts = FactsOf(Canonical(call.ToolName), arguments, call.Details),
+            CommandError = command is { } finished && finished.TryGetProperty("error", out var error)
+                && error.ValueKind is JsonValueKind.String ? error.GetString() : null,
+            Facts = FactsOf(toolName, arguments, call.Details),
         };
 
-        return phase is ToolPhase.Done ? card.AsNote(Canonical(call.ToolName), arguments, resultText) : card;
+        return phase is ToolPhase.Done ? card.AsNote(toolName, arguments, resultText) : card;
     }
 
     /// <summary>
@@ -296,6 +302,22 @@ public static partial class ToolCards
     private static string OneLine(string text) => WhiteSpace().Replace(text, " ").Trim();
 
     private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, indented);
+
+    private static ImmutableList<ToolOutputPiece> CommandOutput(JsonElement result)
+    {
+        var pieces = ImmutableList.CreateBuilder<ToolOutputPiece>();
+
+        foreach (var stream in new[] { "stdout", "stderr" })
+        {
+            if (result.TryGetProperty(stream, out var value)
+                && value.ValueKind is JsonValueKind.String && value.GetString() is { Length: > 0 } text)
+            {
+                pieces.Add(new ToolOutputPiece(stream, text));
+            }
+        }
+
+        return pieces.ToImmutable();
+    }
 
     private static int? ExitCodeIn(string result) =>
         ExitCode().Match(result) is { Success: true } found

@@ -59,7 +59,7 @@ public static class SandboxTools
                 """
                 "command": { "type": "string", "description": "The bash command line to run." },
                 "cwd": { "type": "string", "description": "The folder to run it in. Leave it out for the home folder." },
-                "timeout_seconds": { "type": "integer", "minimum": 1, "description": "Stop the command after this many seconds. The server has its own limit." },
+                "timeout_seconds": { "type": "integer", "minimum": 1, "description": "Stop the command after this many seconds. Defaults to 60 seconds, subject to the server limit." },
                 """,
                 "command"),
             ToolSensitivity.Write,

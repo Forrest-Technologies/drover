@@ -147,6 +147,45 @@ public sealed class VeniceRequestTests
         body.GetProperty("response_format").GetProperty("json_schema").GetProperty("name").GetString().Should().Be("answer");
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Json_reply_preference_does_not_force_json_when_tools_can_run(bool offerTools, bool streaming)
+    {
+        var rig = VeniceRig.Start(streaming ? ConformanceScenarios.Streaming : ConformanceScenarios.PlainReply);
+        using var client = rig.Subject.Provider.CreateChatClient(
+            rig.Subject.Connection,
+            rig.Subject.ApiKey,
+            rig.Subject.ModelId,
+            new ModelSettings { StructuredOutput = true });
+        var options = new ChatOptions
+        {
+            Tools = offerTools ? [AIFunctionFactory.Create(() => "Sunny", "get_weather")] : [],
+        };
+
+        if (streaming)
+        {
+            await client.StreamToEnd("Say hello.", options);
+        }
+        else
+        {
+            await client.Ask("Say hello.", options);
+        }
+
+        var body = rig.Handler.Requests.Single(IsChat).Json;
+        if (offerTools)
+        {
+            body.GetProperty("tools").GetArrayLength().Should().Be(1);
+            body.TryGetProperty("response_format", out _).Should().BeFalse();
+        }
+        else
+        {
+            body.GetProperty("response_format").GetProperty("type").GetString().Should().Be("json_object");
+        }
+    }
+
     #endregion
 
     #region Keys

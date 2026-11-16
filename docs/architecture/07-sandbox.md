@@ -120,7 +120,7 @@ For each sandbox tool call it:
 
 The access token goes from the vault into the handle and nowhere else. Output is scrubbed of it before any event or result, including a token split across two pieces of output (the tail that could start one is held back until more arrives); the run's own redactor applies on top. It is never logged, put in an exception, a tool argument, or a run event. A provider failure reaches the model as Drover's own sentence, never the provider's text.
 
-Limits come from the deployment policy and only narrow ([16-deployment-policies.md](16-deployment-policies.md)): a command runs at most `MaxSandboxCommandSeconds` whatever the bot asks; a file read or written is at most `MaxSandboxFileBytes`; the idle time is the bot's setting, or 15 minutes, never above `MaxSandboxIdleMinutes`; and a bot set to open network is refused where `AllowOpenSandboxNetwork` is off. `BotService` refuses to save an idle time or a network setting past them.
+Limits come from the deployment policy and only narrow ([16-deployment-policies.md](16-deployment-policies.md)): a command defaults to 60 seconds and runs at most `MaxSandboxCommandSeconds` whatever the bot asks; a file read or written is at most `MaxSandboxFileBytes`; the idle time is the bot's setting, or 15 minutes, never above `MaxSandboxIdleMinutes`; and a bot set to open network is refused where `AllowOpenSandboxNetwork` is off. `BotService` refuses to save an idle time or a network setting past them.
 
 ### Operator key
 

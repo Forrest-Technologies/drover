@@ -777,6 +777,23 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task An_optional_tool_that_is_off_does_not_hide_existing_sandbox_grants()
+    {
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
+        var sandboxTools = SandboxToolEntries("allow", "allow", null);
+        Server.Answer("GET", $"{bot}/tools", sandboxTools.Select(tool =>
+            tool.Name == "sandbox.share_file" ? tool with { Grant = "off" } : tool).ToArray());
+
+        var page = RenderEditor();
+        Words(page.FindAll(".dv-disclosure-toggle")[5].TextContent).Should().Be("Sandbox, Private · network off · some tools allowed");
+        await Open(page, 5);
+
+        var group = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']");
+        group.TextContent.Should().Contain("Some sandbox tools are allowed.");
+        group.QuerySelector("button")!.TextContent.Trim().Should().Be("Allow remaining sandbox tools");
+    }
+
+    [Fact]
     public async Task A_parent_that_keeps_the_tools_off_is_named_and_nothing_is_offered()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });

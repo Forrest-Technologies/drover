@@ -25,6 +25,8 @@ public sealed record ToolCard(
     /// </summary>
     public IReadOnlyList<ToolFact> Facts { get; init; } = [];
 
+    public string? CommandError { get; init; }
+
     /// <summary>The note a finished save kept, which the card offers to forget. Null on any other card.</summary>
     public Guid? NoteId { get; init; }
 
