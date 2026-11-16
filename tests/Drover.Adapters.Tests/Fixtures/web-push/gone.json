@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from RFC 8030 section 7.3: a subscription that has expired answers 410 Gone. No real push service produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 410,
+      "body": { "code": 410, "errno": 106, "error": "Gone", "message": "Request did not validate push subscription has expired" }
+    }
+  ]
+}

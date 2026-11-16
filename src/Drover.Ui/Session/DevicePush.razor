@@ -1,0 +1,153 @@
+@inject IPushRegistration Registration
+@inject DroverApi Api
+@inject SessionState Session
+@inject ILogger<DevicePush> Logger
+
+@if (state is { } known)
+{
+    <PushControl State="known" Working="working" Problem="@problem" OnToggle="Toggle" TitleHidden="TitleHidden" />
+    @if (known is PushState.ServerNotReady && Session.Space?.Role is "owner" or "admin")
+    {
+        <p class="dv-device-push-next"><a href="@Addresses.Status">Open the status page</a> to see what the server needs.</p>
+    }
+}
+else if (problem is not null)
+{
+    <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+    <div class="dv-device-push-next">
+        <Button Kind="ButtonKind.Quiet" Disabled="working" OnClick="Check">Check again</Button>
+    </div>
+}
+else
+{
+    <p class="dv-device-push-next" role="status">Checking this device.</p>
+}
+
+@code {
+    #region Private Fields
+
+    private PushState? state;
+
+    private string? publicKey;
+
+    private bool working;
+
+    private string? problem;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>True where a heading around the control already names it.</summary>
+    [Parameter]
+    public bool TitleHidden { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override Task OnInitializedAsync() => Check();
+
+    private async Task Check()
+    {
+        working = true;
+        problem = null;
+
+        try
+        {
+            state = await ReadState();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePush));
+            problem = $"Could not check notifications on this device. {Failures.Sentence(exception)}";
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "The browser could not say whether notifications are allowed");
+            problem = "The browser did not say whether notifications are allowed here. Check again in a moment.";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task<PushState> ReadState()
+    {
+        var device = await Registration.Check();
+
+        if (device.Support is not DevicePushSupport.Available)
+        {
+            return device.Support switch
+            {
+                DevicePushSupport.Blocked => PushState.Blocked,
+                DevicePushSupport.NeedsHomeScreen => PushState.NeedsHomeScreen,
+                _ => PushState.NotSupported,
+            };
+        }
+
+        publicKey = (await Api.GetPushKey()).PublicKey;
+
+        if (publicKey is null)
+        {
+            return PushState.ServerNotReady;
+        }
+
+        return device.Endpoint is { } endpoint && (await Api.GetPushDeviceState(endpoint)).On ? PushState.On : PushState.Off;
+    }
+
+    private async Task Toggle()
+    {
+        working = true;
+        problem = null;
+
+        try
+        {
+            state = state is PushState.On ? await TurnOff() : await TurnOn();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePush));
+            problem = $"Notifications did not change. {Failures.Sentence(exception)}";
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "The browser refused a notification change");
+            problem = "The browser did not finish the change. Try again, or check notifications in the browser's settings for this site.";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
+    private async Task<PushState> TurnOn()
+    {
+        if (await Registration.Subscribe(publicKey!) is { } device)
+        {
+            await Api.TurnOnPush(device);
+            return PushState.On;
+        }
+
+        if ((await Registration.Check()).Support is DevicePushSupport.Blocked)
+        {
+            return PushState.Blocked;
+        }
+
+        problem = "The browser did not give permission. Choose the button again and allow notifications when the browser asks.";
+        return PushState.Off;
+    }
+
+    private async Task<PushState> TurnOff()
+    {
+        if (await Registration.Unsubscribe() is { } ended)
+        {
+            await Api.TurnOffPush(ended);
+        }
+
+        return PushState.Off;
+    }
+
+    #endregion
+}

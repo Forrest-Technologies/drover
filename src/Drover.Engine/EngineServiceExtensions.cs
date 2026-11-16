@@ -48,6 +48,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<RunSignal>();
         services.AddSingleton<RunEventHub>();
         services.AddSingleton<UserSignalHub>();
+        services.AddSingleton<PushNotifier>();
         services.AddSingleton<RunEventFeed>();
         services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
@@ -62,6 +63,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ScheduleService>();
         services.AddScoped<RuleService>();
         services.AddScoped<ThreadService>();
+        services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
         services.AddScoped<ApprovalService>();

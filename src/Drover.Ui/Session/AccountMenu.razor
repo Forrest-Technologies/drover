@@ -4,7 +4,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<AccountMenu> Logger
 
-<Menu Label="@(Session.Current?.DisplayName ?? "Account")">
+<Menu @ref="menu" Label="@(Session.Current?.DisplayName ?? "Account")">
     @foreach (var (choice, name) in themes)
     {
         <MenuItem OnSelect="() => Theme.Choose(choice)">
@@ -16,12 +16,16 @@
             }
         </MenuItem>
     }
+    <MenuItem OnSelect="() => notificationsOpen = true">Notifications</MenuItem>
     @if (Session.Space?.Role is "owner" or "admin")
     {
         <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Status)">Status</MenuItem>
     }
     <MenuItem OnSelect="SignOut">Sign out</MenuItem>
 </Menu>
+<Dialog Title="Notifications on this device" Open="notificationsOpen" OpenChanged="NotificationsOpenChanged">
+    <DevicePush TitleHidden="true" />
+</Dialog>
 
 @code {
     #region Private Fields
@@ -33,6 +37,10 @@
         (ThemeChoice.System, "Match this device"),
     ];
 
+    private bool notificationsOpen;
+
+    private Menu? menu;
+
     #endregion
 
     #region Private Methods
@@ -43,6 +51,17 @@
         {
             await Theme.Load();
             StateHasChanged();
+        }
+    }
+
+    /// <summary>The item that opened the dialog is in a closed menu, so focus goes back to the menu's own button.</summary>
+    private async Task NotificationsOpenChanged(bool open)
+    {
+        notificationsOpen = open;
+
+        if (!open && menu is not null)
+        {
+            await menu.ReturnFocusToTrigger();
         }
     }
 

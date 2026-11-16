@@ -163,7 +163,23 @@ public enum PushOutcome
 | iOS native app | Apple relay | Paid Apple developer account | 2, last |
 | Android store build | Google's push service | Google account | Later |
 
-**One adapter covers every target that needs no publisher account.** UnifiedPush's server side is plain Web Push: an encrypted POST to the subscription's endpoint (verified against the current UnifiedPush specification). Some distributors require VAPID, so the adapter always signs. The library is `Lib.Net.Http.WebPush` (MIT). VAPID keys are generated at first start and stored in the vault.
+**One adapter covers every target that needs no publisher account.** UnifiedPush's server side is plain Web Push: an encrypted POST to the subscription's endpoint (verified against the current UnifiedPush specification). Some distributors require VAPID, so the adapter always signs. The library is `Lib.Net.Http.WebPush` (MIT), referenced only by `Drover.Adapters.WebPush`.
+
+The VAPID key pair belongs to the whole server, not to a space: a browser holds one subscription per site, made with the server's public key, whatever space its person works in. So it is not a space secret in the vault, whose ciphertext is bound to one space. It is generated at first start, encrypted with the key ring's Data Protection keys, and kept beside the key ring as `web-push-keys` (readable by its owner only), so the backup that holds the key ring holds it too and a database dump alone never reveals it. An existing file is never replaced, because a new pair would cut off every device subscribed with the old one. A new pair is written to a file of its own and moved into place only if none is there, so servers that start at once all read the one that won. A file the current key ring cannot read turns push off, logs an error, and puts the fix on the status page (restore the key ring it was made with, or delete the file and have every device turn notifications on again); the server never makes a new pair on its own. The private key is never logged or returned; `GET /api/push/key` serves the public half. VAPID needs a contact for the push service, and Drover's is its public https address (`DROVER_PUBLIC_URL`): without one, push is off, and the status page and the notifications control say so.
+
+### How Drover decides to push
+
+| Rule | Where |
+| --- | --- |
+| A root run that completes, fails, or waits on its person wakes that person's devices. A cancelled run wakes nobody. A child run's need surfaces on its root, so the wake-up names the root's thread. | `PushNotifier`, called where the run's status change was written, so one end is one push |
+| No push while the person has a live stream of that space open on any screen | `UserSignalHub.IsWatched` |
+| A person can stop one bot from notifying them, from the conversation's menu. The choice is theirs alone (`bot_push_mutes`, audience = the person). | `PushService.SetNotifies` |
+| Devices are read in one short tenant transaction as the run's person; the push services are asked with no transaction open; devices reported gone are deleted in another | `PushNotifier.Deliver` |
+| `RetryLater` is tried again for those devices only, after 30 seconds, 2 minutes, and 10 minutes, then dropped | `Runs:PushRetryDelays` |
+| A person keeps at most 10 devices; a new one replaces the oldest. Each wake-up is a request to an address a device handed in, so the number is bounded. | `PushService.MaxDevicesPerPerson` |
+| Push requests use the checked outbound client and never follow a redirect. They never say they may reach a private address, so one is refused in every deployment. | `PushServiceExtensions` |
+
+The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>"}`. The service worker (`push-worker.js`, loaded by both workers) asks `GET /api/push/wake?kind=&thread=` with the person's own cookie, which looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. A thread the person cannot see, or a request without a sign-in, gets nothing, and the worker shows only "Something changed. Open Drover to see it." Tapping a notification takes an open Drover window to that conversation, or opens one.
 
 ### Android client
 
@@ -216,4 +232,4 @@ On the Drover server it is one more `IPushChannel` that posts to the relay. A se
 
 ### Client registration
 
-`IPushRegistration` in `Drover.Ui` has a web implementation (service worker and the Push API) and MAUI implementations per platform. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain.
+`IPushRegistration` in `Drover.Ui` has a web implementation (`BrowserPushRegistration` and `push.js` in `Drover.Web`: the service worker and the Push API) and MAUI implementations per platform. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain. The control is "Notifications" in the account menu. On an iPhone or iPad outside the Home Screen web app, it says the web app must be added to the Home Screen first.

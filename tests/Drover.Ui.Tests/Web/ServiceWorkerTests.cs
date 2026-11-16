@@ -4,7 +4,8 @@ namespace Drover.Ui.Tests.Web;
 /// The published service worker in a real Chromium, served by a small server in this test that sends the worker the
 /// same content security policy Drover's server does. Requests to another host, the server's API and sign-in
 /// callbacks, and anything that is not a GET go to the network without the worker; a request it cannot answer leaves
-/// no unhandled rejection; a page load the server cannot answer gets the stored shell. The browser is
+/// no unhandled rejection; a page load the server cannot answer gets the stored shell. A push wakes the worker, which
+/// asks this server with the person's own cookie what to show, and tapping it opens that conversation. The browser is
 /// DROVER_TEST_CHROMIUM, or the first Chromium or Chrome at a usual path.
 /// </summary>
 public sealed class ServiceWorkerTests : IAsyncLifetime
@@ -18,6 +19,17 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     private const string RejectionRecorder =
         "self.rejections = []; self.addEventListener('unhandledrejection', e => self.rejections.push(String(e.reason))); "
         + "self.addEventListener('message', e => e.source.postMessage(self.rejections));\n";
+
+    /// <summary>Put before the worker: a page asks it to open a conversation, as tapping a notification does.</summary>
+    private const string OpenRecorder =
+        "self.addEventListener('message', e => { if (e.data && e.data.open) { openConversation({ url: e.data.open }); } });\n";
+
+    /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
+    private const string SignInCookie = "drover-test-session=signed-in";
+
+    private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1");
+
+    private static readonly Guid threadId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
 
     /// <summary>The shell the worker stores at install, as Drover's index.html is, and serves when a page cannot load.</summary>
     private const string Shell = "<!DOCTYPE html><title>Worker test shell</title><script src=\"/register.js\"></script>";
@@ -35,6 +47,10 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     private IBrowser? browser;
 
     private IPage page = null!;
+
+    private ICDPSession devTools = null!;
+
+    private readonly List<string> wakeQueries = [];
 
     #endregion
 
@@ -86,6 +102,46 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         (await page.TitleAsync()).Should().Be("Worker test shell");
     }
 
+    [Fact]
+    public async Task A_push_shows_what_the_server_says_asked_for_with_the_persons_own_sign_in()
+    {
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+
+        var shown = await WaitForNotifications();
+
+        shown.Should().Equal($"Drover|Sample bot finished.|/talk/{botId}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}");
+    }
+
+    [Fact]
+    public async Task A_push_the_server_does_not_explain_still_shows_without_any_of_the_conversation()
+    {
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{Guid.Empty}}"}""");
+
+        var shown = await WaitForNotifications();
+
+        shown.Should().Equal("Drover|Something changed. Open Drover to see it.|/");
+    }
+
+    [Fact]
+    public async Task Tapping_a_notification_takes_the_open_window_to_that_conversation()
+    {
+        await page.EvaluateAsync(
+            "() => new Promise(done => { navigator.serviceWorker.addEventListener('message', done, { once: true }); navigator.serviceWorker.controller.postMessage('ready?'); })");
+
+        await page.EvaluateAsync("url => navigator.serviceWorker.controller.postMessage({ open: url })", $"/talk/{botId}");
+
+        // The worker moves the window itself, so the page sees no navigation of its own to wait for: watch the address.
+        var started = TimeProvider.System.GetTimestamp();
+
+        while (page.Url != $"{Origin}/talk/{botId}" && TimeProvider.System.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), Xunit.TestContext.Current.CancellationToken);
+        }
+
+        page.Url.Should().Be($"{Origin}/talk/{botId}");
+    }
+
     #endregion
 
     #region Interface Implementations
@@ -104,12 +160,25 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
                 http.Response.Headers.ContentSecurityPolicy = http.Request.Path == "/" ? $"{WorkerPolicy} {Other}" : WorkerPolicy;
                 await next();
             });
-            app.MapGet("/", () => Results.Content(Shell, "text/html"));
+            app.MapGet("/", (HttpContext http) =>
+            {
+                http.Response.Headers.SetCookie = $"{SignInCookie}; Path=/; SameSite=Strict";
+                return Results.Content(Shell, "text/html");
+            });
             app.MapGet("/index.html", () => Results.Content(Shell, "text/html"));
+            app.MapGet("/talk/{bot}", () => Results.Content(Shell, "text/html"));
             app.MapGet("/register.js", () => Results.Content("navigator.serviceWorker.register('/service-worker.js');", "text/javascript"));
             app.MapGet("/service-worker.js", async () => Results.Content(
-                $"{RejectionRecorder}{await File.ReadAllTextAsync(Path.Combine(RepositoryFiles.Root, "src", "Drover.Web", "wwwroot", "service-worker.published.js"))}",
+                $"{RejectionRecorder}{OpenRecorder}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
                 "text/javascript"));
+            app.MapGet("/push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
+            app.MapGet("/api/push/wake", (HttpContext http) =>
+            {
+                wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}");
+                return http.Request.Query["thread"] == threadId.ToString() && http.Request.Headers.Cookie == SignInCookie
+                    ? Results.Json(new { body = "Sample bot finished.", botId, threadId, isMain = true })
+                    : Results.NotFound();
+            });
             app.MapGet("/service-worker-assets.js", () => Results.Content(AssetsManifest(), "text/javascript"));
             app.MapMethods("/api/data", ["GET", "POST"], () => Results.Json(new { from = "api" }));
             app.MapGet("/oauth/client.json", () => Results.Json(new { from = "oauth" }));
@@ -119,10 +188,12 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
 
         playwright = await Playwright.CreateAsync();
         browser = await playwright.Chromium.LaunchAsync(new() { ExecutablePath = BrowserPath() });
-        page = await browser.NewPageAsync();
+        var context = await browser.NewContextAsync(new() { Permissions = ["notifications"] });
+        page = await context.NewPageAsync();
         page.Response += (_, response) => responses.Add(response);
         await page.GotoAsync($"{Origin}/");
         await page.WaitForFunctionAsync("() => navigator.serviceWorker.controller !== null");
+        devTools = await context.NewCDPSessionAsync(page);
     }
 
     // Each part is let go if it was made, so a start that failed half way leaves no server running.
@@ -154,6 +225,48 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         await page.EvaluateAsync<string>(
             "async ([url, method]) => { try { return String((await fetch(url, { method })).status); } catch (e) { return 'failed: ' + e; } }",
             new[] { url, method });
+
+    private static string WebFile(string name) => Path.Combine(RepositoryFiles.Root, "src", "Drover.Web", "wwwroot", name);
+
+    /// <summary>A real push, as a push service delivers it, through the browser's developer protocol.</summary>
+    private async Task DeliverPush(string payload)
+    {
+        var registered = new TaskCompletionSource<string>();
+        devTools.Event("ServiceWorker.workerRegistrationUpdated").OnEvent += (_, update) =>
+        {
+            if (update?.GetProperty("registrations").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Object } registration)
+            {
+                registered.TrySetResult(registration.GetProperty("registrationId").GetString()!);
+            }
+        };
+        await devTools.SendAsync("ServiceWorker.enable");
+        var registrationId = await registered.Task.WaitAsync(TimeSpan.FromSeconds(10), Xunit.TestContext.Current.CancellationToken);
+        await devTools.SendAsync("ServiceWorker.deliverPushMessage", new()
+        {
+            ["origin"] = Origin,
+            ["registrationId"] = registrationId,
+            ["data"] = payload,
+        });
+    }
+
+    /// <summary>The notifications the worker shows, as title, body, and the address a tap opens.</summary>
+    private async Task<string[]> WaitForNotifications()
+    {
+        var started = TimeProvider.System.GetTimestamp();
+
+        while (true)
+        {
+            var shown = await page.EvaluateAsync<string[]>(
+                "async () => (await (await navigator.serviceWorker.ready).getNotifications()).map(n => `${n.title}|${n.body}|${n.data.url}`)");
+
+            if (shown.Length > 0 || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(10))
+            {
+                return shown;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), Xunit.TestContext.Current.CancellationToken);
+        }
+    }
 
     /// <summary>The list the worker stores at install: the shell alone, with its hash, as the build writes it.</summary>
     private static string AssetsManifest() =>

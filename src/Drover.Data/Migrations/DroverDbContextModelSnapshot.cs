@@ -938,6 +938,72 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Push.BotPushMute", b =>
+                {
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<DateTimeOffset>("MutedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("muted_at");
+
+                    b.HasKey("SpaceId", "BotId", "AudienceUserId")
+                        .HasName("pk_bot_push_mutes");
+
+                    b.ToTable("bot_push_mutes", (string)null);
+                });
+
+            modelBuilder.Entity("Drover.Domain.Push.PushSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthSecret")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("auth_secret");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("endpoint");
+
+                    b.Property<string>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("public_key");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_push_subscriptions");
+
+                    b.HasIndex("UserId", "Endpoint")
+                        .IsUnique()
+                        .HasDatabaseName("ix_push_subscriptions_user_id_endpoint");
+
+                    b.ToTable("push_subscriptions", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Rules.BotRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2388,6 +2454,27 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tool_grants_tools_space_id_tool_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Push.BotPushMute", b =>
+                {
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_bot_push_mutes_bots_space_id_bot_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Push.PushSubscription", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_push_subscriptions_users_user_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Rules.BotRule", b =>

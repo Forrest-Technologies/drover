@@ -41,7 +41,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 
 | Issue | Files | Covers |
 | --- | --- | --- |
-| #149 | `PushWords.cs`, `PushControl.razor` | Notifications on this device: every state and its one action |
 | #150 | `TakeoverPhase.cs`, `TakeoverCard.razor` | The bot's request for a person at its screen: asked, holding, answered |
 | #152 | `HistoryWords.cs`, `HistoryList.razor`, `LineDiff.cs`, `DiffView.razor` | A bot's changes as sentences, values before and after, a line-by-line comparison |
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |

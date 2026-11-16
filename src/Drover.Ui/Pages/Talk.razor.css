@@ -183,7 +183,7 @@
   padding: var(--dv-space-2);
 }
 
-/* On a phone the bot's name keeps the header's first row, and the ways beside the conversation take a second. */
+/* On a phone the bot's name and its menu keep the header's first row, and the ways beside the conversation take a second. */
 @media (max-width: 559px) {
   .dv-shell-main-header {
     flex-wrap: wrap;
