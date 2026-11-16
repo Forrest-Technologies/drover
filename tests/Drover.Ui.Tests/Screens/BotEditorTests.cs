@@ -564,6 +564,28 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task A_refused_run_of_another_persons_routine_puts_focus_back_on_run_once_now_beside_the_reason()
+    {
+        const string Refusal = "Marshal is paused, so its routines do not run. Resume it first.";
+        const string Focus = "Blazor._internal.domWrapper.focus";
+        var theirs = Routine(enabled: true) with { OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1") };
+        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Refuse("POST", $"{bot}/schedules/{theirs.Id}/run-once", HttpStatusCode.Conflict, Refusal);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").ClickAsync(new MouseEventArgs());
+        var before = JSInterop.Invocations.Count(call => call.Identifier == Focus);
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Run it once now").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-routine [role=alert]").TextContent.Trim().Should().Be(Refusal));
+        page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").HasAttribute("disabled").Should().BeFalse();
+        page.FindAll(".dv-routine-started").Should().BeEmpty("there is no conversation to go to");
+        JSInterop.Invocations.Count(call => call.Identifier == Focus).Should().Be(before + 1,
+            "focus moves once, after the answer is in, to the only place left: Run once now, enabled again beside the refusal");
+    }
+
+    [Fact]
     public async Task Removing_a_routine_asks_first()
     {
         var routine = Routine(enabled: true);

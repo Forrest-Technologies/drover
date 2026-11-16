@@ -8,6 +8,8 @@ public sealed class RoutineComponentTests : BunitContext
 {
     #region Private Fields
 
+    private const string FocusIdentifier = "Blazor._internal.domWrapper.focus";
+
     private static readonly DateTimeOffset start = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
 
     #endregion
@@ -110,6 +112,44 @@ public sealed class RoutineComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_refused_run_from_the_dialog_puts_focus_back_on_run_once_now_beside_the_refusal()
+    {
+        const string Refusal = "Sample bot is paused, so its routines do not run. Resume it first.";
+        var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * *", "UTC", true, start, null);
+        var row = Render<RoutineRow>(set => set
+            .Add(view => view.Routine, routine)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.CanChange, true)
+            .Add(view => view.CanRewrite, false)
+            .Add(view => view.StartedHref, "/threads/0196f1a0-0000-7000-8000-0000000000b1")
+            .Add(view => view.Problem, Refusal)
+            .Add(view => view.FocusAfterRun, 1));
+
+        FocusedReference().Should().Be(ReferenceOf(row.FindAll("button").Single(button => button.TextContent.Trim() == "Run once now")));
+        row.Find("[role=alert]").TextContent.Trim().Should().Be(Refusal, "the refusal is read out where focus lands");
+    }
+
+    [Fact]
+    public void Each_run_from_the_dialog_moves_focus_to_its_conversation_even_when_it_is_the_same_one()
+    {
+        const string Main = "/threads/0196f1a0-0000-7000-8000-0000000000b2";
+        var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * *", "UTC", true, start, null);
+        var row = Render<RoutineRow>(set => set
+            .Add(view => view.Routine, routine)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.CanChange, true)
+            .Add(view => view.StartedHref, Main)
+            .Add(view => view.FocusAfterRun, 1));
+
+        row.Render(set => set.Add(view => view.FocusAfterRun, 1));
+        row.Render(set => set.Add(view => view.FocusAfterRun, 2));
+
+        var link = ReferenceOf(row.Find(".dv-routine-started a"));
+        JSInterop.Invocations.Where(call => call.Identifier == FocusIdentifier).Select(call => ((ElementReference)call.Arguments[0]!).Id)
+            .Should().Equal([link, link], "one focus for each run, and none again for the same one");
+    }
+
+    [Fact]
     public void A_routine_run_once_links_to_its_conversation_and_a_refusal_is_said_in_the_row()
     {
         var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * *", "UTC", true, start, null);
@@ -145,6 +185,15 @@ public sealed class RoutineComponentTests : BunitContext
         fields.Find(".dv-when-reads").TextContent.Should().Be("The expression */20 9-17 * * 1-5 cannot be saved as it is.");
         fields.Find("[role=alert]").TextContent.Trim().Should().Be(Refusal);
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static string ReferenceOf(IElement element) => element.GetAttribute("blazor:elementReference")!;
+
+    private string FocusedReference() =>
+        ((ElementReference)JSInterop.Invocations.Last(call => call.Identifier == FocusIdentifier).Arguments[0]!).Id;
 
     #endregion
 }

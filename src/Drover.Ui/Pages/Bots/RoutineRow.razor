@@ -47,7 +47,7 @@
     {
         <div class="dv-routine-actions">
             <Switch Label="Runs on its own" About="@($"{Sentence}: {RoutineWords.FirstLine(Routine.Prompt)}")" Value="Routine.Enabled" ValueChanged="value => OnEnabledChanged.InvokeAsync(value)" Disabled="Busy" />
-            <Button OnClick="() => OnRunOnce.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Run once now</Button>
+            <Button @ref="runOnceButton" OnClick="() => OnRunOnce.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Run once now</Button>
             @if (CanRewrite)
             {
                 <Button OnClick="() => OnChange.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Change</Button>
@@ -73,7 +73,9 @@
 
     private ElementReference startedLink;
 
-    private string? focusedStarted;
+    private Button? runOnceButton;
+
+    private int handledRun;
 
     #endregion
 
@@ -108,9 +110,13 @@
     [Parameter]
     public string? StartedHref { get; set; }
 
-    /// <summary>Moves focus to the link to that conversation once it appears, for a run started from a dialog.</summary>
+    /// <summary>
+    /// A new number for each run started from a dialog, which hands focus back to a button that was disabled while
+    /// the run was asked for. Each new number moves focus once: to the link to the conversation the run started, or
+    /// back to "Run once now" when the server refused it, so the refusal is read beside it.
+    /// </summary>
     [Parameter]
-    public bool FocusStarted { get; set; }
+    public int FocusAfterRun { get; set; }
 
     /// <summary>What the server said when it refused this row's last action, as a sentence.</summary>
     [Parameter]
@@ -147,10 +153,20 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (FocusStarted && StartedHref is { } started && started != focusedStarted)
+        if (FocusAfterRun == 0 || FocusAfterRun == handledRun)
         {
-            focusedStarted = started;
+            return;
+        }
+
+        handledRun = FocusAfterRun;
+
+        if (Problem is null && StartedHref is not null)
+        {
             await startedLink.FocusAsync();
+        }
+        else if (runOnceButton is not null)
+        {
+            await runOnceButton.Focus();
         }
     }
 

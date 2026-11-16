@@ -20,7 +20,7 @@ else
                     <RoutineRow Routine="RoutineWords.Item(schedule, BotName)" BotName="@BotName" BotPaused="BotPaused" CanChange="CanChange"
                                 CanRewrite="schedule.OwnerUserId == Session.Current?.UserId" Busy="busy"
                                 Problem="@rowProblems.GetValueOrDefault(schedule.Id)" StartedHref="@started.GetValueOrDefault(schedule.Id)"
-                                FocusStarted="schedule.Id == focusStarted"
+                                FocusAfterRun="@(schedule.Id == focusRun.Id ? focusRun.Ticket : 0)"
                                 OnEnabledChanged="value => TurnOn(schedule, value)" OnRunOnce="() => AskToRunOnce(schedule)"
                                 OnChange="() => Edit(schedule)" OnRemove="() => AskToRemove(schedule)" />
                 </li>
@@ -144,7 +144,7 @@ else
 
     private BotScheduleResponse? running;
 
-    private Guid? focusStarted;
+    private (Guid? Id, int Ticket) focusRun;
 
     private BotScheduleResponse? removing;
 
@@ -335,9 +335,10 @@ else
             running = null;
             await RunOnce(schedule);
 
-            // The dialog hands focus back to "Run once now", which is disabled while the run is asked for, so it
-            // goes to the link that took its place instead.
-            focusStarted = schedule.Id;
+            // The dialog hands focus back to "Run once now", which is disabled while the run is asked for, so the
+            // row moves it on once the answer is in: to the conversation it started, or back to the button beside
+            // the refusal.
+            focusRun = (schedule.Id, focusRun.Ticket + 1);
         }
     }
 
