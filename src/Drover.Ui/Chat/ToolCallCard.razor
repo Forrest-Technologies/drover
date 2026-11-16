@@ -106,9 +106,19 @@ else
         @if (Card.NoteId is { } noteId && Forget is not null)
         {
             <div class="dv-tool-note">
-                @if (forgotten)
+                @if (Forgotten)
                 {
                     <p class="dv-tool-forgotten" tabindex="-1" @ref="forgottenLine">@MemoryWords.Forgotten</p>
+                }
+                else if (changedSince)
+                {
+                    <p class="dv-tool-forgotten" tabindex="-1" @ref="forgottenLine">
+                        @MemoryWords.ChangedSince(BotName)
+                        @if (MemoryHref is not null)
+                        {
+                            <a href="@MemoryHref">Open Memory to see it</a>
+                        }
+                    </p>
                 }
                 else
                 {
@@ -133,7 +143,8 @@ else
 
     private bool forgetting;
 
-    private bool forgotten;
+    // The note changed after the bot saved it, so Forget left it alone.
+    private bool changedSince;
 
     private string? forgetProblem;
 
@@ -155,9 +166,17 @@ else
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
-    /// <summary>Removes the note a save kept, from its card. Returns why it failed, or nothing when it is gone.</summary>
+    /// <summary>Removes the note a save kept, from its card, while it still says what the card shows.</summary>
     [Parameter]
-    public Func<Guid, Task<string?>>? Forget { get; set; }
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>True once the card's note was forgotten, until that is undone.</summary>
+    [Parameter]
+    public bool Forgotten { get; set; }
+
+    /// <summary>The bot's memory, where a note that changed since this card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
 
     // The frame's top edge: a traveling line while the tool runs, then green or red once it has finished.
     private string? FrameClass => Card.Phase switch
@@ -204,8 +223,9 @@ else
         deciding = problem is null;
     }
 
-    // The button is replaced by a line saying the note is gone, and the focus moves to that line. The button stays
-    // enabled while the note is removed, so it keeps the focus if that fails; a second press meanwhile does nothing.
+    // The button is replaced by a line saying the note is gone, or that it changed since and so was kept, and the focus
+    // moves to that line. The button stays enabled while the note is removed, so it keeps the focus if that fails; a
+    // second press meanwhile does nothing.
     private async Task ForgetNote(Guid noteId)
     {
         if (Forget is null || forgetting)
@@ -214,13 +234,14 @@ else
         }
 
         (forgetting, forgetProblem) = (true, null);
-        forgetProblem = await Forget(noteId);
-        (forgetting, forgotten, focusForgotten) = (false, forgetProblem is null, forgetProblem is null);
+        var outcome = await Forget(noteId, Card.NoteText ?? string.Empty);
+        (forgetting, changedSince, forgetProblem) = (false, outcome.Changed, outcome.Problem);
+        focusForgotten = outcome.Forgotten || outcome.Changed;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (focusForgotten)
+        if (focusForgotten && (Forgotten || changedSince))
         {
             focusForgotten = false;
             await forgottenLine.FocusAsync();

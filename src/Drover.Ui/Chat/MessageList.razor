@@ -44,7 +44,8 @@
                 <article @key="message.Key" id="@Anchor(message)" tabindex="@RevealStop(message)" class="dv-message dv-message-tools" aria-label="What @BotName did">
                     @foreach (var tool in message.Tools)
                     {
-                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget" />
+                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget"
+                                      Forgotten="@(tool.NoteId is { } noteId && ForgottenNotes.Contains(noteId))" MemoryHref="@MemoryHref" />
                     }
                 </article>
             }
@@ -65,7 +66,8 @@
                         <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
                         @foreach (var tool in message.Tools)
                         {
-                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget" />
+                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget"
+                                      Forgotten="@(tool.NoteId is { } noteId && ForgottenNotes.Contains(noteId))" MemoryHref="@MemoryHref" />
                         }
                     </div>
                 </article>
@@ -157,9 +159,17 @@
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
-    /// <summary>Removes a note the bot saved, from its card. Returns why it failed, or nothing.</summary>
+    /// <summary>Removes a note the bot saved, from its card, while it still says the given text.</summary>
     [Parameter]
-    public Func<Guid, Task<string?>>? Forget { get; set; }
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>The notes forgotten from their cards, which then say so.</summary>
+    [Parameter]
+    public IReadOnlySet<Guid> ForgottenNotes { get; set; } = new HashSet<Guid>();
+
+    /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
 
     /// <summary>The key of a message to bring into view and focus once it is in the list, from a link to that moment.</summary>
     [Parameter]

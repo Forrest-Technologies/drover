@@ -11,10 +11,16 @@
             <EmptyState Title="Drover could not load the notes" Cause="@(Problem ?? "The server did not answer.")" ActionLabel="Try again" OnAction="() => OnRetry.InvokeAsync()" />
             break;
         case MemoryPanelState.Off:
-            <p class="dv-memory-hint">@MemoryWords.Off(BotName)</p>
+            @* Off, the bot keeps no new notes, and the ones it kept stay until the person removes them: listed, with
+               Remove and nothing else. *@
+            <p class="dv-memory-hint" tabindex="-1" @ref="offLine">@(Notes.Count is 0 ? MemoryWords.Off(BotName) : MemoryWords.OffKeeping(BotName))</p>
             @if (EditorHref is not null)
             {
                 <a class="dv-memory-link" href="@EditorHref">Turn memory on in @BotName's settings</a>
+            }
+            @if (Notes.Count > 0)
+            {
+                @NoteList(false)
             }
             break;
         default:
@@ -33,38 +39,7 @@
             }
             else
             {
-                <ul class="dv-memory-notes" aria-label="@($"What {BotName} remembers about you")">
-                    @foreach (var note in Notes)
-                    {
-                        <li class="dv-memory-note dv-facet" @key="note.Id">
-                            @if (editing == note.Id)
-                            {
-                                <form class="dv-memory-edit" @onsubmit="() => Save(note)">
-                                    <TextArea @ref="editField" Label="Note" Rows="3" @bind-Value="draft" />
-                                    <div class="dv-memory-actions">
-                                        <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(draft)">Save</Button>
-                                        <Button OnClick="() => Cancel(note)">Cancel</Button>
-                                    </div>
-                                </form>
-                            }
-                            else
-                            {
-                                <p class="dv-memory-text">@note.Text</p>
-                                <p class="dv-memory-origin dv-mono">
-                                    @MemoryWords.Origin(note, BotName, ScheduleWords.Moment(note.When))
-                                    @if (note.OriginHref is not null)
-                                    {
-                                        <a href="@note.OriginHref">Open that moment</a>
-                                    }
-                                </p>
-                                <div class="dv-memory-actions">
-                                    <Button @ref="changeButtons[note.Id]" OnClick="() => Edit(note)" aria-label="@($"Change the note: {note.Text}")">Change</Button>
-                                    <Button OnClick="() => Remove(note)" aria-label="@($"Remove the note: {note.Text}")">Remove</Button>
-                                </div>
-                            }
-                        </li>
-                    }
-                </ul>
+                @NoteList(true)
             }
             break;
     }
@@ -72,6 +47,10 @@
 
 @code {
     #region Private Fields
+
+    private ElementReference offLine;
+
+    private readonly Dictionary<Guid, Button> removeButtons = [];
 
     private string adding = string.Empty;
 
@@ -153,10 +132,54 @@
 
     #endregion
 
+    #region Rendering
+
+    // The notes, each with what it says, who wrote it and when, and the controls the state allows: Change and Remove
+    // while memory is on, Remove alone while it is off.
+    private RenderFragment NoteList(bool changeable) =>
+        @<ul class="dv-memory-notes" aria-label="@($"What {BotName} remembers about you")">
+            @foreach (var note in Notes)
+            {
+                <li class="dv-memory-note dv-facet" @key="note.Id">
+                    @if (changeable && editing == note.Id)
+                    {
+                        <form class="dv-memory-edit" @onsubmit="() => Save(note)">
+                            <TextArea @ref="editField" Label="Note" Rows="3" @bind-Value="draft" />
+                            <div class="dv-memory-actions">
+                                <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(draft)">Save</Button>
+                                <Button OnClick="() => Cancel(note)">Cancel</Button>
+                            </div>
+                        </form>
+                    }
+                    else
+                    {
+                        <p class="dv-memory-text">@note.Text</p>
+                        <p class="dv-memory-origin dv-mono">
+                            @MemoryWords.Origin(note, BotName, ScheduleWords.Moment(note.When))
+                            @if (note.OriginHref is not null)
+                            {
+                                <a href="@note.OriginHref" aria-label="@($"Open that moment: {BotName} noted {note.Text}")">Open that moment</a>
+                            }
+                        </p>
+                        <div class="dv-memory-actions">
+                            @if (changeable)
+                            {
+                                <Button @ref="changeButtons[note.Id]" OnClick="() => Edit(note)" aria-label="@($"Change the note: {note.Text}")">Change</Button>
+                            }
+                            <Button @ref="removeButtons[note.Id]" OnClick="() => Remove(note)" aria-label="@($"Remove the note: {note.Text}")">Remove</Button>
+                        </div>
+                    }
+                </li>
+            }
+        </ul>;
+
+    #endregion
+
     #region Private Methods
 
     protected override void OnParametersSet()
     {
+        DropGoneButtons();
         if (removing is { } removed && Notes.All(note => note.Id != removed.Id))
         {
             removing = null;
@@ -175,8 +198,8 @@
         var target = focus switch
         {
             { EditField: true } => editField?.Focus(),
-            { AddField: true } => addField?.Focus(),
-            { Note: { } id } => changeButtons.GetValueOrDefault(id)?.Focus(),
+            { AddField: true } => State is MemoryPanelState.Off ? offLine.FocusAsync() : addField?.Focus(),
+            { Note: { } id } => (changeButtons.GetValueOrDefault(id) ?? removeButtons.GetValueOrDefault(id))?.Focus(),
             _ => null,
         };
 
@@ -198,6 +221,16 @@
         if (saveProblem is null)
         {
             adding = string.Empty;
+        }
+    }
+
+    // A note no longer shown leaves its buttons behind; they must never take the focus.
+    private void DropGoneButtons()
+    {
+        foreach (var gone in changeButtons.Keys.Concat(removeButtons.Keys).Where(id => Notes.All(note => note.Id != id)).ToList())
+        {
+            changeButtons.Remove(gone);
+            removeButtons.Remove(gone);
         }
     }
 

@@ -29,6 +29,8 @@ public sealed class MemoryRailTests : ScreenTest
 
     private static readonly string memory = $"{space}/bots/{botId}/memory";
 
+    private readonly FakeTimeProvider time = new();
+
     #endregion
 
     #region Constructors
@@ -36,6 +38,7 @@ public sealed class MemoryRailTests : ScreenTest
     public MemoryRailTests()
     {
         SignedIn();
+        Services.AddSingleton<TimeProvider>(time);
         Server.Answer("GET", $"{space}/model-connections", new[] { new ModelConnectionSummary(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null) });
         Server.Answer("GET", $"{space}/bots", new[] { Marshal });
         Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Main });
@@ -175,7 +178,7 @@ public sealed class MemoryRailTests : ScreenTest
     public void A_removed_note_leaves_at_once_and_the_toasts_Undo_puts_it_back()
     {
         Server.Answer("GET", memory, Notes);
-        Server.Answer("DELETE", $"{memory}/notes/{noteId}", new RemovedNoteResponse(noteId, "sealed-sample-token"));
+        Server.Answer("DELETE", $"{memory}/notes/{noteId}", Receipt(noteId));
         Server.Answer("POST", $"{memory}/notes/restore", Notes.Notes[0]);
         var toasts = Render<ToastHost>();
         var page = RenderMemory();
@@ -186,10 +189,11 @@ public sealed class MemoryRailTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll("aside .dv-memory-note").Should().HaveCount(2));
         toasts.WaitForAssertion(() => toasts.Find(".dv-toast-message").TextContent.Should().Contain("Removed the note: Prefers tea."));
         var undo = toasts.FindAll(".dv-toast button").Single(button => button.TextContent.Trim() == "Undo");
+        undo.GetAttribute("aria-label").Should().Be("Undo removing the note: Prefers tea.");
         undo.Click();
 
         page.WaitForAssertion(() => page.FindAll("aside .dv-memory-note").Should().HaveCount(3));
-        Server.Sent("POST", $"{memory}/notes/restore").Should().ContainSingle().Which.Should().Contain("sealed-sample-token");
+        Server.Sent("POST", $"{memory}/notes/restore").Should().ContainSingle().Which.Should().Contain("sealed-sample-receipt");
         toasts.FindAll(".dv-toast").Should().BeEmpty("choosing Undo also dismisses the toast");
         page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke(calledTimes: 2), TimeSpan.FromSeconds(5));
     }
@@ -210,10 +214,42 @@ public sealed class MemoryRailTests : ScreenTest
     }
 
     [Fact]
+    public void The_toast_stops_offering_Undo_when_the_receipt_runs_out()
+    {
+        Server.Answer("GET", memory, Notes);
+        Server.Answer("DELETE", $"{memory}/notes/{noteId}", Receipt(noteId));
+        var toasts = Render<ToastHost>();
+        var page = RenderMemory();
+        page.WaitForAssertion(() => page.FindAll("aside .dv-memory-note").Should().HaveCount(3));
+        page.Find("[aria-label='Remove the note: Prefers tea.']").Click();
+        toasts.WaitForAssertion(() => toasts.FindAll(".dv-toast button").Should().Contain(button => button.TextContent.Trim() == "Undo"));
+
+        time.Advance(TimeSpan.FromMinutes(9));
+        toasts.FindAll(".dv-toast button").Should().Contain(button => button.TextContent.Trim() == "Undo", "the receipt still holds");
+        time.Advance(TimeSpan.FromMinutes(1));
+
+        toasts.WaitForAssertion(() => toasts.FindAll(".dv-toast button").Select(button => button.TextContent.Trim()).Should().Equal("Dismiss"));
+        toasts.Find(".dv-toast-message").TextContent.Should().Contain("Removed the note: Prefers tea.");
+    }
+
+    [Fact]
+    public void Memory_that_is_off_still_lists_the_notes_it_kept_so_they_can_be_removed()
+    {
+        Server.Answer("GET", memory, Notes with { Enabled = false });
+
+        var page = RenderMemory();
+
+        page.WaitForAssertion(() => page.FindAll("aside .dv-memory-note").Should().HaveCount(3));
+        page.Find("aside .dv-memory-hint").TextContent.Should().Be("Memory is off for Marshal. It keeps these notes until you remove them, and adds no new ones.");
+        page.FindAll("aside textarea").Should().BeEmpty();
+        page.FindAll("aside .dv-memory-actions button").Should().OnlyContain(button => button.TextContent.Trim() == "Remove");
+    }
+
+    [Fact]
     public void Undo_that_comes_too_late_says_so_in_a_toast()
     {
         Server.Answer("GET", memory, Notes);
-        Server.Answer("DELETE", $"{memory}/notes/{noteId}", new RemovedNoteResponse(noteId, "sealed-sample-token"));
+        Server.Answer("DELETE", $"{memory}/notes/{noteId}", Receipt(noteId));
         Server.Refuse("POST", $"{memory}/notes/restore", HttpStatusCode.BadRequest,
             "This note can no longer be put back. Undo lasts ten minutes; write the note again to keep it.");
         var toasts = Render<ToastHost>();
@@ -262,11 +298,11 @@ public sealed class MemoryRailTests : ScreenTest
         });
         if (answer is HttpStatusCode.OK)
         {
-            Server.Answer("DELETE", $"{memory}/notes/{ownNoteId}", new RemovedNoteResponse(ownNoteId, "sealed-sample-token"));
+            Server.Answer("POST", $"{memory}/notes/{ownNoteId}/forget", Receipt(ownNoteId));
         }
         else
         {
-            Server.Answer("DELETE", $"{memory}/notes/{ownNoteId}", answer);
+            Server.Answer("POST", $"{memory}/notes/{ownNoteId}/forget", answer);
         }
 
         Navigation.NavigateTo($"/talk/{botId}");
@@ -276,12 +312,61 @@ public sealed class MemoryRailTests : ScreenTest
         page.Find("[aria-label='Forget the note: Prefers tea.']").Click();
 
         page.WaitForAssertion(() => page.Find(".dv-tool-forgotten").TextContent.Should().Be("Forgotten. The note is no longer kept."));
-        Server.Requests.Should().Contain(request => request.Method == "DELETE" && request.Path == $"{memory}/notes/{ownNoteId}");
+        Server.Sent("POST", $"{memory}/notes/{ownNoteId}/forget").Should().ContainSingle().Which.Should().Contain("Prefers tea.");
+    }
+
+    [Fact]
+    public void Forget_on_a_card_whose_note_changed_since_leaves_it_and_points_to_memory_and_Undo_restores_one_forgotten()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", RememberedCard());
+        Server.Refuse("POST", $"{memory}/notes/{ownNoteId}/forget", HttpStatusCode.Conflict, "This note has changed since.");
+        Navigation.NavigateTo($"/talk/{botId}");
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId));
+        page.WaitForElement("[aria-label='Forget the note: Prefers tea.']");
+
+        page.Find("[aria-label='Forget the note: Prefers tea.']").Click();
+
+        page.WaitForAssertion(() => page.Find(".dv-tool-forgotten").TextContent.Should().Contain("This note has changed since Marshal saved it, so it was not forgotten."));
+        page.Find(".dv-tool-forgotten a").GetAttribute("href").Should().Be($"/talk/{botId}/memory");
+    }
+
+    [Fact]
+    public void Undo_after_forgetting_from_a_card_puts_the_note_back_and_the_card_offers_Forget_again()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", RememberedCard());
+        Server.Answer("POST", $"{memory}/notes/{ownNoteId}/forget", Receipt(ownNoteId));
+        Server.Answer("POST", $"{memory}/notes/restore", Notes.Notes[2]);
+        var toasts = Render<ToastHost>();
+        Navigation.NavigateTo($"/talk/{botId}");
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId));
+        page.WaitForElement("[aria-label='Forget the note: Prefers tea.']");
+
+        page.Find("[aria-label='Forget the note: Prefers tea.']").Click();
+        page.WaitForElement(".dv-tool-forgotten");
+        toasts.WaitForAssertion(() => toasts.FindAll(".dv-toast button").Should().Contain(button => button.GetAttribute("aria-label") == "Undo removing the note: Prefers tea."));
+        toasts.FindAll(".dv-toast button").Single(button => button.TextContent.Trim() == "Undo").Click();
+
+        page.WaitForAssertion(() => page.Find("[aria-label='Forget the note: Prefers tea.']").TextContent.Trim().Should().Be("Forget"));
+        Server.Sent("POST", $"{memory}/notes/restore").Should().ContainSingle();
     }
 
     #endregion
 
     #region Private Methods
+
+    private RemovedNoteResponse Receipt(Guid id) => new(id, "sealed-sample-receipt", time.GetUtcNow().AddMinutes(10));
+
+    private static MessageResponse[] RememberedCard() =>
+    [
+        new(messageId, threadId, 1, "assistant", null,
+        [
+            new("tool_call") { ToolCallId = noteId, ToolName = "memory_save", Arguments = """{"text":"Prefers tea."}""" },
+        ], DateTimeOffset.UnixEpoch),
+        new(Guid.CreateVersion7(), threadId, 2, "tool", null,
+        [
+            new("tool_result") { ToolCallId = noteId, Result = $$$"""{"note":{"id":"{{{ownNoteId}}}","text":"Prefers tea."}}""" },
+        ], DateTimeOffset.UnixEpoch),
+    ];
 
     private IRenderedComponent<Talk> RenderMemory()
     {

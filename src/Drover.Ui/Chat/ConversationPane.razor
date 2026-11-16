@@ -18,7 +18,7 @@
         else
         {
             <MessageList @ref="list" Messages="Messages" BotName="@Bot.Name" BotHue="BotIdentity.Hue(Bot.Id)" Thinking="Thinking"
-                         Problem="@problem" Notice="@Notice" Decide="Decide" Forget="Forget" Reveal="@Reveal?.ToString()" Failure="Failure" Retrying="retrying" OnRetry="Retry" />
+                         Problem="@problem" Notice="@Notice" Decide="Decide" Forget="Forget" ForgottenNotes="forgottenNotes" MemoryHref="@Addresses.Memory(Bot.Id)" Reveal="@Reveal?.ToString()" Failure="Failure" Retrying="retrying" OnRetry="Retry" />
         }
         <Composer @ref="composer" BotName="@Bot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loading" Sending="sending"
                   Attachments="draft.Items" OnSend="Send" OnCancel="Stop" OnFiles="Attach" OnRemoveFile="RemoveFile" />

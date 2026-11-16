@@ -112,12 +112,13 @@ public sealed partial class MemoryRail(
         var removed = notes.FirstOrDefault(note => note.Id == noteId);
         try
         {
-            var undo = (await api.RemoveMemoryNote(SpaceId, Bot.Id, noteId)).Undo;
+            var receipt = await api.RemoveMemoryNote(SpaceId, Bot.Id, noteId);
             notes = [.. notes.Where(note => note.Id != noteId)];
+            var text = removed?.Text ?? string.Empty;
             toasts.Show(
-                MemoryWords.Removed(removed?.Text ?? string.Empty),
+                MemoryWords.Removed(text),
                 ToastKind.Info,
-                new ToastAction("Undo", () => Restore(undo)));
+                new ToastAction("Undo", () => Restore(receipt.Undo), MemoryWords.UndoRemoving(text), receipt.UndoUntil));
         }
         catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
         {

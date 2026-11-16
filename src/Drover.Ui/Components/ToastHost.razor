@@ -29,7 +29,7 @@
             <div class="dv-toast-actions">
                 @if (toast.Action is { } action)
                 {
-                    <Button OnClick="() => Act(toast, action)">@action.Label</Button>
+                    <Button OnClick="() => Act(toast, action)" aria-label="@action.Name">@action.Label</Button>
                 }
                 <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
             </div>

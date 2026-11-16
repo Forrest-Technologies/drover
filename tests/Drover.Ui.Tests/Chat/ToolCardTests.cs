@@ -266,48 +266,54 @@ public sealed class ToolCardTests : BunitContext
     [Fact]
     public void A_saved_note_reads_as_the_note_and_offers_one_button_named_for_it_that_forgets_it()
     {
-        Guid? forgot = null;
-        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        (Guid Id, string Text)? forgot = null;
+        var card = RenderNoteCard((id, text) =>
         {
-            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers tea.","written_by":"bot"},"characters_used":12}""",
-        };
-        var card = Render<ToolCallCard>(parameters => parameters
-            .Add(component => component.Card, call.ToCard())
-            .Add(component => component.BotName, "Sample bot")
-            .Add(component => component.Forget, id =>
-            {
-                forgot = id;
-                return Task.FromResult<string?>(null);
-            }));
+            forgot = (id, text);
+            return Task.FromResult(new ForgetOutcome(true));
+        });
 
         card.Find(".dv-disclosure-title").TextContent.Trim().Should().Be("Remembered: Prefers tea.");
         var forget = card.Find(".dv-tool-note button");
         forget.TextContent.Trim().Should().Be("Forget");
         forget.GetAttribute("aria-label").Should().Be("Forget the note: Prefers tea.");
         forget.Click();
+        card.Render(parameters => parameters.Add(component => component.Forgotten, true));
 
-        forgot.Should().Be(noteId);
+        forgot.Should().Be((noteId, "Prefers tea."), "the note is removed only while it says what the card shows");
         card.FindAll(".dv-tool-note button").Should().BeEmpty("the button is replaced once the note is gone");
         card.Find(".dv-tool-forgotten").TextContent.Should().Be("Forgotten. The note is no longer kept.");
         JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>("the focus moves to the line that took the button's place");
+
+        card.Render(parameters => parameters.Add(component => component.Forgotten, false));
+        card.Find(".dv-tool-note button").TextContent.Trim().Should().Be("Forget", "once undone, the note can be forgotten again");
+    }
+
+    [Fact]
+    public void A_note_changed_since_its_card_is_left_alone_and_the_card_says_where_to_see_it()
+    {
+        var card = RenderNoteCard((_, _) => Task.FromResult(new ForgetOutcome(false, Changed: true)));
+
+        card.Find(".dv-tool-note button").Click();
+
+        card.Find(".dv-tool-forgotten").TextContent.Should().Contain("This note has changed since Sample bot saved it, so it was not forgotten.");
+        var link = card.Find(".dv-tool-forgotten a");
+        link.TextContent.Should().Be("Open Memory to see it");
+        link.GetAttribute("href").Should().Be("/talk/sample/memory");
+        card.FindAll(".dv-tool-note button").Should().BeEmpty();
+        JSInterop.VerifyFocusAsyncInvoke();
     }
 
     [Fact]
     public void A_note_that_could_not_be_forgotten_keeps_its_button_and_says_why()
     {
-        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
-        {
-            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
-        };
-        var card = Render<ToolCallCard>(parameters => parameters
-            .Add(component => component.Card, call.ToCard())
-            .Add(component => component.BotName, "Sample bot")
-            .Add(component => component.Forget, _ => Task.FromResult<string?>("This note is no longer kept, so there is nothing to change.")));
+        var card = RenderNoteCard((_, _) => Task.FromResult(new ForgetOutcome(false, Problem: "The note was not forgotten. The server failed to answer.")));
 
         card.Find(".dv-tool-note button").Click();
 
         card.Find(".dv-tool-note button").TextContent.Trim().Should().Be("Forget");
-        card.Find("[role=alert]").TextContent.Should().Contain("This note is no longer kept");
+        card.Find("[role=alert]").TextContent.Should().Contain("The note was not forgotten.");
+        JSInterop.VerifyNotInvoke("Blazor._internal.domWrapper.focus");
     }
 
     [Fact]
@@ -365,6 +371,19 @@ public sealed class ToolCardTests : BunitContext
 
     private static ToolCallView Call(string tool, string arguments, string state) =>
         new(callId, tool, tool is "issues.create" ? "Create issue" : tool, arguments, "allow", state, IsError: state is "failed");
+
+    private IRenderedComponent<ToolCallCard> RenderNoteCard(Func<Guid, string, Task<ForgetOutcome>> forget)
+    {
+        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
+        };
+        return Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Sample bot")
+            .Add(component => component.MemoryHref, "/talk/sample/memory")
+            .Add(component => component.Forget, forget));
+    }
 
     private IRenderedComponent<ToolCallCard> RenderCard(ToolCard card) =>
         Render<ToolCallCard>(parameters => parameters.Add(component => component.Card, card).Add(component => component.BotName, "Sample bot"));

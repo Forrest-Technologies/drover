@@ -5,7 +5,7 @@ namespace Drover.Domain.Memory;
 /// white space become one, so a note can never lay out text that passes for the end of the notes, another note, or
 /// what a person said.
 /// </summary>
-public static partial class NoteText
+public static class NoteText
 {
     #region Public Methods
 
@@ -33,22 +33,6 @@ public static partial class NoteText
 
         return flat.ToString();
     }
-
-    /// <summary>
-    /// True when <paramref name="after"/> keeps no word of <paramref name="before"/>, ignoring case: nothing of the
-    /// earlier text can have come through. Any word kept, however short, counts as keeping the earlier text.
-    /// </summary>
-    public static bool IsRewrite(string before, string after) => !Words(after).Overlaps(Words(before));
-
-    #endregion
-
-    #region Private Methods
-
-    private static HashSet<string> Words(string text) =>
-        [.. Word().Matches(text).Select(match => match.Value.ToLowerInvariant())];
-
-    [GeneratedRegex(@"[\p{L}\p{N}]+")]
-    private static partial Regex Word();
 
     #endregion
 }

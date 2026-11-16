@@ -32,11 +32,21 @@ public static class MemoryWords
     /// <summary>The toast after a removal, which offers Undo.</summary>
     public static string Removed(string text) => $"Removed the note: {text}";
 
+    /// <summary>What a card says when its note was changed after the bot saved it, so Forget left it alone.</summary>
+    public static string ChangedSince(string botName) => $"This note has changed since {botName} saved it, so it was not forgotten.";
+
+    /// <summary>The accessible name of the toast's Undo.</summary>
+    public static string UndoRemoving(string text) => $"Undo removing the note: {text}";
+
     /// <summary>Why the panel is empty, and when it will not be.</summary>
     public static string Empty(string botName) =>
         $"{botName} has not noted anything about you yet. It keeps a note when it learns a preference or a fact worth keeping.";
 
     public static string Off(string botName) => $"Memory is off for {botName}, so it keeps no notes.";
+
+    /// <summary>Memory off with notes kept from before: they stay until the person removes them.</summary>
+    public static string OffKeeping(string botName) =>
+        $"Memory is off for {botName}. It keeps these notes until you remove them, and adds no new ones.";
 
     /// <summary>Said only when the notes are nearly full, because that is when a person can act on it.</summary>
     public static string NearlyFull(string botName) =>
@@ -51,6 +61,7 @@ public static class MemoryWords
 
     /// <summary>What the card says once the person has had the bot forget the note it shows.</summary>
     public const string Forgotten = "Forgotten. The note is no longer kept.";
+
 
     /// <summary>Said when a note acted on is not there any more.</summary>
     public const string Gone = "This note is no longer kept, so there is nothing to change.";

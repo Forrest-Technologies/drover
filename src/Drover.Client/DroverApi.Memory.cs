@@ -20,6 +20,10 @@ public sealed partial class DroverApi
     public Task<RemovedNoteResponse> RemoveMemoryNote(Guid spaceId, Guid botId, Guid noteId, CancellationToken cancellationToken = default) =>
         Send<RemovedNoteResponse>(HttpMethod.Delete, $"{Notes(spaceId, botId)}/notes/{noteId}", null, cancellationToken);
 
+    /// <summary>Removes the note only while it still says <paramref name="text"/>; the server answers 409 once it has changed.</summary>
+    public Task<RemovedNoteResponse> ForgetMemoryNote(Guid spaceId, Guid botId, Guid noteId, string text, CancellationToken cancellationToken = default) =>
+        Post<RemovedNoteResponse>($"{Notes(spaceId, botId)}/notes/{noteId}/forget", new ForgetNoteRequest(text), cancellationToken);
+
     public Task<MemoryNoteResponse> RestoreMemoryNote(Guid spaceId, Guid botId, string undoToken, CancellationToken cancellationToken = default) =>
         Post<MemoryNoteResponse>($"{Notes(spaceId, botId)}/notes/restore", new RestoreNoteRequest(undoToken), cancellationToken);
 

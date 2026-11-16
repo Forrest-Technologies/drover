@@ -49,3 +49,10 @@ public sealed record ToolCard(
         _ => "Stopped",
     };
 }
+
+
+/// <summary>
+/// How "Forget" on a card ended: the note is gone, it changed after the bot saved it and so was left alone, or the
+/// request failed and <see cref="Problem"/> says why.
+/// </summary>
+public sealed record ForgetOutcome(bool Forgotten, bool Changed = false, string? Problem = null);

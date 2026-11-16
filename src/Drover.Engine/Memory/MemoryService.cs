@@ -17,6 +17,7 @@ public enum NoteProblem
     None,
     NotFound,
     Invalid,
+    Changed,
 }
 
 
@@ -29,6 +30,8 @@ public sealed record NoteOutcome(MemoryNote? Note, NoteProblem Problem = NotePro
     public static NoteOutcome NotFound { get; } = new(null, NoteProblem.NotFound);
 
     public static NoteOutcome Invalid(string detail) => new(null, NoteProblem.Invalid, detail);
+
+    public static NoteOutcome Changed { get; } = new(null, NoteProblem.Changed, "This note has changed since.");
 }
 
 
@@ -211,8 +214,9 @@ public sealed class MemoryService(
     }
 
     /// <summary>
-    /// The person rewrites a note, which makes it theirs. A note a tainted run wrote stays tainted unless the person
-    /// keeps none of its words: what they kept may still carry what the run read.
+    /// The person rewrites a note. A clean note becomes theirs. A tainted one stays tainted, and keeps its bot writer
+    /// and the moment it came from, whatever the person writes: no edit is proof that nothing the tainted run read is
+    /// left. A person who wants a clean note removes it and adds their own.
     /// </summary>
     public async Task<NoteOutcome> ChangeByPerson(Guid botId, Guid userId, Guid noteId, string text, CancellationToken cancellationToken)
     {
@@ -235,23 +239,40 @@ public sealed class MemoryService(
             return NoteOutcome.Invalid(full);
         }
 
-        note.Tainted = note.Tainted && !NoteText.IsRewrite(note.Text, text);
         note.Text = text;
         note.UpdatedAt = time.GetUtcNow();
-        note.WrittenByUserId = userId;
-        note.WrittenByBotId = null;
-        note.SourceThreadId = null;
-        note.SourceMessageId = null;
+        if (!note.Tainted)
+        {
+            note.WrittenByUserId = userId;
+            note.WrittenByBotId = null;
+            note.SourceThreadId = null;
+            note.SourceMessageId = null;
+        }
+
         return new(note);
     }
 
-    /// <summary>Removes the note at once, memory on or off, and returns it as it was so it can be put back exactly.</summary>
-    public async Task<NoteOutcome> RemoveByPerson(Guid botId, Guid userId, Guid noteId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Removes the note at once, memory on or off, and returns it as it was so it can be put back exactly. Given
+    /// <paramref name="expectedText"/>, as from a card that shows the note as it was saved, a note whose text has
+    /// changed since is left as it is: the person asked to remove what they saw, not what it has become.
+    /// </summary>
+    public async Task<NoteOutcome> RemoveByPerson(
+        Guid botId,
+        Guid userId,
+        Guid noteId,
+        string? expectedText,
+        CancellationToken cancellationToken)
     {
         await memories.LockNotes(botId, userId, cancellationToken);
         if (await memories.GetNote(noteId, botId, userId, cancellationToken) is not { } note)
         {
             return NoteOutcome.NotFound;
+        }
+
+        if (expectedText is not null && !string.Equals(note.Text, NoteText.Flatten(expectedText), StringComparison.Ordinal))
+        {
+            return NoteOutcome.Changed;
         }
 
         memories.Remove(note);
@@ -276,8 +297,15 @@ public sealed class MemoryService(
             return new(already);
         }
 
+        var limits = LimitsFor(bot.MemorySettings);
+        if (removed.Text.Length > limits.NoteCharacters)
+        {
+            return NoteOutcome.Invalid(
+                $"A note may now hold at most {limits.NoteCharacters} characters, and this one has {removed.Text.Length}, so it cannot be put back.");
+        }
+
         var used = Used(await memories.ListNotes(botId, userId, cancellationToken));
-        if (TooFullFor(used, removed.Text.Length, LimitsFor(bot.MemorySettings)) is { } full)
+        if (TooFullFor(used, removed.Text.Length, limits) is { } full)
         {
             return NoteOutcome.Invalid(full);
         }

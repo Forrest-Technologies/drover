@@ -97,6 +97,41 @@ public sealed class MemoryPanelTests : BunitContext
     }
 
     [Fact]
+    public void Memory_that_is_off_lists_the_notes_it_kept_with_remove_and_nothing_else()
+    {
+        Guid? removed = null;
+        var note = new MemoryNote(Guid.NewGuid(), "Prefers short answers.", true, start, "/moment");
+        var panel = Render<MemoryPanel>(set => set
+            .Add(view => view.State, MemoryPanelState.Off)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.Notes, [note])
+            .Add(view => view.OnRemove, id => removed = id));
+
+        panel.Find(".dv-memory-hint").TextContent.Should().Be("Memory is off for Sample bot. It keeps these notes until you remove them, and adds no new ones.");
+        panel.Find(".dv-memory-text").TextContent.Should().Be("Prefers short answers.");
+        panel.FindAll("textarea").Should().BeEmpty("nothing can be added while memory is off");
+        panel.FindAll(".dv-memory-actions button").Select(button => button.TextContent.Trim()).Should().Equal("Remove");
+        panel.Find("[aria-label='Remove the note: Prefers short answers.']").Click();
+        removed.Should().Be(note.Id);
+    }
+
+    [Fact]
+    public void Each_link_to_a_moment_is_named_for_its_note()
+    {
+        var panel = Render<MemoryPanel>(set => set
+            .Add(view => view.State, MemoryPanelState.Ready)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.Notes,
+            [
+                new MemoryNote(Guid.NewGuid(), "Prefers tea.", true, start, "/one"),
+                new MemoryNote(Guid.NewGuid(), "Starts at nine.", true, start, "/two"),
+            ]));
+
+        panel.FindAll(".dv-memory-origin a").Select(link => link.GetAttribute("aria-label")).Should().Equal(
+            "Open that moment: Sample bot noted Prefers tea.", "Open that moment: Sample bot noted Starts at nine.");
+    }
+
+    [Fact]
     public void An_empty_list_says_when_the_bot_keeps_a_note_and_offers_adding_one()
     {
         var panel = Render<MemoryPanel>(set => set.Add(view => view.State, MemoryPanelState.Ready).Add(view => view.BotName, "Sample bot"));

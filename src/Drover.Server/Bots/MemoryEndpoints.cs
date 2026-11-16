@@ -11,7 +11,7 @@ public static class MemoryEndpoints
 
     private const string UndoPurpose = "Drover.Memory.UndoRemove";
 
-    // Long enough to reach the toast's Undo, short enough that a token is not a lasting copy of the note.
+    // Long enough to reach the toast's Undo, short enough that a receipt is not a lasting copy of the note.
     private static readonly TimeSpan undoLifetime = TimeSpan.FromMinutes(10);
 
     #endregion
@@ -28,6 +28,9 @@ public static class MemoryEndpoints
         bots.MapDelete("/{botId:guid}/memory/notes/{noteId:guid}", RemoveNote)
             .WithName("RemoveMemoryNote")
             .WithSummary("Removes the note at once and returns a token that puts it back exactly, for ten minutes.");
+        bots.MapPost("/{botId:guid}/memory/notes/{noteId:guid}/forget", ForgetNote)
+            .WithName("ForgetMemoryNote")
+            .WithSummary("Removes the note only while it still says the given text, as a conversation card showed it; 409 once it has changed.");
         bots.MapPost("/{botId:guid}/memory/notes/restore", RestoreNote).WithName("RestoreMemoryNote");
         return bots;
     }
@@ -73,18 +76,43 @@ public static class MemoryEndpoints
         };
     }
 
-    private static async Task<Results<Ok<RemovedNoteResponse>, NotFound>> RemoveNote(
+    private static Task<Results<Ok<RemovedNoteResponse>, NotFound, ProblemHttpResult>> RemoveNote(
         Guid botId,
         Guid noteId,
         HttpContext context,
         MemoryService memory,
-        IDataProtectionProvider protection)
+        IDataProtectionProvider protection,
+        TimeProvider time) =>
+        Removed(botId, noteId, null, context, memory, protection, time);
+
+    private static Task<Results<Ok<RemovedNoteResponse>, NotFound, ProblemHttpResult>> ForgetNote(
+        Guid botId,
+        Guid noteId,
+        ForgetNoteRequest request,
+        HttpContext context,
+        MemoryService memory,
+        IDataProtectionProvider protection,
+        TimeProvider time) =>
+        Removed(botId, noteId, request.Text ?? string.Empty, context, memory, protection, time);
+
+    private static async Task<Results<Ok<RemovedNoteResponse>, NotFound, ProblemHttpResult>> Removed(
+        Guid botId,
+        Guid noteId,
+        string? expectedText,
+        HttpContext context,
+        MemoryService memory,
+        IDataProtectionProvider protection,
+        TimeProvider time)
     {
         var access = context.GetSpaceAccess();
-        var outcome = await memory.RemoveByPerson(botId, access.UserId, noteId, context.RequestAborted);
-        return outcome.Note is { } removed
-            ? TypedResults.Ok(new RemovedNoteResponse(removed.Id, Seal(protection, access, removed)))
-            : TypedResults.NotFound();
+        var outcome = await memory.RemoveByPerson(botId, access.UserId, noteId, expectedText, context.RequestAborted);
+        var until = time.GetUtcNow() + undoLifetime;
+        return outcome switch
+        {
+            { Note: { } removed } => TypedResults.Ok(new RemovedNoteResponse(removed.Id, Seal(protection, access, removed, until), until)),
+            { Problem: NoteProblem.Changed } => TypedResults.Problem(title: outcome.Detail, statusCode: StatusCodes.Status409Conflict),
+            _ => TypedResults.NotFound(),
+        };
     }
 
     private static async Task<Results<Ok<MemoryNoteResponse>, NotFound, ProblemHttpResult>> RestoreNote(
@@ -93,10 +121,11 @@ public static class MemoryEndpoints
         HttpContext context,
         MemoryService memory,
         IDataProtectionProvider protection,
+        TimeProvider time,
         ILoggerFactory logs)
     {
         var access = context.GetSpaceAccess();
-        if (Unseal(protection, access, request.Undo, logs) is not { } removed)
+        if (Unseal(protection, access, request.Undo, time, logs) is not { } removed)
         {
             return TypedResults.Problem(
                 title: "This note can no longer be put back. Undo lasts ten minutes; write the note again to keep it.",
@@ -120,9 +149,10 @@ public static class MemoryEndpoints
     /// The removed note, sealed for the person who removed it in the space they removed it from. It carries who wrote
     /// the note and whether it is tainted, so a client must not be able to change it: it is encrypted and signed.
     /// </summary>
-    private static string Seal(IDataProtectionProvider protection, SpaceAccess access, MemoryNote note) =>
+    private static string Seal(IDataProtectionProvider protection, SpaceAccess access, MemoryNote note, DateTimeOffset until) =>
         Protector(protection, access).Protect(
             JsonSerializer.Serialize(new SealedNote(
+                until,
                 note.SpaceId,
                 note.AudienceUserId,
                 note.BotId,
@@ -134,11 +164,13 @@ public static class MemoryEndpoints
                 note.SourceMessageId,
                 note.Tainted,
                 note.CreatedAt,
-                note.UpdatedAt)),
-            undoLifetime);
+                note.UpdatedAt)));
 
-    /// <summary>The note a token seals, or null when it is not one this server sealed for this person here, or it has expired.</summary>
-    private static MemoryNote? Unseal(IDataProtectionProvider protection, SpaceAccess access, string? token, ILoggerFactory logs)
+    /// <summary>
+    /// The note a receipt seals, or null when it is not one this server sealed for this person here, or its time is
+    /// up. The time is sealed in with the note and read against the server's clock.
+    /// </summary>
+    private static MemoryNote? Unseal(IDataProtectionProvider protection, SpaceAccess access, string? token, TimeProvider time, ILoggerFactory logs)
     {
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -148,7 +180,7 @@ public static class MemoryEndpoints
         try
         {
             var sealedNote = JsonSerializer.Deserialize<SealedNote>(Protector(protection, access).Unprotect(token));
-            return sealedNote is { } note && note.SpaceId == access.SpaceId && note.AudienceUserId == access.UserId
+            return sealedNote is { } note && note.SpaceId == access.SpaceId && note.AudienceUserId == access.UserId && time.GetUtcNow() < note.Until
                 ? note.ToNote()
                 : null;
         }
@@ -160,9 +192,9 @@ public static class MemoryEndpoints
         }
     }
 
-    // The purpose names the person and the space, so a token sealed for one never opens for another.
-    private static ITimeLimitedDataProtector Protector(IDataProtectionProvider protection, SpaceAccess access) =>
-        protection.CreateProtector(UndoPurpose, access.SpaceId.ToString(), access.UserId.ToString()).ToTimeLimitedDataProtector();
+    // The purpose names the person and the space, so a receipt sealed for one never opens for another.
+    private static IDataProtector Protector(IDataProtectionProvider protection, SpaceAccess access) =>
+        protection.CreateProtector(UndoPurpose, access.SpaceId.ToString(), access.UserId.ToString());
 
     #endregion
 
@@ -184,6 +216,7 @@ public static class MemoryEndpoints
     #region Nested Types
 
     private sealed record SealedNote(
+        DateTimeOffset Until,
         Guid SpaceId,
         Guid AudienceUserId,
         Guid BotId,
