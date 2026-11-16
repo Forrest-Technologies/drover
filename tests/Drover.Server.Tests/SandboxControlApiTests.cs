@@ -37,6 +37,8 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
 
         var before = await Read<BotSandboxStatus>(await client.Get(sandbox), bodies);
         before.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: true, BotWorking: false, DesktopOffered: true));
+        (await client.Post($"{sandbox}/screen?wake=false")).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        provider.Ids.Should().BeEmpty("a refresh does not start a sandbox");
 
         var ran = await Read<SandboxCommandResponse>(await client.Post($"{sandbox}/commands", new SandboxCommandRequest("echo hi")), bodies);
         ran.Should().Match<SandboxCommandResponse>(result => result.ExitStatus == 0 && result.Stdout == "echo hi\n");
@@ -52,7 +54,10 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         provider.Commands.Last().Arguments.Should().Equal(DesktopCommands.Click(10, 20, MouseButton.Left, twice: false).Arguments);
 
         (await Read<BotSandboxStatus>(await client.Post($"{sandbox}/pause"), bodies)).State.Should().Be("paused");
+        (await client.Post($"{sandbox}/screen?wake=false")).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        provider.StateOf(provider.Ids.Single()).Should().Be(ProviderSandboxState.Paused);
         (await Read<BotSandboxStatus>(await client.Post($"{sandbox}/resume"), bodies)).State.Should().Be("running");
+        (await client.Post($"{sandbox}/screen?wake=false")).StatusCode.Should().Be(HttpStatusCode.OK);
         var first = provider.Ids.Single();
         (await Read<BotSandboxStatus>(await client.Post($"{sandbox}/rebuild"), bodies)).State.Should().Be("running");
         provider.StateOf(first).Should().Be(ProviderSandboxState.Gone);

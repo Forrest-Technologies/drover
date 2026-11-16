@@ -253,15 +253,17 @@ public sealed class SandboxBroker(
     /// run when the sandbox can reach the network; no redaction can reach into its pixels.
     /// </summary>
     public Task<SandboxScreenshot> Screenshot(BuiltinToolCall call, CancellationToken cancellationToken) =>
-        Screenshot(SandboxCaller.Of(call), cancellationToken);
+        Screenshot(SandboxCaller.Of(call), wake: true, cancellationToken);
 
     /// <summary>
-    /// A screenshot of the bot's sandbox screen, for a bot or a person. A paused sandbox is resumed and one that does
-    /// not exist yet is made, as on a bot's first use.
+    /// A screenshot of the bot's sandbox screen. A passive refresh only uses a running sandbox and leaves its idle
+    /// deadline and state alone.
     /// </summary>
-    public async Task<SandboxScreenshot> Screenshot(SandboxCaller caller, CancellationToken cancellationToken)
+    public async Task<SandboxScreenshot> Screenshot(SandboxCaller caller, bool wake, CancellationToken cancellationToken)
     {
-        var lease = await AcquireScreen(caller, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+        var lease = wake
+            ? await AcquireScreen(caller, create: true, cancellationToken) ?? throw MadeSandboxMissing()
+            : await FindRunningScreen(caller, cancellationToken);
         var path = $"/tmp/drover-screen-{Guid.NewGuid():N}.png";
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
         byte[] png;
@@ -284,7 +286,11 @@ public sealed class SandboxBroker(
         }
 
         var (width, height) = DesktopCommands.ReadPngSize(png) ?? throw new BuiltinToolException("The screenshot did not come out as a PNG image.");
-        await Finish(caller, lease, readsSandbox: true, cancellationToken);
+        if (wake)
+        {
+            await Finish(caller, lease, readsSandbox: true, cancellationToken);
+        }
+
         return new SandboxScreenshot(png, width, height, lease.NewSandbox);
     }
 
@@ -322,6 +328,32 @@ public sealed class SandboxBroker(
             return null;
         }
 
+        await EnsureDisplay(lease, cancellationToken);
+        return lease;
+    }
+
+    private async Task<SandboxLease> FindRunningScreen(SandboxCaller caller, CancellationToken cancellationToken)
+    {
+        if (await Locate(caller, null, create: false, cancellationToken) is not { Token: { } token, Row.State: SandboxState.Running } target
+            || target.Row.ExpiresAt <= time.GetUtcNow())
+        {
+            throw new BuiltinToolException("The sandbox is not running. Start or resume it to see the screen.");
+        }
+
+        if (!DesktopFor(target.Owner))
+        {
+            throw new BuiltinToolException("This bot's sandbox has no screen. A person can turn on Desktop in the bot's Sandbox settings.");
+        }
+
+        var idle = IdleFor(target.Owner);
+        var handle = new SandboxHandle(target.Row.ProviderSandboxId, target.SpaceId, target.Owner.Id, token);
+        var lease = new SandboxLease(target.Row.Id, handle, NetworkFor(target.Owner), idle, idle, NewSandbox: false);
+        await EnsureDisplay(lease, cancellationToken);
+        return lease;
+    }
+
+    private async Task EnsureDisplay(SandboxLease lease, CancellationToken cancellationToken)
+    {
         if (await RunQuietly(lease, DesktopCommands.StartDisplay(), cancellationToken) is not 0 and var exitCode)
         {
             // 3: the display never answered. 4: no desktop session came up. -1: the start ran out of time.
@@ -329,8 +361,6 @@ public sealed class SandboxBroker(
             throw new BuiltinToolException(
                 "The sandbox's screen did not start. Try again in a moment; if it keeps failing, rebuild the sandbox to get a new one.");
         }
-
-        return lease;
     }
 
     private async Task RunOnScreen(SandboxLease lease, CommandRequest command, string doing, CancellationToken cancellationToken)
