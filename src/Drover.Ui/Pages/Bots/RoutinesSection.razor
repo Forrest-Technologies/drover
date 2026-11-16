@@ -20,7 +20,8 @@ else
                     <RoutineRow Routine="RoutineWords.Item(schedule, BotName)" BotName="@BotName" BotPaused="BotPaused" CanChange="CanChange"
                                 CanRewrite="schedule.OwnerUserId == Session.Current?.UserId" Busy="busy"
                                 Problem="@rowProblems.GetValueOrDefault(schedule.Id)" StartedHref="@started.GetValueOrDefault(schedule.Id)"
-                                OnEnabledChanged="value => TurnOn(schedule, value)" OnRunOnce="() => RunOnce(schedule)"
+                                FocusStarted="schedule.Id == focusStarted"
+                                OnEnabledChanged="value => TurnOn(schedule, value)" OnRunOnce="() => AskToRunOnce(schedule)"
                                 OnChange="() => Edit(schedule)" OnRemove="() => AskToRemove(schedule)" />
                 </li>
             }
@@ -62,6 +63,20 @@ else
             <Button OnClick="Add"><Icon Name="IconName.Plus" />Add a routine</Button>
         </div>
     }
+
+    <Dialog Title="Run someone else's routine once, as you" Open="confirmingRun" OpenChanged="open => confirmingRun = open">
+        <ChildContent>
+            @if (running is { } shown)
+            {
+                <p>@RoutineWords.Sentence(shown.Cron, shown.TimeZone). @BotName is sent this, in a conversation of yours:</p>
+                <p class="dv-routine-run-prompt">@shown.Prompt</p>
+            }
+        </ChildContent>
+        <Actions>
+            <Button OnClick="() => confirmingRun = false">Do not run it</Button>
+            <Button Kind="ButtonKind.Primary" OnClick="RunConfirmed" Disabled="busy">Run it once now</Button>
+        </Actions>
+    </Dialog>
 
     <Dialog Title="Remove this routine" Open="confirming" OpenChanged="open => confirming = open">
         <ChildContent>
@@ -124,6 +139,12 @@ else
     private string? announcement;
 
     private bool confirming;
+
+    private bool confirmingRun;
+
+    private BotScheduleResponse? running;
+
+    private Guid? focusStarted;
 
     private BotScheduleResponse? removing;
 
@@ -287,6 +308,36 @@ else
             }) is { } problem)
         {
             rowProblems[schedule.Id] = problem;
+        }
+    }
+
+    /// <summary>
+    /// The owner runs their own routine at once. Anyone else first reads the whole prompt they are about to send as
+    /// their own message, since they did not write it.
+    /// </summary>
+    private Task AskToRunOnce(BotScheduleResponse schedule)
+    {
+        if (schedule.OwnerUserId == Session.Current?.UserId)
+        {
+            return RunOnce(schedule);
+        }
+
+        (running, confirmingRun) = (schedule, true);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunConfirmed()
+    {
+        confirmingRun = false;
+
+        if (running is { } schedule)
+        {
+            running = null;
+            await RunOnce(schedule);
+
+            // The dialog hands focus back to "Run once now", which is disabled while the run is asked for, so it
+            // goes to the link that took its place instead.
+            focusStarted = schedule.Id;
         }
     }
 

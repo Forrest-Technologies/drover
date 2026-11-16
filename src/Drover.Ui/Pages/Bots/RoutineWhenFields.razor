@@ -87,7 +87,7 @@
         (null, _) => "That number is out of range.",
         ({ } cron, { Length: > 0 }) when RoutineWords.Describe(cron) is null => $"The expression {cron} cannot be saved as it is.",
         ({ } cron, _) when RoutineWords.Describe(cron) is null && Next is { Count: > 0 } next =>
-            $"Runs on the expression {cron}, {RoutineWords.Zone(TimeZone)}. Next: {string.Join("; ", next.Select(ScheduleWords.Moment))}.",
+            $"Runs on the expression {cron}, {RoutineWords.Zone(TimeZone)}. Next: {string.Join("; ", next.Select(time => RoutineWords.Moment(time, TimeZone)))}.",
         ({ } cron, _) when RoutineWords.Describe(cron) is null => $"Runs on the expression {cron}, {RoutineWords.Zone(TimeZone)}. Checking it.",
         ({ } cron, _) => $"Reads as: {RoutineWords.Sentence(cron, TimeZone)}.",
     };

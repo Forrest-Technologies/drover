@@ -31,6 +31,10 @@
   overflow-wrap: anywhere;
 }
 
+.dv-routine-prompt-whole {
+  white-space: pre-wrap;
+}
+
 .dv-routine-facts {
   display: flex;
   flex-direction: column;

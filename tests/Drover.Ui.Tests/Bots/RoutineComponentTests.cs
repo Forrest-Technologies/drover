@@ -85,6 +85,31 @@ public sealed class RoutineComponentTests : BunitContext
     }
 
     [Fact]
+    public async Task Someone_who_did_not_write_a_routine_can_read_its_whole_prompt_and_its_times_are_in_its_zone()
+    {
+        var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.\nThen send it to everyone.", "0 8 * * *", "Asia/Tokyo", true, start, null);
+        var row = Render<RoutineRow>(set => set
+            .Add(view => view.Routine, routine)
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.CanRewrite, false));
+        var toggle = row.FindAll("button").Single(button => button.TextContent.Trim() == "Read the whole prompt");
+
+        row.Find(".dv-routine-prompt").TextContent.Should().Be("Write the brief.");
+        toggle.GetAttribute("aria-expanded").Should().Be("false");
+        toggle.GetAttribute("aria-controls").Should().Be(row.Find(".dv-routine-prompt").Id);
+        row.Find(".dv-routine-facts").TextContent.Should().Contain($"Runs {RoutineWords.Moment(start, "Asia/Tokyo")}");
+
+        await toggle.ClickAsync(new());
+
+        row.Find(".dv-routine-prompt").TextContent.Should().Be("Write the brief.\nThen send it to everyone.");
+        row.FindAll("button").Single(button => button.TextContent.Trim() == "Read the whole prompt").GetAttribute("aria-expanded").Should().Be("true");
+
+        row.Render(set => set.Add(view => view.CanRewrite, true));
+
+        row.FindAll("button").Should().NotContain(button => button.TextContent.Trim() == "Read the whole prompt", "the owner reads the whole prompt by changing it");
+    }
+
+    [Fact]
     public void A_routine_run_once_links_to_its_conversation_and_a_refusal_is_said_in_the_row()
     {
         var routine = new RoutineItem(Guid.NewGuid(), "Write the brief.", "0 8 * * *", "UTC", true, start, null);
@@ -111,7 +136,7 @@ public sealed class RoutineComponentTests : BunitContext
         fields.Render(set => set.Add(view => view.Next, next));
 
         fields.Find(".dv-when-reads").TextContent.Should().Be(
-            $"Runs on the expression */20 9-17 * * 1-5, UTC. Next: {ScheduleWords.Moment(next[0])}; {ScheduleWords.Moment(next[1])}.");
+            $"Runs on the expression */20 9-17 * * 1-5, UTC. Next: {RoutineWords.Moment(next[0], "UTC")}; {RoutineWords.Moment(next[1], "UTC")}.");
         fields.Find("[role=alert]").TextContent.Trim().Should().BeEmpty();
 
         const string Refusal = "Schedules on this server run at most once every 60 minutes. Choose a time that repeats less often.";

@@ -405,3 +405,12 @@
     min-height: var(--dv-target-touch);
   }
 }
+
+/* The whole prompt a person is about to send as their own, shown as it is written. */
+.dv-editor ::deep .dv-routine-run-prompt {
+  margin: 0;
+  padding: var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

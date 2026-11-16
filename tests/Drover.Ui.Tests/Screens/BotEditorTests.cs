@@ -540,6 +540,30 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task Running_another_persons_routine_once_shows_its_whole_prompt_first()
+    {
+        var theirs = Routine(enabled: true) with
+        {
+            OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1"),
+            Prompt = "Sample prompt.\nSecond line of the sample.",
+        };
+        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Answer("POST", $"{bot}/schedules/{theirs.Id}/run-once", new ScheduleRunOnceResponse(Guid.CreateVersion7(), Guid.CreateVersion7()), HttpStatusCode.Accepted);
+        var page = RenderEditor("Routines, 1 routine");
+        await Open(page, 4);
+
+        await page.FindAll(".dv-routine-actions button").Single(button => button.TextContent.Trim() == "Run once now").ClickAsync(new MouseEventArgs());
+
+        Server.Sent("POST", $"{bot}/schedules/{theirs.Id}/run-once").Should().BeEmpty("someone who did not write it reads it first");
+        page.Find(".dv-routine-run-prompt").TextContent.Should().Be("Sample prompt.\nSecond line of the sample.");
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Run it once now").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Sent("POST", $"{bot}/schedules/{theirs.Id}/run-once").Should().ContainSingle());
+        page.WaitForAssertion(() => page.Find(".dv-routine-started a").TextContent.Should().Be("Open the conversation it started"));
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>("focus moves to the link that took the disabled button's place");
+    }
+
+    [Fact]
     public async Task Removing_a_routine_asks_first()
     {
         var routine = Routine(enabled: true);

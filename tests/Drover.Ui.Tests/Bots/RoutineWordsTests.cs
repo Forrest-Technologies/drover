@@ -157,7 +157,7 @@ public sealed class RoutineWordsTests
     [InlineData("running", null, true, "Started Mon 5 Jan, 08:00 and is still under way")]
     [InlineData("waiting", null, true, "Started Mon 5 Jan, 08:00 and waits for an answer in its conversation")]
     [InlineData("waiting_for_reply", null, false, "Sent Mon 5 Jan, 08:00, and waits for the reply under way in its conversation")]
-    [InlineData("started", null, false, "Ran Mon 5 Jan, 08:00, in the private conversation of the person who made it")]
+    [InlineData("started", null, false, "Started Mon 5 Jan, 08:00, in the private conversation of the person who made it")]
     [InlineData("bot_paused", null, false, "Did not run Mon 5 Jan, 08:00: Sample bot was paused")]
     [InlineData("owner_left", null, false, "Did not run Mon 5 Jan, 08:00: the person who made it left the space, so it was turned off")]
     public void A_last_run_from_the_server_is_said_in_words_and_links_only_to_a_conversation_the_server_gave(
@@ -174,12 +174,50 @@ public sealed class RoutineWordsTests
         last.ConversationHref.Should().Be(linked ? $"/threads/{threadId}" : null);
     }
 
+    [Theory]
+    [InlineData("Europe/Berlin", "Mon 5 Jan, 09:00")]
+    [InlineData("America/New_York", "Mon 5 Jan, 03:00")]
+    [InlineData("Asia/Tokyo", "Mon 5 Jan, 17:00")]
+    [InlineData("Not/AZone", "Mon 5 Jan, 08:00 UTC")]
+    public void A_routines_times_are_said_in_its_own_time_zone_so_they_agree_with_its_sentence(string zone, string words)
+    {
+        using var culture = new CultureScope(CultureInfo.InvariantCulture);
+
+        RoutineWords.Moment(start, zone).Should().Be(words);
+    }
+
     [Fact]
     public void A_routine_that_has_not_been_due_has_no_last_run()
     {
         var schedule = new BotScheduleResponse(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "0 8 * * *", "UTC", "Sample", "new_thread", true, start);
 
         RoutineWords.Item(schedule, "Sample bot").LastRun.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    /// <summary>Sets the current culture for one test and puts the old one back.</summary>
+    private sealed class CultureScope : IDisposable
+    {
+        #region Private Fields
+
+        private readonly CultureInfo before = CultureInfo.CurrentCulture;
+
+        #endregion
+
+        #region Constructors
+
+        public CultureScope(CultureInfo culture) => CultureInfo.CurrentCulture = culture;
+
+        #endregion
+
+        #region Interface Implementations
+
+        public void Dispose() => CultureInfo.CurrentCulture = before;
+
+        #endregion
     }
 
     #endregion

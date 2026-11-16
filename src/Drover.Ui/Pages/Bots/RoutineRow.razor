@@ -8,7 +8,21 @@
             <code class="dv-routine-cron dv-mono">@Routine.Cron</code>
         }
     </div>
-    <p class="dv-routine-prompt">@RoutineWords.FirstLine(Routine.Prompt)</p>
+    @if (wholePrompt)
+    {
+        <p class="dv-routine-prompt dv-routine-prompt-whole" id="@promptId">@Routine.Prompt</p>
+    }
+    else
+    {
+        <p class="dv-routine-prompt" id="@promptId">@RoutineWords.FirstLine(Routine.Prompt)</p>
+    }
+    @if (!CanRewrite && RoutineWords.FirstLine(Routine.Prompt) != Routine.Prompt.Trim())
+    {
+        <div>
+            <Button OnClick="() => wholePrompt = !wholePrompt" aria-expanded="@(wholePrompt ? "true" : "false")"
+                    aria-controls="@promptId" aria-describedby="@titleId">Read the whole prompt</Button>
+        </div>
+    }
     <dl class="dv-routine-facts">
         <div class="dv-routine-fact">
             <dt>Next</dt>
@@ -27,7 +41,7 @@
     </dl>
     @if (StartedHref is { } started)
     {
-        <p class="dv-routine-started">Started once now, as you. <a class="dv-routine-link" href="@started">Open the conversation it started</a></p>
+        <p class="dv-routine-started">Started once now, as you. <a class="dv-routine-link" href="@started" @ref="startedLink">Open the conversation it started</a></p>
     }
     @if (CanChange)
     {
@@ -52,6 +66,14 @@
     #region Private Fields
 
     private string titleId = string.Empty;
+
+    private string promptId = string.Empty;
+
+    private bool wholePrompt;
+
+    private ElementReference startedLink;
+
+    private string? focusedStarted;
 
     #endregion
 
@@ -86,6 +108,10 @@
     [Parameter]
     public string? StartedHref { get; set; }
 
+    /// <summary>Moves focus to the link to that conversation once it appears, for a run started from a dialog.</summary>
+    [Parameter]
+    public bool FocusStarted { get; set; }
+
     /// <summary>What the server said when it refused this row's last action, as a sentence.</summary>
     [Parameter]
     public string? Problem { get; set; }
@@ -106,20 +132,30 @@
     {
         (false, _, _) => "Off. It does not run until it is turned on.",
         (_, true, _) => $"Does not run while {BotName} is paused.",
-        (_, _, { } next) => $"Runs {ScheduleWords.Moment(next)}",
+        (_, _, { } next) => $"Runs {RoutineWords.Moment(next, Routine.TimeZone)}",
         _ => "Drover has not worked out the next time yet.",
     };
 
     private string Sentence => RoutineWords.Sentence(Routine.Cron, Routine.TimeZone);
 
     private string Last =>
-        RoutineWords.Outcome(Routine.LastRun, Routine.LastRun is { } last ? ScheduleWords.Moment(last.When) : string.Empty);
+        RoutineWords.Outcome(Routine.LastRun, Routine.LastRun is { } last ? RoutineWords.Moment(last.When, Routine.TimeZone) : string.Empty);
 
     #endregion
 
     #region Private Methods
 
-    protected override void OnParametersSet() => titleId = $"dv-routine-{Routine.Id:N}";
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (FocusStarted && StartedHref is { } started && started != focusedStarted)
+        {
+            focusedStarted = started;
+            await startedLink.FocusAsync();
+        }
+    }
+
+    protected override void OnParametersSet() =>
+        (titleId, promptId) = ($"dv-routine-{Routine.Id:N}", $"dv-routine-prompt-{Routine.Id:N}");
 
     #endregion
 }

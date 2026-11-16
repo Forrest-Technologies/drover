@@ -191,12 +191,21 @@ public static class RoutineWords
         { Outcome: RoutineOutcome.WaitingForPerson } => $"Started {moment} and waits for an answer in its conversation",
         { Outcome: RoutineOutcome.Stopped } => $"Started {moment} and was stopped before it finished",
         { Outcome: RoutineOutcome.WaitingForReply } => $"Sent {moment}, and waits for the reply under way in its conversation",
-        { Outcome: RoutineOutcome.Private } => $"Ran {moment}, in the private conversation of the person who made it",
+        { Outcome: RoutineOutcome.Private } => $"Started {moment}, in the private conversation of the person who made it",
         { Outcome: RoutineOutcome.Failed, Reason: { Length: > 0 } reason } => $"Failed {moment}: {reason}",
         { Outcome: RoutineOutcome.Failed } => $"Failed {moment}",
         { Reason: { Length: > 0 } reason } => $"Did not run {moment}: {reason}",
         _ => $"Did not run {moment}",
     };
+
+    /// <summary>
+    /// A moment in a routine's own time zone, short enough for one line, so it agrees with the routine's sentence,
+    /// which names that zone. A zone this device does not know gives the time in UTC, saying so.
+    /// </summary>
+    public static string Moment(DateTimeOffset moment, string timeZone) =>
+        TimeZoneInfo.TryFindSystemTimeZoneById(timeZone.Trim(), out var zone)
+            ? TimeZoneInfo.ConvertTime(moment, zone).ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture)
+            : $"{moment.ToUniversalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture)} UTC";
 
     /// <summary>The closed section's one line: "No routines", "1 routine", "3 routines, 1 off".</summary>
     public static string Summary(IReadOnlyCollection<RoutineItem> routines)
