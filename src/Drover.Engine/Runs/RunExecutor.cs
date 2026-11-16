@@ -578,7 +578,9 @@ public sealed partial class RunExecutor(
                 case ToolCallRequested requested:
                     await session.RequestTool(requested.CallId, requested.ToolName, requested.Arguments);
                     break;
-                case ToolCallFinished finished:
+                // A result the framework made from a stale session for a call that is to be asked again is not the
+                // call's end: the call runs again, and its own result ends it.
+                case ToolCallFinished finished when !session.AwaitsRerun(finished.CallId):
                     await session.CompleteTool(finished.CallId, new ToolOutcome(finished.Result, finished.IsError));
                     break;
                 case ApprovalRequested approval:

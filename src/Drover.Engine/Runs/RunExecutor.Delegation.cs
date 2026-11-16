@@ -87,6 +87,10 @@ public sealed partial class RunExecutor
 
         var runs = services.GetRequiredService<RunRepository>();
 
+        // The root row is locked before anything about the tree is counted, so two delegations in one tree take turns
+        // and cannot both fit under a limit only one of them fits under.
+        await runs.GetRunForUpdate(parent.RootRunId, cancellationToken);
+
         // Down the tree only, so a loop cannot happen while the tree stands still. The run's own ancestors are the
         // guard for a tree that changed while the chain was working.
         if ((await runs.ListSelfAndAncestors(parent.RunId, cancellationToken)).Any(run => run.BotId == target.Id))
@@ -137,7 +141,7 @@ public sealed partial class RunExecutor
             OwnerUserId = rootThread.OwnerUserId,
             AudienceUserId = rootThread.AudienceUserId,
             Origin = ThreadOrigin.Delegation,
-            Title = ThreadService.Shorten(request.Task),
+            Title = ThreadService.Shorten(parent.Redactor.Redact(request.Task)),
             LastActivityAt = now,
         };
         threads.Add(thread);
@@ -160,7 +164,7 @@ public sealed partial class RunExecutor
             Role = MessageRole.User,
             AuthorBotId = parent.BotId,
             RunId = child.Id,
-            Parts = [new TextPart(request.Task)],
+            Parts = [new TextPart(parent.Redactor.Redact(request.Task))],
             CreatedAt = now,
         };
         child.TriggerMessageId = task.Id;
@@ -251,11 +255,15 @@ public sealed partial class RunExecutor
     private static async Task<ChildRunReport> ReadReport(IServiceProvider services, Guid childRunId, CancellationToken cancellationToken)
     {
         var child = await services.GetRequiredService<RunRepository>().FindRun(childRunId, cancellationToken);
+        return await ReadOutcome(services, child, cancellationToken) with { Tainted = child?.Tainted ?? false };
+    }
 
+    private static async Task<ChildRunReport> ReadOutcome(IServiceProvider services, Run? child, CancellationToken cancellationToken)
+    {
         switch (child?.Status)
         {
             case RunStatus.Completed:
-                var messages = await services.GetRequiredService<MessageRepository>().ListMessages(child.ThreadId, cancellationToken);
+                var messages = await services.GetRequiredService<MessageRepository>().ListMessages(child!.ThreadId, cancellationToken);
                 var answer = messages.LastOrDefault(message => message.Role is MessageRole.Assistant && message.RunId == child.Id);
                 return new ChildRunReport(ChildRunOutcome.Completed, answer is null ? null : string.Concat(answer.Parts.OfType<TextPart>().Select(part => part.Text)));
             case RunStatus.Waiting:

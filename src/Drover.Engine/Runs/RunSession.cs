@@ -393,6 +393,9 @@ public sealed class RunSession(
 
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
 
+    /// <summary>A cut-off call that is to be asked again and has not started again in this execution yet.</summary>
+    public bool AwaitsRerun(string callId) => IsRerun(callId) && Call(callId).StartedAt is null;
+
     /// <summary>A call the log already holds <c>tool.requested</c> for, from an earlier execution.</summary>
     /// <summary>Counts a call the model has written, before anything else is known about it.</summary>
     public void NoteCall(string callId) => Call(callId);

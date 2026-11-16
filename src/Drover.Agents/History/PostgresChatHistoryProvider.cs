@@ -54,9 +54,13 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             async services =>
             {
                 var repository = services.GetRequiredService<MessageRepository>();
+                var toolCalls = services.GetRequiredService<ToolCallRepository>();
                 var reconciled = await ledger.PreferRows(
-                    WithoutSecondResults([.. context.RequestMessages], await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken)),
-                    services.GetRequiredService<ToolCallRepository>(),
+                    await WithoutResultsForCallsToRunAgain(
+                        WithoutSecondResults([.. context.RequestMessages], await repository.ListAnsweredCalls(run.Thread.Id, cancellationToken)),
+                        toolCalls,
+                        cancellationToken),
+                    toolCalls,
                     cancellationToken);
                 var (messages, rerun) = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
                 var waiting = await ListSteering(services.GetRequiredService<MessageRepository>(), cancellationToken);
@@ -215,6 +219,51 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                 .. message.Contents.Where(content => content is not FunctionResultContent result
                     || !answered.Contains(ToolCallIds.For(run.Execution.RunId, result.CallId))),
             ];
+
+            if (contents.Count == message.Contents.Count)
+            {
+                kept.Add(message);
+            }
+            else if (contents.Count > 0)
+            {
+                var copy = message.Clone();
+                copy.Contents = contents;
+                kept.Add(copy);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// The messages without a framework-made result for a call that is to be asked again. A run that stopped while
+    /// such a call was under way (a delegation whose child waits for a person, or a cut-off read-only call) saved no
+    /// session at the stop, so the session it resumes from may still hold the call's approval request, which the
+    /// framework then answers as rejected. The call's row says it is still running, so the call is left unanswered
+    /// here and asked again below, through the governor, like any cut-off call.
+    /// </summary>
+    private async Task<List<ChatMessage>> WithoutResultsForCallsToRunAgain(List<ChatMessage> messages, ToolCallRepository calls, CancellationToken cancellationToken)
+    {
+        HashSet<string> again = [];
+
+        foreach (var result in messages.SelectMany(message => message.Contents.OfType<FunctionResultContent>()))
+        {
+            if (FindToolToRunAgain(await calls.GetToolCall(ToolCallIds.For(run.Execution.RunId, result.CallId), cancellationToken)) is not null)
+            {
+                again.Add(result.CallId);
+            }
+        }
+
+        if (again.Count == 0)
+        {
+            return messages;
+        }
+
+        List<ChatMessage> kept = [];
+
+        foreach (var message in messages)
+        {
+            List<AIContent> contents = [.. message.Contents.Where(content => content is not FunctionResultContent result || !again.Contains(result.CallId))];
 
             if (contents.Count == message.Contents.Count)
             {

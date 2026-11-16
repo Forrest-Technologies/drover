@@ -23,6 +23,11 @@ public sealed class RunGovernor(
         await session.AnnounceStoredMessage();
         var decision = await DecideNow(toolCall, cancellationToken);
 
+        if (decision.Verdict is ToolGateVerdict.Ask && session.IsRerun(toolCall.CallId) && await ResumesWithoutAsking(toolCall, cancellationToken))
+        {
+            decision = ToolGateDecision.Run with { Arguments = decision.Arguments };
+        }
+
         if (decision.Verdict is ToolGateVerdict.Refuse)
         {
             session.MarkRefused(toolCall.CallId);
@@ -98,6 +103,14 @@ public sealed class RunGovernor(
         }
 
         var callId = children.CallOf(child);
+
+        // What a tainted child hands back carries the untrusted text it read. This run is tainted with it before
+        // anything else, so its own consequential tools ask from its next model call on, whatever the child came to.
+        if (report.Tainted)
+        {
+            await session.Taint();
+        }
+
         await StopWithChild(child, report, callId);
         var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
         var request = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = DelegateTool.Name, ToolId = tool?.Tool.Id, Arguments = default };
@@ -467,6 +480,21 @@ public sealed class RunGovernor(
     #endregion
 
     #region Delegation
+
+    /// <summary>
+    /// A call cut off by a restart or a wait is asked again, and asking again must not undo what was decided: a call a
+    /// person approved goes on without asking twice, and so does a delegation whose child run has begun, which goes on
+    /// as the same child. A grant that no longer allows the call still refuses it; only asking is not repeated.
+    /// </summary>
+    private async Task<bool> ResumesWithoutAsking(ToolCallRequest toolCall, CancellationToken cancellationToken)
+    {
+        var row = await session.Tenant.Transact(
+            services => services.GetRequiredService<ToolCallRepository>().GetToolCall(ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken),
+            cancellationToken);
+        var approved = row is { DecidedByUserId: not null, Status: not (ToolCallStatus.Denied or ToolCallStatus.PendingApproval) };
+        var childBegun = row is { ChildRunId: not null } && toolCall.ToolId is { } toolId && session.FindTool(toolId) is { IsDelegation: true };
+        return approved || childBegun;
+    }
 
     /// <summary>Throws when this run must stop with its child: the child waits for a person, or this run was stopped.</summary>
     private async Task StopWithChild(ChildRun child, ChildRunReport report, string callId)
