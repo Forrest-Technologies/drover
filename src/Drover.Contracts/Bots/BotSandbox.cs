@@ -6,7 +6,9 @@ namespace Drover.Contracts.Bots;
 /// <c>none</c> (not made yet, or turned off), <c>starting</c>, <c>running</c>, <c>paused</c>, or <c>replacing</c>
 /// (an old one is still being taken down). <see cref="Desktop"/> is whether it has a screen,
 /// <see cref="BotWorking"/> whether a run of this bot is working right now, and <see cref="DesktopOffered"/> whether
-/// this server offers sandboxes with a screen at all, so a sandbox without one can say why. Never a provider id, a
+/// this server offers sandboxes with a screen at all, so a sandbox without one can say why. <see cref="StartFailed"/>
+/// is set with <c>none</c> when the bot's newest sandbox was given up before the provider ever made it, so "no
+/// sandbox yet" is not shown for a bot that tried to get one. Never a provider id, a
 /// token, or which provider it is.
 /// </summary>
 public sealed record BotSandboxStatus(
@@ -16,7 +18,8 @@ public sealed record BotSandboxStatus(
     DateTimeOffset? LastUsedAt,
     bool Desktop,
     bool BotWorking,
-    bool DesktopOffered);
+    bool DesktopOffered,
+    bool StartFailed = false);
 
 
 /// <summary>

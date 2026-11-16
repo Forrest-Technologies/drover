@@ -127,6 +127,7 @@ public sealed partial class SandboxScreen(
 
     private string? ScreenNote => waking ? null : Status.State switch
     {
+        "none" when Status.StartFailed => "The last start of this sandbox did not finish. Start it here to see why.",
         "none" => "No sandbox yet. It starts when the bot first uses it.",
         "paused" => "The sandbox is paused and its files are kept. Resume it to see the screen.",
         "replacing" => "The old sandbox is being taken down. A new one starts on its next use.",

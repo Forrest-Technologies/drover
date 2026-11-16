@@ -26,6 +26,9 @@ public static class SandboxWords
 
     #region Public Methods
 
+    /// <summary>The state for the badge. A bot whose last start did not finish has no sandbox, but not "yet".</summary>
+    public static string State(BotSandboxStatus status) => status is { State: "none", StartFailed: true } ? "Start did not finish" : State(status.State);
+
     public static string State(string state) => state switch
     {
         "starting" => "Starting",
@@ -75,7 +78,7 @@ public static class SandboxWords
 
     /// <summary>The line the bot editor's Sandbox section shows: the state and the last use.</summary>
     public static string Summary(BotSandboxStatus status, DateTimeOffset now) =>
-        status.State is "none" ? State(status.State) : $"{State(status.State)} · {LastUsed(status.LastUsedAt, now).ToLowerInvariant()}";
+        status.State is "none" ? State(status) : $"{State(status.State)} · {LastUsed(status.LastUsedAt, now).ToLowerInvariant()}";
 
     /// <summary>How a command ended, in one line: its exit code, or that it was stopped, and what else is worth saying.</summary>
     public static string Outcome(SandboxCommandResponse result)

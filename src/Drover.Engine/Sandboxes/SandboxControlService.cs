@@ -367,6 +367,11 @@ public sealed class SandboxControlService(
         var sandboxes = services.GetRequiredService<SandboxRepository>();
         var live = await sandboxes.FindLiveForOwner(ownerId, cancellationToken);
         var replacing = await sandboxes.HasRetiringForOwner(ownerId, cancellationToken);
+
+        // A row given up before the provider made it holds no provider id: a start that failed, cleared by the sweep.
+        var startFailed = live is null
+            && !replacing
+            && await sandboxes.FindNewestForOwner(ownerId, cancellationToken) is { ProviderSandboxId.Length: 0, State: SandboxState.Destroyed };
         var working = await services.GetRequiredService<RunRepository>().IsBotWorking(bot.Id, cancellationToken);
 
         return new BotSandboxStatus(
@@ -376,7 +381,8 @@ public sealed class SandboxControlService(
             live?.LastUsedAt,
             owner.SandboxSettings.Desktop && offered,
             working,
-            offered);
+            offered,
+            startFailed);
     }
 
     /// <summary>
