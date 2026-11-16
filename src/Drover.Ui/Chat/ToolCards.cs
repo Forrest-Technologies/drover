@@ -59,6 +59,16 @@ public static partial class ToolCards
         var command = toolName == "sandbox.run" && ParsedOrNull(resultText) is { ValueKind: JsonValueKind.Object } parsed
             ? parsed
             : (JsonElement?)null;
+        var exitCode = ExitCodeIn(resultText);
+        var commandError = command is { } finished && finished.TryGetProperty("error", out var error)
+            && error.ValueKind is JsonValueKind.String ? error.GetString() : null;
+
+        if (phase is ToolPhase.Done && toolName == "sandbox.run"
+            && (exitCode is not (null or 0) || !string.IsNullOrWhiteSpace(commandError)))
+        {
+            phase = ToolPhase.Failed;
+        }
+
         var card = new ToolCard(
             call.ToolCallId,
             phase,
@@ -68,11 +78,10 @@ public static partial class ToolCards
             Pretty(arguments),
             CoversAll(arguments, summary),
             resultText.Length == 0 ? null : resultText,
-            ExitCodeIn(resultText),
+            exitCode,
             call.Pieces.Count == 0 && command is { } returned ? CommandOutput(returned) : call.Pieces)
         {
-            CommandError = command is { } finished && finished.TryGetProperty("error", out var error)
-                && error.ValueKind is JsonValueKind.String ? error.GetString() : null,
+            CommandError = commandError,
             Facts = FactsOf(toolName, arguments, call.Details),
         };
 
