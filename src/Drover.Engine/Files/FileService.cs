@@ -36,6 +36,9 @@ public sealed class FileService(
 
     private const int MaxNameLength = 200;
 
+    /// <summary>The most files a list of files exchanged with a bot holds: the newest ones.</summary>
+    public const int MaxExchangedFiles = 200;
+
     #endregion
 
     #region Properties
@@ -148,6 +151,15 @@ public sealed class FileService(
 
         return upload;
     }
+
+    /// <summary>
+    /// The files the person and the bot exchanged in the person's conversations with it, newest first. Null when the
+    /// caller cannot see the bot. Runs in the scope the endpoint filter opened.
+    /// </summary>
+    public async Task<IReadOnlyList<ExchangedFile>?> ListExchanged(Guid botId, Guid userId, CancellationToken cancellationToken) =>
+        await bots.FindBot(botId, cancellationToken) is null
+            ? null
+            : await files.ListExchangedFiles(botId, userId, MaxExchangedFiles, cancellationToken);
 
     /// <summary>The file and its content, when the caller can see the file's row. The scope is closed before the content is read.</summary>
     public async Task<FileDownload?> Open(Guid fileId, CancellationToken cancellationToken)

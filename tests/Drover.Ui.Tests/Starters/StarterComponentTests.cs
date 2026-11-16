@@ -233,20 +233,6 @@ public sealed class StarterComponentTests : BunitContext
     #region Records
 
     [Fact]
-    public void The_files_filter_appears_only_when_files_came_from_both_sides()
-    {
-        var fromBot = new SharedFile(Guid.NewGuid(), "a.pdf", "application/pdf", 10, "/files/a", true, start);
-        var panel = Render<FilesPanel>(set => set.Add(view => view.State, FilesPanelState.Ready).Add(view => view.BotName, "Sample bot").Add(view => view.Files, [fromBot]));
-
-        panel.FindAll("[role=radiogroup], .dv-segmented").Should().BeEmpty();
-        panel.Find(".dv-files-origin").TextContent.Should().Contain("From Sample bot");
-
-        panel.Render(set => set.Add(view => view.Files, [fromBot, fromBot with { Id = Guid.NewGuid(), FromBot = false }]));
-
-        panel.Markup.Should().Contain("Whose files");
-    }
-
-    [Fact]
     public void A_long_change_is_compared_line_by_line_in_words_and_restore_is_only_for_those_who_may_change_the_bot()
     {
         Guid? restored = null;

@@ -15,7 +15,7 @@
         {
             if (message.FromPerson)
             {
-                <article @key="message.Key" class="dv-message dv-message-person" aria-label="@(message.SentBy ?? "You said")">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@MomentTabIndex(message)" class="dv-message dv-message-person" aria-label="@(message.SentBy ?? "You said")">
                     @if (message.Text.Length > 0)
                     {
                         <p class="dv-message-bubble dv-facet">@message.Text</p>
@@ -24,15 +24,7 @@
                     {
                         <p class="dv-message-sent-by">@sentBy</p>
                     }
-                    @if (message.Files.Count > 0)
-                    {
-                        <div class="dv-message-files">
-                            @foreach (var file in message.Files)
-                            {
-                                <FileCard @key="file.Id" File="file" />
-                            }
-                        </div>
-                    }
+                    @FilesOf(message)
                     @if (message.Pending)
                     {
                         <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
@@ -41,16 +33,17 @@
             }
             else if (message.Text.Length == 0)
             {
-                <article @key="message.Key" class="dv-message dv-message-tools" aria-label="What @BotName did">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@MomentTabIndex(message)" class="dv-message dv-message-tools" aria-label="What @BotName did">
                     @foreach (var tool in message.Tools)
                     {
                         <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
                     }
+                    @FilesOf(message)
                 </article>
             }
             else
             {
-                <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@MomentTabIndex(message)" class="dv-message dv-message-bot" aria-label="@BotName said">
                     <div class="dv-message-head dv-facet @(message.Streaming ? "dv-message-head-live" : null)">
                         <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
                     </div>
@@ -67,6 +60,7 @@
                         {
                             <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
                         }
+                        @FilesOf(message)
                     </div>
                 </article>
             }
@@ -113,6 +107,8 @@
 
     private Guid? announcedFailure;
 
+    private Guid? shownMoment;
+
     #endregion
 
     #region Properties
@@ -154,6 +150,14 @@
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
+    /// <summary>Reads a text file's whole content for "Show all".</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    /// <summary>The message the address points at, brought into view and focused once it is on the page.</summary>
+    [Parameter]
+    public Guid? Moment { get; set; }
+
     #endregion
 
     #region Public Methods
@@ -177,6 +181,9 @@
         }
     }
 
+    /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
+    public static string Anchor(Guid messageId) => $"message-{messageId}";
+
     public async ValueTask DisposeAsync()
     {
         if (module is not null)
@@ -189,6 +196,53 @@
     #endregion
 
     #region Private Methods
+
+    private static string Anchor(ChatMessage message) => $"message-{message.Key}";
+
+    // The message a moment link names can take focus, so the person lands on it; no other message is a stop.
+    private string? MomentTabIndex(ChatMessage message) => Moment is { } moment && message.Key == moment.ToString() ? "-1" : null;
+
+    private RenderFragment FilesOf(ChatMessage message) =>
+        @<text>
+            @if (message.Files.Count > 0)
+            {
+                <div class="dv-message-files">
+                    @foreach (var file in message.Files)
+                    {
+                        <FileCard @key="file.Id" File="file" ReadWhole="ReadWhole" />
+                    }
+                </div>
+            }
+        </text>;
+
+    // A moment is shown once, when its message has arrived on the page.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // A link followed again, after the person went elsewhere, lands again.
+        if (Moment is null)
+        {
+            shownMoment = null;
+        }
+
+        if (Moment is not { } moment || moment == shownMoment || !Messages.Any(message => message.Key == moment.ToString()))
+        {
+            return;
+        }
+
+        shownMoment = moment;
+
+        try
+        {
+            module ??= JS.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            var loaded = await module;
+            await loaded.InvokeVoidAsync("showMoment", Anchor(moment));
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The message list script failed to show a moment");
+            throw;
+        }
+    }
 
     // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
     // is read out once each time its state changes, and a failure once, when it appears.

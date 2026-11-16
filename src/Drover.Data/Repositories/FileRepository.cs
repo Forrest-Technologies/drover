@@ -23,6 +23,28 @@ public sealed class FileRepository(DroverDbContext db)
     public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
         db.Files.AnyAsync(file => file.ThreadId == threadId && file.MessageId != null, cancellationToken);
 
+    /// <summary>
+    /// The files the person and the bot exchanged in the person's own conversations with it, newest first, at most
+    /// <paramref name="limit"/>: each one the bot shared and each one the person sent. A file another member sent in
+    /// a conversation the person can see is not theirs, and is left out.
+    /// </summary>
+    public async Task<List<ExchangedFile>> ListExchangedFiles(Guid botId, Guid userId, int limit, CancellationToken cancellationToken)
+    {
+        var rows = await db.Files
+            .AsNoTracking()
+            .Where(file => file.MessageId != null && (file.CreatedByBotId == botId || file.CreatedByUserId == userId))
+            .Join(
+                db.Threads.Where(thread => thread.BotId == botId && thread.OwnerUserId == userId),
+                file => file.ThreadId,
+                thread => (Guid?)thread.Id,
+                (file, thread) => new { File = file, thread.IsMain })
+            .OrderByDescending(row => row.File.CreatedAt)
+            .ThenByDescending(row => row.File.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+        return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
+    }
+
     public void Add(StoredFile file) => db.Files.Add(file);
 
     public void Remove(StoredFile file) => db.Files.Remove(file);
@@ -49,3 +71,7 @@ public sealed class FileRepository(DroverDbContext db)
 
     #endregion
 }
+
+
+/// <summary>A file a person and a bot exchanged, and whether the conversation that carries it is the main one.</summary>
+public sealed record ExchangedFile(StoredFile File, bool InMainConversation);
