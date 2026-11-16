@@ -280,6 +280,19 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task The_state_says_whether_the_server_offers_screens_so_a_sandbox_without_one_can_say_why()
+    {
+        await using var offered = await ControlWorld(DesktopProvider(), desktop: false);
+        await using var forbidden = await ControlWorld(DesktopProvider(), desktop: true, policy: DeploymentPolicy.SelfHosted with { AllowDesktopSandboxes = false });
+
+        var off = (await Control(offered).GetStatus(offered.SpaceId, offered.UserId, offered.BotId, RunWorld.Token)).Value!;
+        var refused = (await Control(forbidden).GetStatus(forbidden.SpaceId, forbidden.UserId, forbidden.BotId, RunWorld.Token)).Value!;
+
+        off.Should().Match<BotSandboxStatus>(status => !status.Desktop && status.DesktopOffered, "Desktop is off, and turning it on would give it a screen");
+        refused.Should().Match<BotSandboxStatus>(status => !status.Desktop && !status.DesktopOffered, "the server offers none, whatever the bot's setting");
+    }
+
+    [Fact]
     public async Task A_persons_click_text_key_and_scroll_are_the_same_commands_a_bot_sends()
     {
         var provider = DesktopProvider();
