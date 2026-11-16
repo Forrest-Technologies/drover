@@ -318,6 +318,8 @@ public sealed class SandboxControlService(
                 input.Twice),
             "click there"),
         "type" => (DesktopCommands.Type(input.Text ?? string.Empty), "type the text"),
+        "password" => (DesktopCommands.TypePassword(input.Text ?? string.Empty), "type the password"),
+        "open_terminal" => (DesktopCommands.OpenTerminal(), "open the desktop terminal"),
         "key" => (DesktopCommands.Key(input.Keys ?? []), "press the keys"),
         "scroll" => (
             DesktopCommands.Scroll(
@@ -326,7 +328,7 @@ public sealed class SandboxControlService(
                 input.X,
                 input.Y),
             "scroll"),
-        _ => throw new BuiltinToolException("An input is a click, typed text, a key, or a scroll."),
+        _ => throw new BuiltinToolException("Choose a supported desktop action."),
     };
 
     private static T Word<T>(string? value, T fallback)

@@ -20,8 +20,8 @@ public enum ScrollDirection
 /// <summary>
 /// The commands behind the computer tools, as a program and its arguments. Nothing a model wrote is ever parsed by a
 /// shell: coordinates are checked numbers, key names come from a fixed list and become key symbols, and typed text is
-/// one argument of its own. The only shell line here is <see cref="StartDisplay"/>, and Drover wrote all of it. The
-/// screen is fixed at 1024 by 768, the size the display is started at.
+/// one argument of its own. Drover writes the fixed shell lines that open the display and terminal. The screen
+/// is fixed at 1024 by 768, the size the display is started at.
 /// </summary>
 public static class DesktopCommands
 {
@@ -88,6 +88,14 @@ public static class DesktopCommands
     public static CommandRequest StartDisplay() =>
         CommandRequest.Shell(StartDisplayScript) with { Environment = Environment, Timeout = TimeSpan.FromSeconds(90) };
 
+    /// <summary>Opens a desktop terminal whose process can outlive the launch request.</summary>
+    public static CommandRequest OpenTerminal() => CommandRequest.Shell(
+        """
+        terminal=$(command -v xfce4-terminal || command -v x-terminal-emulator) || exit 127
+        setsid -f "$terminal" </dev/null >/dev/null 2>&1
+        """) with
+    { Environment = Environment };
+
     /// <summary>A screenshot of the whole screen, with the pointer, into a file only Drover names.</summary>
     public static CommandRequest Screenshot(string path) => Command("scrot", "--pointer", path);
 
@@ -115,6 +123,20 @@ public static class DesktopCommands
         }
 
         return Command("xdotool", "type", "--delay", "12", "--", text);
+    }
+
+    /// <summary>Types a password into the window with focus. The password goes through stdin without an Enter.</summary>
+    public static CommandRequest TypePassword(string password)
+    {
+        if (password.Length is 0 or > MaxTypedCharacters || password.Any(char.IsControl))
+        {
+            throw new BuiltinToolException($"A password must be 1 to {MaxTypedCharacters} characters without control characters.");
+        }
+
+        return Command("xdotool", "type", "--clearmodifiers", "--delay", "12", "--file", "-") with
+        {
+            StandardInput = Encoding.UTF8.GetBytes(password),
+        };
     }
 
     /// <summary>Presses the keys together and lets them go, such as ctrl and l. Every name must be on the fixed list.</summary>

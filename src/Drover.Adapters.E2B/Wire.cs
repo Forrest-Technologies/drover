@@ -53,6 +53,12 @@ internal sealed record SendSignalRequest(ProcessSelector Process, string Signal)
 
 internal sealed record ProcessSelector(int Pid);
 
+internal sealed record SendInputRequest(ProcessSelector Process, ProcessInput Input);
+
+internal sealed record ProcessInput(ReadOnlyMemory<byte> Stdin);
+
+internal sealed record CloseStdinRequest(ProcessSelector Process);
+
 /// <summary>filesystem.ListDirRequest.</summary>
 internal sealed record ListDirRequest(string Path, int Depth);
 
