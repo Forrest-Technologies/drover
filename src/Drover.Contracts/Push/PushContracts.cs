@@ -7,8 +7,14 @@ namespace Drover.Contracts.Push;
 public sealed record PushKeyResponse(string? PublicKey, string? Problem = null);
 
 
-/// <summary>A device's push subscription as the browser gives it: the push service's address and the device's keys, base64url.</summary>
-public sealed record PushDeviceRequest(string Endpoint, string PublicKey, string AuthSecret);
+/// <summary>
+/// Input only: a device's push subscription as the browser gives it, the push service's address and the device's
+/// keys, base64url. Never part of a response, and it prints nothing of itself when logged.
+/// </summary>
+public sealed record PushDeviceRequest(string Endpoint, string PublicKey, string AuthSecret)
+{
+    public override string ToString() => nameof(PushDeviceRequest);
+}
 
 
 /// <summary>Names a device by its push service address, to ask whether it is on or to turn it off.</summary>

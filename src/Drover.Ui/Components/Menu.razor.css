@@ -22,8 +22,10 @@
 }
 
 .dv-menu-list {
-  min-width: min(var(--dv-menu-width), calc(100% - var(--dv-space-4)));
-  max-width: calc(100% - var(--dv-space-4));
+  /* Sized against the viewport, not the anchored area: beside a trigger at the screen's edge that area is narrow,
+     and a menu wider than it moves to the side where it fits. */
+  min-width: min(var(--dv-menu-width), calc(100vw - var(--dv-space-4)));
+  max-width: calc(100vw - var(--dv-space-4));
   max-height: calc(100dvh - var(--dv-space-4));
   padding: var(--dv-space-1);
   border: var(--dv-border) solid var(--dv-line);
