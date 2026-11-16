@@ -1,6 +1,9 @@
 namespace Drover.Client;
 
-/// <summary>Files a person attaches to a message: what the bot can take, uploading, removing, and where to fetch one.</summary>
+/// <summary>
+/// Files in a conversation: what the bot can take, uploading, removing, where to fetch one, its text, and the files a
+/// person and a bot exchanged.
+/// </summary>
 public sealed partial class DroverApi
 {
     #region Files
@@ -45,6 +48,27 @@ public sealed partial class DroverApi
     public string FileAddress(Guid spaceId, Guid fileId, bool download = false) =>
         new Uri(http.BaseAddress!, $"{Space(spaceId)}/files/{fileId}{(download ? "?download=true" : string.Empty)}").ToString();
 
+    /// <summary>The files the caller and the bot exchanged in the caller's conversations with it, newest first.</summary>
+    public Task<IReadOnlyList<ExchangedFileResponse>> ListExchangedFiles(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<IReadOnlyList<ExchangedFileResponse>>($"{Space(spaceId)}/bots/{botId}/files", cancellationToken);
+
+    /// <summary>
+    /// A text file's content, up to <paramref name="maxCharacters"/>, and whether there is more past that. The server
+    /// serves text as plain text, so nothing in it is run.
+    /// </summary>
+    public async Task<FileText> ReadFileText(Guid spaceId, Guid fileId, int maxCharacters, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"{Space(spaceId)}/files/{fileId}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(content, Encoding.UTF8);
+        // One character past the bound says whether there is more. A browser's response stream reads only
+        // asynchronously, so the reader cannot peek.
+        var buffer = new char[maxCharacters + 1];
+        var read = await reader.ReadBlockAsync(buffer, cancellationToken);
+        return new FileText(new string(buffer, 0, Math.Min(read, maxCharacters)), read > maxCharacters);
+    }
+
     #endregion
 
     #region Nested Types
@@ -88,3 +112,7 @@ public sealed partial class DroverApi
 
     #endregion
 }
+
+
+/// <summary>A text file's content as far as it was read, and whether it goes on past that.</summary>
+public sealed record FileText(string Text, bool Cut);

@@ -29,7 +29,8 @@ public static class SandboxGrants
 {
     #region Properties
 
-    public static IReadOnlyList<string> SandboxTools { get; } = ["sandbox.run", "sandbox.read_file", "sandbox.write_file", "sandbox.list_files"];
+    public static IReadOnlyList<string> SandboxTools { get; } =
+        ["sandbox.run", "sandbox.read_file", "sandbox.write_file", "sandbox.list_files", "sandbox.share_file"];
 
     public static IReadOnlyList<string> ScreenTools { get; } =
         ["computer.screenshot", "computer.click", "computer.type", "computer.key", "computer.scroll"];
