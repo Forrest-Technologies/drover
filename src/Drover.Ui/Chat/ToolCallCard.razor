@@ -196,7 +196,9 @@ else
             }
 
             const int previewLength = 240;
-            var first = Card.Output[0];
+            var first = Card.Phase is ToolPhase.Failed
+                ? Card.Output.FirstOrDefault(piece => piece.Stream is "stderr" && !string.IsNullOrWhiteSpace(piece.Text)) ?? Card.Output[0]
+                : Card.Output[0];
             var text = first.Text.AsSpan().Trim();
             var end = text.IndexOfAny('\r', '\n');
             var length = Math.Min(end < 0 ? text.Length : end, previewLength);

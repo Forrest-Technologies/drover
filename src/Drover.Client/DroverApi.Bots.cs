@@ -51,6 +51,12 @@ public sealed partial class DroverApi
     public Task<BotScheduleResponse> CreateBotSchedule(Guid spaceId, Guid botId, BotScheduleBody schedule, CancellationToken cancellationToken = default) =>
         Post<BotScheduleResponse>($"{Space(spaceId)}/bots/{botId}/schedules", schedule, cancellationToken);
 
+    public Task<ScheduleCheckResponse> CheckBotSchedule(Guid spaceId, Guid botId, ScheduleCheckBody time, CancellationToken cancellationToken = default) =>
+        Post<ScheduleCheckResponse>($"{Space(spaceId)}/bots/{botId}/schedules/check", time, cancellationToken);
+
+    public Task<ScheduleRunOnceResponse> RunBotScheduleOnce(Guid spaceId, Guid botId, Guid scheduleId, CancellationToken cancellationToken = default) =>
+        Post<ScheduleRunOnceResponse>($"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}/run-once", null, cancellationToken);
+
     public Task<BotScheduleResponse> UpdateBotSchedule(Guid spaceId, Guid botId, Guid scheduleId, BotScheduleBody schedule, CancellationToken cancellationToken = default) =>
         Send<BotScheduleResponse>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", schedule, cancellationToken);
 
