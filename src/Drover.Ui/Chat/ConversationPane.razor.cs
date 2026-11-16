@@ -67,6 +67,8 @@ public sealed partial class ConversationPane(
 
     private bool reportedBusy;
 
+    private Takeover? reportedTakeover;
+
     private ImmutableDictionary<Guid, Handoff> reportedHandoffs = [];
 
     #endregion
@@ -126,6 +128,29 @@ public sealed partial class ConversationPane(
     /// <summary>The work this conversation's run has handed to other bots changed, by the bot that has it.</summary>
     [Parameter]
     public EventCallback<IReadOnlyDictionary<Guid, Handoff>> OnHandoffsChanged { get; set; }
+
+    /// <summary>The request whose screen the person took over and has open beside the conversation, if any.</summary>
+    [Parameter]
+    public Guid? HeldCallId { get; set; }
+
+    /// <summary>Whether this person can open the bot's screen, for a request to take it over.</summary>
+    [Parameter]
+    public ScreenAccess ScreenAccess { get; set; }
+
+    /// <summary>Where the missing screen is set up: the server's status page without a provider, the bot's settings otherwise.</summary>
+    [Parameter]
+    public string? ScreenSetupHref { get; set; }
+
+    /// <summary>The person took over the bot's screen for this request: the screen opens beside the conversation.</summary>
+    [Parameter]
+    public EventCallback<Takeover> OnOpenScreen { get; set; }
+
+    /// <summary>The request for the person at the bot's screen that waits here changed, or none waits any more.</summary>
+    [Parameter]
+    public EventCallback<Takeover?> OnTakeoverChanged { get; set; }
+
+    // What a request for a person at the bot's screen needs from this conversation and the page around it.
+    private ScreenTakeovers Takeovers => new(HeldCallId, ScreenAccess, ScreenSetupHref, OpenScreen, HandBack);
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -356,6 +381,21 @@ public sealed partial class ConversationPane(
             problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
         }
     }
+
+    // The takeover is recorded before the screen opens beside the conversation, so the audit log has it.
+    private async Task<string?> OpenScreen(Takeover takeover)
+    {
+        var refused = await api.TakeOver(SpaceId, takeover.ToolCallId, logger);
+
+        if (refused is null)
+        {
+            await OnOpenScreen.InvokeAsync(takeover);
+        }
+
+        return refused;
+    }
+
+    private Task<string?> HandBack(Guid toolCallId, bool done, string? note) => api.HandBack(SpaceId, toolCallId, done, note, logger);
 
     // A person's answer to a tool call that waits for one. The run's log then shows what happened.
     private async Task<string?> Decide(Guid toolCallId, bool approved)
@@ -791,13 +831,22 @@ public sealed partial class ConversationPane(
         }
     }
 
-    // The screen around the pane lights the bot's head while it works here, so it is told when that starts and stops.
+    // The screen around the pane lights the bot's head while it works here, so it is told when that starts and stops,
+    // and it shows the controls beside the bot's screen for a request to take it over, so it is told of that too.
     private async Task ReportBusy()
     {
         if (Busy != reportedBusy)
         {
             reportedBusy = Busy;
             await OnBusyChanged.InvokeAsync(reportedBusy);
+        }
+
+        var waiting = Messages.AllTools().Select(tool => tool.Takeover).LastOrDefault(takeover => takeover is { Waits: true });
+
+        if (waiting != reportedTakeover)
+        {
+            reportedTakeover = waiting;
+            await OnTakeoverChanged.InvokeAsync(waiting);
         }
     }
 

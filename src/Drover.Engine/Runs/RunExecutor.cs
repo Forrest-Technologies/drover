@@ -563,7 +563,7 @@ public sealed partial class RunExecutor(
             }
 
             var status = outcome is RunOutcome.Waiting ? RunStatus.Waiting : RunStatus.Completed;
-            await Finish(session, status, status is RunStatus.Waiting ? RunReasons.AwaitingApproval : null, null);
+            await Finish(session, status, status is RunStatus.Waiting ? WaitingReason(session) : null, null);
             return status;
         }
         catch (Exception exception) when (exception is not LeaseLostException)
@@ -631,6 +631,13 @@ public sealed partial class RunExecutor(
                 case ApprovalRequested approval:
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
                     await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
+
+                    // A call the rules will refuse holds nothing: only one that can run waits for a person at the screen.
+                    if (!await governor.RulesRefuse(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken))
+                    {
+                        session.NoteWaitFor(approval.ToolName);
+                    }
+
                     var details = await governor.DescribeForApproval(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     await session.Writer.Append(
                         session.RunId,
@@ -840,6 +847,9 @@ public sealed partial class RunExecutor(
         return null;
     }
 
+    private static string WaitingReason(RunSession session) =>
+        session.WaitsForAPersonAtTheScreen ? RunReasons.AwaitingTakeover : RunReasons.AwaitingApproval;
+
     private static Refusal Failed(string code, string message) => new(RunStatus.Failed, null, new RunError(code, message));
 
     #endregion
@@ -891,7 +901,7 @@ public sealed partial class RunExecutor(
         // A run beneath this one waits for a person, so this one waits with it.
         if (session.PausedForChild)
         {
-            return (RunStatus.Waiting, RunReasons.AwaitingApproval, null);
+            return (RunStatus.Waiting, WaitingReason(session), null);
         }
 
         if (stopping.IsCancellationRequested && failure is OperationCanceledException)
@@ -1004,7 +1014,11 @@ public sealed partial class RunExecutor(
         run.LeaseExpiresAt = null;
         run.Usage = session.Usage;
 
-        if (status is not RunStatus.Waiting)
+        if (status is RunStatus.Waiting)
+        {
+            run.WaitingSince = now;
+        }
+        else
         {
             run.FinishedAt = now;
 

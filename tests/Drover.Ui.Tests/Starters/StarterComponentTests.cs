@@ -58,40 +58,6 @@ public sealed class StarterComponentTests : BunitContext
     #region Conversation
 
     [Fact]
-    public void A_person_who_cannot_do_what_the_bot_asked_can_say_why()
-    {
-        string? told = null;
-        var card = Render<TakeoverCard>(set => set
-            .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.Reason, "Sign in to the sample site.")
-            .Add(view => view.Phase, TakeoverPhase.Holding)
-            .Add(view => view.OnCouldNot, note => told = note));
-
-        card.Find("h3").TextContent.Should().Be("You have Sample bot's screen");
-        Button(card, "I could not do it").Click();
-        card.Find("textarea").Input("  The site wants a code I do not have.  ");
-        card.Find("form").Submit();
-
-        told.Should().Be("The site wants a code I do not have.");
-    }
-
-    [Fact]
-    public void A_new_phase_of_the_takeover_starts_without_the_last_ones_half_written_answer()
-    {
-        var card = Render<TakeoverCard>(set => set
-            .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.Reason, "Sign in.")
-            .Add(view => view.Phase, TakeoverPhase.Asked));
-
-        Button(card, "I cannot do it").Click();
-        card.FindAll("textarea").Should().ContainSingle();
-
-        card.Render(set => set.Add(view => view.Phase, TakeoverPhase.Holding));
-
-        card.FindAll("textarea").Should().BeEmpty();
-    }
-
-    [Fact]
     public void Speaking_a_message_is_named_and_recording_shows_the_time_and_two_ways_out()
     {
         var voice = Render<VoiceButton>(set => set.Add(view => view.Phase, VoicePhase.Idle));

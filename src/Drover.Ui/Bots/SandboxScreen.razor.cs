@@ -57,6 +57,8 @@ public sealed partial class SandboxScreen(
 
     private bool control;
 
+    private bool heldSeen;
+
     private bool visible = true;
 
     /// <summary>The person asked for the sandbox to be started or resumed here, and its state does not say running yet.</summary>
@@ -119,6 +121,13 @@ public sealed partial class SandboxScreen(
     [Parameter]
     public EventCallback OnSandboxChanged { get; set; }
 
+    /// <summary>
+    /// The person holds the screen because the bot asked them to take it over. Take control turns on when the hold
+    /// begins and off when it ends, so the person and the bot never both drive the screen.
+    /// </summary>
+    [Parameter]
+    public bool Held { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     /// <summary>
@@ -126,6 +135,8 @@ public sealed partial class SandboxScreen(
     /// started or resumed: looking alone never resumes a paused one or makes a missing one.
     /// </summary>
     private bool WatchesScreen => visible && Status.Desktop && (waking || Status.State is "running");
+
+    private bool DesktopReady => Status is { Desktop: true, State: "running" } && picture is not null;
 
     private string? ScreenNote => waking ? null : Status.State switch
     {
@@ -224,18 +235,28 @@ public sealed partial class SandboxScreen(
 
     #region Overrides
 
-    // A sandbox that is gone or being replaced shows no picture of the one before it. One the person is starting here
-    // keeps its picture until the state catches up and says it runs.
     protected override void OnParametersSet()
     {
+        if (Held != heldSeen)
+        {
+            (heldSeen, control) = (Held, Held);
+        }
+
         if (Status.State is "running")
         {
             (waking, wakeFailed) = (false, false);
         }
-
-        if (!waking && Status.State is "none" or "replacing")
+        else if (!waking)
         {
+            if (picture is not null)
+            {
+                (screenProblem, failures) = (null, 0);
+            }
+
             picture = null;
+            typed = string.Empty;
+            passwordMode = false;
+            control = Held;
         }
     }
 
@@ -344,6 +365,11 @@ public sealed partial class SandboxScreen(
         try
         {
             var png = await api.GetBotSandboxScreen(SpaceId, BotId, stop);
+            if (!woke && Status.State is not "running")
+            {
+                return;
+            }
+
             (pictureWidth, pictureHeight) = SizeOf(png) ?? throw new InvalidDataException("The screen's answer was not a PNG picture.");
             picture = $"data:image/png;base64,{Convert.ToBase64String(png)}";
             (screenProblem, failures) = (null, 0);
@@ -355,6 +381,11 @@ public sealed partial class SandboxScreen(
         }
         catch (Exception exception)
         {
+            if (!woke && Status.State is not "running")
+            {
+                return;
+            }
+
             // Whatever goes wrong with one picture, it says so and the next one still comes, later each time: only
             // closing the screen ends the refresh.
             logger.Log(
@@ -494,6 +525,11 @@ public sealed partial class SandboxScreen(
     /// <summary>Sends one input, then shows the screen it left, so the person sees what it did.</summary>
     private async Task<bool> Send(SandboxInputRequest input)
     {
+        if (!DesktopReady || sending || (!control && input.Kind is not "open_terminal"))
+        {
+            return false;
+        }
+
         sending = true;
         screenProblem = null;
         var sent = false;

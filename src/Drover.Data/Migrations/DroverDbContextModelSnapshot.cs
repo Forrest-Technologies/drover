@@ -1255,6 +1255,10 @@ namespace Drover.Data.Migrations
                         .HasColumnName("usage")
                         .HasDefaultValueSql("'{}'::jsonb");
 
+                    b.Property<DateTimeOffset?>("WaitingSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("waiting_since");
+
                     b.HasKey("Id")
                         .HasName("pk_runs");
 

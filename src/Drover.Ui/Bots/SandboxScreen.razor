@@ -2,21 +2,21 @@
 @implements IAsyncDisposable
 
 <div class="dv-sandbox-screen">
-    <div class="dv-sandbox-controlbar">
-        <Switch Label="Send desktop input" Value="control" ValueChanged="SetControl" />
-        @if (picture is not null)
-        {
-            <Button OnClick="OpenTerminal" Disabled="sending">Open terminal window</Button>
-        }
-        @if (control)
-        {
-            <SegmentedControl Label="Desktop click type" Options="clickModes" @bind-Value="clickMode" />
-        }
-    </div>
-    <p class="dv-sandbox-hint" role="status">@ControlWords</p>
-    @if (control && Status.BotWorking)
+    @if (DesktopReady)
     {
-        <StatusNote Text="@($"{BotName} has an active run and may use the same desktop.")" />
+        <div class="dv-sandbox-controlbar">
+            <Switch Label="Send desktop input" Value="control" ValueChanged="SetControl" />
+            <Button OnClick="OpenTerminal" Disabled="sending">Open terminal window</Button>
+            @if (control)
+            {
+                <SegmentedControl Label="Desktop click type" Options="clickModes" @bind-Value="clickMode" />
+            }
+        </div>
+        <p class="dv-sandbox-hint" role="status">@ControlWords</p>
+        @if (control && Status.BotWorking)
+        {
+            <StatusNote Text="@($"{BotName} has an active run and may use the same desktop.")" />
+        }
     }
     @if (ScreenNote is { } note)
     {
@@ -29,7 +29,7 @@
         </div>
     }
 
-    @if (picture is not null)
+    @if (DesktopReady)
     {
         <div class="dv-sandbox-zoom" role="group" aria-label="Zoom">
             <Button OnClick="ZoomOut" Disabled="zoom.IsFit">Zoom out</Button>
@@ -74,21 +74,21 @@
 
     <StatusNote Kind="NoteKind.Danger" Text="@screenProblem" />
 
-    @if (control)
+    @if (DesktopReady && control)
     {
+        <div class="dv-sandbox-options">
+            <Switch Label="Type a password" Value="passwordMode" ValueChanged="SetPasswordMode" Disabled="sending" />
+            @if (!passwordMode)
+            {
+                <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
+            }
+        </div>
         <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
             <Field Label="@(passwordMode ? "Password" : "Text to type")" Type="@(passwordMode ? "password" : "text")"
                    @bind-Value="typed" autocomplete="@(passwordMode ? "new-password" : "off")" autocapitalize="off"
                    spellcheck="false" maxlength="2000" enterkeyhint="send" />
             <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@TypeAction</Button>
         </form>
-        <div class="dv-sandbox-options">
-            @if (!passwordMode)
-            {
-                <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
-            }
-            <Switch Label="Type a password" Value="passwordMode" ValueChanged="SetPasswordMode" Disabled="sending" />
-        </div>
         <p class="dv-sandbox-hint">@(passwordMode
             ? "Focus the remote password prompt first. This sends the password without pressing Enter. The sandbox is shared with the bot."
             : "Text goes to the focused window in the sandbox.")</p>

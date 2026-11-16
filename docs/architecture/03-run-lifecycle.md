@@ -20,7 +20,7 @@ A run is one bot working on one request. It is a database row that a worker exec
 | `waiting` | The run ended with a request that has no answer yet: an approval, or a workflow's question. No worker holds it. |
 | `completed`, `failed`, `cancelled` | Terminal |
 
-`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
+`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_takeover` (a call asked a person to take over the bot's screen; see [07-sandbox.md](07-sandbox.md#a-person-takes-over)), `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
 
 ## From message to run
 
@@ -183,7 +183,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name. `details`, when the tool adds any: things the person should see beside the arguments, each a name and a redacted text (`crew.add` adds `model` and `beneath`, the new bot's model and the name of the bot it goes beneath) |
 | `rule.fired` | A rule of the bot applied: rule id and name, checkpoint, effect, a sentence saying why, and the tool call id when there is one. Never the text that matched. |
-| `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, while the run waits. |
+| `tool.approved`, `tool.denied` | Tool call id, who decided. Written by the decision endpoint, or the hand-back endpoint for a request for a person at the screen, while the run waits. |
 | `tool.started` | Tool call id |
 | `tool.output` | Tool call id, stream (`stdout` or `stderr`), text. Output a built-in tool streams while it runs (a sandbox command's output), redacted, between the call's `tool.started` and `tool.completed`. One call streams at most `Runs:MaxToolOutputCharacters` (200,000 by default); past it the log says once that the rest is left out. The tool's result is separate and not affected. |
 | `tool.completed` | Tool call id, outcome (`completed`, `failed`, `refused`, `interrupted`, `cancelled`), redacted result preview, duration |
@@ -233,6 +233,8 @@ Why Server-Sent Events and not a socket library: resume from a cursor is the bui
 5. The run becomes claimable once every call it waits on is answered. The worker that takes it reads which requests the run last went to wait on from the log, reads their answers from the rows, and runs the agent again with them. Approved: the framework invokes the tool, through the gate. Denied: the model is told the person declined, with their reason.
 
 The server can restart any number of times between steps 1 and 5. The session that holds the requests is saved again only when the run next stops, so an execution that takes over after a crash hands the same answers over again; the `tool_calls` row then decides what happens, and a call that had started is reported as interrupted, never run a second time.
+
+A call that asks a person to take over the bot's screen (`computer.handover`) waits the same way, with the reason `awaiting_takeover`, and is answered through `POST .../tool-calls/{id}/handback` (done, or could not with a line for the bot) instead of the decision route; see [07-sandbox.md](07-sandbox.md#a-person-takes-over).
 
 A run that ends while a call still waits (it was cancelled) denies that call, with the reason that the run ended.
 

@@ -1,7 +1,13 @@
-@* A bot's sandbox screen beside the conversation, so a person can watch it and send desktop input. *@
+@* A bot's sandbox screen beside the conversation, so a person can watch it and send desktop input, and hand it back
+   here when the bot asked them to take it over. *@
 @implements IAsyncDisposable
 
 <div class="dv-screen-panel">
+    @if (Takeover is { Waits: true } asked)
+    {
+        <TakeoverCard @key="asked.ToolCallId" BotName="@Bot.Name" Reason="@asked.Reason" Phase="TakeoverPhase.Holding" TakeFocus="true"
+                      Sending="handing" Problem="@handProblem" OnDone="() => HandBack(true, null)" OnCouldNot="note => HandBack(false, note)" />
+    }
     @if (problem is not null)
     {
         <EmptyState Title="Drover could not load the screen" Cause="@problem" ActionLabel="Try again" OnAction="Load" />
@@ -49,6 +55,6 @@
             }
             <a class="dv-screen-panel-more" href="@Addresses.BotTerminal(Bot.Id)">Open terminal and power controls</a>
         </p>
-        <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" OnSandboxChanged="() => Refresh(disposal.Token)" />
+        <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" Held="Takeover is { Waits: true }" OnSandboxChanged="() => Refresh(disposal.Token)" />
     }
 </div>

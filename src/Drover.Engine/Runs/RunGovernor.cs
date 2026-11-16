@@ -203,6 +203,11 @@ public sealed class RunGovernor(
         }
     }
 
+    /// <summary>True when the rules will refuse the call once it is answered: it blocks, or it stops the run.</summary>
+    public async Task<bool> RulesRefuse(string callId, string modelName, JsonElement arguments, CancellationToken cancellationToken) =>
+        session.FindToolByModelName(modelName) is { } tool
+        && await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Block or RuleEffect.Stop };
+
     /// <summary>
     /// What the person asked about a call is shown beside its arguments, when the tool is a built-in one that says,
     /// redacted as the arguments are. Never throws for the tool: a call whose details cannot be read still waits, with

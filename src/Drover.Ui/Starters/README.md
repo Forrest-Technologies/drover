@@ -31,7 +31,7 @@ A starter is a starting point with a strong opinion. If what you find while buil
 
 - Everything on the server, and the contracts.
 - Loading data, live updates, and error handling against the real API.
-- Focus management across a whole screen, routing, and the address of each rail. That includes focus where a starter replaces the control a person just used: after Start and Stop on the voice button, after "Open the screen" on the takeover card, and after Approve or Deny on a waiting call, focus moves to the control that took its place.
+- Focus management across a whole screen, routing, and the address of each rail. That includes focus where a starter replaces the control a person just used: after Start and Stop on the voice button, and after Approve or Deny on a waiting call, focus moves to the control that took its place.
 - Screenshots and a manual pass on a real device. The gallery proves the pieces, not the screen.
 - Anything the issue lists that has no starter. The table says what each starter covers.
 
@@ -41,7 +41,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 
 | Issue | Files | Covers |
 | --- | --- | --- |
-| #150 | `TakeoverPhase.cs`, `TakeoverCard.razor` | The bot's request for a person at its screen: asked, holding, answered |
 | #152 | `HistoryWords.cs`, `HistoryList.razor`, `LineDiff.cs`, `DiffView.razor` | A bot's changes as sentences, values before and after, a line-by-line comparison |
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
