@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Chat;
 
 /// <summary>How far work handed to another bot has got.</summary>
 public enum DelegationPhase
@@ -40,12 +40,22 @@ public sealed record DelegationItem(
     string? ChildHref,
     int Depth)
 {
+    #region Properties
+
     /// <summary>True while the work is out: the child is working or waits for a person.</summary>
     public bool IsOut => Phase is DelegationPhase.Working or DelegationPhase.WaitingForYou;
+
+    /// <summary>
+    /// The child's own activity in order, its words and its tool calls, as the conversation shows a bot's. Empty past
+    /// <see cref="DelegationWords.DeepestShown"/>, where the card links to the child's side instead.
+    /// </summary>
+    public IReadOnlyList<ChatMessage> Work { get; init; } = [];
+
+    #endregion
 }
 
 /// <summary>Work passing between bots, in words.</summary>
-public static class DelegationWords
+public static partial class DelegationWords
 {
     #region Properties
 
@@ -59,7 +69,7 @@ public static class DelegationWords
     /// <summary>The card's closed line: "Sample lead asked Sample scout: find three sources".</summary>
     public static string Sentence(DelegationItem item) => item.Phase is DelegationPhase.Refused
         ? $"{item.ParentName} could not hand work to {item.ChildName}"
-        : $"{item.ParentName} asked {item.ChildName}: {RoutineWords.FirstLine(item.Task)}";
+        : $"{item.ParentName} asked {item.ChildName}: {FirstLine(item.Task)}";
 
     public static string State(DelegationPhase phase) => phase switch
     {
@@ -101,6 +111,43 @@ public static class DelegationWords
         DelegationRefusal.NotAllowed => $"This bot may not hand work to {childName}.",
         _ => "The server did not hand the work over.",
     };
+
+    /// <summary>
+    /// Why the server refused, from a <c>delegate</c> call's result: <c>{"error": ..., "reason": ..., "detail": ...}</c>.
+    /// <see cref="DelegationRefusal.None"/> for a refusal whose reason this screen does not know, and null when the
+    /// result is not a refusal or is cut off before it says.
+    /// </summary>
+    public static DelegationRefusal? RefusalIn(string? result) =>
+        result is not null && Reason().Match(result) is { Success: true } reason
+            ? RefusalOf(reason.Groups[1].Value, Detail().Match(result) is { Success: true } detail ? detail.Groups[1].Value : null)
+            : null;
+
+    #endregion
+
+    #region Private Methods
+
+    private static DelegationRefusal RefusalOf(string reason, string? detail) => (reason, detail) switch
+    {
+        ("loop_detected", _) => DelegationRefusal.Loop,
+        ("budget_exceeded", "depth") => DelegationRefusal.TooDeep,
+        ("budget_exceeded", "runs") => DelegationRefusal.TooManyRuns,
+        ("budget_exceeded", _) => DelegationRefusal.OverBudget,
+        ("target_unavailable", "paused") => DelegationRefusal.TargetPaused,
+        ("target_unavailable", _) => DelegationRefusal.TargetRemoved,
+        ("no_grant" or "not_beneath", _) => DelegationRefusal.NotAllowed,
+        _ => DelegationRefusal.None,
+    };
+
+    // Read from the text, not parsed: the start of a result in a call's events may be cut off before it closes, and a
+    // stored result can hold the object as an escaped string.
+    [GeneratedRegex(@"\\?""reason\\?""\s*:\s*\\?""([a-z_]+)")]
+    private static partial Regex Reason();
+
+    [GeneratedRegex(@"\\?""detail\\?""\s*:\s*\\?""([a-z_]+)")]
+    private static partial Regex Detail();
+
+    private static string FirstLine(string text) =>
+        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? string.Empty;
 
     #endregion
 }

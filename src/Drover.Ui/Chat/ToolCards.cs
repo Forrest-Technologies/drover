@@ -34,7 +34,8 @@ public static partial class ToolCards
         ("memory.save", new("Saving a note", "Saved a note", "save a note")),
         ("memory.change", new("Changing a note", "Changed a note", "change a note")),
         ("memory.forget", new("Removing a note", "Removed a note", "remove a note")),
-        ("memory.list", new("Reading its notes", "Read its notes", "read its notes")));
+        ("memory.list", new("Reading its notes", "Read its notes", "read its notes")),
+        ("delegate", new("Handing work over", "Handed work over", "hand work to a bot beneath it")));
 
     #endregion
 
@@ -150,6 +151,11 @@ public static partial class ToolCards
     // what the bot remembers. The words come from the result, which holds the note as it was kept.
     private static ToolCard AsNote(this ToolCard card, string toolName, JsonElement arguments, string result)
     {
+        if (!toolName.StartsWith("memory.", StringComparison.Ordinal))
+        {
+            return card;
+        }
+
         var kept = ParsedOrNull(result) is { ValueKind: JsonValueKind.Object } whole ? whole : (JsonElement?)null;
         var note = kept is { } found && found.TryGetProperty("note", out var saved) && saved.ValueKind is JsonValueKind.Object ? saved : (JsonElement?)null;
         var text = (note is { } written ? Text(written, "text") : string.Empty) is { Length: > 0 } stored ? stored : Text(arguments, "text");
@@ -180,9 +186,14 @@ public static partial class ToolCards
     }
 
     // A result's start, as a call's events carry it, can be cut off. Read as a block with more to come, a cut-off
-    // result is simply not a whole value yet.
+    // result is simply not a whole value yet. A result that is not a JSON object, such as plain text, is no note.
     private static JsonElement? ParsedOrNull(string result)
     {
+        if (!result.TrimStart().StartsWith('{'))
+        {
+            return null;
+        }
+
         var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(result), isFinalBlock: false, state: default);
         return JsonElement.TryParseValue(ref reader, out var parsed) ? parsed : null;
     }

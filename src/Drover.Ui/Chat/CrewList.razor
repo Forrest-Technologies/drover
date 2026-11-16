@@ -22,7 +22,21 @@
     [Parameter]
     public IReadOnlyDictionary<Guid, Attention> ForYou { get; set; } = ImmutableDictionary<Guid, Attention>.Empty;
 
+    /// <summary>
+    /// Work handed to bots in this crew from the conversations on screen, by the bot that has it. The connector to such
+    /// a bot holds violet while the work is out, with one pulse as it goes out and one as it comes back.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyDictionary<Guid, Handoff> Handoffs { get; set; } = ImmutableDictionary<Guid, Handoff>.Empty;
+
     private Attention For(Guid botId) => ForYou.GetValueOrDefault(botId);
+
+    // The wire is drawn again when the work comes back, so its pulse plays once more and then it goes out of sight.
+    private RenderFragment Wire(Guid botId) => Handoffs.TryGetValue(botId, out var handoff)
+        ? handoff is Handoff.Returned
+            ? @<span @key="@($"{botId}-back")" class="dv-crew-wire dv-crew-wire-back dv-state-delegation" aria-hidden="true"></span>
+            : @<span @key="@($"{botId}-out")" class="dv-crew-wire dv-state-delegation" aria-hidden="true"></span>
+        : @<text></text>;
 
     // The row is read out as one sentence: the name, what the bot is doing, that it is paused, and what it has for
     // this person. What is written inside it says the same to the eye.
@@ -35,6 +49,7 @@
     // The link is read out by its label, so the written name and the word inside it are for the eye only.
     private RenderFragment Row(CrewNode node) =>
         @<li @key="node.Bot.Id">
+            @Wire(node.Bot.Id)
             <a class="dv-crew-bot dv-facet" href="@Addresses.Talk(node.Bot.Id)" aria-label="@RowName(node.Bot)"
                aria-current="@(node.Bot.Id == SelectedId ? "page" : null)">
                 <Avatar Name="@node.Bot.Name" Hue="BotIdentity.Hue(node.Bot.Id)" Size="32"

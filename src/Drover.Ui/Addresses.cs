@@ -54,6 +54,12 @@ public static class Addresses
 
     public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
 
+    /// <summary>
+    /// A bot's side of work handed to it, opened to read beside the conversation with <paramref name="botId"/>, where
+    /// the work was shown.
+    /// </summary>
+    public static string Work(Guid botId, Guid workerId, Guid threadId) => $"/talk/{botId}/work/{workerId}/{threadId}";
+
     public static string Bot(Guid botId) => $"/bots/{botId}";
 
     /// <summary>A bot's editor with its Memory section open.</summary>

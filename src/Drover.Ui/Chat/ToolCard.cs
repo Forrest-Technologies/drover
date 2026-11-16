@@ -31,6 +31,9 @@ public sealed record ToolCard(
     /// <summary>What that note says, to name the control that forgets it.</summary>
     public string? NoteText { get; init; }
 
+    /// <summary>The work this call handed to another bot, when it did or was refused; then the card is that work.</summary>
+    public DelegationItem? Delegation { get; init; }
+
     /// <summary>True while the bot is working on the call.</summary>
     public bool IsLive => Phase is ToolPhase.Starting or ToolPhase.Approved or ToolPhase.Running;
 

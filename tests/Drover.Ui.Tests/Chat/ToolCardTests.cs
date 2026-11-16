@@ -353,6 +353,17 @@ public sealed class ToolCardTests : BunitContext
         card.NoteId.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("delegate", "The answer, in plain text.")]
+    [InlineData("memory.save", "Not JSON at all.")]
+    public void A_finished_call_whose_result_is_plain_text_still_makes_a_card(string tool, string result)
+    {
+        var card = (Call(tool, """{"text":"Prefers tea."}""", "completed") with { Preview = result }).ToCard();
+
+        card.NoteId.Should().BeNull();
+        card.Phase.Should().Be(ToolPhase.Done);
+    }
+
     [Fact]
     public void A_cut_off_result_still_names_the_note_from_the_arguments()
     {
