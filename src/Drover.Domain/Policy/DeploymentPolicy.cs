@@ -128,6 +128,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxDelegationTreeCostCents = 1_000;
 
+    public const int SelfHostedMaxMemoryNoteCharacters = 1000;
+
+    public const int HostedMaxMemoryNoteCharacters = 500;
+
+    public const int SelfHostedMaxMemoryCharactersPerPerson = 20_000;
+
+    public const int HostedMaxMemoryCharactersPerPerson = 8000;
+
     #endregion
 
     #region Presets
@@ -313,6 +321,19 @@ public sealed record DeploymentPolicy
     /// people's runs waiting.
     /// </summary>
     public int MaxConversationSummarySeconds { get; init; } = SelfHostedMaxConversationSummarySeconds;
+
+    /// <summary>
+    /// The most characters one note a bot keeps about a person may hold. A bot's own setting may only lower it. Notes
+    /// are short on purpose: one fact each, few enough to read in full and to give to every run.
+    /// </summary>
+    public int MaxMemoryNoteCharacters { get; init; } = SelfHostedMaxMemoryNoteCharacters;
+
+    /// <summary>
+    /// The most characters a bot's notes about one person may hold together. A bot's own setting may only lower it.
+    /// Every run of the bot for that person is given all of them, so this bounds what memory adds to each model call;
+    /// on a shared server it also bounds the rows one person's bot can make.
+    /// </summary>
+    public int MaxMemoryCharactersPerPerson { get; init; } = SelfHostedMaxMemoryCharactersPerPerson;
 
     #endregion
 
@@ -500,6 +521,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxConversationSummarySeconds,
             HostedMaxConversationSummarySeconds,
             Enforcement.Now("ConversationSummarizer, on every summary's model call")),
+        PolicyRule.Limit(
+            nameof(MaxMemoryNoteCharacters),
+            policy => policy.MaxMemoryNoteCharacters,
+            HostedMaxMemoryNoteCharacters,
+            Enforcement.Now("MemoryService, on every note saved or changed; BotService, when a bot is saved")),
+        PolicyRule.Limit(
+            nameof(MaxMemoryCharactersPerPerson),
+            policy => policy.MaxMemoryCharactersPerPerson,
+            HostedMaxMemoryCharactersPerPerson,
+            Enforcement.Now("MemoryService, on every note saved or changed and on every recall; BotService, when a bot is saved")),
     ];
 
     #endregion

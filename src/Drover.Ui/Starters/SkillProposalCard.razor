@@ -1,0 +1,71 @@
+@* Starter for #166. A bot offers to save what it worked out as a skill. The person reads every word, may change
+   any of it, and what is saved is what they approved. The text came from a model that may have just read
+   something from outside, so the card shows all of it and never a summary. *@
+<section class="dv-skill-offer dv-facet" aria-labelledby="@titleId">
+    <div class="dv-skill-offer-head">
+        <h3 class="dv-skill-offer-title" id="@titleId">@BotName offers to save a skill</h3>
+        <Badge Kind="BadgeKind.Warn">Waiting for you</Badge>
+    </div>
+    <p class="dv-skill-offer-note">Read it before saving. You can change any of it, and what you save is what is kept. @BotName gets it as reference material, and it gives @BotName no tool it does not already have.</p>
+    <SkillFields @bind-Draft="draft" Disabled="Deciding" />
+    <ul class="dv-skill-offer-missing">
+        @foreach (var sentence in SkillWords.Missing(draft))
+        {
+            <li>@sentence</li>
+        }
+    </ul>
+    <div class="dv-skill-offer-actions">
+        <Button Kind="ButtonKind.Primary" Disabled="@(Deciding || SkillWords.Missing(draft).Count > 0)" OnClick="() => OnSave.InvokeAsync(draft)" aria-describedby="@titleId">Save the skill</Button>
+        <Button Disabled="Deciding" OnClick="() => OnDecline.InvokeAsync()" aria-describedby="@titleId">Do not save</Button>
+    </div>
+    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+</section>
+
+@code {
+    #region Private Fields
+
+    private readonly string titleId = $"dv-skill-offer-{Guid.NewGuid():N}";
+
+    private SkillDraft draft = SkillDraft.Empty;
+
+    private SkillDraft? offered;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The skill as the bot wrote it.</summary>
+    [Parameter, EditorRequired]
+    public SkillDraft Offered { get; set; } = SkillDraft.Empty;
+
+    [Parameter]
+    public bool Deciding { get; set; }
+
+    [Parameter]
+    public string? Problem { get; set; }
+
+    /// <summary>The person approved this text, which may differ from what the bot wrote.</summary>
+    [Parameter]
+    public EventCallback<SkillDraft> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnDecline { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        // The person's edits are kept across renders; only a different offer replaces them.
+        if (offered != Offered)
+        {
+            (offered, draft) = (Offered, Offered);
+        }
+    }
+
+    #endregion
+}

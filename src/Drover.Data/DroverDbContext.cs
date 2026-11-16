@@ -68,6 +68,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<Secret> Secrets => Set<Secret>();
 
+    public DbSet<MemoryNote> Memories => Set<MemoryNote>();
+
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
     #endregion

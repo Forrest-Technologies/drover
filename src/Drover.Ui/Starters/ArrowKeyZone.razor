@@ -1,0 +1,83 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ILogger<ArrowKeyZone> Logger
+
+@* Starter for #164 and #167. A region whose items move focus among themselves with the arrow keys. Each item
+   marks itself with data-arrow-item and handles its own keydown; this stops the page behind from scrolling on
+   the same press, and only for those items, so a field or a scrolling box inside the region keeps its keys. *@
+<div @ref="zone" class="@Class" role="@Role" aria-label="@Label">
+    @ChildContent
+</div>
+
+@code {
+    #region Private Fields
+
+    private const string ModulePath = "./_content/Drover.Ui/Starters/ArrowKeyZone.razor.js";
+
+    private ElementReference zone;
+
+    private IJSObjectReference? module;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>What the region is to assistive technology: "tree", "group".</summary>
+    [Parameter]
+    public string Role { get; set; } = "group";
+
+    [Parameter]
+    public string? Class { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    #endregion
+
+    #region Public Methods
+
+    public async ValueTask DisposeAsync()
+    {
+        if (module is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await module.DisposeAsync();
+        }
+        catch (JSDisconnectedException exception)
+        {
+            Logger.LogTrace(exception, "The browser was gone before the arrow key module could be released");
+        }
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            await module.InvokeVoidAsync("attach", zone);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The arrow key script failed to attach to its region");
+            throw;
+        }
+    }
+
+    #endregion
+}

@@ -1,0 +1,159 @@
+@* Starter for #164. A run as a timeline: one lane for each bot, headed by its head and name, every event a
+   node in time order down the page. Work handed to another bot branches across to that bot's lane in violet.
+   The node being worked on carries its live state; nothing else moves. One tab stop: arrow keys move between
+   nodes, Enter opens one. The list form holds the same nodes as sentences and is what a screen reader should
+   get by default. The lane's hue is never the only way to tell lanes apart: every lane is headed by a name and
+   every node's sentence starts with it. *@
+@if (Model.Nodes.Count is 0)
+{
+    <p class="dv-timeline-hint">@EmptyText</p>
+}
+else if (AsList)
+{
+    <ol class="dv-timeline-list" aria-label="@Label">
+        @foreach (var node in Model.Nodes)
+        {
+            <li @key="node.Event.Id">
+                <Disclosure Title="@Timelines.Sentence(Model, node)" Summary="@node.Event.Summary" Open="@(opened == node.Event.Id)"
+                            OpenChanged="value => opened = value ? node.Event.Id : null" Class="@Frame(node)">
+                    @Detail?.Invoke(node)
+                </Disclosure>
+            </li>
+        }
+    </ol>
+}
+else
+{
+    <div class="dv-timeline">
+    <ArrowKeyZone Label="@Label">
+        <div class="dv-timeline-grid" style="--dv-timeline-lanes: @Model.Lanes.Count">
+            @foreach (var (bot, lane) in Model.Lanes.Select((bot, lane) => (bot, lane)))
+            {
+                <div class="dv-timeline-head" style="grid-column: @(lane + 1)">
+                    <Avatar Name="@bot.Name" Hue="BotIdentity.Hue(bot.Id)" Size="24" />
+                    <span class="dv-timeline-name">@bot.Name</span>
+                </div>
+                <div class="dv-timeline-rail" style="grid-column: @(lane + 1); grid-row: 2 / span @(Model.Nodes.Count * 2); --dv-lane-hue: var(--dv-hue-@Hue(bot.Id))" aria-hidden="true"></div>
+            }
+            @foreach (var node in Model.Nodes)
+            {
+                @if (node.BranchLane is { } branch)
+                {
+                    <div class="dv-timeline-branch" aria-hidden="true"
+                         style="grid-column: @(Math.Min(node.Lane, branch) + 1) / @(Math.Max(node.Lane, branch) + 1); grid-row: @(node.Row * 2 + 2)"></div>
+                }
+                <button @key="node.Event.Id" @ref="buttons[node.Event.Id]" type="button" data-arrow-item
+                        class="dv-timeline-node dv-facet @Frame(node) @(node.Event.Id == Selected ? "dv-timeline-selected" : null)"
+                        style="grid-column: @(node.Lane + 1); grid-row: @(node.Row * 2 + 2)"
+                        tabindex="@(node.Event.Id == Selected ? 0 : -1)" aria-expanded="@(opened == node.Event.Id ? "true" : "false")"
+                        aria-label="@Timelines.Sentence(Model, node)" @onclick="() => Toggle(node.Event.Id)" @onkeydown="key => OnKey(node, key)">
+                    <span class="dv-timeline-label">@node.Event.Label</span>
+                    @if (node.Event.Summary is { Length: > 0 } summary)
+                    {
+                        <span class="dv-timeline-summary dv-mono">@summary</span>
+                    }
+                    <Badge Kind="Timelines.Kind(node.Event.State)">@Timelines.State(node.Event.State)</Badge>
+                </button>
+                @if (opened == node.Event.Id)
+                {
+                    <div @key="(node.Event.Id, nameof(Detail))" class="dv-timeline-detail" style="grid-row: @(node.Row * 2 + 3)">
+                        @Detail?.Invoke(node)
+                    </div>
+                }
+            }
+        </div>
+    </ArrowKeyZone>
+    </div>
+}
+
+@code {
+    #region Private Fields
+
+    private const int HueSteps = 12;
+
+    private readonly Dictionary<Guid, ElementReference> buttons = [];
+
+    // Kept by event, not by row: a late event with an earlier start moves rows, and must not move the selection.
+    private Guid? selected;
+
+    private Guid? opened;
+
+    private bool moveFocus;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public TimelineModel Model { get; set; } = TimelineModel.Empty;
+
+    /// <summary>What this timeline is, such as "What happened in this run".</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>What to say when there is nothing to show, such as "Nothing has run in this conversation yet."</summary>
+    [Parameter, EditorRequired]
+    public string EmptyText { get; set; } = string.Empty;
+
+    /// <summary>The same nodes as a list of sentences. The caller makes this the default for screen readers.</summary>
+    [Parameter]
+    public bool AsList { get; set; }
+
+    /// <summary>A node's details: arguments, output as it streams, result, duration, cost.</summary>
+    [Parameter]
+    public RenderFragment<TimelineNode>? Detail { get; set; }
+
+    // The one node in the tab order: the one last moved to, or the first.
+    private Guid? Selected => selected is { } id && Model.Nodes.Any(node => node.Event.Id == id)
+        ? id
+        : Model.Nodes.FirstOrDefault()?.Event.Id;
+
+    #endregion
+
+    #region Private Methods
+
+    private static int Hue(Guid botId) => ((BotIdentity.Hue(botId) % HueSteps) + HueSteps) % HueSteps;
+
+    // The node's top edge: the traveling line while a tool runs, then still in the result's color.
+    private static string? Frame(TimelineNode node) => node.Event switch
+    {
+        { State: TimelineState.Live, Kind: TimelineKind.Tool } => "dv-state-tool",
+        { State: TimelineState.Live } => "dv-timeline-live",
+        { State: TimelineState.Failed } => "dv-timeline-failed",
+        { State: TimelineState.Waiting } => "dv-timeline-waiting",
+        { Kind: TimelineKind.Delegation } => "dv-timeline-handoff",
+        _ => null,
+    };
+
+    // An @ref is captured once, when its element is made, so a kept button's reference is kept too. Only an
+    // event that left the run is forgotten.
+    protected override void OnParametersSet()
+    {
+        foreach (var gone in buttons.Keys.Where(id => Model.Nodes.All(node => node.Event.Id != id)).ToList())
+        {
+            buttons.Remove(gone);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (moveFocus && Selected is { } id && buttons.TryGetValue(id, out var button))
+        {
+            moveFocus = false;
+            await button.FocusAsync();
+        }
+    }
+
+    private void OnKey(TimelineNode node, KeyboardEventArgs key)
+    {
+        var next = Model.Nodes[Timelines.Move(Model, node.Row, key.Key)].Event.Id;
+        if (next != node.Event.Id)
+        {
+            (selected, moveFocus) = (next, true);
+        }
+    }
+
+    private void Toggle(Guid id) => (selected, opened) = (id, opened == id ? null : id);
+
+    #endregion
+}

@@ -1,0 +1,64 @@
+@* Starter for #159. A routine that starts when another system calls it: its address, its secret shown once,
+   and how many calls arrived today. The secret is never on this screen after the dialog closes. *@
+<div class="dv-call">
+    <CodeBlock Code="@Address" Language="Address to call" />
+    <p class="dv-call-how">Send a POST request with the secret in the <code class="dv-mono">@HeaderName</code> header. The request's body is given to @BotName as material from outside, never as instructions.</p>
+    <p class="dv-call-count">@RoutineCallWords.Today(ReceivedToday, RefusedToday)</p>
+    @if (CanChange)
+    {
+        <div class="dv-call-actions">
+            <Button OnClick="() => OnReplaceSecret.InvokeAsync()">Replace the secret</Button>
+        </div>
+    }
+</div>
+
+<Dialog Open="@(Secret is not null)" OpenChanged="open => Close(open)" Title="Copy the secret now">
+    <ChildContent>
+        <p>Drover shows this once and keeps only a fingerprint of it. If it is lost, replace it.</p>
+        <CodeBlock Code="@(Secret ?? string.Empty)" Language="Secret" />
+    </ChildContent>
+    <Actions>
+        <Button Kind="ButtonKind.Primary" OnClick="() => OnSecretSeen.InvokeAsync()">I have copied it</Button>
+    </Actions>
+</Dialog>
+
+@code {
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public string Address { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string HeaderName { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The secret, only straight after it was made or replaced. Null at every other time.</summary>
+    [Parameter]
+    public string? Secret { get; set; }
+
+    [Parameter]
+    public int ReceivedToday { get; set; }
+
+    [Parameter]
+    public int RefusedToday { get; set; }
+
+    [Parameter]
+    public bool CanChange { get; set; }
+
+    [Parameter]
+    public EventCallback OnReplaceSecret { get; set; }
+
+    /// <summary>The person has the secret. The caller forgets it.</summary>
+    [Parameter]
+    public EventCallback OnSecretSeen { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    private Task Close(bool open) => open ? Task.CompletedTask : OnSecretSeen.InvokeAsync();
+
+    #endregion
+}

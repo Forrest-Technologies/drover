@@ -41,6 +41,11 @@ public sealed class BotDraft
 
     public string KeepRecentMessages { get; set; } = string.Empty;
 
+    /// <summary>The bot's limits on its notes. Not edited here; carried back unchanged so saving keeps them.</summary>
+    public int? MaxNoteCharacters { get; set; }
+
+    public int? MaxNotesCharacters { get; set; }
+
     public string SandboxPolicy { get; set; } = "none";
 
     public string Network { get; set; } = "off";
@@ -90,6 +95,8 @@ public sealed class BotDraft
         Compaction = bot.MemorySettings.Compaction,
         CompactAtTokens = Text(bot.MemorySettings.CompactAtTokens),
         KeepRecentMessages = Text(bot.MemorySettings.KeepRecentMessages),
+        MaxNoteCharacters = bot.MemorySettings.MaxNoteCharacters,
+        MaxNotesCharacters = bot.MemorySettings.MaxNotesCharacters,
         SandboxPolicy = bot.SandboxPolicy,
         Network = bot.SandboxSettings.Network,
         AllowedHosts = string.Join('\n', bot.SandboxSettings.AllowedHosts),
@@ -159,7 +166,7 @@ public sealed class BotDraft
             ModelConnectionId,
             Model.Trim(),
             new ModelSettingsBody(ReadDecimal(Temperature), ReadWhole(MaxOutputTokens), ReasoningEffort.Length == 0 ? null : ReasoningEffort, WebSearch, StructuredOutput),
-            new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages)),
+            new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages), MaxNoteCharacters, MaxNotesCharacters),
             SandboxPolicy,
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],

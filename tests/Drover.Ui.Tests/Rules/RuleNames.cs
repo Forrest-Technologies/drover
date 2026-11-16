@@ -29,6 +29,10 @@ public static class RuleNames
 
     public const string NoHypeWords = "no-hype-words";
 
+    public const string NoFillerCopy = "no-filler-copy";
+
+    public const string NoDeadLinks = "no-dead-links";
+
     /// <summary>
     /// Reported for an allow comment that is malformed, names no rule, or allows nothing. It cannot be allowed.
     /// </summary>
@@ -47,6 +51,8 @@ public static class RuleNames
         FieldsAreLabeled,
         MediaHasDimensions,
         NoHypeWords,
+        NoFillerCopy,
+        NoDeadLinks,
     ];
 
     #endregion

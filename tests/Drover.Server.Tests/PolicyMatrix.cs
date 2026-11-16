@@ -63,6 +63,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
         new(nameof(DeploymentPolicy.AllowConversationSummaries), "true", "true"),
         new(nameof(DeploymentPolicy.MaxConversationSummarySeconds), "120", "60"),
+        new(nameof(DeploymentPolicy.MaxMemoryNoteCharacters), "1000", "500"),
+        new(nameof(DeploymentPolicy.MaxMemoryCharactersPerPerson), "20000", "8000"),
     ];
 
     /// <summary>
