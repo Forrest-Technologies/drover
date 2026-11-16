@@ -47,7 +47,7 @@
             {
                 <Badge Kind="BadgeKind.Live">Bot working</Badge>
             }
-            <a class="dv-screen-panel-more" href="@Addresses.BotSandbox(Bot.Id)">Open terminal and power controls</a>
+            <a class="dv-screen-panel-more" href="@Addresses.BotTerminal(Bot.Id)">Open terminal and power controls</a>
         </p>
         <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" OnSandboxChanged="() => Refresh(disposal.Token)" />
     }

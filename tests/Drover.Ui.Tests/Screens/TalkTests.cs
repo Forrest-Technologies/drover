@@ -279,7 +279,7 @@ public sealed class TalkTests : ScreenTest
         page.Find("aside h1").TextContent.Should().Be("Screen");
         page.Find("aside a.dv-shell-up").GetAttribute("aria-label").Should().Be("Close the screen");
         page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Running");
-        page.Find("aside a.dv-screen-panel-more").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox");
+        page.Find("aside a.dv-screen-panel-more").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox?tab=terminal");
         var way = page.Find("a.dv-shell-side[href$=\"/screen\"]");
         way.TextContent.Should().Be("Screen");
         way.GetAttribute("aria-current").Should().Be("true");

@@ -476,6 +476,17 @@ public sealed class BotSandboxTests : ScreenTest
     #region Taking Control
 
     [Fact]
+    public void A_terminal_link_opens_the_terminal_even_when_the_bot_has_a_desktop()
+    {
+        Answer(Status("running"));
+        Navigation.NavigateTo(Addresses.BotTerminal(botId));
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find("[role=tab][aria-selected=true]").TextContent.Should().Be("Terminal"));
+        page.Find(".dv-sandbox-terminal").Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Desktop_input_names_where_clicks_and_keys_go()
     {
         Answer(Status("running"));
