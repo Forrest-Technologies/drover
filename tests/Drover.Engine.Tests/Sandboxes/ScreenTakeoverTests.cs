@@ -109,6 +109,32 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
             .Should().ContainSingle().Which.Outcome.Should().Be("completed");
     }
 
+    [Fact]
+    public async Task A_request_a_rule_blocks_never_holds_the_screen()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "computer_handover", Asking)], [new TextOutput("I will not ask.")]);
+        await using var world = await TakeoverWorld(ComputerToolsTests.DesktopProvider(), script);
+        await world.Read(db =>
+        {
+            db.BotRules.Add(new BotRule
+            {
+                BotId = world.BotId,
+                Name = "No handing over",
+                Enabled = true,
+                Checkpoint = RuleCheckpoint.BeforeTool,
+                Effect = RuleEffect.Block,
+                Conditions = [new RuleCondition { Kind = RuleConditionKind.ToolIs, Tools = [ComputerTools.HandoverName] }],
+            });
+            return Task.FromResult(true);
+        });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Read my mail");
+        var run = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        run.StatusReason.Should().NotBe(RunReasons.AwaitingTakeover, "a call the rules refuse asks nobody to take over");
+    }
+
     #endregion
 
     #region The Hold
@@ -138,7 +164,7 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
 
         var refused = await CallOf(world, member, during);
         refused.IsError.Should().BeTrue();
-        refused.Result!.Value.GetRawText().Should().Contain("A person has this bot's screen right now");
+        refused.Result!.Value.GetRawText().Should().Contain("A person has this sandbox's screen right now");
         provider.Commands.Should().NotContain(command => command.Program == "xdotool", "nothing was done on the screen");
 
         var call = (await world.ReadToolCalls(asking)).Single();
@@ -150,6 +176,105 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         var clicked = await CallOf(world, member, after);
         clicked.IsError.Should().BeFalse();
         provider.Commands.Should().Contain(command => command.Program == "xdotool");
+    }
+
+    [Fact]
+    public async Task While_a_person_has_the_screen_a_command_in_the_same_sandbox_is_refused_and_after_it_is_handed_back_it_runs()
+    {
+        var provider = ComputerToolsTests.DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "computer_handover", Asking)],
+            [new ToolCallOutput("c2", "sandbox_run", """{"command":"xdotool getmouselocation"}""")],
+            [new TextOutput("I waited.")],
+            [new TextOutput("Signed in.")],
+            [new ToolCallOutput("c3", "sandbox_run", """{"command":"echo free"}""")],
+            [new TextOutput("Ran it.")]);
+        await using var world = await TakeoverWorld(provider, script);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        world.StartHost();
+        var asking = await world.Post(await world.NewThread(), "Read my mail");
+        await world.WaitForStatus(asking, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+        var other = await world.NewThread();
+        provider.Commands.Clear();
+
+        var during = await world.Post(other, "Run it");
+        (await world.WaitForStatus(during, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        var refused = (await world.ReadToolCalls(during)).Single();
+        refused.IsError.Should().BeTrue();
+        refused.Result!.Value.GetRawText().Should().Contain("A person has this sandbox's screen right now").And.Contain("sandbox page");
+        provider.Commands.Should().BeEmpty("nothing ran in the sandbox while the person held it");
+
+        await HandBack(world, (await world.ReadToolCalls(asking)).Single().Id, done: true);
+        await world.WaitForStatus(asking, RunStatus.Completed, RunStatus.Failed);
+        var after = await world.Post(other, "Run it now");
+        (await world.WaitForStatus(after, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadToolCalls(after)).Single().IsError.Should().BeFalse();
+        provider.Commands.Should().Contain(command => command.Arguments.Contains("echo free"));
+    }
+
+    [Theory]
+    [InlineData(SandboxPolicy.Private, false)]
+    [InlineData(SandboxPolicy.Subtree, true)]
+    public async Task The_hold_reaches_the_bots_that_share_the_sandbox_and_no_other(SandboxPolicy policy, bool held)
+    {
+        var provider = ComputerToolsTests.DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "computer_handover", Asking)],
+            [new ToolCallOutput("c2", "computer_click", """{"x":10,"y":20}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await TakeoverWorld(provider, script, policy);
+        var child = await world.NewBotBeneath(world.BotId, "Helper");
+        await world.Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == child, RunWorld.Token);
+            bot.SandboxPolicy = policy;
+            bot.SandboxSettings = new SandboxSettings { Desktop = true };
+            return true;
+        });
+
+        foreach (var tool in ComputerTools.Names)
+        {
+            await world.GrantTo(child, tool, GrantEffect.Allow);
+        }
+
+        world.StartHost();
+        var asking = await world.Post(await world.NewThread(), "Read my mail");
+        await world.WaitForStatus(asking, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+        var childThread = (await world.Transact(services => services.GetRequiredService<ThreadService>().Create(child, null, world.UserId, RunWorld.Token)))!.Id;
+        provider.Commands.Clear();
+
+        var clicking = await world.Post(childThread, "Click");
+        (await world.WaitForStatus(clicking, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadToolCalls(clicking)).Single().IsError.Should().Be(held, held ? "the child shares the held sandbox" : "the child's sandbox is its own");
+        provider.Commands.Any(command => command.Program == "xdotool").Should().Be(!held);
+    }
+
+    [Fact]
+    public async Task The_sandbox_says_who_holds_its_screen_since_when_and_an_admin_who_stops_that_run_frees_it()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "computer_handover", Asking)], [new TextOutput("Never said.")]);
+        await using var world = await TakeoverWorld(ComputerToolsTests.DesktopProvider(), script);
+        var admin = await world.AddMember(MembershipRole.Admin);
+        var host = world.StartHost();
+        var control = host.Services.GetRequiredService<SandboxControlService>();
+        (await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!.Hold.Should().BeNull();
+        var runId = await world.Post(await world.NewThread(), "Read my mail");
+        var waiting = await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        var own = (await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!.Hold;
+        var seenByAdmin = (await control.GetStatus(world.SpaceId, admin, world.BotId, RunWorld.Token)).Value!.Hold;
+
+        own.Should().Be(new SandboxHold(runId, ForYou: true, waiting.WaitingSince));
+        waiting.WaitingSince.Should().NotBeNull();
+        seenByAdmin.Should().Be(new SandboxHold(runId, ForYou: false, waiting.WaitingSince), "an admin sees the run and the time, not the conversation");
+
+        (await world.CancelAs(runId, host, admin, isSpaceAdmin: true)).Outcome.Should().Be(CancelOutcome.Requested);
+        await world.WaitForStatus(runId, RunStatus.Cancelled);
+
+        (await control.GetStatus(world.SpaceId, admin, world.BotId, RunWorld.Token)).Value!.Hold.Should().BeNull("a stopped run holds nothing");
     }
 
     [Fact]
@@ -249,7 +374,7 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
 
     #region Helpers
 
-    private async Task<RunWorld> TakeoverWorld(FakeSandboxProvider provider, ScriptedModel script)
+    private async Task<RunWorld> TakeoverWorld(FakeSandboxProvider provider, ScriptedModel script, SandboxPolicy policy = SandboxPolicy.Private)
     {
         var world = await RunWorld.Create(
             postgres,
@@ -262,7 +387,7 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         await world.Read(async db =>
         {
             var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
-            bot.SandboxPolicy = SandboxPolicy.Private;
+            bot.SandboxPolicy = policy;
             bot.SandboxSettings = new SandboxSettings { Desktop = true };
             var model = await db.ModelCatalog.SingleAsync(RunWorld.Token);
             model.Capabilities = new ModelCapabilities { Vision = true };

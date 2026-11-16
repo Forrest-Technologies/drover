@@ -627,9 +627,15 @@ public sealed partial class RunExecutor(
                     await session.CompleteTool(finished.CallId, new ToolOutcome(finished.Result, finished.IsError));
                     break;
                 case ApprovalRequested approval:
-                    session.NoteWaitFor(approval.ToolName);
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
                     await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
+
+                    // A call the rules will refuse holds nothing: only one that can run waits for a person at the screen.
+                    if (!await governor.RulesRefuse(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken))
+                    {
+                        session.NoteWaitFor(approval.ToolName);
+                    }
+
                     var details = await governor.DescribeForApproval(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     await session.Writer.Append(
                         session.RunId,
@@ -1000,7 +1006,11 @@ public sealed partial class RunExecutor(
         run.LeaseExpiresAt = null;
         run.Usage = session.Usage;
 
-        if (status is not RunStatus.Waiting)
+        if (status is RunStatus.Waiting)
+        {
+            run.WaitingSince = now;
+        }
+        else
         {
             run.FinishedAt = now;
 

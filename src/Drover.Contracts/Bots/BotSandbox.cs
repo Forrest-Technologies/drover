@@ -8,8 +8,8 @@ namespace Drover.Contracts.Bots;
 /// <see cref="BotWorking"/> whether a run of this bot is working right now, and <see cref="DesktopOffered"/> whether
 /// this server offers sandboxes with a screen at all, so a sandbox without one can say why. <see cref="StartFailed"/>
 /// is set with <c>none</c> when the bot's newest sandbox was given up before the provider ever made it, so "no
-/// sandbox yet" is not shown for a bot that tried to get one. Never a provider id, a
-/// token, or which provider it is.
+/// sandbox yet" is not shown for a bot that tried to get one. <see cref="Hold"/> is set while a person holds the
+/// screen because a bot that shares the sandbox asked them to. Never a provider id, a token, or which provider it is.
 /// </summary>
 public sealed record BotSandboxStatus(
     bool Available,
@@ -19,7 +19,16 @@ public sealed record BotSandboxStatus(
     bool Desktop,
     bool BotWorking,
     bool DesktopOffered,
-    bool StartFailed = false);
+    bool StartFailed = false,
+    SandboxHold? Hold = null);
+
+
+/// <summary>
+/// A person holds a sandbox's screen, at a bot's request: the run that waits for them, whether it is this person's,
+/// and since when. No conversation content and no other person's name: an owner or admin may stop the run, and every
+/// bot that shares the sandbox is refused until it is handed back.
+/// </summary>
+public sealed record SandboxHold(Guid RunId, bool ForYou, DateTimeOffset? Since);
 
 
 /// <summary>

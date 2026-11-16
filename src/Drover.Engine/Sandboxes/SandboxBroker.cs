@@ -47,6 +47,9 @@ public sealed class SandboxBroker(
 
     private static readonly TimeSpan defaultIdle = TimeSpan.FromMinutes(15);
 
+    private const string HeldSentence =
+        "A person has this sandbox's screen right now, because a bot that shares it asked them to take it over. Nothing was done in the sandbox. Try again once they hand it back; an owner or admin can see who holds it, and stop that run, on the bot's sandbox page.";
+
     private const int MaxEntries = 1000;
 
     /// <summary>The least time a sandbox stays up for a desktop action: starting the display can take a minute and a half.</summary>
@@ -314,12 +317,6 @@ public sealed class SandboxBroker(
     /// </summary>
     private async Task<SandboxLease?> AcquireScreen(SandboxCaller caller, bool create, CancellationToken cancellationToken)
     {
-        if (caller.Call is not null && await caller.Tenant.Transact(services => IsHeldByAPerson(services, caller.BotId, cancellationToken), cancellationToken))
-        {
-            throw new BuiltinToolException(
-                "A person has this bot's screen right now, because a bot that shares it asked them to take it over. Nothing was done on the screen. Try again once they hand it back.");
-        }
-
         if (await Prepare(caller, null, desktopMargin, screen: true, create, cancellationToken) is not { } lease)
         {
             return null;
@@ -334,33 +331,6 @@ public sealed class SandboxBroker(
         }
 
         return lease;
-    }
-
-    /// <summary>
-    /// True while a run of a bot that shares this bot's sandbox waits for a person at the screen. The run rows are
-    /// shared space-wide, so every run of every bot in the group sees the hold, whichever conversation asked for it.
-    /// </summary>
-    private static async Task<bool> IsHeldByAPerson(IServiceProvider services, Guid botId, CancellationToken cancellationToken)
-    {
-        var holders = await services.GetRequiredService<RunRepository>().ListBotsWaitingFor(RunReasons.AwaitingTakeover, cancellationToken);
-
-        if (holders.Count == 0)
-        {
-            return false;
-        }
-
-        var bots = services.GetRequiredService<BotRepository>();
-        var owner = SandboxGroups.OwnerOf(botId, await bots.ListSandboxPath(botId, cancellationToken));
-
-        foreach (var holder in holders)
-        {
-            if (SandboxGroups.OwnerOf(holder, await bots.ListSandboxPath(holder, cancellationToken)) == owner)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private async Task RunOnScreen(SandboxLease lease, CommandRequest command, string doing, CancellationToken cancellationToken)
@@ -594,6 +564,26 @@ public sealed class SandboxBroker(
         }
     }
 
+    /// <summary>
+    /// True while a run of a bot whose sandbox this owner's is waits for a person at its screen. The run rows are shared
+    /// space-wide, so every run of every bot in the group sees the hold, whichever conversation asked for it.
+    /// </summary>
+    private static async Task<bool> IsHeldByAPerson(IServiceProvider services, Guid ownerId, CancellationToken cancellationToken)
+    {
+        var holders = await services.GetRequiredService<RunRepository>().ListBotsWaitingFor(RunReasons.AwaitingTakeover, cancellationToken);
+        var bots = services.GetRequiredService<BotRepository>();
+
+        foreach (var holder in holders)
+        {
+            if (SandboxGroups.OwnerOf(holder, await bots.ListSandboxPath(holder, cancellationToken)) == ownerId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task<SandboxTarget?> LocateIn(
         IServiceProvider services,
         SandboxCaller caller,
@@ -613,6 +603,13 @@ public sealed class SandboxBroker(
         var owner = string.IsNullOrWhiteSpace(environment)
             ? await FindBot(bots, callerOwner, cancellationToken)
             : await FindNamedOwner(bots, bot, callerOwner, environment, cancellationToken);
+        // While a person holds this sandbox's screen no bot uses the sandbox at all: a command or a file could reach
+        // the screen, read it, or watch what the person types as well as a computer tool could.
+        if (caller.Call is not null && await IsHeldByAPerson(services, owner.Id, cancellationToken))
+        {
+            throw new BuiltinToolException(HeldSentence);
+        }
+
         var sandboxes = services.GetRequiredService<SandboxRepository>();
         var row = await sandboxes.FindLiveForOwner(owner.Id, cancellationToken);
 

@@ -62,6 +62,13 @@ public sealed class RunRepository(DroverDbContext db)
             .Distinct()
             .ToListAsync(cancellationToken);
 
+    /// <summary>The runs that wait for this reason, oldest first. Run rows are metadata: no conversation content.</summary>
+    public Task<List<Run>> ListRunsWaitingFor(string reason, CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .Where(run => run.Status == RunStatus.Waiting && run.StatusReason == reason)
+            .OrderBy(run => run.Id)
+            .ToListAsync(cancellationToken);
+
     /// <summary>The ids of a thread's root runs, oldest first.</summary>
     public Task<List<Guid>> ListRootRunIds(Guid threadId, CancellationToken cancellationToken) =>
         db.Runs.AsNoTracking()
