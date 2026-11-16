@@ -1,8 +1,9 @@
 namespace Drover.Data.Repositories;
 
 /// <summary>
-/// What one thread holds for one person: their newest run in it, whether a call in it still waits for an approval,
-/// when they last opened it, and whether a bot said something in a run of theirs after the last message they saw.
+/// What one thread holds for one person: their newest root run in it (the run a message started, never a run another
+/// bot handed work to), whether a call anywhere in that run's tree still waits for an approval, when they last opened
+/// the thread, and whether a bot said something in a run of theirs after the last message they saw.
 /// </summary>
 public sealed record ThreadFacts(Run? NewestRun, bool ApprovalOpen, DateTimeOffset? SeenAt, bool HasNew);
 
@@ -105,7 +106,9 @@ public sealed class ThreadRepository(DroverDbContext db)
 
     /// <summary>
     /// What each of the threads holds for the person, from their own runs and their own marker only. Runs have no
-    /// audience, so another member's runs in a shared thread are visible here; they are left out by name.
+    /// audience, so another member's runs in a shared thread are visible here; they are left out by name. A run
+    /// another bot handed work to is part of its root's tree: its approvals count for the root's thread, and its
+    /// failure is the parent's to deal with, so it never stands as a thread's newest run.
     /// </summary>
     public async Task<Dictionary<Guid, ThreadFacts>> ListFacts(
         IReadOnlyCollection<Guid> threadIds,
@@ -117,15 +120,17 @@ public sealed class ThreadRepository(DroverDbContext db)
             .FromSql(
                 $"""
                 SELECT DISTINCT ON (thread_id) * FROM runs
-                WHERE thread_id = ANY({ids}) AND principal_user_id = {userId}
+                WHERE thread_id = ANY({ids}) AND principal_user_id = {userId} AND parent_run_id IS NULL
                 ORDER BY thread_id, id DESC
                 """)
             .AsNoTracking()
             .ToDictionaryAsync(run => run.ThreadId, cancellationToken);
-        var open = (await db.ToolCalls.AsNoTracking()
-            .Where(call => ids.Contains(call.ThreadId) && call.Status == ToolCallStatus.PendingApproval)
-            .Where(call => db.Runs.Any(run => run.Id == call.RunId && run.PrincipalUserId == userId))
-            .Select(call => call.ThreadId)
+        Guid[] waitingRoots = [.. newest.Values.Where(run => run.Status == RunStatus.Waiting).Select(run => run.Id)];
+        var open = (await (
+                from call in db.ToolCalls.AsNoTracking()
+                join run in db.Runs.AsNoTracking() on call.RunId equals run.Id
+                where call.Status == ToolCallStatus.PendingApproval && waitingRoots.Contains(run.RootRunId)
+                select run.RootRunId)
             .Distinct()
             .ToListAsync(cancellationToken)).ToHashSet();
         var seen = await db.ThreadReads.AsNoTracking()
@@ -146,7 +151,7 @@ public sealed class ThreadRepository(DroverDbContext db)
             id => id,
             id => new ThreadFacts(
                 newest.GetValueOrDefault(id),
-                open.Contains(id),
+                newest.GetValueOrDefault(id) is { } root && open.Contains(root.Id),
                 seen.TryGetValue(id, out var at) ? at : null,
                 withNew.Contains(id)));
     }

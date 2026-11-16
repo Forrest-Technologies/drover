@@ -143,6 +143,78 @@ public sealed class RunAttentionTests(PostgresServer postgres)
 
     #endregion
 
+    #region Delegation
+
+    [Fact]
+    public async Task An_approval_a_child_waits_for_makes_the_root_bot_read_waiting_and_answering_it_clears_it()
+    {
+        var tools = new TestTools().Add("test.write", ToolSensitivity.Write);
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
+        var childId = await world.NewBotBeneath(world.BotId, "Writer");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.Grant("test.write", GrantEffect.Allow);
+        await world.GrantTo(childId, "test.write", GrantEffect.Ask);
+        world.Script.Then(
+            [Delegate("d1", childId, "Write the file.")],
+            [new ToolCallOutput("w1", "test_write")],
+            [new TextOutput("Written.")],
+            [new TextOutput("Writer wrote it.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+        var rootId = await world.Post(threadId, "Have it written.");
+        await world.WaitForStatus(rootId, RunStatus.Waiting);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var call = (await world.ReadToolCalls(child.Id)).Single(found => found.Status == ToolCallStatus.PendingApproval);
+
+        var root = await AttentionOf(world, threadId, world.UserId);
+        var childsThread = await AttentionOf(world, child.ThreadId, world.UserId);
+        (await world.Decide(call.Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        var answered = await AttentionOf(world, threadId, world.UserId);
+
+        root.WaitingForYou.Should().BeTrue("the call that waits is in the root's tree");
+        childsThread.WaitingForYou.Should().BeFalse("the person answers through the bot they asked, so it is counted once");
+        answered.WaitingForYou.Should().BeFalse();
+        await world.WaitForStatus(rootId, RunStatus.Completed);
+    }
+
+    [Fact]
+    public async Task A_failed_child_its_parent_recovered_from_makes_no_bot_read_failed()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Fragile");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Try this.")],
+            [new TextOutput("Fragile failed, so I answer myself.")]);
+        world.Model.BeforeCall = call =>
+        {
+            if (call == 1)
+            {
+                world.Model.FailNext = ModelProviderException.FromStatus(503);
+            }
+
+            return Task.CompletedTask;
+        };
+        world.StartHost();
+        var threadId = await world.NewThread();
+        var rootId = await world.Post(threadId, "Delegate it.");
+        (await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        child.Status.Should().Be(RunStatus.Failed, "the child's failure is what the parent recovered from");
+
+        var root = await AttentionOf(world, threadId, world.UserId);
+        var childsThread = await AttentionOf(world, child.ThreadId, world.UserId);
+        var retry = await RetryAs(world, child.Id, world.UserId);
+
+        root.Failed.Should().BeFalse();
+        root.LastFailure.Should().BeNull();
+        childsThread.Failed.Should().BeFalse("the parent dealt with it");
+        childsThread.LastFailure.Should().BeNull();
+        retry.Outcome.Should().Be(RetryOutcome.NotRetryable, "work handed to a bot is tried again by its parent, not by the person");
+    }
+
+    #endregion
+
     #region Two Members
 
     [Fact]
@@ -170,6 +242,9 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     #endregion
 
     #region Private Methods
+
+    private static ToolCallOutput Delegate(string callId, Guid botId, string task) =>
+        new(callId, DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = botId, task }));
 
     private static async Task<ThreadAttention> AttentionOf(RunWorld world, Guid threadId, Guid userId) =>
         (await world.TransactAs(world.SpaceId, userId, services =>
