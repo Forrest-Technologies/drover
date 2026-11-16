@@ -105,6 +105,20 @@ public static class FileWords
         };
     }
 
+    /// <summary>The most characters of a text file "Show all" puts on the page.</summary>
+    public const int MaxShownCharacters = 100_000;
+
+    /// <summary>
+    /// True when a text file holds more than the first lines it shows. Each shown line may have lost a carriage return
+    /// and the last its line break, so a file only that much larger has nothing more.
+    /// </summary>
+    public static bool HasMore(SharedFile file) =>
+        file.Preview is { } preview && file.Size > Encoding.UTF8.GetByteCount(preview) + preview.Count(character => character == '\n') + 2;
+
+    /// <summary>What "Show all" says when the file is longer than it shows.</summary>
+    public static string Cut(string name) =>
+        $"Only the first {MaxShownCharacters.ToString("N0", CultureInfo.InvariantCulture)} characters of {name} are shown. Download it for the rest.";
+
     /// <summary>A card's second line: "PDF document, 3.4 MB".</summary>
     public static string Facts(SharedFile file) => $"{KindName(file.ContentType, file.Name)}, {Words.Size(file.Size)}";
 
@@ -158,9 +172,14 @@ public static class FileWords
             href,
             fromBot,
             default,
+            Caption: file.Caption,
             Preview: file.Preview,
             Width: file.Width,
             Height: file.Height);
+
+    /// <summary>A file a person and a bot exchanged, as the files panel lists it: when, and a link to that moment.</summary>
+    public static SharedFile Exchanged(ExchangedFileResponse exchanged, string href, string momentHref) =>
+        Shared(exchanged.File, href, exchanged.FromBot) with { When = exchanged.SharedAt, MomentHref = momentHref };
 
     /// <summary>True when the message can be sent: every file is uploaded and none is refused.</summary>
     public static bool CanSend(IEnumerable<AttachmentItem> items) =>

@@ -59,22 +59,8 @@ public static class BotSummaries
     public static string Memory(BotDraft draft) =>
         $"{(draft.MemoryEnabled ? "Remembers" : "Does not remember")} · {Compaction(draft.Compaction).ToLowerInvariant()}";
 
-    public static string Schedules(IReadOnlyList<BotScheduleResponse>? schedules)
-    {
-        if (schedules is null)
-        {
-            return "Loading";
-        }
-
-        if (schedules.Count == 0)
-        {
-            return "None";
-        }
-
-        var next = schedules.Where(schedule => schedule.NextRunAt is not null).Min(schedule => schedule.NextRunAt);
-        var count = schedules.Count == 1 ? ScheduleWords.Describe(schedules[0].Cron) : $"{schedules.Count} schedules";
-        return next is { } moment ? $"{count} · next {ScheduleWords.Moment(moment)}" : $"{count} · off";
-    }
+    public static string Routines(IReadOnlyList<BotScheduleResponse>? schedules, string botName) =>
+        schedules is null ? "Loading" : RoutineWords.Summary([.. schedules.Select(schedule => RoutineWords.Item(schedule, botName))]);
 
     /// <summary>
     /// The sandbox's settings, which model reads its screen when another one does, and what the bot may do in it when
@@ -98,6 +84,7 @@ public static class BotSummaries
         {
             ToolStanding.Allowed => " · may run commands",
             ToolStanding.AllowedOnSave => " · allowed when saved",
+            ToolStanding.Partial => " · some tools allowed",
             ToolStanding.NotAllowed => " · not allowed yet",
             ToolStanding.ParentForbids => " · not allowed by its parent",
             _ => string.Empty,

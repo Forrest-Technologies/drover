@@ -2,7 +2,9 @@ namespace Drover.Server.Bots;
 
 /// <summary>
 /// The bot editor's API: a bot's whole definition, its tools, and its schedules. Every route here is for the
-/// space's owners and admins only, and every change is checked and audited by the service it calls.
+/// space's owners and admins only, and every change is checked and audited by the service it calls. Running a
+/// schedule once starts a run and tells the workers after the commit, so that route sits outside the tenant scope
+/// filter and the service opens its own scope.
 /// </summary>
 public static class BotEditorEndpoints
 {
@@ -21,6 +23,9 @@ public static class BotEditorEndpoints
         bot.MapPut("/tools/{toolId:guid}", SetGrant).WithName("SetBotToolGrant");
         bot.MapGet("/schedules", ListSchedules).WithName("ListBotSchedules");
         bot.MapPost("/schedules", CreateSchedule).WithName("CreateBotSchedule");
+        bot.MapPost("/schedules/check", CheckSchedule)
+            .WithName("CheckBotSchedule")
+            .WithSummary("Checks a time as saving a schedule would: the sentence it would be refused with, or its next times.");
         bot.MapPut("/schedules/{scheduleId:guid}", UpdateSchedule).WithName("UpdateBotSchedule");
         bot.MapDelete("/schedules/{scheduleId:guid}", RemoveSchedule).WithName("RemoveBotSchedule");
         bot.MapGet("/rules", ListRules).WithName("ListBotRules");
@@ -31,6 +36,15 @@ public static class BotEditorEndpoints
         bot.MapGet("/rules/options", GetRuleOptions).WithName("GetBotRuleOptions");
         bot.MapGet("/sandbox/options", GetSandboxOptions).WithName("GetBotSandboxOptions");
         return bots;
+    }
+
+    public static RouteGroupBuilder MapScheduleRunOnce(this RouteGroupBuilder space)
+    {
+        space.MapPost("/bots/{botId:guid}/schedules/{scheduleId:guid}/run-once", RunScheduleOnce)
+            .RequireSpaceRole(MembershipRole.Admin)
+            .WithName("RunBotScheduleOnce")
+            .WithSummary("Sends the schedule's prompt once now, as the caller's own message, and returns the conversation. The schedule's next time does not change.");
+        return space;
     }
 
     #endregion
@@ -152,6 +166,12 @@ public static class BotEditorEndpoints
             ? TypedResults.Ok(found.Select(schedule => schedule.ToResponse()).ToList())
             : TypedResults.NotFound();
 
+    private static Ok<ScheduleCheckResponse> CheckSchedule(ScheduleCheckBody body, ScheduleService schedules)
+    {
+        var check = schedules.Check(body.Cron ?? string.Empty, body.TimeZone ?? string.Empty);
+        return TypedResults.Ok(new ScheduleCheckResponse(check.Problem, check.Next));
+    }
+
     private static async Task<Results<Created<BotScheduleResponse>, NotFound, ProblemHttpResult>> CreateSchedule(
         Guid botId,
         BotScheduleBody body,
@@ -185,13 +205,32 @@ public static class BotEditorEndpoints
             return TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return change.Schedule is { } schedule ? TypedResults.Ok(schedule.ToResponse()) : TypedResults.NotFound();
+        return change.Schedule is null ? TypedResults.NotFound() : TypedResults.Ok(change.ToResponse());
     }
 
     private static async Task<Results<NoContent, NotFound>> RemoveSchedule(Guid botId, Guid scheduleId, HttpContext context, ScheduleService schedules) =>
         await schedules.Remove(botId, scheduleId, context.GetSpaceAccess().UserId, context.RequestAborted)
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
+
+    private static async Task<Results<Accepted<ScheduleRunOnceResponse>, NotFound, ProblemHttpResult>> RunScheduleOnce(
+        Guid botId,
+        Guid scheduleId,
+        HttpContext context,
+        ScheduleFiring firing)
+    {
+        var access = context.GetSpaceAccess();
+        var trial = await firing.RunOnce(botId, scheduleId, access.UserId, context.RequestAborted);
+
+        return trial switch
+        {
+            { Problem: { } problem } => TypedResults.Problem(title: problem, statusCode: StatusCodes.Status409Conflict),
+            { ThreadId: { } threadId } => TypedResults.Accepted(
+                trial.RunId is { } runId ? $"/api/spaces/{access.SpaceId}/runs/{runId}" : null,
+                new ScheduleRunOnceResponse(threadId, trial.RunId)),
+            _ => TypedResults.NotFound(),
+        };
+    }
 
     #endregion
 

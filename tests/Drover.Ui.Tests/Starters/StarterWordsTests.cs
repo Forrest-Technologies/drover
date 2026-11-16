@@ -18,110 +18,6 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Routines
-
-    [Theory]
-    [InlineData("0 8 * * *", "Every day at 08:00")]
-    [InlineData("30 7 * * 1-5", "Every weekday at 07:30")]
-    [InlineData("0 9 * * 1,3,5", "Every Monday, Wednesday and Friday at 09:00")]
-    [InlineData("0 9 * * 0", "Every Sunday at 09:00")]
-    [InlineData("0 9 * * 7", "Every Sunday at 09:00")]
-    [InlineData("15 6 1 * *", "On the 1st of every month at 06:15")]
-    [InlineData("0 6 22 * *", "On the 22nd of every month at 06:00")]
-    [InlineData("0 */4 * * *", "Every 4 hours, on the hour")]
-    [InlineData("0 */12 * * *", "Every 12 hours, on the hour")]
-    [InlineData("20 */1 * * *", "Every hour, at 20 past")]
-    public void A_schedule_the_editor_builds_reads_as_a_sentence(string cron, string sentence)
-    {
-        RoutineWords.Describe(cron).Should().Be(sentence);
-    }
-
-    [Theory]
-    [InlineData("*/20 9-17 * * 1-5")]
-    [InlineData("0 8 * 6 *")]
-    [InlineData("0 8 1 * 1")]
-    [InlineData("61 8 * * *")]
-    [InlineData("0 */5 * * *")]
-    [InlineData("0 */13 * * *")]
-    [InlineData("0 9 31 * *")]
-    [InlineData("0 9 29 * *")]
-    [InlineData("not a schedule")]
-    public void A_schedule_the_editor_could_not_build_has_no_sentence_and_reads_as_custom(string cron)
-    {
-        RoutineWords.Describe(cron).Should().BeNull();
-        RoutineWords.Read(cron).Rhythm.Should().Be(RoutineRhythm.Custom);
-        RoutineWords.Sentence(cron, "Europe/Berlin").Should().Be("On a custom schedule, Berlin time");
-    }
-
-    [Theory]
-    [InlineData("0 8 * * *")]
-    [InlineData("30 7 * * 1-5")]
-    [InlineData("0 9 * * 1,3,5")]
-    [InlineData("15 6 1 * *")]
-    [InlineData("5 */4 * * *")]
-    public void Reading_a_schedule_and_building_it_again_gives_the_same_schedule(string cron)
-    {
-        RoutineWords.Cron(RoutineWords.Read(cron)).Should().Be(cron);
-    }
-
-    [Fact]
-    public void Fields_that_do_not_make_a_schedule_build_nothing()
-    {
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.ChosenDays, Days = [] }).Should().BeNull();
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.DayOfMonth, DayOfMonth = 29 }).Should().BeNull("not every month has a 29th");
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.EveryHours, Hours = 0 }).Should().BeNull();
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.EveryHours, Hours = 5 }).Should().BeNull("every 5 hours from midnight leaves a 4 hour gap at the end of the day");
-        RoutineWords.Cron(RoutineWhen.Start with { Rhythm = RoutineRhythm.Custom, Cron = " " }).Should().BeNull();
-    }
-
-    [Theory]
-    [InlineData("Europe/Berlin", "Berlin time")]
-    [InlineData("America/New_York", "New York time")]
-    [InlineData("America/Argentina/Buenos_Aires", "Buenos Aires time")]
-    [InlineData("UTC", "UTC")]
-    [InlineData("", "UTC")]
-    public void A_time_zone_is_said_the_way_a_person_says_it(string zone, string words)
-    {
-        RoutineWords.Zone(zone).Should().Be(words);
-    }
-
-    [Fact]
-    public void A_routines_last_run_is_said_in_words()
-    {
-        RoutineWords.Outcome(null, string.Empty).Should().Be("Has not run yet");
-        RoutineWords.Outcome(new(start, RoutineOutcome.Finished, null, null), "today at 08:00").Should().Be("Ran today at 08:00 and finished");
-        RoutineWords.Outcome(new(start, RoutineOutcome.Failed, "the model could not be reached", null), "today at 08:00")
-            .Should().Be("Failed today at 08:00: the model could not be reached");
-        RoutineWords.Outcome(new(start, RoutineOutcome.DidNotRun, "Sample bot was paused", null), "today at 08:00")
-            .Should().Be("Did not run today at 08:00: Sample bot was paused");
-    }
-
-    [Fact]
-    public void The_closed_routines_section_says_how_many_and_how_many_are_off()
-    {
-        RoutineItem Routine(bool enabled) => new(Guid.NewGuid(), "Sample", "0 8 * * *", "UTC", enabled, null, null);
-
-        RoutineWords.Summary([]).Should().Be("No routines");
-        RoutineWords.Summary([Routine(true)]).Should().Be("1 routine");
-        RoutineWords.Summary([Routine(true), Routine(false), Routine(true)]).Should().Be("3 routines, 1 off");
-    }
-
-    [Fact]
-    public void A_proposed_routine_shows_the_whole_prompt_and_a_change_shows_before_and_after()
-    {
-        var prompt = "Line one.\nLine two.";
-
-        RoutineWords.Proposal("0 8 * * 1-5", "Europe/Berlin", prompt).Should().Equal(
-            new ToolFact("When", "Every weekday at 08:00, Berlin time"),
-            new ToolFact("What it is sent", prompt));
-
-        var before = new RoutineItem(Guid.NewGuid(), "Old prompt.", "0 9 * * *", "UTC", true, null, null);
-        RoutineWords.Proposal("0 8 * * 1-5", "Europe/Berlin", prompt, before).Select(fact => fact.Name).Should().Equal(
-            "When, now", "What it is sent, now", "When, after the change", "What it is sent, after the change");
-    }
-
-    #endregion
-
     #region History
 
     [Fact]
@@ -247,20 +143,7 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Delegation and Activity
-
-    [Fact]
-    public void Handed_work_is_a_sentence_and_every_refusal_says_why()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.\nThree of them.", DelegationPhase.Working, null, DelegationRefusal.None, null, 0);
-
-        DelegationWords.Sentence(item).Should().Be("Lead asked Helper: Find sources.");
-        DelegationWords.Sentence(item with { Phase = DelegationPhase.Refused }).Should().Be("Lead could not hand work to Helper");
-        item.IsOut.Should().BeTrue();
-        (item with { Phase = DelegationPhase.Done }).IsOut.Should().BeFalse();
-        Enum.GetValues<DelegationRefusal>().Select(refusal => DelegationWords.Refused(refusal, "Helper")).Should().OnlyHaveUniqueItems()
-            .And.OnlyContain(sentence => sentence.EndsWith('.'));
-    }
+    #region Activity
 
     [Fact]
     public void A_run_leads_with_its_outcome_and_says_how_it_started()

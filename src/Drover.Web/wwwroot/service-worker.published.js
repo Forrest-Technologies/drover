@@ -4,7 +4,7 @@
 // another host. A request
 // the worker answered itself would be held to the worker's own content security policy, so the worker never answers
 // for another host.
-self.importScripts("./service-worker-assets.js");
+self.importScripts("./service-worker-assets.js", "./push-worker.js");
 
 const cacheNamePrefix = "drover-shell-";
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;

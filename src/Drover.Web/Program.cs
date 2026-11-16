@@ -5,6 +5,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddDroverUi();
 builder.Services.AddSingleton(new UiEnvironment(builder.HostEnvironment.IsDevelopment()));
 builder.Services.AddScoped<AntiforgeryHandler>();
+builder.Services.AddScoped<IPushRegistration, BrowserPushRegistration>();
 builder.Services.AddScoped(services => new DroverApi(new HttpClient(BrowserRequests(services))
 {
     BaseAddress = new(builder.HostEnvironment.BaseAddress),

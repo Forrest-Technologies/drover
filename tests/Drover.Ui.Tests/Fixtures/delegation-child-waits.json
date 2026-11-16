@@ -1,0 +1,121 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "run.queued",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022queued\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.570855+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.606199+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1e48b-f002-78f2-aa1a-46248b418c60\u0022}",
+    "createdAt": "2026-11-16T13:28:58.628253+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022Hand work to a bot\u0022, \u0022effect\u0022: \u0022allow\u0022, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022bot_id\\\u0022:\\\u002201a1e48b-efa2-7a4d-88ab-38a3b9d08d8c\\\u0022,\\\u0022task\\\u0022:\\\u0022Write the notes to a file.\\\u0022}\u0022, \u0022toolCallId\u0022: \u002298c0fb63-b481-8afc-bb27-2d1fd1f8f96d\u0022}",
+    "createdAt": "2026-11-16T13:28:58.639853+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:58.646266+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-f002-78f2-aa1a-46248b418c60\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022task\\\u0022: \\\u0022Write the notes to a file.\\\u0022, \\\u0022bot_id\\\u0022: \\\u002201a1e48b-efa2-7a4d-88ab-38a3b9d08d8c\\\u0022}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u002298c0fb63-b481-8afc-bb27-2d1fd1f8f96d\u0022}], \u0022runId\u0022: \u002201a1e48b-efc5-7f68-98d3-4ff2da4aab96\u0022, \u0022steers\u0022: false, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1e48b-efbc-779e-b981-e5103ee4c55b\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:58.634676\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:58.651613+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "tool.started",
+    "data": "{\u0022toolCallId\u0022: \u002298c0fb63-b481-8afc-bb27-2d1fd1f8f96d\u0022}",
+    "createdAt": "2026-11-16T13:28:58.661825+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "delegation.started",
+    "data": "{\u0022childBotId\u0022: \u002201a1e48b-efa2-7a4d-88ab-38a3b9d08d8c\u0022, \u0022childRunId\u0022: \u002201a1e48b-f02f-7b26-bbdf-387e0114ccae\u0022, \u0022toolCallId\u0022: \u002298c0fb63-b481-8afc-bb27-2d1fd1f8f96d\u0022, \u0022childThreadId\u0022: \u002201a1e48b-f02e-7461-a576-b7b134018f6c\u0022}",
+    "createdAt": "2026-11-16T13:28:58.675438+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.706981+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1e48b-f061-790a-befd-10d8ea98d1d3\u0022}",
+    "createdAt": "2026-11-16T13:28:58.722849+00:00"
+  },
+  {
+    "seq": 11,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Writing them to notes.txt.\u0022, \u0022messageId\u0022: \u002201a1e48b-f061-790a-befd-10d8ea98d1d3\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.732421+00:00"
+  },
+  {
+    "seq": 12,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022test.write\u0022, \u0022effect\u0022: \u0022ask\u0022, \u0022toolName\u0022: \u0022test.write\u0022, \u0022arguments\u0022: \u0022{\\\u0022path\\\u0022:\\\u0022notes.txt\\\u0022}\u0022, \u0022toolCallId\u0022: \u0022fb8a6424-05f3-809e-aa87-ac21ea8480c1\u0022}",
+    "createdAt": "2026-11-16T13:28:58.733062+00:00"
+  },
+  {
+    "seq": 13,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "tool.approval_requested",
+    "data": "{\u0022callId\u0022: \u0022c1\u0022, \u0022details\u0022: null, \u0022requestId\u0022: \u0022ficc_c1\u0022, \u0022toolCallId\u0022: \u0022fb8a6424-05f3-809e-aa87-ac21ea8480c1\u0022}",
+    "createdAt": "2026-11-16T13:28:58.738217+00:00"
+  },
+  {
+    "seq": 14,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:58.743325+00:00"
+  },
+  {
+    "seq": 15,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-f061-790a-befd-10d8ea98d1d3\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Writing them to notes.txt.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}, {\u0022file\u0022: null, \u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022test_write\u0022, \u0022arguments\u0022: \u0022{\\\u0022path\\\u0022: \\\u0022notes.txt\\\u0022}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u0022fb8a6424-05f3-809e-aa87-ac21ea8480c1\u0022}], \u0022runId\u0022: \u002201a1e48b-f02f-7b26-bbdf-387e0114ccae\u0022, \u0022steers\u0022: false, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1e48b-f02e-7461-a576-b7b134018f6c\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:58.747279\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:58.808278+00:00"
+  },
+  {
+    "seq": 16,
+    "runId": "01a1e48b-f02f-7b26-bbdf-387e0114ccae",
+    "type": "run.waiting",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 40, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5}, \u0022reason\u0022: \u0022awaiting_approval\u0022, \u0022status\u0022: \u0022waiting\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.815294+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1e48b-efc5-7f68-98d3-4ff2da4aab96",
+    "type": "run.waiting",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 40, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5}, \u0022reason\u0022: \u0022awaiting_approval\u0022, \u0022status\u0022: \u0022waiting\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.828542+00:00"
+  }
+]

@@ -22,6 +22,12 @@ public sealed partial class Talk(
 
     private const string ActivityRail = "activity";
 
+    private const string FilesRail = "files";
+
+    private const string MemorySide = "memory";
+
+    private const string MomentPrefix = "#message-";
+
     private const string NewSideChat = "new";
 
     private readonly Dictionary<Guid, ThreadSummary> threads = [];
@@ -35,6 +41,11 @@ public sealed partial class Talk(
     private bool formerMissing;
 
     private bool mainBusy;
+
+    // Work the conversations on screen have handed to other bots, which the crew column draws on its connectors.
+    private IReadOnlyDictionary<Guid, Handoff> mainHandoffs = ImmutableDictionary<Guid, Handoff>.Empty;
+
+    private IReadOnlyDictionary<Guid, Handoff> sideHandoffs = ImmutableDictionary<Guid, Handoff>.Empty;
 
     // The side pane is kept while a new side chat takes the address of the thread its first message made.
     private object sideKey = new();
@@ -54,6 +65,9 @@ public sealed partial class Talk(
     // Raised each time the bot starts or stops working in the main conversation, so the activity rail finds the newest run.
     private int activityVersion;
 
+    /// <summary>Changes each time a conversation with the shown bot has moved on, so the files rail reads its list again.</summary>
+    private int conversationVersion;
+
     // Follows the person's signals while the page is open, so what each bot has for them changes without a reload.
     private CancellationTokenSource? listening;
 
@@ -65,7 +79,10 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? BotId { get; set; }
 
-    /// <summary>What is open beside the main conversation: "summary" for its summary, "screen" for the bot's screen, "activity" for its newest run, "side" for its side chats.</summary>
+    /// <summary>
+    /// What is open beside the main conversation: "summary" for its summary, "memory" for what the bot remembers about
+    /// the person, "screen" for the bot's screen, "files" for the files exchanged with it, "activity" for its newest run, "side" for its side chats.
+    /// </summary>
     [Parameter]
     public string? Rail { get; set; }
 
@@ -76,6 +93,14 @@ public sealed partial class Talk(
     /// <summary>An earlier run of the main conversation, opened in the activity rail from its reply.</summary>
     [Parameter]
     public Guid? ActivityRunId { get; set; }
+
+    /// <summary>The bot whose side of handed work is open beside the conversation.</summary>
+    [Parameter]
+    public Guid? WorkBotId { get; set; }
+
+    /// <summary>That bot's thread for the work.</summary>
+    [Parameter]
+    public Guid? WorkThreadId { get; set; }
 
     /// <summary>A thread opened by the address it had before conversations were reached through their bot.</summary>
     [Parameter]
@@ -97,6 +122,7 @@ public sealed partial class Talk(
     // new nor a thread falls back to the list.
     private SideView Side => (Rail, SideChat, ThreadId) switch
     {
+        _ when WorkThreadId is not null => SideView.Work,
         (_, _, not null) => SideView.Chat,
         (_, NewSideChat, _) => SideView.New,
         (_, not null, _) or (SideRail, _, _) => SideView.List,
@@ -104,6 +130,8 @@ public sealed partial class Talk(
         (ScreenRail, _, _) => SideView.Screen,
         (ActivityRail, _, _) => SideView.Activity,
         _ when ActivityRunId is not null => SideView.Activity,
+        (FilesRail, _, _) => SideView.Files,
+        (MemorySide, _, _) => SideView.Memory,
         _ => SideView.Closed,
     };
 
@@ -115,6 +143,16 @@ public sealed partial class Talk(
         _ => "side",
     };
 
+    // The message a link to a moment names, from the address's fragment.
+    private Guid? Moment
+    {
+        get
+        {
+            var fragment = new Uri(navigation.Uri).Fragment;
+            return fragment.StartsWith(MomentPrefix, StringComparison.Ordinal) && Guid.TryParse(fragment[MomentPrefix.Length..], out var id) ? id : null;
+        }
+    }
+
     private IReadOnlyList<CrewNode> Crew => CrewTree.From(bots!);
 
     // Asked for before the space has loaded too: the page's title is drawn outside the session gate.
@@ -125,12 +163,27 @@ public sealed partial class Talk(
         _ => CrewTree.Lead(bots),
     };
 
+    // A bot working on work handed to it is working for this person too.
     private IReadOnlySet<Guid> WorkingBots =>
         threads.Values
             .Where(thread => thread.ActiveRunId is not null && thread.Attention?.WaitingForYou is not true)
             .Select(thread => thread.BotId)
             .Concat(mainBusy && Shown is not null ? [Shown.Id] : [])
+            .Concat(Handoffs.Where(pair => pair.Value is Handoff.Working).Select(pair => pair.Key))
             .ToHashSet();
+
+    // Work out wins over work that came back, so a bot both conversations handed work to shows it out. A side chat's
+    // work counts while the side chat is open.
+    private IReadOnlyDictionary<Guid, Handoff> Handoffs =>
+        mainHandoffs.Concat(Side is SideView.Chat or SideView.New ? sideHandoffs : [])
+            .GroupBy(pair => pair.Key)
+            .ToDictionary(group => group.Key, group => group.Min(pair => pair.Value));
+
+    private BotSummary? WorkBot => bots?.FirstOrDefault(bot => bot.Id == WorkBotId);
+
+    private string WorkName => WorkBot?.Name ?? Handover.Unknown;
+
+    private Func<Guid, Guid, string> WorkAddress => (worker, thread) => Addresses.Work(Shown!.Id, worker, thread);
 
     // What each bot has for this person, across all their threads with it. A conversation on screen is being seen,
     // so it has nothing new and no failure to point at, even before the server has heard so.
@@ -164,10 +217,13 @@ public sealed partial class Talk(
     private string SideTitle => Side switch
     {
         SideView.Chat => threads.GetValueOrDefault(ThreadId!.Value)?.Title ?? "Side chat",
+        SideView.Work => $"{WorkName}'s side",
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
         SideView.Activity => "Activity",
+        SideView.Files => "Files",
+        SideView.Memory => "Memory",
         _ => "Side chats",
     };
 
@@ -176,6 +232,9 @@ public sealed partial class Talk(
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
         SideView.Activity => $"What {Shown!.Name} and its crew did in a run",
+        SideView.Work => $"{WorkName}'s side of work handed to it",
+        SideView.Files => $"Files exchanged with {Shown!.Name}",
+        SideView.Memory => $"What {Shown!.Name} remembers about you",
         _ => $"Side chats with {Shown!.Name}",
     };
 
@@ -184,6 +243,9 @@ public sealed partial class Talk(
         SideView.Summary => "Close the summary",
         SideView.Screen => "Close the screen",
         SideView.Activity => "Close the activity",
+        SideView.Work => $"Close {WorkName}'s side",
+        SideView.Files => "Close the files",
+        SideView.Memory => "Close memory",
         _ => "Close side chats",
     };
 
@@ -425,6 +487,7 @@ public sealed partial class Talk(
         if (!busy)
         {
             summaryVersion++;
+            conversationVersion++;
             await RefreshCrew();
         }
 
@@ -433,7 +496,20 @@ public sealed partial class Talk(
         await AskForScreen();
     }
 
-    private Task SideBusyChanged(bool busy) => busy ? Task.CompletedTask : RefreshCrew();
+    private void MainHandoffsChanged(IReadOnlyDictionary<Guid, Handoff> handoffs) => mainHandoffs = handoffs;
+
+    private void SideHandoffsChanged(IReadOnlyDictionary<Guid, Handoff> handoffs) => sideHandoffs = handoffs;
+
+    private Task SideBusyChanged(bool busy)
+    {
+        if (busy)
+        {
+            return Task.CompletedTask;
+        }
+
+        conversationVersion++;
+        return RefreshCrew();
+    }
 
     // A bot may have made, changed, or removed bots while it worked. The crew is read again when it stops; if that
     // fails the crew on screen stays as it was, and the next time shows it.

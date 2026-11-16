@@ -16,6 +16,7 @@ public sealed partial class RunExecutor(
     RunEventHub hub,
     RunSignal signal,
     UserSignalHub signals,
+    PushNotifier push,
     ConversationSummarizer summarizer,
     IFileStore fileStore,
     IEnumerable<SandboxBroker> sandboxBrokers,
@@ -190,6 +191,7 @@ public sealed partial class RunExecutor(
         }
 
         signals.Publish(run.SpaceId, run.PrincipalUserId, new UserSignal(UserSignalKinds.RunFinished, run.ThreadId, run.Id));
+        push.RunEnded(run.SpaceId, run.PrincipalUserId, run.BotId, run.ThreadId, status);
 
         logger.LogWarning("Run {RunId} ended as {Status} before it could start", run.Id, status);
     }
@@ -741,6 +743,7 @@ public sealed partial class RunExecutor(
         Name = tool.ModelName,
         Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
         IsDelegation = tool.IsDelegation,
+        IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
         Sensitivity = tool.Tool.Sensitivity,
         RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
@@ -781,7 +784,7 @@ public sealed partial class RunExecutor(
                 continue;
             }
 
-            // A read-only call runs again. A delegation is asked again, and resolves to the same child run.
+            // A read-only or idempotent call runs again. A delegation is asked again, and resolves to the same child run.
             if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { MayRunAgain: true })
             {
                 logger.LogInformation("Tool call {ToolCallId} of run {RunId} was cut off and will be asked again", callId, run.Id);
@@ -977,6 +980,12 @@ public sealed partial class RunExecutor(
                 status is RunStatus.Waiting ? UserSignalKinds.ApprovalWaiting : UserSignalKinds.RunFinished,
                 session.Thread.Id,
                 session.RunId));
+
+        // Only the worker whose status change was written wakes the person, so one end is one push.
+        if (ended is not null)
+        {
+            push.RunEnded(session.Tenant.SpaceId, session.Tenant.UserId, session.BotId, session.Thread.Id, status);
+        }
     }
 
     /// <summary>

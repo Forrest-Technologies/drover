@@ -6,8 +6,11 @@ public enum ToolStanding
     /// <summary>The tools are not in the catalog: the server has no sandbox provider, or the tools are still loading.</summary>
     Unknown,
 
-    /// <summary>Some may be allowed and are not, staged or saved.</summary>
+    /// <summary>Every available tool is off.</summary>
     NotAllowed,
+
+    /// <summary>Some available tools are on and some are off.</summary>
+    Partial,
 
     /// <summary>Every tool the parent allows is allowed or asks first, saved.</summary>
     Allowed,
@@ -29,7 +32,8 @@ public static class SandboxGrants
 {
     #region Properties
 
-    public static IReadOnlyList<string> SandboxTools { get; } = ["sandbox.run", "sandbox.read_file", "sandbox.write_file", "sandbox.list_files"];
+    public static IReadOnlyList<string> SandboxTools { get; } =
+        ["sandbox.run", "sandbox.read_file", "sandbox.write_file", "sandbox.list_files", "sandbox.share_file"];
 
     public static IReadOnlyList<string> ScreenTools { get; } =
         ["computer.screenshot", "computer.click", "computer.type", "computer.key", "computer.scroll"];
@@ -56,7 +60,7 @@ public static class SandboxGrants
 
         if (open.Any(entry => Effective(entry, staged) is "off"))
         {
-            return ToolStanding.NotAllowed;
+            return open.Any(entry => Effective(entry, staged) is not "off") ? ToolStanding.Partial : ToolStanding.NotAllowed;
         }
 
         return open.Any(entry => staged.ContainsKey(entry.ToolId)) ? ToolStanding.AllowedOnSave : ToolStanding.Allowed;

@@ -61,6 +61,10 @@ public sealed partial class BotSandbox(
     [Parameter]
     public Guid BotId { get; set; }
 
+    /// <summary>A link can open directly to the terminal.</summary>
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private IReadOnlyList<TabItem> Views =>
@@ -76,9 +80,12 @@ public sealed partial class BotSandbox(
         _ => null,
     };
 
-    private string TerminalHint => status?.State is "none"
-        ? "A command runs in the sandbox as bash reads it. The first one starts the sandbox."
-        : "A command runs in the sandbox as bash reads it, for up to five minutes.";
+    private string TerminalHint => status switch
+    {
+        { State: "none" } => "Run a shell command to start the sandbox.",
+        { Desktop: true } => "Run a shell command for up to five minutes. Use the interactive terminal for prompts.",
+        _ => "Run a shell command for up to five minutes.",
+    };
 
     #endregion
 
@@ -113,7 +120,12 @@ public sealed partial class BotSandbox(
         if (shownBotId != BotId && await session.Load() is not null)
         {
             shownBotId = BotId;
+            view = Tab is TerminalView ? TerminalView : null;
             await Load();
+        }
+        else if (Tab is TerminalView)
+        {
+            view = TerminalView;
         }
     }
 
@@ -243,6 +255,33 @@ public sealed partial class BotSandbox(
     #endregion
 
     #region Terminal
+
+    private async Task OpenTerminal()
+    {
+        if (busy)
+        {
+            return;
+        }
+
+        busy = true;
+        actionProblem = null;
+        try
+        {
+            await api.SendBotSandboxInput(SpaceId, BotId, new SandboxInputRequest("open_terminal"), disposal.Token);
+            view = ScreenView;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The sandbox desktop terminal could not open");
+            actionProblem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+
+        await RefreshStatus(disposal.Token);
+    }
 
     private async Task RunCommand()
     {

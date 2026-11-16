@@ -1,0 +1,275 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "run.queued",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022queued\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:56.821777+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.061916+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1e48b-ead9-7c87-9ff4-658e08556497\u0022}",
+    "createdAt": "2026-11-16T13:28:57.312197+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022Hand work to a bot\u0022, \u0022effect\u0022: \u0022allow\u0022, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022bot_id\\\u0022:\\\u002201a1e48b-e7a7-76eb-a68a-b53245eb954e\\\u0022,\\\u0022task\\\u0022:\\\u0022Find three sources on the topic.\\\\nKeep each to one line.\\\u0022}\u0022, \u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022}",
+    "createdAt": "2026-11-16T13:28:57.384167+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:57.449097+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-ead9-7c87-9ff4-658e08556497\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022task\\\u0022: \\\u0022Find three sources on the topic.\\\\nKeep each to one line.\\\u0022, \\\u0022bot_id\\\u0022: \\\u002201a1e48b-e7a7-76eb-a68a-b53245eb954e\\\u0022}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022}], \u0022runId\u0022: \u002201a1e48b-e883-79d1-b80e-e2fd125a202d\u0022, \u0022steers\u0022: false, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1e48b-e80a-77c5-943d-f59cb6395675\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:57.359192\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:57.490488+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "tool.started",
+    "data": "{\u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022}",
+    "createdAt": "2026-11-16T13:28:57.586596+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "delegation.started",
+    "data": "{\u0022childBotId\u0022: \u002201a1e48b-e7a7-76eb-a68a-b53245eb954e\u0022, \u0022childRunId\u0022: \u002201a1e48b-ec23-77e3-9687-970b2c39d930\u0022, \u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022, \u0022childThreadId\u0022: \u002201a1e48b-ec22-788e-8590-32c2184bdfef\u0022}",
+    "createdAt": "2026-11-16T13:28:57.649207+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.690253+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1e48b-ec6c-7349-b594-bd43721840b0\u0022}",
+    "createdAt": "2026-11-16T13:28:57.710978+00:00"
+  },
+  {
+    "seq": 11,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Looking them up, and asking Checker about the second.\u0022, \u0022messageId\u0022: \u002201a1e48b-ec6c-7349-b594-bd43721840b0\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.731096+00:00"
+  },
+  {
+    "seq": 12,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022test.lookup\u0022, \u0022effect\u0022: \u0022allow\u0022, \u0022toolName\u0022: \u0022test.lookup\u0022, \u0022arguments\u0022: \u0022{}\u0022, \u0022toolCallId\u0022: \u00227fbea959-ad8f-8e5f-b7e0-fc6941a225fd\u0022}",
+    "createdAt": "2026-11-16T13:28:57.731911+00:00"
+  },
+  {
+    "seq": 13,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.requested",
+    "data": "{\u0022title\u0022: \u0022Hand work to a bot\u0022, \u0022effect\u0022: \u0022allow\u0022, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022bot_id\\\u0022:\\\u002201a1e48b-e7db-79d5-bf8a-11a40f8fd149\\\u0022,\\\u0022task\\\u0022:\\\u0022Check that the second source holds up.\\\u0022}\u0022, \u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022}",
+    "createdAt": "2026-11-16T13:28:57.73523+00:00"
+  },
+  {
+    "seq": 14,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:57.742894+00:00"
+  },
+  {
+    "seq": 15,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-ec6c-7349-b594-bd43721840b0\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Looking them up, and asking Checker about the second.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}, {\u0022file\u0022: null, \u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022test_lookup\u0022, \u0022arguments\u0022: \u0022{}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u00227fbea959-ad8f-8e5f-b7e0-fc6941a225fd\u0022}, {\u0022file\u0022: null, \u0022kind\u0022: \u0022tool_call\u0022, \u0022text\u0022: null, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: \u0022delegate\u0022, \u0022arguments\u0022: \u0022{\\\u0022task\\\u0022: \\\u0022Check that the second source holds up.\\\u0022, \\\u0022bot_id\\\u0022: \\\u002201a1e48b-e7db-79d5-bf8a-11a40f8fd149\\\u0022}\u0022, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022}], \u0022runId\u0022: \u002201a1e48b-ec23-77e3-9687-970b2c39d930\u0022, \u0022steers\u0022: false, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1e48b-ec22-788e-8590-32c2184bdfef\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:57.72329\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:57.750588+00:00"
+  },
+  {
+    "seq": 16,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.started",
+    "data": "{\u0022toolCallId\u0022: \u00227fbea959-ad8f-8e5f-b7e0-fc6941a225fd\u0022}",
+    "createdAt": "2026-11-16T13:28:57.763469+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.started",
+    "data": "{\u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022}",
+    "createdAt": "2026-11-16T13:28:57.767081+00:00"
+  },
+  {
+    "seq": 18,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "delegation.started",
+    "data": "{\u0022childBotId\u0022: \u002201a1e48b-e7db-79d5-bf8a-11a40f8fd149\u0022, \u0022childRunId\u0022: \u002201a1e48b-ecb3-7834-b40d-0ed0e7a85eb5\u0022, \u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022, \u0022childThreadId\u0022: \u002201a1e48b-ecb3-787a-ad07-ef43cd140b0d\u0022}",
+    "createdAt": "2026-11-16T13:28:57.784852+00:00"
+  },
+  {
+    "seq": 19,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.completed",
+    "data": "{\u0022isError\u0022: false, \u0022outcome\u0022: \u0022completed\u0022, \u0022preview\u0022: \u0022{\\\u0022sources\\\u0022:[\\\u0022one\\\u0022,\\\u0022two\\\u0022,\\\u0022three\\\u0022]}\u0022, \u0022durationMs\u0022: 11, \u0022toolCallId\u0022: \u00227fbea959-ad8f-8e5f-b7e0-fc6941a225fd\u0022}",
+    "createdAt": "2026-11-16T13:28:57.812367+00:00"
+  },
+  {
+    "seq": 20,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "run.started",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: null, \u0022reason\u0022: null, \u0022status\u0022: \u0022running\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.816173+00:00"
+  },
+  {
+    "seq": 21,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 1, \u0022messageId\u0022: \u002201a1e48b-ecea-7e79-b345-e2f4cf291df8\u0022}",
+    "createdAt": "2026-11-16T13:28:57.837087+00:00"
+  },
+  {
+    "seq": 22,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022The second source holds up.\u0022, \u0022messageId\u0022: \u002201a1e48b-ecea-7e79-b345-e2f4cf291df8\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.844176+00:00"
+  },
+  {
+    "seq": 23,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 1, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:57.845198+00:00"
+  },
+  {
+    "seq": 24,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-ecea-7e79-b345-e2f4cf291df8\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022The second source holds up.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}], \u0022runId\u0022: \u002201a1e48b-ecb3-7834-b40d-0ed0e7a85eb5\u0022, \u0022steers\u0022: false, \u0022position\u0022: 2, \u0022threadId\u0022: \u002201a1e48b-ecb3-787a-ad07-ef43cd140b0d\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:57.849578\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:57.892537+00:00"
+  },
+  {
+    "seq": 25,
+    "runId": "01a1e48b-ecb3-7834-b40d-0ed0e7a85eb5",
+    "type": "run.completed",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 40, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5}, \u0022reason\u0022: null, \u0022status\u0022: \u0022completed\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.918115+00:00"
+  },
+  {
+    "seq": 26,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "delegation.completed",
+    "data": "{\u0022outcome\u0022: \u0022completed\u0022, \u0022summary\u0022: \u0022The second source holds up.\u0022, \u0022childBotId\u0022: \u002201a1e48b-e7db-79d5-bf8a-11a40f8fd149\u0022, \u0022childRunId\u0022: \u002201a1e48b-ecb3-7834-b40d-0ed0e7a85eb5\u0022, \u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022}",
+    "createdAt": "2026-11-16T13:28:57.941287+00:00"
+  },
+  {
+    "seq": 27,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "tool.completed",
+    "data": "{\u0022isError\u0022: false, \u0022outcome\u0022: \u0022completed\u0022, \u0022preview\u0022: \u0022The second source holds up.\u0022, \u0022durationMs\u0022: 181, \u0022toolCallId\u0022: \u002233980c1e-f028-8746-b9c9-f6a29f5f54d4\u0022}",
+    "createdAt": "2026-11-16T13:28:57.944539+00:00"
+  },
+  {
+    "seq": 28,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 2, \u0022messageId\u0022: \u002201a1e48b-ed75-78c3-ab8d-6c98a780ab37\u0022}",
+    "createdAt": "2026-11-16T13:28:57.97539+00:00"
+  },
+  {
+    "seq": 29,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Three sources, one line each. The second was checked.\u0022, \u0022messageId\u0022: \u002201a1e48b-ed75-78c3-ab8d-6c98a780ab37\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:57.985281+00:00"
+  },
+  {
+    "seq": 30,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 2, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:57.986142+00:00"
+  },
+  {
+    "seq": 31,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-ed75-78c3-ab8d-6c98a780ab37\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Three sources, one line each. The second was checked.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}], \u0022runId\u0022: \u002201a1e48b-ec23-77e3-9687-970b2c39d930\u0022, \u0022steers\u0022: false, \u0022position\u0022: 4, \u0022threadId\u0022: \u002201a1e48b-ec22-788e-8590-32c2184bdfef\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:57.999355\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:58.018452+00:00"
+  },
+  {
+    "seq": 32,
+    "runId": "01a1e48b-ec23-77e3-9687-970b2c39d930",
+    "type": "run.completed",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 80, \u0022input\u0022: 20, \u0022cached\u0022: 0, \u0022output\u0022: 10}, \u0022reason\u0022: null, \u0022status\u0022: \u0022completed\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.02819+00:00"
+  },
+  {
+    "seq": 33,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "delegation.completed",
+    "data": "{\u0022outcome\u0022: \u0022completed\u0022, \u0022summary\u0022: \u0022Three sources, one line each. The second was checked.\u0022, \u0022childBotId\u0022: \u002201a1e48b-e7a7-76eb-a68a-b53245eb954e\u0022, \u0022childRunId\u0022: \u002201a1e48b-ec23-77e3-9687-970b2c39d930\u0022, \u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022}",
+    "createdAt": "2026-11-16T13:28:58.039194+00:00"
+  },
+  {
+    "seq": 34,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "tool.completed",
+    "data": "{\u0022isError\u0022: false, \u0022outcome\u0022: \u0022completed\u0022, \u0022preview\u0022: \u0022Three sources, one line each. The second was checked.\u0022, \u0022durationMs\u0022: 457, \u0022toolCallId\u0022: \u002260948add-3041-8558-84be-28dcfcb315cb\u0022}",
+    "createdAt": "2026-11-16T13:28:58.042583+00:00"
+  },
+  {
+    "seq": 35,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "step.started",
+    "data": "{\u0022step\u0022: 2, \u0022messageId\u0022: \u002201a1e48b-edc7-7f48-9f38-922a5d4ac128\u0022}",
+    "createdAt": "2026-11-16T13:28:58.057425+00:00"
+  },
+  {
+    "seq": 36,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "message.delta",
+    "data": "{\u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Scout found three sources.\u0022, \u0022messageId\u0022: \u002201a1e48b-edc7-7f48-9f38-922a5d4ac128\u0022, \u0022partIndex\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.063705+00:00"
+  },
+  {
+    "seq": 37,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "usage.recorded",
+    "data": "{\u0022cost\u0022: 40, \u0022step\u0022: 2, \u0022input\u0022: 10, \u0022cached\u0022: 0, \u0022output\u0022: 5, \u0022currency\u0022: \u0022USD\u0022}",
+    "createdAt": "2026-11-16T13:28:58.064483+00:00"
+  },
+  {
+    "seq": 38,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "message.completed",
+    "data": "{\u0022message\u0022: {\u0022id\u0022: \u002201a1e48b-edc7-7f48-9f38-922a5d4ac128\u0022, \u0022role\u0022: \u0022assistant\u0022, \u0022parts\u0022: [{\u0022file\u0022: null, \u0022kind\u0022: \u0022text\u0022, \u0022text\u0022: \u0022Scout found three sources.\u0022, \u0022fileId\u0022: null, \u0022result\u0022: null, \u0022isError\u0022: false, \u0022toolName\u0022: null, \u0022arguments\u0022: null, \u0022mediaType\u0022: null, \u0022toolCallId\u0022: null}], \u0022runId\u0022: \u002201a1e48b-e883-79d1-b80e-e2fd125a202d\u0022, \u0022steers\u0022: false, \u0022position\u0022: 4, \u0022threadId\u0022: \u002201a1e48b-e80a-77c5-943d-f59cb6395675\u0022, \u0022withheld\u0022: false, \u0022createdAt\u0022: \u00222026-11-16T13:28:58.069704\u002B00:00\u0022}}",
+    "createdAt": "2026-11-16T13:28:58.081734+00:00"
+  },
+  {
+    "seq": 39,
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "type": "run.completed",
+    "data": "{\u0022error\u0022: null, \u0022usage\u0022: {\u0022cost\u0022: 80, \u0022input\u0022: 20, \u0022cached\u0022: 0, \u0022output\u0022: 10}, \u0022reason\u0022: null, \u0022status\u0022: \u0022completed\u0022, \u0022attempt\u0022: 0}",
+    "createdAt": "2026-11-16T13:28:58.090063+00:00"
+  }
+]

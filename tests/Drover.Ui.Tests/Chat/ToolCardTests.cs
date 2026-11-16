@@ -7,6 +7,8 @@ public sealed class ToolCardTests : BunitContext
 
     private static readonly Guid callId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
 
+    private static readonly Guid noteId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+
     #endregion
 
     #region Constructors
@@ -79,6 +81,21 @@ public sealed class ToolCardTests : BunitContext
     #region Cards
 
     [Theory]
+    [InlineData("completed", """{"exit_code":0,"stdout":"first\nsecond"}""", ".dv-tool-preview", "first…")]
+    [InlineData("failed", """{"error":"The sandbox provider refused this request."}""", ".dv-tool-error",
+        "The sandbox provider refused this request.")]
+    public void A_command_card_shows_the_result_at_a_glance(string state, string result, string selector, string expected)
+    {
+        var call = Call("sandbox_run", """{"command":"sample command"}""", state) with { Preview = result };
+        var card = Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Atlas"));
+
+        card.Find(".dv-disclosure-toggle").GetAttribute("aria-expanded").Should().Be("false");
+        card.Find(selector).TextContent.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("running", "Running a command", "Running", "dv-badge-live", "dv-state-tool")]
     [InlineData("completed", "Ran a command", "Done", "dv-badge-ok", "dv-tool-ended-ok")]
     [InlineData("failed", "Ran a command", "Failed", "dv-badge-danger", "dv-tool-ended-failed")]
@@ -107,6 +124,42 @@ public sealed class ToolCardTests : BunitContext
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_nonzero_command_shows_failure_and_stderr_live_and_after_reopening(bool stored)
+    {
+        var arguments = """{"command":"sample command"}""";
+        var output = """{"exit_code":7,"stdout":"started","stderr":"could not finish"}""";
+        var part = new PartView("tool_call", ToolCallId: callId, ToolName: "sandbox_run", Arguments: arguments);
+        var result = new PartView("tool_result", ToolCallId: callId, Result: output);
+        var call = stored ? ToolCards.FromParts(part, result) : Call("sandbox.run", arguments, "completed") with
+        {
+            Preview = output,
+            Pieces = [new("stdout", "started"), new("stderr", "could not finish")],
+        };
+        var card = RenderCard(call.ToCard(stored ? result : null));
+
+        card.Find(".dv-badge-danger").TextContent.Should().Be("Failed");
+        card.Find(".dv-tool-preview").TextContent.Should().Be("could not finish…");
+        card.Find(".dv-disclosure-toggle").Click();
+        card.Find(".dv-tool-exit").TextContent.Should().Be("Exit code 7");
+        card.Find(".dv-tool-output").TextContent.Should().Contain("started").And.Contain("could not finish");
+    }
+
+    [Fact]
+    public void A_command_that_times_out_shows_failure_when_the_tool_returned_an_outcome()
+    {
+        var call = Call("sandbox.run", """{"command":"sample command"}""", "completed") with
+        {
+            Preview = """{"exit_code":null,"error":"The command timed out."}""",
+        };
+        var card = RenderCard(call.ToCard());
+
+        card.Find(".dv-badge-danger").TextContent.Should().Be("Failed");
+        card.Find(".dv-tool-error").TextContent.Should().Be("The command timed out.");
+    }
+
     [Fact]
     public void Opening_a_card_by_keyboard_shows_its_arguments_and_its_result_with_the_exit_code()
     {
@@ -120,9 +173,9 @@ public sealed class ToolCardTests : BunitContext
         toggle = card.Find("button.dv-disclosure-toggle");
         toggle.GetAttribute("aria-expanded").Should().Be("true");
         card.Find($"#{toggle.GetAttribute("aria-controls")}").HasAttribute("hidden").Should().BeFalse();
-        card.FindAll("h3").Select(heading => heading.TextContent).Should().Equal("Arguments", "Result");
+        card.FindAll("h3").Select(heading => heading.TextContent).Should().Equal("Arguments", "Output", "Result");
         card.Find(".dv-tool-exit").TextContent.Should().Be("Exit code 0");
-        card.FindAll(".dv-tool-output").Should().BeEmpty("nothing was printed");
+        card.Find(".dv-tool-output").TextContent.Should().Be("ok");
     }
 
     [Fact]
@@ -259,10 +312,140 @@ public sealed class ToolCardTests : BunitContext
 
     #endregion
 
+    #region Notes
+
+    [Fact]
+    public void A_saved_note_reads_as_the_note_and_offers_one_button_named_for_it_that_forgets_it()
+    {
+        (Guid Id, string Text)? forgot = null;
+        var card = RenderNoteCard((id, text) =>
+        {
+            forgot = (id, text);
+            return Task.FromResult(new ForgetOutcome(true));
+        });
+
+        card.Find(".dv-disclosure-title").TextContent.Trim().Should().Be("Remembered: Prefers tea.");
+        var forget = card.Find(".dv-tool-note button");
+        forget.TextContent.Trim().Should().Be("Forget");
+        forget.GetAttribute("aria-label").Should().Be("Forget the note: Prefers tea.");
+        forget.Click();
+        card.Render(parameters => parameters.Add(component => component.Forgotten, true));
+
+        forgot.Should().Be((noteId, "Prefers tea."), "the note is removed only while it says what the card shows");
+        card.FindAll(".dv-tool-note button").Should().BeEmpty("the button is replaced once the note is gone");
+        card.Find(".dv-tool-forgotten").TextContent.Should().Be("Forgotten. The note is no longer kept.");
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>("the focus moves to the line that took the button's place");
+
+        card.Render(parameters => parameters.Add(component => component.Forgotten, false));
+        card.Find(".dv-tool-note button").TextContent.Trim().Should().Be("Forget", "once undone, the note can be forgotten again");
+    }
+
+    [Fact]
+    public void A_note_changed_since_its_card_is_left_alone_and_the_card_says_where_to_see_it()
+    {
+        var card = RenderNoteCard((_, _) => Task.FromResult(new ForgetOutcome(false, Changed: true)));
+
+        card.Find(".dv-tool-note button").Click();
+
+        card.Find(".dv-tool-forgotten").TextContent.Should().Contain("This note has changed since Sample bot saved it, so it was not forgotten.");
+        var link = card.Find(".dv-tool-forgotten a");
+        link.TextContent.Should().Be("Open Memory to see it");
+        link.GetAttribute("href").Should().Be("/talk/sample/memory");
+        card.FindAll(".dv-tool-note button").Should().BeEmpty();
+        JSInterop.VerifyFocusAsyncInvoke();
+    }
+
+    [Fact]
+    public void A_note_that_could_not_be_forgotten_keeps_its_button_and_says_why()
+    {
+        var card = RenderNoteCard((_, _) => Task.FromResult(new ForgetOutcome(false, Problem: "The note was not forgotten. The server failed to answer.")));
+
+        card.Find(".dv-tool-note button").Click();
+
+        card.Find(".dv-tool-note button").TextContent.Trim().Should().Be("Forget");
+        card.Find("[role=alert]").TextContent.Should().Contain("The note was not forgotten.");
+        JSInterop.VerifyNotInvoke("Blazor._internal.domWrapper.focus");
+    }
+
+    [Fact]
+    public void A_changed_note_shows_before_and_after_and_a_forgotten_one_names_the_note()
+    {
+        var changed = (Call("memory.change", $$"""{"note_id":"{{noteId}}","text":"Prefers green tea."}""", "completed") with
+        {
+            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers green tea."},"before":"Prefers tea."}""",
+        }).ToCard();
+        var forgotten = (Call("memory.forget", $$"""{"note_id":"{{noteId}}"}""", "completed") with
+        {
+            Preview = $$"""{"removed":"{{noteId}}","text":"Prefers tea."}""",
+        }).ToCard();
+
+        changed.Label.Should().Be("Updated a note");
+        changed.Facts.Should().Equal(new ToolFact("Before", "Prefers tea."), new ToolFact("After", "Prefers green tea."));
+        changed.NoteId.Should().BeNull("only a saved note is offered to forget");
+        forgotten.Label.Should().Be("Forgot: Prefers tea.");
+        var shown = RenderCard(changed);
+        shown.Find("button[aria-expanded]").Click();
+        shown.Find(".dv-disclosure-title").TextContent.Trim().Should().Be("Updated a note");
+        shown.FindAll(".dv-tool-fact dt").Select(term => term.TextContent).Should().Equal("Before", "After");
+        shown.FindAll(".dv-tool-note").Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("running")]
+    [InlineData("failed")]
+    public void A_note_call_that_has_not_finished_well_reads_as_the_call_and_offers_nothing(string state)
+    {
+        var card = (Call("memory.save", """{"text":"Prefers tea."}""", state) with
+        {
+            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
+        }).ToCard();
+
+        card.Label.Should().Be(state is "running" ? "Saving a note" : "Saved a note");
+        card.NoteId.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("delegate", "The answer, in plain text.")]
+    [InlineData("memory.save", "Not JSON at all.")]
+    public void A_finished_call_whose_result_is_plain_text_still_makes_a_card(string tool, string result)
+    {
+        var card = (Call(tool, """{"text":"Prefers tea."}""", "completed") with { Preview = result }).ToCard();
+
+        card.NoteId.Should().BeNull();
+        card.Phase.Should().Be(ToolPhase.Done);
+    }
+
+    [Fact]
+    public void A_cut_off_result_still_names_the_note_from_the_arguments()
+    {
+        var card = (Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers t""",
+        }).ToCard();
+
+        card.Label.Should().Be("Remembered: Prefers tea.");
+        card.NoteId.Should().BeNull("the note's id is known only once the whole result is");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static ToolCallView Call(string tool, string arguments, string state) =>
         new(callId, tool, tool is "issues.create" ? "Create issue" : tool, arguments, "allow", state, IsError: state is "failed");
+
+    private IRenderedComponent<ToolCallCard> RenderNoteCard(Func<Guid, string, Task<ForgetOutcome>> forget)
+    {
+        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
+        };
+        return Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Sample bot")
+            .Add(component => component.MemoryHref, "/talk/sample/memory")
+            .Add(component => component.Forget, forget));
+    }
 
     private IRenderedComponent<ToolCallCard> RenderCard(ToolCard card) =>
         Render<ToolCallCard>(parameters => parameters.Add(component => component.Card, card).Add(component => component.BotName, "Sample bot"));

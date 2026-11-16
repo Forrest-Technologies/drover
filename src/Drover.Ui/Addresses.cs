@@ -27,11 +27,17 @@ public static class Addresses
 
     #region Public Methods
 
+    /// <summary>Any conversation, by its id. The page sends it on to its bot, as the main conversation or a side chat.</summary>
+    public static string Conversation(Guid threadId) => $"/threads/{threadId}";
+
     /// <summary>A bot's main conversation.</summary>
     public static string Talk(Guid botId) => $"/talk/{botId}";
 
     /// <summary>The summary the server keeps of a bot's main conversation.</summary>
     public static string Summary(Guid botId) => $"/talk/{botId}/summary";
+
+    /// <summary>What a bot remembers about the person, beside its main conversation.</summary>
+    public static string Memory(Guid botId) => $"/talk/{botId}/memory";
 
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
@@ -42,6 +48,13 @@ public static class Addresses
     /// <summary>An earlier run of a bot's main conversation, as a timeline beside it.</summary>
     public static string Activity(Guid botId, Guid runId) => $"/talk/{botId}/activity/{runId}";
 
+    /// <summary>The files a person and a bot exchanged, beside its main conversation.</summary>
+    public static string Files(Guid botId) => $"/talk/{botId}/files";
+
+    /// <summary>The moment a message was said, in the main conversation or in a side chat.</summary>
+    public static string Moment(Guid botId, Guid threadId, Guid messageId, bool inMainConversation) =>
+        $"{(inMainConversation ? Talk(botId) : SideChat(botId, threadId))}#{MessageList.Anchor(messageId)}";
+
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
 
@@ -50,10 +63,22 @@ public static class Addresses
 
     public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
 
+    /// <summary>
+    /// A bot's side of work handed to it, opened to read beside the conversation with <paramref name="botId"/>, where
+    /// the work was shown.
+    /// </summary>
+    public static string Work(Guid botId, Guid workerId, Guid threadId) => $"/talk/{botId}/work/{workerId}/{threadId}";
+
     public static string Bot(Guid botId) => $"/bots/{botId}";
+
+    /// <summary>A bot's editor with its Memory section open.</summary>
+    public static string BotMemory(Guid botId) => $"/bots/{botId}?section=memory";
 
     /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
     public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";
+
+    /// <summary>A bot's sandbox with the terminal open.</summary>
+    public static string BotTerminal(Guid botId) => $"{BotSandbox(botId)}?tab=terminal";
 
     /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
     public static string ToolSignIn(string outcome, string? connectionId) =>

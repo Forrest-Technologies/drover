@@ -404,8 +404,10 @@ public sealed class RunGovernor(
             BeginModelCall = session.BeginToolModelCall,
             RecordModelUsage = Record,
             ThreadId = session.Thread.Id,
+            IsDelegated = session.RootRunId != session.RunId,
             Redact = session.Redactor.Redact,
             IsTainted = () => session.Tainted,
+            AnnounceMessage = session.AnnounceChangedMessage,
         };
 
     #endregion

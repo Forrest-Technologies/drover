@@ -86,6 +86,7 @@ public static class StatusEndpoints
         SandboxAvailability sandboxes,
         ScheduleRunner scheduler,
         TimeProvider time,
+        PushAvailability push,
         ILoggerFactory loggers)
     {
         var logger = loggers.CreateLogger(typeof(StatusEndpoints).FullName!);
@@ -102,6 +103,7 @@ public static class StatusEndpoints
             rows.Add(Workload(server.Workload));
             rows.Add(Scheduler(scheduler.LastPassAt, time.GetUtcNow()));
             rows.Add(Sandboxes(sandboxes));
+            rows.Add(Notifications(push));
         }
 
         var space = await status.ReadSpace(cancellationToken);
@@ -157,6 +159,12 @@ public static class StatusEndpoints
                 $"{address.GetLeftPart(UriPartial.Authority)} uses plain HTTP. Put HTTPS in front before other people sign in over the network."),
             _ => Row(Server, "Public address", Ok, $"People open Drover at {address.GetLeftPart(UriPartial.Authority)}."),
         };
+
+    private static StatusRow Notifications(PushAvailability push) =>
+        push.Problem is { } problem
+            ? Row(Server, "Notifications", problem == PushAvailability.NoAddress ? Warning : Problem, problem)
+            : Row(Server, "Notifications", Ok,
+                "On. Browsers and installed web apps can be woken. Its key is kept with the key ring; back them up together.");
 
     private static StatusRow Workload(RunWorkload workload) =>
         workload.ExpiredLeases > 0

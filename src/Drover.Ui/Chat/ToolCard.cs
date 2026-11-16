@@ -25,6 +25,17 @@ public sealed record ToolCard(
     /// </summary>
     public IReadOnlyList<ToolFact> Facts { get; init; } = [];
 
+    public string? CommandError { get; init; }
+
+    /// <summary>The note a finished save kept, which the card offers to forget. Null on any other card.</summary>
+    public Guid? NoteId { get; init; }
+
+    /// <summary>What that note says, to name the control that forgets it.</summary>
+    public string? NoteText { get; init; }
+
+    /// <summary>The work this call handed to another bot, when it did or was refused; then the card is that work.</summary>
+    public DelegationItem? Delegation { get; init; }
+
     /// <summary>True while the bot is working on the call.</summary>
     public bool IsLive => Phase is ToolPhase.Starting or ToolPhase.Approved or ToolPhase.Running;
 
@@ -43,3 +54,10 @@ public sealed record ToolCard(
         _ => "Stopped",
     };
 }
+
+
+/// <summary>
+/// How "Forget" on a card ended: the note is gone, it changed after the bot saved it and so was left alone, or the
+/// request failed and <see cref="Problem"/> says why.
+/// </summary>
+public sealed record ForgetOutcome(bool Forgotten, bool Changed = false, string? Problem = null);

@@ -20,7 +20,7 @@ public sealed class SandboxKeySettingTests
     }
 
     [Fact]
-    public void A_key_in_the_setting_registers_the_provider_and_the_four_tools_with_the_key_held_in_memory()
+    public void A_key_in_the_setting_registers_the_provider_and_the_sandbox_tools_with_the_key_held_in_memory()
     {
         var key = NewKey();
 
@@ -137,6 +137,8 @@ public sealed class SandboxKeySettingTests
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<SandboxAvailability>();
+        // The server always has a file store; sharing a sandbox file needs it. Nothing here writes to it.
+        services.AddSingleton<IFileStore>(new LocalFileStore(Path.Combine(Path.GetTempPath(), $"drover-files-{Guid.NewGuid():N}")));
         services.AddDroverSandboxes(configuration, policy ?? DeploymentPolicy.SelfHosted);
         return services.BuildServiceProvider();
     }

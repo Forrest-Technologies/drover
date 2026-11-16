@@ -15,6 +15,8 @@ public static class BotEndpoints
         bots.MapPost("/{botId:guid}/threads", CreateThread).WithName("CreateThread");
         bots.MapPut("/{botId:guid}/main-thread", OpenMainThread).WithName("OpenMainThread");
         bots.MapBotEditorEndpoints();
+        bots.MapMemoryEndpoints();
+        space.MapScheduleRunOnce();
         return space;
     }
 

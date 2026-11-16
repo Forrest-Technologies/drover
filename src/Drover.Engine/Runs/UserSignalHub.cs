@@ -25,6 +25,10 @@ public sealed class UserSignalHub
         return new UserSignalSubscription(channel.Reader, () => Remove(key, channel));
     }
 
+    /// <summary>True while the person has a live stream open in the space on any of their screens.</summary>
+    public bool IsWatched(Guid spaceId, Guid userId) =>
+        subscribers.TryGetValue((spaceId, userId), out var watching) && !watching.IsEmpty;
+
     public void Publish(Guid spaceId, Guid userId, UserSignal signal)
     {
         if (subscribers.TryGetValue((spaceId, userId), out var watching))

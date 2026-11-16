@@ -43,6 +43,8 @@ public sealed class SandboxBroker(
     /// <summary>How long a sandbox stays up past a command's own limit, so it cannot pause under a running command.</summary>
     private static readonly TimeSpan commandMargin = TimeSpan.FromMinutes(1);
 
+    private const int DefaultCommandSeconds = 60;
+
     private static readonly TimeSpan defaultIdle = TimeSpan.FromMinutes(15);
 
     private const int MaxEntries = 1000;
@@ -188,6 +190,37 @@ public sealed class SandboxBroker(
         }
 
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Hands the file at <paramref name="path"/>, and nothing else in the sandbox, to <paramref name="keep"/> as it is
+    /// read, for a bot sharing it into its conversation. A file that holds the sandbox's access token is refused. It is
+    /// a read of the sandbox like any other, so it taints the run as one would.
+    /// </summary>
+    public async Task<T> CopyOut<T>(
+        BuiltinToolCall call,
+        string? environment,
+        string path,
+        Func<Stream, Task<T>> keep,
+        CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
+        T kept;
+
+        try
+        {
+            await using var content = await provider.ReadFile(lease.Handle, path, cancellationToken);
+            await using var guarded = new TokenGuardStream(content, lease.Handle.AccessToken);
+            kept = await keep(guarded);
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure, path);
+        }
+
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
+        return kept;
     }
 
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
@@ -871,7 +904,8 @@ public sealed class SandboxBroker(
     private TimeSpan CommandLimit(TimeSpan? asked)
     {
         var most = TimeSpan.FromSeconds(deployment.Value.Rules.MaxSandboxCommandSeconds);
-        return asked is { } wanted && wanted > TimeSpan.Zero && wanted < most ? wanted : most;
+        var wanted = asked is { } limit && limit > TimeSpan.Zero ? limit : TimeSpan.FromSeconds(DefaultCommandSeconds);
+        return wanted < most ? wanted : most;
     }
 
     #endregion

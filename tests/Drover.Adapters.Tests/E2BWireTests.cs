@@ -281,6 +281,53 @@ public sealed class E2BWireTests
     }
 
     [Fact]
+    public async Task Stdin_goes_to_the_started_process_and_is_closed_before_waiting_for_exit()
+    {
+        var fixture = RecordedFixture.Load("e2b", SandboxScenarios.ExitsZero);
+        var inputReplies = RecordedFixture.Parse(
+            """
+            {
+              "provenance":"synthetic",
+              "note":"Unary Connect responses for SendInput and CloseStdin.",
+              "exchanges":[
+                {"method":"POST","path":"/process.Process/SendInput","body":{}},
+                {"method":"POST","path":"/process.Process/CloseStdin","body":{}}
+              ]
+            }
+            """);
+        var rig = E2BRig.Start(new RecordedFixture
+        {
+            Provenance = inputReplies.Provenance,
+            Note = inputReplies.Note,
+            Exchanges = [.. fixture.Exchanges, .. inputReplies.Exchanges],
+        });
+        var handle = await rig.Subject.Provider.Create(rig.Subject.Spec, CancellationToken.None);
+        var password = Guid.NewGuid().ToString("N");
+        var command = new CommandRequest
+        {
+            Program = "xdotool",
+            Arguments = ["type", "--file", "-"],
+            StandardInput = Encoding.UTF8.GetBytes(password),
+        };
+
+        await foreach (var output in rig.Subject.Provider.Run(handle, command, CancellationToken.None))
+        {
+            output.Should().NotBeNull();
+        }
+
+        var requests = rig.Handler.Requests.TakeLast(3).ToList();
+        requests.Select(request => request.Uri.AbsolutePath).Should().Equal(
+            "/process.Process/Start", "/process.Process/SendInput", "/process.Process/CloseStdin");
+        var start = JsonElement.Parse(requests[0].Bytes.AsSpan(5));
+        start.GetProperty("stdin").GetBoolean().Should().BeTrue();
+        start.GetRawText().Should().NotContain(password);
+        var written = requests[1].Json;
+        written.GetProperty("process").GetProperty("pid").GetInt32().Should().Be(1541);
+        Encoding.UTF8.GetString(written.GetProperty("input").GetProperty("stdin").GetBytesFromBase64()).Should().Be(password);
+        requests[2].Json.GetProperty("process").GetProperty("pid").GetInt32().Should().Be(1541);
+    }
+
+    [Fact]
     public async Task A_cancelled_command_is_killed_by_pid()
     {
         var rig = E2BRig.Start(SandboxScenarios.KillsOnCancel);

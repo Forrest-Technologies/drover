@@ -17,11 +17,19 @@
         }
         else
         {
-            <MessageList @ref="list" Messages="Messages" BotName="@Bot.Name" BotHue="BotIdentity.Hue(Bot.Id)" Thinking="Thinking"
-                         Problem="@problem" Notice="@Notice" Decide="Decide" Failure="Failure" Retrying="retrying" OnRetry="Retry"
+            <MessageList @ref="list" Messages="Messages" BotName="@Bot.Name" BotHue="BotIdentity.Hue(Bot.Id)" Thinking="Thinking" Asker="@(ReadOnly ? Asker : null)"
+                         Problem="@problem" Notice="@Notice" Decide="Decide" Forget="Forget" ForgottenNotes="forgottenNotes" MemoryHref="@Addresses.Memory(Bot.Id)" Failure="Failure" Retrying="retrying" OnRetry="Retry"
+                         ReadWhole="ReadWhole" Moment="Moment"
                          RunAddress="@(Main ? runId => Addresses.Activity(Bot.Id, runId) : null)" />
         }
-        <Composer @ref="composer" BotName="@Bot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loading" Sending="sending"
-                  Attachments="draft.Items" OnSend="Send" OnCancel="Stop" OnFiles="Attach" OnRemoveFile="RemoveFile" />
+        @if (ReadOnly)
+        {
+            <p class="dv-talk-hint dv-talk-read">@(Working ? $"{Bot.Name} is doing this for {Asker}." : $"{Bot.Name} did this for {Asker}. It is here to read.")</p>
+        }
+        else
+        {
+            <Composer @ref="composer" BotName="@Bot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loading" Sending="sending"
+                      Attachments="draft.Items" OnSend="Send" OnCancel="Stop" OnFiles="Attach" OnRemoveFile="RemoveFile" />
+        }
     }
 </div>

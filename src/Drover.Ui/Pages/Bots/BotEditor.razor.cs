@@ -21,7 +21,7 @@ public sealed partial class BotEditor(
 
     private const string Memory = nameof(Memory);
 
-    private const string Schedule = nameof(Schedule);
+    private const string Routines = nameof(Routines);
 
     private const string Sandbox = nameof(Sandbox);
 
@@ -106,6 +106,10 @@ public sealed partial class BotEditor(
     [Parameter]
     public Guid BotId { get; set; }
 
+    /// <summary>A section to open with the editor, such as "memory", for a link from elsewhere that is about it.</summary>
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     // A number field holding something that is not a number counts as a change, so it is said and not dropped.
@@ -143,6 +147,7 @@ public sealed partial class BotEditor(
         if (shownBotId != BotId && await session.Load() is not null)
         {
             shownBotId = BotId;
+            OpenNamedSection();
             await Load();
         }
     }
@@ -152,6 +157,14 @@ public sealed partial class BotEditor(
     #region Private Methods
 
     private bool IsOpen(string section) => open.Contains(section);
+
+    private void OpenNamedSection()
+    {
+        if (string.Equals(Section, Memory, StringComparison.OrdinalIgnoreCase))
+        {
+            open.Add(Memory);
+        }
+    }
 
     private void Toggle(string section, bool opened)
     {
@@ -301,7 +314,7 @@ public sealed partial class BotEditor(
                 await ApplyGrants(staged);
                 justSaved = true;
                 editingHandle = false;
-                toasts.Show($"{saved!.Name} is saved.");
+                toasts.Show($"Settings saved for {saved!.Name}.", ToastKind.Success);
             },
             problem => saveProblem = problem);
         saving = false;

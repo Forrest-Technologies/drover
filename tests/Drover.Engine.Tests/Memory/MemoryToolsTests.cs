@@ -233,11 +233,15 @@ public sealed class MemoryToolsTests(PostgresServer postgres)
             "Your notes about this person hold 40 of the 50 characters they may hold, and this note needs 20. Nothing was saved. Merge notes that say related things with memory_change, or remove notes that no longer hold with memory_forget, then try again.");
         var merged = await Run(world, host, "memory.change", $$"""{"note_id":"{{Id(first)}}","text":"Tea, no milk."}""", thread);
         var fits = await Run(world, host, "memory.save", """{"text":"Has two cats."}""", thread);
+        var kept = (await Notes(world)).Select(note => note.Text).ToList();
+        var forgot = await Run(world, host, "memory.forget", $$"""{"note_id":"{{Id(fits)}}"}""", thread);
 
         merged.GetProperty("characters_used").GetInt32().Should().Be(33);
+        merged.GetProperty("before").GetString().Should().Be("Drinks tea, no milk.", "the conversation shows a change as before and after");
         fits.GetProperty("characters_used").GetInt32().Should().Be(46);
         fits.GetProperty("characters_allowed").GetInt32().Should().Be(50);
-        (await Notes(world)).Select(note => note.Text).Should().Equal("Tea, no milk.", "Starts work at nine.", "Has two cats.");
+        kept.Should().Equal("Tea, no milk.", "Starts work at nine.", "Has two cats.");
+        forgot.GetProperty("text").GetString().Should().Be("Has two cats.", "the conversation says what was forgotten");
     }
 
     [Fact]

@@ -53,7 +53,15 @@ internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions opti
         {
             while (await NextOutput(frames, cancellationToken) is { } output)
             {
-                pid = output is CommandStarted started ? started.Pid : pid;
+                if (output is CommandStarted started)
+                {
+                    pid = started.Pid;
+                    if (command.StandardInput is { } input)
+                    {
+                        await SendInput(sandbox, started.Pid, input, deadline.Token);
+                    }
+                }
+
                 exited = output is CommandExited;
 
                 yield return output;
@@ -125,11 +133,20 @@ internal sealed class EnvdClient(IHttpClientFactory httpClients, E2BOptions opti
 
     #region Process Control
 
+    private async Task SendInput(SandboxHandle sandbox, int pid, ReadOnlyMemory<byte> input, CancellationToken cancellation)
+    {
+        var process = new ProcessSelector(pid);
+        using var write = BuildUnary(sandbox, "process.Process/SendInput", new SendInputRequest(process, new(input)));
+        using var written = await Send(write, HttpCompletionOption.ResponseContentRead, cancellation, cancellation);
+        using var close = BuildUnary(sandbox, "process.Process/CloseStdin", new CloseStdinRequest(process));
+        using var closed = await Send(close, HttpCompletionOption.ResponseContentRead, cancellation, cancellation);
+    }
+
     private HttpRequestMessage BuildStart(SandboxHandle sandbox, CommandRequest command)
     {
         var start = new StartRequest(
             new ProcessConfig(command.Program, command.Arguments, command.Environment, command.WorkingDirectory),
-            Stdin: false);
+            Stdin: command.StandardInput is not null);
 
         var request = Build(sandbox, HttpMethod.Post, "process.Process/Start");
         request.Headers.TryAddWithoutValidation("Authorization", $"Basic {basicUser}");

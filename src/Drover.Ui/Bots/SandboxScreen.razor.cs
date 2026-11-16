@@ -65,7 +65,9 @@ public sealed partial class SandboxScreen(
     /// <summary>The person's last start here failed, so a sandbox left starting can be tried again.</summary>
     private bool wakeFailed;
 
-    private bool enterAfter = true;
+    private bool enterAfter;
+
+    private bool passwordMode;
 
     private string clickMode = "left";
 
@@ -152,8 +154,10 @@ public sealed partial class SandboxScreen(
         : "Starting the sandbox. A new one can take a minute.";
 
     private string ControlWords => control
-        ? "You have control. A tap on the screen clicks there, in the sandbox."
-        : "View only. Turn on Take control to click and type in the sandbox.";
+        ? "Clicks and keys go to the sandbox."
+        : "View only. Turn on Send desktop input to click or type.";
+
+    private string TypeAction => passwordMode ? "Type password" : enterAfter ? "Type and press Enter" : "Type text";
 
     private string PointerStyle
     {
@@ -391,7 +395,22 @@ public sealed partial class SandboxScreen(
 
     #region Taking Control
 
-    private void SetControl(bool on) => control = on;
+    private void SetControl(bool on)
+    {
+        control = on;
+        if (!on && passwordMode)
+        {
+            SetPasswordMode(false);
+        }
+    }
+
+    private void SetPasswordMode(bool on)
+    {
+        typed = string.Empty;
+        passwordMode = on;
+    }
+
+    private Task<bool> OpenTerminal() => Send(new SandboxInputRequest("open_terminal"));
 
     private async Task ClickPicture(MouseEventArgs click)
     {
@@ -421,13 +440,22 @@ public sealed partial class SandboxScreen(
     }
 
     /// <summary>
-    /// Types the text and, with Press Enter after on, presses Enter after it, so a command is one action. The field
+    /// Types the text and, with Press Enter after typing on, presses Enter after it, so a command is one action. The field
     /// clears and keeps the focus, so the on-screen keyboard stays up for the next line.
     /// </summary>
     private async Task TypeText()
     {
         if (typed.Length == 0 || sending)
         {
+            return;
+        }
+
+        if (passwordMode)
+        {
+            var password = typed;
+            typed = string.Empty;
+            await Send(new SandboxInputRequest("password", Text: password));
+            await KeepTyping();
             return;
         }
 
