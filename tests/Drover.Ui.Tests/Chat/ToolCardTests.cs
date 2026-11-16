@@ -124,6 +124,42 @@ public sealed class ToolCardTests : BunitContext
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_nonzero_command_shows_failure_and_stderr_live_and_after_reopening(bool stored)
+    {
+        var arguments = """{"command":"sample command"}""";
+        var output = """{"exit_code":7,"stdout":"started","stderr":"could not finish"}""";
+        var part = new PartView("tool_call", ToolCallId: callId, ToolName: "sandbox_run", Arguments: arguments);
+        var result = new PartView("tool_result", ToolCallId: callId, Result: output);
+        var call = stored ? ToolCards.FromParts(part, result) : Call("sandbox.run", arguments, "completed") with
+        {
+            Preview = output,
+            Pieces = [new("stdout", "started"), new("stderr", "could not finish")],
+        };
+        var card = RenderCard(call.ToCard(stored ? result : null));
+
+        card.Find(".dv-badge-danger").TextContent.Should().Be("Failed");
+        card.Find(".dv-tool-preview").TextContent.Should().Be("could not finish…");
+        card.Find(".dv-disclosure-toggle").Click();
+        card.Find(".dv-tool-exit").TextContent.Should().Be("Exit code 7");
+        card.Find(".dv-tool-output").TextContent.Should().Contain("started").And.Contain("could not finish");
+    }
+
+    [Fact]
+    public void A_command_that_times_out_shows_failure_when_the_tool_returned_an_outcome()
+    {
+        var call = Call("sandbox.run", """{"command":"sample command"}""", "completed") with
+        {
+            Preview = """{"exit_code":null,"error":"The command timed out."}""",
+        };
+        var card = RenderCard(call.ToCard());
+
+        card.Find(".dv-badge-danger").TextContent.Should().Be("Failed");
+        card.Find(".dv-tool-error").TextContent.Should().Be("The command timed out.");
+    }
+
     [Fact]
     public void Opening_a_card_by_keyboard_shows_its_arguments_and_its_result_with_the_exit_code()
     {
