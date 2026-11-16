@@ -354,13 +354,13 @@ Nothing in memory is needed to continue.
    | Tool call `running`, tool is read-only by its definition | Run it again. The runtime does this when it reads the history, before the next model call and with no transaction open: it asks the governor to decide the call again, invokes the tool through the governor, writes the result to the row, and adds it to the history. If the bot may no longer make the call, it is settled as interrupted instead. Only Drover's own classification counts (`Sensitivity` is `Read`); an idempotency hint from a tool server is untrusted text and is not used. |
    | Tool call `running`, tool may have side effects | Mark it `interrupted` and give the model the result "interrupted, outcome unknown". The model decides what to do; if the grant is `ask`, the retry asks the human again. |
    | Tool call `pending_approval` | Nothing; the run stays `waiting` and its session holds the request |
-   | Tool call approved and `running` when the process died | Mark it `interrupted`. The stale session makes the framework reject the approval on the next run; the `tool_calls` row wins over that result, so the model is told "interrupted, outcome unknown", not "rejected". A read-only call and a delegation are the exception, as above: the approval is handed over again and the call runs again (a delegation resolves to its child run), without asking a second time. |
+   | Tool call approved and `running` when the process died | Mark it `interrupted`. The stale session makes the framework reject the approval on the next run; the `tool_calls` row wins over that result, so the model is told "interrupted, outcome unknown", not "rejected". A read-only call, a delegation, and an idempotent built-in tool (`sandbox.share_file`) are the exception, as above: the approval is handed over again and the call runs again (a delegation resolves to its child run, a share finds its file), without asking a second time. |
    | A delegation was in progress | The delegation is requested again and resolves to the existing child run, which continues |
    | A team workflow was in progress | Resume from its latest checkpoint |
 
 4. After three attempts the run fails with `lease_lost`.
 
-The engine also repairs the event log when it takes a run over, from what the rows say. A step whose model call was cut off gets `step.discarded`, or `message.completed` if its message did reach the thread. A tool call the log never saw finish gets `tool.completed` with its row's outcome, or `interrupted`; a read-only one that was running is left open, because it runs again.
+The engine also repairs the event log when it takes a run over, from what the rows say. A step whose model call was cut off gets `step.discarded`, or `message.completed` if its message did reach the thread. A tool call the log never saw finish gets `tool.completed` with its row's outcome, or `interrupted`; a read-only or idempotent one that was running is left open, because it runs again.
 
 Drover never silently repeats an action that might have already happened. That is the honest limit of at-least-once execution, and the activity view shows `interrupted` so the human can see it.
 

@@ -153,9 +153,9 @@ public static class SandboxTools
             });
 
     /// <summary>
-    /// Shares one file of the sandbox into the conversation, as a card the person can open or download. It reads the
-    /// sandbox and adds to the reply the person reads, as the bot's own words do, so it is a read: run again after a
-    /// restart, it finds the file it shared instead of sharing a second.
+    /// Shares one file of the sandbox into the conversation, as a card the person can open or download. The bot can
+    /// name any path, another conversation's output among them, so it is a write: a tainted run asks before it shares.
+    /// It is idempotent: run again after a restart, it finds the file it shared instead of sharing a second.
     /// </summary>
     public static BuiltinTool ShareFile(FileSharing sharing) =>
         new(
@@ -166,7 +166,7 @@ public static class SandboxTools
                 "path": { "type": "string", "description": "The file's path in the sandbox." },
                 "caption": { "type": "string", "description": "One line shown under the file. Leave it out when the file speaks for itself." },
                 """, "path"),
-            ToolSensitivity.Read,
+            ToolSensitivity.Write,
             async (call, cancellationToken) =>
             {
                 var path = Required(call.Arguments, "path");
@@ -178,7 +178,10 @@ public static class SandboxTools
                     content_type = file.ContentType,
                     size = file.Size,
                 });
-            });
+            })
+        {
+            IsIdempotent = true,
+        };
 
     #endregion
 

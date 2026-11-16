@@ -47,6 +47,12 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>When set, every check of a handle finds another group's metadata.</summary>
     public bool MetadataMismatch { get; set; }
 
+    /// <summary>Awaited with the path before a file is read, as a slow provider or one that hangs would make the caller wait.</summary>
+    public Func<string, CancellationToken, Task>? BeforeRead { get; set; }
+
+    /// <summary>Awaited with the path before a file is written.</summary>
+    public Func<string, CancellationToken, Task>? BeforeWrite { get; set; }
+
     /// <summary>Called with the path after a file is written, as when the caller is cancelled right after.</summary>
     public Action<string>? AfterWrite { get; set; }
 
@@ -167,17 +173,30 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         }
     }
 
-    public Task<Stream> ReadFile(SandboxHandle sandbox, string path, CancellationToken cancellationToken)
+    public async Task<Stream> ReadFile(SandboxHandle sandbox, string path, CancellationToken cancellationToken)
     {
         Reads.Enqueue(path);
-        return Enter(sandbox).Files.TryGetValue(path, out var content)
-            ? Task.FromResult<Stream>(new MemoryStream(content, writable: false))
+        var found = Enter(sandbox);
+
+        if (BeforeRead is { } before)
+        {
+            await before(path, cancellationToken);
+        }
+
+        return found.Files.TryGetValue(path, out var content)
+            ? new MemoryStream(content, writable: false)
             : throw new SandboxProviderException(SandboxFailure.NotFound, "Not found.");
     }
 
     public async Task WriteFile(SandboxHandle sandbox, string path, Stream content, CancellationToken cancellationToken)
     {
         var found = Enter(sandbox);
+
+        if (BeforeWrite is { } before)
+        {
+            await before(path, cancellationToken);
+        }
+
         using var copy = new MemoryStream();
         await content.CopyToAsync(copy, cancellationToken);
         found.Files[path] = copy.ToArray();

@@ -25,6 +25,8 @@ public sealed class FileSharing(
 
     private DeploymentPolicy Rules => deployment.Value.Rules;
 
+    private string TooManyFiles => $"{FileWords.TooMany(Rules.MaxFilesPerMessage)} This reply carries that many already.";
+
     private long MaxSpaceBytes => Rules.MaxSpaceFileMegabytes * 1024L * 1024;
 
     #endregion
@@ -46,6 +48,13 @@ public sealed class FileSharing(
         if (call.ThreadId is not { } threadId)
         {
             throw new BuiltinToolException("A file can be shared only into a conversation.");
+        }
+
+        // A child run's conversation is its own, which the person does not read. The file goes back with the answer.
+        if (call.IsDelegated)
+        {
+            throw new BuiltinToolException(
+                "Work handed to you by another bot cannot share files with the person. Finish the file, say where it is in your answer, and the bot that asked can share it.");
         }
 
         var before = await Look(call, threadId, cancellationToken);
@@ -97,9 +106,9 @@ public sealed class FileSharing(
                 var reply = await services.GetRequiredService<MessageRepository>().FindReplyWithCall(threadId, call.RunId, call.ToolCallId, cancellationToken)
                     ?? throw new BuiltinToolException("The reply this file belongs to is not in the conversation, so it was not shared.");
 
-                if (reply.Parts.Count(part => part is FilePart or ImagePart) >= Rules.MaxFilesPerMessage)
+                if (FilesIn(reply) >= Rules.MaxFilesPerMessage)
                 {
-                    throw new BuiltinToolException($"{FileWords.TooMany(Rules.MaxFilesPerMessage)} This reply carries that many already.");
+                    throw new BuiltinToolException(TooManyFiles);
                 }
 
                 return new Before(null, Math.Max(0, MaxSpaceBytes - await files.GetStoredBytes(call.Tenant.SpaceId, cancellationToken)));
@@ -175,6 +184,12 @@ public sealed class FileSharing(
                     throw new BuiltinToolException("The conversation this file belongs to is gone, so it was not shared.");
                 }
 
+                // Counted again under the reply's lock: calls of one reply share files at the same time.
+                if (FilesIn(reply) >= Rules.MaxFilesPerMessage)
+                {
+                    throw new BuiltinToolException(TooManyFiles);
+                }
+
                 if (!await files.ReserveBytes(call.Tenant.SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
                 {
                     throw new BuiltinToolException(FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
@@ -188,6 +203,8 @@ public sealed class FileSharing(
                 return reply;
             },
             cancellationToken);
+
+    private static int FilesIn(Message reply) => reply.Parts.Count(part => part is FilePart or ImagePart);
 
     /// <summary>One line, bounded, with anything the run knows to be secret taken out. Null when there is none.</summary>
     private static string? CleanCaption(string? caption, Func<string, string> redact)

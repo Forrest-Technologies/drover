@@ -43,6 +43,9 @@ public sealed record BuiltinToolCall(
     /// <summary>The conversation the run works in. Null outside a run.</summary>
     public Guid? ThreadId { get; init; }
 
+    /// <summary>The run is a delegated child run: its conversation is its own, not the person's.</summary>
+    public bool IsDelegated { get; init; }
+
     /// <summary>
     /// Takes out of a text anything the run knows to be secret, as the run's events and stored results are. A tool
     /// that keeps text the model wrote calls it first, so no secret is kept or given to a later run.

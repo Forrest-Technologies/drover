@@ -63,9 +63,15 @@ public sealed class MessageRepository(DroverDbContext db)
     public Task<Message?> FindReplyWithCall(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
         FindReply(db.Messages.AsNoTracking(), threadId, runId, toolCallId, cancellationToken);
 
-    /// <summary>As <see cref="FindReplyWithCall"/>, tracked, so a part added to it is saved when the scope commits.</summary>
-    public Task<Message?> GetReplyWithCallForUpdate(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
-        FindReply(db.Messages, threadId, runId, toolCallId, cancellationToken);
+    /// <summary>
+    /// As <see cref="FindReplyWithCall"/>, locked until the scope ends and tracked, so a part added to it is saved
+    /// when the scope commits. Its parts are read under the lock, so two calls that add to one reply at once each see
+    /// the other's part.
+    /// </summary>
+    public async Task<Message?> GetReplyWithCallForUpdate(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
+        await FindReply(db.Messages.AsNoTracking(), threadId, runId, toolCallId, cancellationToken) is { } reply
+            ? (await db.Messages.FromSql($"SELECT * FROM messages WHERE id = {reply.Id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault()
+            : null;
 
     public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
         db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
