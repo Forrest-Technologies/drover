@@ -20,9 +20,9 @@ public sealed record MemoryNoteOrigin(Guid ThreadId, Guid MessageId, bool IsMain
 public sealed record WriteNoteRequest(string? Text);
 
 /// <summary>
-/// A note just removed. <see cref="UndoToken"/> puts it back exactly as it was, for a short while: the server's own
+/// A note just removed. <see cref="Undo"/> puts it back exactly as it was, for a short while: the server's own
 /// sealed record of it, which a client can hand back but cannot read or change.
 /// </summary>
-public sealed record RemovedNoteResponse(Guid Id, string UndoToken);
+public sealed record RemovedNoteResponse(Guid Id, string Undo);
 
-public sealed record RestoreNoteRequest(string? UndoToken);
+public sealed record RestoreNoteRequest(string? Undo);

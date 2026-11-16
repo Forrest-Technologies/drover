@@ -41,10 +41,11 @@ public sealed class MemoryApiTests(PostgresServer postgres) : ServerTestBase(pos
         var second = await api.AddMemoryNote(alice.SpaceId, bot.Id, "Starts work at nine.", Token);
         Time.Advance(TimeSpan.FromMinutes(1));
         var changed = await api.ChangeMemoryNote(alice.SpaceId, bot.Id, first.Id, "Prefers green tea.", Token);
+        var stored = (await api.GetBotMemory(alice.SpaceId, bot.Id, Token)).Notes.Single(note => note.Id == second.Id);
         var removed = await api.RemoveMemoryNote(alice.SpaceId, bot.Id, second.Id, Token);
         var afterRemove = await api.GetBotMemory(alice.SpaceId, bot.Id, Token);
-        var restored = await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.UndoToken, Token);
-        var again = await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.UndoToken, Token);
+        var restored = await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.Undo, Token);
+        var again = await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.Undo, Token);
         var listed = await api.GetBotMemory(alice.SpaceId, bot.Id, Token);
 
         empty.Should().BeEquivalentTo(new BotMemoryResponse(true, false, []));
@@ -53,8 +54,8 @@ public sealed class MemoryApiTests(PostgresServer postgres) : ServerTestBase(pos
         first.Origin.Should().BeNull("a note a person wrote has no moment in a conversation");
         changed.Text.Should().Be("Prefers green tea.");
         afterRemove.Notes.Select(note => note.Id).Should().Equal(first.Id);
-        restored.Should().Be(second, "a note is put back exactly as it was");
-        again.Should().Be(second, "putting back a note that is already back changes nothing");
+        restored.Should().Be(stored, "a note is put back exactly as it was stored");
+        again.Should().Be(stored, "putting back a note that is already back changes nothing");
         listed.Notes.Select(note => note.Id).Should().Equal([first.Id, second.Id], "the newest change comes first");
     }
 
@@ -76,7 +77,7 @@ public sealed class MemoryApiTests(PostgresServer postgres) : ServerTestBase(pos
         await Ask(asAlice, alice.SpaceId, main.Id, "two");
         var removed = await api.RemoveMemoryNote(alice.SpaceId, bot.Id, note.Id, Token);
         await Ask(asAlice, alice.SpaceId, main.Id, "three");
-        await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.UndoToken, Token);
+        await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.Undo, Token);
         await Ask(asAlice, alice.SpaceId, main.Id, "four");
 
         Notes(script.Requests[0]).Should().Contain("Prefers tea.");
@@ -212,10 +213,10 @@ public sealed class MemoryApiTests(PostgresServer postgres) : ServerTestBase(pos
         var before = await Stored(alice.SpaceId, alice.UserId, seeded);
 
         var removed = await api.RemoveMemoryNote(alice.SpaceId, bot.Id, seeded, Token);
-        var changedToken = await asAlice.Post($"{NotesPath(alice.SpaceId, bot.Id)}/restore", new RestoreNoteRequest($"{removed.UndoToken[..^2]}AA"));
+        var changedToken = await asAlice.Post($"{NotesPath(alice.SpaceId, bot.Id)}/restore", new RestoreNoteRequest($"{removed.Undo[..^2]}AA"));
         var notAToken = await asAlice.Post($"{NotesPath(alice.SpaceId, bot.Id)}/restore", new RestoreNoteRequest("not a token"));
         var stillGone = await api.GetBotMemory(alice.SpaceId, bot.Id, Token);
-        await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.UndoToken, Token);
+        await api.RestoreMemoryNote(alice.SpaceId, bot.Id, removed.Undo, Token);
         var after = await Stored(alice.SpaceId, alice.UserId, seeded);
 
         changedToken.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -238,7 +239,7 @@ public sealed class MemoryApiTests(PostgresServer postgres) : ServerTestBase(pos
         var bot = await CreateBot(asAlice, alice.SpaceId);
         await SetMemory(alice.SpaceId, alice.UserId, bot.Id, new MemorySettings { Enabled = true });
         var note = await Api(asAlice).AddMemoryNote(alice.SpaceId, bot.Id, "Prefers tea.", Token);
-        var aliceToken = (await Api(asAlice).RemoveMemoryNote(alice.SpaceId, bot.Id, note.Id, Token)).UndoToken;
+        var aliceToken = (await Api(asAlice).RemoveMemoryNote(alice.SpaceId, bot.Id, note.Id, Token)).Undo;
         await Api(asAlice).RestoreMemoryNote(alice.SpaceId, bot.Id, aliceToken, Token);
         var aliceSaw = await Api(asAlice).GetBotMemory(alice.SpaceId, bot.Id, Token);
 

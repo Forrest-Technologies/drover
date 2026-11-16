@@ -112,7 +112,7 @@ public sealed partial class MemoryRail(
         var removed = notes.FirstOrDefault(note => note.Id == noteId);
         try
         {
-            var undo = (await api.RemoveMemoryNote(SpaceId, Bot.Id, noteId)).UndoToken;
+            var undo = (await api.RemoveMemoryNote(SpaceId, Bot.Id, noteId)).Undo;
             notes = [.. notes.Where(note => note.Id != noteId)];
             toasts.Show(
                 MemoryWords.Removed(removed?.Text ?? string.Empty),

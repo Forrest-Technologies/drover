@@ -96,7 +96,7 @@ public static class MemoryEndpoints
         ILoggerFactory logs)
     {
         var access = context.GetSpaceAccess();
-        if (Unseal(protection, access, request.UndoToken, logs) is not { } removed)
+        if (Unseal(protection, access, request.Undo, logs) is not { } removed)
         {
             return TypedResults.Problem(
                 title: "This note can no longer be put back. Undo lasts ten minutes; write the note again to keep it.",
