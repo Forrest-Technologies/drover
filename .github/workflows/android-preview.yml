@@ -54,10 +54,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Install Android workload and SDK
-        run: |
-          dotnet workload install maui-android --version 11.0.100
-          sdkmanager 'platforms;android-37.0' 'platforms;android-37.2' 'build-tools;37.0.0'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 platforms;android-37.2 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Install .NET MAUI for Android
+        run: dotnet workload install maui-android --version 11.0.100
       - name: Build release APK
         env:
           DISPLAY_VERSION: ${{ steps.version.outputs.display }}
@@ -68,7 +70,6 @@ jobs:
           dotnet tool restore
           dotnet tool run nuget-license -- -i Drover.Apps.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.ref_type == 'tag'
         with:
           name: unsigned-android-apk
           path: src/Drover.App/bin/Release/net11.0-android/publish/com.forresttechnologies.drover.preview.apk
@@ -92,8 +93,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Prepare Android signing tools
-        run: sdkmanager 'build-tools;37.0.0'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
       - name: Sign, verify and checksum
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
