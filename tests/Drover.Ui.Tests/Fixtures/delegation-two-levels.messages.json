@@ -1,0 +1,98 @@
+[
+  {
+    "id": "01a1e48b-e83e-7351-bcb2-8f65616dbfef",
+    "threadId": "01a1e48b-e80a-77c5-943d-f59cb6395675",
+    "position": 1,
+    "role": "user",
+    "runId": null,
+    "parts": [
+      {
+        "kind": "text",
+        "text": "Find me three sources.",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null,
+        "file": null
+      }
+    ],
+    "createdAt": "2026-11-16T13:28:56.639214+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1e48b-ead9-7c87-9ff4-658e08556497",
+    "threadId": "01a1e48b-e80a-77c5-943d-f59cb6395675",
+    "position": 2,
+    "role": "assistant",
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "parts": [
+      {
+        "kind": "tool_call",
+        "text": null,
+        "toolCallId": "60948add-3041-8558-84be-28dcfcb315cb",
+        "toolName": "delegate",
+        "arguments": "{\u0022task\u0022: \u0022Find three sources on the topic.\\nKeep each to one line.\u0022, \u0022bot_id\u0022: \u002201a1e48b-e7a7-76eb-a68a-b53245eb954e\u0022}",
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null,
+        "file": null
+      }
+    ],
+    "createdAt": "2026-11-16T13:28:57.359192+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1e48b-edd5-79c1-850b-cd8a0380a918",
+    "threadId": "01a1e48b-e80a-77c5-943d-f59cb6395675",
+    "position": 3,
+    "role": "tool",
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "parts": [
+      {
+        "kind": "tool_result",
+        "text": null,
+        "toolCallId": "60948add-3041-8558-84be-28dcfcb315cb",
+        "toolName": null,
+        "arguments": null,
+        "result": "\u0022Three sources, one line each. The second was checked.\u0022",
+        "isError": false,
+        "fileId": null,
+        "mediaType": null,
+        "file": null
+      }
+    ],
+    "createdAt": "2026-11-16T13:28:58.069697+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1e48b-edc7-7f48-9f38-922a5d4ac128",
+    "threadId": "01a1e48b-e80a-77c5-943d-f59cb6395675",
+    "position": 4,
+    "role": "assistant",
+    "runId": "01a1e48b-e883-79d1-b80e-e2fd125a202d",
+    "parts": [
+      {
+        "kind": "text",
+        "text": "Scout found three sources.",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null,
+        "file": null
+      }
+    ],
+    "createdAt": "2026-11-16T13:28:58.069704+00:00",
+    "steers": false,
+    "withheld": false
+  }
+]

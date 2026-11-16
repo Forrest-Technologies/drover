@@ -13,4 +13,5 @@ public enum SideView
     List,
     New,
     Chat,
+    Work,
 }

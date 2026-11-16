@@ -58,35 +58,6 @@ public sealed class StarterComponentTests : BunitContext
     #region Conversation
 
     [Fact]
-    public void A_delegation_opens_by_itself_when_the_child_starts_waiting_for_a_person()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.", DelegationPhase.Working, null, DelegationRefusal.None, "/side", 0);
-        var card = Render<DelegationCard>(set => set.Add(view => view.Item, item).AddChildContent("<p id=\"work\">Helper's work</p>"));
-
-        card.Find("button").GetAttribute("aria-expanded").Should().Be("false");
-        card.Find(".dv-badge").TextContent.Should().Be("Working");
-        card.FindAll(".dv-handoff-out").Should().ContainSingle();
-
-        card.Render(set => set.Add(view => view.Item, item with { Phase = DelegationPhase.WaitingForYou }));
-
-        card.Find("button").GetAttribute("aria-expanded").Should().Be("true");
-        card.Find("#work").TextContent.Should().Be("Helper's work");
-        card.Find("a.dv-handoff-link").TextContent.Should().Be("Open Helper's side of this");
-    }
-
-    [Fact]
-    public void A_refused_delegation_says_why_and_shows_no_task()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.", DelegationPhase.Refused, null, DelegationRefusal.TargetPaused, null, 0);
-        var card = Render<DelegationCard>(set => set.Add(view => view.Item, item));
-
-        card.Find("button").Click();
-
-        card.Find(".dv-handoff-line").TextContent.Should().Be("Helper is paused.");
-        card.FindAll(".dv-handoff-task").Should().BeEmpty();
-    }
-
-    [Fact]
     public void A_person_who_cannot_do_what_the_bot_asked_can_say_why()
     {
         string? told = null;
