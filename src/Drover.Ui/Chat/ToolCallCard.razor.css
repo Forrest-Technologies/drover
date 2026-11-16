@@ -45,6 +45,25 @@
   --dv-tool-edge: var(--dv-warn);
 }
 
+.dv-tool-error,
+.dv-tool-preview {
+  margin: 0;
+  padding: var(--dv-space-2) var(--dv-space-3);
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+.dv-tool-error {
+  color: var(--dv-danger);
+}
+
+.dv-tool-preview {
+  background: var(--dv-bg-2);
+  font-family: var(--dv-font-mono);
+  white-space: pre-wrap;
+}
+
 .dv-tool-part {
   display: flex;
   flex-direction: column;
@@ -175,4 +194,18 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--dv-space-2);
+}
+
+/* Under a "Remembered" card: the one step that takes the note back, then the line that says it is gone. */
+.dv-tool-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  margin-block-start: var(--dv-space-2);
+}
+
+.dv-tool-forgotten {
+  margin: 0;
+  color: var(--dv-text-2);
 }

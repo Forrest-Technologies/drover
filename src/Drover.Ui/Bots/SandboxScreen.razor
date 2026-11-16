@@ -1,18 +1,18 @@
-@* A bot's sandbox screen, live: a person watches it and can take control of the mouse and keyboard. *@
+@* A bot's sandbox screen, live: a person watches it and can send mouse and keyboard input. *@
 @implements IAsyncDisposable
 
 <div class="dv-sandbox-screen">
     <div class="dv-sandbox-controlbar">
-        <Switch Label="Take control" Value="control" ValueChanged="SetControl" />
+        <Switch Label="Send desktop input" Value="control" ValueChanged="SetControl" />
         @if (control)
         {
-            <SegmentedControl Label="What a tap on the screen does" Options="clickModes" @bind-Value="clickMode" />
+            <SegmentedControl Label="Desktop click type" Options="clickModes" @bind-Value="clickMode" />
         }
     </div>
     <p class="dv-sandbox-hint" role="status">@ControlWords</p>
     @if (control && Status.BotWorking)
     {
-        <StatusNote Text="@($"{BotName} is working in this sandbox right now. What you do here happens alongside it.")" />
+        <StatusNote Text="@($"{BotName} has an active run and may use the same desktop.")" />
     }
     @if (ScreenNote is { } note)
     {
@@ -31,13 +31,13 @@
             <Button OnClick="ZoomOut" Disabled="zoom.IsFit">Zoom out</Button>
             <span class="dv-sandbox-zoom-level" aria-live="polite">@zoom.Percent</span>
             <Button OnClick="ZoomIn" Disabled="zoom.IsMax">Zoom in</Button>
-            <Button OnClick="FitScreen" Disabled="zoom.IsFit">Fit</Button>
+            <Button OnClick="FitScreen" Disabled="zoom.IsFit">Fit screen</Button>
         </div>
         <div class="@FrameClass" style="@FrameStyle">
             @if (control)
             {
                 <button @ref="pictureButton" type="button" class="dv-sandbox-picture dv-sandbox-picture-control"
-                        aria-label="@($"{BotName}'s sandbox screen. Tap to click there; with the keyboard, arrow keys move the pointer and Enter clicks.")"
+                        aria-label="@($"{BotName}'s sandbox screen. Click or tap the desktop. With the keyboard, arrow keys move the pointer and Enter clicks.")"
                         aria-describedby="@pointerWordsId" @onclick="ClickPicture" @onkeydown="MovePointer">
                     <span class="dv-sandbox-layer" style="@LayerStyle" data-scale="@ViewNumber(zoom.Scale)"
                           data-x="@ViewNumber(zoom.X)" data-y="@ViewNumber(zoom.Y)">
@@ -75,12 +75,12 @@
         <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
             <Field Label="Text to type" @bind-Value="typed" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000"
                    enterkeyhint="send" />
-            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">Send</Button>
+            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@(enterAfter ? "Type and press Enter" : "Type text")</Button>
         </form>
         <div class="dv-sandbox-options">
-            <Switch Label="Press Enter after" @bind-Value="enterAfter" />
+            <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
         </div>
-        <p class="dv-sandbox-hint">Text goes to whatever has the keyboard focus in the sandbox.</p>
+        <p class="dv-sandbox-hint">Text goes to the focused window in the sandbox.</p>
         <div class="dv-sandbox-keys" role="group" aria-label="Keys">
             @foreach (var key in keys)
             {

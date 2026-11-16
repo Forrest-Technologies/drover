@@ -42,6 +42,8 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         events.Where(stored => stored.Type == RunEventTypes.ToolOutput).Select(stored => RunWorld.Data<ToolOutput>(stored).Text)
             .Should().Equal("echo hello\n", "echo again\n");
         provider.Commands.Select(command => command.Program).Should().AllBe("/bin/bash");
+        provider.Commands.Select(command => command.Timeout).Should().OnlyContain(timeout => timeout == TimeSpan.FromSeconds(60));
+        provider.Specs.Single().IdleTimeout.Should().Be(TimeSpan.FromMinutes(15));
     }
 
     [Fact]

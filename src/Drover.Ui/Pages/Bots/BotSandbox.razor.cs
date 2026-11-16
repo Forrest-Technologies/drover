@@ -61,6 +61,10 @@ public sealed partial class BotSandbox(
     [Parameter]
     public Guid BotId { get; set; }
 
+    /// <summary>A link can open directly to the terminal.</summary>
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private IReadOnlyList<TabItem> Views =>
@@ -113,7 +117,12 @@ public sealed partial class BotSandbox(
         if (shownBotId != BotId && await session.Load() is not null)
         {
             shownBotId = BotId;
+            view = Tab is TerminalView ? TerminalView : null;
             await Load();
+        }
+        else if (Tab is TerminalView)
+        {
+            view = TerminalView;
         }
     }
 
