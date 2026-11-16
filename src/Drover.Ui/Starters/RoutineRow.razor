@@ -1,0 +1,101 @@
+@* Starter for #157. One routine: when it runs as a sentence, what it is sent, when it runs next, how the last
+   run went, and its controls. The sentence is the row's heading, so it is what is read out first. *@
+<article class="dv-routine dv-facet" aria-labelledby="@titleId">
+    <div class="dv-routine-head">
+        <h3 class="dv-routine-when" id="@titleId">@RoutineWords.Sentence(Routine.Cron, Routine.TimeZone)</h3>
+        @if (RoutineWords.Describe(Routine.Cron) is null)
+        {
+            <code class="dv-routine-cron dv-mono">@Routine.Cron</code>
+        }
+    </div>
+    <p class="dv-routine-prompt">@RoutineWords.FirstLine(Routine.Prompt)</p>
+    <dl class="dv-routine-facts">
+        <div class="dv-routine-fact">
+            <dt>Next</dt>
+            <dd>@Next</dd>
+        </div>
+        <div class="dv-routine-fact">
+            <dt>Last</dt>
+            <dd>
+                @Last
+                @if (Routine.LastRun?.ConversationHref is { } href)
+                {
+                    <a class="dv-routine-link" href="@href">Open that conversation</a>
+                }
+            </dd>
+        </div>
+    </dl>
+    @if (CanChange)
+    {
+        <div class="dv-routine-actions">
+            <Switch Label="Runs on its own" Value="Routine.Enabled" ValueChanged="value => OnEnabledChanged.InvokeAsync(value)" />
+            <Button OnClick="() => OnRunOnce.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Run once now</Button>
+            <Button OnClick="() => OnChange.InvokeAsync()" aria-describedby="@titleId">Change</Button>
+            <Button Kind="ButtonKind.Danger" OnClick="() => OnRemove.InvokeAsync()" aria-describedby="@titleId">Remove</Button>
+        </div>
+    }
+    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+</article>
+
+@code {
+    #region Private Fields
+
+    private string titleId = string.Empty;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public RoutineItem Routine { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>A paused bot's routines do not run, and the row says so in place of the next time.</summary>
+    [Parameter]
+    public bool BotPaused { get; set; }
+
+    /// <summary>Owners and admins change routines. Everyone else reads them.</summary>
+    [Parameter]
+    public bool CanChange { get; set; }
+
+    /// <summary>True while a run started from this row is being asked for.</summary>
+    [Parameter]
+    public bool Busy { get; set; }
+
+    /// <summary>What the server said when it refused this row's last action, as a sentence.</summary>
+    [Parameter]
+    public string? Problem { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnEnabledChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnRunOnce { get; set; }
+
+    [Parameter]
+    public EventCallback OnChange { get; set; }
+
+    [Parameter]
+    public EventCallback OnRemove { get; set; }
+
+    private string Next => (Routine.Enabled, BotPaused, Routine.NextRun) switch
+    {
+        (false, _, _) => "Off. It does not run until it is turned on.",
+        (_, true, _) => $"Does not run while {BotName} is paused.",
+        (_, _, { } next) => $"Runs {ScheduleWords.Moment(next)}",
+        _ => "Drover has not worked out the next time yet.",
+    };
+
+    private string Last =>
+        RoutineWords.Outcome(Routine.LastRun, Routine.LastRun is { } last ? ScheduleWords.Moment(last.When) : string.Empty);
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet() => titleId = $"dv-routine-{Routine.Id:N}";
+
+    #endregion
+}

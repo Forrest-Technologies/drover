@@ -39,6 +39,8 @@ global using Drover.Ui.Pages.Setup;
 global using Drover.Ui.Pages.Status;
 global using Drover.Ui.Pages.Tools;
 global using Drover.Ui.Session;
+global using Drover.Ui.Starters;
+global using Drover.Ui.Tests.Rules;
 global using Drover.Ui.Tests.Support;
 global using Drover.Ui.Theme;
 global using Drover.Ui.Tools;

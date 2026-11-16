@@ -1,0 +1,39 @@
+@* Starter for #149. Notifications on this device: what is so, in a sentence, and the one action when there is
+   one. A state whose next step is in the browser or the operating system says so and offers no dead button. *@
+<section class="dv-push" aria-labelledby="@titleId">
+    <h3 class="dv-push-title" id="@titleId">Notifications on this device</h3>
+    <p class="dv-push-state">@PushWords.Sentence(State)</p>
+    @if (PushWords.Action(State) is { } action)
+    {
+        <div>
+            <Button Kind="@(State is PushState.Off ? ButtonKind.Primary : ButtonKind.Quiet)" Disabled="Working" OnClick="() => OnToggle.InvokeAsync()">@action</Button>
+        </div>
+    }
+    <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
+</section>
+
+@code {
+    #region Private Fields
+
+    private readonly string titleId = $"dv-push-{Guid.NewGuid():N}";
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public PushState State { get; set; }
+
+    /// <summary>True while the browser is being asked or the server is being told.</summary>
+    [Parameter]
+    public bool Working { get; set; }
+
+    /// <summary>Why turning it on or off failed, as a sentence.</summary>
+    [Parameter]
+    public string? Problem { get; set; }
+
+    [Parameter]
+    public EventCallback OnToggle { get; set; }
+
+    #endregion
+}

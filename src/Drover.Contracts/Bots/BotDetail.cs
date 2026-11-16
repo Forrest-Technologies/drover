@@ -30,8 +30,17 @@ public sealed record BotAvatarBody(string? Emoji, Guid? FileId);
 /// <summary>Model options in provider-neutral names. A null leaves the choice to the model.</summary>
 public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputTokens, string? ReasoningEffort, string WebSearch, bool StructuredOutput);
 
-/// <summary>Whether the bot remembers, and how it keeps a long thread inside the model's context.</summary>
-public sealed record MemorySettingsBody(bool Enabled, string Compaction, int? CompactAtTokens, int? KeepRecentMessages);
+/// <summary>
+/// Whether the bot keeps notes about the person it works for, how long a note and all of them together may be (a null
+/// leaves the server's limit), and how it keeps a long thread inside the model's context.
+/// </summary>
+public sealed record MemorySettingsBody(
+    bool Enabled,
+    string Compaction,
+    int? CompactAtTokens,
+    int? KeepRecentMessages,
+    int? MaxNoteCharacters = null,
+    int? MaxNotesCharacters = null);
 
 /// <summary>
 /// What a bot's sandbox may reach, how long it keeps running after its last use, whether it has a screen, and which

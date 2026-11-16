@@ -1,0 +1,88 @@
+@* Starter for #162. Work one bot handed to a bot beneath it, in the parent's conversation. Closed: who asked
+   whom for what, and the state in words. Open: the whole task, the child's own activity (passed in, so it is the
+   same message and tool components the main conversation uses), and the child's answer. The card's edge is
+   violet while the work is out. The pulse itself belongs to the crew connector, not to this card. *@
+<div class="dv-handoff @(Item.IsOut ? "dv-handoff-out" : null)">
+    <div class="dv-handoff-head">
+        <Avatar Name="@Item.ChildName" Hue="BotIdentity.Hue(Item.ChildId)" Size="32" State="DelegationWords.Head(Item.Phase)" />
+    </div>
+    <Disclosure Title="@DelegationWords.Sentence(Item)" Open="open" OpenChanged="value => open = value" Class="dv-handoff-frame">
+        <Status>
+            <Badge Kind="DelegationWords.Kind(Item.Phase)">@DelegationWords.State(Item.Phase)</Badge>
+        </Status>
+        <ChildContent>
+            @if (Item.Phase is DelegationPhase.Refused)
+            {
+                <p class="dv-handoff-line">@DelegationWords.Refused(Item.Refusal, Item.ChildName)</p>
+            }
+            else
+            {
+                <div class="dv-handoff-part">
+                    <h3 class="dv-handoff-part-title">What @Item.ChildName was asked</h3>
+                    <p class="dv-handoff-task">@Item.Task</p>
+                </div>
+                @if (Item.Depth >= DelegationWords.DeepestShown)
+                {
+                    <p class="dv-handoff-line">@Item.ChildName's work is shown on its own side.</p>
+                }
+                else if (ChildContent is not null)
+                {
+                    <div class="dv-handoff-part">
+                        <h3 class="dv-handoff-part-title">What @Item.ChildName did</h3>
+                        <div class="dv-handoff-work">@ChildContent</div>
+                    </div>
+                }
+                @if (Item.Answer is { Length: > 0 } answer)
+                {
+                    <div class="dv-handoff-part">
+                        <h3 class="dv-handoff-part-title">What @Item.ChildName answered</h3>
+                        <MarkdownView Text="@answer" />
+                    </div>
+                }
+                @if (Item.ChildHref is not null)
+                {
+                    <a class="dv-handoff-link" href="@Item.ChildHref">Open @Item.ChildName's side of this</a>
+                }
+            }
+        </ChildContent>
+    </Disclosure>
+</div>
+
+@code {
+    #region Private Fields
+
+    private bool open;
+
+    private DelegationPhase? seen;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public DelegationItem Item { get; set; } = null!;
+
+    /// <summary>
+    /// The child's activity in order: its words and its tool cards, including a call that waits for a person.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        // A child that starts waiting for a person opens the card, so the answer buttons are in view. Only on
+        // the change: a person who closes it again is not overruled.
+        if (Item.Phase is DelegationPhase.WaitingForYou && seen is not DelegationPhase.WaitingForYou)
+        {
+            open = true;
+        }
+
+        seen = Item.Phase;
+    }
+
+    #endregion
+}

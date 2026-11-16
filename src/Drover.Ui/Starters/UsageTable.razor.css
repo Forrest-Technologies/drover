@@ -1,0 +1,104 @@
+.dv-usage {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--dv-text-13);
+}
+
+.dv-usage th,
+.dv-usage td {
+  padding: var(--dv-space-2) var(--dv-space-3);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+  text-align: start;
+  vertical-align: top;
+}
+
+.dv-usage thead th {
+  color: var(--dv-text-2);
+  font-weight: var(--dv-weight-label);
+}
+
+/* The bot's column gets the room: a name is never broken inside a word to make space for a figure. */
+.dv-usage-who {
+  width: 34%;
+}
+
+/* A bot beneath another is set in by its depth, so the crew reads as the hierarchy it is. */
+.dv-usage-bot {
+  display: flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  padding-inline-start: calc(var(--dv-usage-depth, 0) * var(--dv-space-4));
+  font-weight: var(--dv-weight-label);
+}
+
+.dv-usage-bot a {
+  min-width: 0;
+  color: var(--dv-text);
+  overflow-wrap: break-word;
+}
+
+.dv-usage-own,
+.dv-usage-beneath {
+  display: block;
+}
+
+/* A figure is never broken across lines. */
+.dv-usage-own {
+  white-space: nowrap;
+}
+
+.dv-usage-beneath {
+  color: var(--dv-text-2);
+}
+
+.dv-usage-number,
+.dv-usage-model {
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+}
+
+.dv-usage-hint {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+/* A phone: one block for each bot, each figure with its column's name before it. */
+@media (max-width: 559px) {
+  .dv-usage thead {
+    position: absolute;
+    width: var(--dv-border);
+    height: var(--dv-border);
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .dv-usage,
+  .dv-usage tbody,
+  .dv-usage tr,
+  .dv-usage td {
+    display: block;
+  }
+
+  .dv-usage tr {
+    padding: var(--dv-space-2) 0;
+    border-bottom: var(--dv-border) solid var(--dv-line);
+  }
+
+  .dv-usage th,
+  .dv-usage td {
+    padding: var(--dv-space-1) var(--dv-space-3);
+    border-bottom: 0;
+  }
+
+  .dv-usage-who {
+    display: block;
+    width: auto;
+  }
+
+  .dv-usage td::before {
+    content: attr(data-label) ": ";
+    color: var(--dv-text-3);
+    font-family: var(--dv-font-ui);
+    font-size: var(--dv-text-12);
+  }
+}

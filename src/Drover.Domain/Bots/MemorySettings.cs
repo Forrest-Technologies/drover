@@ -7,6 +7,10 @@ public sealed record MemorySettings
 {
     #region Properties
 
+    /// <summary>
+    /// Whether the bot keeps notes about the person it works for. Off, its memory tools are not offered to the model
+    /// and no note is read into a run, whatever the grants say.
+    /// </summary>
     public bool Enabled { get; init; }
 
     public CompactionStrategy Compaction { get; init; } = CompactionStrategy.None;
@@ -16,6 +20,15 @@ public sealed record MemorySettings
 
     /// <summary>How many of the newest messages compaction always leaves untouched.</summary>
     public int? KeepRecentMessages { get; init; }
+
+    /// <summary>The most characters one note may hold. Null leaves the server's limit, MaxMemoryNoteCharacters.</summary>
+    public int? MaxNoteCharacters { get; init; }
+
+    /// <summary>
+    /// The most characters the bot's notes about one person may hold together. Null leaves the server's limit,
+    /// MaxMemoryCharactersPerPerson.
+    /// </summary>
+    public int? MaxNotesCharacters { get; init; }
 
     #endregion
 }
