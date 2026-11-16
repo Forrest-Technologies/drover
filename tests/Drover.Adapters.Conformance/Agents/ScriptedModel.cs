@@ -60,5 +60,16 @@ public sealed class ScriptedModel(params IReadOnlyList<ModelOutput>[] turns)
 
     public void SignalPaused() => paused.TrySetResult();
 
+    /// <summary>Adds turns after the ones scripted so far, for a script that needs what a test made first, such as a bot's id.</summary>
+    public ScriptedModel Then(params IReadOnlyList<ModelOutput>[] more)
+    {
+        foreach (var turn in more)
+        {
+            remaining.Enqueue(turn);
+        }
+
+        return this;
+    }
+
     #endregion
 }

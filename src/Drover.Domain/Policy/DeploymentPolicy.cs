@@ -120,6 +120,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxBotsPerSpace = 100;
 
+    public const int DelegationDepth = 5;
+
+    public const int RunsPerDelegationTree = 50;
+
+    public const int SelfHostedMaxDelegationTreeCostCents = 10_000;
+
+    public const int HostedMaxDelegationTreeCostCents = 1_000;
+
     public const int SelfHostedMaxMemoryNoteCharacters = 1000;
 
     public const int HostedMaxMemoryNoteCharacters = 500;
@@ -192,6 +200,22 @@ public sealed record DeploymentPolicy
     /// the operator's database and a bot that can be run, so a shared server bounds it more tightly.
     /// </summary>
     public int MaxBotsPerSpace { get; init; } = SelfHostedMaxBotsPerSpace;
+
+    /// <summary>
+    /// How many levels below the run a person started a chain of delegations may reach. A space may only lower it.
+    /// Each level is another bot working, and a chain is where a runaway loop spends money.
+    /// </summary>
+    public int MaxDelegationDepth { get; init; } = DelegationDepth;
+
+    /// <summary>The most runs one run tree may hold, the run a person started included. A space may only lower it.</summary>
+    public int MaxRunsPerDelegationTree { get; init; } = RunsPerDelegationTree;
+
+    /// <summary>
+    /// What a run tree may have cost, in hundredths of the price list's currency, before no further delegation is
+    /// begun in it. A space may only lower it. It bounds what a chain of bots spends of a person's model credit
+    /// without a person seeing each step.
+    /// </summary>
+    public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -399,6 +423,21 @@ public sealed record DeploymentPolicy
             policy => policy.MaxBotsPerSpace,
             HostedMaxBotsPerSpace,
             Enforcement.Now("BotService, on every path that makes a bot: created, created beneath a parent, duplicated, or made by a bot")),
+        PolicyRule.Limit(
+            nameof(MaxDelegationDepth),
+            policy => policy.MaxDelegationDepth,
+            DelegationDepth,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
+        PolicyRule.Limit(
+            nameof(MaxRunsPerDelegationTree),
+            policy => policy.MaxRunsPerDelegationTree,
+            RunsPerDelegationTree,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
+        PolicyRule.Limit(
+            nameof(MaxDelegationTreeCostCents),
+            policy => policy.MaxDelegationTreeCostCents,
+            HostedMaxDelegationTreeCostCents,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

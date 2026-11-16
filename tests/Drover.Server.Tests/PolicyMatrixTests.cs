@@ -223,6 +223,27 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_delegation_budgets_are_each_a_ceiling_a_space_may_only_lower()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var ceilings = new DelegationLimits(
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationDepth)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationTreeCostCents)), CultureInfo.InvariantCulture));
+
+        policies.Delegation(new SpaceSettings()).Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings
+        {
+            MaxDelegationDepth = ceilings.MaxDepth + 1,
+            MaxRunsPerDelegationTree = ceilings.MaxRuns + 1,
+            MaxDelegationTreeCostCents = ceilings.MaxCostCents + 1,
+        }).Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings { MaxDelegationDepth = 1, MaxRunsPerDelegationTree = 2, MaxDelegationTreeCostCents = 3 })
+            .Should().Be(new DelegationLimits(1, 2, 3));
+    }
+
+    [Fact]
     public async Task AllowBotsBuildingBots_decides_whether_a_new_bot_at_the_top_is_given_the_crew_tools()
     {
         var (email, password, _, spaceId) = await SeedPerson("crewlead");
