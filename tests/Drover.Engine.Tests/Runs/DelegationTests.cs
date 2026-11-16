@@ -462,6 +462,40 @@ public sealed class DelegationTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task An_approved_delegation_cut_off_by_a_kill_while_its_child_works_goes_on_with_the_same_child()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Worker");
+        await world.Grant(DelegateTool.Name, GrantEffect.Ask);
+        world.Script.Then(
+            [Delegate("d1", childId, "Work slowly.")],
+            [new TextOutput("Half"), new PauseOutput()],
+            [new TextOutput("All done.")],
+            [new TextOutput("Worker finished.")]);
+        var first = world.StartHost();
+        var rootId = await world.Post(await world.NewThread(), "Delegate slow work.");
+
+        await world.Decide(await WaitForPendingCall(world, rootId, child: false), approved: true);
+        await world.Script.Paused.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        var deadWorker = first.WorkerId;
+        await first.Kill();
+        world.StartHost();
+        await world.ExpireLeaseOf(deadWorker, rootId);
+        var root = await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed, RunStatus.Cancelled);
+
+        root.Status.Should().Be(RunStatus.Completed, root.Error?.Message);
+        var tree = await world.ReadTree(rootId);
+        tree.Should().HaveCount(2).And.OnlyContain(run => run.Status == RunStatus.Completed);
+        var call = (await world.ReadToolCalls(rootId)).Single();
+        (call.Status, call.Result!.Value.GetString()).Should().Be((ToolCallStatus.Completed, "All done."));
+        var events = await world.ReadEvents(rootId);
+        events.Count(stored => stored.Type == RunEventTypes.ToolApprovalRequested).Should().Be(1, "nobody is asked a second time");
+        events.Count(stored => stored.Type == RunEventTypes.DelegationStarted).Should().Be(1);
+        events.Where(stored => stored.RunId == rootId && stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
+            .Should().ContainSingle().Which.Outcome.Should().Be("completed");
+    }
+
+    [Fact]
     public async Task A_tainted_parents_delegation_resumes_through_a_childs_approval_and_a_restart_without_asking_again()
     {
         var tools = new TestTools().Add("test.write", ToolSensitivity.Write);

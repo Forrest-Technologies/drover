@@ -20,6 +20,9 @@ public sealed partial class RunExecutor
         var callRowId = ToolCallIds.For(parent.RunId, request.ParentCallId!);
         return await parent.Writer.Write(async (services, produced) =>
         {
+            // The root row is locked first, before the call's row, the order the approval endpoint takes them in. Two
+            // delegations in one tree then take turns, and cannot both fit under a budget only one of them fits under.
+            await services.GetRequiredService<RunRepository>().GetRunForUpdate(parent.RootRunId, cancellationToken);
             var calls = services.GetRequiredService<ToolCallRepository>();
 
             if (await calls.GetToolCallForUpdate(callRowId, cancellationToken) is not { } call)
@@ -86,10 +89,6 @@ public sealed partial class RunExecutor
         }
 
         var runs = services.GetRequiredService<RunRepository>();
-
-        // The root row is locked before anything about the tree is counted, so two delegations in one tree take turns
-        // and cannot both fit under a limit only one of them fits under.
-        await runs.GetRunForUpdate(parent.RootRunId, cancellationToken);
 
         // Down the tree only, so a loop cannot happen while the tree stands still. The run's own ancestors are the
         // guard for a tree that changed while the chain was working.

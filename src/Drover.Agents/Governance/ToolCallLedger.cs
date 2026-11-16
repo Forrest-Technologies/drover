@@ -28,7 +28,7 @@ public sealed class ToolCallLedger(RunContext run)
     /// an earlier process: a finished call returns its stored outcome, and a call that was running when its process
     /// died is marked interrupted. Either way the tool does not run again.
     /// </summary>
-    public Task<ToolOutcome?> Claim(ToolCallRequest request, Guid toolId, CancellationToken cancellationToken) =>
+    public Task<ToolOutcome?> Claim(ToolCallRequest request, ToolDefinition tool, CancellationToken cancellationToken) =>
         run.Database.Transact(
             async services =>
             {
@@ -38,18 +38,18 @@ public sealed class ToolCallLedger(RunContext run)
 
                 if (row is null)
                 {
-                    row = run.NewToolCallRow(id, toolId, request.ToolName, request.Arguments);
+                    row = run.NewToolCallRow(id, tool.ToolId, request.ToolName, request.Arguments);
                     calls.AddToolCall(row);
                 }
 
-                return Settle(row) ?? Start(row);
+                return Settle(row, tool) ?? Start(row);
             },
             cancellationToken);
 
     /// <summary>
     /// True when the call's row records a person's approval: someone decided it, and not with a no. A row that moved
     /// on after the approval (it started, or finished) still counts, so a call a restart cut off reaches
-    /// <see cref="Claim"/>, which then refuses to run it twice.
+    /// <see cref="Claim"/>, which then refuses to run it twice unless its tool may run again.
     /// </summary>
     public Task<bool> WasApprovedByAPerson(string callId, CancellationToken cancellationToken) =>
         run.Database.Transact(
@@ -185,10 +185,14 @@ public sealed class ToolCallLedger(RunContext run)
         return new FunctionResultContent(result.CallId, outcome.Result);
     }
 
-    private static ToolOutcome? Settle(ToolCall row) => row.Status switch
+    // A call that started and never finished runs again only when its tool may: it only reads, or it is a delegation,
+    // which resolves to the child run it began. That holds for a call a person approved too, which comes back here when
+    // its approval is handed over again after a restart.
+    private ToolOutcome? Settle(ToolCall row, ToolDefinition tool) => row.Status switch
     {
         ToolCallStatus.PendingApproval or ToolCallStatus.Approved => null,
         _ when row.StartedAt is null && row.Status is ToolCallStatus.Running => null,
+        ToolCallStatus.Running when tool.MayRunAgainAfterInterruption && row.RunId == run.Execution.RunId => null,
         _ => SettledOutcome(row),
     };
 
