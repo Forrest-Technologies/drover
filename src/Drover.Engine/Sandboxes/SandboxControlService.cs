@@ -65,7 +65,7 @@ public sealed class SandboxControlService(
         await scopes.For(spaceId, userId).Transact(
             async services => await Check(services, spaceId, userId, botId, cancellationToken) is { } refusal
                 ? Refuse<BotSandboxStatus>(refusal)
-                : new(await ReadStatus(services, botId, cancellationToken)),
+                : new(await ReadStatus(services, userId, botId, cancellationToken)),
             cancellationToken);
 
     public Task<SandboxControlResult<BotSandboxStatus>> Pause(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
@@ -352,7 +352,7 @@ public sealed class SandboxControlService(
 
     #region Reading The State
 
-    private async Task<BotSandboxStatus> ReadStatus(IServiceProvider services, Guid botId, CancellationToken cancellationToken)
+    private async Task<BotSandboxStatus> ReadStatus(IServiceProvider services, Guid userId, Guid botId, CancellationToken cancellationToken)
     {
         var bots = services.GetRequiredService<BotRepository>();
         var bot = await bots.FindBot(botId, cancellationToken) ?? throw new InvalidOperationException("The bot was checked in this transaction.");
@@ -384,7 +384,24 @@ public sealed class SandboxControlService(
             owner.SandboxSettings.Desktop && offered,
             working,
             offered,
-            startFailed);
+            startFailed,
+            await FindHold(services, ownerId, userId, cancellationToken));
+    }
+
+    /// <summary>The run, of any bot that shares this sandbox, that holds its screen for a person, if one does.</summary>
+    private static async Task<SandboxHold?> FindHold(IServiceProvider services, Guid ownerId, Guid userId, CancellationToken cancellationToken)
+    {
+        var bots = services.GetRequiredService<BotRepository>();
+
+        foreach (var run in await services.GetRequiredService<RunRepository>().ListRunsWaitingFor(RunReasons.AwaitingTakeover, cancellationToken))
+        {
+            if (SandboxGroups.OwnerOf(run.BotId, await bots.ListSandboxPath(run.BotId, cancellationToken)) == ownerId)
+            {
+                return new SandboxHold(run.RootRunId, run.PrincipalUserId == userId, run.WaitingSince);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -57,6 +57,8 @@ public sealed partial class SandboxScreen(
 
     private bool control;
 
+    private bool heldSeen;
+
     private bool visible = true;
 
     /// <summary>The person asked for the sandbox to be started or resumed here, and its state does not say running yet.</summary>
@@ -118,6 +120,13 @@ public sealed partial class SandboxScreen(
     /// </summary>
     [Parameter]
     public EventCallback OnSandboxChanged { get; set; }
+
+    /// <summary>
+    /// The person holds the screen because the bot asked them to take it over. Take control turns on when the hold
+    /// begins and off when it ends, so the person and the bot never both drive the screen.
+    /// </summary>
+    [Parameter]
+    public bool Held { get; set; }
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -228,6 +237,11 @@ public sealed partial class SandboxScreen(
     // keeps its picture until the state catches up and says it runs.
     protected override void OnParametersSet()
     {
+        if (Held != heldSeen)
+        {
+            (heldSeen, control) = (Held, Held);
+        }
+
         if (Status.State is "running")
         {
             (waking, wakeFailed) = (false, false);

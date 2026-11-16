@@ -421,6 +421,9 @@ public static class RunReasons
 
     public const string AwaitingApproval = "awaiting_approval";
 
+    /// <summary>The run waits for a person to take over its bot's screen and hand it back. The screen is held till then.</summary>
+    public const string AwaitingTakeover = "awaiting_takeover";
+
     public const string StepLimit = "step_limit";
 
     public const string CancelledByUser = "cancelled_by_user";

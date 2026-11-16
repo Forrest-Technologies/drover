@@ -26,6 +26,10 @@ public sealed partial class ScreenPanel(
 
     private Task? watching;
 
+    private bool handing;
+
+    private string? handProblem;
+
     #endregion
 
     #region Properties
@@ -33,6 +37,14 @@ public sealed partial class ScreenPanel(
     /// <summary>The bot whose screen is shown.</summary>
     [Parameter, EditorRequired]
     public BotSummary Bot { get; set; } = null!;
+
+    /// <summary>The bot's request for the person at this screen, while the person holds it. Its controls are shown here.</summary>
+    [Parameter]
+    public Takeover? Takeover { get; set; }
+
+    /// <summary>The person handed the screen back, or found it already answered.</summary>
+    [Parameter]
+    public EventCallback<Guid> OnHandedBack { get; set; }
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -73,6 +85,25 @@ public sealed partial class ScreenPanel(
     #endregion
 
     #region Private Methods
+
+    // The answer is the call's result. Once it is stored, or was stored already, the request no longer waits here.
+    private async Task HandBack(bool done, string? note)
+    {
+        if (handing || Takeover is not { } asked)
+        {
+            return;
+        }
+
+        handing = true;
+        handProblem = await api.HandBack(SpaceId, asked.ToolCallId, done, note, logger);
+        handing = false;
+
+        if (handProblem is null or TakeoverAnswers.AnsweredAlready)
+        {
+            handProblem = null;
+            await OnHandedBack.InvokeAsync(asked.ToolCallId);
+        }
+    }
 
     private async Task Load()
     {

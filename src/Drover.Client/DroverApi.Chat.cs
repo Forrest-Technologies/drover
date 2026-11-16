@@ -110,6 +110,26 @@ public sealed partial class DroverApi
         Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/decision", new ToolDecisionRequest(approved, reason), cancellationToken);
 
     /// <summary>
+    /// Records that this person took over the bot's screen because the call asked them to. Throws
+    /// <see cref="DroverApiException"/> with 403 for a member who does not use the bot's screens, and 409 when the call
+    /// no longer waits.
+    /// </summary>
+    public Task<RunSummary> TakeOverScreen(Guid spaceId, Guid toolCallId, CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/takeover", null, cancellationToken);
+
+    /// <summary>
+    /// Hands the bot's screen back after the call asked for a person: done, or could not with an optional line the bot
+    /// reads. Throws <see cref="DroverApiException"/> with 409 when the call was already answered.
+    /// </summary>
+    public Task<RunSummary> HandBackScreen(
+        Guid spaceId,
+        Guid toolCallId,
+        bool done,
+        string? note = null,
+        CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/handback", new ToolHandbackRequest(done, note), cancellationToken);
+
+    /// <summary>
     /// The events of a run, from after <paramref name="afterSeq"/> to its end, each once and in order. The stream
     /// reconnects by itself with the last number it saw, so a dropped connection or a restarted server loses
     /// nothing and repeats nothing. It ends when the run does. Feed each event to <see cref="RunReducer.Apply(RunView, RunEventResponse)"/>.

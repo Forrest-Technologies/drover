@@ -6,20 +6,28 @@ public enum DecisionOutcome
     NotFound,
     Forbidden,
     NotWaiting,
+
+    /// <summary>
+    /// The call is not answered this way: a request for a person at the screen is answered with done or could not,
+    /// and any other call with approve or deny.
+    /// </summary>
+    WrongKind,
 }
 
 public sealed record ToolDecision(DecisionOutcome Outcome, Run? Run = null);
 
 /// <summary>
-/// A person's answer to a tool call that waits for approval. The answer is stored on the call's row and in the run's
-/// log; the run becomes claimable once every call it waits on has one, and the worker that takes it passes the
-/// answers on. Opens its own tenant scope, because it wakes the workers after the commit.
+/// A person's answer to a tool call that waits for them: an approval, or a bot's request that a person take over its
+/// screen. The answer is stored on the call's row and in the run's log; the run becomes claimable once every call it
+/// waits on has one, and the worker that takes it passes the answers on. Opens its own tenant scope, because it wakes
+/// the workers after the commit.
 /// </summary>
 public sealed class ApprovalService(
     ToolCallRepository toolCalls,
     RunRepository runs,
     ThreadRepository threads,
     RunEventRepository events,
+    AuditLog audit,
     TenantScope scope,
     RunSignal signal,
     RunEventHub hub,
@@ -42,60 +50,151 @@ public sealed class ApprovalService(
     /// the run acts for or a space admin: nobody approves a call whose arguments they cannot read, and a member
     /// cannot approve what a bot does with another member's authority.
     /// </summary>
-    public async Task<ToolDecision> Decide(
+    public Task<ToolDecision> Decide(
         Guid toolCallId,
         bool approved,
         string? reason,
         Guid userId,
         bool isSpaceAdmin,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        Answer(
+            new Answering(toolCallId, userId, isSpaceAdmin, Handover: false),
+            (call, now) =>
+            {
+                if (approved)
+                {
+                    call.Status = ToolCallStatus.Approved;
+                }
+                else
+                {
+                    ToolDecisions.Deny(call, Reason(reason), now);
+                }
+
+                return approved;
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// The person opens the bot's screen to do what the bot asked. Nothing about the call changes: the audit log
+    /// records that they took over. Only owners and admins use a bot's screen, and of those only one who can see the
+    /// call; a member whose bot asks is told so by the screen, and answers from the card.
+    /// </summary>
+    public async Task<ToolDecision> TakeOver(Guid toolCallId, Guid userId, bool isSpaceAdmin, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var found = await Find(toolCallId, userId, isSpaceAdmin, cancellationToken);
+
+        if (found.Refusal is { } refusal)
+        {
+            return new ToolDecision(refusal);
+        }
+
+        if (!isSpaceAdmin)
+        {
+            return new ToolDecision(DecisionOutcome.Forbidden);
+        }
+
+        var root = await runs.FindRun(found.Run!.RootRunId, cancellationToken);
+
+        if (!ComputerTools.IsHandover(found.Call!.ToolName))
+        {
+            return new ToolDecision(DecisionOutcome.WrongKind, root);
+        }
+
+        if (root is not { Status: RunStatus.Waiting, CancelRequestedAt: null } || found.Call.Status is not ToolCallStatus.PendingApproval)
+        {
+            return new ToolDecision(DecisionOutcome.NotWaiting, root);
+        }
+
+        audit.Record(userId, "sandbox.taken_over", AuditTargets.Bot, found.Run.BotId, null, null);
+        await work.Commit(cancellationToken);
+        logger.LogInformation("A person took over the screen for tool call {ToolCallId} of run {RunId}", toolCallId, found.Run.Id);
+        return new ToolDecision(DecisionOutcome.Recorded, root);
+    }
+
+    /// <summary>
+    /// The person hands the screen back: done, or could not, with a line for the bot that may be empty. Answered by
+    /// the same people and in the same way as an approval: done lets the call run, and its result says so; could not
+    /// ends it with the person's line as its result. The screen is no longer held once the answer is stored.
+    /// </summary>
+    public Task<ToolDecision> HandBack(
+        Guid toolCallId,
+        bool done,
+        string? note,
+        Guid userId,
+        bool isSpaceAdmin,
+        CancellationToken cancellationToken) =>
+        Answer(
+            new Answering(toolCallId, userId, isSpaceAdmin, Handover: true),
+            (call, now) =>
+            {
+                if (done)
+                {
+                    call.Status = ToolCallStatus.Approved;
+                }
+                else
+                {
+                    call.Status = ToolCallStatus.Denied;
+                    call.Result = ComputerTools.CouldNot(Trimmed(note));
+                    call.IsError = false;
+                    call.FinishedAt = now;
+                }
+
+                return done;
+            },
+            cancellationToken);
+
+    #endregion
+
+    #region Answering
+
+    private async Task<ToolDecision> Answer(Answering answering, Func<ToolCall, DateTimeOffset, bool> settle, CancellationToken cancellationToken)
     {
         Run? root;
         IReadOnlyList<RunEvent> appended;
+        bool approved;
 
         await using (var work = await scope.Begin(cancellationToken))
         {
-            var visible = (await toolCalls.ListToolCalls([toolCallId], cancellationToken)).SingleOrDefault();
-            var run = visible is null ? null : await runs.FindRun(visible.RunId, cancellationToken);
-            var thread = visible is null ? null : await threads.FindThread(visible.ThreadId, cancellationToken);
+            var found = await Find(answering.ToolCallId, answering.UserId, answering.IsSpaceAdmin, cancellationToken);
 
-            if (visible is null || run is null || thread is null)
+            if (found.Refusal is { } refusal)
             {
-                return new ToolDecision(DecisionOutcome.NotFound);
+                return new ToolDecision(refusal);
             }
 
-            if (run.PrincipalUserId != userId && !isSpaceAdmin)
-            {
-                return new ToolDecision(DecisionOutcome.Forbidden);
-            }
+            var run = found.Run!;
 
             // The root row is locked before the call is read for good, so two answers to one call take turns.
             root = await runs.GetRunForUpdate(run.RootRunId, cancellationToken);
-            var call = await toolCalls.GetToolCallForUpdate(toolCallId, cancellationToken);
+            var call = await toolCalls.GetToolCallForUpdate(answering.ToolCallId, cancellationToken);
 
             if (root is not { Status: RunStatus.Waiting, CancelRequestedAt: null } || call is not { Status: ToolCallStatus.PendingApproval })
             {
                 return new ToolDecision(DecisionOutcome.NotWaiting, root);
             }
 
-            var now = time.GetUtcNow();
-            call.DecidedByUserId = userId;
-            call.DecidedAt = now;
-
-            if (approved)
+            if (ComputerTools.IsHandover(call.ToolName) != answering.Handover)
             {
-                call.Status = ToolCallStatus.Approved;
+                return new ToolDecision(DecisionOutcome.WrongKind, root);
             }
-            else
+
+            var now = time.GetUtcNow();
+            call.DecidedByUserId = answering.UserId;
+            call.DecidedAt = now;
+            approved = settle(call, now);
+
+            if (answering.Handover)
             {
-                ToolDecisions.Deny(call, Reason(reason), now);
+                await ReleaseScreen(root, run, call, cancellationToken);
+                audit.Record(answering.UserId, "sandbox.handed_back", AuditTargets.Bot, run.BotId, null, null, new JsonObject { ["outcome"] = approved ? "done" : "could_not" });
             }
 
             var decided = RunEventWriter.Event(
                 run.Id,
                 approved ? RunEventTypes.ToolApproved : RunEventTypes.ToolDenied,
-                new ToolDecided(call.Id, userId));
-            appended = await events.Append(root.Id, thread, [decided], cancellationToken);
+                new ToolDecided(call.Id, answering.UserId));
+            appended = await events.Append(root.Id, found.Thread!, [decided], cancellationToken);
             await runs.SignalWorkers(cancellationToken);
             await work.Commit(cancellationToken);
         }
@@ -106,8 +205,50 @@ public sealed class ApprovalService(
         // The run's person sees on every screen that the call no longer waits for them. A delegated child's call
         // waits in the root's tree, and the root's thread is the one that reads as waiting, so that is the one named.
         signals.Publish(root.SpaceId, root.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, root.ThreadId, root.Id));
-        logger.LogInformation("Tool call {ToolCallId} of run {RunId} was {Decision}", toolCallId, root.Id, approved ? "approved" : "denied");
+        logger.LogInformation("Tool call {ToolCallId} of run {RunId} was {Decision}", answering.ToolCallId, root.Id, approved ? "approved" : "denied");
         return new ToolDecision(DecisionOutcome.Recorded, root);
+    }
+
+    /// <summary>
+    /// The call, its run, and its thread, as this person sees them, or why they may not answer: not visible at all, or
+    /// visible to someone who is neither the run's person nor a space admin.
+    /// </summary>
+    private async Task<Found> Find(Guid toolCallId, Guid userId, bool isSpaceAdmin, CancellationToken cancellationToken)
+    {
+        var visible = (await toolCalls.ListToolCalls([toolCallId], cancellationToken)).SingleOrDefault();
+        var run = visible is null ? null : await runs.FindRun(visible.RunId, cancellationToken);
+        var thread = visible is null ? null : await threads.FindThread(visible.ThreadId, cancellationToken);
+
+        if (visible is null || run is null || thread is null)
+        {
+            return new Found(DecisionOutcome.NotFound);
+        }
+
+        return run.PrincipalUserId != userId && !isSpaceAdmin
+            ? new Found(DecisionOutcome.Forbidden)
+            : new Found(null, visible, run, thread);
+    }
+
+    /// <summary>
+    /// The run no longer waits for a person at the screen, unless it asked for one again in the same step, so the
+    /// bots that share the screen may use it again. It still waits for its other calls, as for any approval.
+    /// </summary>
+    private async Task ReleaseScreen(Run root, Run run, ToolCall answered, CancellationToken cancellationToken)
+    {
+        var asking = run.Id == root.Id ? root : await runs.GetRunForUpdate(run.Id, cancellationToken);
+
+        if (asking is not { Status: RunStatus.Waiting, StatusReason: RunReasons.AwaitingTakeover })
+        {
+            return;
+        }
+
+        var stillAsks = (await toolCalls.ListPendingApprovals(answered.ThreadId, cancellationToken))
+            .Any(other => other.Id != answered.Id && other.RunId == run.Id && ComputerTools.IsHandover(other.ToolName));
+
+        if (!stillAsks)
+        {
+            asking.StatusReason = RunReasons.AwaitingApproval;
+        }
     }
 
     #endregion
@@ -115,7 +256,18 @@ public sealed class ApprovalService(
     #region Private Methods
 
     private static string Reason(string? reason) =>
-        string.IsNullOrWhiteSpace(reason) ? Declined : $"{Declined} They said: {reason.Trim()[..Math.Min(reason.Trim().Length, MaxReasonLength)]}";
+        Trimmed(reason) is { } said ? $"{Declined} They said: {said}" : Declined;
+
+    private static string? Trimmed(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? null : text.Trim()[..Math.Min(text.Trim().Length, MaxReasonLength)];
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record Answering(Guid ToolCallId, Guid UserId, bool IsSpaceAdmin, bool Handover);
+
+    private sealed record Found(DecisionOutcome? Refusal, ToolCall? Call = null, Run? Run = null, ChatThread? Thread = null);
 
     #endregion
 }
