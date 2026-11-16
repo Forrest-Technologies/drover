@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations
 {
     [DbContext(typeof(DroverDbContext))]
-    [Migration("20261116133351_PushNotifications")]
+    [Migration("20261116141952_PushNotifications")]
     partial class PushNotifications
     {
         /// <inheritdoc />
@@ -519,6 +519,19 @@ namespace Drover.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enabled");
 
+                    b.Property<string>("LastOutcome")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("last_outcome");
+
+                    b.Property<DateTimeOffset?>("LastRunAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_run_at");
+
+                    b.Property<Guid?>("LastRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_run_id");
+
                     b.Property<DateTimeOffset?>("NextRunAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_run_at");
@@ -551,6 +564,10 @@ namespace Drover.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_bot_schedules");
 
+                    b.HasIndex("NextRunAt")
+                        .HasDatabaseName("ix_bot_schedules_next_run_at")
+                        .HasFilter("enabled AND next_run_at IS NOT NULL");
+
                     b.HasIndex("OwnerUserId")
                         .HasDatabaseName("ix_bot_schedules_owner_user_id");
 
@@ -559,6 +576,8 @@ namespace Drover.Data.Migrations
 
                     b.ToTable("bot_schedules", null, t =>
                         {
+                            t.HasCheckConstraint("ck_bot_schedules_last_outcome", "last_outcome IN ('started', 'waiting_for_reply', 'bot_paused', 'bot_removed', 'owner_left')");
+
                             t.HasCheckConstraint("ck_bot_schedules_thread_mode", "thread_mode IN ('new_thread', 'same_thread')");
                         });
                 });
@@ -1862,6 +1881,10 @@ namespace Drover.Data.Migrations
                     b.Property<Guid?>("RunId")
                         .HasColumnType("uuid")
                         .HasColumnName("run_id");
+
+                    b.Property<Guid?>("ScheduleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("schedule_id");
 
                     b.Property<Guid>("SpaceId")
                         .HasColumnType("uuid")

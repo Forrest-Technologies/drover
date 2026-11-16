@@ -41,6 +41,22 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void A_message_a_schedule_sent_names_the_schedule_by_its_time_or_says_it_was_removed()
+    {
+        var scheduled = Message("user", false, new PartView("text", "Brief me")) with { ScheduleId = Guid.CreateVersion7(), ScheduleCron = "30 9 * * 1-5" };
+        var orphaned = Message("user", false, new PartView("text", "Brief me")) with { ScheduleId = Guid.CreateVersion7() };
+        var typed = Message("user", false, new PartView("text", "Hello"));
+
+        var shown = new[] { scheduled, orphaned, typed }.ToChatMessages();
+
+        shown.Select(message => message.SentBy).Should().Equal(
+            "Sent by the schedule 'Every weekday at 09:30'",
+            "Sent by a schedule that has since been removed",
+            null);
+        shown.Should().OnlyContain(message => message.FromPerson, "a schedule sends on its owner's behalf, on the person's side of the conversation");
+    }
+
+    [Fact]
     public void A_bot_is_thinking_while_it_works_and_has_said_nothing()
     {
         var working = RunView.Start(Guid.CreateVersion7()) with { Status = "running" };

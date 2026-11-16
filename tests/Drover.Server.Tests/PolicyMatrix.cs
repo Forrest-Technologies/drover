@@ -40,6 +40,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowDesktopSandboxes), "true", "false"),
         new(nameof(DeploymentPolicy.AllowBotsBuildingBots), "true", "true"),
         new(nameof(DeploymentPolicy.MaxBotsPerSpace), "1000", "100"),
+        new(nameof(DeploymentPolicy.MinScheduleIntervalMinutes), "1", "15"),
+        new(nameof(DeploymentPolicy.MaxSchedulesPerSpace), "1000", "100"),
         new(nameof(DeploymentPolicy.MaxFileBytes), "26214400", "10485760"),
         new(nameof(DeploymentPolicy.MaxFilesPerMessage), "10", "5"),
         new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
