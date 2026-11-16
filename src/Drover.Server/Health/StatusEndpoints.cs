@@ -59,6 +59,20 @@ public static class StatusEndpoints
             : Row(Server, "Database", Warning, $"Connected as {role.Name}, not {DatabaseRole.Application}.");
     }
 
+    /// <summary>
+    /// Whether this server's scheduler is sending due schedules: it looks every half minute, so a last look more than
+    /// three passes ago means it has stopped.
+    /// </summary>
+    public static StatusRow Scheduler(DateTimeOffset? lastPassAt, DateTimeOffset now) =>
+        lastPassAt switch
+        {
+            null => Row(Server, "Scheduler", Warning, "Has not looked for due schedules since the server started. If this stays, check the server log."),
+            { } last when now - last <= ScheduleRunner.Interval * 3 =>
+                Row(Server, "Scheduler", Ok, "Working. Schedules that come due are sent within a minute.", last),
+            { } last => Row(Server, "Scheduler", Problem,
+                $"Last looked for due schedules {Math.Max(1, (int)(now - last).TotalMinutes)} minutes ago, so schedules are not being sent. Check the server log.", last),
+        };
+
     #endregion
 
     #region Endpoints
@@ -70,6 +84,8 @@ public static class StatusEndpoints
         IOptions<ToolSignInOptions> signIn,
         KeyRingLocation keyRing,
         SandboxAvailability sandboxes,
+        ScheduleRunner scheduler,
+        TimeProvider time,
         ILoggerFactory loggers)
     {
         var logger = loggers.CreateLogger(typeof(StatusEndpoints).FullName!);
@@ -84,6 +100,7 @@ public static class StatusEndpoints
             rows.Add(KeyRing(keyRing.Path, logger));
             rows.Add(PublicUrl(signIn.Value.PublicUrl));
             rows.Add(Workload(server.Workload));
+            rows.Add(Scheduler(scheduler.LastPassAt, time.GetUtcNow()));
             rows.Add(Sandboxes(sandboxes));
         }
 

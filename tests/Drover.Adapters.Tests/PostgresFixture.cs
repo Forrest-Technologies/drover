@@ -1,29 +1,22 @@
 namespace Drover.Adapters.Tests;
 
 /// <summary>
-/// A real PostgreSQL for the adapter tests, set up the way the server sets up its own: roles bootstrapped with
-/// passwords made for this run, migrations applied as <c>drover_owner</c>, connections as <c>drover_app</c>. It uses
-/// the server named by <c>DROVER_TEST_POSTGRES</c> and starts a container when that is not set.
+/// A real PostgreSQL for the adapter tests, set up the way the server sets up its own: a migrated database of the
+/// assembly's <see cref="PostgresServer"/>, connections as <c>drover_app</c>. It takes its database from that server
+/// rather than bootstrapping the roles itself, because roles belong to the whole PostgreSQL server: a second set of
+/// passwords for them would undo the first, and the tests of whichever fixture set them first could no longer sign in.
 /// </summary>
-public sealed class PostgresFixture : IAsyncLifetime
+public sealed class PostgresFixture(PostgresServer server) : IAsyncLifetime
 {
     #region Private Fields
 
-    private readonly string databaseName = $"drover_adapters_{Guid.NewGuid():N}";
-
-    private readonly string ownerPassword = NewPassword();
-
-    private readonly string appPassword = NewPassword();
-
-    private PostgreSqlContainer? container;
-
-    private NpgsqlConnectionStringBuilder serverConnection = null!; // set first thing in InitializeAsync
+    private TestDatabase database = null!; // set first thing in InitializeAsync
 
     #endregion
 
     #region Properties
 
-    public string AppConnectionString => ConnectionStringFor("drover_app", appPassword);
+    public string AppConnectionString => database.AppConnectionString;
 
     #endregion
 
@@ -31,24 +24,19 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        serverConnection = [with(await FindServer())];
-        await ExecuteOnServer($"CREATE DATABASE {databaseName}");
-        var admin = new NpgsqlConnectionStringBuilder(serverConnection.ConnectionString) { Database = databaseName };
-        await DatabaseBootstrap.Run(admin.ConnectionString, ownerPassword, appPassword);
-        var owner = ConnectionStringFor("drover_owner", ownerPassword);
-        await DatabaseMigrator.Run(owner);
-        await CreateCheckpointTable(owner);
+        database = await server.CreateDatabase();
+        var owner = new NpgsqlConnectionStringBuilder(database.AdminConnectionString)
+        {
+            Username = "drover_owner",
+            Password = server.OwnerPassword,
+        };
+        await CreateCheckpointTable(owner.ConnectionString);
     }
 
     public async ValueTask DisposeAsync()
     {
         NpgsqlConnection.ClearAllPools();
-        await ExecuteOnServer($"DROP DATABASE IF EXISTS {databaseName} WITH (FORCE)");
-
-        if (container is not null)
-        {
-            await container.DisposeAsync();
-        }
+        await database.DisposeAsync();
     }
 
     #endregion
@@ -66,20 +54,6 @@ public sealed class PostgresFixture : IAsyncLifetime
     #endregion
 
     #region Private Methods
-
-    private async Task<string> FindServer()
-    {
-        var named = Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES");
-
-        if (!string.IsNullOrWhiteSpace(named))
-        {
-            return named;
-        }
-
-        container = new PostgreSqlBuilder("postgres:16-alpine").Build();
-        await container.StartAsync();
-        return container.GetConnectionString();
-    }
 
     /// <summary>
     /// The Phase 1 <c>workflow_checkpoints</c> table, made here for the checkpoint proof only. It is isolated by space
@@ -112,24 +86,6 @@ public sealed class PostgresFixture : IAsyncLifetime
             """,
             connection).ExecuteNonQueryAsync();
     }
-
-    private async Task ExecuteOnServer(string sql)
-    {
-        await using var connection = new NpgsqlConnection(serverConnection.ConnectionString);
-        await connection.OpenAsync();
-        await new NpgsqlCommand(sql, connection).ExecuteNonQueryAsync();
-    }
-
-    private string ConnectionStringFor(string role, string password) =>
-        new NpgsqlConnectionStringBuilder(serverConnection.ConnectionString)
-        {
-            Database = databaseName,
-            Username = role,
-            Password = password,
-            Timeout = 10,
-        }.ConnectionString;
-
-    private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 
     #endregion
 }

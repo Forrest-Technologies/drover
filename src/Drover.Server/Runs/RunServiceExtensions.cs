@@ -46,6 +46,7 @@ public static class RunServiceExtensions
                 OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
             .AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
+        services.AddHostedService<ScheduleLoop>();
         return services;
     }
 

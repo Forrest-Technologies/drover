@@ -22,5 +22,20 @@ public static class EnumColumnExtensions
         return builder.Property(property).HasConversion<SnakeCaseEnumConverter<TEnum>>().HasMaxLength(maxLength);
     }
 
+    /// <summary>The same for a property that may be null. Null passes the check constraint.</summary>
+    public static PropertyBuilder<TEnum?> HasEnumColumn<TEntity, TEnum>(
+        this EntityTypeBuilder<TEntity> builder,
+        Expression<Func<TEntity, TEnum?>> property,
+        int maxLength = 32)
+        where TEntity : class
+        where TEnum : struct, Enum
+    {
+        var column = SnakeCase.Of(((MemberExpression)property.Body).Member.Name);
+        var allowed = string.Join(", ", Enum.GetValues<TEnum>().Select(value => $"'{SnakeCase.Of(value)}'"));
+        var constraint = $"ck_{builder.Metadata.GetTableName()}_{column}";
+        builder.ToTable(table => table.HasCheckConstraint(constraint, $"{column} IN ({allowed})"));
+        return builder.Property(property).HasConversion<SnakeCaseEnumConverter<TEnum>>().HasMaxLength(maxLength);
+    }
+
     #endregion
 }
