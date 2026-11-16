@@ -81,18 +81,11 @@ public sealed class EngineHost : IAsyncDisposable
         killed = true;
         await provider.DisposeAsync();
 
-        // A process that died does nothing more. Disposing its services alone left the dispatcher's loop running, and
-        // a lease renewal or claim already under way could still commit after the test moved the lease on (#193). The
-        // loop is stopped only after the services are gone, so it cannot release anything on its way out, and Kill
-        // returns once it has.
-        // The loop may fail as its services vanish under it; that is the death being simulated, so only whether it
-        // has ended matters.
+        // A process that died claims nothing more. Disposing its services alone left the dispatcher polling, and it
+        // could claim the run the test had just freed, with services that no longer work: the run was then taken over
+        // twice, or held for a whole lease by a host that could not run it (#193). Its loop is stopped only after the
+        // services are gone, so it releases nothing on the way out; whatever it was doing is not waited for.
         await stopping.CancelAsync();
-        await dispatching.WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        if (!dispatching.IsCompleted)
-        {
-            throw new TimeoutException("The killed host's dispatcher did not end.");
-        }
     }
 
     #endregion
