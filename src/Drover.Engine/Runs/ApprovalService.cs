@@ -23,6 +23,7 @@ public sealed class ApprovalService(
     TenantScope scope,
     RunSignal signal,
     RunEventHub hub,
+    UserSignalHub signals,
     TimeProvider time,
     ILogger<ApprovalService> logger)
 {
@@ -50,18 +51,21 @@ public sealed class ApprovalService(
         CancellationToken cancellationToken)
     {
         Run? root;
+        Run run;
         IReadOnlyList<RunEvent> appended;
 
         await using (var work = await scope.Begin(cancellationToken))
         {
             var visible = (await toolCalls.ListToolCalls([toolCallId], cancellationToken)).SingleOrDefault();
-            var run = visible is null ? null : await runs.FindRun(visible.RunId, cancellationToken);
+            var found = visible is null ? null : await runs.FindRun(visible.RunId, cancellationToken);
             var thread = visible is null ? null : await threads.FindThread(visible.ThreadId, cancellationToken);
 
-            if (visible is null || run is null || thread is null)
+            if (visible is null || found is null || thread is null)
             {
                 return new ToolDecision(DecisionOutcome.NotFound);
             }
+
+            run = found;
 
             if (run.PrincipalUserId != userId && !isSpaceAdmin)
             {
@@ -101,6 +105,9 @@ public sealed class ApprovalService(
 
         hub.Publish(root.Id, appended);
         signal.Wake();
+
+        // The run's person sees on every screen that the call no longer waits for them.
+        signals.Publish(run.SpaceId, run.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, run.ThreadId, run.Id));
         logger.LogInformation("Tool call {ToolCallId} of run {RunId} was {Decision}", toolCallId, root.Id, approved ? "approved" : "denied");
         return new ToolDecision(DecisionOutcome.Recorded, root);
     }

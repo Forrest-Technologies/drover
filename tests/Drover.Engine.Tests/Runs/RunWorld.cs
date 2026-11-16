@@ -221,11 +221,16 @@ public sealed class RunWorld : IAsyncDisposable
         (await WithService<ToolConnectionService, ToolRefresh?>(service => service.Refresh(connectionId, Token)))!;
 
     /// <summary>Calls a service that opens its own tenant scope, as the world's person.</summary>
-    public async Task<TResult> WithService<TService, TResult>(Func<TService, Task<TResult>> call)
+    public Task<TResult> WithService<TService, TResult>(Func<TService, Task<TResult>> call)
+        where TService : notnull =>
+        WithServiceAs(UserId, call);
+
+    /// <summary>Calls a service that opens its own tenant scope, as <paramref name="userId"/>.</summary>
+    public async Task<TResult> WithServiceAs<TService, TResult>(Guid userId, Func<TService, Task<TResult>> call)
         where TService : notnull
     {
         await using var scope = seeder.Services.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, UserId);
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, userId);
         return await call(scope.ServiceProvider.GetRequiredService<TService>());
     }
 

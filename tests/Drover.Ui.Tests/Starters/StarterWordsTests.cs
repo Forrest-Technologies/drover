@@ -149,42 +149,6 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Attention
-
-    [Theory]
-    [InlineData(true, true, true, Attention.WaitingForYou)]
-    [InlineData(false, true, true, Attention.Failed)]
-    [InlineData(false, false, true, Attention.New)]
-    [InlineData(false, false, false, Attention.None)]
-    public void Only_the_most_pressing_thing_a_bot_has_is_shown(bool waiting, bool failed, bool hasNew, Attention shown)
-    {
-        AttentionWords.Of(waiting, failed, hasNew).Should().Be(shown);
-    }
-
-    [Fact]
-    public void Attention_is_a_word_and_the_tab_counts_who_waits()
-    {
-        AttentionWords.Word(Attention.None).Should().BeNull();
-        AttentionWords.Announce("Sample bot", Attention.WaitingForYou).Should().Be("Sample bot, waiting for you");
-        AttentionWords.Announce("Sample bot", Attention.None).Should().Be("Sample bot");
-        AttentionWords.TabTitle("Drover", 0).Should().Be("Drover");
-        AttentionWords.TabTitle("Drover", 2).Should().Be("(2) Drover");
-    }
-
-    [Fact]
-    public void Every_failure_cause_names_the_bot_and_says_what_to_do()
-    {
-        foreach (var cause in Enum.GetValues<FailureCause>())
-        {
-            var sentence = AttentionWords.Failure(cause, "Sample bot");
-
-            sentence.Should().Contain("Sample bot").And.EndWith(".").And.NotContain("!");
-            sentence.Split(". ", StringSplitOptions.RemoveEmptyEntries).Should().HaveCountGreaterThan(1, "it says what failed and what to do");
-        }
-    }
-
-    #endregion
-
     #region History
 
     [Fact]

@@ -8,7 +8,7 @@ public sealed partial class Talk(
     DroverApi api,
     SessionState session,
     NavigationManager navigation,
-    ILogger<Talk> logger)
+    ILogger<Talk> logger) : IDisposable
 {
     #region Private Fields
 
@@ -48,6 +48,9 @@ public sealed partial class Talk(
 
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
+
+    // Follows the person's signals while the page is open, so what each bot has for them changes without a reload.
+    private CancellationTokenSource? listening;
 
     #endregion
 
@@ -113,10 +116,17 @@ public sealed partial class Talk(
 
     private IReadOnlySet<Guid> WorkingBots =>
         threads.Values
-            .Where(thread => thread.ActiveRunId is not null)
+            .Where(thread => thread.ActiveRunId is not null && thread.Attention?.WaitingForYou is not true)
             .Select(thread => thread.BotId)
             .Concat(mainBusy && Shown is not null ? [Shown.Id] : [])
             .ToHashSet();
+
+    // What each bot has for this person, across all their threads with it. A conversation on screen is being seen,
+    // so it has nothing new and no failure to point at, even before the server has heard so.
+    private IReadOnlyDictionary<Guid, Attention> ForYou =>
+        AttentionWords.OfCrew(threads.Values.Select(thread => IsOnScreen(thread) && thread.Attention is { } attention
+            ? thread with { Attention = attention with { Failed = false, HasNew = false } }
+            : thread));
 
     private IReadOnlyList<SideChatItem> SideChats =>
     [
@@ -129,7 +139,8 @@ public sealed partial class Talk(
                 Addresses.SideChat(thread.BotId, thread.Id),
                 Shown!.Name,
                 BotIdentity.Hue(thread.BotId),
-                thread.ActiveRunId is not null)),
+                thread.ActiveRunId is not null,
+                AttentionWords.OfCrew([thread]).GetValueOrDefault(thread.BotId))),
     ];
 
     private string SideChatsLabel => SideChats.Count switch
@@ -162,12 +173,25 @@ public sealed partial class Talk(
         _ => "Close side chats",
     };
 
-    private string PageName => (bots, Shown, Side) switch
+    // The tab says how many bots wait for the person, so it can be seen from another tab.
+    private string PageName => AttentionWords.TabTitle(
+        (bots, Shown, Side) switch
+        {
+            (null, _, _) or (_, null, _) => "Drover",
+            (_, { } bot, SideView.Closed) => $"{bot.Name} · Drover",
+            (_, { } bot, _) => $"{SideTitle} · {bot.Name} · Drover",
+        },
+        AttentionWords.Waiting(ForYou));
+
+    #endregion
+
+    #region Public Methods
+
+    public void Dispose()
     {
-        (null, _, _) or (_, null, _) => "Drover",
-        (_, { } bot, SideView.Closed) => $"{bot.Name} · Drover",
-        (_, { } bot, _) => $"{SideTitle} · {bot.Name} · Drover",
-    };
+        listening?.Cancel();
+        listening?.Dispose();
+    }
 
     #endregion
 
@@ -208,21 +232,33 @@ public sealed partial class Talk(
         {
             connections = await api.ListModelConnections(SpaceId);
             var found = await api.ListBots(SpaceId);
-            threads.Clear();
-            foreach (var bot in found)
-            {
-                foreach (var thread in await api.ListThreads(SpaceId, bot.Id))
-                {
-                    threads[thread.Id] = thread;
-                }
-            }
-
+            await LoadThreads(found, CancellationToken.None);
             bots = found;
+            Listen();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Talk));
             spaceProblem = Failures.Sentence(exception);
+        }
+    }
+
+    // Each thread arrives with what it has for this person, so the crew's first paint already says it.
+    private async Task LoadThreads(IReadOnlyList<BotSummary> crew, CancellationToken cancellationToken)
+    {
+        Dictionary<Guid, ThreadSummary> found = [];
+        foreach (var bot in crew)
+        {
+            foreach (var thread in await api.ListThreads(SpaceId, bot.Id, cancellationToken))
+            {
+                found[thread.Id] = thread;
+            }
+        }
+
+        threads.Clear();
+        foreach (var (id, thread) in found)
+        {
+            threads[id] = thread;
         }
     }
 
@@ -245,6 +281,72 @@ public sealed partial class Talk(
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(Talk));
             spaceProblem = Failures.Sentence(exception);
+        }
+    }
+
+    #endregion
+
+    #region Following Signals
+
+    private bool IsOnScreen(ThreadSummary thread) =>
+        thread.Id == ThreadId || (thread.IsMain && thread.BotId == Shown?.Id && FormerThreadId is null && At is not "crew");
+
+    private void Listen()
+    {
+        if (listening is null)
+        {
+            listening = new();
+            _ = FollowSignals(listening.Token);
+        }
+    }
+
+    // Each signal names a thread that changed for this person, on this screen or another: it is read again, and the
+    // crew and the tab's title follow. A dropped connection may have missed some, so then every thread is read again.
+    private async Task FollowSignals(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var signal in api.WatchSignals(SpaceId, cancellationToken: cancellationToken))
+            {
+                await Follow(signal, cancellationToken);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped following signals on the {Screen} screen", nameof(Talk));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            // Refused, not dropped: connecting again would not change it. The crew still changes as this screen works.
+            logger.LogWarning(exception, "The signal stream was refused on the {Screen} screen", nameof(Talk));
+        }
+    }
+
+    private async Task Follow(UserSignal signal, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (signal.Kind is UserSignalKinds.Reconnected)
+            {
+                var crew = await api.ListBots(SpaceId, cancellationToken);
+                await LoadThreads(crew, cancellationToken);
+                bots = crew;
+            }
+            else if (signal.ThreadId is { } threadId)
+            {
+                threads[threadId] = await api.GetThread(SpaceId, threadId, cancellationToken);
+            }
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound && signal.ThreadId is { } gone)
+        {
+            logger.LogInformation(exception, "Thread {ThreadId} is no longer visible on the {Screen} screen", gone, nameof(Talk));
+            threads.Remove(gone);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            // The crew keeps what it showed; the next signal or reconnection reads it again.
+            logger.LogWarning(exception, "A thread could not be read again on the {Screen} screen", nameof(Talk));
         }
     }
 

@@ -19,6 +19,17 @@ public enum CancelOutcome
 
 public sealed record RunCancel(CancelOutcome Outcome, Run? Run = null);
 
+public enum RetryOutcome
+{
+    Queued,
+    NotFound,
+    Forbidden,
+    NotRetryable,
+    BotUnavailable,
+}
+
+public sealed record RunRetry(RetryOutcome Outcome, Run? Run = null);
+
 /// <summary>
 /// Starting and stopping runs. Posting a message and cancelling open their own tenant scope, because both tell the
 /// workers after the commit; their endpoints sit outside the scope filter. Reading a run happens in the scope the
@@ -192,6 +203,56 @@ public sealed class RunService(
 
         logger.LogInformation("Cancel requested for run {RunId}; status is now {Status}", runId, run.Status);
         return new RunCancel(CancelOutcome.Requested, run);
+    }
+
+    /// <summary>
+    /// Starts a new run from the message a failed run answered. Only the run's own person may, only while it is the
+    /// newest run of theirs in the thread, and only while nothing else works on the thread: a failure that something
+    /// came after is history, not something to try again.
+    /// </summary>
+    public async Task<RunRetry> Retry(Guid runId, Guid userId, CancellationToken cancellationToken)
+    {
+        QueuedRun queued;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            var failed = await runs.FindRun(runId, cancellationToken);
+            var thread = failed is null ? null : await threads.GetThreadForUpdate(failed.ThreadId, cancellationToken);
+
+            if (failed is null || thread is null)
+            {
+                return new RunRetry(RetryOutcome.NotFound);
+            }
+
+            if (failed.PrincipalUserId != userId)
+            {
+                return new RunRetry(RetryOutcome.Forbidden);
+            }
+
+            var facts = (await threads.ListFacts([thread.Id], userId, cancellationToken))[thread.Id];
+            var trigger = failed.TriggerMessageId is { } messageId ? await messages.FindMessage(messageId, cancellationToken) : null;
+
+            if (failed.Status is not RunStatus.Failed || facts.NewestRun?.Id != failed.Id || trigger is null
+                || await runs.FindActiveRun(thread.Id, cancellationToken) is not null)
+            {
+                return new RunRetry(RetryOutcome.NotRetryable);
+            }
+
+            if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
+            {
+                return new RunRetry(RetryOutcome.BotUnavailable);
+            }
+
+            thread.LastActivityAt = time.GetUtcNow();
+            queued = await queue.Queue(thread, trigger, userId, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        hub.Publish(queued.Run.RootRunId, queued.Events);
+        signal.Wake();
+        Tell(queued.Run, UserSignalKinds.ThreadChanged);
+        logger.LogInformation("Run {RunId} was tried again as run {RetryRunId}", runId, queued.Run.Id);
+        return new RunRetry(RetryOutcome.Queued, queued.Run);
     }
 
     #endregion

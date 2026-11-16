@@ -52,6 +52,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<ThreadRead> ThreadReads => Set<ThreadRead>();
+
     public DbSet<Run> Runs => Set<Run>();
 
     public DbSet<RunEvent> RunEvents => Set<RunEvent>();

@@ -1,6 +1,12 @@
 namespace Drover.Data.Repositories;
 
 /// <summary>
+/// What one thread holds for one person: their newest run in it, whether a call in it still waits for an approval,
+/// when they last opened it, and whether a bot said something in a run of theirs after the last message they saw.
+/// </summary>
+public sealed record ThreadFacts(Run? NewestRun, bool ApprovalOpen, DateTimeOffset? SeenAt, bool HasNew);
+
+/// <summary>
 /// Threads as rows. Row-level security shows a person their own threads and the shared ones, so nothing here filters
 /// by audience. Runs inside the caller's tenant scope.
 /// </summary>
@@ -73,6 +79,77 @@ public sealed class ThreadRepository(DroverDbContext db)
             .ThenByDescending(thread => thread.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+
+    #endregion
+
+    #region Seen
+
+    /// <summary>
+    /// Marks the thread seen by the person as far as its newest message, now. A marker never moves back: two screens
+    /// marking at once keep the further one. The marker takes the thread's audience, which a later change of the
+    /// thread's audience carries along.
+    /// </summary>
+    public Task MarkSeen(ChatThread thread, Guid userId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO thread_reads (space_id, thread_id, user_id, audience_user_id, seen_through_position, seen_at)
+            VALUES (
+              sys.current_space(), {thread.Id}, {userId}, {thread.AudienceUserId},
+              COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id}), 0),
+              {now})
+            ON CONFLICT (space_id, thread_id, user_id) DO UPDATE
+            SET seen_through_position = GREATEST(thread_reads.seen_through_position, EXCLUDED.seen_through_position),
+                seen_at = GREATEST(thread_reads.seen_at, EXCLUDED.seen_at)
+            """,
+            cancellationToken);
+
+    /// <summary>
+    /// What each of the threads holds for the person, from their own runs and their own marker only. Runs have no
+    /// audience, so another member's runs in a shared thread are visible here; they are left out by name.
+    /// </summary>
+    public async Task<Dictionary<Guid, ThreadFacts>> ListFacts(
+        IReadOnlyCollection<Guid> threadIds,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var ids = threadIds.ToArray();
+        var newest = await db.Runs
+            .FromSql(
+                $"""
+                SELECT DISTINCT ON (thread_id) * FROM runs
+                WHERE thread_id = ANY({ids}) AND principal_user_id = {userId}
+                ORDER BY thread_id, id DESC
+                """)
+            .AsNoTracking()
+            .ToDictionaryAsync(run => run.ThreadId, cancellationToken);
+        var open = (await db.ToolCalls.AsNoTracking()
+            .Where(call => ids.Contains(call.ThreadId) && call.Status == ToolCallStatus.PendingApproval)
+            .Where(call => db.Runs.Any(run => run.Id == call.RunId && run.PrincipalUserId == userId))
+            .Select(call => call.ThreadId)
+            .Distinct()
+            .ToListAsync(cancellationToken)).ToHashSet();
+        var seen = await db.ThreadReads.AsNoTracking()
+            .Where(read => ids.Contains(read.ThreadId) && read.UserId == userId)
+            .ToDictionaryAsync(read => read.ThreadId, read => read.SeenAt, cancellationToken);
+        var withNew = (await db.Messages.AsNoTracking()
+            .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null)
+            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
+            .Where(message => message.Position > (db.ThreadReads
+                .Where(read => read.ThreadId == message.ThreadId && read.UserId == userId)
+                .Select(read => (int?)read.SeenThroughPosition)
+                .FirstOrDefault() ?? 0))
+            .Select(message => message.ThreadId)
+            .Distinct()
+            .ToListAsync(cancellationToken)).ToHashSet();
+
+        return ids.Distinct().ToDictionary(
+            id => id,
+            id => new ThreadFacts(
+                newest.GetValueOrDefault(id),
+                open.Contains(id),
+                seen.TryGetValue(id, out var at) ? at : null,
+                withNew.Contains(id)));
+    }
 
     #endregion
 }

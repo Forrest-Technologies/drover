@@ -18,3 +18,15 @@
   flex-wrap: wrap;
   gap: var(--dv-space-2);
 }
+
+.dv-failure-report {
+  margin: 0;
+  padding: var(--dv-space-3);
+  border-radius: var(--dv-radius-control);
+  background: var(--dv-bg-2);
+  color: var(--dv-text-2);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
