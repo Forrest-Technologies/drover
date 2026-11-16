@@ -81,6 +81,21 @@ public sealed class ToolCardTests : BunitContext
     #region Cards
 
     [Theory]
+    [InlineData("completed", """{"exit_code":0,"stdout":"first\nsecond"}""", ".dv-tool-preview", "first…")]
+    [InlineData("failed", """{"error":"The sandbox provider refused this request."}""", ".dv-tool-error",
+        "The sandbox provider refused this request.")]
+    public void A_command_card_shows_the_result_at_a_glance(string state, string result, string selector, string expected)
+    {
+        var call = Call("sandbox_run", """{"command":"sample command"}""", state) with { Preview = result };
+        var card = Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Atlas"));
+
+        card.Find(".dv-disclosure-toggle").GetAttribute("aria-expanded").Should().Be("false");
+        card.Find(selector).TextContent.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("running", "Running a command", "Running", "dv-badge-live", "dv-state-tool")]
     [InlineData("completed", "Ran a command", "Done", "dv-badge-ok", "dv-tool-ended-ok")]
     [InlineData("failed", "Ran a command", "Failed", "dv-badge-danger", "dv-tool-ended-failed")]
@@ -122,9 +137,9 @@ public sealed class ToolCardTests : BunitContext
         toggle = card.Find("button.dv-disclosure-toggle");
         toggle.GetAttribute("aria-expanded").Should().Be("true");
         card.Find($"#{toggle.GetAttribute("aria-controls")}").HasAttribute("hidden").Should().BeFalse();
-        card.FindAll("h3").Select(heading => heading.TextContent).Should().Equal("Arguments", "Result");
+        card.FindAll("h3").Select(heading => heading.TextContent).Should().Equal("Arguments", "Output", "Result");
         card.Find(".dv-tool-exit").TextContent.Should().Be("Exit code 0");
-        card.FindAll(".dv-tool-output").Should().BeEmpty("nothing was printed");
+        card.Find(".dv-tool-output").TextContent.Should().Be("ok");
     }
 
     [Fact]

@@ -103,6 +103,14 @@ else
                 }
             </ChildContent>
         </Disclosure>
+        @if (Card.CommandError is { } commandError)
+        {
+            <p class="dv-tool-error">@commandError</p>
+        }
+        else if (!open && OutputPreview is { } preview)
+        {
+            <pre class="dv-tool-preview" aria-label="Command output preview">@preview</pre>
+        }
         @if (Card.NoteId is { } noteId && Forget is not null)
         {
             <div class="dv-tool-note">
@@ -177,6 +185,25 @@ else
     /// <summary>The bot's memory, where a note that changed since this card can be seen.</summary>
     [Parameter]
     public string? MemoryHref { get; set; }
+
+    private string? OutputPreview
+    {
+        get
+        {
+            if (Card.ExitCode is null || Card.Output.Count == 0)
+            {
+                return null;
+            }
+
+            const int previewLength = 240;
+            var first = Card.Output[0];
+            var text = first.Text.AsSpan().Trim();
+            var end = text.IndexOfAny('\r', '\n');
+            var length = Math.Min(end < 0 ? text.Length : end, previewLength);
+            var line = text[..length].TrimEnd().ToString();
+            return length < text.Length || Card.Output.Count > 1 ? $"{line}…" : line;
+        }
+    }
 
     // The frame's top edge: a traveling line while the tool runs, then green or red once it has finished.
     private string? FrameClass => Card.Phase switch
