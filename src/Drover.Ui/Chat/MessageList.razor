@@ -67,6 +67,10 @@
                         {
                             <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
                         }
+                        @if (message is { EndsReply: true, RunId: { } runId } && LoadUsage is not null)
+                        {
+                            <ReplyUsage @key="runId" RunId="runId" Load="LoadUsage" />
+                        }
                     </div>
                 </article>
             }
@@ -149,6 +153,10 @@
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     [Parameter]
     public string? Notice { get; set; }
+
+    /// <summary>Reads what a finished reply's run used. Without it, replies show no usage.</summary>
+    [Parameter]
+    public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
 
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     [Parameter]

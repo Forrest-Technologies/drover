@@ -1,0 +1,86 @@
+@* What a finished reply used, behind one small control under its words. Read only when asked for: a conversation
+   with many replies makes no request until a person opens one. *@
+@inject ILogger<ReplyUsage> Logger
+
+<div class="dv-reply-usage">
+    <button class="dv-reply-usage-toggle" type="button" aria-expanded="@(open ? "true" : "false")" aria-controls="@bodyId" @onclick="Toggle">
+        <span>What this reply used</span>
+        <Icon Name="@(open ? IconName.ChevronDown : IconName.ChevronRight)" />
+    </button>
+    <div class="dv-reply-usage-body" id="@bodyId" hidden="@(!open)">
+        @if (open)
+        {
+            @if (problem is not null)
+            {
+                <p class="dv-reply-usage-line" role="alert">@problem</p>
+                <Button OnClick="Read">Try again</Button>
+            }
+            else if (detail is null)
+            {
+                <p class="dv-reply-usage-line" role="status">Adding it up.</p>
+            }
+            else
+            {
+                @foreach (var line in UsageWords.Reply(detail))
+                {
+                    <p class="dv-reply-usage-line">@line</p>
+                }
+            }
+        }
+    </div>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly string bodyId = $"dv-reply-usage-{Guid.NewGuid():N}";
+
+    private bool open;
+
+    private RunUsageDetail? detail;
+
+    private string? problem;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>The run that wrote the reply.</summary>
+    [Parameter, EditorRequired]
+    public Guid RunId { get; set; }
+
+    /// <summary>Reads what a run used from the server.</summary>
+    [Parameter, EditorRequired]
+    public Func<Guid, Task<RunUsageDetail>> Load { get; set; } = _ => Task.FromException<RunUsageDetail>(new InvalidOperationException("No loader."));
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task Toggle()
+    {
+        open = !open;
+
+        if (open && detail is null)
+        {
+            await Read();
+        }
+    }
+
+    private async Task Read()
+    {
+        problem = null;
+
+        try
+        {
+            detail = await Load(RunId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "Could not read what run {RunId} used", RunId);
+            problem = Failures.Sentence(exception);
+        }
+    }
+
+    #endregion
+}

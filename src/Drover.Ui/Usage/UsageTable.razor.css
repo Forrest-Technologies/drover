@@ -15,11 +15,12 @@
 .dv-usage thead th {
   color: var(--dv-text-2);
   font-weight: var(--dv-weight-label);
+  white-space: nowrap;
 }
 
 /* The bot's column gets the room: a name is never broken inside a word to make space for a figure. */
 .dv-usage-who {
-  width: 34%;
+  width: 28%;
 }
 
 /* A bot beneath another is set in by its depth, so the crew reads as the hierarchy it is. */
@@ -35,6 +36,12 @@
   min-width: 0;
   color: var(--dv-text);
   overflow-wrap: break-word;
+}
+
+/* The bot whose runs are listed below: marked by weight and a thicker underline, not by color alone. */
+.dv-usage-bot a.dv-usage-chosen {
+  font-weight: var(--dv-weight-heading);
+  text-decoration-thickness: calc(var(--dv-border) * 2);
 }
 
 .dv-usage-own,

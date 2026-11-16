@@ -62,10 +62,11 @@ public static class Conversations
                 unplaced.Clear();
             }
 
-            conversation.Add(ToChatMessage(message, cards, fileAddress));
+            conversation.Add(ToChatMessage(message, cards, fileAddress) with { RunId = RunOf(message, run) });
         }
 
         conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
+        MarkReplyEnds(conversation, run);
         AddUnplaced(conversation, unplaced, run);
         return conversation;
     }
@@ -136,6 +137,30 @@ public static class Conversations
                 var call = tools?.GetValueOrDefault(part.ToolCallId.Value) ?? ToolCards.FromParts(part, result);
                 return call.ToCard(result);
             });
+
+    private static Guid? RunOf(MessageView message, RunView? run) => message switch
+    {
+        { Role: PersonRole } => null,
+        { RunId: { } runId } => runId,
+        _ when run is not null && run.Messages.Any(own => own.Id == message.Id) => run.RunId,
+        _ => null,
+    };
+
+    // What a reply used is read at its last words, once the run that wrote them has finished.
+    private static void MarkReplyEnds(List<ChatMessage> conversation, RunView? run)
+    {
+        var ends = conversation.Select((message, index) => (message, index))
+            .Where(entry => entry.message is { FromPerson: false, RunId: not null } && entry.message.Text.Length > 0)
+            .Where(entry => run is not { IsActive: true } || entry.message.RunId != run.RunId)
+            .GroupBy(entry => entry.message.RunId)
+            .Select(group => group.Last().index)
+            .ToList();
+
+        foreach (var index in ends)
+        {
+            conversation[index] = conversation[index] with { EndsReply = true };
+        }
+    }
 
     // Calls of the run whose reply has no message on screen yet go after the last message that is no longer pending,
     // where the reply will appear.

@@ -23,6 +23,8 @@ public static class Addresses
 
     public const string Status = "/status";
 
+    public const string Usage = "/usage";
+
     #endregion
 
     #region Public Methods
@@ -48,6 +50,10 @@ public static class Addresses
 
     /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
     public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";
+
+    /// <summary>What the bots used in a period, with one bot's most expensive runs listed when <paramref name="botId"/> is given.</summary>
+    public static string UsageFor(string period, Guid? botId = null) =>
+        botId is { } id ? $"{Usage}?period={period}&bot={id}" : $"{Usage}?period={period}";
 
     /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
     public static string ToolSignIn(string outcome, string? connectionId) =>

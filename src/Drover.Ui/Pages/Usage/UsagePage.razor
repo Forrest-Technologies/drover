@@ -1,0 +1,73 @@
+@page "/usage"
+@layout WorkLayout
+
+<PageTitle>Usage · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-usage-page-header">
+        <h1 class="dv-usage-page-title">Usage</h1>
+        <SegmentedControl TValue="string" Label="Period" Options="periods" Value="@Period" ValueChanged="ChoosePeriod" />
+    </header>
+
+    @if (!IsAdmin)
+    {
+        <p class="dv-usage-page-hint">Only the runs that acted for you. An owner or admin sees the whole space.</p>
+    }
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not add up what the bots used" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (crew is null)
+    {
+        <p class="dv-usage-page-hint" role="status">Adding up what each bot used.</p>
+    }
+    else
+    {
+        <UsageTable Crew="crew.Crew" Currency="@crew.Currency" Caption="@UsageWords.Caption(Period)" BotHref="id => Addresses.UsageFor(Period, id)"
+                    ChosenId="ChosenBot?.BotId" />
+
+        @if (ChosenBot is { } bot)
+        {
+            <section class="dv-usage-runs" aria-labelledby="dv-usage-runs-title">
+                <h2 id="dv-usage-runs-title" class="dv-usage-runs-title" tabindex="-1" @ref="runsHeading">@UsageWords.RunsTitle(bot.BotName, Period)</h2>
+                @if (runsProblem is not null)
+                {
+                    <EmptyState Title="Drover could not list the runs" Cause="@runsProblem" ActionLabel="Try again" OnAction="LoadRuns" />
+                }
+                else if (runs is null)
+                {
+                    <p class="dv-usage-page-hint" role="status">Finding the runs that cost the most.</p>
+                }
+                else
+                {
+                    @if (runs.Runs.Count == 0)
+                    {
+                        <p class="dv-usage-page-hint">@UsageWords.NoRuns(bot.BotName, Period)</p>
+                    }
+                    else
+                    {
+                        <ol class="dv-usage-run-list">
+                            @foreach (var run in runs.Runs)
+                            {
+                                <li @key="run.RunId" class="dv-usage-run">
+                                    <span class="dv-usage-run-cost">@UsageWords.Money(run.Usage.Cost, runs.Currency)</span>
+                                    <a href="@ConversationOf(run)">@UsageWords.RunPlace(run)</a>
+                                    <span class="dv-usage-run-tokens dv-mono">@UsageWords.Tokens(run.Usage.TokensIn) tokens in, @UsageWords.Tokens(run.Usage.TokensOut) out</span>
+                                    @if (UsageWords.LeftOut(run.Usage) is { } leftOut)
+                                    {
+                                        <span class="dv-usage-run-note">@leftOut</span>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                    }
+                    @if (runs.Unopened is { } unopened)
+                    {
+                        <p class="dv-usage-page-hint">@UsageWords.Unopened(unopened, runs.Currency)</p>
+                    }
+                }
+            </section>
+        }
+    }
+</SessionGate>

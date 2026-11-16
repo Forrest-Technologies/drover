@@ -146,6 +146,37 @@ public sealed class ConversationsTests
 
     #endregion
 
+    #region What a Reply Used
+
+    [Fact]
+    public void What_a_reply_used_is_offered_once_at_the_last_words_of_each_finished_run_and_not_while_it_works()
+    {
+        var first = Guid.CreateVersion7();
+        var second = Guid.CreateVersion7();
+        MessageView[] stored =
+        [
+            Message("user", false, new PartView("text", "Plan it")),
+            Message("assistant", false, new PartView("text", "Thinking aloud.")) with { RunId = first },
+            Message("assistant", false, new PartView("text", "Here is the plan.")) with { RunId = first },
+            Message("user", false, new PartView("text", "And now?")),
+        ];
+        var arriving = Message("assistant", true, new PartView("text", "Working on"));
+        var working = RunView.Start(second) with { Status = "running", Messages = [arriving] };
+
+        var whileWorking = stored.Append(arriving).ToChatMessages(run: working);
+        var done = stored.Append(arriving with { IsStreaming = false }).ToChatMessages(run: working with { Status = "completed" });
+
+        whileWorking.Select(message => (message.Text, message.RunId, message.EndsReply)).Should().Equal(
+            ("Plan it", null, false),
+            ("Thinking aloud.", first, false),
+            ("Here is the plan.", first, true),
+            ("And now?", null, false),
+            ("Working on", second, false));
+        done[^1].Should().Match<ChatMessage>(message => message.RunId == second && message.EndsReply);
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static MessageView Message(string role, bool streaming, params PartView[] parts) =>

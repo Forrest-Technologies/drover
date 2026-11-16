@@ -66,6 +66,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ThreadService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
+        services.AddScoped<UsageService>();
         services.AddScoped<ApprovalService>();
         services.AddScoped<FileAbilityReader>();
         services.AddScoped<FileService>();
