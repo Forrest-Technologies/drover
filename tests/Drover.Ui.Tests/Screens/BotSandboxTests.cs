@@ -180,6 +180,59 @@ public sealed class BotSandboxTests : ScreenTest
     }
 
     [Fact]
+    public async Task A_screen_held_for_a_person_says_so_without_a_name_and_an_admin_can_stop_that_run_after_saying_yes()
+    {
+        var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+        var since = new DateTimeOffset(2026, 1, 5, 9, 30, 0, TimeSpan.Zero);
+        Answer(Status("running") with { Hold = new SandboxHold(holding, ForYou: false, since) });
+        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "cancelled", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold .dv-sandbox-hint").TextContent.Should()
+            .Be($"A bot asked another member of this space to take over this screen on {since.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)}. The bots that share this sandbox wait until it is handed back."));
+        await page.FindAll(".dv-sandbox-hold button").Single(button => button.TextContent.Trim() == "Stop the run that holds it").ClickAsync(new MouseEventArgs());
+        Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().BeEmpty("nothing stops before the person says yes");
+        Answer(Status("running"));
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Stop the run").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().ContainSingle());
+        page.WaitForAssertion(() => page.FindAll(".dv-sandbox-hold").Should().BeEmpty());
+
+        // The control the person used is gone, so the focus goes to the page's heading.
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
+    }
+
+    [Fact]
+    public async Task A_run_that_has_not_stopped_yet_says_it_is_stopping_and_offers_no_second_stop()
+    {
+        var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d2");
+        var held = Status("running") with { Hold = new SandboxHold(holding, ForYou: false, null) };
+        Answer(held);
+        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "waiting", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        var page = RenderSandbox();
+        page.WaitForElement(".dv-sandbox-hold button");
+
+        await page.Find(".dv-sandbox-hold button").ClickAsync(new MouseEventArgs());
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Stop the run").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold [role=status]").TextContent.Should().Be("Stopping the run. The screen frees once it stops."));
+        page.FindAll(".dv-sandbox-hold button").Should().BeEmpty("the stop was asked for once");
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
+
+    }
+
+    [Fact]
+    public void A_screen_held_for_this_person_says_what_to_do_next()
+    {
+        Answer(Status("running") with { Hold = new SandboxHold(Guid.NewGuid(), ForYou: true, null) });
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold .dv-sandbox-hint").TextContent.Should()
+            .Be("A bot asked you to take over this screen. The bots that share this sandbox wait until it is handed back. Do it on the screen below, then answer in the conversation."));
+    }
+
+    [Fact]
     public void A_picture_the_server_refuses_says_why_in_its_words()
     {
         Answer(Status("running"));

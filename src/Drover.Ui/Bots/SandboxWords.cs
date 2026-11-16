@@ -46,6 +46,15 @@ public static class SandboxWords
         _ => BadgeKind.Neutral,
     };
 
+    /// <summary>Who holds the screen at a bot's request, since when, and what that means for the bots. No name: only "you" or not.</summary>
+    public static string Hold(SandboxHold hold)
+    {
+        var who = hold.ForYou ? "you" : "another member of this space";
+        var when = hold.Since is { } at ? $" on {at.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)}" : string.Empty;
+        var next = hold.ForYou ? " Do it on the screen below, then answer in the conversation." : string.Empty;
+        return $"A bot asked {who} to take over this screen{when}. The bots that share this sandbox wait until it is handed back.{next}";
+    }
+
     public static string LastUsed(DateTimeOffset? at, DateTimeOffset now)
     {
         if (at is not { } used)

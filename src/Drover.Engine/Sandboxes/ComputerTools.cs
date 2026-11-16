@@ -1,7 +1,8 @@
 namespace Drover.Engine.Sandboxes;
 
 /// <summary>
-/// The five computer tools: a bot sees its sandbox's screen and drives it with the mouse and keyboard. They are
+/// The computer tools: a bot sees its sandbox's screen, drives it with the mouse and keyboard, and asks a person to
+/// take it over when only a person should act there (a sign-in, a passkey, a check that a human is present). They are
 /// registered with the sandbox tools, only on a server with a sandbox provider, and no new bot is granted them. Each is
 /// offered to a model only when its bot's sandbox has a screen, the deployment allows one, and the bot's model can see
 /// images or another model is set to read the screen for it; every call goes through the tool gate like any other.
@@ -21,13 +22,18 @@ public static class ComputerTools
 
     #region Properties
 
-    public static IReadOnlyList<string> Names { get; } = ["computer.screenshot", "computer.click", "computer.type", "computer.key", "computer.scroll"];
+    /// <summary>The tool a bot calls to ask a person to take over its screen. Its call waits like an approval.</summary>
+    public const string HandoverName = "computer.handover";
+
+    public const int MaxHandoverReasonCharacters = 300;
+
+    public static IReadOnlyList<string> Names { get; } = ["computer.screenshot", "computer.click", "computer.type", "computer.key", "computer.scroll", HandoverName];
 
     #endregion
 
     #region Public Methods
 
-    /// <summary>Registers the five tools. Needs the <see cref="SandboxBroker"/>.</summary>
+    /// <summary>Registers the six tools. Needs the <see cref="SandboxBroker"/>.</summary>
     public static IServiceCollection AddComputerTools(this IServiceCollection services)
     {
         services.AddSingleton<ScreenDescriber>();
@@ -36,10 +42,14 @@ public static class ComputerTools
         services.AddSingleton(provider => Type(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => Key(provider.GetRequiredService<SandboxBroker>()));
         services.AddSingleton(provider => Scroll(provider.GetRequiredService<SandboxBroker>()));
+        services.AddSingleton(Handover());
         return services;
     }
 
     public static bool IsComputerTool(string name) => Names.Contains(name, StringComparer.Ordinal);
+
+    /// <summary>True for a call of the tool that asks a person to take over, by its name in the catalog or as the model calls it.</summary>
+    public static bool IsHandover(string toolName) => toolName is HandoverName || toolName == BuiltinTool.ModelName(HandoverName);
 
     /// <summary>
     /// The screenshot. Read by the bot's own model, the picture is attached for its next call. With a model set to read
@@ -108,7 +118,7 @@ public static class ComputerTools
         new(
             "computer.type",
             "Type text",
-            "Types text into the focused window. A new line presses Enter. If a website or app needs a password, ask the person to sign in from Screen using Type a password. Keep the password out of the conversation. Continue when the person says they signed in.",
+            $"Types text into the focused window. A new line presses Enter. If a website or app needs a password, ask the person to sign in at the screen with {HandoverName}, and never type a password yourself or ask for it in the conversation. Continue once they hand the screen back.",
             Schema(
                 $$"""
                 "text": { "type": "string", "minLength": 1, "maxLength": {{DesktopCommands.MaxTypedCharacters}} }
@@ -171,6 +181,32 @@ public static class ComputerTools
                     Integer(arguments, "y"));
                 return Done(await broker.Act(call, command, "scroll", cancellationToken));
             });
+
+    /// <summary>
+    /// The bot asks a person to take over its screen, for a reason it gives, and waits. The call always waits for a
+    /// person, like an approval, whatever its grant says. The person answers from the conversation: "I'm done" lets
+    /// this run, and its result says so; "I could not do it" is answered on the call's row, with the person's line.
+    /// Nothing the person does on the screen is part of either.
+    /// </summary>
+    public static BuiltinTool Handover() =>
+        new(
+            HandoverName,
+            "Ask a person to take over the screen",
+            "Asks the person you work for to take over this bot's sandbox screen and waits until they hand it back. Use it for what only a person should do on the screen: a sign-in, a passkey, a check that a human is there. Give the reason in a short sentence. While they have the screen your other computer tools are refused. The result says whether they finished or could not, with anything they told you; take a screenshot to see the screen after.",
+            Schema(
+                $$"""
+                "reason": { "type": "string", "minLength": 1, "maxLength": {{MaxHandoverReasonCharacters}}, "description": "What the person should do on the screen, and why, in one short sentence." }
+                """,
+                "reason"),
+            ToolSensitivity.Read,
+            (_, _) => Task.FromResult(Result(new { done = true, note = "The person says they are done at the screen. Take a screenshot to see it." })))
+        {
+            AlwaysAsks = true,
+        };
+
+    /// <summary>The person's answer when they could not do what the bot asked, as the call's result.</summary>
+    public static JsonElement CouldNot(string? said) =>
+        Result(new { done = false, note = "The person could not do it.", said = string.IsNullOrWhiteSpace(said) ? null : said.Trim() });
 
     #endregion
 

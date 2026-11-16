@@ -50,6 +50,16 @@ public sealed partial class BotSandbox(
 
     private bool turningOff;
 
+    private bool stoppingHold;
+
+    // The run whose stop was asked for here, while its hold still shows.
+    private Guid? stopAsked;
+
+    // The hold and its button are gone once its run stops, so the focus goes to the page's heading.
+    private bool focusHeading;
+
+    private ElementReference heading;
+
     private string command = string.Empty;
 
     private Task? watching;
@@ -129,11 +139,17 @@ public sealed partial class BotSandbox(
         }
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (status is { Available: true, HasSandbox: true } && watching is null)
         {
             watching = Watch(disposal.Token);
+        }
+
+        if (focusHeading)
+        {
+            focusHeading = false;
+            await heading.FocusAsync();
         }
     }
 
@@ -231,6 +247,44 @@ public sealed partial class BotSandbox(
     {
         turningOff = false;
         await Power(() => api.TurnOffBotSandbox(SpaceId, BotId), "The sandbox is turned off. A new one starts on its next use.");
+    }
+
+    // An owner or admin may stop any run; the hold ends with it.
+    private async Task StopHold()
+    {
+        stoppingHold = false;
+
+        if (status?.Hold is not { } hold)
+        {
+            return;
+        }
+
+        // Stopping is asked for: a run that waits in another person's conversation stops when the server gets to it,
+        // so while the hold still shows the page says it is stopping, until its ten-second state read shows it gone.
+        busy = true;
+        actionProblem = null;
+
+        try
+        {
+            await api.CancelRun(SpaceId, hold.RunId);
+            stopAsked = hold.RunId;
+            status = await api.GetBotSandbox(SpaceId, BotId);
+
+            if (status.Hold is null)
+            {
+                toasts.Show("The run stopped. The screen is free.");
+            }
+
+            // The button the person used is gone either way: replaced by the stopping line, or by nothing.
+            focusHeading = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotSandbox));
+            actionProblem = Failures.Sentence(exception);
+        }
+
+        busy = false;
     }
 
     private async Task Power(Func<Task<BotSandboxStatus>> change, string outcome)

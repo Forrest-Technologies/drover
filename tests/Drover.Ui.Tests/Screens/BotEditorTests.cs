@@ -1003,6 +1003,7 @@ public sealed class BotEditorTests : ScreenTest
 
         var screen = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do on its screen']");
         screen.TextContent.Should().Contain("This bot may not use the screen yet.");
+        screen.TextContent.Should().Contain("Asking a person to take over the screen is a tool of its own, allowed in the Tools section.");
         screen.QuerySelector("button")!.TextContent.Trim().Should().Be("Allow screen tools");
         var note = page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent));
         note.Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. In the Model section, choose a model to read the screen for it, or a model that can see.");

@@ -60,5 +60,8 @@ public sealed class Run : ISpaceOwned
 
     public DateTimeOffset? FinishedAt { get; set; }
 
+    /// <summary>When the run last began to wait for a person. Kept until it waits again; read only while it waits.</summary>
+    public DateTimeOffset? WaitingSince { get; set; }
+
     #endregion
 }
