@@ -148,12 +148,14 @@ public sealed partial class Talk(
     };
 
     // A phone shows one of the crew, the main conversation, and the side chats. The start page is the crew.
-    private string At => (BotId, FormerThreadId, Side) switch
+    private string At => (BotId, FormerThreadId, CanShowRail) switch
     {
         (null, null, _) => "crew",
-        (_, _, SideView.Closed) => "main",
-        _ => "side",
+        (_, _, true) => "side",
+        _ => "main",
     };
+
+    private bool CanShowRail => Side is not SideView.Closed && Shown is not null && NotReady is null;
 
     // Only a request the person took over here is held: opening the screen another way does not answer anything.
     // The address names the request after a reload; it holds while that request still waits in the main conversation.

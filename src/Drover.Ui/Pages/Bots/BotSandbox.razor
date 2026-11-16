@@ -93,7 +93,7 @@
                 </p>
             }
 
-            <Tabs Label="Sandbox" Items="Views" @bind-Active="view">
+            <Tabs Label="Sandbox" Items="Views" Active="@view" ActiveChanged="SelectView">
                 @if (context.Id is ScreenView)
                 {
                     <SandboxScreen BotId="BotId" BotName="@bot.Name" Status="status" OnSandboxChanged="() => RefreshStatus(disposal.Token)" />
