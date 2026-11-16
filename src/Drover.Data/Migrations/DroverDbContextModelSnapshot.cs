@@ -1471,7 +1471,7 @@ namespace Drover.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("cached_tokens");
 
-                    b.Property<decimal>("Cost")
+                    b.Property<decimal?>("Cost")
                         .HasColumnType("numeric")
                         .HasColumnName("cost");
 

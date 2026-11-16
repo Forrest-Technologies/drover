@@ -30,6 +30,7 @@ public static class DataServiceExtensions
         services.AddScoped<ToolCallRepository>();
         services.AddScoped<WorkflowCheckpointRepository>();
         services.AddScoped<RunRepository>();
+        services.AddScoped<UsageRepository>();
         services.AddScoped<RunEventRepository>();
         services.AddScoped<ThreadRepository>();
         services.AddScoped<BotRepository>();

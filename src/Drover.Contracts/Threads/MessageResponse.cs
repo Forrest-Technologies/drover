@@ -6,6 +6,7 @@ namespace Drover.Contracts.Threads;
 /// <see cref="Steers"/> says a pending message joins at the working run's next step, not after it.
 /// <see cref="ScheduleId"/> is set on a message a schedule sent for its author, who did not type it, and
 /// <see cref="ScheduleCron"/> is that schedule's time while the schedule still exists.
+/// <see cref="RunPrincipalUserId"/> is the person the run that wrote the message acts for, when a run wrote it.
 /// </summary>
 public sealed record MessageResponse(
     Guid Id,
@@ -18,7 +19,8 @@ public sealed record MessageResponse(
     bool Steers = false,
     bool Withheld = false,
     Guid? ScheduleId = null,
-    string? ScheduleCron = null);
+    string? ScheduleCron = null,
+    Guid? RunPrincipalUserId = null);
 
 /// <summary>
 /// One part of a message. <see cref="Kind"/> names it (text, reasoning, tool_call, tool_result, image, file) and

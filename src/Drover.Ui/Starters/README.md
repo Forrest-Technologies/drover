@@ -45,7 +45,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
 | #159 | `RoutineCallWords.cs`, `RoutineCallAddress.razor` | A routine's address, its secret shown once, today's calls |
-| #163 | `UsageWords.cs`, `UsageTable.razor` | Cost and tokens per bot as a hierarchy, the order, unknown prices |
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |
 | #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164, and `AttentionNote` from #148, which is now in `Chat/` |
