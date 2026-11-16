@@ -24,11 +24,19 @@ public sealed record ToolDefinition
     public bool IsDelegation { get; init; }
 
     /// <summary>
+    /// A built-in tool that Drover knows has the same effect run twice as once (<c>sandbox.share_file</c> finds the
+    /// file it already shared). Never set for a tool server's tool.
+    /// </summary>
+    public bool IsIdempotent { get; init; }
+
+    /// <summary>
     /// Whether a call cut off by a restart may run again. A read-only tool may: anything else might already have
     /// happened, so the model is told the outcome is unknown. A delegation may too, because asking again resolves to
-    /// the same child run, which goes on from its own saved history and never starts over.
+    /// the same child run, which goes on from its own saved history and never starts over. So may an idempotent
+    /// built-in tool, which finds what it already did.
     /// </summary>
-    public bool MayRunAgainAfterInterruption => IsDelegation || (Sensitivity is ToolSensitivity.Read && !DefinedByServer);
+    public bool MayRunAgainAfterInterruption =>
+        IsDelegation || (IsIdempotent && !DefinedByServer) || (Sensitivity is ToolSensitivity.Read && !DefinedByServer);
 
     /// <summary>
     /// The tool comes from a tool server, so "it only reads" is the server's claim and not something Drover knows.

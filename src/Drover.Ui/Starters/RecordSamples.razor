@@ -1,9 +1,4 @@
-@* Samples for the starters about files, history, skills, and usage. Every name, text, and figure is a sample. *@
-<GallerySection Title="Files exchanged with a bot (#165)" Note="Newest first. The filter appears only when files came from both sides.">
-    <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" Files="files" /></div>
-    <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" /></div>
-</GallerySection>
-
+@* Samples for the starters about history, skills, and usage. Every name, text, and figure is a sample. *@
 <GallerySection Title="A bot's history (#152)" Note="Each change is a sentence. Long text is compared line by line, marked in signs and words as well as color.">
     <div class="dv-sample-wide"><HistoryList Entries="history" BotName="Sample bot" CanChange="true" /></div>
     <div class="dv-sample-wide"><DiffView Label="Sample instructions" Before="@before" After="@after" /></div>
@@ -26,15 +21,6 @@
     private const string after = "Sample line one.\nSample line two, changed.\nSample line three.\nSample line four.";
 
     private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
-
-    private static readonly SharedFile textFile = new(
-        Guid.Parse("00000000-0000-7000-8000-000000000404"), "sample-notes.txt", "text/plain", 2_400, "/", true, sampleDay,
-        "/", "A sample caption.", "Sample first line\nSample second line\nSample third line");
-
-    private static readonly SharedFile otherFile = new(
-        Guid.Parse("00000000-0000-7000-8000-000000000405"), "sample-report.pdf", "application/pdf", 3_400_000, "/", false, sampleDay.AddDays(-1));
-
-    private static readonly SharedFile[] files = [textFile, otherFile];
 
     private static readonly HistoryEntry[] history =
     [

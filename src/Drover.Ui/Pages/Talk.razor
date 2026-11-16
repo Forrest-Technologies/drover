@@ -79,18 +79,21 @@
                             <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
                                aria-current="@(Side is SideView.Screen ? "true" : null)">Screen</a>
                         }
+                        <a class="dv-shell-side dv-facet" href="@Addresses.Files(Shown.Id)"
+                           aria-current="@(Side is SideView.Files ? "true" : null)">Files</a>
                         <a class="dv-shell-side dv-facet" href="@Addresses.SideChats(Shown.Id)"
                            aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
                     </nav>
                 </header>
-                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
+                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" Moment="@(Side is SideView.Closed ? Moment : null)"
+                                  OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List or SideView.Summary or SideView.Screen)
+                    @if (Side is SideView.List or SideView.Summary or SideView.Screen or SideView.Files)
                     {
                         <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
@@ -113,6 +116,10 @@
                 {
                     <ScreenPanel @key="Shown.Id" Bot="Shown" />
                 }
+                else if (Side is SideView.Files)
+                {
+                    <ExchangedFiles @key="Shown.Id" Bot="Shown" Version="conversationVersion" />
+                }
                 else if (Side is SideView.List)
                 {
                     <div class="dv-shell-rail-body">
@@ -129,7 +136,7 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
+                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
                 }
             </aside>
         }
