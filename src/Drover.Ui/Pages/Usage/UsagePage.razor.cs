@@ -89,6 +89,7 @@ public sealed partial class UsagePage(DroverApi api, SessionState session, Navig
     {
         loadedPeriod = Period;
         loadProblem = null;
+        focusRuns = false;
         crew = null;
 
         try
@@ -124,6 +125,7 @@ public sealed partial class UsagePage(DroverApi api, SessionState session, Navig
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(UsagePage));
             runsProblem = Failures.Sentence(exception);
+            focusRuns = false;
         }
     }
 

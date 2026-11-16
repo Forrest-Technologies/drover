@@ -64,6 +64,16 @@
   font-size: var(--dv-text-12);
 }
 
+/* Which token figure is which: read out beside the table's columns, shown on a phone where the columns are gone. */
+.dv-usage-figure-label {
+  position: absolute;
+  width: var(--dv-border);
+  height: var(--dv-border);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .dv-usage-hint {
   margin: 0;
   color: var(--dv-text-2);
@@ -100,6 +110,21 @@
   .dv-usage-who {
     display: block;
     width: auto;
+  }
+
+  .dv-usage-figure-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    font-family: var(--dv-font-ui);
+    white-space: normal;
+  }
+
+  /* The own figure stays on its label's line, as the model does. */
+  .dv-usage-number .dv-usage-own {
+    display: inline;
   }
 
   .dv-usage td::before {

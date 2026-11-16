@@ -125,6 +125,25 @@ public sealed class UsagePageTests : ScreenTest
     }
 
     [Fact]
+    public void A_bot_whose_runs_failed_to_load_does_not_take_focus_when_the_period_changes()
+    {
+        SignedIn();
+        Server.Answer("GET", path, crew);
+        Server.Answer("GET", $"{path}/bots/{lead}/runs", HttpStatusCode.InternalServerError);
+        var page = Render<UsagePage>();
+        page.WaitForAssertion(() => page.Find("caption"));
+
+        Navigation.NavigateTo($"/usage?period=7d&bot={lead}");
+        page.WaitForAssertion(() => page.Find(".dv-usage-runs .dv-empty").Should().NotBeNull());
+        Server.Answer("GET", $"{path}/bots/{lead}/runs", new BotRunsUsage(lead, "USD", [], null));
+        page.FindAll(".dv-segment-input")[2].Change(true);
+
+        page.WaitForAssertion(() => page.Find("#dv-usage-runs-title").TextContent.Should().EndWith("in the last 30 days"));
+        page.WaitForAssertion(() => page.Find(".dv-usage-runs .dv-usage-page-hint"));
+        Focuses().Should().Be(0, "only a bot the person chose moves focus, and a failed load leaves nothing to move to");
+    }
+
+    [Fact]
     public void A_member_is_told_the_figures_are_their_own_runs()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [Person.Spaces[0] with { Role = "member" }] });
