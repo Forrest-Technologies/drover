@@ -168,7 +168,7 @@ public sealed partial class ActivityPanelTests : ScreenTest
         await Choose(page, "Marshal: Ran a command.");
 
         var terminal = page.Find(".dv-moment-terminal pre");
-        terminal.TextContent.Should().StartWith("$ ls -la /home/user && echo done\ntotal 0\ndrwxr-xr-x user\nstderrls: cannot open one entry");
+        terminal.TextContent.Should().StartWith("$ ls -la /home/user && echo done\ntotal 0\ndrwxr-xr-x user\nstderr: ls: cannot open one entry", "a screen reader hears the tag apart from the text");
         terminal.QuerySelector(".dv-moment-stderr .dv-moment-stream")!.TextContent.Should().Be("stderr", "error output is marked in words as well as color");
     }
 
@@ -231,6 +231,32 @@ public sealed partial class ActivityPanelTests : ScreenTest
 
         page.WaitForAssertion(() => Server.Sent("POST", $"{space}/tool-calls/{call}/decision").Should().ContainSingle()
             .Which.Should().Contain("\"approved\":true"));
+        page.FindAll(".dv-timeline-detail button").Where(button => button.TextContent.Trim() is "Approve" or "Deny")
+            .Should().OnlyContain(button => button.HasAttribute("disabled"), "an answer that went through is not offered again before the run moves on");
+    }
+
+    [Fact]
+    public async Task Trying_again_after_the_runs_stream_failed_watches_the_same_run_again()
+    {
+        var log = Load<List<RunEventResponse>>($"{ThreeBots}.json");
+        var messages = Load<List<MessageResponse>>($"{ThreeBots}.messages.json");
+        var root = messages.First(message => message.RunId is not null).RunId!.Value;
+        Server.Answer("PUT", $"{space}/bots/{marshal}/main-thread", Thread(root));
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", messages.Take(1).ToList());
+        Server.Answer("GET", $"{space}/runs/{root}/events", HttpStatusCode.NotFound);
+
+        var page = Open();
+        page.WaitForAssertion(() => page.Find("h2").TextContent.Should().Be("Drover could not load this run"));
+
+        var events = Server.Stream($"{space}/runs/{root}/events");
+        foreach (var stored in log.Take(5))
+        {
+            await events.Send(stored);
+        }
+
+        await page.InvokeAsync(() => page.FindAll("button").Single(button => button.TextContent.Trim() == "Try again").Click());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-timeline").Should().ContainSingle("trying again opens the run's stream again"));
     }
 
     [Fact]

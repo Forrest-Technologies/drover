@@ -11,6 +11,8 @@ public static class RunTimelines
 
     private const string UnknownBot = "A bot this run no longer names";
 
+    private static readonly ConditionalWeakTable<ImmutableList<ToolCallView>, Dictionary<Guid, ToolCallView>> callsByList = [];
+
     #endregion
 
     #region Public Methods
@@ -43,7 +45,7 @@ public static class RunTimelines
         }
 
         var run = tree.RunOf(moment.RunId);
-        var call = run.ToolCalls.FirstOrDefault(tool => tool.ToolCallId == id);
+        var call = CallsOf(run).GetValueOrDefault(id);
         return run.IsActive ? call : call?.Settled();
     }
 
@@ -59,6 +61,13 @@ public static class RunTimelines
     #endregion
 
     #region Private Methods
+
+    // A run's calls by id, built once for each version of its list, so laying out a long run does not scan the list
+    // once per node.
+    private static Dictionary<Guid, ToolCallView> CallsOf(RunView run) =>
+        callsByList.GetValue(run.ToolCalls, calls => calls
+            .GroupBy(call => call.ToolCallId)
+            .ToDictionary(group => group.Key, group => group.Last()));
 
     private static TimelineEvent Event(RunTreeView tree, RunMoment moment, IReadOnlyDictionary<Guid, PartView>? results)
     {

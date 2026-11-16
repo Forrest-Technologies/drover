@@ -112,7 +112,7 @@ public static class Conversations
     public static string? Notice(this RunView run) => run.Status switch
     {
         "cancelled" => "You stopped this reply.",
-        "waiting" when run.Reason is not "awaiting_approval" =>
+        "waiting" when run.Reason is not ("awaiting_approval" or "awaiting_takeover") =>
             "The bot is waiting for an answer this screen cannot ask for yet. Stop the reply to carry on.",
         _ => null,
     };

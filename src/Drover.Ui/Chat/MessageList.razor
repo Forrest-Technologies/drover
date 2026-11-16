@@ -15,7 +15,7 @@
         {
             <ChatEntry @key="message.Key" Message="message" BotName="@BotName" BotHue="BotHue" Asker="@Asker" Decide="Decide" Forget="Forget"
                        Anchor="@Anchor(message)" TabIndex="@MomentTabIndex(message)" ReadWhole="ReadWhole"
-                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" RunAddress="RunAddress" />
+                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" RunAddress="RunAddress" Takeovers="Takeovers" />
         }
         @if (Thinking)
         {
@@ -125,6 +125,10 @@
     /// <summary>Reads a text file's whole content for "Show all".</summary>
     [Parameter]
     public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    /// <summary>What a request for a person at the bot's screen needs here. Without it such a request is a plain tool card.</summary>
+    [Parameter]
+    public ScreenTakeovers? Takeovers { get; set; }
 
     /// <summary>The message the address points at, brought into view and focused once it is on the page.</summary>
     [Parameter]

@@ -68,6 +68,26 @@
   color: var(--dv-text-3);
 }
 
+@media (max-width: 559px) {
+  .dv-composer {
+    padding-inline: var(--dv-space-2);
+  }
+
+  .dv-composer-two-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .dv-composer-two-actions .dv-composer-field {
+    grid-column: 2 / -1;
+    width: 100%;
+  }
+
+  .dv-composer-two-actions ::deep .dv-button:not([type="submit"]) {
+    grid-column: 3;
+  }
+}
+
 @media (pointer: coarse) {
   .dv-composer-field {
     min-height: var(--dv-target-touch);

@@ -94,6 +94,8 @@ else
     // Kept by event, not by row: a late event with an earlier start moves rows, and must not move the selection.
     private Guid? selected;
 
+    private (TimelineModel Model, int First, IReadOnlyList<TimelineNode> Nodes, HashSet<Guid> Ids)? shownFor;
+
     private Guid? opened;
 
     private bool moveFocus;
@@ -131,12 +133,25 @@ else
     // The row of the first event shown. Everything before it waits behind "Show earlier events".
     private int First => Math.Max(0, Model.Nodes.Count - Math.Max(shownCount, PageSize));
 
-    private IReadOnlyList<TimelineNode> Shown => First is 0 ? Model.Nodes : [.. Model.Nodes.Skip(First)];
+    // Worked out once per layout and page, not on every read: a render reads it once per node.
+    private IReadOnlyList<TimelineNode> Shown
+    {
+        get
+        {
+            if (shownFor is not { } last || !ReferenceEquals(last.Model, Model) || last.First != First)
+            {
+                var nodes = First is 0 ? Model.Nodes : [.. Model.Nodes.Skip(First)];
+                shownFor = (Model, First, nodes, nodes.Select(node => node.Event.Id).ToHashSet());
+            }
+
+            return shownFor.Value.Nodes;
+        }
+    }
 
     private string Hidden => First is 1 ? "1 earlier event is not shown." : $"{First} earlier events are not shown.";
 
     // The one node in the tab order: the one last moved to, or the first shown.
-    private Guid? Selected => selected is { } id && Shown.Any(node => node.Event.Id == id)
+    private Guid? Selected => selected is { } id && Shown.Count > 0 && shownFor!.Value.Ids.Contains(id)
         ? id
         : Shown.FirstOrDefault()?.Event.Id;
 

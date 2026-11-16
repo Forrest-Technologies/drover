@@ -9,7 +9,7 @@
 <PageTitle>@PageName</PageTitle>
 
 <SessionGate>
-    <div class="dv-shell dv-shell-at-@At @(Side is SideView.Closed ? null : "dv-shell-with-rail") @(Side is SideView.Screen or SideView.Activity ? "dv-shell-with-wide-rail" : null)">
+    <div class="dv-shell dv-shell-at-@At @(CanShowRail ? "dv-shell-with-rail" : null) @(CanShowRail && Side is SideView.Screen or SideView.Activity ? "dv-shell-with-wide-rail" : null)">
         <div class="dv-shell-list">
             <header class="dv-shell-list-header">
                 <span class="dv-wordmark"><DroverMark />Drover</span>
@@ -81,7 +81,7 @@
                            aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
                         <a class="dv-shell-side dv-facet" href="@Addresses.Memory(Shown.Id)"
                            aria-current="@(Side is SideView.Memory ? "true" : null)">Memory</a>
-                        @if (hasScreen || Side is SideView.Screen)
+                        @if (hasScreenLink || Side is SideView.Screen)
                         {
                             <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
                                aria-current="@(Side is SideView.Screen ? "true" : null)">Screen</a>
@@ -94,16 +94,17 @@
                 </header>
                 <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" Moment="@(Side is SideView.Closed ? Moment : null)"
                                   OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged"
-                                  Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="MainHandoffsChanged" />
+                                  Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="MainHandoffsChanged"
+                                  HeldCallId="HeldCallId" ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" OnTakeoverChanged="MainTakeoverChanged" />
             }
         </main>
-        @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
+        @if (CanShowRail && Shown is not null)
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
                     @if (Side is SideView.List or SideView.Summary or SideView.Memory or SideView.Screen or SideView.Files or SideView.Work or SideView.Activity)
                     {
-                        <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
+                        <a @ref="railClose" class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
                         </a>
                     }
@@ -122,7 +123,7 @@
                 }
                 else if (Side is SideView.Screen)
                 {
-                    <ScreenPanel @key="Shown.Id" Bot="Shown" />
+                    <ScreenPanel @key="Shown.Id" Bot="Shown" Takeover="HeldTakeover" OnHandedBack="HandedBack" />
                 }
                 else if (Side is SideView.Activity)
                 {
@@ -167,7 +168,8 @@
                 else
                 {
                     <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
-                                      Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="SideHandoffsChanged" />
+                                      Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="SideHandoffsChanged"
+                                      ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" />
                 }
             </aside>
         }

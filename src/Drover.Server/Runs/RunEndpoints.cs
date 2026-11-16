@@ -6,6 +6,12 @@ namespace Drover.Server.Runs;
 /// </summary>
 public static class RunEndpoints
 {
+    #region Private Fields
+
+    private const string NotAHandover = "This call does not ask a person to take over the screen.";
+
+    #endregion
+
     #region Public Methods
 
     public static IEndpointRouteBuilder MapRunEndpoints(this RouteGroupBuilder space)
@@ -21,6 +27,12 @@ public static class RunEndpoints
         space.MapPost("/tool-calls/{toolCallId:guid}/decision", DecideToolCall)
             .WithName("DecideToolCall")
             .WithSummary("Approves or denies a tool call that waits for a person. The run's own person or a space admin may, if they can see the call.");
+        space.MapPost("/tool-calls/{toolCallId:guid}/takeover", TakeOver)
+            .WithName("TakeOverScreen")
+            .WithSummary("Records that a person took over a bot's screen because its call asked them to. An owner or admin who can see the call may.");
+        space.MapPost("/tool-calls/{toolCallId:guid}/handback", HandBack)
+            .WithName("HandBackScreen")
+            .WithSummary("Answers a call that asked a person to take over the screen: done, or could not with an optional line for the bot. The run's own person or a space admin may, if they can see the call.");
         return space;
     }
 
@@ -86,14 +98,49 @@ public static class RunEndpoints
             access.Role <= MembershipRole.Admin,
             context.RequestAborted);
 
-        return decision.Outcome switch
+        return ToResult(decision, "This call asks a person to take over the screen. Answer it with done or could not.");
+    }
+
+    private static async Task<Results<Ok<RunSummary>, NotFound, ForbidHttpResult, ProblemHttpResult>> TakeOver(
+        Guid toolCallId,
+        HttpContext context,
+        ApprovalService approvals)
+    {
+        var access = context.GetSpaceAccess();
+        var taken = await approvals.TakeOver(toolCallId, access.UserId, access.Role <= MembershipRole.Admin, context.RequestAborted);
+        return ToResult(taken, NotAHandover);
+    }
+
+    private static async Task<Results<Ok<RunSummary>, NotFound, ForbidHttpResult, ProblemHttpResult>> HandBack(
+        Guid toolCallId,
+        ToolHandbackRequest request,
+        HttpContext context,
+        ApprovalService approvals)
+    {
+        var access = context.GetSpaceAccess();
+        var answer = await approvals.HandBack(
+            toolCallId,
+            request.Done,
+            request.Note,
+            access.UserId,
+            access.Role <= MembershipRole.Admin,
+            context.RequestAborted);
+        return ToResult(answer, NotAHandover);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static Results<Ok<RunSummary>, NotFound, ForbidHttpResult, ProblemHttpResult> ToResult(ToolDecision decision, string wrongKind) =>
+        decision.Outcome switch
         {
             DecisionOutcome.NotFound => TypedResults.NotFound(),
             DecisionOutcome.Forbidden => TypedResults.Forbid(),
             DecisionOutcome.NotWaiting => TypedResults.Problem(title: "This call is not waiting for an answer any more.", statusCode: StatusCodes.Status409Conflict),
+            DecisionOutcome.WrongKind => TypedResults.Problem(title: wrongKind, statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Ok(decision.Run!.ToSummary()),
         };
-    }
 
     #endregion
 }

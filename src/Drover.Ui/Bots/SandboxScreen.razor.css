@@ -15,7 +15,8 @@
 
 .dv-sandbox-keys,
 .dv-sandbox-wake,
-.dv-sandbox-controlbar {
+.dv-sandbox-controlbar,
+.dv-sandbox-options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -24,6 +25,7 @@
 
 .dv-sandbox-zoom {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--dv-space-1);
@@ -108,23 +110,6 @@
   width: min(100%, calc(var(--dv-sandbox-room) * var(--dv-sandbox-aspect)));
 }
 
-.dv-sandbox-options {
-  display: flex;
-}
-
-/* A phone on its side: the picture takes the whole width; the header and controls scroll away above it. */
-@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
-  .dv-sandbox-frame {
-    width: calc(100vw - 2 * var(--dv-space-4));
-    margin-inline: calc(50% - 50vw + var(--dv-space-4));
-  }
-
-  .dv-sandbox-typing .dv-sandbox-frame {
-    width: min(calc(100vw - 2 * var(--dv-space-4)), calc(var(--dv-sandbox-room) * var(--dv-sandbox-aspect)));
-    margin-inline: auto;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .dv-sandbox-layer {
     transition: none;
@@ -143,7 +128,17 @@
   min-width: 0;
 }
 
+@media (max-width: 559px), (pointer: coarse) {
+  .dv-sandbox-zoom ::deep .dv-button {
+    padding-inline: var(--dv-space-2);
+  }
+}
+
 @media (pointer: coarse) {
+  .dv-sandbox-type ::deep .dv-field-input {
+    font-size: var(--dv-text-16);
+  }
+
   .dv-sandbox-screen ::deep .dv-button,
   .dv-sandbox-screen ::deep .dv-menu-trigger,
   .dv-sandbox-screen ::deep .dv-switch,

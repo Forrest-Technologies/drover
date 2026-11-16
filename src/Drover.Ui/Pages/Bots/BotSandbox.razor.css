@@ -56,6 +56,13 @@
   font-size: var(--dv-text-13);
 }
 
+.dv-sandbox-hold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+}
+
 .dv-sandbox-power {
   display: flex;
   flex-wrap: wrap;
@@ -107,6 +114,10 @@
 }
 
 @media (pointer: coarse) {
+  .dv-sandbox-run ::deep .dv-field-input {
+    font-size: var(--dv-text-16);
+  }
+
   .dv-sandbox ::deep .dv-button,
   .dv-sandbox ::deep .dv-menu-trigger,
   .dv-sandbox ::deep .dv-switch,

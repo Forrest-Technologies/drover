@@ -37,7 +37,7 @@
                             {
                                 if (piece.Stream is "stderr")
                                 {
-                                    <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span>@piece.Text</span>
+                                    <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span><span class="dv-visually-hidden">: </span>@piece.Text</span>
                                 }
                                 else
                                 {
@@ -65,7 +65,7 @@
                                 {
                                     if (piece.Stream is "stderr")
                                     {
-                                        <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span>@piece.Text</span>
+                                        <span class="dv-moment-stderr"><span class="dv-moment-stream">stderr</span><span class="dv-visually-hidden">: </span>@piece.Text</span>
                                     }
                                     else
                                     {
@@ -258,6 +258,16 @@
 
     #region Private Methods
 
+    // A successful answer keeps the buttons off until the stream says the call moved on, so a second press cannot
+    // send a second decision.
+    protected override void OnParametersSet()
+    {
+        if (!IsOpenQuestion)
+        {
+            (deciding, problem) = (false, null);
+        }
+    }
+
     private async Task Answer(bool approved)
     {
         if (Moment.ToolCallId is not { } call || Decide is null)
@@ -265,9 +275,14 @@
             return;
         }
 
-        deciding = true;
+        if (deciding)
+        {
+            return;
+        }
+
+        (deciding, problem) = (true, null);
         problem = await Decide(call, approved);
-        deciding = false;
+        deciding = problem is null;
     }
 
     private bool IsCommand(ToolCard card) =>

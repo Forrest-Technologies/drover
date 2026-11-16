@@ -1,0 +1,52 @@
+@* A bot's request for a person at its screen, in the conversation: the card, with what is on its way to the server. *@
+<TakeoverCard BotName="@BotName" Reason="@Takeover.Reason" Phase="Phase" Access="Takeovers.Access" SetupHref="@Takeovers.SetupHref" AnswerBesideScreen="Held"
+              Sending="sending" Problem="@problem" OnOpenScreen="Open" OnDone="() => Answer(true, null)" OnCouldNot="note => Answer(false, note)" />
+
+@code {
+    #region Private Fields
+
+    private bool sending;
+
+    private string? problem;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public Takeover Takeover { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The page around the conversation: the held request, the person's access, and the steps sent.</summary>
+    [Parameter, EditorRequired]
+    public ScreenTakeovers Takeovers { get; set; } = null!;
+
+    // The person took the screen over for this request and has it open, so they answer there.
+    private bool Held => Takeovers.HeldCallId == Takeover.ToolCallId;
+
+    private TakeoverPhase Phase => Takeover.Phase is TakeoverPhase.Asked && Held ? TakeoverPhase.Holding : Takeover.Phase;
+
+    #endregion
+
+    #region Private Methods
+
+    private Task Open() => Send(() => Takeovers.OpenScreen?.Invoke(Takeover) ?? Task.FromResult<string?>(null));
+
+    private Task Answer(bool done, string? note) => Send(() => Takeovers.HandBack?.Invoke(Takeover.ToolCallId, done, note) ?? Task.FromResult<string?>(null));
+
+    private async Task Send(Func<Task<string?>> request)
+    {
+        if (sending)
+        {
+            return;
+        }
+
+        (sending, problem) = (true, null);
+        problem = await request();
+        sending = false;
+    }
+
+    #endregion
+}

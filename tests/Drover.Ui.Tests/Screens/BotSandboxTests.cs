@@ -76,7 +76,32 @@ public sealed class BotSandboxTests : ScreenTest
         page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Paused"));
         page.Find("[role=group][aria-label=Power] .dv-button-primary").TextContent.Trim().Should().Be("Resume");
         page.Find(".dv-sandbox-screen").TextContent.Should().Contain("Resume it to see the screen");
+        page.FindAll(".dv-sandbox-screen [role=switch]").Should().BeEmpty();
         Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("looking at a paused sandbox would resume it");
+    }
+
+    [Fact]
+    public async Task Pausing_discards_the_old_picture_and_input_and_resuming_returns_to_view_only()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        await page.FindAll(".dv-sandbox-options label")
+            .Single(label => label.TextContent.Contains("Type a password", StringComparison.Ordinal))
+            .QuerySelector("input")!.ChangeAsync(new ChangeEventArgs { Value = true });
+        await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "unsent sample" });
+
+        Server.Answer("POST", $"{sandbox}/pause", Status("paused"));
+        await PowerButton(page, "Pause").ClickAsync(new MouseEventArgs());
+        page.FindAll(".dv-sandbox-screen img, .dv-sandbox-screen [role=switch], .dv-sandbox-type").Should().BeEmpty();
+
+        Server.Answer("POST", $"{sandbox}/resume", Status("running"));
+        await PowerButton(page, "Resume").ClickAsync(new MouseEventArgs());
+        (await PicturesWithin(2, TimeSpan.FromSeconds(3))).Should().Be(2);
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-controlbar input").HasAttribute("checked").Should().BeFalse());
+        await page.Find(".dv-sandbox-controlbar input").ChangeAsync(new ChangeEventArgs { Value = true });
+        page.Find(".dv-sandbox-type input").GetAttribute("value").Should().BeEmpty();
+        page.Find(".dv-sandbox-type input").GetAttribute("type").Should().Be("text");
+        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty();
     }
 
     [Fact]
@@ -177,6 +202,59 @@ public sealed class BotSandboxTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll(".dv-sandbox-screen [role=status]").Select(note => note.TextContent).Should().Contain("Getting the screen."));
         gate.SetResult();
         page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+    }
+
+    [Fact]
+    public async Task A_screen_held_for_a_person_says_so_without_a_name_and_an_admin_can_stop_that_run_after_saying_yes()
+    {
+        var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+        var since = new DateTimeOffset(2026, 1, 5, 9, 30, 0, TimeSpan.Zero);
+        Answer(Status("running") with { Hold = new SandboxHold(holding, ForYou: false, since) });
+        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "cancelled", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold .dv-sandbox-hint").TextContent.Should()
+            .Be($"A bot asked another member of this space to take over this screen on {since.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)}. The bots that share this sandbox wait until it is handed back."));
+        await page.FindAll(".dv-sandbox-hold button").Single(button => button.TextContent.Trim() == "Stop the run that holds it").ClickAsync(new MouseEventArgs());
+        Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().BeEmpty("nothing stops before the person says yes");
+        Answer(Status("running"));
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Stop the run").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().ContainSingle());
+        page.WaitForAssertion(() => page.FindAll(".dv-sandbox-hold").Should().BeEmpty());
+
+        // The control the person used is gone, so the focus goes to the page's heading.
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
+    }
+
+    [Fact]
+    public async Task A_run_that_has_not_stopped_yet_says_it_is_stopping_and_offers_no_second_stop()
+    {
+        var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d2");
+        var held = Status("running") with { Hold = new SandboxHold(holding, ForYou: false, null) };
+        Answer(held);
+        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "waiting", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        var page = RenderSandbox();
+        page.WaitForElement(".dv-sandbox-hold button");
+
+        await page.Find(".dv-sandbox-hold button").ClickAsync(new MouseEventArgs());
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Stop the run").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold [role=status]").TextContent.Should().Be("Stopping the run. The screen frees once it stops."));
+        page.FindAll(".dv-sandbox-hold button").Should().BeEmpty("the stop was asked for once");
+        page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
+
+    }
+
+    [Fact]
+    public void A_screen_held_for_this_person_says_what_to_do_next()
+    {
+        Answer(Status("running") with { Hold = new SandboxHold(Guid.NewGuid(), ForYou: true, null) });
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-hold .dv-sandbox-hint").TextContent.Should()
+            .Be("A bot asked you to take over this screen. The bots that share this sandbox wait until it is handed back. Do it on the screen below, then answer in the conversation."));
     }
 
     [Fact]
@@ -281,6 +359,7 @@ public sealed class BotSandboxTests : ScreenTest
         Pictures().Should().Be(1, "each try asks the provider for a sandbox, so only a tap tries again");
 
         Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        Answer(Status("running"));
         await WakeButton(page).ClickAsync(new MouseEventArgs());
 
         (await PicturesWithin(2)).Should().Be(2);
@@ -569,7 +648,7 @@ public sealed class BotSandboxTests : ScreenTest
         var field = page.Find(".dv-sandbox-type input");
 
         field.GetAttribute("enterkeyhint").Should().Be("send");
-        page.Find(".dv-sandbox-options .dv-switch-label").TextContent.Should().Be("Press Enter after typing");
+        page.FindAll(".dv-sandbox-options .dv-switch-label").Should().ContainSingle(label => label.TextContent == "Press Enter after typing");
         page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type text");
         await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
         page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type and press Enter");
@@ -769,6 +848,7 @@ public sealed class BotSandboxTests : ScreenTest
             .Single(button => button.TextContent.Trim() == "Open interactive terminal").ClickAsync(new MouseEventArgs());
 
         page.WaitForAssertion(() => page.Find("[role=tab][aria-selected=true]").TextContent.Should().Be("Screen"));
+        Navigation.Uri.Should().EndWith("?tab=screen");
         Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("open_terminal");
     }
 
@@ -777,6 +857,8 @@ public sealed class BotSandboxTests : ScreenTest
     {
         Answer(Status("running"));
         var page = await RenderInControl();
+        page.FindAll(".dv-sandbox-options input, .dv-sandbox-type input")
+            .Select(input => input.GetAttribute("type")).Should().Equal("checkbox", "checkbox", "text");
         await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
         await page.FindAll(".dv-sandbox-options label")
             .Single(label => label.TextContent.Contains("Type a password", StringComparison.Ordinal))

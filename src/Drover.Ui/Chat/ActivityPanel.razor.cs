@@ -36,6 +36,11 @@ public sealed partial class ActivityPanel(
 
     private bool redrawPending;
 
+    // True when watching ended on a failure, so trying again opens the stream again even for the same run.
+    private bool watchFailed;
+
+    private (RunTreeView Tree, IReadOnlyDictionary<Guid, PartView> Results, IReadOnlyList<BotSummary> Bots, TimelineModel Model)? laid;
+
     private bool asList;
 
     private string? problem;
@@ -64,9 +69,24 @@ public sealed partial class ActivityPanel(
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
-    private TimelineModel Model => tree is null
-        ? TimelineModel.Empty
-        : RunTimelines.Lay(tree, Bots.Select(bot => new TimelineBot(bot.Id, bot.Name)), results);
+    // Laid out once for each new tree, not on every read: a live run redraws often and a long one has many nodes.
+    private TimelineModel Model
+    {
+        get
+        {
+            if (tree is null)
+            {
+                return TimelineModel.Empty;
+            }
+
+            if (laid is not { } last || !ReferenceEquals(last.Tree, tree) || !ReferenceEquals(last.Results, results) || !ReferenceEquals(last.Bots, Bots))
+            {
+                laid = (tree, results, Bots, RunTimelines.Lay(tree, Bots.Select(bot => new TimelineBot(bot.Id, bot.Name)), results));
+            }
+
+            return laid.Value.Model;
+        }
+    }
 
     private string Facts
     {
@@ -118,8 +138,9 @@ public sealed partial class ActivityPanel(
             results = ResultsIn(messages);
             var (rootRunId, rootBotId) = await FindRun(thread, messages);
 
-            if (rootRunId != tree?.RootRunId)
+            if (rootRunId != tree?.RootRunId || watchFailed)
             {
+                watchFailed = false;
                 Stop();
                 tree = rootRunId is { } id ? RunTreeView.Start(id, rootBotId) : null;
                 startedAt = null;
@@ -162,10 +183,21 @@ public sealed partial class ActivityPanel(
         {
             await foreach (var stored in api.WatchRun(SpaceId, rootRunId, 0, Dropped, cancellationToken))
             {
-                tree = RunTreeReducer.Apply(tree!, stored);
+                // An event of a stream already left behind must not reach the tree of the run shown now.
+                if (cancellationToken.IsCancellationRequested || tree?.RootRunId != rootRunId)
+                {
+                    break;
+                }
+
+                tree = RunTreeReducer.Apply(tree, stored);
                 startedAt ??= stored.CreatedAt;
                 reconnecting = false;
                 Redraw();
+            }
+
+            if (cancellationToken.IsCancellationRequested || tree?.RootRunId != rootRunId)
+            {
+                return;
             }
 
             watched = true;
@@ -175,11 +207,16 @@ public sealed partial class ActivityPanel(
         {
             logger.LogTrace("Stopped watching run {RunId}", rootRunId);
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (Exception exception) when (Failures.IsReportable(exception) && tree?.RootRunId == rootRunId)
         {
             logger.LogWarning(exception, "Watching run {RunId} failed in the {Screen}", rootRunId, nameof(ActivityPanel));
             problem = Failures.Sentence(exception);
+            watchFailed = true;
             await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogDebug(exception, "A stream the {Screen} had left failed: run {RunId}", nameof(ActivityPanel), rootRunId);
         }
     }
 
