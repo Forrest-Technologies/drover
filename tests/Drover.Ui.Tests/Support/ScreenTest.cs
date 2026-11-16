@@ -13,6 +13,7 @@ public abstract class ScreenTest : BunitContext
         Services.AddDroverUi();
         Services.AddSingleton(Server.CreateApi());
         Services.AddSingleton(new UiEnvironment(IsDevelopment: false));
+        Services.AddSingleton<IPushRegistration>(new FakePushRegistration());
     }
 
     #endregion

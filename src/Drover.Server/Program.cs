@@ -69,6 +69,7 @@ builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataPr
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
+builder.Services.AddDroverPush(builder.Configuration, keyRingPath);
 builder.Services.AddSingleton<IFileStore>(new LocalFileStore(filesPath));
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
@@ -93,6 +94,7 @@ api.MapAccountEndpoints();
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
+api.MapPushEndpoints();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
 

@@ -11,6 +11,7 @@ public sealed class VendorContainmentAnalyzerTests
         namespace Microsoft.Agents.AI.Workflows { public class Workflow { } }
         namespace Microsoft.Extensions.AI { public interface IChatClient { } }
         namespace ModelContextProtocol.Client { public class McpClient { } }
+        namespace Lib.Net.Http.WebPush { public class PushServiceClient { } }
         namespace Microsoft.Extensions.Logging { public interface ILogger { } }
         """;
 
@@ -66,6 +67,21 @@ public sealed class VendorContainmentAnalyzerTests
             """);
 
         diagnostics.Should().ContainSingle().Which.GetMessage().Should().Contain("Drover.Adapters.Mcp");
+    }
+
+    [Fact]
+    public async Task The_web_push_library_outside_its_adapter_is_reported_even_in_the_server()
+    {
+        var diagnostics = await Run(
+            "Drover.Server",
+            """
+            public sealed class Push
+            {
+                public Lib.Net.Http.WebPush.PushServiceClient? Client { get; set; }
+            }
+            """);
+
+        diagnostics.Should().ContainSingle().Which.GetMessage().Should().Contain("Drover.Adapters.WebPush");
     }
 
     #endregion

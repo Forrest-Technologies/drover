@@ -19,6 +19,7 @@ public sealed class VendorContainmentAnalyzer : DiagnosticAnalyzer
         ("Microsoft.Agents.AI", ["Drover.Agents", ServerAssembly]),
         ("Microsoft.Extensions.AI", ["Drover.Agents", "Drover.Adapters.OpenAICompatible", "Drover.Adapters.Venice", ServerAssembly]),
         ("ModelContextProtocol", ["Drover.Adapters.Mcp", ServerAssembly]),
+        ("Lib.Net.Http.WebPush", ["Drover.Adapters.WebPush"]),
     ];
 
     private static readonly DiagnosticDescriptor rule = new(
