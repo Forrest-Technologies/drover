@@ -50,8 +50,8 @@ public sealed class ConversationsTests
         var shown = new[] { scheduled, orphaned, typed }.ToChatMessages();
 
         shown.Select(message => message.SentBy).Should().Equal(
-            "Sent by the schedule 'Every weekday at 09:30'",
-            "Sent by a schedule that has since been removed",
+            "Sent by the routine 'Every weekday at 09:30'",
+            "Sent by a routine that has since been removed",
             null);
         shown.Should().OnlyContain(message => message.FromPerson, "a schedule sends on its owner's behalf, on the person's side of the conversation");
     }
