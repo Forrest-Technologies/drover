@@ -70,6 +70,52 @@ public sealed class RunRepository(DroverDbContext db)
         return active.GroupBy(run => run.ThreadId).ToDictionary(group => group.Key, group => group.Min(run => run.Id));
     }
 
+    /// <summary>The run and the runs above it in its tree, nearest first, ending with the root.</summary>
+    public Task<List<Run>> ListSelfAndAncestors(Guid runId, CancellationToken cancellationToken) =>
+        db.Runs.FromSql(
+                $"""
+                WITH RECURSIVE chain AS (
+                  SELECT id, parent_run_id, 0 AS distance FROM runs WHERE id = {runId}
+                  UNION ALL
+                  SELECT parent.id, parent.parent_run_id, chain.distance + 1
+                  FROM runs parent JOIN chain ON parent.id = chain.parent_run_id)
+                SELECT runs.* FROM runs JOIN chain ON runs.id = chain.id ORDER BY chain.distance
+                """)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+    /// <summary>The run and every run below it in its tree.</summary>
+    public Task<List<Run>> ListSelfAndDescendants(Guid runId, CancellationToken cancellationToken) =>
+        db.Runs.FromSql(
+                $"""
+                WITH RECURSIVE tree AS (
+                  SELECT id FROM runs WHERE id = {runId}
+                  UNION ALL
+                  SELECT child.id FROM runs child JOIN tree ON child.parent_run_id = tree.id)
+                SELECT runs.* FROM runs JOIN tree ON runs.id = tree.id
+                """)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+    /// <summary>How many runs a tree holds, its root included.</summary>
+    public Task<int> CountRunsInTree(Guid rootRunId, CancellationToken cancellationToken) =>
+        db.Runs.CountAsync(run => run.RootRunId == rootRunId, cancellationToken);
+
+    /// <summary>What every model call of a tree has cost so far, finished runs and working ones alike.</summary>
+    public async Task<decimal> SumTreeCost(Guid rootRunId, CancellationToken cancellationToken) =>
+        await db.UsageRecords.Where(usage => usage.RootRunId == rootRunId).SumAsync(usage => (decimal?)usage.Cost, cancellationToken) ?? 0m;
+
+    /// <summary>The runs below the root that have not ended, deepest first, locked until the transaction ends.</summary>
+    public async Task<List<Run>> ListOpenDescendantsForUpdate(Guid rootRunId, CancellationToken cancellationToken) =>
+        await db.Runs.FromSql(
+                $"""
+                SELECT * FROM runs
+                WHERE root_run_id = {rootRunId} AND id <> {rootRunId} AND status IN ('queued', 'running', 'waiting')
+                ORDER BY depth DESC, id
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
+
     #endregion
 
     #region Writes
@@ -81,6 +127,29 @@ public sealed class RunRepository(DroverDbContext db)
     /// <summary>Wakes every server's workers when the transaction commits. PostgreSQL delivers nothing if it rolls back.</summary>
     public Task SignalWorkers(CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlAsync($"SELECT pg_notify({WakeChannel}, '')", cancellationToken);
+
+    /// <summary>
+    /// Adds a run's usage to <c>subtree_usage</c> on the run itself and on every run above it in its tree, once, when
+    /// it has ended. The rows are locked root first, the order every other writer of a tree takes them in.
+    /// </summary>
+    public async Task AddToSubtreeUsage(Guid runId, RunUsage usage, CancellationToken cancellationToken)
+    {
+        var chain = await db.Runs.FromSql(
+                $"""
+                WITH RECURSIVE chain AS (
+                  SELECT id, parent_run_id, 0 AS distance FROM runs WHERE id = {runId}
+                  UNION ALL
+                  SELECT parent.id, parent.parent_run_id, chain.distance + 1
+                  FROM runs parent JOIN chain ON parent.id = chain.parent_run_id)
+                SELECT runs.* FROM runs JOIN chain ON runs.id = chain.id ORDER BY chain.distance DESC FOR UPDATE OF runs
+                """)
+            .ToListAsync(cancellationToken);
+
+        foreach (var run in chain)
+        {
+            run.SubtreeUsage = run.SubtreeUsage.Plus(usage);
+        }
+    }
 
     /// <summary>Asks the run and every run below it in its tree to stop, in one statement.</summary>
     public Task<int> RequestCancel(Guid runId, CancellationToken cancellationToken) =>
@@ -109,6 +178,23 @@ public sealed class RunRepository(DroverDbContext db)
         db.Database
             .SqlQuery<ClaimedRun>($"SELECT run_id, space_id, principal_user_id FROM sys.claim_runs({worker}, {limit})")
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Whether this worker still holds the root run whose lease covers <paramref name="runId"/>, and whether a stop
+    /// was requested of <paramref name="runId"/> itself. A child run has no lease of its own: its tree's root holds it.
+    /// </summary>
+    public async Task<LeaseState> ReadLease(Guid leaseRunId, Guid runId, RunFence fence, CancellationToken cancellationToken)
+    {
+        if (leaseRunId == runId)
+        {
+            return await ReadLease(runId, fence, cancellationToken);
+        }
+
+        var held = await ReadLease(leaseRunId, fence, cancellationToken);
+        var cancelRequested = await db.Runs.AsNoTracking()
+            .AnyAsync(found => found.Id == runId && found.CancelRequestedAt != null, cancellationToken);
+        return held with { CancelRequested = cancelRequested };
+    }
 
     /// <summary>Whether this worker still holds the run, and whether a stop was requested.</summary>
     public async Task<LeaseState> ReadLease(Guid runId, RunFence fence, CancellationToken cancellationToken)

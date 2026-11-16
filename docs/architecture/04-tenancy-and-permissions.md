@@ -328,7 +328,7 @@ Built-in tools. Each is a row in `tools`, so each is off until granted, and each
 | `crew.add` | Make a bot beneath the caller, or beneath one of its descendants. Always asks a person, whatever its grant | write | `ask` on a new bot at the top |
 | `crew.change` | Change a descendant's name, what it is for, or instructions, or pause or resume it | write | `ask` on a new bot at the top |
 | `crew.remove` | Remove a descendant, as a person's remove does. For one with bots beneath it, the person's choice for them (`beneath`: `remove` or `keep`) is required | write | `ask` on a new bot at the top |
-| `delegate` | Hand a task to a child and get the result (not built yet) | | |
+| `delegate` | Hand a task to a bot directly beneath the caller and get its answer back as the result; the bot works as a child run with its own grants ([03-run-lifecycle.md](03-run-lifecycle.md#delegation)) | write | none |
 | `runs.cancel` | Cancel a descendant's run (not built yet) | | |
 | `sandbox.*` | Work in a sandbox the bot can reach | per tool | none |
 
@@ -346,7 +346,7 @@ A person creating a bot beneath another through the API (`CreateBotRequest.Paren
 
 A bot may delegate **down the tree only**, to its direct children. A child's effective grants are never broader than its parent's, so handing work down cannot gain a permission. This also makes a delegation cycle structurally impossible; the loop check in [03-run-lifecycle.md](03-run-lifecycle.md) remains as a guard.
 
-The `delegate` tool's description, as the model sees it, lists the caller's children with each one's `description_for_bots`. That field exists for exactly this.
+The `delegate` tool's description, as the model sees it, lists the caller's children with each one's `description_for_bots`. That field exists for exactly this. The governor checks the target again when the call is made, from the run's own bot and never from the model's word: a bot that is not directly beneath the caller is refused, and so is a paused or removed one, with a result that says which. The child works with its own effective grants, which the minimum along the path to the root keeps at or below its parent's.
 
 Delegating across the tree (to a sibling's team, say) is useful and risky: the target may hold tools the caller lacks, so a low-privilege bot could steer a high-privilege one. It is deferred to Phase 2 as human-created delegation links with one added rule: **borrowed authority asks.** During a run that arrived over a link, any `allow` grant the calling bot does not itself hold is treated as `ask`.
 

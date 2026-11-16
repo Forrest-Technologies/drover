@@ -83,6 +83,30 @@ public sealed class RunEventWriter(
         }
     }
 
+    /// <summary>
+    /// Runs <paramref name="work"/> in one transaction and appends the events it adds to the list it is handed, after
+    /// it and in the same transaction, for work whose events depend on what it finds. Streamed text waiting to be
+    /// written goes first, in a transaction of its own, so the log keeps the order things happened in.
+    /// </summary>
+    public async Task<T> Write<T>(Func<IServiceProvider, List<NewRunEvent>, Task<T>> work)
+    {
+        await gate.WaitAsync();
+
+        try
+        {
+            await WriteLocked(null, []);
+            List<NewRunEvent> produced = [];
+            T result = default!;
+            var stored = await Store(async services => result = await work(services, produced), produced, null);
+            hub.Publish(rootRunId, stored);
+            return result;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     #endregion
 
     #region Interface Implementations

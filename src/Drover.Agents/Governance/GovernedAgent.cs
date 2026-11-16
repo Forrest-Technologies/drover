@@ -2,11 +2,20 @@ namespace Drover.Agents.Governance;
 
 /// <summary>
 /// A bot as a member of a team or as a tool of another bot. Every invocation, from whichever orchestration builder
-/// makes it, goes through the governor first: it creates the child run, and only then does the bot work.
+/// or function makes it, goes through the governor first: it checks the delegation and begins the child run, and
+/// only then does the bot work. What the child came to goes back through the governor too, which turns it into the
+/// parent's result, or stops the parent with it. <see cref="Result"/> is that result once the agent has run.
 /// </summary>
-public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, Guid parentRunId)
+public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, DelegationRequest delegation)
     : DelegatingAIAgent(innerAgent)
 {
+    #region Properties
+
+    /// <summary>The parent's result, as the governor made it from what the child came to. Null until the agent has run.</summary>
+    public ToolOutcome? Result { get; private set; }
+
+    #endregion
+
     #region Protected Methods
 
     protected override async Task<AgentResponse> RunCoreAsync(
@@ -15,24 +24,28 @@ public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, Gui
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var child = await Begin(cancellationToken);
-        var outcome = ChildRunOutcome.Failed;
+        var child = await governor.BeginChildRun(delegation, cancellationToken);
+
+        if (child.Refusal is { } refused)
+        {
+            Result = refused;
+            return new AgentResponse(new ChatMessage(ChatRole.Assistant, refused.Result.GetRawText()));
+        }
+
+        AgentResponse response;
 
         try
         {
-            var response = await InnerAgent.RunAsync(messages, session, options, cancellationToken);
-            outcome = ChildRunOutcome.Completed;
-            return response;
+            response = await InnerAgent.RunAsync(messages, session, ChildRunAgent.With(child, options), cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (Exception stopped)
         {
-            outcome = ChildRunOutcome.Cancelled;
+            await Complete(child, new ChildRunReport(stopped is OperationCanceledException ? ChildRunOutcome.Cancelled : ChildRunOutcome.Failed), cancellationToken);
             throw;
         }
-        finally
-        {
-            await governor.CompleteChildRun(child, outcome, CancellationToken.None);
-        }
+
+        await Complete(child, ChildRunAgent.ReportOf(response), cancellationToken);
+        return response;
     }
 
     protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
@@ -41,30 +54,48 @@ public sealed class GovernedAgent(AIAgent innerAgent, IRunGovernor governor, Gui
         AgentRunOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var child = await Begin(cancellationToken);
-        var outcome = ChildRunOutcome.Failed;
+        var child = await governor.BeginChildRun(delegation, cancellationToken);
 
-        try
+        if (child.Refusal is { } refused)
         {
-            await foreach (var update in InnerAgent.RunStreamingAsync(messages, session, options, cancellationToken))
-            {
-                yield return update;
-            }
+            Result = refused;
+            yield return new AgentResponseUpdate(ChatRole.Assistant, refused.Result.GetRawText());
+            yield break;
+        }
 
-            outcome = ChildRunOutcome.Completed;
-        }
-        finally
+        List<AgentResponseUpdate> seen = [];
+        await using var updates = InnerAgent.RunStreamingAsync(messages, session, ChildRunAgent.With(child, options), cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+
+        while (await Next(child, updates, cancellationToken))
         {
-            await governor.CompleteChildRun(child, cancellationToken.IsCancellationRequested ? ChildRunOutcome.Cancelled : outcome, CancellationToken.None);
+            seen.Add(updates.Current);
+            yield return updates.Current;
         }
+
+        await Complete(child, ChildRunAgent.ReportOf(seen), cancellationToken);
     }
 
     #endregion
 
     #region Private Methods
 
-    private Task<ChildRun> Begin(CancellationToken cancellationToken) =>
-        governor.BeginChildRun(new DelegationRequest(parentRunId, Name ?? Id), cancellationToken);
+    /// <summary>The inner agent's next update. When it stops with an exception, the child is completed first.</summary>
+    private async Task<bool> Next(ChildRun child, IAsyncEnumerator<AgentResponseUpdate> updates, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await updates.MoveNextAsync();
+        }
+        catch (Exception stopped)
+        {
+            await Complete(child, new ChildRunReport(stopped is OperationCanceledException ? ChildRunOutcome.Cancelled : ChildRunOutcome.Failed), cancellationToken);
+            throw;
+        }
+    }
+
+    private async Task Complete(ChildRun child, ChildRunReport report, CancellationToken cancellationToken) =>
+        Result = await governor.CompleteChildRun(child, report, cancellationToken);
 
     #endregion
 }

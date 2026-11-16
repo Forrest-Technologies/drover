@@ -77,7 +77,7 @@ public sealed class ToolGate(RunContext run, ILogger logger)
             return await Finish(request, definition, ToolCallStatus.Failed, ToolCallLedger.Error(reason), cancellationToken);
         }
 
-        if (definition is not null && await ledger.Claim(request, definition.ToolId, cancellationToken) is { } settled)
+        if (definition is not null && await ledger.Claim(request, definition, cancellationToken) is { } settled)
         {
             logger.LogInformation("Tool call {CallId} in run {RunId} was settled before; not running it again", request.CallId, request.RunId);
             run.RecordOutcome(request.CallId, settled.IsError);

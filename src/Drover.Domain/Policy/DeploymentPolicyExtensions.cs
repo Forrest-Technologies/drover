@@ -17,6 +17,7 @@ public static class DeploymentPolicyExtensions
             .WithoutToolConnections()
             .WithBoundedSandboxes()
             .WithBoundedBotsPerSpace()
+            .WithBoundedDelegation()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -61,6 +62,9 @@ public static class DeploymentPolicyExtensions
             AllowOpenSandboxNetwork = false,
             AllowDesktopSandboxes = false,
         };
+
+    public static DeploymentPolicy WithBoundedDelegation(this DeploymentPolicy policy) =>
+        policy with { MaxDelegationTreeCostCents = DeploymentPolicy.HostedMaxDelegationTreeCostCents };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
