@@ -7,7 +7,7 @@ namespace Drover.Engine.Runs;
 /// transactions of their own. Nothing here is needed after a restart: a run taken over from a dead worker starts
 /// from the rows the dead one left.
 /// </summary>
-public sealed class RunExecutor(
+public sealed partial class RunExecutor(
     RunScopes scopes,
     IAgentRuntime runtime,
     IEnumerable<IModelClientProvider> providers,
@@ -74,6 +74,23 @@ public sealed class RunExecutor(
     {
         await using var session = NewSession(loaded, tenant, workerId);
 
+        try
+        {
+            return await ExecuteSession(session, loaded, stopping, stopping) is RunStatus.Completed;
+        }
+        catch (LeaseLostException)
+        {
+            logger.LogWarning("Run {RunId} was taken over by another worker; this one stops without writing", loaded.Run.Id);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Executes a run whose session is open, watching its row while it works. Returns the status it ended or waits
+    /// with, or null when it was left as it is for another execution to take up.
+    /// </summary>
+    private async Task<RunStatus?> ExecuteSession(RunSession session, LoadedRun loaded, CancellationToken stopping, CancellationToken serverStopping)
+    {
         // What the log already says about a call is not said again: a call an earlier execution saw through keeps
         // one tool.requested and one tool.completed, however the runtime reports it this time.
         foreach (var callId in loaded.RequestedCalls)
@@ -93,12 +110,7 @@ public sealed class RunExecutor(
 
         try
         {
-            return await Run(session, loaded, stopping);
-        }
-        catch (LeaseLostException)
-        {
-            logger.LogWarning("Run {RunId} was taken over by another worker; this one stops without writing", loaded.Run.Id);
-            return false;
+            return await Run(session, loaded, stopping, serverStopping);
         }
         finally
         {
@@ -161,6 +173,7 @@ public sealed class RunExecutor(
         run.LeaseOwner = null;
         run.LeaseExpiresAt = null;
         run.FinishedAt = time.GetUtcNow();
+        await services.GetRequiredService<RunRepository>().AddToSubtreeUsage(run.Id, run.Usage, CancellationToken.None);
 
         if (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(run.ThreadId, CancellationToken.None) is { } thread)
         {
@@ -168,6 +181,7 @@ public sealed class RunExecutor(
             var stored = await services.GetRequiredService<RunEventRepository>()
                 .Append(run.RootRunId, thread, [RunEventWriter.Event(run.Id, EventTypeFor(status), changed)], CancellationToken.None);
             hub.Publish(run.RootRunId, stored);
+            hub.Publish(run.RootRunId, await services.GetRequiredService<ThreadLine>().EndOpenDescendants(run, CancellationToken.None));
 
             if (await services.GetRequiredService<ThreadLine>().RunEnded(run, thread, CancellationToken.None) is { } next)
             {
@@ -189,6 +203,13 @@ public sealed class RunExecutor(
             return null;
         }
 
+        return await LoadRun(services, run, cancellationToken);
+    }
+
+    /// <summary>Everything a run needs to execute, read in the caller's transaction as the run's own person.</summary>
+    private async Task<LoadedRun> LoadRun(IServiceProvider services, Run run, CancellationToken cancellationToken)
+    {
+        var runId = run.Id;
         var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.ThreadId, cancellationToken);
         var bot = await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken);
         var connections = services.GetRequiredService<ModelConnectionRepository>();
@@ -224,7 +245,18 @@ public sealed class RunExecutor(
             await toolCalls.ListToolCalls([.. asked.Select(request => request.ToolCallId)], cancellationToken));
         var delivered = await services.GetRequiredService<MessageRepository>().ListDeliveredMessages(run.ThreadId, runId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false);
+        // A bot that may delegate is told which bots it may hand work to: those directly beneath it.
+        var children = bot is not null && granted.Any(tool => tool.Tool is { SourceKind: ToolSourceKind.Builtin, Name: DelegateTool.Name })
+            ? await services.GetRequiredService<BotRepository>().ListChildren(bot.Id, cancellationToken)
+            : [];
+
+        // The notes the bot keeps about the run's person, read in this transaction, as that person. Whether the run is
+        // given them is decided once its tools are known: only a run offered a memory tool is.
+        var memory = bot is null || thread is null
+            ? null
+            : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -332,7 +364,7 @@ public sealed class RunExecutor(
             .Select(pair => new ToolApproval(pair.Request.RequestId, pair.Request.CallId, pair.Row!.Status is not ToolCallStatus.Denied)),
     ];
 
-    private RunSession NewSession(LoadedRun loaded, RunTenant tenant, string workerId)
+    private RunSession NewSession(LoadedRun loaded, RunTenant tenant, string workerId, RunSession? parent = null)
     {
         // A run whose thread its person can no longer see fails before it writes an event, so the writer is never used then.
         var thread = loaded.Thread ?? new ChatThread { Id = loaded.Run.ThreadId, SpaceId = loaded.Run.SpaceId };
@@ -344,13 +376,13 @@ public sealed class RunExecutor(
             options.Value,
             time,
             loggers.CreateLogger<RunEventWriter>(),
-            new RunFence(workerId, loaded.Run.Attempt));
+            parent?.Fence ?? new RunFence(workerId, loaded.Run.Attempt));
         // Two tools never share the name the model sees: the first keeps it, and a later one is left out.
         List<RunTool> tools =
         [
             .. loaded.Granted
                 .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
-                .Select(granted => ToRunTool(granted, loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages))
+                .Select(granted => ToRunTool(granted, loaded))
                 .OfType<RunTool>()
                 .DistinctBy(tool => tool.ModelName, StringComparer.Ordinal),
         ];
@@ -366,18 +398,21 @@ public sealed class RunExecutor(
             time,
             loaded.Steps.Count,
             loaded.Delivered,
-            loaded.Policy.TaintedRunEscalation);
+            loaded.Policy.TaintedRunEscalation,
+            parent);
     }
 
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
     /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
-    /// read the screen for the bot, and a crew tool a server that lets bots build bots. A server's tool
-    /// needs tool connections allowed on this server and its own connection switched on, and is named for the model
+    /// read the screen for the bot, a crew tool a server that lets bots build bots, and a memory tool a bot with memory
+    /// on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
-    private RunTool? ToRunTool(GrantedTool granted, Bot? bot, IReadOnlyList<ToolConnection> toolConnections, bool modelSeesImages)
+    private RunTool? ToRunTool(GrantedTool granted, LoadedRun loaded)
     {
+        var (bot, toolConnections, modelSeesImages) = (loaded.Bot, loaded.ToolConnections, loaded.ModelSeesImages);
+
         if (granted.Tool.SourceKind is ToolSourceKind.Builtin)
         {
             var builtin = builtins.FirstOrDefault(found => found.Name == granted.Tool.Name);
@@ -403,6 +438,14 @@ public sealed class RunExecutor(
 
             // Where the server does not let bots build bots, the crew tools are not offered, whatever the grant says.
             if (CrewTools.IsCrewTool(granted.Tool.Name) && !deployment.Value.Rules.AllowBotsBuildingBots)
+            {
+                return null;
+            }
+
+            // A memory tool needs memory on for the bot and a conversation private to the run's person: a note is
+            // that person's own, so it is never kept from a conversation other people read.
+            if (MemoryTools.IsMemoryTool(granted.Tool.Name)
+                && !(bot is { MemorySettings.Enabled: true } && loaded.Thread?.AudienceUserId == loaded.Run.PrincipalUserId))
             {
                 return null;
             }
@@ -438,8 +481,13 @@ public sealed class RunExecutor(
 
     #region Running
 
-    /// <summary>Runs the agent and ends the run. True when the run completed.</summary>
-    private async Task<bool> Run(RunSession session, LoadedRun loaded, CancellationToken stopping)
+    /// <summary>
+    /// Runs the agent and ends the run. Returns the status it ended or waits with, or null when it was left for
+    /// another execution. <paramref name="stopping"/> stops the agent; <paramref name="serverStopping"/> is the server
+    /// shutting down, which leaves the run as it is. For a root they are the same token; a child also stops with its
+    /// parent.
+    /// </summary>
+    private async Task<RunStatus?> Run(RunSession session, LoadedRun loaded, CancellationToken stopping, CancellationToken serverStopping)
     {
         if (loaded.Thread is null)
         {
@@ -447,7 +495,7 @@ public sealed class RunExecutor(
                 services => SetStatus(services, session, RunStatus.Failed, null, new RunError("thread_not_visible", "The run's thread is no longer visible to the person it acts for.")),
                 CancellationToken.None);
             logger.LogWarning("Run {RunId} failed: its thread is not visible to its person", session.RunId);
-            return false;
+            return RunStatus.Failed;
         }
 
         var placed = await session.Tenant.Transact(
@@ -458,9 +506,10 @@ public sealed class RunExecutor(
         if (FindReasonNotToStart(loaded) is { } refusal)
         {
             await Finish(session, refusal.Status, refusal.Reason, refusal.Error);
-            return false;
+            return refusal.Status;
         }
 
+        await TaintFromNotes(session, loaded);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -477,7 +526,8 @@ public sealed class RunExecutor(
             rules,
             loggers.CreateLogger<RunGovernor>(),
             loaded.ModelSeesImages,
-            NewRunFiles(session, loaded));
+            NewRunFiles(session, loaded),
+            new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
             session,
@@ -493,8 +543,7 @@ public sealed class RunExecutor(
             // The messages that started this run are checked before the model is given anything.
             if (await rules.CheckArrivals(await Arrived(session, loaded, placed), cancellation.Token) is not null)
             {
-                await FinishAfterFailure(session, new OperationCanceledException(), stopping);
-                return false;
+                return await FinishAfterFailure(session, new OperationCanceledException(), serverStopping);
             }
 
             var outcome = await DriveToAStop(session, loaded, model, governor, rules, cancellation.Token);
@@ -502,24 +551,17 @@ public sealed class RunExecutor(
             // A rule can end the run while its last model call still returns normally.
             if (session.EndedByRule is not null)
             {
-                await FinishAfterFailure(session, new OperationCanceledException(), stopping);
-                return false;
+                return await FinishAfterFailure(session, new OperationCanceledException(), serverStopping);
             }
 
-            if (outcome is RunOutcome.Waiting)
-            {
-                await Finish(session, RunStatus.Waiting, RunReasons.AwaitingApproval, null);
-                return false;
-            }
-
-            await Finish(session, RunStatus.Completed, null, null);
-            return true;
+            var status = outcome is RunOutcome.Waiting ? RunStatus.Waiting : RunStatus.Completed;
+            await Finish(session, status, status is RunStatus.Waiting ? RunReasons.AwaitingApproval : null, null);
+            return status;
         }
         catch (Exception exception) when (exception is not LeaseLostException)
         {
             logger.LogDebug(exception, "Run {RunId} stopped before the agent finished", session.RunId);
-            await FinishAfterFailure(session, exception, stopping);
-            return false;
+            return await FinishAfterFailure(session, exception, serverStopping);
         }
     }
 
@@ -573,7 +615,9 @@ public sealed class RunExecutor(
                 case ToolCallRequested requested:
                     await session.RequestTool(requested.CallId, requested.ToolName, requested.Arguments);
                     break;
-                case ToolCallFinished finished:
+                // A result the framework made from a stale session for a call that is to be asked again is not the
+                // call's end: the call runs again, and its own result ends it.
+                case ToolCallFinished finished when !session.AwaitsRerun(finished.CallId):
                     await session.CompleteTool(finished.CallId, new ToolOutcome(finished.Result, finished.IsError));
                     break;
                 case ApprovalRequested approval:
@@ -642,15 +686,41 @@ public sealed class RunExecutor(
             Model = loaded.Bot.Model,
             Compaction = loaded.Bot.MemorySettings.Compaction,
         },
-        Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, tool))],
+        Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, loaded, tool))],
         Model = model,
+        Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
+            ? memory with { CanList = offered.Contains("memory.list") }
+            : null,
     };
 
-    private static ToolDefinition ToDefinition(RunSession session, RunTool tool) => new()
+    /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
+    private static List<string> OfferedMemoryTools(RunSession session, LoadedRun loaded) =>
+    [
+        .. loaded.Granted
+            .Select(granted => session.FindTool(granted.Tool.Id))
+            .OfType<RunTool>()
+            .Where(tool => tool.Builtin is not null && MemoryTools.IsMemoryTool(tool.Tool.Name))
+            .Select(tool => tool.Tool.Name),
+    ];
+
+    /// <summary>
+    /// A run given a note that a tainted run wrote may be given that run's untrusted text, so it is tainted before its
+    /// agent is built: its consequential tools ask from the first call, as they would in the run that read the text.
+    /// </summary>
+    private static async Task TaintFromNotes(RunSession session, LoadedRun loaded)
+    {
+        if (loaded.Memory is { Tainted: true } && OfferedMemoryTools(session, loaded).Count > 0)
+        {
+            await session.Taint();
+        }
+    }
+
+    private static ToolDefinition ToDefinition(RunSession session, LoadedRun loaded, RunTool tool) => new()
     {
         ToolId = tool.Tool.Id,
         Name = tool.ModelName,
-        Description = tool.Tool.Description,
+        Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
+        IsDelegation = tool.IsDelegation,
         InputSchema = tool.Tool.InputSchema,
         Sensitivity = tool.Tool.Sensitivity,
         RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
@@ -691,9 +761,10 @@ public sealed class RunExecutor(
                 continue;
             }
 
-            if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { IsKnownToOnlyRead: true })
+            // A read-only call runs again. A delegation is asked again, and resolves to the same child run.
+            if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { MayRunAgain: true })
             {
-                logger.LogInformation("Read-only tool call {ToolCallId} of run {RunId} was cut off and will run again", callId, run.Id);
+                logger.LogInformation("Tool call {ToolCallId} of run {RunId} was cut off and will be asked again", callId, run.Id);
                 session.ExpectRerun(callId);
                 continue;
             }
@@ -752,47 +823,83 @@ public sealed class RunExecutor(
 
     #region Finishing
 
-    private async Task FinishAfterFailure(RunSession session, Exception failure, CancellationToken stopping)
+    /// <summary>
+    /// Ends a run the agent did not finish, with the status the reason calls for, and returns it. Null when the run
+    /// is left as it is for another execution: the server is stopping. A run whose lease another claim holds now
+    /// writes nothing at all.
+    /// </summary>
+    private async Task<RunStatus?> FinishAfterFailure(RunSession session, Exception failure, CancellationToken stopping)
     {
-        if (session.LeaseLost || Find<LeaseLostException>(failure) is not null)
+        if (session.LeaseLost || IsLeaseLostAbove(session) || Find<LeaseLostException>(failure) is not null)
         {
             throw new LeaseLostException(session.RunId);
         }
 
+        var (status, reason, error) = WhyItStopped(session, failure, stopping);
+
+        if (status is null)
+        {
+            await LeaveForAnotherExecution(session);
+            return null;
+        }
+
+        await Finish(session, status.Value, reason, error);
+        return status;
+    }
+
+    private (RunStatus? Status, string? Reason, RunError? Error) WhyItStopped(RunSession session, Exception failure, CancellationToken stopping)
+    {
         if (session.CancelledByUser)
         {
-            await Finish(session, RunStatus.Cancelled, RunReasons.CancelledByUser, null);
-            return;
+            return (RunStatus.Cancelled, IsCancelledAbove(session) ? RunReasons.CancelledByParent : RunReasons.CancelledByUser, null);
+        }
+
+        // A child stops with the run that delegated to it, when that run was cancelled or a rule ended it.
+        if (IsCancelledAbove(session))
+        {
+            return (RunStatus.Cancelled, RunReasons.CancelledByParent, null);
         }
 
         if (session.EndedByRule is { } rule)
         {
-            await Finish(session, RunStatus.Failed, rule.Reason, new RunError(rule.Reason, rule.Message));
-            return;
+            return (RunStatus.Failed, rule.Reason, new RunError(rule.Reason, rule.Message));
+        }
+
+        // A run beneath this one waits for a person, so this one waits with it.
+        if (session.PausedForChild)
+        {
+            return (RunStatus.Waiting, RunReasons.AwaitingApproval, null);
         }
 
         if (stopping.IsCancellationRequested && failure is OperationCanceledException)
         {
-            await ReleaseLease(session);
-            return;
+            return (null, null, null);
         }
 
         if (Find<RunLimitException>(failure) is { } limit)
         {
-            await Finish(session, RunStatus.Failed, limit.Reason, new RunError(limit.Reason, limit.Message));
-            return;
+            return (RunStatus.Failed, limit.Reason, new RunError(limit.Reason, limit.Message));
         }
 
         if (Find<ModelProviderException>(failure) is { } provider)
         {
             logger.LogWarning("Run {RunId} failed at the model provider: {Failure}", session.RunId, provider.Failure);
-            await Finish(session, RunStatus.Failed, null, new RunError(provider.Failure.ToWireName(), provider.Message));
-            return;
+            return (RunStatus.Failed, null, new RunError(provider.Failure.ToWireName(), provider.Message));
         }
 
         logger.LogError(failure, "Run {RunId} failed", session.RunId);
-        await Finish(session, RunStatus.Failed, null, new RunError("internal", "The run failed unexpectedly. The server log has the details."));
+        return (RunStatus.Failed, null, new RunError("internal", "The run failed unexpectedly. The server log has the details."));
     }
+
+    /// <summary>The server is stopping. A root's lease is released for the next server; a child is left to its root.</summary>
+    private Task LeaveForAnotherExecution(RunSession session) =>
+        session.Parent is null ? ReleaseLease(session) : Task.CompletedTask;
+
+    private static bool IsCancelledAbove(RunSession session) =>
+        session.Parent is { } parent && (parent.CancelledByUser || parent.EndedByRule is not null || IsCancelledAbove(parent));
+
+    private static bool IsLeaseLostAbove(RunSession session) =>
+        session.Parent is { } parent && (parent.LeaseLost || IsLeaseLostAbove(parent));
 
     /// <summary>
     /// Sets the run's status and appends the event that reports it, in one transaction, after closing whatever the
@@ -810,13 +917,23 @@ public sealed class RunExecutor(
         var changed = new RunStatusChanged(status.ToWireName(), reason, error is null ? null : new RunProblem(error.Code, error.Message), session.Attempt, session.Usage.ToTotals());
         (Run Run, ChatThread Thread)? ended = null;
         QueuedRun? next = null;
+        IReadOnlyList<RunEvent> swept = [];
         await session.Writer.Write(
             async services => ended = await SetStatus(services, session, status, reason, error),
             [.. closing, RunEventWriter.Event(session.RunId, EventTypeFor(status), changed)],
-            async services => next = ended is { } over && status is not RunStatus.Waiting
-                ? await services.GetRequiredService<ThreadLine>().RunEnded(over.Run, over.Thread, CancellationToken.None)
-                : null);
+            async services =>
+            {
+                if (ended is not { } over || status is RunStatus.Waiting)
+                {
+                    return;
+                }
+
+                var line = services.GetRequiredService<ThreadLine>();
+                swept = await line.EndOpenDescendants(over.Run, CancellationToken.None);
+                next = await line.RunEnded(over.Run, over.Thread, CancellationToken.None);
+            });
         logger.LogInformation("Run {RunId} is {Status} ({Reason})", session.RunId, status, reason);
+        hub.Publish(session.RootRunId, swept);
 
         if (next is not null)
         {
@@ -826,6 +943,13 @@ public sealed class RunExecutor(
 
         // A slot is free and the thread can take its next message.
         signal.Wake();
+
+        // A child's thread is not one its person watches: what they need to know surfaces on the root.
+        if (session.Parent is not null)
+        {
+            return;
+        }
+
         signals.Publish(
             session.Tenant.SpaceId,
             session.Tenant.UserId,
@@ -841,13 +965,8 @@ public sealed class RunExecutor(
     /// </summary>
     private async Task<(Run Run, ChatThread Thread)?> SetStatus(IServiceProvider services, RunSession session, RunStatus status, string? reason, RunError? error)
     {
-        var run = await services.GetRequiredService<RunRepository>().GetRunForUpdate(session.RunId, CancellationToken.None);
-
-        if (run is not { Status: RunStatus.Running } || run.LeaseOwner != session.Fence.Worker || run.Attempt != session.Fence.Attempt)
-        {
-            throw new LeaseLostException(session.RunId);
-        }
-
+        var runs = services.GetRequiredService<RunRepository>();
+        var run = await LockForEnding(runs, session);
         var now = time.GetUtcNow();
         run.Status = status;
         run.StatusReason = reason;
@@ -855,11 +974,13 @@ public sealed class RunExecutor(
         run.LeaseOwner = null;
         run.LeaseExpiresAt = null;
         run.Usage = session.Usage;
-        run.SubtreeUsage = session.Usage;
 
         if (status is not RunStatus.Waiting)
         {
             run.FinishedAt = now;
+
+            // A run that has ended adds what it used to its own subtree and to every run above it, once.
+            await runs.AddToSubtreeUsage(run.Id, run.Usage, CancellationToken.None);
         }
 
         if (await services.GetRequiredService<ThreadRepository>().GetThreadForUpdate(run.ThreadId, CancellationToken.None) is not { } thread)
@@ -870,6 +991,25 @@ public sealed class RunExecutor(
         thread.LastActivityAt = now;
         return (run, thread);
     }
+
+    /// <summary>
+    /// The run row, locked, after checking this execution still holds the lease that covers it. A root holds its own;
+    /// a child is covered by its root's, which is locked first, the order every writer of a tree takes its rows in.
+    /// </summary>
+    private static async Task<Run> LockForEnding(RunRepository runs, RunSession session)
+    {
+        if (session.Parent is not null && !IsHeld(await runs.GetRunForUpdate(session.LeaseRunId, CancellationToken.None), session.Fence))
+        {
+            throw new LeaseLostException(session.RunId);
+        }
+
+        var run = await runs.GetRunForUpdate(session.RunId, CancellationToken.None);
+        var held = session.Parent is null ? IsHeld(run, session.Fence) : run is { Status: RunStatus.Running };
+        return held ? run! : throw new LeaseLostException(session.RunId);
+    }
+
+    private static bool IsHeld(Run? run, RunFence fence) =>
+        run is { Status: RunStatus.Running } && run.LeaseOwner == fence.Worker && run.Attempt == fence.Attempt;
 
     private Task ReleaseLease(RunSession session)
     {
@@ -962,12 +1102,13 @@ public sealed class RunExecutor(
             {
                 var runs = services.GetRequiredService<RunRepository>();
 
-                if (renew && !await runs.RenewLease(session.RunId, session.Fence, cancellationToken))
+                // A child's lease is its root's, which the root's own watch renews.
+                if (renew && session.Parent is null && !await runs.RenewLease(session.RunId, session.Fence, cancellationToken))
                 {
                     return new LeaseState(false, false);
                 }
 
-                return await runs.ReadLease(session.RunId, session.Fence, cancellationToken);
+                return await runs.ReadLease(session.LeaseRunId, session.RunId, session.Fence, cancellationToken);
             },
             cancellationToken);
 
@@ -997,7 +1138,9 @@ public sealed class RunExecutor(
         IReadOnlyList<Guid> Delivered,
         IReadOnlyList<Guid> RequestedCalls,
         IReadOnlyList<ToolConnection> ToolConnections,
-        bool ModelSeesImages);
+        bool ModelSeesImages,
+        RecalledMemory? Memory,
+        IReadOnlyList<Bot> Children);
 
     #endregion
 }

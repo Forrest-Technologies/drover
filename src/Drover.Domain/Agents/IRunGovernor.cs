@@ -10,9 +10,24 @@ public interface IRunGovernor
 
     Task<ToolOutcome> InvokeTool(ToolCallRequest toolCall, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Begins a child run for the request, after checking the grant, the target, the run's ancestors for a loop, and
+    /// the tree's budget, in one transaction. Asked again for the same tool call it returns the same child run.
+    /// </summary>
     Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken);
 
-    Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken);
+    /// <summary>
+    /// Executes a child run this governor began, as its own run with its own grants, history, and events, until it
+    /// ends or waits for a person. A child that ended already reports how it ended and does not run again.
+    /// </summary>
+    Task<ChildRunReport> RunChildRun(ChildRun child, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes a child run's report into its parent and returns the parent's tool result. When the parent must stop
+    /// here (the child waits for a person and the tree pauses, or the parent itself was cancelled) it throws
+    /// <see cref="OperationCanceledException"/>.
+    /// </summary>
+    Task<ToolOutcome> CompleteChildRun(ChildRun child, ChildRunReport report, CancellationToken cancellationToken);
 
     Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken);
 

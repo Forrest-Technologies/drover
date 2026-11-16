@@ -85,7 +85,7 @@ public sealed class DroverApiTests : IDisposable
         var spaceId = Guid.NewGuid();
         var botId = Guid.NewGuid();
         var sandbox = $"/api/spaces/{spaceId}/bots/{botId}/sandbox";
-        var running = new BotSandboxStatus(true, true, "running", null, Desktop: true, BotWorking: false);
+        var running = new BotSandboxStatus(true, true, "running", null, Desktop: true, BotWorking: false, DesktopOffered: true);
         var token = Xunit.TestContext.Current.CancellationToken;
         byte[] png = [0x89, 0x50, 0x4E, 0x47];
         server.Answer("GET", sandbox, running);

@@ -660,6 +660,86 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Memory.MemoryNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("SourceMessageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_message_id");
+
+                    b.Property<Guid?>("SourceThreadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_thread_id");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<bool>("Tainted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("tainted");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("WrittenByBotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("written_by_bot_id");
+
+                    b.Property<Guid?>("WrittenByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("written_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_memories");
+
+                    b.HasIndex("WrittenByUserId")
+                        .HasDatabaseName("ix_memories_written_by_user_id");
+
+                    b.HasIndex("SpaceId", "WrittenByBotId")
+                        .HasDatabaseName("ix_memories_space_id_written_by_bot_id");
+
+                    b.HasIndex("SpaceId", "BotId", "AudienceUserId")
+                        .HasDatabaseName("ix_memories_space_id_bot_id_audience_user_id");
+
+                    b.ToTable("memories", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_memories_source", "(source_thread_id IS NULL) = (source_message_id IS NULL) AND (written_by_bot_id IS NOT NULL OR source_message_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_memories_text", "char_length(btrim(text)) > 0");
+
+                            t.HasCheckConstraint("ck_memories_writer", "(written_by_bot_id IS NULL) <> (written_by_user_id IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Models.ModelCatalogEntry", b =>
                 {
                     b.Property<Guid>("SpaceId")
@@ -2206,6 +2286,30 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id", "AudienceUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_files_threads_space_id_thread_id_audience_user_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Memory.MemoryNote", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("WrittenByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_memories_asp_net_users_written_by_user_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_memories_bots_space_id_bot_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "WrittenByBotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_memories_bots_space_id_written_by_bot_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Models.ModelCatalogEntry", b =>

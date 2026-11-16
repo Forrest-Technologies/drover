@@ -36,6 +36,7 @@ global using Drover.Adapters.Venice;
 global using Drover.Agents;
 global using Drover.Agents.Governance;
 global using Drover.Agents.History;
+global using Drover.Agents.Memory;
 global using Drover.Agents.Runtime;
 global using Drover.Agents.Workflows;
 global using Drover.Contracts.Runs;

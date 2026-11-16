@@ -67,6 +67,12 @@ public static class RunEventTypes
 
     public const string UsageRecorded = "usage.recorded";
 
+    /// <summary>A bot handed a task to a bot beneath it, which now works as a child run. Data is <see cref="DelegationStarted"/>.</summary>
+    public const string DelegationStarted = "delegation.started";
+
+    /// <summary>The child run of a delegation ended and its answer, or why it has none, went back to the parent. Data is <see cref="DelegationCompleted"/>.</summary>
+    public const string DelegationCompleted = "delegation.completed";
+
     /// <summary>A rule a person wrote on the bot applied. Data is <see cref="RuleFired"/>.</summary>
     public const string RuleFired = "rule.fired";
 

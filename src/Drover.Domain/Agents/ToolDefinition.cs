@@ -19,10 +19,16 @@ public sealed record ToolDefinition
     public bool RequiresApproval { get; init; }
 
     /// <summary>
-    /// Whether a call cut off by a restart may run again. Only a read-only tool may: anything else might already
-    /// have happened, so the model is told the outcome is unknown.
+    /// The built-in <c>delegate</c> tool: a call hands a task to a bot beneath this one, which works as its own run.
     /// </summary>
-    public bool MayRunAgainAfterInterruption => Sensitivity is ToolSensitivity.Read && !DefinedByServer;
+    public bool IsDelegation { get; init; }
+
+    /// <summary>
+    /// Whether a call cut off by a restart may run again. A read-only tool may: anything else might already have
+    /// happened, so the model is told the outcome is unknown. A delegation may too, because asking again resolves to
+    /// the same child run, which goes on from its own saved history and never starts over.
+    /// </summary>
+    public bool MayRunAgainAfterInterruption => IsDelegation || (Sensitivity is ToolSensitivity.Read && !DefinedByServer);
 
     /// <summary>
     /// The tool comes from a tool server, so "it only reads" is the server's claim and not something Drover knows.

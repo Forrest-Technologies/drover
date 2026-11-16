@@ -18,6 +18,7 @@ public static class DeploymentPolicyExtensions
             .WithBoundedSandboxes()
             .WithBoundedBotsPerSpace()
             .WithBoundedFiles()
+            .WithBoundedDelegation()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -28,7 +29,8 @@ public static class DeploymentPolicyExtensions
             .WithGuaranteedDataRights()
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
-            .WithBoundedConversationSummaries();
+            .WithBoundedConversationSummaries()
+            .WithBoundedMemory();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -61,6 +63,9 @@ public static class DeploymentPolicyExtensions
             AllowOpenSandboxNetwork = false,
             AllowDesktopSandboxes = false,
         };
+
+    public static DeploymentPolicy WithBoundedDelegation(this DeploymentPolicy policy) =>
+        policy with { MaxDelegationTreeCostCents = DeploymentPolicy.HostedMaxDelegationTreeCostCents };
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
@@ -113,6 +118,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
         policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
+
+    public static DeploymentPolicy WithBoundedMemory(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
+            MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
+        };
 
     #endregion
 }

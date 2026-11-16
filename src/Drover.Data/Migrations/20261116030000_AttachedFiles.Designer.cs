@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations
 {
     [DbContext(typeof(DroverDbContext))]
-    [Migration("20261115203155_AttachedFiles")]
+    [Migration("20261116030000_AttachedFiles")]
     partial class AttachedFiles
     {
         /// <inheritdoc />

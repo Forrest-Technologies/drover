@@ -12,6 +12,7 @@ public sealed partial class SandboxScreen(
     DroverApi api,
     SessionState session,
     IJSRuntime js,
+    TimeProvider time,
     ILogger<SandboxScreen> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -111,8 +112,8 @@ public sealed partial class SandboxScreen(
         "none" => "No sandbox yet. It starts when the bot first uses it.",
         "paused" => "The sandbox is paused and its files are kept. Resume it to see the screen.",
         "replacing" => "The old sandbox is being taken down. A new one starts on its next use.",
-        "starting" => "The sandbox is starting.",
-        _ => null,
+        "starting" => "The sandbox is starting. The screen shows once it runs.",
+        _ => SandboxWords.NoScreen(Status),
     };
 
     private string ControlWords => control
@@ -150,9 +151,17 @@ public sealed partial class SandboxScreen(
     {
         await disposal.CancelAsync();
 
+        // Closing never fails because of how the refresh ended: the screen is going away either way.
         if (watching is not null)
         {
-            await watching;
+            try
+            {
+                await watching;
+            }
+            catch (Exception ended)
+            {
+                logger.LogDebug(ended, "The sandbox picture's refresh ended with a failure as it closed");
+            }
         }
 
         if (module is not null)
@@ -249,12 +258,12 @@ public sealed partial class SandboxScreen(
     private async Task<bool> WaitForNextPicture(CancellationToken stop)
     {
         var sent = soon.Task;
-        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), stop);
+        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), time, stop);
 
         if (await Task.WhenAny(next, sent) == sent)
         {
             soon = NewSoon();
-            next = Task.Delay(SandboxWords.PictureAfterInput, stop);
+            next = Task.Delay(SandboxWords.PictureAfterInput, time, stop);
         }
 
         try
@@ -276,7 +285,7 @@ public sealed partial class SandboxScreen(
         try
         {
             var png = await api.GetBotSandboxScreen(SpaceId, BotId, stop);
-            (pictureWidth, pictureHeight) = SizeOf(png) ?? (pictureWidth, pictureHeight);
+            (pictureWidth, pictureHeight) = SizeOf(png) ?? throw new InvalidDataException("The screen's answer was not a PNG picture.");
             picture = $"data:image/png;base64,{Convert.ToBase64String(png)}";
             (screenProblem, failures) = (null, 0);
         }
@@ -285,9 +294,14 @@ public sealed partial class SandboxScreen(
             logger.LogDebug(stopped, "The screen closed while the sandbox picture was being fetched");
             return;
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (Exception exception)
         {
-            logger.LogInformation(exception, "The sandbox screen could not be fetched");
+            // Whatever goes wrong with one picture, it says so and the next one still comes, later each time: only
+            // closing the screen ends the refresh.
+            logger.Log(
+                Failures.IsReportable(exception) ? LogLevel.Information : LogLevel.Warning,
+                exception,
+                "The sandbox screen could not be fetched");
             failures++;
             screenProblem = $"{Failures.Sentence(exception)} The screen is tried again shortly.";
         }

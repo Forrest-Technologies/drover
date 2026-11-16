@@ -131,6 +131,21 @@ public sealed record DeploymentPolicy
     public const int SelfHostedMaxSpaceFileMegabytes = 10 * 1024;
 
     public const int HostedMaxSpaceFileMegabytes = 1024;
+    public const int DelegationDepth = 5;
+
+    public const int RunsPerDelegationTree = 50;
+
+    public const int SelfHostedMaxDelegationTreeCostCents = 10_000;
+
+    public const int HostedMaxDelegationTreeCostCents = 1_000;
+
+    public const int SelfHostedMaxMemoryNoteCharacters = 1000;
+
+    public const int HostedMaxMemoryNoteCharacters = 500;
+
+    public const int SelfHostedMaxMemoryCharactersPerPerson = 20_000;
+
+    public const int HostedMaxMemoryCharactersPerPerson = 8000;
 
     #endregion
 
@@ -208,6 +223,21 @@ public sealed record DeploymentPolicy
     /// private ones included. A file that would take the space past it is refused when it is uploaded.
     /// </summary>
     public int MaxSpaceFileMegabytes { get; init; } = SelfHostedMaxSpaceFileMegabytes;
+    /// <summary>
+    /// How many levels below the run a person started a chain of delegations may reach. A space may only lower it.
+    /// Each level is another bot working, and a chain is where a runaway loop spends money.
+    /// </summary>
+    public int MaxDelegationDepth { get; init; } = DelegationDepth;
+
+    /// <summary>The most runs one run tree may hold, the run a person started included. A space may only lower it.</summary>
+    public int MaxRunsPerDelegationTree { get; init; } = RunsPerDelegationTree;
+
+    /// <summary>
+    /// What a run tree may have cost, in hundredths of the price list's currency, before no further delegation is
+    /// begun in it. A space may only lower it. It bounds what a chain of bots spends of a person's model credit
+    /// without a person seeing each step.
+    /// </summary>
+    public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -314,6 +344,19 @@ public sealed record DeploymentPolicy
     /// </summary>
     public int MaxConversationSummarySeconds { get; init; } = SelfHostedMaxConversationSummarySeconds;
 
+    /// <summary>
+    /// The most characters one note a bot keeps about a person may hold. A bot's own setting may only lower it. Notes
+    /// are short on purpose: one fact each, few enough to read in full and to give to every run.
+    /// </summary>
+    public int MaxMemoryNoteCharacters { get; init; } = SelfHostedMaxMemoryNoteCharacters;
+
+    /// <summary>
+    /// The most characters a bot's notes about one person may hold together. A bot's own setting may only lower it.
+    /// Every run of the bot for that person is given all of them, so this bounds what memory adds to each model call;
+    /// on a shared server it also bounds the rows one person's bot can make.
+    /// </summary>
+    public int MaxMemoryCharactersPerPerson { get; init; } = SelfHostedMaxMemoryCharactersPerPerson;
+
     #endregion
 
     #region Rule Table
@@ -417,6 +460,21 @@ public sealed record DeploymentPolicy
             policy => policy.MaxSpaceFileMegabytes,
             HostedMaxSpaceFileMegabytes,
             Enforcement.Now("FileService, on every upload, against the space's stored total")),
+        PolicyRule.Limit(
+            nameof(MaxDelegationDepth),
+            policy => policy.MaxDelegationDepth,
+            DelegationDepth,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
+        PolicyRule.Limit(
+            nameof(MaxRunsPerDelegationTree),
+            policy => policy.MaxRunsPerDelegationTree,
+            RunsPerDelegationTree,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
+        PolicyRule.Limit(
+            nameof(MaxDelegationTreeCostCents),
+            policy => policy.MaxDelegationTreeCostCents,
+            HostedMaxDelegationTreeCostCents,
+            Enforcement.Now("RunGovernor, when a bot delegates")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,
@@ -500,6 +558,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxConversationSummarySeconds,
             HostedMaxConversationSummarySeconds,
             Enforcement.Now("ConversationSummarizer, on every summary's model call")),
+        PolicyRule.Limit(
+            nameof(MaxMemoryNoteCharacters),
+            policy => policy.MaxMemoryNoteCharacters,
+            HostedMaxMemoryNoteCharacters,
+            Enforcement.Now("MemoryService, on every note saved or changed; BotService, when a bot is saved")),
+        PolicyRule.Limit(
+            nameof(MaxMemoryCharactersPerPerson),
+            policy => policy.MaxMemoryCharactersPerPerson,
+            HostedMaxMemoryCharactersPerPerson,
+            Enforcement.Now("MemoryService, on every note saved or changed and on every recall; BotService, when a bot is saved")),
     ];
 
     #endregion

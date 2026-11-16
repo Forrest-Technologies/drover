@@ -62,6 +62,17 @@ public static class SandboxWords
         };
     }
 
+    /// <summary>
+    /// Why a sandbox has no screen, in words: the server offers none, or the bot's Desktop setting is off. Null when it
+    /// has one.
+    /// </summary>
+    public static string? NoScreen(BotSandboxStatus status) => status switch
+    {
+        { Desktop: true } => null,
+        { DesktopOffered: false } => "This server does not offer sandboxes with a screen. Its operator decides that.",
+        _ => "This sandbox has no screen. Turn on Desktop in the Sandbox section of the bot's settings to give it one.",
+    };
+
     /// <summary>The line the bot editor's Sandbox section shows: the state and the last use.</summary>
     public static string Summary(BotSandboxStatus status, DateTimeOffset now) =>
         status.State is "none" ? State(status.State) : $"{State(status.State)} · {LastUsed(status.LastUsedAt, now).ToLowerInvariant()}";

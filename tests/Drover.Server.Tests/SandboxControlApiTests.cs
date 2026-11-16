@@ -36,7 +36,7 @@ public sealed class SandboxControlApiTests(PostgresServer postgres) : ServerTest
         List<string> bodies = [];
 
         var before = await Read<BotSandboxStatus>(await client.Get(sandbox), bodies);
-        before.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: true, BotWorking: false));
+        before.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: true, BotWorking: false, DesktopOffered: true));
 
         var ran = await Read<SandboxCommandResponse>(await client.Post($"{sandbox}/commands", new SandboxCommandRequest("echo hi")), bodies);
         ran.Should().Match<SandboxCommandResponse>(result => result.ExitStatus == 0 && result.Stdout == "echo hi\n");

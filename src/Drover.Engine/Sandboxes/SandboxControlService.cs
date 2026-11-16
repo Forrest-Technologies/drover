@@ -355,10 +355,11 @@ public sealed class SandboxControlService(
         var bots = services.GetRequiredService<BotRepository>();
         var bot = await bots.FindBot(botId, cancellationToken) ?? throw new InvalidOperationException("The bot was checked in this transaction.");
         var available = broker is not null;
+        var offered = deployment.Value.Rules.AllowDesktopSandboxes;
 
         if (bot.SandboxPolicy is SandboxPolicy.None)
         {
-            return new BotSandboxStatus(available, HasSandbox: false, "none", null, Desktop: false, BotWorking: false);
+            return new BotSandboxStatus(available, HasSandbox: false, "none", null, Desktop: false, BotWorking: false, offered);
         }
 
         var ownerId = SandboxGroups.OwnerOf(bot.Id, await bots.ListSandboxPath(bot.Id, cancellationToken));
@@ -373,8 +374,9 @@ public sealed class SandboxControlService(
             HasSandbox: true,
             StateOf(live, replacing, time.GetUtcNow()),
             live?.LastUsedAt,
-            owner.SandboxSettings.Desktop && deployment.Value.Rules.AllowDesktopSandboxes,
-            working);
+            owner.SandboxSettings.Desktop && offered,
+            working,
+            offered);
     }
 
     /// <summary>

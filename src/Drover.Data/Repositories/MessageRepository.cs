@@ -55,6 +55,21 @@ public sealed class MessageRepository(DroverDbContext db)
     public Task MarkWithheld(Guid id, CancellationToken cancellationToken) =>
         db.Messages.Where(message => message.Id == id).ExecuteUpdateAsync(set => set.SetProperty(message => message.Withheld, true), cancellationToken);
 
+    /// <summary>
+    /// The run's reply in the thread that asked for the tool call, or null when it is not the run's latest stored reply.
+    /// A tool runs before the next model call is stored, so the reply that asked for it is the latest one; only that
+    /// one row is read.
+    /// </summary>
+    public async Task<Message?> FindReplyWithCall(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
+        await db.Messages
+            .AsNoTracking()
+            .Where(message => message.ThreadId == threadId && message.RunId == runId && message.Role == MessageRole.Assistant && message.Position != null)
+            .OrderByDescending(message => message.Position)
+            .FirstOrDefaultAsync(cancellationToken) is { } latest
+            && latest.Parts.OfType<ToolCallPart>().Any(call => call.ToolCallId == toolCallId)
+            ? latest
+            : null;
+
     public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
         db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
 
