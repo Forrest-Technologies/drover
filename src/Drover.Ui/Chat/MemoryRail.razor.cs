@@ -159,12 +159,8 @@ public sealed partial class MemoryRail(
         notes = [.. found.Notes.Select(note => new MemoryNote(note.Id, note.Text, note.WrittenBy is "bot", note.ChangedAt, OriginOf(note)))];
     }
 
-    private string? OriginOf(MemoryNoteResponse note) => note.Origin switch
-    {
-        null => null,
-        { IsMain: true } origin => Addresses.TalkAt(Bot.Id, origin.MessageId),
-        var origin => Addresses.SideChatAt(Bot.Id, origin.ThreadId, origin.MessageId),
-    };
+    private string? OriginOf(MemoryNoteResponse note) =>
+        note.Origin is { } origin ? Addresses.Moment(Bot.Id, origin.ThreadId, origin.MessageId, origin.IsMain) : null;
 
     // Said once while it stands: toasts stay until dismissed, so a server that stays away does not stack them.
     private static string StaleWarning(Exception exception) =>

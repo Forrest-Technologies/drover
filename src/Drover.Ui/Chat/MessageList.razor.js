@@ -3,9 +3,13 @@ export function showNewest(list) {
     list.scrollTop = 0;
 }
 
-// Brings a message linked to into the middle of the list and gives it the focus, without scrolling the page twice.
-export function reveal(list, id) {
-    const message = list.querySelector(`#${CSS.escape(id)}`);
-    message?.scrollIntoView({ block: "center", behavior: "instant" });
-    message?.focus({ preventScroll: true });
+// Brings the message a link named into the middle of the view and puts focus on it, so a keyboard or screen reader
+// lands there too.
+export function showMoment(id) {
+    const message = document.getElementById(id);
+
+    if (message) {
+        message.scrollIntoView({ block: "center" });
+        message.focus({ preventScroll: true });
+    }
 }

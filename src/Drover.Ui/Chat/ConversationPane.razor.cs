@@ -86,6 +86,10 @@ public sealed partial class ConversationPane(
     [Parameter]
     public bool Opened { get; set; } = true;
 
+    /// <summary>The message a link points at, brought into view once the conversation is on the page.</summary>
+    [Parameter]
+    public Guid? Moment { get; set; }
+
     /// <summary>The side chat to open. Read once, when the pane is first shown.</summary>
     [Parameter]
     public Guid? ThreadId { get; set; }
@@ -101,10 +105,6 @@ public sealed partial class ConversationPane(
     /// <summary>The bot started or stopped working here. Waiting for a person's answer is not working.</summary>
     [Parameter]
     public EventCallback<bool> OnBusyChanged { get; set; }
-
-    /// <summary>A message to bring into view once the conversation has loaded, from a link to that moment.</summary>
-    [Parameter]
-    public Guid? Reveal { get; set; }
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -419,6 +419,8 @@ public sealed partial class ConversationPane(
     #endregion
 
     #region Attaching Files
+
+    private Task<FileText> ReadWhole(SharedFile file) => api.ReadFileText(SpaceId, file.Id, FileWords.MaxShownCharacters);
 
     // The conversation's thread, made now when it has none: the main one through its bot, a new side chat from its
     // first message or its first file, whichever comes first.

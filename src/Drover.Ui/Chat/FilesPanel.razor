@@ -1,5 +1,5 @@
-@* Starter for #165. The files a person and a bot have exchanged, beside the conversation, newest first. Its job
-   is finding one again. The one filter appears only when files came from both sides. *@
+@* The files a person and a bot have exchanged, beside the conversation, newest first. Its job is finding one
+   again. The one filter appears only when files came from both sides. *@
 <div class="dv-files">
     @switch (State)
     {
@@ -18,18 +18,20 @@
             {
                 @if (Files.Any(file => file.FromBot) && Files.Any(file => !file.FromBot))
                 {
-                    <SegmentedControl TValue="FilesFrom" Label="Whose files" Options="Sides" @bind-Value="from" />
+                    <div class="dv-files-filter">
+                        <SegmentedControl TValue="FilesFrom" Label="Whose files" Options="Sides" @bind-Value="from" />
+                    </div>
                 }
                 <ul class="dv-files-list" aria-label="@($"Files exchanged with {BotName}")">
                     @foreach (var file in Shown)
                     {
                         <li @key="file.Id">
-                            <FileCard File="file" />
+                            <FileCard File="file" ReadWhole="ReadWhole" />
                             <p class="dv-files-origin dv-mono">
                                 @FileWords.From(file, BotName), @ScheduleWords.Moment(file.When)
                                 @if (file.MomentHref is not null)
                                 {
-                                    <a href="@file.MomentHref">Open that moment</a>
+                                    <a href="@file.MomentHref" aria-label="@($"Open that moment: {file.Name}")">Open that moment</a>
                                 }
                             </p>
                         </li>
@@ -64,6 +66,10 @@
 
     [Parameter]
     public EventCallback OnRetry { get; set; }
+
+    /// <summary>Reads a text file's whole content for "Show all".</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
 
     private IReadOnlyList<SegmentOption<FilesFrom>> Sides =>
     [

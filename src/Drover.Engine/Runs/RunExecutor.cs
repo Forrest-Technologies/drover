@@ -741,6 +741,7 @@ public sealed partial class RunExecutor(
         Name = tool.ModelName,
         Description = tool.IsDelegation ? DelegateTool.DescribeFor(loaded.Children) : tool.Tool.Description,
         IsDelegation = tool.IsDelegation,
+        IsIdempotent = tool.Builtin is { IsIdempotent: true },
         InputSchema = tool.Tool.InputSchema,
         Sensitivity = tool.Tool.Sensitivity,
         RequiresApproval = session.EffectNow(tool, tool.Effect) is GrantEffect.Ask || session.RuleAsks(tool),
@@ -781,7 +782,7 @@ public sealed partial class RunExecutor(
                 continue;
             }
 
-            // A read-only call runs again. A delegation is asked again, and resolves to the same child run.
+            // A read-only or idempotent call runs again. A delegation is asked again, and resolves to the same child run.
             if (row is { Status: ToolCallStatus.Running } && session.FindTool(row.ToolId) is { MayRunAgain: true })
             {
                 logger.LogInformation("Tool call {ToolCallId} of run {RunId} was cut off and will be asked again", callId, run.Id);

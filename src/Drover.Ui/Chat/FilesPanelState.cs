@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Chat;
 
 /// <summary>What the files panel has to show.</summary>
 public enum FilesPanelState

@@ -10,20 +10,28 @@ public static class MessageParts
     #region Public Methods
 
     /// <summary>
-    /// The message as the model reads it. A file part becomes what <paramref name="files"/> holds for it, and a line
-    /// saying it could not be opened when it holds nothing.
+    /// The message as the model reads it. A file part a person sent becomes what <paramref name="files"/> holds for
+    /// it, and a line saying it could not be opened when it holds nothing. A file part in a bot's reply is a file the
+    /// bot shared: the call that shared it and its result already say so, and its content is not given back.
     /// </summary>
     public static ChatMessage ToChatMessage(this Message message, IReadOnlyDictionary<Guid, FileForModel>? files = null) =>
-        new(ToChatRole(message.Role), [.. message.Parts.SelectMany(part => ToContents(part, files))])
+        new(
+            ToChatRole(message.Role),
+            [
+                .. message.Parts
+                    .Where(part => message.Role is not MessageRole.Assistant || !IsFile(part))
+                    .SelectMany(part => ToContents(part, files)),
+            ])
         {
             MessageId = message.Id.ToString("N"),
             CreatedAt = message.CreatedAt,
         };
 
-    /// <summary>The ids of the files the messages carry, each once.</summary>
+    /// <summary>The ids of the files people sent in the messages, each once. A file a bot shared is not given to a model.</summary>
     public static IReadOnlyCollection<Guid> FileIds(this IEnumerable<Message> messages) =>
     [
         .. messages
+            .Where(message => message.Role is not MessageRole.Assistant)
             .SelectMany(message => message.Parts)
             .Select(part => part switch
             {
@@ -69,6 +77,8 @@ public static class MessageParts
     #endregion
 
     #region Private Methods
+
+    private static bool IsFile(MessagePart part) => part is ImagePart or FilePart;
 
     private static IEnumerable<AIContent> ToContents(MessagePart part, IReadOnlyDictionary<Guid, FileForModel>? files) => part switch
     {

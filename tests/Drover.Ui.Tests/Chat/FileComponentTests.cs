@@ -2,7 +2,7 @@ namespace Drover.Ui.Tests.Chat;
 
 /// <summary>
 /// Files in the conversation and on the message being written, as components: what is rendered, what each control
-/// is named for assistive technology, and what is handed back. The tray and the card moved here from the starters.
+/// is named for assistive technology, and what is handed back. The tray, the card, and the files panel moved here from the starters.
 /// </summary>
 public sealed class FileComponentTests : BunitContext
 {
@@ -180,6 +180,160 @@ public sealed class FileComponentTests : BunitContext
         (list.Find("img").GetAttribute("width"), list.Find("img").GetAttribute("height")).Should().Be(("64", "48"));
         list.Find("[role=group][aria-label='The first lines of notes.txt'] pre").TextContent.Should().Be("first line");
         list.FindAll("a[download]").Select(link => link.GetAttribute("aria-label")).Should().Equal("Download cat.png", "Download notes.txt");
+    }
+
+    [Fact]
+    public void A_file_a_bot_shared_shows_in_its_reply_with_its_caption_and_the_message_can_be_linked_to()
+    {
+        var report = new SharedFile(Guid.NewGuid(), "report.pdf", "application/pdf", 3_400_000, "/api/files/report", true, start, Caption: "The weekly numbers");
+        var id = Guid.NewGuid();
+        var reply = new ChatMessage(id.ToString(), false, "Here it is.") { Files = [report] };
+
+        var list = Render<MessageList>(set => set
+            .Add(view => view.Messages, [reply])
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.Moment, id));
+
+        var article = list.Find("article.dv-message-bot");
+        article.GetAttribute("id").Should().Be($"message-{id}");
+        article.GetAttribute("tabindex").Should().Be("-1", "the message a link names can take focus");
+        article.QuerySelector("figure.dv-file .dv-file-facts")!.TextContent.Should().Be("PDF document, 3.2 MB");
+        article.QuerySelector(".dv-file-caption")!.TextContent.Should().Be("The weekly numbers");
+        article.QuerySelector("a[download]")!.GetAttribute("aria-label").Should().Be("Download report.pdf");
+    }
+
+    [Fact]
+    public void A_moment_link_followed_again_after_leaving_lands_again()
+    {
+        var module = JSInterop.SetupModule("./_content/Drover.Ui/Chat/MessageList.razor.js");
+        module.SetupVoid("showMoment", _ => true).SetVoidResult();
+        var id = Guid.NewGuid();
+        var reply = new ChatMessage(id.ToString(), false, "Here it is.");
+        var list = Render<MessageList>(set => set.Add(view => view.Messages, [reply]).Add(view => view.BotName, "Sample bot").Add(view => view.Moment, id));
+        list.WaitForAssertion(() => module.VerifyInvoke("showMoment", 1));
+
+        list.Render(set => set.Add(view => view.Moment, (Guid?)null));
+        list.Render(set => set.Add(view => view.Moment, id));
+
+        list.WaitForAssertion(() => module.VerifyInvoke("showMoment", 2).Should().AllSatisfy(call => call.Arguments.Should().Equal($"message-{id}")));
+    }
+
+    [Fact]
+    public void Show_all_brings_a_text_files_whole_content_into_its_box_and_says_when_it_is_cut()
+    {
+        var longFile = new SharedFile(Guid.NewGuid(), "log.txt", "text/plain", 5_000, "/api/files/log", true, start, Preview: "line one\nline two");
+        SharedFile? asked = null;
+        var answer = new FileText("line one\nline two\nline three", Cut: false);
+        var card = Render<FileCard>(set => set
+            .Add(view => view.File, longFile)
+            .Add(view => view.ReadWhole, file =>
+            {
+                asked = file;
+                return Task.FromResult(answer);
+            }));
+
+        card.Find("button").Click();
+
+        asked.Should().Be(longFile);
+        card.Find("[role=group]").GetAttribute("aria-label").Should().Be("All of log.txt");
+        card.Find("pre").TextContent.Should().Be("line one\nline two\nline three");
+        card.FindAll("button").Should().BeEmpty("everything is shown");
+
+        answer = answer with { Cut = true };
+        var cut = Render<FileCard>(set => set.Add(view => view.File, longFile).Add(view => view.ReadWhole, _ => Task.FromResult(answer)));
+        cut.Find("button").GetAttribute("aria-label").Should().Be("Show all of log.txt");
+        cut.Find("button").Click();
+        cut.Find(".dv-file-note").TextContent.Should().Be("Only the first 100,000 characters of log.txt are shown. Download it for the rest.");
+    }
+
+    [Fact]
+    public void A_text_file_that_shows_all_of_itself_or_a_card_with_no_reader_offers_no_show_all()
+    {
+        var whole = new SharedFile(Guid.NewGuid(), "short.txt", "text/plain", 19, "/api/files/short", true, start, Preview: "line one\nline two");
+        var longer = whole with { Size = 5_000 };
+
+        Render<FileCard>(set => set.Add(view => view.File, whole).Add(view => view.ReadWhole, _ => Task.FromResult(new FileText(string.Empty, false))))
+            .FindAll("button").Should().BeEmpty("a file of 17 characters, two line breaks, and a carriage return has nothing more");
+        Render<FileCard>(set => set.Add(view => view.File, longer)).FindAll("button").Should().BeEmpty("there is no way to read it");
+    }
+
+    [Fact]
+    public void Show_all_that_fails_says_so_and_can_be_tried_again()
+    {
+        var file = new SharedFile(Guid.NewGuid(), "log.txt", "text/plain", 5_000, "/api/files/log", true, start, Preview: "line one");
+        var card = Render<FileCard>(set => set.Add(view => view.File, file).Add(view => view.ReadWhole, _ => throw new HttpRequestException("down")));
+
+        card.Find("button").Click();
+
+        card.Find(".dv-note").TextContent.Should().Contain("Drover could not load the rest of log.txt.");
+        card.Find("button").GetAttribute("aria-label").Should().Be("Show all of log.txt");
+    }
+
+    #endregion
+
+    #region Files Panel
+
+    [Fact]
+    public void The_files_filter_appears_only_when_files_came_from_both_sides()
+    {
+        var fromBot = new SharedFile(Guid.NewGuid(), "a.pdf", "application/pdf", 10, "/files/a", true, start);
+        var panel = Render<FilesPanel>(set => set.Add(view => view.State, FilesPanelState.Ready).Add(view => view.BotName, "Sample bot").Add(view => view.Files, [fromBot]));
+
+        panel.FindAll("[role=radiogroup], .dv-segmented").Should().BeEmpty();
+        panel.Find(".dv-files-origin").TextContent.Should().Contain("From Sample bot");
+
+        panel.Render(set => set.Add(view => view.Files, [fromBot, fromBot with { Id = Guid.NewGuid(), FromBot = false }]));
+
+        panel.Markup.Should().Contain("Whose files");
+    }
+
+    [Fact]
+    public void The_files_panel_lists_each_file_with_who_it_came_from_when_and_a_link_to_that_moment()
+    {
+        var fromBot = new SharedFile(Guid.NewGuid(), "a.pdf", "application/pdf", 10, "/files/a", true, start, "/talk/b#message-1");
+        var fromYou = new SharedFile(Guid.NewGuid(), "b.txt", "text/plain", 10, "/files/b", false, start.AddDays(-1), "/talk/b/side/s#message-2", Preview: "hi");
+        var panel = Render<FilesPanel>(set => set
+            .Add(view => view.State, FilesPanelState.Ready)
+            .Add(view => view.BotName, "Marshal")
+            .Add(view => view.Files, [fromBot, fromYou]));
+
+        panel.Find("ul").GetAttribute("aria-label").Should().Be("Files exchanged with Marshal");
+        panel.FindAll(".dv-files-origin").Select(line => line.TextContent.Split(',')[0].Trim()).Should().Equal("From Marshal", "From you");
+        panel.FindAll(".dv-files-origin a").Select(link => (link.TextContent, link.GetAttribute("href")))
+            .Should().Equal(("Open that moment", "/talk/b#message-1"), ("Open that moment", "/talk/b/side/s#message-2"));
+        panel.FindAll(".dv-files-origin a").Select(link => link.GetAttribute("aria-label"))
+            .Should().Equal("Open that moment: a.pdf", "Open that moment: b.txt");
+
+        panel.FindAll("input[type=radio]")[^1].Change(true);
+
+        panel.FindAll("li").Should().ContainSingle().Which.TextContent.Should().Contain("b.txt");
+    }
+
+    [Theory]
+    [InlineData(FilesPanelState.Loading, "Loading the files.")]
+    [InlineData(FilesPanelState.Ready, "No files yet. Files you attach and files Marshal shares are listed here.")]
+    public void Each_state_of_the_files_panel_says_what_is_happening(FilesPanelState state, string sentence)
+    {
+        var panel = Render<FilesPanel>(set => set.Add(view => view.State, state).Add(view => view.BotName, "Marshal"));
+
+        panel.Find(".dv-files-hint").TextContent.Should().Be(sentence);
+    }
+
+    [Fact]
+    public void A_files_panel_that_failed_says_why_and_tries_again()
+    {
+        var retried = false;
+        var panel = Render<FilesPanel>(set => set
+            .Add(view => view.State, FilesPanelState.Failed)
+            .Add(view => view.BotName, "Marshal")
+            .Add(view => view.Problem, "The server did not answer.")
+            .Add(view => view.OnRetry, () => retried = true));
+
+        panel.Find(".dv-empty-title").TextContent.Should().Be("Drover could not load the files");
+        panel.Find(".dv-empty button").TextContent.Trim().Should().Be("Try again");
+        panel.Find(".dv-empty button").Click();
+
+        retried.Should().BeTrue();
     }
 
     #endregion

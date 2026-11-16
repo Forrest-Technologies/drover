@@ -33,14 +33,18 @@ public static class Addresses
     /// <summary>The summary the server keeps of a bot's main conversation.</summary>
     public static string Summary(Guid botId) => $"/talk/{botId}/summary";
 
-    /// <summary>A bot's main conversation, opened at one of its messages.</summary>
-    public static string TalkAt(Guid botId, Guid messageId) => $"/talk/{botId}?message={messageId}";
-
     /// <summary>What a bot remembers about the person, beside its main conversation.</summary>
     public static string Memory(Guid botId) => $"/talk/{botId}/memory";
 
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
+
+    /// <summary>The files a person and a bot exchanged, beside its main conversation.</summary>
+    public static string Files(Guid botId) => $"/talk/{botId}/files";
+
+    /// <summary>The moment a message was said, in the main conversation or in a side chat.</summary>
+    public static string Moment(Guid botId, Guid threadId, Guid messageId, bool inMainConversation) =>
+        $"{(inMainConversation ? Talk(botId) : SideChat(botId, threadId))}#{MessageList.Anchor(messageId)}";
 
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
@@ -49,9 +53,6 @@ public static class Addresses
     public static string NewSideChat(Guid botId) => $"/talk/{botId}/side/new";
 
     public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
-
-    /// <summary>A side chat, opened at one of its messages.</summary>
-    public static string SideChatAt(Guid botId, Guid threadId, Guid messageId) => $"/talk/{botId}/side/{threadId}?message={messageId}";
 
     public static string Bot(Guid botId) => $"/bots/{botId}";
 
