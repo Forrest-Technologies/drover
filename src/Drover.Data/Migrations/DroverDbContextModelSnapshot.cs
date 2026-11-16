@@ -1500,6 +1500,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("state");
 
+                    b.Property<bool>("Tainted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("tainted");
+
                     b.HasKey("Id")
                         .HasName("pk_sandboxes");
 

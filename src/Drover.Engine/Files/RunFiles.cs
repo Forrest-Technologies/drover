@@ -4,7 +4,8 @@ namespace Drover.Engine.Files;
 /// What one run's model is given for the files people attached to its conversation. Rows are read as the run's
 /// person, so a file they cannot see is never given. A picture goes to a model that reads pictures; text goes in as
 /// text, up to <see cref="MaxTextCharacters"/>; anything else is copied into the bot's sandbox, once a run, and the
-/// model is told where. Nothing here holds a transaction while it reads a file or copies one.
+/// model is told where. Nothing here holds a transaction while it reads a file or copies one. A file is text from
+/// outside Drover, so a run given one, its content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
 /// </summary>
 public sealed class RunFiles(
     RunTenant tenant,
@@ -12,6 +13,7 @@ public sealed class RunFiles(
     FileAbilities abilities,
     IFileStore store,
     SandboxBroker? sandboxes,
+    Func<Task> taint,
     ILogger logger)
 {
     #region Private Fields
@@ -64,6 +66,12 @@ public sealed class RunFiles(
 
         var kind = FileInspector.KindOf(file.ContentType);
         var use = FileUses.For(kind, abilities);
+
+        if (use is not FileUse.None)
+        {
+            await taint();
+        }
+
         var result = use switch
         {
             FileUse.Image => await Picture(file, cancellationToken),

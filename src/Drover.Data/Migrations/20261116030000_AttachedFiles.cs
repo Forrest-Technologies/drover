@@ -18,6 +18,13 @@ namespace Drover.Data.Migrations
                 nullable: false,
                 defaultValue: 0L);
 
+            migrationBuilder.AddColumn<bool>(
+                name: "tainted",
+                table: "sandboxes",
+                type: "boolean",
+                nullable: false,
+                defaultValue: false);
+
             migrationBuilder.AddColumn<DateTimeOffset>(
                 name: "created_at",
                 table: "files",
@@ -122,6 +129,10 @@ namespace Drover.Data.Migrations
             migrationBuilder.DropColumn(
                 name: "stored_file_bytes",
                 table: "spaces");
+
+            migrationBuilder.DropColumn(
+                name: "tainted",
+                table: "sandboxes");
 
             migrationBuilder.DropColumn(
                 name: "created_at",

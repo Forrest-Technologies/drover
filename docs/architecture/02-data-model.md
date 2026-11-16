@@ -154,7 +154,7 @@ Notes:
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `sandboxes` | Space-owned | `id`, `owner_bot_id`, `policy`, `provider`, `provider_sandbox_id`, `state`, `access_secret_id`, `last_used_at`, `expires_at`, `retire_after null` |
+| `sandboxes` | Space-owned | `id`, `owner_bot_id`, `policy`, `provider`, `provider_sandbox_id`, `state`, `access_secret_id`, `last_used_at`, `expires_at`, `retire_after null`, `tainted` |
 | `files` | Space-owned with an audience, inherited from the thread | `id`, `audience_user_id`, `thread_id null`, `message_id null`, `storage_key`, `name`, `content_type`, `size`, `sha256`, `width null`, `height null`, `preview null`, `created_by_user_id null`, `created_by_bot_id null`, `created_at` |
 | `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
 | `memories` | Space-owned with an audience | `id`, `audience_user_id`, `bot_id`, `text`, `written_by_bot_id null`, `written_by_user_id null`, `source_thread_id null`, `source_message_id null`, `tainted`, `created_at`, `updated_at` |

@@ -19,6 +19,10 @@ public sealed class FileRepository(DroverDbContext db)
     public Task<List<StoredFile>> GetFilesForUpdate(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
         db.Files.Where(file => ids.Contains(file.Id)).ToListAsync(cancellationToken);
 
+    /// <summary>Whether a message of the thread the caller can see carries a file.</summary>
+    public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
+        db.Files.AnyAsync(file => file.ThreadId == threadId && file.MessageId != null, cancellationToken);
+
     public void Add(StoredFile file) => db.Files.Add(file);
 
     public void Remove(StoredFile file) => db.Files.Remove(file);
