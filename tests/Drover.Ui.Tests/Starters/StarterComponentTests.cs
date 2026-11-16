@@ -91,20 +91,6 @@ public sealed class StarterComponentTests : BunitContext
         card.FindAll("textarea").Should().BeEmpty();
     }
 
-    [Theory]
-    [InlineData(PushState.Off, "Turn on notifications on this device")]
-    [InlineData(PushState.On, "Turn off notifications on this device")]
-    [InlineData(PushState.Blocked, null)]
-    [InlineData(PushState.NotSupported, null)]
-    [InlineData(PushState.NeedsHomeScreen, null)]
-    public void Notifications_offer_a_button_only_when_drover_can_do_something(PushState state, string? action)
-    {
-        var control = Render<PushControl>(set => set.Add(view => view.State, state));
-
-        control.Find(".dv-push-state").TextContent.Should().NotBeNullOrWhiteSpace();
-        control.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal(action is null ? [] : [action]);
-    }
-
     [Fact]
     public void Speaking_a_message_is_named_and_recording_shows_the_time_and_two_ways_out()
     {

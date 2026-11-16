@@ -24,8 +24,10 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
             ("Public address", "warning"),
             ("Background work", "ok"),
             ("Scheduler", "ok"),
-            ("Sandboxes", "off"));
+            ("Sandboxes", "off"),
+            ("Notifications", "warning"));
         Row(report, "Database").Summary.Should().Contain("drover_app");
+        Row(report, "Notifications").Summary.Should().Contain(PublicAddress.Variable, "notifications need the public https address");
         Row(report, "Public address").Summary.Should().Contain(PublicAddress.Variable);
     }
 

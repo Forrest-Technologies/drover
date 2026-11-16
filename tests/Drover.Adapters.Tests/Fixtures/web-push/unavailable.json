@@ -1,0 +1,11 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from RFC 7231: a push service that is down answers 503 Service Unavailable. No real push service produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 503
+    }
+  ]
+}

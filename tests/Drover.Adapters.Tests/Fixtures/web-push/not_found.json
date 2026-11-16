@@ -1,0 +1,11 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from RFC 8030: a push service that no longer knows a subscription answers 404 Not Found. No real push service produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 404
+    }
+  ]
+}
