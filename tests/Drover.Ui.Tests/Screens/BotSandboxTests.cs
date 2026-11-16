@@ -16,7 +16,15 @@ public sealed class BotSandboxTests : ScreenTest
 
     private static readonly byte[] picture = Png(1024, 768);
 
+    /// <summary>The page's clock, moved by hand: the state reads and the picture's own timer wait on it.</summary>
+    private static readonly DateTimeOffset now = new(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
+
     private readonly BunitJSModuleInterop module;
+
+    private readonly FakeTimeProvider time = new(now);
+
+    /// <summary>How far the page's clock moves at a time while a test waits on it.</summary>
+    private readonly TimeSpan step = TimeSpan.FromMilliseconds(20);
 
     #endregion
 
@@ -25,6 +33,7 @@ public sealed class BotSandboxTests : ScreenTest
     public BotSandboxTests()
     {
         SignedIn();
+        Services.AddSingleton<TimeProvider>(time);
         module = JSInterop.SetupModule(ModulePath);
         Server.Answer("GET", $"/api/spaces/{SpaceId}/bots/{botId}", new BotSummary(botId, "Sample bot", "sample", "Sample instructions", Guid.Parse("0196f1a0-0000-7000-8000-000000000003"), "sample-model", "active"));
         Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
@@ -105,6 +114,118 @@ public sealed class BotSandboxTests : ScreenTest
 
         page.WaitForAssertion(() => page.FindAll("[role=tab]").Select(tab => tab.TextContent.Trim()).Should().Equal("Terminal"));
         page.Find("[role=tabpanel] label").TextContent.Should().Be("Command");
+    }
+
+    [Fact]
+    public void A_sandbox_without_a_screen_says_why_and_links_to_the_setting_that_gives_it_one()
+    {
+        Answer(Status("running") with { Desktop = false });
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => Words(Paragraph(page, "This sandbox has no screen."))
+            .Should().Be("This sandbox has no screen. Turn on Desktop in the Sandbox section of the bot's settings to give it one. Open its settings"));
+        Link(page, "Open its settings").GetAttribute("href").Should().Be(Addresses.Bot(botId));
+    }
+
+    [Fact]
+    public void On_a_server_that_offers_no_screens_the_sandbox_says_so_and_offers_no_setting()
+    {
+        Answer(Status("running") with { Desktop = false, DesktopOffered = false });
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => Words(Paragraph(page, "This server does not offer"))
+            .Should().Be("This server does not offer sandboxes with a screen. Its operator decides that."));
+        page.FindAll("a").Should().NotContain(link => link.TextContent.Trim() == "Open its settings", "no setting of the bot gives it a screen on this server");
+        page.FindAll("[role=tab]").Select(tab => tab.TextContent.Trim()).Should().Equal("Terminal");
+    }
+
+    [Fact]
+    public void A_starting_sandbox_says_the_screen_shows_once_it_runs_and_does_not_ask_for_it_yet()
+    {
+        Answer(Status("starting"));
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen").TextContent.Should().Contain("The sandbox is starting. The screen shows once it runs."));
+        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void While_the_first_picture_is_on_its_way_the_screen_says_so()
+    {
+        Answer(Status("running"));
+        var gate = Server.Hold("POST", $"{sandbox}/screen");
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.FindAll(".dv-sandbox-screen [role=status]").Select(note => note.TextContent).Should().Contain("Getting the screen."));
+        gate.SetResult();
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+    }
+
+    [Fact]
+    public void A_picture_the_server_refuses_says_why_in_its_words()
+    {
+        Answer(Status("running"));
+        Server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, "The sandbox's screen did not start.");
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim()
+            .Should().Be("The sandbox's screen did not start. The screen is tried again shortly."));
+        page.FindAll("img.dv-sandbox-image").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_picture_that_takes_too_long_says_so_and_the_screen_keeps_refreshing()
+    {
+        Answer(Status("running"));
+        Server.TimeOut("POST", $"{sandbox}/screen");
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim()
+            .Should().Be("Drover's server did not answer in time. The screen is tried again shortly."));
+
+        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        (await PicturesWithin(2, SandboxWords.NextPictureAfter(1))).Should().Be(2, "the picture is asked for again on its own after a failure");
+
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+        page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim().Should().BeEmpty("the picture came, so the problem is gone");
+    }
+
+    [Fact]
+    public async Task A_sandbox_the_bot_starts_while_the_page_is_open_shows_its_screen_after_the_next_read()
+    {
+        Answer(Status("none"));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen").TextContent.Should().Contain("No sandbox yet."));
+        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("there is nothing to look at yet");
+
+        Answer(Status("running"));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Running"));
+        (await PicturesWithin(1, SandboxWords.NextPictureAfter(0))).Should().Be(1, "the picture comes within its own timer once the state reads running");
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+    }
+
+    [Fact]
+    public async Task A_state_read_that_takes_too_long_does_not_stop_the_reads_after_it()
+    {
+        Answer(Status("none"));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("No sandbox yet"));
+
+        Server.TimeOut("GET", sandbox);
+        time.Advance(TimeSpan.FromSeconds(10));
+        page.WaitForAssertion(() => Server.Sent("GET", sandbox).Should().HaveCount(2));
+        Answer(Status("running"));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Running"));
+        (await PicturesWithin(1, SandboxWords.NextPictureAfter(0))).Should().Be(1);
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
     }
 
     [Fact]
@@ -375,11 +496,11 @@ public sealed class BotSandboxTests : ScreenTest
             await SendOne(page, "key");
         }
 
-        await Task.Delay(TimeSpan.FromMilliseconds(700), Xunit.TestContext.Current.CancellationToken);
+        await Elapse(TimeSpan.FromMilliseconds(700));
         Pictures().Should().Be(2, "one picture is in flight, and the inputs behind it wait for it");
         gate.SetResult();
         (await PicturesWithin(3)).Should().Be(3);
-        await Task.Delay(TimeSpan.FromMilliseconds(700), Xunit.TestContext.Current.CancellationToken);
+        await Elapse(TimeSpan.FromMilliseconds(700));
         Pictures().Should().Be(3, "the inputs made while one was in flight add one picture, not one each");
     }
 
@@ -540,7 +661,7 @@ public sealed class BotSandboxTests : ScreenTest
     #region Helpers
 
     private static BotSandboxStatus Status(string state, DateTimeOffset? lastUsed = default) =>
-        new(Available: true, HasSandbox: true, state, lastUsed ?? (state is "none" ? null : DateTimeOffset.UtcNow.AddMinutes(-3.5)), Desktop: true, BotWorking: false);
+        new(Available: true, HasSandbox: true, state, lastUsed ?? (state is "none" ? null : now.AddMinutes(-3.5)), Desktop: true, BotWorking: false, DesktopOffered: true);
 
     private void Answer(BotSandboxStatus status) => Server.Answer("GET", sandbox, status);
 
@@ -562,18 +683,46 @@ public sealed class BotSandboxTests : ScreenTest
 
     private int Pictures() => Server.Sent("POST", $"{sandbox}/screen").Count();
 
+    private static IElement Paragraph(IRenderedComponent<BotSandbox> page, string start) =>
+        page.FindAll("p").Single(paragraph => paragraph.TextContent.Trim().StartsWith(start, StringComparison.Ordinal));
+
+    private static IElement Link(IRenderedComponent<BotSandbox> page, string name) =>
+        page.FindAll("a").Single(link => link.TextContent.Trim() == name);
+
+    /// <summary>The text as a person reads it: runs of white space are one space, and none is added where there is none.</summary>
+    private static string Words(IElement element) => string.Join(' ', element.TextContent.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
     /// <summary>
-    /// The pictures asked for, once there are <paramref name="expected"/> or a second has passed: well inside the two
-    /// seconds the timer waits. A request held by the server renders nothing, so this looks instead of waiting for a render.
+    /// The pictures asked for, once there are <paramref name="expected"/> or the page's clock has moved on by
+    /// <paramref name="within"/> (a second by default: well inside the two seconds the timer waits). The clock moves in
+    /// small steps and the page gets a moment after each. A request held by the server renders nothing, so this looks
+    /// instead of waiting for a render.
     /// </summary>
-    private async Task<int> PicturesWithin(int expected)
+    private async Task<int> PicturesWithin(int expected, TimeSpan? within = null)
     {
-        for (var look = 0; look < 50 && Pictures() < expected; look++)
+        var until = time.GetUtcNow() + (within ?? TimeSpan.FromSeconds(1));
+
+        while (Pictures() < expected && time.GetUtcNow() < until)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(20), Xunit.TestContext.Current.CancellationToken);
+            await Elapse(step);
+        }
+
+        for (var settle = 0; settle < 20 && Pictures() < expected; settle++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), Xunit.TestContext.Current.CancellationToken);
         }
 
         return Pictures();
+    }
+
+    /// <summary>Moves the page's clock on by <paramref name="span"/> in small steps, giving the page a moment after each.</summary>
+    private async Task Elapse(TimeSpan span)
+    {
+        for (var moved = TimeSpan.Zero; moved < span; moved += step)
+        {
+            time.Advance(step);
+            await Task.Delay(TimeSpan.FromMilliseconds(5), Xunit.TestContext.Current.CancellationToken);
+        }
     }
 
     private static async Task SendOne(IRenderedComponent<BotSandbox> page, string input)

@@ -67,6 +67,16 @@ public sealed class FakeServer : HttpMessageHandler
         return gate;
     }
 
+    /// <summary>
+    /// Fails every request to the address the way the client's own time limit ends one: cancelled, because of a
+    /// timeout, while the screen that asked is still open.
+    /// </summary>
+    public FakeServer TimeOut(string method, string path)
+    {
+        answers[$"{method} {path}"] = () => throw new TaskCanceledException("The request ran past the client's time limit.", new TimeoutException());
+        return this;
+    }
+
     /// <summary>Answers the way the server does when it refuses: a problem document with a sentence as its title.</summary>
     public FakeServer Refuse(string method, string path, HttpStatusCode status, string title)
     {

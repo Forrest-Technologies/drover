@@ -16,7 +16,7 @@ public sealed record BotSandboxStatus(
     DateTimeOffset? LastUsedAt,
     bool Desktop,
     bool BotWorking,
-    bool DesktopOffered = true);
+    bool DesktopOffered);
 
 
 /// <summary>

@@ -9,6 +9,7 @@ namespace Drover.Ui.Chat;
 public sealed partial class ScreenPanel(
     DroverApi api,
     SessionState session,
+    TimeProvider time,
     ILogger<ScreenPanel> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -91,7 +92,7 @@ public sealed partial class ScreenPanel(
 
     private async Task Watch(CancellationToken stop)
     {
-        using var timer = new PeriodicTimer(statusEvery);
+        using var timer = new PeriodicTimer(statusEvery, time);
 
         try
         {
@@ -107,11 +108,13 @@ public sealed partial class ScreenPanel(
     }
 
     // A failure to read the state again leaves the screen as it was; the picture says for itself when it cannot be read.
+    // A read that works clears a first load that failed, so the screen recovers without a tap.
     private async Task Refresh(CancellationToken stop)
     {
         try
         {
             status = await api.GetBotSandbox(SpaceId, Bot.Id, stop);
+            problem = null;
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

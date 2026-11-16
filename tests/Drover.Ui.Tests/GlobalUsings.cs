@@ -44,5 +44,6 @@ global using Drover.Ui.Tools;
 global using Microsoft.AspNetCore.Components;
 global using Microsoft.AspNetCore.Components.Web;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Time.Testing;
 global using Microsoft.JSInterop;
 global using Xunit;

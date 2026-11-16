@@ -12,6 +12,7 @@ public sealed partial class SandboxScreen(
     DroverApi api,
     SessionState session,
     IJSRuntime js,
+    TimeProvider time,
     ILogger<SandboxScreen> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -111,8 +112,8 @@ public sealed partial class SandboxScreen(
         "none" => "No sandbox yet. It starts when the bot first uses it.",
         "paused" => "The sandbox is paused and its files are kept. Resume it to see the screen.",
         "replacing" => "The old sandbox is being taken down. A new one starts on its next use.",
-        "starting" => "The sandbox is starting.",
-        _ => null,
+        "starting" => "The sandbox is starting. The screen shows once it runs.",
+        _ => SandboxWords.NoScreen(Status),
     };
 
     private string ControlWords => control
@@ -249,12 +250,12 @@ public sealed partial class SandboxScreen(
     private async Task<bool> WaitForNextPicture(CancellationToken stop)
     {
         var sent = soon.Task;
-        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), stop);
+        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), time, stop);
 
         if (await Task.WhenAny(next, sent) == sent)
         {
             soon = NewSoon();
-            next = Task.Delay(SandboxWords.PictureAfterInput, stop);
+            next = Task.Delay(SandboxWords.PictureAfterInput, time, stop);
         }
 
         try

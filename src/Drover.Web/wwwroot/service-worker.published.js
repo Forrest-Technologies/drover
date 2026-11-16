@@ -1,5 +1,8 @@
 // Caches the app shell so Drover's files load without waiting on the network and it still opens offline.
-// Data is never cached: every /api request goes to the server.
+// The worker answers only GET requests for Drover's own files and pages. Everything else goes to the network as if
+// there were no worker: the server's API, anything that is not a GET, and every request to another host. A request
+// the worker answered itself would be held to the worker's own content security policy, so the worker never answers
+// for another host.
 self.importScripts("./service-worker-assets.js");
 
 const cacheNamePrefix = "drover-shell-";
@@ -13,7 +16,11 @@ const serverPaths = ["/api/", "/health/", "/openapi/"];
 // reloads itself when the worker changes (boot.js), so it never runs old code against the new shell.
 self.addEventListener("install", event => event.waitUntil(cacheShell().then(() => self.skipWaiting())));
 self.addEventListener("activate", event => event.waitUntil(dropOldShells().then(() => self.clients.claim())));
-self.addEventListener("fetch", event => event.respondWith(answer(event)));
+self.addEventListener("fetch", event => {
+    if (answersFor(event.request)) {
+        event.respondWith(answer(event.request));
+    }
+});
 
 async function cacheShell() {
     const requests = self.assetsManifest.assets
@@ -31,20 +38,31 @@ async function dropOldShells() {
         .map(name => caches.delete(name)));
 }
 
-async function answer(event) {
-    const url = new URL(event.request.url);
-    const forServer = url.origin !== self.location.origin || serverPaths.some(path => url.pathname.startsWith(path));
+// Only Drover's own files and pages. Not answering leaves the request to the browser, exactly as without a worker.
+function answersFor(request) {
+    const url = new URL(request.url);
+    return request.method === "GET"
+        && url.origin === self.location.origin
+        && !serverPaths.some(path => url.pathname.startsWith(path));
+}
 
-    if (event.request.method !== "GET" || forServer) {
-        return fetch(event.request);
+// Never rejects: a request the worker cannot answer gets a network error response, which the page sees as a failed
+// request, instead of a rejection nothing handles.
+async function answer(request) {
+    try {
+        const cache = await caches.open(cacheName);
+        return isPage(request) ? await page(request, cache) : await cache.match(request) ?? await fetch(request);
+    } catch {
+        return Response.error();
     }
+}
 
-    const cache = await caches.open(cacheName);
-    if (event.request.mode === "navigate") {
-        return page(event.request, cache);
-    }
-
-    return await cache.match(event.request) ?? fetch(event.request);
+// A page load: a navigation, or a GET for HTML at an address with no extension. Drover's own files all have an
+// extension; a page address has none. The second kind was seen on a live server: a GET for a page address that was
+// not a navigation failed in the worker with a cache miss, where the stored shell should have answered.
+function isPage(request) {
+    const wantsHtml = request.headers.get("accept")?.includes("text/html") === true;
+    return request.mode === "navigate" || (wantsHtml && !new URL(request.url).pathname.split("/").pop().includes("."));
 }
 
 // A page is asked of the server first. Its response carries the security headers the browser enforces for

@@ -10,6 +10,7 @@ public sealed partial class BotSandbox(
     DroverApi api,
     SessionState session,
     ToastService toasts,
+    TimeProvider time,
     ILogger<BotSandbox> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -71,7 +72,7 @@ public sealed partial class BotSandbox(
     {
         "none" => "Nothing to pause, rebuild, or turn off yet.",
         "replacing" => "The old sandbox is being taken down. A new one starts on its next use.",
-        "starting" => "The sandbox is starting.",
+        "starting" when view is not ScreenView => "The sandbox is starting.",
         _ => null,
     };
 
@@ -153,7 +154,7 @@ public sealed partial class BotSandbox(
 
     private async Task Watch(CancellationToken stop)
     {
-        using var timer = new PeriodicTimer(statusEvery);
+        using var timer = new PeriodicTimer(statusEvery, time);
 
         try
         {

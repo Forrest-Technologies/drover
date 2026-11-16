@@ -24,7 +24,7 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         var status = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
 
-        status.Value.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: false, BotWorking: false));
+        status.Value.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: false, BotWorking: false, DesktopOffered: true));
         provider.Created.Should().Be(0);
     }
 
@@ -290,6 +290,16 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         off.Should().Match<BotSandboxStatus>(status => !status.Desktop && status.DesktopOffered, "Desktop is off, and turning it on would give it a screen");
         refused.Should().Match<BotSandboxStatus>(status => !status.Desktop && !status.DesktopOffered, "the server offers none, whatever the bot's setting");
+    }
+
+    [Fact]
+    public async Task A_bot_without_a_sandbox_still_hears_whether_the_server_offers_screens()
+    {
+        await using var world = await ControlWorld(new FakeSandboxProvider(), SandboxPolicy.None, policy: DeploymentPolicy.SelfHosted with { AllowDesktopSandboxes = false });
+
+        var status = (await Control(world).GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!;
+
+        status.Should().Match<BotSandboxStatus>(found => !found.HasSandbox && !found.DesktopOffered);
     }
 
     [Fact]

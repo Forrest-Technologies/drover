@@ -108,7 +108,7 @@ Rules, enforced by project references and by analyzer `DRV0007`:
 - The server keeps no per-user UI circuit. That matters for the hosted service's memory use and lets a deploy restart the server without dropping anyone's UI state.
 - It can be installed as a PWA, which is the Linux desktop answer for now.
 
-Cost: a larger first download than server-side rendering. The shell is cached by the service worker after first load.
+Cost: a larger first download than server-side rendering. The shell is cached by the service worker after first load. The worker answers only GET requests for Drover's own files and pages: a page is asked of the server first and falls back to the stored shell, a file comes from the stored shell, and a request the worker cannot answer gets a network error response, never an unhandled rejection. The API, anything that is not a GET, and every request to another host go to the network as if there were no worker, because a request the worker made itself would be held to the worker's own content security policy.
 
 ## Apple switch
 

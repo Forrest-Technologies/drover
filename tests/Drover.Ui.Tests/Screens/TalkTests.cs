@@ -20,6 +20,8 @@ public sealed class TalkTests : ScreenTest
 
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
+    private readonly FakeTimeProvider time = new();
+
     #endregion
 
     #region Constructors
@@ -27,6 +29,7 @@ public sealed class TalkTests : ScreenTest
     public TalkTests()
     {
         SignedIn();
+        Services.AddSingleton<TimeProvider>(time);
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
         Server.Answer("GET", $"{space}/bots", new[] { Marshal });
         Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null) });
@@ -236,8 +239,94 @@ public sealed class TalkTests : ScreenTest
 
         var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
 
-        page.WaitForAssertion(() => page.Find("aside .dv-empty-title").TextContent.Should().Be("Marshal has no screen"));
-        page.Find("aside .dv-empty-action").GetAttribute("href").Should().Be($"/bots/{botId}");
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Marshal has no screen"));
+        page.Find("aside h2 + p").TextContent.Should().Be("This sandbox has no screen. Turn on Desktop in the Sandbox section of the bot's settings to give it one.");
+        RailLink(page, "Open its settings").GetAttribute("href").Should().Be($"/bots/{botId}");
+    }
+
+    [Fact]
+    public void The_screen_opened_for_a_bot_without_a_sandbox_says_how_to_give_it_one()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: false) with { HasSandbox = false, State = "none" });
+
+        var page = RenderScreen();
+
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Marshal has no sandbox"));
+        page.Find("aside h2 + p").TextContent.Should().Be("Give it a sandbox with Desktop on, in the Sandbox section of its settings.");
+        RailLink(page, "Open its settings").GetAttribute("href").Should().Be($"/bots/{botId}");
+    }
+
+    [Fact]
+    public void The_screen_on_a_server_that_offers_none_says_so_and_offers_the_terminal_instead()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: false) with { DesktopOffered = false });
+
+        var page = RenderScreen();
+
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Marshal has no screen"));
+        page.Find("aside h2 + p").TextContent.Should().Be("This server does not offer sandboxes with a screen. Its operator decides that.");
+        RailLink(page, "Open its terminal").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox");
+    }
+
+    [Fact]
+    public void The_screen_for_a_bot_without_a_sandbox_on_a_server_that_offers_none_says_the_server_offers_none()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: false) with { HasSandbox = false, State = "none", DesktopOffered = false });
+
+        var page = RenderScreen();
+
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Marshal has no screen"));
+        page.Find("aside h2 + p").TextContent.Should().Be("This server does not offer sandboxes with a screen. Its operator decides that.");
+        RailLink(page, "Open its settings").GetAttribute("href").Should().Be($"/bots/{botId}");
+    }
+
+    [Fact]
+    public async Task The_screen_that_could_not_load_says_why_offers_to_try_again_and_recovers_on_the_next_read()
+    {
+        Server.TimeOut("GET", $"{space}/bots/{botId}/sandbox");
+        var page = RenderScreen();
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Drover could not load the screen"));
+        page.Find("aside h2 + p").TextContent.Should().Be(Failures.TooSlow);
+        page.FindAll("aside button").Should().Contain(button => button.TextContent.Trim() == "Try again");
+
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "paused" });
+        await Elapse(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Paused"));
+        page.FindAll("aside h2").Should().BeEmpty("the read that worked replaced the problem");
+    }
+
+    [Fact]
+    public async Task The_screen_opened_before_the_bot_starts_its_sandbox_says_so_then_shows_the_picture_after_the_next_read()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "none", LastUsedAt = null });
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        var page = RenderScreen();
+        page.WaitForAssertion(() => page.Find("aside .dv-sandbox-screen").TextContent.Should().Contain("No sandbox yet. It starts when the bot first uses it."));
+        Server.Sent("POST", $"{space}/bots/{botId}/sandbox/screen").Should().BeEmpty("there is nothing to look at yet");
+
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Running"));
+        await Elapse(SandboxWords.NextPictureAfter(0));
+        page.WaitForAssertion(() => page.Find("aside img.dv-sandbox-image"));
+    }
+
+    [Fact]
+    public void A_state_read_that_takes_too_long_does_not_stop_the_screens_reads_after_it()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "none", LastUsedAt = null });
+        var page = RenderScreen();
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("No sandbox yet"));
+
+        Server.TimeOut("GET", $"{space}/bots/{botId}/sandbox");
+        time.Advance(TimeSpan.FromSeconds(10));
+        page.WaitForAssertion(() => Server.Sent("GET", $"{space}/bots/{botId}/sandbox").Should().HaveCount(3, "the page's own read, the screen's first, and the one that timed out"));
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "paused" });
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Paused"));
     }
 
     [Fact]
@@ -612,8 +701,27 @@ public sealed class TalkTests : ScreenTest
         return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId));
     }
 
+    private static IElement RailLink(IRenderedComponent<Talk> page, string name) =>
+        page.FindAll("aside a").Single(link => link.TextContent.Trim() == name);
+
+    /// <summary>Moves the page's clock on in small steps, giving the page a moment after each.</summary>
+    private async Task Elapse(TimeSpan span)
+    {
+        for (var moved = TimeSpan.Zero; moved < span; moved += TimeSpan.FromMilliseconds(100))
+        {
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            await Task.Delay(TimeSpan.FromMilliseconds(5), Xunit.TestContext.Current.CancellationToken);
+        }
+    }
+
+    private IRenderedComponent<Talk> RenderScreen()
+    {
+        Navigation.NavigateTo($"/talk/{botId}/screen");
+        return Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+    }
+
     private static BotSandboxStatus ScreenStatus(bool desktop) =>
-        new(Available: true, HasSandbox: true, "running", DateTimeOffset.UnixEpoch, Desktop: desktop, BotWorking: false);
+        new(Available: true, HasSandbox: true, "running", DateTimeOffset.UnixEpoch, Desktop: desktop, BotWorking: false, DesktopOffered: true);
 
     // The header of a 1024 by 768 PNG: as much of one as the screen reads.
     private static byte[] ScreenPng { get; } =
