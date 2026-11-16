@@ -71,7 +71,7 @@ public sealed class PushNotifier(
 
         foreach (var device in devices)
         {
-            var outcome = await channel.Send(device, job.WakeUp, cancellationToken);
+            var outcome = await SendTo(channel, device, job.WakeUp, cancellationToken);
             (outcome switch
             {
                 PushOutcome.SubscriptionGone => gone,
@@ -107,13 +107,27 @@ public sealed class PushNotifier(
 
     #region Private Methods
 
+    /// <summary>One device's try. A failure of one device is that device's alone: the others are still sent to.</summary>
+    private async Task<PushOutcome> SendTo(IPushChannel to, PushSubscription device, PushWakeUp wakeUp, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await to.Send(device, wakeUp, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogError(exception, "A push to device {SubscriptionId} failed; it will be tried again", device.Id);
+            return PushOutcome.RetryLater;
+        }
+    }
+
     /// <summary>Tries the job, and again after each delay while a push service asks for it, until the server stops.</summary>
     private async Task Send(PushJob job)
     {
-        var token = stopping.Token;
-
         try
         {
+            // Read inside the try: a notifier disposed while the server stops has no token to give.
+            var token = stopping.Token;
             var next = await Deliver(job, token);
 
             while (next is not null)
@@ -122,9 +136,9 @@ public sealed class PushNotifier(
                 next = await Deliver(next, token);
             }
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
         {
-            logger.LogDebug("A push for thread {ThreadId} was not sent: the server is stopping", job.WakeUp.ThreadId);
+            logger.LogDebug(exception, "A push for thread {ThreadId} was not sent: the server is stopping", job.WakeUp.ThreadId);
         }
         catch (Exception exception)
         {

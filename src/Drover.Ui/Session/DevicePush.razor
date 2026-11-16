@@ -122,8 +122,18 @@ else
         }
     }
 
+    /// <summary>
+    /// A subscription the browser already holds is not this person's (they would be On), so it may still wake someone
+    /// who used this browser before. It is ended first, and a new one is made: the old address stops working, and its
+    /// push service reports it gone, which removes the other person's row.
+    /// </summary>
     private async Task<PushState> TurnOn()
     {
+        if ((await Registration.Check()).Endpoint is not null)
+        {
+            await Registration.Unsubscribe();
+        }
+
         if (await Registration.Subscribe(publicKey!) is { } device)
         {
             await Api.TurnOnPush(device);

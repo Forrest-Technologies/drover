@@ -46,6 +46,20 @@ public sealed class PushKeyStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_key_ring_folder_the_server_cannot_write_turns_push_off_with_the_fix()
+    {
+        // A file where the folder should be: no process, root included, can write beneath it.
+        File.WriteAllText(keyRing, "not a folder");
+        var protection = Microsoft.AspNetCore.DataProtection.DataProtectionProvider.Create(
+            new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"drover-ring-{Guid.NewGuid():N}")));
+
+        var opened = Store(protection).Open(Subject);
+
+        opened.Keys.Should().BeNull();
+        opened.Problem.Should().Contain("cannot write its Web Push keys").And.Contain("writable");
+    }
+
+    [Fact]
     public void The_stored_pair_does_not_hold_either_key_in_the_clear()
     {
         Directory.CreateDirectory(keyRing);
@@ -62,6 +76,10 @@ public sealed class PushKeyStoreTests : IDisposable
         if (Directory.Exists(keyRing))
         {
             Directory.Delete(keyRing, recursive: true);
+        }
+        else if (File.Exists(keyRing))
+        {
+            File.Delete(keyRing);
         }
     }
 

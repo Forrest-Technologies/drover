@@ -10,6 +10,9 @@ public enum PushServiceAnswer
     Unavailable,
     Refused,
     Unreachable,
+
+    /// <summary>This server's outbound policy refuses the address before any request leaves.</summary>
+    Blocked,
 }
 
 
@@ -96,6 +99,7 @@ public abstract class PushChannelConformance
     [InlineData(PushServiceAnswer.Gone)]
     [InlineData(PushServiceAnswer.NotFound)]
     [InlineData(PushServiceAnswer.Refused)]
+    [InlineData(PushServiceAnswer.Blocked)]
     public async Task A_subscription_the_service_will_never_deliver_to_is_gone(PushServiceAnswer answer)
     {
         var rig = Rig(answer);
@@ -112,6 +116,17 @@ public abstract class PushChannelConformance
         var rig = Rig(answer);
 
         (await rig.Channel.Send(rig.Subscription, wakeUp, Token)).Should().Be(PushOutcome.RetryLater);
+    }
+
+    [Fact]
+    public async Task A_device_whose_key_is_not_a_point_on_the_curve_is_gone_and_nothing_is_sent()
+    {
+        var rig = Rig(PushServiceAnswer.Accepted);
+        byte[] offTheCurve = [0x04, .. new byte[64]];
+        rig.Subscription.PublicKey = Convert.ToBase64String(offTheCurve).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+        (await rig.Channel.Send(rig.Subscription, wakeUp, Token)).Should().Be(PushOutcome.SubscriptionGone);
+        rig.Received().Should().BeEmpty();
     }
 
     [Fact]

@@ -6,6 +6,7 @@ global using System.Security.Cryptography;
 global using System.Text.Json;
 global using System.Threading;
 global using System.Threading.Tasks;
+global using Drover.Domain.Policy;
 global using Drover.Domain.Push;
 global using Lib.Net.Http.WebPush;
 global using Lib.Net.Http.WebPush.Authentication;

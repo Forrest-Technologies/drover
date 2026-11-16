@@ -22,6 +22,11 @@ public sealed class PushService(
     /// </summary>
     public const int MaxDevicesPerPerson = 10;
 
+    /// <summary>The prime of the P-256 field, and the constant b of its curve y² = x³ − 3x + b.</summary>
+    private static readonly BigInteger curvePrime = BigInteger.Parse("0FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", NumberStyles.HexNumber);
+
+    private static readonly BigInteger curveB = BigInteger.Parse("05AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", NumberStyles.HexNumber);
+
     #endregion
 
     #region Devices
@@ -158,13 +163,41 @@ public sealed class PushService(
         return thread is not null && bot is not null ? (thread, bot) : null;
     }
 
-    /// <summary>An https push service address and keys of the sizes Web Push uses: a P-256 public key and a 16-byte secret.</summary>
+    /// <summary>
+    /// An https push service address that is not plainly a private one, a P-256 public key that is a point on the
+    /// curve, and a 16-byte secret. A key off the curve could never have a payload encrypted to it. A host name that
+    /// only resolves to a private address is refused when the push is sent, by the outbound client.
+    /// </summary>
     private static bool IsSubscription(PushDeviceRequest device) =>
         Uri.TryCreate(device.Endpoint, UriKind.Absolute, out var endpoint)
         && endpoint.Scheme == Uri.UriSchemeHttps
         && device.Endpoint.Length <= 2048
-        && DecodedLength(device.PublicKey) == 65
+        && !IsPlainlyPrivate(endpoint)
+        && IsPointOnTheCurve(device.PublicKey)
         && DecodedLength(device.AuthSecret) == 16;
+
+    private static bool IsPlainlyPrivate(Uri endpoint) =>
+        endpoint.IsLoopback || (IPAddress.TryParse(endpoint.DnsSafeHost, out var address) && PrivateAddresses.Contains(address));
+
+    private static bool IsPointOnTheCurve(string publicKey)
+    {
+        if (DecodedLength(publicKey) != 65)
+        {
+            return false;
+        }
+
+        var point = Base64Url.DecodeFromChars(publicKey);
+
+        if (point[0] != 0x04)
+        {
+            return false;
+        }
+
+        var x = new BigInteger(point.AsSpan(1, 32), isUnsigned: true, isBigEndian: true);
+        var y = new BigInteger(point.AsSpan(33, 32), isUnsigned: true, isBigEndian: true);
+        return x < curvePrime && y < curvePrime
+            && BigInteger.Remainder((y * y) - (BigInteger.ModPow(x, 3, curvePrime) - (3 * x) + curveB), curvePrime).IsZero;
+    }
 
     private static int DecodedLength(string value) =>
         Base64Url.IsValid(value, out var length) ? length : -1;

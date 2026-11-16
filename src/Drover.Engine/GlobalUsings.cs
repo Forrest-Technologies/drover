@@ -11,6 +11,7 @@ global using System.Linq;
 global using System.Net;
 global using System.Net.Http;
 global using System.Net.Sockets;
+global using System.Numerics;
 global using System.Runtime.CompilerServices;
 global using System.Security.Cryptography;
 global using System.Text;

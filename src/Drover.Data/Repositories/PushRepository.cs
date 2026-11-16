@@ -11,10 +11,16 @@ public sealed class PushRepository(DroverDbContext db)
 
     /// <summary>
     /// Adds the device, or renews its keys when the person registered it before. A person keeps at most
-    /// <paramref name="keep"/> devices: the one registered longest ago makes room for a new one.
+    /// <paramref name="keep"/> devices: the one registered longest ago makes room for a new one. Runs inside the
+    /// service's transaction, which it serializes per person.
     /// </summary>
     public async Task SaveSubscription(PushSubscription subscription, int keep, CancellationToken cancellationToken)
     {
+        // One person's devices change one at a time, so the cap holds and the same device registered twice at once
+        // is renewed, not inserted twice. The lock ends with the transaction.
+        var lockKey = $"push-subscriptions:{subscription.UserId}";
+        await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))", cancellationToken);
+
         var existing = await db.PushSubscriptions.SingleOrDefaultAsync(
             row => row.Endpoint == subscription.Endpoint,
             cancellationToken);

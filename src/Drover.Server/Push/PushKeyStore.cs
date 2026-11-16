@@ -36,7 +36,16 @@ public sealed class PushKeyStore(string keyRingPath, IDataProtectionProvider pro
 
         if (!File.Exists(FilePath))
         {
-            TryCreate(protector, subject);
+            try
+            {
+                TryCreate(protector, subject);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                logger.LogError(exception, "The server cannot write its Web Push keys to {Folder}; notifications are off", keyRingPath);
+                return PushAvailability.Off(
+                    $"Notifications are off: the server cannot write its Web Push keys to {keyRingPath}. Make that folder writable by the server, then start it again.");
+            }
         }
 
         try

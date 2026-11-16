@@ -11,9 +11,16 @@ public sealed class WebPushConformanceTests : PushChannelConformance
     protected override PushRig Rig(PushServiceAnswer answer)
     {
         var device = new TestDevice();
-        HttpMessageHandler handler = answer is PushServiceAnswer.Unreachable
-            ? new ScriptedHandler((_, _, _) => throw new HttpRequestException("No route to the push service."))
-            : new RecordedHandler(RecordedFixture.Load("web-push", FixtureFor(answer)));
+        HttpMessageHandler handler = answer switch
+        {
+            PushServiceAnswer.Unreachable => new ScriptedHandler((_, _, _) => throw new HttpRequestException("No route to the push service.")),
+
+            // As the checked outbound handler fails a connection it refuses: the refusal inside a request failure.
+            PushServiceAnswer.Blocked => new ScriptedHandler((_, _, _) => throw new HttpRequestException(
+                "The connection was refused.",
+                new OutboundBlockedException("This server does not allow requests to private addresses."))),
+            _ => new RecordedHandler(RecordedFixture.Load("web-push", FixtureFor(answer))),
+        };
         var channel = new WebPushChannel(
             new FixtureHttpClientFactory(handler).CreateClient("web-push"),
             WebPushKeys.Generate("mailto:operator@example.invalid"),

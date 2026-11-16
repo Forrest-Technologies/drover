@@ -42,6 +42,16 @@ public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<We
         {
             return OutcomeFor(refused.StatusCode);
         }
+        catch (Exception unusable) when (unusable is CryptographicException or FormatException or ArgumentException)
+        {
+            logger.LogWarning(unusable, "Subscription {SubscriptionId} has keys a payload cannot be encrypted to", subscription.Id);
+            return PushOutcome.SubscriptionGone;
+        }
+        catch (HttpRequestException blocked) when (IsBlocked(blocked))
+        {
+            logger.LogWarning(blocked, "Subscription {SubscriptionId} points at an address this server does not reach", subscription.Id);
+            return PushOutcome.SubscriptionGone;
+        }
         catch (HttpRequestException unreachable)
         {
             logger.LogWarning(unreachable, "The push service for subscription {SubscriptionId} could not be reached", subscription.Id);
@@ -72,6 +82,10 @@ public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<We
         logger.LogWarning("The push service answered {Status}; the wake-up will be tried again", (int)status);
         return PushOutcome.RetryLater;
     }
+
+    /// <summary>The outbound policy refused the address: it will never be reached, so retrying only repeats the refusal.</summary>
+    private static bool IsBlocked(HttpRequestException exception) =>
+        exception is OutboundBlockedException || exception.InnerException is OutboundBlockedException;
 
     private static ServiceSubscription ToServiceSubscription(DeviceSubscription subscription)
     {

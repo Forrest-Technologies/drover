@@ -120,6 +120,58 @@ public sealed class PushControlTests : ScreenTest
         Server.Requests.Should().Contain(request => request.Method == "POST" && request.Path == "/api/push/device/off" && request.Body.Contains("sample-device"));
     }
 
+    [Fact]
+    public void A_subscription_this_browser_held_for_someone_else_is_ended_and_a_new_one_made()
+    {
+        device.Endpoint = "https://push.example/someone-elses";
+        device.Subscription = new PushDeviceRequest("https://push.example/a-new-one", "sample-key", "sample-secret");
+        Server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        Server.Answer("POST", "/api/push/device/state", new PushDeviceState(false));
+        Server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
+        var control = Render<DevicePush>();
+        control.WaitForAssertion(() => control.Find("button").TextContent.Trim().Should().Be("Turn on notifications on this device"));
+
+        control.Find("button").Click();
+
+        control.WaitForAssertion(() => control.Find(".dv-push-state").TextContent.Should().Be(PushWords.Sentence(PushState.On)));
+        device.Unsubscribed.Should().Equal("https://push.example/someone-elses");
+        Server.Requests.Should().Contain(request => request.Path == "/api/push/device" && request.Body.Contains("a-new-one"))
+            .And.NotContain(request => request.Path == "/api/push/device" && request.Body.Contains("someone-elses"));
+    }
+
+    [Fact]
+    public void Signing_out_turns_this_device_off_before_the_session_ends()
+    {
+        SignedIn();
+        Services.GetRequiredService<SessionState>().Begin(Person);
+        device.Endpoint = "https://push.example/this-device";
+        Server.Answer("POST", "/api/push/device/off", HttpStatusCode.NoContent);
+        Server.Answer("POST", "/api/sign-out", HttpStatusCode.NoContent);
+        var menu = Render<AccountMenu>();
+
+        menu.FindAll("[role=menuitem]").Single(item => item.TextContent.Trim() == "Sign out").Click();
+
+        menu.WaitForAssertion(() => Address.Should().Be("sign-in"));
+        var paths = Server.Requests.Select(request => request.Path).ToList();
+        paths.IndexOf("/api/push/device/off").Should().BeGreaterThanOrEqualTo(0).And.BeLessThan(paths.IndexOf("/api/sign-out"));
+        Server.Requests.Single(request => request.Path == "/api/push/device/off").Body.Should().Contain("this-device");
+    }
+
+    [Fact]
+    public void A_browser_that_never_answers_does_not_keep_the_person_signed_in()
+    {
+        SignedIn();
+        Services.GetRequiredService<SessionState>().Begin(Person);
+        device.CheckNeverFinishes = true;
+        Server.Answer("POST", "/api/sign-out", HttpStatusCode.NoContent);
+        var menu = Render<AccountMenu>();
+
+        menu.FindAll("[role=menuitem]").Single(item => item.TextContent.Trim() == "Sign out").Click();
+
+        menu.WaitForAssertion(() => Address.Should().Be("sign-in"), TimeSpan.FromSeconds(10));
+        Server.Requests.Should().NotContain(request => request.Path == "/api/push/device/off");
+    }
+
     [Theory]
     [InlineData(DevicePushSupport.Available, PushState.Off)]
     [InlineData(DevicePushSupport.Blocked, PushState.Blocked)]
@@ -203,66 +255,6 @@ public sealed class PushControlTests : ScreenTest
     #region Private Methods
 
     private int FocusCalls() => JSInterop.Invocations.Count(call => call.Identifier.EndsWith("focus", StringComparison.Ordinal));
-
-    #endregion
-}
-
-
-/// <summary>A browser stand-in: what it supports, the subscription it holds, and what it answers when asked.</summary>
-public sealed class FakePushRegistration : IPushRegistration
-{
-    #region Properties
-
-    public DevicePushSupport Support { get; set; } = DevicePushSupport.Available;
-
-    /// <summary>What the browser reports once the person was asked and did not allow it.</summary>
-    public DevicePushSupport SupportAfterAsking { get; set; } = DevicePushSupport.Available;
-
-    public string? Endpoint { get; set; }
-
-    /// <summary>What the browser gives when permission is granted. Null means it was not.</summary>
-    public PushDeviceRequest? Subscription { get; set; }
-
-    public string? AskedWith { get; private set; }
-
-    /// <summary>The next check fails as a browser call does.</summary>
-    public bool FailNextCheck { get; set; }
-
-    #endregion
-
-    #region Interface Implementations
-
-    public Task<DevicePushCheck> Check(CancellationToken cancellationToken = default)
-    {
-        if (FailNextCheck)
-        {
-            FailNextCheck = false;
-            throw new JSException("Sample: the browser call failed.");
-        }
-
-        return Task.FromResult(new DevicePushCheck(Support, Endpoint));
-    }
-
-    public Task<PushDeviceRequest?> Subscribe(string publicKey, CancellationToken cancellationToken = default)
-    {
-        AskedWith = publicKey;
-
-        if (Subscription is null)
-        {
-            Support = SupportAfterAsking;
-            return Task.FromResult<PushDeviceRequest?>(null);
-        }
-
-        Endpoint = Subscription.Endpoint;
-        return Task.FromResult<PushDeviceRequest?>(Subscription);
-    }
-
-    public Task<string?> Unsubscribe(CancellationToken cancellationToken = default)
-    {
-        var ended = Endpoint;
-        Endpoint = null;
-        return Task.FromResult(ended);
-    }
 
     #endregion
 }

@@ -150,9 +150,10 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
 
     private static PushDeviceRequest Device(string endpoint)
     {
-        var key = new byte[65];
-        key[0] = 4;
-        return new PushDeviceRequest(endpoint, Base64Url.EncodeToString(key), Base64Url.EncodeToString(new byte[16]));
+        using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var point = key.ExportParameters(false).Q;
+        byte[] publicKey = [0x04, .. point.X!, .. point.Y!];
+        return new PushDeviceRequest(endpoint, Base64Url.EncodeToString(publicKey), Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)));
     }
 
     private static async Task<bool> IsOn(ApiClient client, string endpoint)

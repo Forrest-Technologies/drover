@@ -197,6 +197,21 @@ public sealed class PushNotifierTests(PostgresServer postgres)
         delays[0].Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(10));
     }
 
+    [Fact]
+    public async Task A_device_that_fails_does_not_keep_the_persons_other_devices_from_being_woken()
+    {
+        var push = new FakePushChannel { Answer = count => count == 0 ? throw new InvalidOperationException("Sample: a channel failure.") : PushOutcome.Delivered };
+        await using var world = await World(push, new ScriptedModel([new TextOutput("Done.")]), start: false);
+        await TurnOn(world, world.UserId, OwnersDevice);
+        await TurnOn(world, world.UserId, MembersDevice);
+        var notifier = await world.WithService<PushNotifier, PushNotifier>(Task.FromResult);
+
+        var next = await notifier.Deliver(Job(world, Guid.CreateVersion7()), RunWorld.Token);
+
+        push.Sent.Should().HaveCount(2, "the second device is still asked after the first one failed");
+        next!.DeviceIds.Should().ContainSingle().Which.Should().Be(push.Sent[0].Device.Id);
+    }
+
     #endregion
 
     #region What A Device Shows
@@ -217,6 +232,51 @@ public sealed class PushNotifierTests(PostgresServer postgres)
         owners.Should().Be(new PushWakeText($"{botName} is waiting for you to approve a step.", world.BotId, threadId, false));
         members.Should().BeNull("the thread is the owner's private conversation");
         unknown.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("https://10.0.0.5/push")]
+    [InlineData("https://127.0.0.1/push")]
+    [InlineData("https://[::1]/push")]
+    [InlineData("https://localhost/push")]
+    public async Task A_push_address_that_is_plainly_private_is_refused(string endpoint)
+    {
+        await using var world = await World(new FakePushChannel(), new ScriptedModel([new TextOutput("Done.")]), start: false);
+
+        var accepted = await world.WithService<PushService, bool>(service => service.TurnOn(world.UserId, Device(endpoint), RunWorld.Token));
+
+        accepted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_key_that_is_not_a_point_on_the_curve_is_refused()
+    {
+        await using var world = await World(new FakePushChannel(), new ScriptedModel([new TextOutput("Done.")]), start: false);
+        byte[] offTheCurve = [0x04, .. new byte[64]];
+        var device = Device("https://push.example/device") with { PublicKey = Base64Url.EncodeToString(offTheCurve) };
+
+        var accepted = await world.WithService<PushService, bool>(service => service.TurnOn(world.UserId, device, RunWorld.Token));
+
+        accepted.Should().BeFalse();
+        (await world.WithService<PushService, bool>(service => service.TurnOn(world.UserId, Device("https://push.example/device"), RunWorld.Token)))
+            .Should().BeTrue("a real key at the same address is taken");
+    }
+
+    [Fact]
+    public async Task Devices_turned_on_at_once_still_keep_to_the_cap_and_the_same_device_twice_is_one_row()
+    {
+        await using var world = await World(new FakePushChannel(), new ScriptedModel([new TextOutput("Done.")]), start: false);
+
+        var many = await Task.WhenAll(Enumerable.Range(0, PushService.MaxDevicesPerPerson * 2)
+            .Select(number => world.WithService<PushService, bool>(service => service.TurnOn(world.UserId, Device($"https://push.example/many-{number}"), RunWorld.Token))));
+        var countAfterMany = await world.Read(db => db.PushSubscriptions.CountAsync(RunWorld.Token));
+        var same = await Task.WhenAll(Enumerable.Range(0, 5)
+            .Select(_ => world.WithService<PushService, bool>(service => service.TurnOn(world.UserId, Device("https://push.example/same"), RunWorld.Token))));
+
+        many.Should().OnlyContain(accepted => accepted);
+        countAfterMany.Should().Be(PushService.MaxDevicesPerPerson);
+        same.Should().OnlyContain(accepted => accepted, "the same device registered at once is renewed, never an error");
+        (await world.Read(db => db.PushSubscriptions.CountAsync(row => row.Endpoint == "https://push.example/same", RunWorld.Token))).Should().Be(1);
     }
 
     [Theory]
@@ -274,13 +334,17 @@ public sealed class PushNotifierTests(PostgresServer postgres)
 
     private static async Task TurnOn(RunWorld world, Guid userId, string endpoint)
     {
-        var key = new byte[65];
-        key[0] = 4;
-        var on = await world.WithServiceAs<PushService, bool>(userId, service => service.TurnOn(
-            userId,
-            new PushDeviceRequest(endpoint, Base64Url.EncodeToString(key), Base64Url.EncodeToString(new byte[16])),
-            RunWorld.Token));
+        var on = await world.WithServiceAs<PushService, bool>(userId, service => service.TurnOn(userId, Device(endpoint), RunWorld.Token));
         on.Should().BeTrue();
+    }
+
+    /// <summary>A device as a browser registers it: a real P-256 public key, uncompressed, and a 16-byte secret.</summary>
+    private static PushDeviceRequest Device(string endpoint)
+    {
+        using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var point = key.ExportParameters(false).Q;
+        byte[] publicKey = [0x04, .. point.X!, .. point.Y!];
+        return new PushDeviceRequest(endpoint, Base64Url.EncodeToString(publicKey), Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)));
     }
 
     private static Task<bool> IsOn(RunWorld world, string endpoint) =>

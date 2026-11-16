@@ -2,6 +2,8 @@
 @inject ThemeService Theme
 @inject ToastService Toasts
 @inject NavigationManager Navigation
+@inject IPushRegistration Push
+@inject DroverApi Api
 @inject ILogger<AccountMenu> Logger
 
 <Menu @ref="menu" Label="@(Session.Current?.DisplayName ?? "Account")">
@@ -69,6 +71,7 @@
     {
         try
         {
+            await TurnOffThisDevice();
             await Session.End();
             Navigation.NavigateTo(Addresses.SignIn);
         }
@@ -76,6 +79,28 @@
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AccountMenu));
             Toasts.Show($"You are still signed in. {Failures.Sentence(exception)}", ToastKind.Error);
+        }
+    }
+
+    /// <summary>
+    /// A device signed out of stops being woken for its person: the next person on this browser must never be shown
+    /// that someone else's bot needs them. Best effort and bounded: a browser or server that does not answer in time
+    /// never keeps the person signed in.
+    /// </summary>
+    private async Task TurnOffThisDevice()
+    {
+        using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            if ((await Push.Check(patience.Token)).Endpoint is { } endpoint)
+            {
+                await Api.TurnOffPush(endpoint, patience.Token);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is JSException or OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "This device's notifications could not be turned off at sign-out");
         }
     }
 
