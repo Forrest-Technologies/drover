@@ -13,7 +13,7 @@
             </Button>
         </div>
     }
-    <div class="dv-composer-frame dv-facet @(Running && !Waiting ? "dv-state-tool" : null)">
+    <div class="dv-composer-frame dv-facet @(Running && !Waiting ? "dv-state-tool" : null) @(Running && HasSomething ? "dv-composer-two-actions" : null)">
     <IconButton Icon="IconName.Plus" Label="More options" OnClick="ToggleOptions"
                 aria-expanded="@(optionsOpen ? "true" : "false")" aria-controls="@optionsId" />
     <textarea @ref="field" class="dv-composer-field" rows="1" aria-label="Message to @BotName" placeholder="Write to @BotName"

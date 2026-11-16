@@ -9,6 +9,7 @@
 //   does not shrink for the keyboard on Android. Without it, the window's inner height is used.
 
 const arrows = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+const touch = matchMedia("(pointer: coarse)");
 const tapSlop = 10;
 const maxScale = 4;
 
@@ -34,7 +35,7 @@ export function start(page) {
   listen(document, "focusin", focusIn);
   listen(document, "focusout", focusOut);
   const viewport = window.visualViewport;
-  listen(viewport ?? window, "resize", () => typing && requestAnimationFrame(() => fit(true)));
+  listen(viewport ?? window, "resize", () => typing && requestAnimationFrame(fit));
 }
 
 export function stop() {
@@ -42,10 +43,9 @@ export function stop() {
     target.removeEventListener(name, handler, capture);
   }
   clearTimeout(leaving);
+  leave();
   owner = null;
   gesture = null;
-  typing = null;
-  leaving = 0;
   pointersDown = 0;
 }
 
@@ -207,20 +207,19 @@ function keepArrows(event) {
 
 function focusIn(event) {
   const screen = event.target.closest?.(".dv-sandbox-type")?.closest(".dv-sandbox-screen");
-  if (!screen || event.target.tagName !== "INPUT") {
+  if (!touch.matches || !screen || event.target.tagName !== "INPUT") {
     return;
   }
 
   clearTimeout(leaving);
   leaving = 0;
   typing = screen;
-  screen.classList.add("dv-sandbox-typing");
-  requestAnimationFrame(() => fit(true));
+  requestAnimationFrame(fit);
 }
 
 // Send does not take the focus from the field, so the on-screen keyboard stays up.
 function holdFocus(event) {
-  if (typing && event.target.closest?.(".dv-sandbox-type button")) {
+  if (event.target.closest?.(".dv-sandbox-type button")?.form?.contains(document.activeElement)) {
     event.preventDefault();
   }
 }
@@ -248,7 +247,7 @@ function leave() {
   typing = null;
 }
 
-function fit(scroll) {
+function fit() {
   const screen = typing;
   const frame = screen?.querySelector(".dv-sandbox-frame");
   const form = screen?.querySelector(".dv-sandbox-type");
@@ -258,22 +257,16 @@ function fit(scroll) {
 
   const visible = window.visualViewport?.height ?? window.innerHeight;
   const margin = parseFloat(getComputedStyle(frame).scrollMarginTop) || 0;
+  const formHeight = form.getBoundingClientRect().height;
   const below = form.getBoundingClientRect().bottom - frame.getBoundingClientRect().bottom;
-  screen.style.setProperty("--dv-sandbox-room", `${Math.max(visible - below - 2 * margin, 0)}px`);
-
-  if (scroll) {
-    makeRoomBelow(screen, frame, margin);
+  const room = visible - below - 2 * margin;
+  const fits = room >= formHeight;
+  screen.classList.toggle("dv-sandbox-typing", fits);
+  if (fits) {
+    screen.style.setProperty("--dv-sandbox-room", `${room}px`);
     frame.scrollIntoView({ block: "start", behavior: "instant" });
-  }
-}
-
-// The page must reach far enough down for the picture to sit at the top of the whole window, or the browser moves it
-// back down when the keyboard closes. The room only grows while the page is open, so nothing moves when it is done.
-function makeRoomBelow(screen, frame, margin) {
-  const page = document.documentElement;
-  const top = frame.getBoundingClientRect().top + window.scrollY - margin;
-  const missing = top + Math.max(window.innerHeight, page.clientHeight) - page.scrollHeight;
-  if (missing > 0) {
-    screen.style.paddingBottom = `${(parseFloat(screen.style.paddingBottom) || 0) + Math.ceil(missing)}px`;
+  } else {
+    screen.style.removeProperty("--dv-sandbox-room");
+    form.scrollIntoView({ block: "center", behavior: "instant" });
   }
 }

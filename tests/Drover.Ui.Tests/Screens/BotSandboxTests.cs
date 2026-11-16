@@ -569,7 +569,7 @@ public sealed class BotSandboxTests : ScreenTest
         var field = page.Find(".dv-sandbox-type input");
 
         field.GetAttribute("enterkeyhint").Should().Be("send");
-        page.Find(".dv-sandbox-options .dv-switch-label").TextContent.Should().Be("Press Enter after typing");
+        page.FindAll(".dv-sandbox-options .dv-switch-label").Should().ContainSingle(label => label.TextContent == "Press Enter after typing");
         page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type text");
         await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
         page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type and press Enter");
@@ -777,6 +777,8 @@ public sealed class BotSandboxTests : ScreenTest
     {
         Answer(Status("running"));
         var page = await RenderInControl();
+        page.FindAll(".dv-sandbox-options input, .dv-sandbox-type input")
+            .Select(input => input.GetAttribute("type")).Should().Equal("checkbox", "checkbox", "text");
         await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
         await page.FindAll(".dv-sandbox-options label")
             .Single(label => label.TextContent.Contains("Type a password", StringComparison.Ordinal))

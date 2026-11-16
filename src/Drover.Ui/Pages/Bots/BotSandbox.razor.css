@@ -107,6 +107,10 @@
 }
 
 @media (pointer: coarse) {
+  .dv-sandbox-run ::deep .dv-field-input {
+    font-size: var(--dv-text-16);
+  }
+
   .dv-sandbox ::deep .dv-button,
   .dv-sandbox ::deep .dv-menu-trigger,
   .dv-sandbox ::deep .dv-switch,
