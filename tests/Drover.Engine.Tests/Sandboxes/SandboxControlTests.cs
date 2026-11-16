@@ -29,6 +29,32 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_bot_whose_last_start_was_given_up_before_the_provider_made_it_says_so_until_it_has_a_sandbox_again()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        var control = Control(world);
+        await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        await world.Read(async db =>
+        {
+            // As the sweep leaves a row whose creation never finished: destroyed, with no provider id.
+            var row = await db.Sandboxes.SingleAsync(RunWorld.Token);
+            row.State = SandboxState.Destroyed;
+            row.ProviderSandboxId = string.Empty;
+            return true;
+        });
+
+        var failed = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        var running = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+
+        failed.Value!.State.Should().Be("none");
+        failed.Value.StartFailed.Should().BeTrue("the bot tried to get a sandbox, so no sandbox yet is not the whole story");
+        running.Value!.State.Should().Be("running");
+        running.Value.StartFailed.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_bot_without_a_sandbox_policy_says_so()
     {
         await using var world = await ControlWorld(new FakeSandboxProvider(), SandboxPolicy.None);

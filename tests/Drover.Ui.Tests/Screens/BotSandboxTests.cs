@@ -95,6 +95,20 @@ public sealed class BotSandboxTests : ScreenTest
     }
 
     [Fact]
+    public void A_bot_whose_last_start_did_not_finish_says_so_and_offers_to_start_it()
+    {
+        Answer(Status("none", lastUsed: null) with { StartFailed = true });
+
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Start did not finish"));
+        page.Find(".dv-sandbox-screen").TextContent.Should().Contain("The last start of this sandbox did not finish. Start it here to see why.")
+            .And.NotContain("It starts when the bot first uses it.");
+        WakeButton(page).TextContent.Trim().Should().Be("Start the sandbox");
+        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("looking alone starts nothing");
+    }
+
+    [Fact]
     public void A_sandbox_being_replaced_says_so_in_words()
     {
         Answer(Status("replacing", lastUsed: null));

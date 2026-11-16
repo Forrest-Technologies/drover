@@ -82,6 +82,16 @@ public sealed class DesktopCommandsTests
     }
 
     [Fact]
+    public void A_display_lock_left_by_a_display_that_is_gone_is_removed_before_a_new_one_starts()
+    {
+        var script = DesktopCommands.StartDisplay().Arguments[^1];
+
+        var removal = script.IndexOf("pgrep -x Xvfb >/dev/null || rm -f /tmp/.X0-lock /tmp/.X11-unix/X0", StringComparison.Ordinal);
+        removal.Should().BeGreaterThan(-1, "a sandbox resumed from disk keeps the lock of a display it no longer runs");
+        removal.Should().BeLessThan(script.IndexOf("setsid -f Xvfb", StringComparison.Ordinal), "the lock is cleared before the display is started");
+    }
+
+    [Fact]
     public void A_screenshot_and_its_removal_name_only_the_file()
     {
         DesktopCommands.Screenshot("/tmp/drover-screen-x.png").Arguments.Should().Equal("--pointer", "/tmp/drover-screen-x.png");
