@@ -84,9 +84,9 @@
     {
         <div class="dv-editor-sandbox-grant" role="group" aria-label="What this bot may do in its sandbox">
             <p class="dv-editor-hint">@Words(SandboxStanding, SandboxGrants.SandboxTools, sandboxWords)</p>
-            @if (SandboxStanding is ToolStanding.NotAllowed)
+            @if (SandboxStanding is ToolStanding.NotAllowed or ToolStanding.Partial)
             {
-                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.SandboxTools)">Allow sandbox tools</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.SandboxTools)">@(SandboxStanding is ToolStanding.Partial ? "Allow remaining sandbox tools" : "Allow sandbox tools")</Button>
             }
             else if (SandboxStanding is ToolStanding.Allowed)
             {
@@ -99,9 +99,9 @@
     {
         <div class="dv-editor-sandbox-grant" role="group" aria-label="What this bot may do on its screen">
             <p class="dv-editor-hint">@Words(ScreenStanding, SandboxGrants.ScreenTools, screenWords)</p>
-            @if (ScreenStanding is ToolStanding.NotAllowed)
+            @if (ScreenStanding is ToolStanding.NotAllowed or ToolStanding.Partial)
             {
-                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.ScreenTools)">Allow screen tools</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="() => Allow(SandboxGrants.ScreenTools)">@(ScreenStanding is ToolStanding.Partial ? "Allow remaining screen tools" : "Allow screen tools")</Button>
             }
             else if (ScreenStanding is ToolStanding.Allowed)
             {
@@ -191,6 +191,7 @@
     private string Words(ToolStanding standing, IReadOnlyList<string> names, ToolWords words) => standing switch
     {
         ToolStanding.NotAllowed => words.NotAllowed,
+        ToolStanding.Partial => $"Some {words.Tools} are allowed. See each grant under Tools.",
         ToolStanding.AllowedOnSave => words.OnSave,
         ToolStanding.ParentForbids =>
             $"{SandboxGrants.Forbidder(Tools, names) ?? "The bot above this one"} does not allow the {words.Tools}, so this bot cannot {words.Use}.",

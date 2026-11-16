@@ -92,6 +92,18 @@ else
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
+    /// <summary>Removes a note the bot saved, from its card, while it still says the given text.</summary>
+    [Parameter]
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>The notes forgotten from their cards, which then say so.</summary>
+    [Parameter]
+    public IReadOnlySet<Guid> ForgottenNotes { get; set; } = new HashSet<Guid>();
+
+    /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
+
     /// <summary>The message's address in the page, so a link to this moment lands on it.</summary>
     [Parameter]
     public string? Anchor { get; set; }
@@ -124,7 +136,8 @@ else
     // A waiting call inside handed work is asked for by the bot that made it, so the sentence names that bot.
     private RenderFragment Tool(ToolCard tool) => tool.Delegation is { } work
         ? @<DelegationCard @key="tool.Id" Item="work" ChildContent="@(work.Work.Count > 0 ? WorkOf(work) : null)" />
-        : @<ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />;
+        : @<ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget"
+                         Forgotten="@(tool.NoteId is { } noteId && ForgottenNotes.Contains(noteId))" MemoryHref="@MemoryHref" />;
 
     private RenderFragment WorkOf(DelegationItem work) =>
         @<text>

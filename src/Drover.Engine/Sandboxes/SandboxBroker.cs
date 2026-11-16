@@ -43,6 +43,8 @@ public sealed class SandboxBroker(
     /// <summary>How long a sandbox stays up past a command's own limit, so it cannot pause under a running command.</summary>
     private static readonly TimeSpan commandMargin = TimeSpan.FromMinutes(1);
 
+    private const int DefaultCommandSeconds = 60;
+
     private static readonly TimeSpan defaultIdle = TimeSpan.FromMinutes(15);
 
     private const int MaxEntries = 1000;
@@ -902,7 +904,8 @@ public sealed class SandboxBroker(
     private TimeSpan CommandLimit(TimeSpan? asked)
     {
         var most = TimeSpan.FromSeconds(deployment.Value.Rules.MaxSandboxCommandSeconds);
-        return asked is { } wanted && wanted > TimeSpan.Zero && wanted < most ? wanted : most;
+        var wanted = asked is { } limit && limit > TimeSpan.Zero ? limit : TimeSpan.FromSeconds(DefaultCommandSeconds);
+        return wanted < most ? wanted : most;
     }
 
     #endregion
