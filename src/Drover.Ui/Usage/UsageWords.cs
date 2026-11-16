@@ -71,7 +71,7 @@ public static class UsageWords
 
     /// <summary>A figure in one line, cost first: "USD 0.02, 1,200 tokens in, 340 out".</summary>
     public static string Figure(UsageFigure figure, string currency) =>
-        $"{Money(figure.Cost, currency)}, {Tokens(figure.TokensIn)} tokens in, {Tokens(figure.TokensOut)} out";
+        $"{Money(figure.Cost, currency)}, {Tokens(figure.InputTokens)} tokens in, {Tokens(figure.OutputTokens)} out";
 
     /// <summary>The heading over a bot's most expensive runs.</summary>
     public static string RunsTitle(string botName, string period) => $"{botName}'s most expensive runs {During(period)}";
@@ -110,7 +110,7 @@ public static class UsageWords
 
     /// <summary>True when nothing ran in the period, so the screen says so and shows no table.</summary>
     public static bool IsEmpty(IEnumerable<UsageNode> crew) =>
-        crew.All(bot => (bot.WithBeneath ?? bot.Own) is { TokensIn: 0, TokensOut: 0 });
+        crew.All(bot => (bot.WithBeneath ?? bot.Own) is { InputTokens: 0, OutputTokens: 0 });
 
     #endregion
 
@@ -121,7 +121,7 @@ public static class UsageWords
     private static long TokenWeight(UsageNode bot)
     {
         var figure = bot.WithBeneath ?? bot.Own;
-        return figure.TokensIn + figure.TokensOut;
+        return figure.InputTokens + figure.OutputTokens;
     }
 
     #endregion

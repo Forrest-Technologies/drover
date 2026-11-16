@@ -4,7 +4,7 @@ namespace Drover.Contracts.Runs;
 /// What a bot, a run, or a tree of runs used. <see cref="Cost"/> is null when no model it ran on has a known price.
 /// <see cref="LeavesOutUnpriced"/> is true when the cost is a sum that some unpriced use is missing from.
 /// </summary>
-public sealed record UsageFigure(decimal? Cost, long TokensIn, long TokensOut, bool LeavesOutUnpriced = false);
+public sealed record UsageFigure(decimal? Cost, long InputTokens, long OutputTokens, bool LeavesOutUnpriced = false);
 
 /// <summary>
 /// One bot's usage and the bots beneath it. <see cref="WithBeneath"/> is null for a bot with none beneath it that

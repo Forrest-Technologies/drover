@@ -53,7 +53,7 @@
                                 <li @key="run.RunId" class="dv-usage-run">
                                     <span class="dv-usage-run-cost">@UsageWords.Money(run.Usage.Cost, runs.Currency)</span>
                                     <a href="@ConversationOf(run)">@UsageWords.RunPlace(run)</a>
-                                    <span class="dv-usage-run-tokens dv-mono">@UsageWords.Tokens(run.Usage.TokensIn) tokens in, @UsageWords.Tokens(run.Usage.TokensOut) out</span>
+                                    <span class="dv-usage-run-tokens dv-mono">@UsageWords.Tokens(run.Usage.InputTokens) tokens in, @UsageWords.Tokens(run.Usage.OutputTokens) out</span>
                                     @if (UsageWords.LeftOut(run.Usage) is { } leftOut)
                                     {
                                         <span class="dv-usage-run-note">@leftOut</span>

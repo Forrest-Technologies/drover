@@ -47,17 +47,17 @@ else
                     </td>
                     @* Tokens follow the cost cell: the bot's own first, then with the bots beneath it. The words are read out, and shown on a phone. *@
                     <td data-label="Tokens in" class="dv-usage-number">
-                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.TokensIn)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
+                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.InputTokens)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
                         @if (row.Bot.WithBeneath is { } beneathIn)
                         {
-                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathIn.TokensIn)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
+                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathIn.InputTokens)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
                         }
                     </td>
                     <td data-label="Tokens out" class="dv-usage-number">
-                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.TokensOut)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
+                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.OutputTokens)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
                         @if (row.Bot.WithBeneath is { } beneathOut)
                         {
-                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathOut.TokensOut)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
+                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathOut.OutputTokens)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
                         }
                     </td>
                     <td data-label="Model" class="dv-usage-model">@row.Bot.Model</td>
