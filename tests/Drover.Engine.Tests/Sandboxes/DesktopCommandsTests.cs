@@ -61,7 +61,7 @@ public sealed class DesktopCommandsTests
     }
 
     [Fact]
-    public void Starting_the_display_is_the_only_shell_line_and_holds_nothing_but_drovers_own_text()
+    public void Starting_the_display_holds_nothing_but_drovers_own_text()
     {
         var start = DesktopCommands.StartDisplay();
 
@@ -89,6 +89,28 @@ public sealed class DesktopCommandsTests
         var removal = script.IndexOf("pgrep -x Xvfb >/dev/null || rm -f /tmp/.X0-lock /tmp/.X11-unix/X0", StringComparison.Ordinal);
         removal.Should().BeGreaterThan(-1, "a sandbox resumed from disk keeps the lock of a display it no longer runs");
         removal.Should().BeLessThan(script.IndexOf("setsid -f Xvfb", StringComparison.Ordinal), "the lock is cleared before the display is started");
+    }
+
+    [Fact]
+    public void Passwords_go_to_stdin_and_cannot_submit_the_remote_prompt()
+    {
+        var password = Guid.NewGuid().ToString("N");
+        var command = DesktopCommands.TypePassword(password);
+        command.Arguments.Should().Equal("type", "--clearmodifiers", "--delay", "12", "--file", "-");
+        Encoding.UTF8.GetString(command.StandardInput!.Value.Span).Should().Be(password);
+        command.ToString().Should().NotContain(password);
+
+        var withEnter = () => DesktopCommands.TypePassword($"{password}\n");
+        withEnter.Should().Throw<BuiltinToolException>();
+    }
+
+    [Fact]
+    public void Opening_a_terminal_launches_a_detached_program_on_the_sandbox_display()
+    {
+        var command = DesktopCommands.OpenTerminal();
+        command.Program.Should().Be("/bin/bash");
+        command.Environment["DISPLAY"].Should().Be(":0");
+        command.Arguments[^1].Should().Contain("setsid -f").And.Contain("xfce4-terminal");
     }
 
     [Fact]

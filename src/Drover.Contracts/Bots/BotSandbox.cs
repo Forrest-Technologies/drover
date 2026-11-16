@@ -26,7 +26,7 @@ public sealed record BotSandboxStatus(
 /// One mouse or keyboard action of a person on a bot's sandbox screen. <see cref="Kind"/> is <c>click</c>
 /// (<see cref="X"/>, <see cref="Y"/>, <see cref="Button"/>: left, right or middle, <see cref="Twice"/>, a double click),
 /// <c>type</c> (<see cref="Text"/>), <c>key</c> (<see cref="Keys"/>, pressed together, from the same list a bot
-/// uses), or <c>scroll</c> (<see cref="Direction"/>: up or down, <see cref="Amount"/>). Coordinates are on the
+/// uses), <c>password</c> (masked input), <c>open_terminal</c>, or <c>scroll</c> (<see cref="Direction"/>: up or down, <see cref="Amount"/>). Coordinates are on the
 /// sandbox's own screen, 1024 by 768.
 /// </summary>
 public sealed record SandboxInputRequest(
@@ -38,7 +38,10 @@ public sealed record SandboxInputRequest(
     string? Text = null,
     IReadOnlyList<string>? Keys = null,
     string? Direction = null,
-    int? Amount = null);
+    int? Amount = null)
+{
+    public override string ToString() => $"Sandbox input ({Kind})";
+}
 
 
 /// <summary>A command line a person runs in a bot's sandbox, as bash reads it.</summary>
