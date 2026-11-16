@@ -17,6 +17,7 @@ public static class DeploymentPolicyExtensions
             .WithoutToolConnections()
             .WithBoundedSandboxes()
             .WithBoundedBotsPerSpace()
+            .WithBoundedSchedules()
             .WithBoundedFiles()
             .WithBoundedDelegation()
             .WithOperatorApprovedProviders()
@@ -69,6 +70,13 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
+
+    public static DeploymentPolicy WithBoundedSchedules(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MinScheduleIntervalMinutes = DeploymentPolicy.HostedMinScheduleIntervalMinutes,
+            MaxSchedulesPerSpace = DeploymentPolicy.HostedMaxSchedulesPerSpace,
+        };
 
     public static DeploymentPolicy WithBoundedFiles(this DeploymentPolicy policy) =>
         policy with

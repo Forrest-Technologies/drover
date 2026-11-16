@@ -226,6 +226,20 @@ public sealed class RunReducerTests
         twice.Should().Be(once);
     }
 
+    [Fact]
+    public void A_stored_message_a_schedule_sent_keeps_which_schedule_and_its_time()
+    {
+        var scheduleId = Guid.CreateVersion7();
+        var sent = Pending(steers: false) with { Position = 1, ScheduleId = scheduleId, ScheduleCron = "0 9 * * *" };
+
+        var view = MessageView.From(sent);
+        var typed = MessageView.From(Pending(steers: false));
+
+        view.Should().Match<MessageView>(message => message.ScheduleId == scheduleId && message.ScheduleCron == "0 9 * * *" && !message.IsPending);
+        typed.ScheduleId.Should().BeNull();
+        typed.ScheduleCron.Should().BeNull();
+    }
+
     #endregion
 
     #region Tool Call States

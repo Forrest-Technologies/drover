@@ -97,7 +97,7 @@ else
             <SideChatList Chats="sideChats" />
         </GallerySection>
 
-        <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
+        <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble, and one a schedule sent for them says so under it. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
             <div class="dv-gallery-conversation">
                 <MessageList Messages="messages" BotName="Sample bot" BotHue="6" Thinking="true" />
             </div>
@@ -178,6 +178,7 @@ else
 
     private static readonly ChatMessage[] messages =
     [
+        new("sample-0", true, "A sample prompt a schedule sent.") { SentBy = "Sent by the schedule 'Every weekday at 09:30'" },
         new("sample-1", true, "A sample question from a person."),
         new("sample-2", false, "A sample answer with **bold** text and `code`.\n\n- A sample point\n- Another sample point"),
         new("sample-3", true, "A sample follow-up."),

@@ -233,6 +233,31 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_schedule_rules_decide_how_often_a_saved_schedule_may_repeat_and_how_many_a_space_may_hold()
+    {
+        var client = await SignedInClientWithBot();
+        var floor = int.Parse(Setting(nameof(DeploymentPolicy.MinScheduleIntervalMinutes)), CultureInfo.InvariantCulture);
+        var cap = int.Parse(Setting(nameof(DeploymentPolicy.MaxSchedulesPerSpace)), CultureInfo.InvariantCulture);
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        var everyFiveMinutes = await client.Client.Post(client.Schedules, new BotScheduleBody("*/5 * * * *", "UTC", "Check in.", "new_thread", true));
+        var everyQuarterHour = await client.Client.Post(client.Schedules, new BotScheduleBody("*/15 * * * *", "UTC", "Check in.", "new_thread", true));
+
+        rules.MaxSchedulesPerSpace.Should().Be(cap);
+        everyQuarterHour.StatusCode.Should().Be(HttpStatusCode.Created, await everyQuarterHour.Content.ReadAsStringAsync(Token));
+
+        if (floor > 5)
+        {
+            everyFiveMinutes.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await everyFiveMinutes.Content.ReadAsStringAsync(Token)).Should().Contain($"at most once every {floor} minutes");
+        }
+        else
+        {
+            everyFiveMinutes.StatusCode.Should().Be(HttpStatusCode.Created, await everyFiveMinutes.Content.ReadAsStringAsync(Token));
+        }
+    }
+
+    [Fact]
     public async Task The_delegation_budgets_are_each_a_ceiling_a_space_may_only_lower()
     {
         await using var scope = Services.CreateAsyncScope();
@@ -287,6 +312,23 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     #region Private Methods
 
     private string Setting(string rule) => PolicyMatrix.Setting(rule, preset);
+
+    /// <summary>A signed-in owner of a new space with one bot, and where that bot's schedules are saved.</summary>
+    private async Task<(ApiClient Client, string Schedules)> SignedInClientWithBot()
+    {
+        var (email, password, _, spaceId) = await SeedPerson("scheduler");
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+        var connection = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections",
+            new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
+        connection.StatusCode.Should().Be(HttpStatusCode.Created, await connection.Content.ReadAsStringAsync(Token));
+        var connectionId = (await connection.Content.ReadFromJsonAsync<ModelConnectionSummary>(Token))!.Id;
+        var created = await client.Post($"/api/spaces/{spaceId}/bots", new CreateBotRequest("Briefer", "Brief me.", connectionId, null));
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Token));
+        var botId = (await created.Content.ReadFromJsonAsync<BotSummary>(Token))!.Id;
+        return (client, $"/api/spaces/{spaceId}/bots/{botId}/schedules");
+    }
 
     private async Task<ApiClient> SignedInClient()
     {

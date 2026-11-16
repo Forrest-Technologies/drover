@@ -58,10 +58,15 @@ public static class ThreadEndpoints
         HttpContext context,
         ThreadService threads)
     {
-        var messages = await threads.ListMessages(threadId, context.RequestAborted);
-        return messages is null
-            ? TypedResults.NotFound()
-            : TypedResults.Ok(messages.Select(message => message.ToResponse()).ToList());
+        if (await threads.ListMessages(threadId, context.RequestAborted) is not { } messages)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var crons = await threads.ListScheduleCrons(messages, context.RequestAborted);
+        return TypedResults.Ok(messages
+            .Select(message => message.ToResponse(message.ScheduleId is { } scheduleId ? crons.GetValueOrDefault(scheduleId) : null))
+            .ToList());
     }
 
     private static async Task<Results<Ok<List<RunEventResponse>>, NotFound>> ListToolEvents(
