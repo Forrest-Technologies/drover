@@ -21,7 +21,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
         string[] withAudience =
         [
             "tool_connection_credentials", "oauth_flows", "threads", "messages", "run_events", "tool_calls", "agent_sessions",
-            "files", "secrets",
+            "files", "secrets", "memories",
         ];
 
         foreach (var table in space)
@@ -40,7 +40,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
     {
         var tables = OwnershipMap.Current.Tables.Select(table => table.Table).ToList();
 
-        tables.Should().NotContain(["workflow_checkpoints", "memories", "skills", "bot_skills"]);
+        tables.Should().NotContain(["workflow_checkpoints", "skills", "bot_skills"]);
     }
 
     #endregion

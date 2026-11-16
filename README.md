@@ -62,6 +62,8 @@ dotnet test --solution Drover.slnx
 dotnet run --project src/Drover.Server
 ```
 
+The service worker tests in `Drover.Ui.Tests` drive a real browser: install Chrome or Chromium, or set `DROVER_TEST_CHROMIUM` to one.
+
 </details>
 
 ## Contributing

@@ -41,6 +41,7 @@ public sealed class RunService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
+    ToolCallRepository toolCalls,
     ThreadLine queue,
     TenantScope scope,
     RunSignal signal,
@@ -55,6 +56,8 @@ public sealed class RunService(
     public const int MaxMessageLength = 100_000;
 
     private const int TitleLength = 80;
+
+    private const string CancelledBeforeApproval = "The run was cancelled before this call was approved.";
 
     #endregion
 
@@ -173,12 +176,18 @@ public sealed class RunService(
             await runs.RequestCancel(runId, cancellationToken);
             run.CancelRequestedAt ??= time.GetUtcNow();
 
+            if (run.ParentRunId is not null)
+            {
+                await DenyWaitingApprovalsBeneath(run, cancellationToken);
+            }
+
             if (run is { Status: RunStatus.Queued or RunStatus.Waiting, ParentRunId: null } && thread is not null)
             {
                 run.Status = RunStatus.Cancelled;
                 run.StatusReason = RunReasons.CancelledByUser;
                 run.FinishedAt = time.GetUtcNow();
-                appended = await events.Append(run.RootRunId, thread, [CancelledEvent(run)], cancellationToken);
+                await runs.AddToSubtreeUsage(run.Id, run.Usage, cancellationToken);
+                appended = [.. await events.Append(run.RootRunId, thread, [CancelledEvent(run)], cancellationToken), .. await queue.EndOpenDescendants(run, cancellationToken)];
                 next = await queue.RunEnded(run, thread, cancellationToken);
             }
 
@@ -259,6 +268,27 @@ public sealed class RunService(
 
     #region Private Methods
 
+    /// <summary>
+    /// A child run that waits for a person holds its whole tree. When it is cancelled, the approvals it and the runs
+    /// beneath it wait for are denied, so the tree can be taken up again: the child then ends as cancelled, and the
+    /// run above it gets a "cancelled" result and goes on.
+    /// </summary>
+    private async Task DenyWaitingApprovalsBeneath(Run child, CancellationToken cancellationToken)
+    {
+        foreach (var run in await runs.ListSelfAndDescendants(child.Id, cancellationToken))
+        {
+            if (run.Status is not RunStatus.Waiting)
+            {
+                continue;
+            }
+
+            foreach (var call in await toolCalls.ListPendingApprovals(run.ThreadId, cancellationToken))
+            {
+                ToolDecisions.Deny(call, CancelledBeforeApproval, time.GetUtcNow());
+            }
+        }
+    }
+
     /// <summary>Hints to the run's own person, on any of their screens, that the thread changed.</summary>
     private void Tell(Run run, string kind)
     {
@@ -307,6 +337,12 @@ public static class RunReasons
     public const string CancelledByUser = "cancelled_by_user";
 
     public const string LeaseLost = "lease_lost";
+
+    public const string CancelledByParent = "cancelled_by_parent";
+
+    public const string LoopDetected = "loop_detected";
+
+    public const string BudgetExceeded = "budget_exceeded";
 
     #endregion
 }

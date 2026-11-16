@@ -115,6 +115,35 @@ public sealed class RunWorld : IAsyncDisposable
             return true;
         });
 
+    /// <summary>Gives any bot of the world a grant for a tool, as its own row, whatever the bots above it hold.</summary>
+    public Task GrantTo(Guid botId, string toolName, GrantEffect effect) =>
+        Read(async db =>
+        {
+            var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
+            await db.ToolGrants.Where(grant => grant.BotId == botId && grant.ToolId == tool.Id).ExecuteDeleteAsync(Token);
+            db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = effect, GrantedByUserId = UserId });
+            return true;
+        });
+
+    /// <summary>A bot made beneath another through the engine, as a person makes one in the crew.</summary>
+    public Task<Guid> NewBotBeneath(Guid parentId, string name, string description = "") =>
+        Transact(async services =>
+        {
+            var change = await services.GetRequiredService<BotService>()
+                .Create(new NewBot(name, description, $"You are {name}.", ConnectionId, null, parentId), AuditActor.Person(UserId), Token);
+            change.Problem.Should().BeNull();
+            return change.Bot!.Id;
+        });
+
+    /// <summary>Replaces the space's own limits, as its owner would set them.</summary>
+    public Task SetSpaceSettings(SpaceSettings settings) =>
+        Read(async db =>
+        {
+            var space = await db.Spaces.SingleAsync(found => found.Id == SpaceId, Token);
+            space.Settings = settings;
+            return true;
+        });
+
     public Task Revoke(string toolName) =>
         Read(async db =>
         {
@@ -237,6 +266,10 @@ public sealed class RunWorld : IAsyncDisposable
     /// <summary>The root runs of a thread, oldest first.</summary>
     public Task<List<Run>> ReadRuns(Guid threadId) =>
         Read(db => db.Runs.AsNoTracking().Where(run => run.ThreadId == threadId).OrderBy(run => run.Id).ToListAsync(Token));
+
+    /// <summary>Every run of a tree, its root first and then in the order they were made.</summary>
+    public Task<List<Run>> ReadTree(Guid rootRunId) =>
+        Read(db => db.Runs.AsNoTracking().Where(run => run.RootRunId == rootRunId).OrderBy(run => run.Depth).ThenBy(run => run.Id).ToListAsync(Token));
 
     public Task<Run> ReadRun(Guid runId) => Read(db => db.Runs.AsNoTracking().SingleAsync(run => run.Id == runId, Token));
 

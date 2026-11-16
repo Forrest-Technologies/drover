@@ -25,6 +25,12 @@ public sealed record RunExecution
     /// </summary>
     public IModelChatClient? Model { get; init; }
 
+    /// <summary>
+    /// The notes the bot keeps about the run's person, given to the model as reference material. Null when the run
+    /// is given none: memory is off, no memory tool is granted, or the conversation is not private to that person.
+    /// </summary>
+    public RecalledMemory? Memory { get; init; }
+
     /// <summary>Answers to whatever the run was waiting on.</summary>
     public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
 

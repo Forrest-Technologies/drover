@@ -46,7 +46,7 @@
                     {
                         <Badge Kind="BadgeKind.Live">Bot working</Badge>
                     }
-                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, DateTimeOffset.UtcNow)</span>
+                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, time.GetUtcNow())</span>
                 </p>
                 <div class="dv-sandbox-power" role="group" aria-label="Power">
                     @if (status.State is "paused")
@@ -67,6 +67,17 @@
             </header>
 
             <StatusNote Kind="NoteKind.Danger" Text="@actionProblem" />
+
+            @if (SandboxWords.NoScreen(status) is { } noScreen)
+            {
+                <p class="dv-sandbox-hint">
+                    @noScreen
+                    @if (status.DesktopOffered)
+                    {
+                        @(" ")<a href="@Addresses.Bot(BotId)">Open its settings</a>
+                    }
+                </p>
+            }
 
             <Tabs Label="Sandbox" Items="Views" @bind-Active="view">
                 @if (context.Id is ScreenView)

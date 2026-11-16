@@ -71,3 +71,12 @@ public sealed record RuleFired(Guid RuleId, string RuleName, string Checkpoint, 
 
 /// <summary>Data of <c>usage.recorded</c>: what one model call used.</summary>
 public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal Cost, string Currency);
+
+/// <summary>Data of <c>delegation.started</c>: the parent's tool call, the child run it began, and the bot that works it.</summary>
+public sealed record DelegationStarted(Guid ToolCallId, Guid ChildRunId, Guid ChildBotId);
+
+/// <summary>
+/// Data of <c>delegation.completed</c>: how the child run ended (<c>completed</c>, <c>failed</c>, or <c>cancelled</c>)
+/// and the start of the result its parent was given, redacted.
+/// </summary>
+public sealed record DelegationCompleted(Guid ToolCallId, Guid ChildRunId, Guid ChildBotId, string Outcome, string Summary);

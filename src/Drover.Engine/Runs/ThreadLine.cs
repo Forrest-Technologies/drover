@@ -15,6 +15,7 @@ public sealed class ThreadLine(
     RunRepository runs,
     RunEventRepository events,
     ToolCallRepository toolCalls,
+    ThreadRepository threads,
     TimeProvider time)
 {
     #region Private Fields
@@ -100,6 +101,45 @@ public sealed class ThreadLine(
         return pending.FirstOrDefault(message => message.Position is null && message.AuthorUserId is not null) is { AuthorUserId: { } author } next
             ? await Queue(thread, next, author, cancellationToken)
             : null;
+    }
+
+    /// <summary>
+    /// A root run has ended for good, so nothing beneath it may go on. Every run below it that has not ended is
+    /// cancelled as cancelled by its parent, with its approvals denied, its usage added up its tree, and its
+    /// <c>run.cancelled</c> written to the tree's log. Returns the events, to publish once the transaction has committed.
+    /// </summary>
+    public async Task<IReadOnlyList<RunEvent>> EndOpenDescendants(Run root, CancellationToken cancellationToken)
+    {
+        if (root.ParentRunId is not null)
+        {
+            return [];
+        }
+
+        List<RunEvent> written = [];
+
+        foreach (var child in await runs.ListOpenDescendantsForUpdate(root.Id, cancellationToken))
+        {
+            child.Status = RunStatus.Cancelled;
+            child.StatusReason = RunReasons.CancelledByParent;
+            child.CancelRequestedAt ??= time.GetUtcNow();
+            child.FinishedAt = time.GetUtcNow();
+            await runs.AddToSubtreeUsage(child.Id, child.Usage, cancellationToken);
+
+            if (await threads.GetThreadForUpdate(child.ThreadId, cancellationToken) is not { } thread)
+            {
+                continue;
+            }
+
+            foreach (var call in await toolCalls.ListPendingApprovals(thread.Id, cancellationToken))
+            {
+                ToolDecisions.Deny(call, EndedBeforeApproval, time.GetUtcNow());
+            }
+
+            var cancelled = new RunStatusChanged(RunStatus.Cancelled.ToWireName(), child.StatusReason, null, child.Attempt, child.Usage.ToTotals());
+            written.AddRange(await events.Append(root.Id, thread, [RunEventWriter.Event(child.Id, RunEventTypes.RunCancelled, cancelled)], cancellationToken));
+        }
+
+        return written;
     }
 
     #endregion

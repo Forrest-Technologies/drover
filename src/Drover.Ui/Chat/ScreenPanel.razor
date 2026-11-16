@@ -19,9 +19,24 @@
         <EmptyState Title="No sandbox provider is set up" Cause="This server has no sandbox provider, so no bot has a screen yet."
                     ActionLabel="Open the status page" ActionHref="@Addresses.Status" />
     }
-    else if (!status.HasSandbox || !status.Desktop)
+    else if (!status.DesktopOffered && status.HasSandbox)
     {
-        <EmptyState Title="@($"{Bot.Name} has no screen")" Cause="Give it a sandbox with Desktop on, in the Sandbox section of its settings."
+        <EmptyState Title="@($"{Bot.Name} has no screen")" Cause="@SandboxWords.NoScreen(status)"
+                    ActionLabel="Open its terminal" ActionHref="@Addresses.BotSandbox(Bot.Id)" />
+    }
+    else if (!status.DesktopOffered)
+    {
+        <EmptyState Title="@($"{Bot.Name} has no screen")" Cause="@SandboxWords.NoScreen(status)"
+                    ActionLabel="Open its settings" ActionHref="@Addresses.Bot(Bot.Id)" />
+    }
+    else if (!status.HasSandbox)
+    {
+        <EmptyState Title="@($"{Bot.Name} has no sandbox")" Cause="Give it a sandbox with Desktop on, in the Sandbox section of its settings."
+                    ActionLabel="Open its settings" ActionHref="@Addresses.Bot(Bot.Id)" />
+    }
+    else if (!status.Desktop)
+    {
+        <EmptyState Title="@($"{Bot.Name} has no screen")" Cause="@SandboxWords.NoScreen(status)"
                     ActionLabel="Open its settings" ActionHref="@Addresses.Bot(Bot.Id)" />
     }
     else

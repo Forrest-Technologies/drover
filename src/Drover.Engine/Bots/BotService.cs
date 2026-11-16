@@ -480,6 +480,7 @@ public sealed class BotService(
         ?? await FindAvatarProblem(edit.Avatar, cancellationToken)
         ?? await FindModelProblem(edit, cancellationToken)
         ?? FindMemoryProblem(edit.MemorySettings)
+        ?? FindNoteProblem(edit.MemorySettings!)
         ?? await FindSandboxProblem(bot, edit, cancellationToken)
         ?? await FindScreenReaderProblem(edit.SandboxSettings?.ScreenReader, cancellationToken)
         ?? FindBuildProblem(edit.BuildLimits);
@@ -591,6 +592,24 @@ public sealed class BotService(
 
         return settings.StructuredOutput && !can.StructuredOutput
             ? $"{known.DisplayName} does not support structured output."
+            : null;
+    }
+
+    /// <summary>
+    /// The limits on notes only narrow the server's: a note held to more than the server allows is refused, not
+    /// quietly lowered.
+    /// </summary>
+    private string? FindNoteProblem(MemorySettings memory)
+    {
+        var deployment = policies.Deployment;
+
+        if (memory.MaxNoteCharacters is { } note && (note <= 0 || note > deployment.MaxMemoryNoteCharacters))
+        {
+            return $"A note may hold at most {deployment.MaxMemoryNoteCharacters} characters on this server, and more than none.";
+        }
+
+        return memory.MaxNotesCharacters is { } notes && (notes <= 0 || notes > deployment.MaxMemoryCharactersPerPerson)
+            ? $"A bot's notes about one person may hold at most {deployment.MaxMemoryCharactersPerPerson} characters on this server, and more than none."
             : null;
     }
 

@@ -13,4 +13,17 @@ public sealed record RunUsage
     public decimal Cost { get; init; }
 
     #endregion
+
+    #region Public Methods
+
+    public RunUsage Plus(RunUsage other) =>
+        new()
+        {
+            InputTokens = InputTokens + other.InputTokens,
+            OutputTokens = OutputTokens + other.OutputTokens,
+            CachedTokens = CachedTokens + other.CachedTokens,
+            Cost = Cost + other.Cost,
+        };
+
+    #endregion
 }

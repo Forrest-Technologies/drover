@@ -4,9 +4,10 @@ namespace Drover.Contracts.Bots;
 /// A bot's own sandbox as a person sees it. <see cref="Available"/> is whether the server has a sandbox provider and
 /// <see cref="HasSandbox"/> whether the bot's sandbox policy gives it one. <see cref="State"/> is one of
 /// <c>none</c> (not made yet, or turned off), <c>starting</c>, <c>running</c>, <c>paused</c>, or <c>replacing</c>
-/// (an old one is still being taken down). <see cref="Desktop"/> is whether it has a screen, and
-/// <see cref="BotWorking"/> whether a run of this bot is working right now. Never a provider id, a token, or which
-/// provider it is.
+/// (an old one is still being taken down). <see cref="Desktop"/> is whether it has a screen,
+/// <see cref="BotWorking"/> whether a run of this bot is working right now, and <see cref="DesktopOffered"/> whether
+/// this server offers sandboxes with a screen at all, so a sandbox without one can say why. Never a provider id, a
+/// token, or which provider it is.
 /// </summary>
 public sealed record BotSandboxStatus(
     bool Available,
@@ -14,7 +15,8 @@ public sealed record BotSandboxStatus(
     string State,
     DateTimeOffset? LastUsedAt,
     bool Desktop,
-    bool BotWorking);
+    bool BotWorking,
+    bool DesktopOffered);
 
 
 /// <summary>
