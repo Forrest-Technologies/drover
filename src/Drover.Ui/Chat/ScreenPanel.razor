@@ -49,6 +49,6 @@
             }
             <a class="dv-screen-panel-more" href="@Addresses.BotSandbox(Bot.Id)">Power and terminal</a>
         </p>
-        <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" />
+        <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" OnSandboxChanged="() => Refresh(disposal.Token)" />
     }
 </div>

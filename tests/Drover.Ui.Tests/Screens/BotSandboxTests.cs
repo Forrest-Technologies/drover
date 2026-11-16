@@ -211,6 +211,70 @@ public sealed class BotSandboxTests : ScreenTest
     }
 
     [Fact]
+    public async Task No_sandbox_yet_offers_to_start_it_and_a_tap_brings_the_screen_and_reads_the_state_again()
+    {
+        Answer(Status("none", lastUsed: null));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => WakeButton(page).TextContent.Trim().Should().Be("Start the sandbox"));
+        Answer(Status("running"));
+
+        await WakeButton(page).ClickAsync(new MouseEventArgs());
+
+        page.FindAll(".dv-sandbox-screen [role=status]").Select(note => note.TextContent)
+            .Should().Contain("Starting the sandbox. A new one can take a minute.");
+        (await PicturesWithin(1)).Should().Be(1, "asking for the screen makes the sandbox");
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Running"));
+        Server.Sent("GET", sandbox).Should().HaveCount(2, "the state is read again at once, not on its ten-second timer");
+        page.FindAll(".dv-sandbox-wake").Should().BeEmpty("a running sandbox needs no start");
+    }
+
+    [Fact]
+    public async Task A_paused_sandbox_is_resumed_from_the_screen_and_says_so_while_it_comes_back()
+    {
+        Answer(Status("paused"));
+        var gate = Server.Hold("POST", $"{sandbox}/screen");
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => WakeButton(page).TextContent.Trim().Should().Be("Resume the sandbox"));
+
+        await WakeButton(page).ClickAsync(new MouseEventArgs());
+
+        (await PicturesWithin(1)).Should().Be(1, "asking for the screen resumes the sandbox");
+        page.FindAll(".dv-sandbox-screen [role=status]").Select(note => note.TextContent).Should().Contain("Resuming the sandbox.");
+        page.FindAll(".dv-sandbox-wake").Should().BeEmpty("one start at a time");
+        page.Find(".dv-sandbox-screen").TextContent.Should().NotContain("Resume it to see the screen");
+        Answer(Status("running"));
+        gate.SetResult();
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+    }
+
+    [Fact]
+    public async Task A_start_the_server_refuses_says_why_in_its_words_and_only_a_tap_tries_again()
+    {
+        const string refusal = "The server's sandbox provider key does not work. Tell the server's operator.";
+        Answer(Status("none", lastUsed: null));
+        Server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, refusal);
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => WakeButton(page).TextContent.Trim().Should().Be("Start the sandbox"));
+        Answer(Status("starting"));
+
+        await WakeButton(page).ClickAsync(new MouseEventArgs());
+
+        (await PicturesWithin(1)).Should().Be(1);
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim().Should().Be(refusal));
+        page.WaitForAssertion(() => WakeButton(page).TextContent.Trim().Should().Be("Try again"));
+        await Elapse(TimeSpan.FromSeconds(3));
+        Pictures().Should().Be(1, "each try asks the provider for a sandbox, so only a tap tries again");
+
+        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        await WakeButton(page).ClickAsync(new MouseEventArgs());
+
+        (await PicturesWithin(2)).Should().Be(2);
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+        page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim().Should().BeEmpty("the picture came, so the problem is gone");
+    }
+
+    [Fact]
     public async Task A_state_read_that_takes_too_long_does_not_stop_the_reads_after_it()
     {
         Answer(Status("none"));
@@ -723,6 +787,8 @@ public sealed class BotSandboxTests : ScreenTest
 
     private static IElement ZoomButton(IRenderedComponent<BotSandbox> page, string name) =>
         page.FindAll("[role=group][aria-label=Zoom] button").Single(button => (button.GetAttribute("aria-label") ?? button.TextContent.Trim()) == name);
+
+    private static IElement WakeButton(IRenderedComponent<BotSandbox> page) => page.Find(".dv-sandbox-wake button");
 
     private int Pictures() => Server.Sent("POST", $"{sandbox}/screen").Count();
 

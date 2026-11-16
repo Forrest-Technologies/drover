@@ -14,6 +14,7 @@
 }
 
 .dv-sandbox-keys,
+.dv-sandbox-wake,
 .dv-sandbox-controlbar {
   display: flex;
   flex-wrap: wrap;

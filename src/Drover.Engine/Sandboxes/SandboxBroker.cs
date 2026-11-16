@@ -286,8 +286,10 @@ public sealed class SandboxBroker(
             return null;
         }
 
-        if (await RunQuietly(lease, DesktopCommands.StartDisplay(), cancellationToken) is not 0)
+        if (await RunQuietly(lease, DesktopCommands.StartDisplay(), cancellationToken) is not 0 and var exitCode)
         {
+            // 3: the display never answered. 4: no desktop session came up. -1: the start ran out of time.
+            logger.LogWarning("The screen of sandbox {SandboxId} did not start: its start script ended with {ExitCode}", lease.SandboxId, exitCode);
             throw new BuiltinToolException(
                 "The sandbox's screen did not start. Try again in a moment; if it keeps failing, rebuild the sandbox to get a new one.");
         }
