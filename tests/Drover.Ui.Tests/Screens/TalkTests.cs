@@ -314,6 +314,34 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
+    public void A_state_read_answered_with_a_page_does_not_stop_the_screens_reads_after_it()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "none", LastUsedAt = null });
+        var page = RenderScreen();
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("No sandbox yet"));
+
+        Server.AnswerPage("GET", $"{space}/bots/{botId}/sandbox");
+        time.Advance(TimeSpan.FromSeconds(10));
+        page.WaitForAssertion(() => Server.Sent("GET", $"{space}/bots/{botId}/sandbox").Should().HaveCount(3));
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "paused" });
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Paused"));
+    }
+
+    [Fact]
+    public void A_screen_whose_first_read_is_answered_with_a_page_says_so_and_offers_to_try_again()
+    {
+        Server.AnswerPage("GET", $"{space}/bots/{botId}/sandbox");
+
+        var page = RenderScreen();
+
+        page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Drover could not load the screen"));
+        page.Find("aside h2 + p").TextContent.Should().Be(Failures.Unreadable);
+        page.FindAll("aside button").Should().Contain(button => button.TextContent.Trim() == "Try again");
+    }
+
+    [Fact]
     public void A_state_read_that_takes_too_long_does_not_stop_the_screens_reads_after_it()
     {
         Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "none", LastUsedAt = null });

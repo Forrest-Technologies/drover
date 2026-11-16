@@ -1,6 +1,7 @@
 // Caches the app shell so Drover's files load without waiting on the network and it still opens offline.
 // The worker answers only GET requests for Drover's own files and pages. Everything else goes to the network as if
-// there were no worker: the server's API, anything that is not a GET, and every request to another host. A request
+// there were no worker: the server's API and sign-in callbacks, anything that is not a GET, and every request to
+// another host. A request
 // the worker answered itself would be held to the worker's own content security policy, so the worker never answers
 // for another host.
 self.importScripts("./service-worker-assets.js");
@@ -9,7 +10,7 @@ const cacheNamePrefix = "drover-shell-";
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
 const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
 const neverCached = [/^service-worker\.js$/];
-const serverPaths = ["/api/", "/health/", "/openapi/"];
+const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/"];
 
 // A new build takes over as soon as its shell is stored, without waiting for every open tab to close: a person
 // who leaves Drover open would otherwise keep running the old build for as long as any tab lives. The page

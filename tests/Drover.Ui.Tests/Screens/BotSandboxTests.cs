@@ -229,6 +229,49 @@ public sealed class BotSandboxTests : ScreenTest
     }
 
     [Fact]
+    public async Task A_picture_answered_with_a_page_says_so_and_the_screen_keeps_refreshing()
+    {
+        Answer(Status("running"));
+        Server.AnswerPage("POST", $"{sandbox}/screen");
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-screen [role=alert]").TextContent.Trim()
+            .Should().Be("Drover's server sent an answer this page could not read. The screen is tried again shortly."));
+        page.FindAll("img.dv-sandbox-image").Should().BeEmpty("a page is not a picture of the screen");
+
+        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        (await PicturesWithin(2, SandboxWords.NextPictureAfter(1))).Should().Be(2);
+
+        page.WaitForAssertion(() => page.Find("img.dv-sandbox-image"));
+    }
+
+    [Theory]
+    [InlineData("page")]
+    [InlineData("unexpected")]
+    public async Task A_state_read_that_fails_in_any_way_does_not_stop_the_reads_after_it(string failure)
+    {
+        Answer(Status("none"));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("No sandbox yet"));
+
+        if (failure is "page")
+        {
+            Server.AnswerPage("GET", sandbox);
+        }
+        else
+        {
+            Server.Fail("GET", sandbox, new InvalidOperationException("A failure no screen expects."));
+        }
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        page.WaitForAssertion(() => Server.Sent("GET", sandbox).Should().HaveCount(2));
+        Answer(Status("running"));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Running"));
+        (await PicturesWithin(1, SandboxWords.NextPictureAfter(0))).Should().Be(1);
+    }
+
+    [Fact]
     public void A_server_without_a_provider_says_what_is_missing_and_links_to_the_status_page()
     {
         Answer(Status("none") with { Available = false });

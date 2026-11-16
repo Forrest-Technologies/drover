@@ -88,9 +88,17 @@ public sealed partial class BotSandbox(
     {
         await disposal.CancelAsync();
 
+        // Closing never fails because of how the refresh ended: the screen is going away either way.
         if (watching is not null)
         {
-            await watching;
+            try
+            {
+                await watching;
+            }
+            catch (Exception ended)
+            {
+                logger.LogDebug(ended, "The sandbox screen's refresh ended with a failure as it closed");
+            }
         }
 
         disposal.Dispose();
@@ -183,6 +191,11 @@ public sealed partial class BotSandbox(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "The sandbox state could not be read again");
+        }
+        catch (Exception unexpected)
+        {
+            // Whatever goes wrong with one read, the next one still comes: only leaving the page ends the reads.
+            logger.LogWarning(unexpected, "Reading the sandbox state again failed unexpectedly; the next read still comes");
         }
 
         await InvokeAsync(StateHasChanged);
