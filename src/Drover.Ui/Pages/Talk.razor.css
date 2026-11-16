@@ -193,8 +193,10 @@
     flex: 1;
   }
 
+  /* The ways beside the conversation wrap rather than push the page sideways. */
   .dv-shell-beside {
     flex-basis: 100%;
+    flex-wrap: wrap;
     margin-left: 0;
   }
 

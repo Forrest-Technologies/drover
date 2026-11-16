@@ -68,7 +68,7 @@ public sealed class DelegationTests(PostgresServer postgres)
         var events = await world.ReadEvents(rootId);
         events.Select(stored => stored.Seq).Should().Equal(Enumerable.Range(1, events.Count).Select(number => (long)number));
         var started = RunWorld.Data<DelegationStarted>(events.Single(stored => stored.Type == RunEventTypes.DelegationStarted));
-        started.Should().Be(new DelegationStarted(call.Id, child.Id, childId));
+        started.Should().Be(new DelegationStarted(call.Id, child.Id, childId, child.ThreadId));
         var completed = RunWorld.Data<DelegationCompleted>(events.Single(stored => stored.Type == RunEventTypes.DelegationCompleted));
         completed.Should().Match<DelegationCompleted>(done =>
             done.ToolCallId == call.Id && done.ChildRunId == child.Id && done.ChildBotId == childId && done.Outcome == "completed"
@@ -152,8 +152,10 @@ public sealed class DelegationTests(PostgresServer postgres)
         root.Status.Should().Be(RunStatus.Completed, root.Error?.Message);
         (await world.ReadTree(rootId)).Should().ContainSingle("no child run is begun for a bot that cannot work");
         var results = world.Script.Requests[1].Where(seen => seen.Role == "tool").Select(seen => seen.Summary).ToList();
-        results.Should().ContainSingle(result => result.StartsWith("d1 = ", StringComparison.Ordinal) && result.Contains("Sleeper is paused", StringComparison.Ordinal));
-        results.Should().ContainSingle(result => result.StartsWith("d2 = ", StringComparison.Ordinal) && result.Contains("Gone was removed", StringComparison.Ordinal));
+        results.Should().ContainSingle(result => result.StartsWith("d1 = ", StringComparison.Ordinal) && result.Contains("Sleeper is paused", StringComparison.Ordinal)
+            && result.Contains("\"detail\":\"paused\"", StringComparison.Ordinal));
+        results.Should().ContainSingle(result => result.StartsWith("d2 = ", StringComparison.Ordinal) && result.Contains("Gone was removed", StringComparison.Ordinal)
+            && result.Contains("\"detail\":\"removed\"", StringComparison.Ordinal));
         world.Model.ToolsOffered[0].Should().Contain("delegate");
     }
 
@@ -208,7 +210,7 @@ public sealed class DelegationTests(PostgresServer postgres)
 
         (await world.ReadTree(rootId)).Should().HaveCount(2);
         world.Script.Requests[2].Single(seen => seen.Role == "tool").Summary
-            .Should().Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxDelegationDepth)} is 1");
+            .Should().Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxDelegationDepth)} is 1").And.Contain("\"detail\":\"depth\"");
     }
 
     [Fact]
@@ -230,7 +232,7 @@ public sealed class DelegationTests(PostgresServer postgres)
 
         (await world.ReadTree(rootId)).Should().HaveCount(2);
         world.Script.Requests[3].Last(seen => seen.Role == "tool").Summary
-            .Should().StartWith("d2 = ").And.Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxRunsPerDelegationTree)} is 2");
+            .Should().StartWith("d2 = ").And.Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxRunsPerDelegationTree)} is 2").And.Contain("\"detail\":\"runs\"");
     }
 
     [Fact]
@@ -250,7 +252,7 @@ public sealed class DelegationTests(PostgresServer postgres)
 
         (await world.ReadTree(rootId)).Should().ContainSingle();
         world.Script.Requests[1].Single(seen => seen.Role == "tool").Summary
-            .Should().Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxDelegationTreeCostCents)} is 50");
+            .Should().Contain(RunReasons.BudgetExceeded).And.Contain($"{nameof(DeploymentPolicy.MaxDelegationTreeCostCents)} is 50").And.Contain("\"detail\":\"cost\"");
     }
 
     #endregion
@@ -652,6 +654,77 @@ public sealed class DelegationTests(PostgresServer postgres)
         memberSees.Child.Should().Be(shared, "the child's thread has the root thread's audience");
         (memberSees.Messages > 0).Should().Be(shared);
         (memberSees.Events > 0).Should().Be(shared);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_threads_tool_events_carry_the_delegated_work_to_exactly_the_people_who_can_see_the_thread(bool shared)
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read, """{"answer":42}""");
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), tools);
+        var childId = await world.NewBotBeneath(world.BotId, "Finder");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.GrantTo(childId, "test.lookup", GrantEffect.Allow);
+        var memberId = await world.AddMember(MembershipRole.Member);
+        world.Script.Then(
+            [Delegate("d1", childId, "Find the answer.")],
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new TextOutput("The answer is 42.")],
+            [new TextOutput("Finder says 42.")]);
+        world.StartHost();
+        var threadId = shared ? await world.NewSharedThread() : await world.NewThread();
+
+        var rootId = await world.Post(threadId, "Ask Finder.");
+        await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed);
+
+        var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
+        var owner = (await world.Transact(services => services.GetRequiredService<ThreadService>().ListToolEvents(threadId, RunWorld.Token)))!;
+        owner.Where(stored => stored.RunId == rootId).Select(stored => stored.Type).Should().Equal(
+            RunEventTypes.ToolRequested,
+            RunEventTypes.ToolStarted,
+            RunEventTypes.DelegationStarted,
+            RunEventTypes.DelegationCompleted,
+            RunEventTypes.ToolCompleted);
+        owner.Where(stored => stored.RunId == child.Id).Select(stored => stored.Type).Should().Equal(
+            [
+                RunEventTypes.RunStarted,
+                RunEventTypes.ToolRequested,
+                RunEventTypes.MessageCompleted,
+                RunEventTypes.ToolStarted,
+                RunEventTypes.ToolCompleted,
+                RunEventTypes.MessageCompleted,
+                RunEventTypes.RunCompleted,
+            ],
+            "the child's words, calls, and status come with the call that handed it the work; its deltas and steps do not");
+        owner.Select(stored => stored.Seq).Should().BeInAscendingOrder();
+
+        // The child's own thread has no root run: its tool events are the child run's own, and what it handed down.
+        var childSide = (await world.Transact(services => services.GetRequiredService<ThreadService>().ListToolEvents(child.ThreadId, RunWorld.Token)))!;
+        childSide.Should().OnlyContain(stored => stored.RunId == child.Id);
+        childSide.Select(stored => stored.Type).Should().Equal(RunEventTypes.ToolRequested, RunEventTypes.ToolStarted, RunEventTypes.ToolCompleted);
+
+        // The service's own check is not what keeps a private tree's work from another member: the rows are not
+        // visible to them, so asking for the tree by its root finds nothing.
+        var memberSees = await world.TransactAs(world.SpaceId, memberId, async services =>
+        (
+            Service: await services.GetRequiredService<ThreadService>().ListToolEvents(threadId, RunWorld.Token),
+            ChildSide: await services.GetRequiredService<ThreadService>().ListToolEvents(child.ThreadId, RunWorld.Token),
+            Rows: await services.GetRequiredService<RunEventRepository>().ListEventsOfTrees(
+                [rootId], [RunEventTypes.DelegationStarted], [RunEventTypes.MessageCompleted], RunWorld.Token)));
+        if (shared)
+        {
+            memberSees.Service!.Select(stored => (stored.RunId, stored.Seq, stored.Type))
+                .Should().Equal(owner.Select(stored => (stored.RunId, stored.Seq, stored.Type)));
+            memberSees.Rows.Should().HaveCount(3);
+            memberSees.ChildSide.Should().HaveCount(3);
+        }
+        else
+        {
+            memberSees.Service.Should().BeNull();
+            memberSees.Rows.Should().BeEmpty();
+            memberSees.ChildSide.Should().BeNull();
+        }
     }
 
     #endregion

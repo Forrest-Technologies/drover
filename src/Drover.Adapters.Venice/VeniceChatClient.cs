@@ -97,6 +97,7 @@ internal sealed class VeniceChatClient(IModelChatClient inner, string modelId, M
     private ModelChatRequest ShapeRequest(ModelChatRequest request)
     {
         var disableThinking = string.Equals(request.Options.ReasoningEffort ?? settings.ReasoningEffort, "None", StringComparison.OrdinalIgnoreCase);
+        var canCallTools = request.Options.Tools is { Count: > 0 } && request.Options.ToolMode is not "none";
         return request with
         {
             Options = request.Options with
@@ -105,7 +106,7 @@ internal sealed class VeniceChatClient(IModelChatClient inner, string modelId, M
                 ReasoningEffort = disableThinking ? null : request.Options.ReasoningEffort ?? settings.ReasoningEffort,
                 Temperature = request.Options.Temperature ?? (float?)settings.Temperature,
                 MaxOutputTokens = request.Options.MaxOutputTokens ?? settings.MaxOutputTokens,
-                ResponseFormat = request.Options.ResponseFormat ?? (settings.StructuredOutput ? "json" : null),
+                ResponseFormat = request.Options.ResponseFormat ?? (settings.StructuredOutput && !canCallTools ? "json" : null),
             },
         };
     }

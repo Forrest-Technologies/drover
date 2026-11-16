@@ -30,7 +30,12 @@ public static partial class ToolCards
         ("crew.add", new("Making a bot", "Made a bot", "make a bot")),
         ("crew.change", new("Changing a bot", "Changed a bot", "change a bot")),
         ("crew.remove", new("Removing a bot", "Removed a bot", "remove a bot")),
-        ("time.now", new("Checking the time", "Checked the time", "check the time")));
+        ("time.now", new("Checking the time", "Checked the time", "check the time")),
+        ("memory.save", new("Saving a note", "Saved a note", "save a note")),
+        ("memory.change", new("Changing a note", "Changed a note", "change a note")),
+        ("memory.forget", new("Removing a note", "Removed a note", "remove a note")),
+        ("memory.list", new("Reading its notes", "Read its notes", "read its notes")),
+        ("delegate", new("Handing work over", "Handed work over", "hand work to a bot beneath it")));
 
     #endregion
 
@@ -45,12 +50,16 @@ public static partial class ToolCards
         var phase = PhaseOf(call);
         var words = WordsFor(call);
         var arguments = JsonElement.Parse(call.Arguments);
-        var summary = Summarize(Canonical(call.ToolName), arguments);
+        var toolName = Canonical(call.ToolName);
+        var summary = Summarize(toolName, arguments);
 
         // A stored result is JSON. The preview in the call's events is the start of it, which may be cut off.
         var resultText = result?.Result is { Length: > 0 } stored ? Pretty(JsonElement.Parse(stored)) : call.Preview;
 
-        return new(
+        var command = toolName == "sandbox.run" && ParsedOrNull(resultText) is { ValueKind: JsonValueKind.Object } parsed
+            ? parsed
+            : (JsonElement?)null;
+        var card = new ToolCard(
             call.ToolCallId,
             phase,
             LabelFor(words, phase),
@@ -60,10 +69,14 @@ public static partial class ToolCards
             CoversAll(arguments, summary),
             resultText.Length == 0 ? null : resultText,
             ExitCodeIn(resultText),
-            call.Pieces)
+            call.Pieces.Count == 0 && command is { } returned ? CommandOutput(returned) : call.Pieces)
         {
-            Facts = FactsOf(Canonical(call.ToolName), arguments, call.Details),
+            CommandError = command is { } finished && finished.TryGetProperty("error", out var error)
+                && error.ValueKind is JsonValueKind.String ? error.GetString() : null,
+            Facts = FactsOf(toolName, arguments, call.Details),
         };
+
+        return phase is ToolPhase.Done ? card.AsNote(toolName, arguments, resultText) : card;
     }
 
     /// <summary>
@@ -134,6 +147,61 @@ public static partial class ToolCards
         }
 
         return known;
+    }
+
+    #endregion
+
+    #region Notes
+
+    // A bot's note, once kept, changed, or removed, reads as the note itself, so nothing has to be opened to know
+    // what the bot remembers. The words come from the result, which holds the note as it was kept.
+    private static ToolCard AsNote(this ToolCard card, string toolName, JsonElement arguments, string result)
+    {
+        if (!toolName.StartsWith("memory.", StringComparison.Ordinal))
+        {
+            return card;
+        }
+
+        var kept = ParsedOrNull(result) is { ValueKind: JsonValueKind.Object } whole ? whole : (JsonElement?)null;
+        var note = kept is { } found && found.TryGetProperty("note", out var saved) && saved.ValueKind is JsonValueKind.Object ? saved : (JsonElement?)null;
+        var text = (note is { } written ? Text(written, "text") : string.Empty) is { Length: > 0 } stored ? stored : Text(arguments, "text");
+
+        return toolName switch
+        {
+            "memory.save" when text.Length > 0 => card with
+            {
+                Label = MemoryWords.Remembered(text),
+                Summary = string.Empty,
+                NoteId = note is { } keptNote && Guid.TryParse(Text(keptNote, "id"), out var noteId) ? noteId : null,
+                NoteText = text,
+            },
+            "memory.change" when text.Length > 0 => card with
+            {
+                Label = MemoryWords.Updated,
+                Summary = string.Empty,
+                Facts = [.. new ToolFact[] { new("Before", kept is { } before ? Text(before, "before") : string.Empty), new("After", text) }
+                    .Where(fact => fact.Value.Length > 0)],
+            },
+            "memory.forget" when kept is { } forgot && Text(forgot, "text") is { Length: > 0 } forgotten => card with
+            {
+                Label = MemoryWords.Forgot(forgotten),
+                Summary = string.Empty,
+            },
+            _ => card,
+        };
+    }
+
+    // A result's start, as a call's events carry it, can be cut off. Read as a block with more to come, a cut-off
+    // result is simply not a whole value yet. A result that is not a JSON object, such as plain text, is no note.
+    private static JsonElement? ParsedOrNull(string result)
+    {
+        if (!result.TrimStart().StartsWith('{'))
+        {
+            return null;
+        }
+
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(result), isFinalBlock: false, state: default);
+        return JsonElement.TryParseValue(ref reader, out var parsed) ? parsed : null;
     }
 
     #endregion
@@ -234,6 +302,22 @@ public static partial class ToolCards
     private static string OneLine(string text) => WhiteSpace().Replace(text, " ").Trim();
 
     private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, indented);
+
+    private static ImmutableList<ToolOutputPiece> CommandOutput(JsonElement result)
+    {
+        var pieces = ImmutableList.CreateBuilder<ToolOutputPiece>();
+
+        foreach (var stream in new[] { "stdout", "stderr" })
+        {
+            if (result.TryGetProperty(stream, out var value)
+                && value.ValueKind is JsonValueKind.String && value.GetString() is { Length: > 0 } text)
+            {
+                pieces.Add(new ToolOutputPiece(stream, text));
+            }
+        }
+
+        return pieces.ToImmutable();
+    }
 
     private static int? ExitCodeIn(string result) =>
         ExitCode().Match(result) is { Success: true } found

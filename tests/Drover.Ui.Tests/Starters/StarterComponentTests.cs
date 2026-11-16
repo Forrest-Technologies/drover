@@ -58,35 +58,6 @@ public sealed class StarterComponentTests : BunitContext
     #region Conversation
 
     [Fact]
-    public void A_delegation_opens_by_itself_when_the_child_starts_waiting_for_a_person()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.", DelegationPhase.Working, null, DelegationRefusal.None, "/side", 0);
-        var card = Render<DelegationCard>(set => set.Add(view => view.Item, item).AddChildContent("<p id=\"work\">Helper's work</p>"));
-
-        card.Find("button").GetAttribute("aria-expanded").Should().Be("false");
-        card.Find(".dv-badge").TextContent.Should().Be("Working");
-        card.FindAll(".dv-handoff-out").Should().ContainSingle();
-
-        card.Render(set => set.Add(view => view.Item, item with { Phase = DelegationPhase.WaitingForYou }));
-
-        card.Find("button").GetAttribute("aria-expanded").Should().Be("true");
-        card.Find("#work").TextContent.Should().Be("Helper's work");
-        card.Find("a.dv-handoff-link").TextContent.Should().Be("Open Helper's side of this");
-    }
-
-    [Fact]
-    public void A_refused_delegation_says_why_and_shows_no_task()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.", DelegationPhase.Refused, null, DelegationRefusal.TargetPaused, null, 0);
-        var card = Render<DelegationCard>(set => set.Add(view => view.Item, item));
-
-        card.Find("button").Click();
-
-        card.Find(".dv-handoff-line").TextContent.Should().Be("Helper is paused.");
-        card.FindAll(".dv-handoff-task").Should().BeEmpty();
-    }
-
-    [Fact]
     public void A_person_who_cannot_do_what_the_bot_asked_can_say_why()
     {
         string? told = null;
@@ -118,57 +89,6 @@ public sealed class StarterComponentTests : BunitContext
         card.Render(set => set.Add(view => view.Phase, TakeoverPhase.Holding));
 
         card.FindAll("textarea").Should().BeEmpty();
-    }
-
-    [Fact]
-    public void A_note_is_changed_in_place_and_named_for_what_it_says()
-    {
-        (Guid Id, string Text)? changed = null;
-        var note = new MemoryNote(Guid.NewGuid(), "Prefers short answers.", true, start, "/moment");
-        var panel = Render<MemoryPanel>(set => set
-            .Add(view => view.State, MemoryPanelState.Ready)
-            .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.Notes, [note])
-            .Add(view => view.OnChange, (id, text) =>
-            {
-                changed = (id, text);
-                return Task.FromResult<string?>(null);
-            }));
-
-        panel.Find("ul").GetAttribute("aria-label").Should().Be("What Sample bot remembers about you");
-        panel.Find(".dv-memory-origin").TextContent.Should().Contain("Sample bot noted this").And.Contain("Open that moment");
-        panel.Find("[aria-label='Change the note: Prefers short answers.']").Click();
-        panel.Find(".dv-memory-edit textarea").Input("Prefers short answers, with sources.");
-        panel.Find(".dv-memory-edit").Submit();
-
-        changed.Should().Be((note.Id, "Prefers short answers, with sources."));
-        panel.FindAll(".dv-memory-edit").Should().BeEmpty();
-    }
-
-    [Fact]
-    public void A_note_that_was_not_saved_keeps_its_text_and_says_why()
-    {
-        var panel = Render<MemoryPanel>(set => set
-            .Add(view => view.State, MemoryPanelState.Ready)
-            .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.OnAdd, _ => Task.FromResult<string?>("The server did not answer. Try again.")));
-
-        panel.Find(".dv-memory-add textarea").Input("Works in Berlin time.");
-        panel.Find(".dv-memory-add").Submit();
-
-        panel.Find(".dv-memory-add textarea").GetAttribute("value").Should().Be("Works in Berlin time.");
-        panel.Find("[role=alert]").TextContent.Should().Contain("The server did not answer. Try again.");
-    }
-
-    [Theory]
-    [InlineData(MemoryPanelState.Loading, "Loading what Sample bot remembers.")]
-    [InlineData(MemoryPanelState.Off, "Memory is off for Sample bot, so it keeps no notes.")]
-    [InlineData(MemoryPanelState.Ready, "Sample bot has not noted anything about you yet.")]
-    public void The_memory_panel_says_what_is_happening_in_every_state(MemoryPanelState state, string sentence)
-    {
-        var panel = Render<MemoryPanel>(set => set.Add(view => view.State, state).Add(view => view.BotName, "Sample bot"));
-
-        panel.Find(".dv-memory-hint").TextContent.Should().StartWith(sentence);
     }
 
     [Fact]

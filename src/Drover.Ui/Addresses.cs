@@ -33,6 +33,9 @@ public static class Addresses
     /// <summary>The summary the server keeps of a bot's main conversation.</summary>
     public static string Summary(Guid botId) => $"/talk/{botId}/summary";
 
+    /// <summary>What a bot remembers about the person, beside its main conversation.</summary>
+    public static string Memory(Guid botId) => $"/talk/{botId}/memory";
+
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
 
@@ -51,10 +54,22 @@ public static class Addresses
 
     public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
 
+    /// <summary>
+    /// A bot's side of work handed to it, opened to read beside the conversation with <paramref name="botId"/>, where
+    /// the work was shown.
+    /// </summary>
+    public static string Work(Guid botId, Guid workerId, Guid threadId) => $"/talk/{botId}/work/{workerId}/{threadId}";
+
     public static string Bot(Guid botId) => $"/bots/{botId}";
+
+    /// <summary>A bot's editor with its Memory section open.</summary>
+    public static string BotMemory(Guid botId) => $"/bots/{botId}?section=memory";
 
     /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
     public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";
+
+    /// <summary>A bot's sandbox with the terminal open.</summary>
+    public static string BotTerminal(Guid botId) => $"{BotSandbox(botId)}?tab=terminal";
 
     /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
     public static string ToolSignIn(string outcome, string? connectionId) =>

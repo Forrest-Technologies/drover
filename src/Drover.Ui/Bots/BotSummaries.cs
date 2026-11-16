@@ -98,6 +98,7 @@ public static class BotSummaries
         {
             ToolStanding.Allowed => " · may run commands",
             ToolStanding.AllowedOnSave => " · allowed when saved",
+            ToolStanding.Partial => " · some tools allowed",
             ToolStanding.NotAllowed => " · not allowed yet",
             ToolStanding.ParentForbids => " · not allowed by its parent",
             _ => string.Empty,
