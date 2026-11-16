@@ -58,7 +58,7 @@ public sealed class MemoryNoteSeeder : PlainSeeder<MemoryNote>
         ["bot_id"] = seed.Parent("bots"),
         ["text"] = "Prefers short answers.",
         ["written_by_bot_id"] = seed.Parent("bots"),
-        ["source_thread_id"] = seed.Grandparent("messages", "threads"),
-        ["source_message_id"] = seed.Parent("messages"),
+        ["source_thread_id"] = Guid.CreateVersion7(),
+        ["source_message_id"] = Guid.CreateVersion7(),
     };
 }

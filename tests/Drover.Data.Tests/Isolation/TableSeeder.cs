@@ -76,15 +76,6 @@ public sealed class SeedRow(
             ? parent.Key[column]
             : throw new InvalidOperationException($"'{Table}' has no parent row in '{parentTable}'.");
 
-    /// <summary>
-    /// A key column of the row in <paramref name="grandparentTable"/> that this row's parent in
-    /// <paramref name="parentTable"/> points at, for a key that names both, such as a message and its thread.
-    /// </summary>
-    public object? Grandparent(string parentTable, string grandparentTable, string column = "id") =>
-        parents.TryGetValue(parentTable, out var parent) && parent.Parents.TryGetValue(grandparentTable, out var grandparent)
-            ? grandparent.Key[column]
-            : throw new InvalidOperationException($"'{Table}' has no parent row in '{parentTable}' beneath one in '{grandparentTable}'.");
-
     /// <summary>A new user who exists in the database, for a row that needs one of its own.</summary>
     public Task<Guid> CreateUser() => createUser();
 

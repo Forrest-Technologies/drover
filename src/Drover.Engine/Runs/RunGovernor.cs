@@ -345,6 +345,7 @@ public sealed class RunGovernor(
             RecordModelUsage = Record,
             ThreadId = session.Thread.Id,
             Redact = session.Redactor.Redact,
+            IsTainted = () => session.Tainted,
         };
 
     #endregion

@@ -1,7 +1,10 @@
 namespace Drover.Engine.Memory;
 
-/// <summary>Who is writing a note: the run's bot, for the run's person, from one tool call in one conversation.</summary>
-public sealed record NoteWriter(Guid BotId, Guid UserId, Guid? ThreadId, Guid RunId, Guid ToolCallId);
+/// <summary>
+/// Who is writing a note: the run's bot, for the run's person, from one tool call in one conversation, and whether
+/// that run has read text from an untrusted source.
+/// </summary>
+public sealed record NoteWriter(Guid BotId, Guid UserId, Guid? ThreadId, Guid RunId, Guid ToolCallId, bool Tainted = false);
 
 
 /// <summary>How long one note may be, and how much the bot's notes about one person may hold together.</summary>
@@ -47,7 +50,10 @@ public sealed class MemoryService(
         var notes = await memories.ListNotes(bot.Id, userId, cancellationToken);
         return new RecalledMemory(
             [.. notes.Select(note => new RecalledNote(note.Id, note.Text, note.UpdatedAt))],
-            LimitsFor(bot.MemorySettings).NotesCharacters);
+            LimitsFor(bot.MemorySettings).NotesCharacters)
+        {
+            Tainted = notes.Any(note => note.Tainted),
+        };
     }
 
     public async Task<(IReadOnlyList<MemoryNote> Notes, NoteLimits Limits)> List(NoteWriter writer, CancellationToken cancellationToken)
@@ -169,7 +175,10 @@ public sealed class MemoryService(
 
     private static int Used(IReadOnlyList<MemoryNote> notes) => notes.Sum(note => note.Text.Length);
 
-    /// <summary>The bot wrote the note now, in this conversation, in the reply that made this call.</summary>
+    /// <summary>
+    /// The bot wrote the note now, in this conversation, in the reply that made this call. A note a tainted run wrote
+    /// stays tainted, whoever writes it again.
+    /// </summary>
     private async Task WrittenBy(MemoryNote note, NoteWriter writer, CancellationToken cancellationToken)
     {
         var source = writer.ThreadId is { } threadId
@@ -177,6 +186,7 @@ public sealed class MemoryService(
             : null;
         note.WrittenByBotId = writer.BotId;
         note.WrittenByUserId = null;
+        note.Tainted = note.Tainted || writer.Tainted;
         note.SourceThreadId = source?.ThreadId;
         note.SourceMessageId = source?.Id;
     }

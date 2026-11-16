@@ -34,23 +34,47 @@ public sealed class MemoryNoteTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task A_note_cannot_name_a_conversation_whose_audience_is_not_its_own_or_a_message_from_another_conversation()
+    public async Task Sharing_the_conversation_a_note_came_from_leaves_the_note_private_to_its_person()
     {
         await using var provider = postgres.BuildServices();
         var world = await TenantWorld.Seed(provider);
         var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
-        var theirs = await SaveThread(provider, world.SpaceA, world.UserA2, bot);
-        var mine = await SaveThread(provider, world.SpaceA, world.UserA1, bot);
-        var elsewhere = await SaveThread(provider, world.SpaceA, world.UserA1, bot);
+        var said = await SaveThread(provider, world.SpaceA, world.UserA1, bot);
+        var note = await SaveNote(provider, world.SpaceA, world.UserA1, bot.Id, said.ThreadId, said.Id);
 
-        var borrowed = () => SaveNote(provider, world.SpaceA, world.UserA1, bot.Id, theirs.ThreadId, theirs.Id);
-        var mixed = () => SaveNote(provider, world.SpaceA, world.UserA1, bot.Id, elsewhere.ThreadId, mine.Id);
-
-        foreach (var refused in new[] { borrowed, mixed })
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
         {
-            (await refused.Should().ThrowAsync<DbUpdateException>()).Which.InnerException.Should().BeOfType<PostgresException>()
-                .Which.SqlState.Should().Be(PostgresErrorCodes.ForeignKeyViolation);
+            (await session.Db.Threads.Where(thread => thread.Id == said.ThreadId)
+                .ExecuteUpdateAsync(set => set.SetProperty(thread => thread.AudienceUserId, Audience.Everyone), Token)).Should().Be(1);
+            await session.Commit();
         }
+
+        var mine = await ListNotes(provider, world.SpaceA, world.UserA1, bot.Id, world.UserA1);
+        var theirs = await ListNotes(provider, world.SpaceA, world.UserA2, bot.Id, world.UserA1);
+
+        mine.Should().ContainSingle().Which.Should().Match<MemoryNote>(kept =>
+            kept.Id == note.Id && kept.AudienceUserId == world.UserA1 && kept.SourceMessageId == said.Id);
+        theirs.Should().BeEmpty("a note never moves to everyone with the conversation it came from");
+    }
+
+    [Fact]
+    public async Task Deleting_the_message_a_note_came_from_is_not_blocked_and_keeps_the_note()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
+        var said = await SaveThread(provider, world.SpaceA, world.UserA1, bot);
+        var note = await SaveNote(provider, world.SpaceA, world.UserA1, bot.Id, said.ThreadId, said.Id);
+
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            (await session.Db.Messages.Where(message => message.Id == said.Id).ExecuteDeleteAsync(Token)).Should().Be(1);
+            await session.Commit();
+        }
+
+        (await ListNotes(provider, world.SpaceA, world.UserA1, bot.Id, world.UserA1)).Should().ContainSingle().Which
+            .Should().Match<MemoryNote>(kept => kept.Id == note.Id
+                && kept.AudienceUserId == world.UserA1 && kept.WrittenByBotId == bot.Id);
     }
 
     [Fact]

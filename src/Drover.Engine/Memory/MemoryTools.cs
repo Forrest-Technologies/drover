@@ -117,7 +117,7 @@ public static class MemoryTools
     #region Arguments
 
     private static NoteWriter Writer(BuiltinToolCall call) =>
-        new(call.BotId, call.Tenant.UserId, call.ThreadId, call.RunId, call.ToolCallId);
+        new(call.BotId, call.Tenant.UserId, call.ThreadId, call.RunId, call.ToolCallId, call.IsTainted());
 
     private static object Describe(MemoryNote note) => new
     {
@@ -141,12 +141,14 @@ public static class MemoryTools
             }
             """);
 
-    /// <summary>The note's text as it is kept: trimmed, and with anything the run knows to be secret taken out.</summary>
+    /// <summary>
+    /// The note's text as it is kept: on one line, and with anything the run knows to be secret taken out.
+    /// </summary>
     private static string Text(BuiltinToolCall call) =>
         call.Arguments.ValueKind is JsonValueKind.Object
         && call.Arguments.TryGetProperty("text", out var value)
         && value.ValueKind is JsonValueKind.String
-            ? call.Redact(value.GetString() ?? string.Empty).Trim()
+            ? NoteText.Flatten(call.Redact(value.GetString() ?? string.Empty))
             : throw new BuiltinToolException("The argument text is required: the note, in a sentence or two.");
 
     private static Guid NoteId(JsonElement arguments) =>

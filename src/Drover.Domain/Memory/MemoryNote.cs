@@ -28,6 +28,12 @@ public sealed class MemoryNote : ISpaceOwned, IAudienceScoped
 
     public Guid? SourceMessageId { get; set; }
 
+    /// <summary>
+    /// The note was written by a run that had read text from an untrusted source, so it may carry that text. A run
+    /// that is given a tainted note is tainted from its start. Once set, it stays.
+    /// </summary>
+    public bool Tainted { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

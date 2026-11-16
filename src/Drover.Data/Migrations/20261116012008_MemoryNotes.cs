@@ -11,11 +11,6 @@ namespace Drover.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddUniqueConstraint(
-                name: "ak_messages_space_id_thread_id_id_audience_user_id",
-                table: "messages",
-                columns: new[] { "space_id", "thread_id", "id", "audience_user_id" });
-
             migrationBuilder.CreateTable(
                 name: "memories",
                 columns: table => new
@@ -29,6 +24,7 @@ namespace Drover.Data.Migrations
                     written_by_user_id = table.Column<Guid>(type: "uuid", nullable: true),
                     source_thread_id = table.Column<Guid>(type: "uuid", nullable: true),
                     source_message_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    tainted = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
@@ -56,24 +52,12 @@ namespace Drover.Data.Migrations
                         principalTable: "bots",
                         principalColumns: new[] { "space_id", "id" },
                         onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "fk_memories_messages_space_id_source_thread_id_source_message_",
-                        columns: x => new { x.space_id, x.source_thread_id, x.source_message_id, x.audience_user_id },
-                        principalTable: "messages",
-                        principalColumns: new[] { "space_id", "thread_id", "id", "audience_user_id" },
-                        onUpdate: ReferentialAction.Cascade,
-                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
                 name: "ix_memories_space_id_bot_id_audience_user_id",
                 table: "memories",
                 columns: new[] { "space_id", "bot_id", "audience_user_id" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_memories_space_id_source_thread_id_source_message_id_audien",
-                table: "memories",
-                columns: new[] { "space_id", "source_thread_id", "source_message_id", "audience_user_id" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_memories_space_id_written_by_bot_id",
@@ -95,10 +79,6 @@ namespace Drover.Data.Migrations
         {
             migrationBuilder.DropTable(
                 name: "memories");
-
-            migrationBuilder.DropUniqueConstraint(
-                name: "ak_messages_space_id_thread_id_id_audience_user_id",
-                table: "messages");
         }
     }
 }

@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations
 {
     [DbContext(typeof(DroverDbContext))]
-    [Migration("20261115203006_MemoryNotes")]
+    [Migration("20261116012008_MemoryNotes")]
     partial class MemoryNotes
     {
         /// <inheritdoc />
@@ -657,6 +657,12 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
 
+                    b.Property<bool>("Tainted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("tainted");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -688,9 +694,6 @@ namespace Drover.Data.Migrations
 
                     b.HasIndex("SpaceId", "BotId", "AudienceUserId")
                         .HasDatabaseName("ix_memories_space_id_bot_id_audience_user_id");
-
-                    b.HasIndex("SpaceId", "SourceThreadId", "SourceMessageId", "AudienceUserId")
-                        .HasDatabaseName("ix_memories_space_id_source_thread_id_source_message_id_audien");
 
                     b.ToTable("memories", null, t =>
                         {
@@ -1765,9 +1768,6 @@ namespace Drover.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_messages");
 
-                    b.HasAlternateKey("SpaceId", "ThreadId", "Id", "AudienceUserId")
-                        .HasName("ak_messages_space_id_thread_id_id_audience_user_id");
-
                     b.HasIndex("AuthorUserId")
                         .HasDatabaseName("ix_messages_author_user_id");
 
@@ -2260,13 +2260,6 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_memories_bots_space_id_written_by_bot_id");
-
-                    b.HasOne("Drover.Domain.Threads.Message", null)
-                        .WithMany()
-                        .HasForeignKey("SpaceId", "SourceThreadId", "SourceMessageId", "AudienceUserId")
-                        .HasPrincipalKey("SpaceId", "ThreadId", "Id", "AudienceUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_memories_messages_space_id_source_thread_id_source_message_");
                 });
 
             modelBuilder.Entity("Drover.Domain.Models.ModelCatalogEntry", b =>

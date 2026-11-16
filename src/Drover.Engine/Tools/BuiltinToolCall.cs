@@ -49,6 +49,9 @@ public sealed record BuiltinToolCall(
     /// </summary>
     public Func<string, string> Redact { get; init; } = text => text;
 
+    /// <summary>Whether the run has read text from an untrusted source, as it stands when the tool asks.</summary>
+    public Func<bool> IsTainted { get; init; } = () => false;
+
     #endregion
 }
 

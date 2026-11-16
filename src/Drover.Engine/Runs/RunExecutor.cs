@@ -458,6 +458,7 @@ public sealed class RunExecutor(
             return false;
         }
 
+        await TaintFromNotes(session, loaded);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -640,12 +641,32 @@ public sealed class RunExecutor(
         },
         Tools = [.. loaded.Granted.Select(granted => session.FindTool(granted.Tool.Id)).OfType<RunTool>().Select(tool => ToDefinition(session, tool))],
         Model = model,
-        Memory = OffersMemory(session, loaded) ? loaded.Memory : null,
+        Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
+            ? memory with { CanList = offered.Contains("memory.list") }
+            : null,
     };
 
-    /// <summary>Whether the run is offered one of the memory tools. A bot that cannot keep notes is given none.</summary>
-    private static bool OffersMemory(RunSession session, LoadedRun loaded) =>
-        loaded.Granted.Any(granted => session.FindTool(granted.Tool.Id) is { Builtin: not null } tool && MemoryTools.IsMemoryTool(tool.Tool.Name));
+    /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
+    private static List<string> OfferedMemoryTools(RunSession session, LoadedRun loaded) =>
+    [
+        .. loaded.Granted
+            .Select(granted => session.FindTool(granted.Tool.Id))
+            .OfType<RunTool>()
+            .Where(tool => tool.Builtin is not null && MemoryTools.IsMemoryTool(tool.Tool.Name))
+            .Select(tool => tool.Tool.Name),
+    ];
+
+    /// <summary>
+    /// A run given a note that a tainted run wrote may be given that run's untrusted text, so it is tainted before its
+    /// agent is built: its consequential tools ask from the first call, as they would in the run that read the text.
+    /// </summary>
+    private static async Task TaintFromNotes(RunSession session, LoadedRun loaded)
+    {
+        if (loaded.Memory is { Tainted: true } && OfferedMemoryTools(session, loaded).Count > 0)
+        {
+            await session.Taint();
+        }
+    }
 
     private static ToolDefinition ToDefinition(RunSession session, RunTool tool) => new()
     {

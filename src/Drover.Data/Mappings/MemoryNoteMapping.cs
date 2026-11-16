@@ -29,22 +29,13 @@ public sealed class MemoryNoteMapping : IEntityTypeConfiguration<MemoryNote>
         builder.WithinSpace<MemoryNote, Bot>(nameof(MemoryNote.BotId));
         builder.WithinSpace<MemoryNote, Bot>(nameof(MemoryNote.WrittenByBotId));
 
-        // The message a note came from, in the conversation it names, with the note's own audience: one key, so the
-        // message must be in that conversation and a note can never be read by more people, or other people, than the
-        // conversation it was taken from. The migration adds ON UPDATE CASCADE, so sharing the conversation shares it.
-        builder.HasOne<Message>()
-            .WithMany()
-            .HasForeignKey(
-                nameof(ISpaceOwned.SpaceId),
-                nameof(MemoryNote.SourceThreadId),
-                nameof(MemoryNote.SourceMessageId),
-                nameof(IAudienceScoped.AudienceUserId))
-            .HasPrincipalKey(
-                nameof(ISpaceOwned.SpaceId),
-                nameof(Message.ThreadId),
-                nameof(Message.Id),
-                nameof(IAudienceScoped.AudienceUserId))
-            .OnDelete(DeleteBehavior.Restrict);
+        builder.Property(note => note.Tainted).HasDefaultValue(false);
+
+        // source_thread_id and source_message_id are plain columns on purpose, as tool_calls.result_file_id is. A key to
+        // messages would have to carry the audience, and an audience key moves with its parent: sharing a conversation
+        // would then share every note taken from it, and deleting the conversation would be blocked by its notes. A
+        // note's audience is its person's alone and never moves. MemoryService names only the reply that made the call,
+        // in a conversation private to that person.
         builder.ReferencesUser(nameof(MemoryNote.WrittenByUserId));
     }
 
