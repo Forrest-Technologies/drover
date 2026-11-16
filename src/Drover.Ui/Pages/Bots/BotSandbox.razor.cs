@@ -50,6 +50,13 @@ public sealed partial class BotSandbox(
 
     private bool turningOff;
 
+    private bool stoppingHold;
+
+    // The hold and its button are gone once its run stops, so the focus goes to the page's heading.
+    private bool focusHeading;
+
+    private ElementReference heading;
+
     private string command = string.Empty;
 
     private Task? watching;
@@ -126,11 +133,17 @@ public sealed partial class BotSandbox(
         }
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (status is { Available: true, HasSandbox: true } && watching is null)
         {
             watching = Watch(disposal.Token);
+        }
+
+        if (focusHeading)
+        {
+            focusHeading = false;
+            await heading.FocusAsync();
         }
     }
 
@@ -228,6 +241,26 @@ public sealed partial class BotSandbox(
     {
         turningOff = false;
         await Power(() => api.TurnOffBotSandbox(SpaceId, BotId), "The sandbox is turned off. A new one starts on its next use.");
+    }
+
+    // An owner or admin may stop any run; the hold ends with it.
+    private async Task StopHold()
+    {
+        stoppingHold = false;
+
+        if (status?.Hold is not { } hold)
+        {
+            return;
+        }
+
+        await Power(
+            async () =>
+            {
+                await api.CancelRun(SpaceId, hold.RunId);
+                return await api.GetBotSandbox(SpaceId, BotId);
+            },
+            "The run was stopped. The screen is free again.");
+        focusHeading = status?.Hold is null;
     }
 
     private async Task Power(Func<Task<BotSandboxStatus>> change, string outcome)

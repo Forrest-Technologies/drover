@@ -116,6 +116,10 @@ public sealed partial class Talk(
     [Parameter]
     public Guid? FormerThreadId { get; set; }
 
+    /// <summary>The request the person took over, on the screen's address, so a reload keeps them holding it.</summary>
+    [SupplyParameterFromQuery(Name = "held")]
+    public Guid? Held { get; set; }
+
     /// <summary>Set when the browser comes back from a tool server's sign-in page: "connected" or "failed".</summary>
     [SupplyParameterFromQuery(Name = "tool-sign-in")]
     public string? ToolSignIn { get; set; }
@@ -152,7 +156,11 @@ public sealed partial class Talk(
     };
 
     // Only a request the person took over here is held: opening the screen another way does not answer anything.
-    private Takeover? HeldTakeover => openedTakeover is { } held && held.ToolCallId != handedBack ? held : null;
+    // The address names the request after a reload; it holds while that request still waits in the main conversation.
+    private Takeover? HeldTakeover =>
+        (openedTakeover ?? (mainTakeover is { } waiting && waiting.ToolCallId == Held ? waiting : null)) is { } held && held.ToolCallId != handedBack
+            ? held
+            : null;
 
     private Guid? HeldCallId => Side is SideView.Screen ? HeldTakeover?.ToolCallId : null;
 
@@ -455,7 +463,7 @@ public sealed partial class Talk(
 
         if (Shown is { } bot)
         {
-            navigation.NavigateTo(Addresses.Screen(bot.Id));
+            navigation.NavigateTo($"{Addresses.Screen(bot.Id)}?held={takeover.ToolCallId}");
         }
     }
 

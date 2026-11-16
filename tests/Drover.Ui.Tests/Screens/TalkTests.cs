@@ -285,7 +285,7 @@ public sealed class TalkTests : ScreenTest
         page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
         await page.FindAll("main .dv-takeover button").Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs());
 
-        page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/screen"));
+        page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/screen?held={callId}"));
         Server.Sent("POST", $"{space}/tool-calls/{callId}/takeover").Should().ContainSingle();
         page.Render(parameters => parameters.Add(talk => talk.Rail, "screen"));
         page.WaitForAssertion(() => page.Find("aside .dv-takeover h3").TextContent.Should().Be("You have Marshal's screen"));
@@ -301,6 +301,25 @@ public sealed class TalkTests : ScreenTest
         page.Find("aside [role=switch]").HasAttribute("checked").Should().BeFalse("the screen is the bot's again");
         // The focus moves to the screen's close control, the one way on once the controls are gone.
         page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke(calledTimes: 2));
+    }
+
+    [Fact]
+    public async Task After_a_reload_the_person_still_holds_the_screen_they_took_over()
+    {
+        var callId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c6");
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Server.AnswerBytes("POST", $"{space}/bots/{botId}/sandbox/screen", ScreenPng, "image/png");
+        Main(Thread(runId));
+        var events = Server.Stream($"{space}/runs/{runId}/events");
+        Navigation.NavigateTo($"/talk/{botId}/screen?held={callId}");
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+        await events.Send(Event(1, RunEventTypes.ToolRequested, new ToolRequested(callId, "computer.handover", "computer.handover", """{"reason":"Sign in."}""", "allow")));
+        await events.Send(Event(2, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(callId, "r1", "c1")));
+        await events.Send(Event(3, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_takeover", null, 1, null)));
+
+        page.WaitForAssertion(() => page.Find("aside .dv-takeover h3").TextContent.Should().Be("You have Marshal's screen"));
+        page.FindAll("main .dv-takeover button").Should().BeEmpty("the screen is held, so it is not offered again");
+        Server.Sent("POST", $"{space}/tool-calls/{callId}/takeover").Should().BeEmpty();
     }
 
     [Fact]

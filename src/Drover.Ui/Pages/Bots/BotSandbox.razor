@@ -39,7 +39,7 @@
     {
         <section class="dv-sandbox" aria-labelledby="dv-sandbox-title">
             <header class="dv-sandbox-head">
-                <h1 id="dv-sandbox-title" class="dv-sandbox-title" tabindex="-1">@bot.Name's sandbox</h1>
+                <h1 @ref="heading" id="dv-sandbox-title" class="dv-sandbox-title" tabindex="-1">@bot.Name's sandbox</h1>
                 <p class="dv-sandbox-state">
                     <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status)</Badge>
                     @if (status.BotWorking)
@@ -63,6 +63,13 @@
                 @if (PowerHint is { } hint)
                 {
                     <p class="dv-sandbox-hint">@hint</p>
+                }
+                @if (status.Hold is { } hold)
+                {
+                    <div class="dv-sandbox-hold">
+                        <p class="dv-sandbox-hint">@SandboxWords.Hold(hold)</p>
+                        <Button OnClick="() => stoppingHold = true" Disabled="busy">Stop the run that holds it</Button>
+                    </div>
                 }
             </header>
 
@@ -139,6 +146,16 @@
             <Actions>
                 <Button OnClick="() => rebuilding = false">Keep this sandbox</Button>
                 <Button Kind="ButtonKind.Danger" OnClick="Rebuild">Rebuild</Button>
+            </Actions>
+        </Dialog>
+
+        <Dialog Title="Stop the run that holds the screen" @bind-Open="stoppingHold">
+            <ChildContent>
+                <p>The run that asked a person to take over this screen stops, with everything it was doing, and the bots that share this sandbox can use it again.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => stoppingHold = false">Keep it waiting</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="StopHold">Stop the run</Button>
             </Actions>
         </Dialog>
 
