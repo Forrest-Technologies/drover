@@ -43,10 +43,6 @@
   font-weight: var(--dv-weight-heading);
 }
 
-.dv-toast-success .dv-toast-kind {
-  color: var(--dv-ok);
-}
-
 .dv-toast-warning .dv-toast-kind {
   color: var(--dv-warn);
 }
