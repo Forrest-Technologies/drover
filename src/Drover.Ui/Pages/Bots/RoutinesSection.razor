@@ -1,0 +1,400 @@
+@* The Routines section of the bot editor. Its job: decide what this bot does on its own and when, and check that it did. *@
+@inject DroverApi Api
+@inject SessionState Session
+@inject ILogger<RoutinesSection> Logger
+
+@if (Schedules is null)
+{
+    <p class="dv-editor-hint" role="status">Loading the routines.</p>
+}
+else
+{
+    <p class="dv-visually-hidden" role="status">@announcement</p>
+
+    @if (Schedules.Count > 0)
+    {
+        <ul class="dv-routines" aria-label="Routines">
+            @foreach (var schedule in Schedules)
+            {
+                <li @key="schedule.Id">
+                    <RoutineRow Routine="RoutineWords.Item(schedule, BotName)" BotName="@BotName" BotPaused="BotPaused" CanChange="CanChange"
+                                CanRewrite="schedule.OwnerUserId == Session.Current?.UserId" Busy="busy"
+                                Problem="@rowProblems.GetValueOrDefault(schedule.Id)" StartedHref="@started.GetValueOrDefault(schedule.Id)"
+                                FocusAfterRun="@(schedule.Id == focusRun.Id ? focusRun.Ticket : 0)"
+                                OnEnabledChanged="value => TurnOn(schedule, value)" OnRunOnce="() => AskToRunOnce(schedule)"
+                                OnChange="() => Edit(schedule)" OnRemove="() => AskToRemove(schedule)" />
+                </li>
+            }
+        </ul>
+    }
+    else if (!editing && CanChange)
+    {
+        <p class="dv-editor-hint">A routine is a prompt @BotName is sent on its own, at the times you choose.</p>
+    }
+    else if (!editing)
+    {
+        <p class="dv-editor-hint">@BotName has no routines. Owners and admins of this space add them.</p>
+    }
+
+    @if (editing)
+    {
+        <fieldset class="dv-routine-form" tabindex="-1" @ref="form">
+            <legend class="dv-editor-checks-legend">@(editedId is null ? "New routine" : "Change routine")</legend>
+            <TextArea Label="@($"What to ask {BotName}")" Rows="3" @bind-Value="prompt" />
+            <RoutineWhenFields When="when" WhenChanged="ChangeWhen" TimeZone="@timeZone" TimeZoneChanged="ChangeTimeZone" ServerProblem="@refusal" Next="next" />
+            <div class="dv-editor-choice">
+                <span class="dv-editor-choice-label" aria-hidden="true">Where it answers</span>
+                <SegmentedControl Label="Where it answers" Options="threadModes" @bind-Value="threadMode" />
+            </div>
+            @if (editedId is null)
+            {
+                <p class="dv-editor-hint">It is saved turned off. Run it once to try it, then turn it on.</p>
+            }
+            <StatusNote Kind="NoteKind.Danger" Text="@formProblem" />
+            <div class="dv-routine-form-actions">
+                <Button OnClick="Cancel" Disabled="busy">Cancel</Button>
+                <Button Kind="ButtonKind.Primary" OnClick="Save" Disabled="busy">@(editedId is null ? "Add routine" : "Save routine")</Button>
+            </div>
+        </fieldset>
+    }
+    else if (CanChange)
+    {
+        <div class="dv-routine-add" tabindex="-1" @ref="addArea">
+            <Button OnClick="Add"><Icon Name="IconName.Plus" />Add a routine</Button>
+        </div>
+    }
+
+    <Dialog Title="Run someone else's routine once, as you" Open="confirmingRun" OpenChanged="open => confirmingRun = open">
+        <ChildContent>
+            @if (running is { } shown)
+            {
+                <p>@RoutineWords.Sentence(shown.Cron, shown.TimeZone). @BotName is sent this, in a conversation of yours:</p>
+                <p class="dv-routine-run-prompt">@shown.Prompt</p>
+            }
+        </ChildContent>
+        <Actions>
+            <Button OnClick="() => confirmingRun = false">Do not run it</Button>
+            <Button Kind="ButtonKind.Primary" OnClick="RunConfirmed" Disabled="busy">Run it once now</Button>
+        </Actions>
+    </Dialog>
+
+    <Dialog Title="Remove this routine" Open="confirming" OpenChanged="open => confirming = open">
+        <ChildContent>
+            @if (removing is { } shown)
+            {
+                <p>@RoutineWords.Sentence(shown.Cron, shown.TimeZone): @RoutineWords.FirstLine(shown.Prompt)</p>
+            }
+            <p>It stops running. The conversations it started are kept.</p>
+        </ChildContent>
+        <Actions>
+            <Button OnClick="() => confirming = false">Keep routine</Button>
+            <Button Kind="ButtonKind.Danger" OnClick="Remove" Disabled="busy">Remove routine</Button>
+        </Actions>
+    </Dialog>
+}
+
+@code {
+    #region Private Fields
+
+    private static readonly TimeSpan checkPause = TimeSpan.FromMilliseconds(300);
+
+    private static readonly SegmentOption<string>[] threadModes = [new("new_thread", "A new conversation"), new("same_thread", "The same conversation")];
+
+    private readonly Dictionary<Guid, string> rowProblems = [];
+
+    private readonly Dictionary<Guid, string> started = [];
+
+    private ElementReference form;
+
+    private ElementReference addArea;
+
+    private bool editing;
+
+    private bool focusForm;
+
+    private bool focusAdd;
+
+    private Guid? editedId;
+
+    private bool editedEnabled;
+
+    private string prompt = string.Empty;
+
+    private RoutineWhen when = RoutineWhen.Start;
+
+    private string timeZone = string.Empty;
+
+    private string threadMode = "new_thread";
+
+    private bool busy;
+
+    private string? refusal;
+
+    private IReadOnlyList<DateTimeOffset>? next;
+
+    private int checks;
+
+    private string? formProblem;
+
+    private string? announcement;
+
+    private bool confirming;
+
+    private bool confirmingRun;
+
+    private BotScheduleResponse? running;
+
+    private (Guid? Id, int Ticket) focusRun;
+
+    private BotScheduleResponse? removing;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public Guid SpaceId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Guid BotId { get; set; }
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool BotPaused { get; set; }
+
+    /// <summary>The bot's routines, or null while they load.</summary>
+    [Parameter]
+    public IReadOnlyList<BotScheduleResponse>? Schedules { get; set; }
+
+    /// <summary>Raised with the routines as they are after one was added, changed, or removed.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<BotScheduleResponse>> OnSchedulesChanged { get; set; }
+
+    /// <summary>Owners and admins change routines. Everyone else reads them.</summary>
+    private bool CanChange => Session.Space?.Role is "owner" or "admin";
+
+    private static string OwnTimeZone => TimeZoneInfo.Local.HasIanaId ? TimeZoneInfo.Local.Id : "UTC";
+
+    #endregion
+
+    #region Private Methods
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusForm && editing)
+        {
+            focusForm = false;
+            await form.FocusAsync();
+        }
+        else if (focusAdd && !editing)
+        {
+            focusAdd = false;
+            await addArea.FocusAsync();
+        }
+    }
+
+    private void Add() => Open(null, false, string.Empty, RoutineWhen.Start, OwnTimeZone, "new_thread");
+
+    private void Edit(BotScheduleResponse schedule) =>
+        Open(schedule.Id, schedule.Enabled, schedule.Prompt, RoutineWords.Read(schedule.Cron), schedule.TimeZone, schedule.ThreadMode);
+
+    private void Open(Guid? id, bool enabled, string text, RoutineWhen chosen, string zone, string mode)
+    {
+        (editing, editedId, editedEnabled, prompt, when, timeZone, threadMode) = (true, id, enabled, text, chosen, zone, mode);
+        (refusal, next, formProblem, focusForm) = (null, null, null, true);
+    }
+
+    private void Cancel() => (editing, focusAdd) = (false, true);
+
+    private Task ChangeWhen(RoutineWhen chosen)
+    {
+        when = chosen;
+        return CheckTime();
+    }
+
+    private Task ChangeTimeZone(string zone)
+    {
+        timeZone = zone;
+        return CheckTime();
+    }
+
+    /// <summary>
+    /// Asks the server what saving the time would come to, once typing pauses, so an expression is explained or
+    /// refused before it is saved. An answer for a time that has changed since is dropped.
+    /// </summary>
+    private async Task CheckTime()
+    {
+        (refusal, next) = (null, null);
+        var asked = ++checks;
+        await Task.Delay(checkPause);
+
+        if (asked != checks || RoutineWords.Cron(when) is not { } cron)
+        {
+            return;
+        }
+
+        try
+        {
+            var check = await Api.CheckBotSchedule(SpaceId, BotId, new ScheduleCheckBody(cron, timeZone.Trim()));
+
+            if (asked == checks)
+            {
+                (refusal, next) = (check.Problem, check.Next);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RoutinesSection));
+        }
+    }
+
+    // A new routine is saved off: the person tries it once, then turns it on.
+    private async Task Save()
+    {
+        formProblem = (string.IsNullOrWhiteSpace(prompt), RoutineWords.Cron(when)) switch
+        {
+            (true, _) => $"Write what to ask {BotName}.",
+            (_, null) => "Finish choosing when it runs.",
+            _ => null,
+        };
+
+        if (formProblem is not null)
+        {
+            return;
+        }
+
+        var body = new BotScheduleBody(RoutineWords.Cron(when), timeZone.Trim(), prompt, threadMode, editedId is not null && editedEnabled);
+        formProblem = await Send(async () =>
+        {
+            var saved = editedId is { } id
+                ? await Api.UpdateBotSchedule(SpaceId, BotId, id, body)
+                : await Api.CreateBotSchedule(SpaceId, BotId, body);
+            announcement = editedId is null
+                ? $"Routine added, turned off: {RoutineWords.Sentence(saved.Cron, saved.TimeZone)}. Run it once to try it, then turn it on."
+                : $"Routine saved: {RoutineWords.Sentence(saved.Cron, saved.TimeZone)}.";
+            (editing, focusAdd) = (false, true);
+            return Replace(saved);
+        });
+    }
+
+    private async Task TurnOn(BotScheduleResponse schedule, bool on)
+    {
+        var body = new BotScheduleBody(schedule.Cron, schedule.TimeZone, schedule.Prompt, schedule.ThreadMode, on);
+        rowProblems.Remove(schedule.Id);
+
+        if (await Send(async () =>
+            {
+                var saved = await Api.UpdateBotSchedule(SpaceId, BotId, schedule.Id, body);
+                announcement = $"{RoutineWords.Sentence(saved.Cron, saved.TimeZone)} is {(saved.Enabled ? "on" : "off")}.";
+                return Replace(saved);
+            }) is { } problem)
+        {
+            rowProblems[schedule.Id] = problem;
+        }
+    }
+
+    private async Task RunOnce(BotScheduleResponse schedule)
+    {
+        rowProblems.Remove(schedule.Id);
+
+        if (await Send(async () =>
+            {
+                var run = await Api.RunBotScheduleOnce(SpaceId, BotId, schedule.Id);
+                started[schedule.Id] = Addresses.Conversation(run.ThreadId);
+                announcement = $"Started once now, as you: {RoutineWords.Sentence(schedule.Cron, schedule.TimeZone)}. Its row links to the conversation.";
+                return null;
+            }) is { } problem)
+        {
+            rowProblems[schedule.Id] = problem;
+        }
+    }
+
+    /// <summary>
+    /// The owner runs their own routine at once. Anyone else first reads the whole prompt they are about to send as
+    /// their own message, since they did not write it.
+    /// </summary>
+    private Task AskToRunOnce(BotScheduleResponse schedule)
+    {
+        if (schedule.OwnerUserId == Session.Current?.UserId)
+        {
+            return RunOnce(schedule);
+        }
+
+        (running, confirmingRun) = (schedule, true);
+        return Task.CompletedTask;
+    }
+
+    private async Task RunConfirmed()
+    {
+        confirmingRun = false;
+
+        if (running is { } schedule)
+        {
+            running = null;
+            await RunOnce(schedule);
+
+            // The dialog hands focus back to "Run once now", which is disabled while the run is asked for, so the
+            // row moves it on once the answer is in: to the conversation it started, or back to the button beside
+            // the refusal.
+            focusRun = (schedule.Id, focusRun.Ticket + 1);
+        }
+    }
+
+    private void AskToRemove(BotScheduleResponse schedule) => (removing, confirming) = (schedule, true);
+
+    private async Task Remove()
+    {
+        if (removing is not { } schedule)
+        {
+            return;
+        }
+
+        confirming = false;
+
+        if (await Send(async () =>
+            {
+                await Api.RemoveBotSchedule(SpaceId, BotId, schedule.Id);
+                announcement = $"Routine removed: {RoutineWords.Sentence(schedule.Cron, schedule.TimeZone)}.";
+                editing = editing && editedId != schedule.Id;
+                focusAdd = true;
+                return [.. Schedules!.Where(other => other.Id != schedule.Id)];
+            }) is { } problem)
+        {
+            rowProblems[schedule.Id] = problem;
+        }
+
+        removing = null;
+    }
+
+    private IReadOnlyList<BotScheduleResponse> Replace(BotScheduleResponse saved) =>
+        [.. Schedules!.Where(schedule => schedule.Id != saved.Id).Append(saved).OrderBy(schedule => schedule.Id)];
+
+    /// <summary>Sends one change and passes on the routines it leaves, if any. Returns the server's sentence when it refused.</summary>
+    private async Task<string?> Send(Func<Task<IReadOnlyList<BotScheduleResponse>?>> change)
+    {
+        busy = true;
+
+        try
+        {
+            if (await change() is { } changed)
+            {
+                await OnSchedulesChanged.InvokeAsync(changed);
+            }
+
+            return null;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RoutinesSection));
+            return Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    #endregion
+}

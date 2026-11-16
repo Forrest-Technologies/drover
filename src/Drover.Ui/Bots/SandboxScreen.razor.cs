@@ -67,6 +67,8 @@ public sealed partial class SandboxScreen(
 
     private bool enterAfter;
 
+    private bool passwordMode;
+
     private string clickMode = "left";
 
     private string typed = string.Empty;
@@ -154,6 +156,8 @@ public sealed partial class SandboxScreen(
     private string ControlWords => control
         ? "Clicks and keys go to the sandbox."
         : "View only. Turn on Send desktop input to click or type.";
+
+    private string TypeAction => passwordMode ? "Type password" : enterAfter ? "Type and press Enter" : "Type text";
 
     private string PointerStyle
     {
@@ -391,7 +395,22 @@ public sealed partial class SandboxScreen(
 
     #region Taking Control
 
-    private void SetControl(bool on) => control = on;
+    private void SetControl(bool on)
+    {
+        control = on;
+        if (!on && passwordMode)
+        {
+            SetPasswordMode(false);
+        }
+    }
+
+    private void SetPasswordMode(bool on)
+    {
+        typed = string.Empty;
+        passwordMode = on;
+    }
+
+    private Task<bool> OpenTerminal() => Send(new SandboxInputRequest("open_terminal"));
 
     private async Task ClickPicture(MouseEventArgs click)
     {
@@ -428,6 +447,15 @@ public sealed partial class SandboxScreen(
     {
         if (typed.Length == 0 || sending)
         {
+            return;
+        }
+
+        if (passwordMode)
+        {
+            var password = typed;
+            typed = string.Empty;
+            await Send(new SandboxInputRequest("password", Text: password));
+            await KeepTyping();
             return;
         }
 

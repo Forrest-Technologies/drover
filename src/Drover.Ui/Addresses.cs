@@ -29,6 +29,9 @@ public static class Addresses
 
     #region Public Methods
 
+    /// <summary>Any conversation, by its id. The page sends it on to its bot, as the main conversation or a side chat.</summary>
+    public static string Conversation(Guid threadId) => $"/threads/{threadId}";
+
     /// <summary>A bot's main conversation.</summary>
     public static string Talk(Guid botId) => $"/talk/{botId}";
 

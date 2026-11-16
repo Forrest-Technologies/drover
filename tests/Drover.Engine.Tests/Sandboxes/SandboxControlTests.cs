@@ -407,16 +407,21 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         await using var world = await ControlWorld(DesktopProvider(), desktop: true);
         var control = Control(world);
         var typed = $"typed-{Guid.NewGuid():N}";
+        var password = $"sample-{Guid.NewGuid():N}";
         var command = $"echo command-{Guid.NewGuid():N}";
         await control.Run(world.SpaceId, world.UserId, world.BotId, command, RunWorld.Token);
         await control.Input(world.SpaceId, world.UserId, world.BotId, new SandboxInputRequest("type", Text: typed), RunWorld.Token);
+        var sent = await control.Input(world.SpaceId, world.UserId, world.BotId, new SandboxInputRequest("password", Text: password), RunWorld.Token);
+        sent.Refusal.Should().Be(SandboxControlRefusal.None);
 
         var entries = await world.Read(db => db.AuditLog.AsNoTracking().Where(entry => entry.Action.StartsWith("sandbox.")).OrderBy(entry => entry.Id).ToListAsync(RunWorld.Token));
 
-        entries.Select(entry => entry.Action).Should().Equal("sandbox.command", "sandbox.input");
+        entries.Select(entry => entry.Action).Should().Equal("sandbox.command", "sandbox.input", "sandbox.input");
         entries.Should().OnlyContain(entry => entry.ActorId == world.UserId && entry.TargetKind == "bot" && entry.TargetId == world.BotId);
         entries[1].Data.GetProperty("input").GetString().Should().Be("type");
-        entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains(typed) && !entry.Data.GetRawText().Contains("command-"));
+        entries[2].Data.GetProperty("input").GetString().Should().Be("password");
+        entries.Should().OnlyContain(entry => !entry.Data.GetRawText().Contains(typed)
+            && !entry.Data.GetRawText().Contains(password) && !entry.Data.GetRawText().Contains("command-"));
     }
 
     #endregion

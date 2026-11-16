@@ -90,8 +90,9 @@
                 <Disclosure Title="Memory" Summary="@BotSummaries.Memory(draft)" Open="@IsOpen(Memory)" OpenChanged="open => Toggle(Memory, open)">
                     <MemorySection Draft="draft" OnChanged="Changed" />
                 </Disclosure>
-                <Disclosure Title="Schedule" Summary="@BotSummaries.Schedules(schedules)" Open="@IsOpen(Schedule)" OpenChanged="open => Toggle(Schedule, open)">
-                    <ScheduleSection SpaceId="SpaceId" BotId="BotId" Schedules="schedules" OnSchedulesChanged="changed => schedules = changed" />
+                <Disclosure Title="Routines" Summary="@BotSummaries.Routines(schedules, saved.Name)" Open="@IsOpen(Routines)" OpenChanged="open => Toggle(Routines, open)">
+                    <RoutinesSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" BotPaused="@(saved.Status is "paused")" Schedules="schedules"
+                                     OnSchedulesChanged="changed => schedules = changed" />
                 </Disclosure>
                 <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft, tools, ScreenReaderName)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
                     <SandboxSection Draft="draft" BotId="BotId" Status="sandboxStatus" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed"

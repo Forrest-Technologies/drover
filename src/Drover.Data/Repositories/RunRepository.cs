@@ -14,6 +14,9 @@ public sealed record RunFence(string Worker, int Attempt);
 /// <summary>The run is held by another claim now. The execution that learns this stops and writes nothing more.</summary>
 public sealed class LeaseLostException(Guid runId) : Exception($"The lease on run {runId} belongs to another claim now.");
 
+/// <summary>How a run stands, for a person who can see its conversation: its status, the conversation, and why it failed.</summary>
+public sealed record RunGlance(RunStatus Status, Guid ThreadId, string? Reason);
+
 /// <summary>What a worker learns when it looks at its lease: whether it still holds it, and whether someone asked to stop.</summary>
 public sealed record LeaseState(bool Held, bool CancelRequested);
 
@@ -59,11 +62,18 @@ public sealed class RunRepository(DroverDbContext db)
             .Select(run => run.Id)
             .ToListAsync(cancellationToken);
 
-    /// <summary>The status of each of these runs that exists, by id.</summary>
-    public Task<Dictionary<Guid, RunStatus>> ListStatuses(IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken) =>
-        db.Runs.AsNoTracking()
+    /// <summary>
+    /// Each of these runs whose conversation the caller can see, by id. A run has no audience of its own, so it is
+    /// joined to its thread, which row-level security hides when it is another person's private conversation.
+    /// </summary>
+    public async Task<Dictionary<Guid, RunGlance>> ListVisibleGlances(IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken)
+    {
+        var found = await db.Runs.AsNoTracking()
             .Where(run => runIds.Contains(run.Id))
-            .ToDictionaryAsync(run => run.Id, run => run.Status, cancellationToken);
+            .Join(db.Threads, run => run.ThreadId, thread => thread.Id, (run, thread) => new { run.Id, run.Status, run.ThreadId, run.Error })
+            .ToListAsync(cancellationToken);
+        return found.ToDictionary(run => run.Id, run => new RunGlance(run.Status, run.ThreadId, run.Error?.Message));
+    }
 
     /// <summary>For each of the threads that has one, the id of its active root run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListActiveRunIds(IReadOnlyCollection<Guid> threadIds, CancellationToken cancellationToken)

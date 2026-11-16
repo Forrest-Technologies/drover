@@ -12,6 +12,9 @@ public sealed record CommandRequest
 
     public IReadOnlyList<string> Arguments { get; init; } = [];
 
+    /// <summary>One input to write to the process before closing stdin. Never put these bytes in arguments or logs.</summary>
+    public ReadOnlyMemory<byte>? StandardInput { get; init; }
+
     public string? WorkingDirectory { get; init; }
 
     public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();

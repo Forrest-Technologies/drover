@@ -4,6 +4,10 @@
 <div class="dv-sandbox-screen">
     <div class="dv-sandbox-controlbar">
         <Switch Label="Send desktop input" Value="control" ValueChanged="SetControl" />
+        @if (picture is not null)
+        {
+            <Button OnClick="OpenTerminal" Disabled="sending">Open terminal window</Button>
+        }
         @if (control)
         {
             <SegmentedControl Label="Desktop click type" Options="clickModes" @bind-Value="clickMode" />
@@ -73,14 +77,21 @@
     @if (control)
     {
         <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
-            <Field Label="Text to type" @bind-Value="typed" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="2000"
-                   enterkeyhint="send" />
-            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@(enterAfter ? "Type and press Enter" : "Type text")</Button>
+            <Field Label="@(passwordMode ? "Password" : "Text to type")" Type="@(passwordMode ? "password" : "text")"
+                   @bind-Value="typed" autocomplete="@(passwordMode ? "new-password" : "off")" autocapitalize="off"
+                   spellcheck="false" maxlength="2000" enterkeyhint="send" />
+            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@TypeAction</Button>
         </form>
         <div class="dv-sandbox-options">
-            <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
+            @if (!passwordMode)
+            {
+                <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
+            }
+            <Switch Label="Type a password" Value="passwordMode" ValueChanged="SetPasswordMode" Disabled="sending" />
         </div>
-        <p class="dv-sandbox-hint">Text goes to the focused window in the sandbox.</p>
+        <p class="dv-sandbox-hint">@(passwordMode
+            ? "Focus the remote password prompt first. This sends the password without pressing Enter. The sandbox is shared with the bot."
+            : "Text goes to the focused window in the sandbox.")</p>
         <div class="dv-sandbox-keys" role="group" aria-label="Keys">
             @foreach (var key in keys)
             {
