@@ -1,9 +1,11 @@
 namespace Drover.Engine.Tests.Bots;
 
 /// <summary>
-/// Schedules coming due, over PostgreSQL and the real engine, on a clock the test moves: a due schedule starts one
-/// run, triggered by the schedule, as its owner, in the conversation its thread mode names; and each edge case of
-/// docs/architecture/03-run-lifecycle.md "Schedules". The hosts execute no runs, so each run stays as it was queued.
+/// Schedules coming due, over PostgreSQL and the real engine: a due schedule starts one run, triggered by the schedule,
+/// as its owner, in the conversation its thread mode names; and each edge case of docs/architecture/03-run-lifecycle.md
+/// "Schedules". The claim checks the caller's clock against the database's, so the hosts' clock stands still at the
+/// real time and a schedule is made due by moving its next time into the past, as if the server had waited for it.
+/// The hosts execute no runs, so each run stays as it was queued.
 /// </summary>
 public sealed class ScheduleFiringTests(PostgresServer postgres)
 {
@@ -11,8 +13,6 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
 
     private const string Prompt = "Brief me on what changed overnight.";
 
-    /// <summary>A Monday, an hour before a daily nine o'clock schedule is due.</summary>
-    private static readonly DateTimeOffset monday = new(2026, 11, 16, 8, 0, 0, TimeSpan.Zero);
 
     #endregion
 
@@ -21,13 +21,13 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task A_due_schedule_starts_exactly_one_run_triggered_by_the_schedule_as_its_owner_in_a_new_conversation()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
 
         var early = await SendDue(host);
-        clock.Now = monday.AddHours(1).AddSeconds(20);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         var due = await SendDue(host);
         var again = await SendDue(host);
 
@@ -50,7 +50,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         var stored = await ReadSchedule(world, schedule.Id);
         stored.Should().Match<BotSchedule>(after =>
             after.LastRunId == run.Id && after.LastOutcome == ScheduleOutcome.Started && after.LastRunAt == clock.Now && after.Enabled);
-        stored.NextRunAt.Should().Be(monday.AddDays(1).AddHours(1), "the next time it is due is nine tomorrow");
+        stored.NextRunAt.Should().Be(NextAt(clock.Now, 9, 0), "the next time it is due is the next nine o'clock");
         var listed = await ListSchedules(world, host);
         listed.Single().ToResponse().Should().Match<BotScheduleResponse>(response =>
             response.LastRunId == run.Id && response.LastOutcome == "queued" && response.LastRunAt == clock.Now);
@@ -59,16 +59,16 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task The_same_thread_is_the_owners_main_conversation_and_a_message_sent_while_it_is_busy_starts_a_scheduled_run_after()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.SameThread);
 
-        clock.Now = monday.AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         await SendDue(host);
         var main = await world.NewMainThread();
         var first = (await world.ReadRuns(main)).Should().ContainSingle().Which;
-        clock.Now = monday.AddDays(1).AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         await SendDue(host);
         var waiting = await ReadSchedule(world, schedule.Id);
         var pending = await world.Read(db => db.Messages.AsNoTracking().Where(message => message.ThreadId == main).ToListAsync(RunWorld.Token));
@@ -91,7 +91,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         bool taintedNote)
     {
         const string Note = "Reads the brief before standup.";
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing changed overnight.")]));
         await world.Read(async db =>
         {
@@ -104,7 +104,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         var scheduler = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         await AddSchedule(world, scheduler, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
 
-        clock.Now = monday.AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         await SendDue(scheduler);
         var queued = await world.Read(db => db.Runs.AsNoTracking().SingleAsync(RunWorld.Token));
         world.StartHost();
@@ -131,62 +131,73 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task A_server_down_across_several_due_times_sends_the_schedule_once_and_counts_the_next_time_from_now()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var schedule = await AddSchedule(world, host, world.UserId, "0 * * * *", ScheduleThreadMode.NewThread);
 
-        clock.Now = monday.AddHours(5).AddMinutes(30);
+        await MakeDue(world, clock, TimeSpan.FromHours(5.5));
         var afterOutage = await SendDue(host);
         var again = await SendDue(host);
 
         afterOutage.Should().Be(1, "five missed times are sent once, not five times");
         again.Should().Be(0);
         (await world.Read(db => db.Runs.CountAsync(RunWorld.Token))).Should().Be(1);
-        (await ReadSchedule(world, schedule.Id)).NextRunAt.Should().Be(monday.AddHours(6));
+        (await ReadSchedule(world, schedule.Id)).NextRunAt.Should().Be(NextAt(clock.Now, null, 0), "the next top of the hour after now");
     }
 
     [Theory]
     [InlineData("paused", ScheduleOutcome.BotPaused)]
     [InlineData("removed", ScheduleOutcome.BotRemoved)]
-    public async Task A_paused_or_removed_bot_sends_nothing_its_schedule_stays_on_and_moves_to_its_next_time_and_says_why(
+    public async Task A_paused_bot_sends_nothing_and_its_schedule_moves_on_and_a_removed_bots_is_turned_off_each_saying_why(
         string status,
         ScheduleOutcome outcome)
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
         await world.Read(db => db.Database.ExecuteSqlAsync($"UPDATE bots SET status = {status} WHERE id = {world.BotId}", RunWorld.Token));
 
-        clock.Now = monday.AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         var handled = await SendDue(host);
         var stored = await ReadSchedule(world, schedule.Id);
+        var later = await SendDue(host);
         var response = (await world.Read(db => db.BotSchedules.AsNoTracking().SingleAsync(found => found.Id == schedule.Id, RunWorld.Token))).ToResponse();
 
         handled.Should().Be(1);
         (await world.Read(db => db.Runs.AnyAsync(RunWorld.Token))).Should().BeFalse();
         (await world.Read(db => db.Messages.AnyAsync(RunWorld.Token))).Should().BeFalse();
-        stored.Should().Match<BotSchedule>(after =>
-            after.Enabled && after.LastOutcome == outcome && after.LastRunId == null && after.LastRunAt == clock.Now);
-        stored.NextRunAt.Should().Be(monday.AddDays(1).AddHours(1), "next_run_at still moves on");
+        later.Should().Be(0);
+        stored.Should().Match<BotSchedule>(after => after.LastOutcome == outcome && after.LastRunId == null && after.LastRunAt == clock.Now);
+
+        if (status is "paused")
+        {
+            stored.Enabled.Should().BeTrue("a paused bot may be resumed, and its schedule with it");
+            stored.NextRunAt.Should().Be(NextAt(clock.Now, 9, 0), "next_run_at still moves on");
+        }
+        else
+        {
+            stored.Enabled.Should().BeFalse("a removed bot can never answer, so its schedule is not claimed again");
+            stored.NextRunAt.Should().BeNull();
+        }
+
         response.LastOutcome.Should().Be(status is "paused" ? "bot_paused" : "bot_removed");
     }
 
     [Fact]
     public async Task An_owner_who_is_no_longer_a_member_sends_nothing_and_the_schedule_is_turned_off_saying_why()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var member = await world.AddMember(MembershipRole.Admin);
         var schedule = await AddSchedule(world, host, member, "0 9 * * *", ScheduleThreadMode.NewThread);
         await world.Read(db => db.Memberships.Where(membership => membership.UserId == member).ExecuteDeleteAsync(RunWorld.Token));
 
-        clock.Now = monday.AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         var handled = await SendDue(host);
         var stored = await ReadSchedule(world, schedule.Id);
-        clock.Now = monday.AddDays(3);
         var later = await SendDue(host);
 
         handled.Should().Be(1);
@@ -202,7 +213,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     public async Task Two_servers_looking_at_the_same_moment_send_each_due_schedule_once()
     {
         const int Schedules = 15;
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var first = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var second = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
@@ -213,7 +224,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
             made.Add(await AddSchedule(world, first, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread));
         }
 
-        clock.Now = monday.AddHours(1);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
         var handled = await Task.WhenAll(Task.Run(() => SendDue(first)), Task.Run(() => SendDue(second)));
 
         handled.Sum().Should().Be(Schedules);
@@ -226,12 +237,12 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task A_schedule_changed_after_it_was_claimed_is_left_alone()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
         var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
-        clock.Now = monday.AddHours(1);
-        var claimUntil = monday.AddHours(1).AddMinutes(5);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
+        var claimUntil = clock.Now.AddMinutes(5);
         var scopes = host.Services.GetRequiredService<RunScopes>();
         await scopes.WithoutTenant(
             services => services.GetRequiredService<BotScheduleRepository>().ClaimDue(clock.Now, claimUntil, 10, RunWorld.Token),
@@ -245,7 +256,46 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
 
         fire.Should().BeNull("the person changed the schedule after it was claimed, so the claim no longer holds");
         (await world.Read(db => db.Runs.AnyAsync(RunWorld.Token))).Should().BeFalse();
-        (await ReadSchedule(world, schedule.Id)).NextRunAt.Should().Be(monday.AddHours(1).AddMinutes(30));
+        (await ReadSchedule(world, schedule.Id)).NextRunAt.Should().Be(NextAt(clock.Now, 9, 30));
+    }
+
+    #endregion
+
+    #region Authority
+
+    [Fact]
+    public async Task Only_the_owner_changes_what_a_schedule_sends_or_when_and_another_admin_may_only_turn_it_off_or_remove_it()
+    {
+        const string Refusal =
+            "Only the person who made this schedule can change what it sends or when, or turn it back on, because it runs as them. You can turn it off or remove it.";
+        var clock = new MovableClock(Now());
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
+        var otherAdmin = await world.AddMember(MembershipRole.Admin);
+        var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
+
+        var newPrompt = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", "Send me their notes.", ScheduleThreadMode.NewThread, true));
+        var newTime = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 10 * * *", "UTC", Prompt, ScheduleThreadMode.NewThread, true));
+        var newZone = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "Europe/Berlin", Prompt, ScheduleThreadMode.NewThread, true));
+        var newThread = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", Prompt, ScheduleThreadMode.SameThread, true));
+        var untouched = await ReadSchedule(world, schedule.Id);
+        var turnedOff = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", Prompt, ScheduleThreadMode.NewThread, false));
+        var turnedBackOn = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", Prompt, ScheduleThreadMode.NewThread, true));
+        var off = await ReadSchedule(world, schedule.Id);
+        var byOwner = await Edit(world, host, world.UserId, schedule.Id, new ScheduleEdit("0 10 * * *", "UTC", "A new prompt.", ScheduleThreadMode.NewThread, true));
+        var removed = await AsPerson(world, host, otherAdmin, services =>
+            services.GetRequiredService<ScheduleService>().Remove(world.BotId, schedule.Id, otherAdmin, RunWorld.Token));
+
+        new[] { newPrompt, newTime, newZone, newThread }.Should().OnlyContain(change => change.Schedule == null && change.Problem == Refusal);
+        untouched.Should().Match<BotSchedule>(found =>
+            found.Prompt == Prompt && found.Cron == "0 9 * * *" && found.TimeZone == "UTC" && found.ThreadMode == ScheduleThreadMode.NewThread && found.Enabled);
+        turnedOff.Problem.Should().BeNull("another admin may turn a schedule off");
+        off.Should().Match<BotSchedule>(found => !found.Enabled && found.NextRunAt == null && found.Prompt == Prompt);
+        turnedBackOn.Problem.Should().Be(Refusal, "turning it back on would run it as its owner again, which is the owner's to decide");
+        byOwner.Problem.Should().BeNull();
+        byOwner.Schedule!.Should().Match<BotSchedule>(found => found.Enabled && found.Prompt == "A new prompt." && found.NextRunAt == NextAt(clock.Now, 10, 0));
+        removed.Should().BeTrue("another admin may remove a schedule");
+        (await world.Read(db => db.BotSchedules.AnyAsync(RunWorld.Token))).Should().BeFalse();
     }
 
     #endregion
@@ -255,7 +305,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task Saving_a_schedule_that_repeats_more_often_than_the_deployment_allows_says_so_in_a_sentence()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services =>
         {
@@ -276,7 +326,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Fact]
     public async Task Adding_a_schedule_beyond_the_spaces_cap_says_so_in_a_sentence_and_the_cap_counts_every_bot()
     {
-        var clock = new MovableClock(monday);
+        var clock = new MovableClock(Now());
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
         var host = world.IdleHost(services =>
         {
@@ -299,6 +349,29 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
 
     #region Private Methods
 
+    /// <summary>The real time to the second, which PostgreSQL stores exactly.</summary>
+    private static DateTimeOffset Now() =>
+        new(DateTimeOffset.UtcNow.UtcTicks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, TimeSpan.Zero);
+
+    /// <summary>The first moment after <paramref name="after"/> at the minute given, in the hour given or in any hour, in UTC.</summary>
+    private static DateTimeOffset NextAt(DateTimeOffset after, int? hour, int minute)
+    {
+        var candidate = new DateTimeOffset(after.Year, after.Month, after.Day, hour ?? after.Hour, minute, 0, TimeSpan.Zero);
+
+        while (candidate <= after)
+        {
+            candidate = hour is null ? candidate.AddHours(1) : candidate.AddDays(1);
+        }
+
+        return candidate;
+    }
+
+    /// <summary>Every enabled schedule of the world was due a while ago: the server waited for it, or was down.</summary>
+    private static Task<int> MakeDue(RunWorld world, MovableClock clock, TimeSpan ago) =>
+        world.Read(db => db.BotSchedules
+            .Where(schedule => schedule.Enabled)
+            .ExecuteUpdateAsync(set => set.SetProperty(schedule => schedule.NextRunAt, clock.Now - ago), RunWorld.Token));
+
     private static Task<int> SendDue(EngineHost host) =>
         host.Services.GetRequiredService<ScheduleRunner>().SendDue(RunWorld.Token);
 
@@ -317,6 +390,10 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         Guid? ownerUserId = null) =>
         AsPerson(world, host, ownerUserId ?? world.UserId, services => services.GetRequiredService<ScheduleService>()
             .Create(world.BotId, new ScheduleEdit(cron, "UTC", Prompt, mode, true), ownerUserId ?? world.UserId, RunWorld.Token));
+
+    private static Task<ScheduleChange> Edit(RunWorld world, EngineHost host, Guid actorUserId, Guid scheduleId, ScheduleEdit edit) =>
+        AsPerson(world, host, actorUserId, services =>
+            services.GetRequiredService<ScheduleService>().Update(world.BotId, scheduleId, edit, actorUserId, RunWorld.Token));
 
     private static Task<List<ScheduleView>> ListSchedules(RunWorld world, EngineHost host) =>
         AsPerson(world, host, world.UserId, async services =>

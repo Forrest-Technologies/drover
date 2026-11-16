@@ -6,7 +6,23 @@ public sealed record DueSchedule(Guid SpaceId, Guid ScheduleId, Guid OwnerUserId
 /// <summary>A bot's schedules, and the claim the scheduler makes on the ones that have come due.</summary>
 public sealed class BotScheduleRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so it cannot collide with another lock taken on the same space.
+    private const long ScheduleLockSeed = 0x44524F56_45520006;
+
+    #endregion
+
     #region Public Methods
+
+    /// <summary>
+    /// Makes additions of schedules to one space take turns until the transaction ends, so two additions count the
+    /// space's schedules one after the other. Spaces never wait on each other.
+    /// </summary>
+    public Task LockSpaceSchedules(CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended(sys.current_space()::text, {ScheduleLockSeed}))",
+            cancellationToken);
 
     public Task<List<BotSchedule>> ListSchedules(Guid botId, CancellationToken cancellationToken) =>
         db.BotSchedules.AsNoTracking()

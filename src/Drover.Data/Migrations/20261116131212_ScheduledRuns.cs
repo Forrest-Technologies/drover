@@ -58,8 +58,9 @@ namespace Drover.Data.Migrations
             // and the move of next_run_at are one statement, so two servers never claim one schedule for one due
             // time. PostgreSQL cannot read a cron expression, so the function moves next_run_at only as far as the
             // caller's claim; the caller writes the real next time inside the schedule's own tenant scope, and checks
-            // that next_run_at still holds its claim before it sends anything. A claim is between one second and one
-            // hour long, so no caller can hold a schedule back for longer. Ids only.
+            // that next_run_at still holds its claim before it sends anything. Both moments are checked against the
+            // database's own clock: the caller's "now" may be at most an hour behind it or a minute ahead, and a claim
+            // may end at most an hour after it, so no caller can claim schedules early or hold one back for longer. Ids only.
             migrationBuilder.CreateSystemFunction(
                 "claim_due_schedules",
                 [("at_time", "timestamp with time zone"), ("claim_until", "timestamp with time zone"), ("max_rows", "integer")],
@@ -73,8 +74,9 @@ namespace Drover.Data.Migrations
                     FROM public.bot_schedules s
                     WHERE s.enabled
                       AND s.next_run_at <= at_time
+                      AND at_time BETWEEN now() - interval '1 hour' AND now() + interval '1 minute'
                       AND claim_until >= at_time + interval '1 second'
-                      AND claim_until <= at_time + interval '1 hour'
+                      AND claim_until <= now() + interval '1 hour'
                     ORDER BY s.next_run_at, s.id
                     LIMIT greatest(max_rows, 0)
                     FOR UPDATE OF s SKIP LOCKED),

@@ -12,7 +12,7 @@ public enum ScheduleOutcome
     /// <summary>The bot was paused, so nothing was sent. The schedule stays on.</summary>
     BotPaused,
 
-    /// <summary>The bot was removed, so nothing was sent. The schedule stays on.</summary>
+    /// <summary>The bot was removed, so nothing was sent and the schedule was turned off.</summary>
     BotRemoved,
 
     /// <summary>The schedule's owner is no longer a member of the space, so nothing was sent and the schedule was turned off.</summary>

@@ -87,6 +87,34 @@ public sealed class ScheduleClaimTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task A_moment_far_from_the_database_clock_or_a_claim_ending_more_than_an_hour_after_it_claims_nothing()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var now = DateTimeOffset.UtcNow;
+        var due = await SaveSchedules(provider, world.SpaceA, world.UserA1, 2, now.AddYears(-1));
+
+        var tenYearsAhead = await Claim(scratch.AppConnectionString, now.AddYears(10), now.AddYears(10).AddMinutes(5), 10);
+        var minutesAhead = await Claim(scratch.AppConnectionString, now.AddMinutes(5), now.AddMinutes(10), 10);
+        var hoursBehind = await Claim(scratch.AppConnectionString, now.AddHours(-2), now.AddMinutes(5), 10);
+        var claimTooLong = await Claim(scratch.AppConnectionString, now, now.AddMinutes(61), 10);
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            (await session.Db.BotSchedules.Select(schedule => schedule.NextRunAt).ToListAsync(TestContext.Current.CancellationToken))
+                .Should().OnlyContain(next => next < now, "a refused claim moves nothing");
+        }
+
+        var honest = await Claim(scratch.AppConnectionString, now, now.AddMinutes(5), 10);
+
+        tenYearsAhead.Should().BeEmpty("a caller cannot claim, and so push back, schedules by naming a moment in the future");
+        minutesAhead.Should().BeEmpty();
+        hoursBehind.Should().BeEmpty();
+        claimTooLong.Should().BeEmpty("no claim holds a schedule back for more than an hour of the database's clock");
+        honest.Select(entry => entry.ScheduleId).Should().BeEquivalentTo(due);
+    }
+
+    [Fact]
     public async Task The_claim_returns_ids_only_and_a_tenant_scope_cannot_read_another_spaces_claimed_schedule()
     {
         await using var scratch = await postgres.CreateScratchDatabase();

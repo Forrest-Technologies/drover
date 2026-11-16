@@ -13,8 +13,8 @@ public sealed record ScheduleFire(ScheduleOutcome Outcome, Guid? ThreadId, Queue
 /// <item>The scheduler claimed the schedule by moving its <c>next_run_at</c> to the end of its claim. Nothing is sent
 /// unless the locked row still holds that claim, so a schedule changed, turned off, removed, or claimed again since
 /// is left alone, and a schedule is sent once for each time it is due.</item>
-/// <item>A paused or removed bot sends nothing; the schedule stays on and is due again at its next time. An owner who
-/// has left the space sends nothing, and the schedule is turned off, because nobody it may act for is left.</item>
+/// <item>A paused bot sends nothing; the schedule stays on and is due again at its next time. A removed bot, or an
+/// owner who has left the space, sends nothing, and the schedule is turned off: it could never send again.</item>
 /// <item>The message is the owner's, marked as sent by the schedule, so a run takes it as the owner's like any other.
 /// When the conversation already has a run under way, it waits for that run to end and then starts the next one, which
 /// is triggered by the schedule as well.</item>
@@ -149,7 +149,7 @@ public sealed class ScheduleFiring(
 
     /// <summary>
     /// Writes what happened and when the schedule is next due, counted from now: a schedule that missed several times
-    /// is due once. An owner who left turns the schedule off.
+    /// is due once. An owner who left, or a bot that was removed, turns the schedule off: it could never send again.
     /// </summary>
     private static void Record(BotSchedule schedule, ScheduleFire fire, DateTimeOffset now)
     {
@@ -157,7 +157,7 @@ public sealed class ScheduleFiring(
         schedule.LastOutcome = fire.Outcome;
         schedule.LastRunId = fire.Queued?.Run.Id;
 
-        if (fire.Outcome is ScheduleOutcome.OwnerLeft)
+        if (fire.Outcome is ScheduleOutcome.OwnerLeft or ScheduleOutcome.BotRemoved)
         {
             schedule.Enabled = false;
         }

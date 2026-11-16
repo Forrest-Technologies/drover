@@ -34,6 +34,9 @@ public sealed class ScheduleService(
 
     private const int MaxCronLength = 100;
 
+    private const string NotTheOwners =
+        "Only the person who made this schedule can change what it sends or when, or turn it back on, because it runs as them. You can turn it off or remove it.";
+
     /// <summary>How far ahead a schedule's times are compared to find the shortest gap between two of them.</summary>
     private static readonly TimeSpan gapSearch = TimeSpan.FromDays(366);
 
@@ -78,6 +81,7 @@ public sealed class ScheduleService(
         }
 
         var maxPerSpace = deployment.Value.Rules.MaxSchedulesPerSpace;
+        await schedules.LockSpaceSchedules(cancellationToken);
 
         if (await schedules.CountSchedules(cancellationToken) >= maxPerSpace)
         {
@@ -113,6 +117,11 @@ public sealed class ScheduleService(
             || await schedules.GetScheduleForUpdate(botId, scheduleId, cancellationToken) is not { } schedule)
         {
             return ScheduleChange.NotFound;
+        }
+
+        if (schedule.OwnerUserId != actorUserId)
+        {
+            return TurnOffForOwner(schedule, edit, actorUserId);
         }
 
         if (FindProblem(edit) is { } problem)
@@ -155,6 +164,34 @@ public sealed class ScheduleService(
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// A schedule runs as the person who made it, with their notes, their sign-ins, and their private conversation,
+    /// so nobody else may change what it sends or when. Another admin may turn it off (or remove it), and nothing more.
+    /// </summary>
+    private ScheduleChange TurnOffForOwner(BotSchedule schedule, ScheduleEdit edit, Guid actorUserId)
+    {
+        var rewrites = edit.Cron.Trim() != schedule.Cron
+            || edit.TimeZone.Trim() != schedule.TimeZone
+            || edit.Prompt != schedule.Prompt
+            || edit.ThreadMode != schedule.ThreadMode;
+
+        if (rewrites || (edit.Enabled && !schedule.Enabled))
+        {
+            return new ScheduleChange(null, NotTheOwners);
+        }
+
+        if (!edit.Enabled && schedule.Enabled)
+        {
+            var before = Snapshot(schedule);
+            schedule.Enabled = false;
+            schedule.NextRunAt = null;
+            audit.Record(actorUserId, "bot.schedule_changed", AuditTargets.Bot, schedule.BotId, before, Snapshot(schedule), About(schedule));
+            logger.LogInformation("Schedule {ScheduleId} of bot {BotId} turned off by someone other than its owner", schedule.Id, schedule.BotId);
+        }
+
+        return new ScheduleChange(schedule, null);
+    }
 
     private static JsonObject Snapshot(BotSchedule schedule) =>
         AuditLog.Snapshot(new { schedule.Cron, schedule.TimeZone, schedule.Prompt, schedule.ThreadMode, schedule.Enabled });
