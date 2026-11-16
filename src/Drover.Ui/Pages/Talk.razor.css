@@ -21,6 +21,10 @@
   background: var(--dv-bg-1);
 }
 
+.dv-shell-main {
+  container: conversation / inline-size;
+}
+
 .dv-shell-at-crew .dv-shell-main,
 .dv-shell-at-main .dv-shell-list,
 .dv-shell-at-side .dv-shell-list,
@@ -183,8 +187,8 @@
   padding: var(--dv-space-2);
 }
 
-/* On a phone the bot's name and its menu keep the header's first row, and the ways beside the conversation take a second. */
-@media (max-width: 559px) {
+/* Keep the bot's name visible until the conversation column can fit all its links beside it. */
+@container conversation (max-width: 640px) {
   .dv-shell-main-header {
     flex-wrap: wrap;
   }
@@ -197,11 +201,13 @@
   .dv-shell-beside {
     flex-basis: 100%;
     flex-wrap: wrap;
+    gap: var(--dv-space-1);
     margin-left: 0;
   }
 
   .dv-shell-beside .dv-shell-side {
-    flex: 1;
+    flex: 1 0 auto;
+    padding-inline: var(--dv-space-1);
   }
 }
 
@@ -214,7 +220,8 @@
   }
 
   .dv-shell-back,
-  .dv-shell-up {
+  .dv-shell-up,
+  .dv-shell-side {
     min-width: var(--dv-target-touch);
   }
 }

@@ -144,7 +144,7 @@
                         }
                         <form class="dv-sandbox-run" @onsubmit="RunCommand">
                             <Field Label="Shell command" @bind-Value="command" autocomplete="off" autocapitalize="off"
-                                   spellcheck="false" maxlength="4000" class="dv-field-input dv-facet dv-mono" />
+                                   spellcheck="false" maxlength="4000" enterkeyhint="go" class="dv-field-input dv-facet dv-mono" />
                             <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(running || string.IsNullOrWhiteSpace(command))">@(running ? "Running" : "Run")</Button>
                         </form>
                     </div>
