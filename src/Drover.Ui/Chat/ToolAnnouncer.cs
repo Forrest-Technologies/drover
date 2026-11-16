@@ -16,11 +16,17 @@ public sealed class ToolAnnouncer
     #region Public Methods
 
     /// <summary>What changed since the last call, as sentences, or nothing when no call changed.</summary>
-    public string? Next(IEnumerable<ToolCard> cards, string botName)
+    public string? Next(IEnumerable<ToolCard> cards, string botName) => Next(cards.Select(card => (card, botName)));
+
+    /// <summary>
+    /// The same, for calls made by more than one bot, such as those of work handed over: each is read out with the
+    /// name of the bot that made it.
+    /// </summary>
+    public string? Next(IEnumerable<(ToolCard Card, string BotName)> calls)
     {
         List<string> sentences = [];
 
-        foreach (var card in cards)
+        foreach (var (card, botName) in calls)
         {
             var phase = Spoken(card.Phase);
             var known = heard.TryGetValue(card.Id, out var before);

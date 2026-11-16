@@ -40,6 +40,16 @@ public sealed record RunView
 
     public static RunView Start(Guid runId) => new() { RunId = runId };
 
+    /// <summary>The view of this run or of one it handed work to, at any depth, or null.</summary>
+    public RunView? Find(Guid runId) =>
+        RunId == runId
+            ? this
+            : ToolCalls.Select(tool => tool.Delegation?.Child.Find(runId)).FirstOrDefault(found => found is not null);
+
+    /// <summary>True when the run is this one or one it handed work to, at any depth.</summary>
+    public bool Holds(Guid runId) =>
+        RunId == runId || ToolCalls.Any(tool => tool.Delegation?.Child.Holds(runId) is true);
+
     #endregion
 }
 
@@ -114,6 +124,9 @@ public sealed record ToolCallView(
 {
     public ImmutableList<ToolOutputPiece> Pieces { get; init; } = [];
 
+    /// <summary>The work this call handed to a bot beneath, once the server has begun it; see <see cref="DelegationStarted"/>.</summary>
+    public DelegationView? Delegation { get; init; }
+
     public string Output => string.Concat(Pieces.Select(piece => piece.Text));
 
     /// <summary>True while the call has not ended: it waits to run, runs, or waits for an answer.</summary>
@@ -126,3 +139,20 @@ public sealed record ToolCallView(
 
 /// <summary>Output a tool printed on one stream, stdout or stderr, without a break.</summary>
 public sealed record ToolOutputPiece(string Stream, string Text);
+
+
+/// <summary>
+/// Work a <c>delegate</c> call handed to a bot beneath: the child run, the bot that works it, its thread when the
+/// server recorded one, and the child's own view, built from its events in the same stream. <see cref="Outcome"/> is
+/// completed, failed, or cancelled once the child has ended, and <see cref="Answer"/> the start of what its parent was
+/// given, redacted. The answer is the child's model text: show it as text, never follow it.
+/// </summary>
+public sealed record DelegationView(Guid ChildRunId, Guid ChildBotId, Guid? ChildThreadId, RunView Child)
+{
+    public string? Outcome { get; init; }
+
+    public string? Answer { get; init; }
+
+    /// <summary>True while the child has not reported back.</summary>
+    public bool IsOut => Outcome is null;
+}

@@ -2,6 +2,7 @@
 @page "/talk/{BotId:guid}"
 @page "/talk/{BotId:guid}/{Rail}"
 @page "/talk/{BotId:guid}/side/{SideChat}"
+@page "/talk/{BotId:guid}/work/{WorkBotId:guid}/{WorkThreadId:guid}"
 @page "/threads/{FormerThreadId:guid}"
 
 <PageTitle>@PageName</PageTitle>
@@ -23,7 +24,7 @@
                 }
                 else
                 {
-                    <CrewList Crew="Crew" SelectedId="Shown?.Id" Working="WorkingBots" ForYou="ForYou" />
+                    <CrewList Crew="Crew" SelectedId="Shown?.Id" Working="WorkingBots" ForYou="ForYou" Handoffs="Handoffs" />
                 }
             </nav>
             <footer class="dv-shell-list-footer">
@@ -86,14 +87,15 @@
                     </nav>
                 </header>
                 <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" Moment="@(Side is SideView.Closed ? Moment : null)"
-                                  OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
+                                  OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged"
+                                  Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="MainHandoffsChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List or SideView.Summary or SideView.Screen or SideView.Files)
+                    @if (Side is SideView.List or SideView.Summary or SideView.Screen or SideView.Files or SideView.Work)
                     {
                         <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
@@ -105,7 +107,7 @@
                             <Icon Name="IconName.ArrowLeft" Size="20" />
                         </a>
                     }
-                    <span class="dv-shell-bot dv-mono">@Shown.Name</span>
+                    <span class="dv-shell-bot dv-mono">@(Side is SideView.Work ? WorkName : Shown.Name)</span>
                     <h1 class="dv-shell-title">@SideTitle</h1>
                 </header>
                 @if (Side is SideView.Summary)
@@ -115,6 +117,20 @@
                 else if (Side is SideView.Screen)
                 {
                     <ScreenPanel @key="Shown.Id" Bot="Shown" />
+                }
+                else if (Side is SideView.Work)
+                {
+                    @if (WorkBot is null)
+                    {
+                        <div class="dv-shell-rail-body">
+                            <EmptyState Title="This bot is not here" Cause="It was removed, so its side of this work cannot be shown."
+                                        ActionLabel="@($"Back to {Shown.Name}")" ActionHref="@Addresses.Talk(Shown.Id)" />
+                        </div>
+                    }
+                    else
+                    {
+                        <ConversationPane @key="WorkThreadId" Bot="WorkBot" ThreadId="WorkThreadId" ReadOnly="true" Crew="bots!" WorkAddress="WorkAddress" />
+                    }
                 }
                 else if (Side is SideView.Files)
                 {
@@ -136,7 +152,8 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
+                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
+                                      Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="SideHandoffsChanged" />
                 }
             </aside>
         }

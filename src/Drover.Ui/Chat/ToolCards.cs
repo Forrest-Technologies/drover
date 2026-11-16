@@ -30,7 +30,8 @@ public static partial class ToolCards
         ("crew.add", new("Making a bot", "Made a bot", "make a bot")),
         ("crew.change", new("Changing a bot", "Changed a bot", "change a bot")),
         ("crew.remove", new("Removing a bot", "Removed a bot", "remove a bot")),
-        ("time.now", new("Checking the time", "Checked the time", "check the time")));
+        ("time.now", new("Checking the time", "Checked the time", "check the time")),
+        ("delegate", new("Handing work over", "Handed work over", "hand work to a bot beneath it")));
 
     #endregion
 

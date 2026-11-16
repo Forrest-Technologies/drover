@@ -48,7 +48,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
 | #159 | `RoutineCallWords.cs`, `RoutineCallAddress.razor` | A routine's address, its secret shown once, today's calls |
 | #160 | `MemoryWords.cs`, `MemoryPanel.razor` | What a bot remembers: every state, in-place editing, the conversation cards' wording |
-| #162 | `DelegationWords.cs`, `DelegationCard.razor` | Work handed to another bot in the conversation, every refusal |
 | #163 | `UsageWords.cs`, `UsageTable.razor` | Cost and tokens per bot as a hierarchy, the order, unknown prices |
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |

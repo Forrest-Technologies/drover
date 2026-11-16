@@ -38,6 +38,11 @@ public sealed partial class Talk(
 
     private bool mainBusy;
 
+    // Work the conversations on screen have handed to other bots, which the crew column draws on its connectors.
+    private IReadOnlyDictionary<Guid, Handoff> mainHandoffs = ImmutableDictionary<Guid, Handoff>.Empty;
+
+    private IReadOnlyDictionary<Guid, Handoff> sideHandoffs = ImmutableDictionary<Guid, Handoff>.Empty;
+
     // The side pane is kept while a new side chat takes the address of the thread its first message made.
     private object sideKey = new();
 
@@ -75,6 +80,14 @@ public sealed partial class Talk(
     [Parameter]
     public string? SideChat { get; set; }
 
+    /// <summary>The bot whose side of handed work is open beside the conversation.</summary>
+    [Parameter]
+    public Guid? WorkBotId { get; set; }
+
+    /// <summary>That bot's thread for the work.</summary>
+    [Parameter]
+    public Guid? WorkThreadId { get; set; }
+
     /// <summary>A thread opened by the address it had before conversations were reached through their bot.</summary>
     [Parameter]
     public Guid? FormerThreadId { get; set; }
@@ -95,6 +108,7 @@ public sealed partial class Talk(
     // new nor a thread falls back to the list.
     private SideView Side => (Rail, SideChat, ThreadId) switch
     {
+        _ when WorkThreadId is not null => SideView.Work,
         (_, _, not null) => SideView.Chat,
         (_, NewSideChat, _) => SideView.New,
         (_, not null, _) or (SideRail, _, _) => SideView.List,
@@ -132,12 +146,27 @@ public sealed partial class Talk(
         _ => CrewTree.Lead(bots),
     };
 
+    // A bot working on work handed to it is working for this person too.
     private IReadOnlySet<Guid> WorkingBots =>
         threads.Values
             .Where(thread => thread.ActiveRunId is not null && thread.Attention?.WaitingForYou is not true)
             .Select(thread => thread.BotId)
             .Concat(mainBusy && Shown is not null ? [Shown.Id] : [])
+            .Concat(Handoffs.Where(pair => pair.Value is Handoff.Working).Select(pair => pair.Key))
             .ToHashSet();
+
+    // Work out wins over work that came back, so a bot both conversations handed work to shows it out. A side chat's
+    // work counts while the side chat is open.
+    private IReadOnlyDictionary<Guid, Handoff> Handoffs =>
+        mainHandoffs.Concat(Side is SideView.Chat or SideView.New ? sideHandoffs : [])
+            .GroupBy(pair => pair.Key)
+            .ToDictionary(group => group.Key, group => group.Min(pair => pair.Value));
+
+    private BotSummary? WorkBot => bots?.FirstOrDefault(bot => bot.Id == WorkBotId);
+
+    private string WorkName => WorkBot?.Name ?? Handover.Unknown;
+
+    private Func<Guid, Guid, string> WorkAddress => (worker, thread) => Addresses.Work(Shown!.Id, worker, thread);
 
     // What each bot has for this person, across all their threads with it. A conversation on screen is being seen,
     // so it has nothing new and no failure to point at, even before the server has heard so.
@@ -171,6 +200,7 @@ public sealed partial class Talk(
     private string SideTitle => Side switch
     {
         SideView.Chat => threads.GetValueOrDefault(ThreadId!.Value)?.Title ?? "Side chat",
+        SideView.Work => $"{WorkName}'s side",
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
@@ -182,6 +212,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
+        SideView.Work => $"{WorkName}'s side of work handed to it",
         SideView.Files => $"Files exchanged with {Shown!.Name}",
         _ => $"Side chats with {Shown!.Name}",
     };
@@ -190,6 +221,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => "Close the summary",
         SideView.Screen => "Close the screen",
+        SideView.Work => $"Close {WorkName}'s side",
         SideView.Files => "Close the files",
         _ => "Close side chats",
     };
@@ -439,6 +471,10 @@ public sealed partial class Talk(
         screenAskedFor = null;
         await AskForScreen();
     }
+
+    private void MainHandoffsChanged(IReadOnlyDictionary<Guid, Handoff> handoffs) => mainHandoffs = handoffs;
+
+    private void SideHandoffsChanged(IReadOnlyDictionary<Guid, Handoff> handoffs) => sideHandoffs = handoffs;
 
     private Task SideBusyChanged(bool busy)
     {
