@@ -273,41 +273,6 @@ public sealed class StarterComponentTests : BunitContext
     #region Records
 
     [Fact]
-    public void A_refused_file_says_why_and_every_file_can_be_taken_off_by_name()
-    {
-        Guid? removed = null;
-        AttachmentItem[] items =
-        [
-            new(Guid.NewGuid(), "notes.txt", 840, UploadPhase.Ready, 100),
-            new(Guid.NewGuid(), "photo.png", 9000, UploadPhase.Ready, 100, FileRefusal.ModelCannotReadImages),
-        ];
-        var tray = Render<AttachmentTray>(set => set
-            .Add(view => view.Items, items)
-            .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.OnRemove, id => removed = id));
-
-        tray.FindAll(".dv-attached-problem").Should().ContainSingle().Which.TextContent.Should().Contain("Sample bot's model cannot read pictures.");
-        tray.Find("[role=status]").TextContent.Should().Be("1 file cannot be sent.");
-        tray.Find("[aria-label='Remove photo.png']").Click();
-
-        removed.Should().Be(items[1].Id);
-        Render<AttachmentTray>(set => set.Add(view => view.Items, []).Add(view => view.BotName, "Sample bot")).Markup.Trim().Should().BeEmpty();
-    }
-
-    [Fact]
-    public void A_picture_has_its_dimensions_and_every_file_can_be_downloaded_by_name()
-    {
-        var picture = new SharedFile(Guid.NewGuid(), "chart.png", "image/png", 9000, "/files/1", true, start, Width: 640, Height: 480);
-        var card = Render<FileCard>(set => set.Add(view => view.File, picture));
-
-        card.Find("img").GetAttribute("width").Should().Be("640");
-        card.Find("img").GetAttribute("height").Should().Be("480");
-        card.Find("img").GetAttribute("alt").Should().Be("chart.png");
-        card.Find("a[download]").GetAttribute("aria-label").Should().Be("Download chart.png");
-        card.Find(".dv-file-facts").TextContent.Should().Be("PNG image, 8.8 KB");
-    }
-
-    [Fact]
     public void The_files_filter_appears_only_when_files_came_from_both_sides()
     {
         var fromBot = new SharedFile(Guid.NewGuid(), "a.pdf", "application/pdf", 10, "/files/a", true, start);

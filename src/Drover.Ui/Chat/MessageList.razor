@@ -16,7 +16,19 @@
             if (message.FromPerson)
             {
                 <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
-                    <p class="dv-message-bubble dv-facet">@message.Text</p>
+                    @if (message.Text.Length > 0)
+                    {
+                        <p class="dv-message-bubble dv-facet">@message.Text</p>
+                    }
+                    @if (message.Files.Count > 0)
+                    {
+                        <div class="dv-message-files">
+                            @foreach (var file in message.Files)
+                            {
+                                <FileCard @key="file.Id" File="file" />
+                            }
+                        </div>
+                    }
                     @if (message.Pending)
                     {
                         <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>

@@ -329,7 +329,7 @@ public sealed class TalkTests : ScreenTest
         await page.Find("main textarea").InputAsync(new ChangeEventArgs { Value = "Another sample question" });
         await page.Find("main form").SubmitAsync();
         await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
-        page.WaitForAssertion(() => page.Find("main .dv-composer button").TextContent.Trim().Should().Be("Stop"));
+        page.WaitForAssertion(() => page.Find("main .dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop"));
 
         Server.Answer("GET", $"{space}/threads/{threadId}/summary", new ConversationSummary("Sample summary, rewritten.", 26, DateTimeOffset.UnixEpoch));
         Server.Answer("GET", $"{space}/bots", new[] { Marshal, Helper with { MadeByBotId = botId } });
@@ -446,7 +446,7 @@ public sealed class TalkTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find(".dv-message-state").TextContent.Should().Be("Thinking"));
         page.FindAll(".dv-message-bubble")[^1].TextContent.Should().Be("Another sample question");
-        page.FindAll(".dv-composer button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
+        page.FindAll(".dv-composer button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
         page.Find(".dv-crew-bot [role=img]").GetAttribute("aria-label").Should().Be("Marshal, thinking");
         page.Find(".dv-shell-main-header [role=img]").GetAttribute("aria-label").Should().Be("Marshal, thinking");
     }
@@ -467,7 +467,7 @@ public sealed class TalkTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll("article .dv-markdown")[^1].TextContent.Trim().Should().Be("Second sample"));
         page.FindAll("article .dv-markdown")[^1].GetAttribute("aria-busy").Should().Be("true");
         page.FindAll(".dv-message-state").Should().BeEmpty("the bot has started to answer");
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop");
 
         await events.Send(Event(4, RunEventTypes.MessageDelta, new MessageDelta(replyId, 0, "text", " answer")));
         page.WaitForAssertion(() => page.FindAll("article .dv-markdown")[^1].TextContent.Trim().Should().Be("Second sample answer"));
@@ -478,7 +478,7 @@ public sealed class TalkTests : ScreenTest
         await events.Send(Event(6, RunEventTypes.RunCompleted, new RunStatusChanged("completed", null, null, 1, null)));
         await events.End();
 
-        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Send"));
+        page.WaitForAssertion(() => page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Send"));
         page.FindAll("article").Should().HaveCount(4, "the streamed reply and the stored one are the same message");
         page.FindAll("article .dv-markdown")[^1].HasAttribute("aria-busy").Should().BeFalse();
     }
@@ -492,7 +492,7 @@ public sealed class TalkTests : ScreenTest
         await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Another sample question" });
         await page.Find("form").SubmitAsync();
         await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
-        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop"));
+        page.WaitForAssertion(() => page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop"));
 
         var steering = Said("user", "Keep it short") with { Position = null, Steers = true };
         Server.Answer("POST", $"{space}/threads/{threadId}/messages", new SendMessageResponse(steering, Run("running")), HttpStatusCode.Accepted);
@@ -501,7 +501,7 @@ public sealed class TalkTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find(".dv-message-pending").TextContent.Should().Be("Sent. Marshal reads it at its next step."));
         page.FindAll(".dv-message-bubble")[^1].TextContent.Should().Be("Keep it short");
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop", "the run is still the same one");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop", "the run is still the same one");
 
         await events.Send(Event(2, RunEventTypes.MessageDelivered, new MessageDelivered(steering with { Position = 3 })));
 
@@ -523,7 +523,7 @@ public sealed class TalkTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find("main [role=alert]").TextContent.Trim()
             .Should().Be("The provider rejected the API key. Send your message again to retry."));
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Send");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Send");
     }
 
     [Fact]
@@ -549,15 +549,15 @@ public sealed class TalkTests : ScreenTest
         var events = Server.Stream($"{space}/runs/{runId}/events");
         var page = RenderMain();
         await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
-        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop"));
+        page.WaitForAssertion(() => page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop"));
 
-        await page.Find(".dv-composer button").ClickAsync(new MouseEventArgs());
+        await page.Find(".dv-composer button.dv-button").ClickAsync(new MouseEventArgs());
         page.WaitForAssertion(() => Server.Sent("POST", $"{space}/runs/{runId}/cancel").Should().ContainSingle());
         await events.Send(Event(2, RunEventTypes.RunCancelled, new RunStatusChanged("cancelled", null, null, 1, null)));
         await events.End();
 
         page.WaitForAssertion(() => page.Find("main [role=status] .dv-note").TextContent.Trim().Should().Be("You stopped this reply."));
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Send");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Send");
     }
 
     [Fact]
@@ -573,7 +573,177 @@ public sealed class TalkTests : ScreenTest
         await events.Send(Event(4, RunEventTypes.MessageDelta, new MessageDelta(replyId, 0, "text", " and after it")));
 
         page.WaitForAssertion(() => page.FindAll("article .dv-markdown")[^1].TextContent.Trim().Should().Be("Said before the reload, and after it"));
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop");
+    }
+
+    #endregion
+
+    #region Files
+
+    [Fact]
+    public async Task A_file_attached_is_uploaded_at_once_and_goes_with_the_message()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), HttpStatusCode.Created);
+        RunStarts(string.Empty);
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("3 bytes"));
+        Server.Addresses.Should().Contain($"POST {space}/threads/{threadId}/files?name=notes.txt");
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => Server.Sent("POST", $"{space}/threads/{threadId}/messages").Should().ContainSingle()
+            .Which.Should().Contain($"\"fileIds\":[\"{fileId}\"]"));
+        page.WaitForAssertion(() => page.FindAll(".dv-attached-file").Should().BeEmpty("the files went with the message"));
+    }
+
+    [Fact]
+    public async Task A_file_the_server_refuses_says_why_before_anything_is_sent_and_holds_the_message()
+    {
+        AttachmentsAllowed();
+        Server.Answer(
+            "POST",
+            $"{space}/threads/{threadId}/files",
+            new { title = "Marshal has no way to open this kind of file. It needs a sandbox for it.", status = 422, refusal = FileRefusals.NothingCanOpenIt },
+            HttpStatusCode.UnprocessableEntity);
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary([0, 1, 2], "tool.bin"));
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-problem .dv-attached-status").TextContent
+            .Should().Be("Marshal has no way to open this kind of file. It needs a sandbox for it."));
+        await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Here it is" });
+        page.Find("button[type=submit]").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_file_past_the_servers_limit_is_refused_without_being_sent()
+    {
+        Server.Answer("GET", $"{space}/threads/{threadId}/attachment-rules", new AttachmentRules(2, 10, false, false));
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("three", "big.txt"));
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("Larger than this server takes."));
+        Server.Sent("POST", $"{space}/threads/{threadId}/files").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Removing_an_uploaded_file_removes_it_from_the_server_too()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        Server.Answer("DELETE", $"{space}/files/{fileId}", HttpStatusCode.NoContent);
+        var page = RenderMain();
+        page.WaitForElement("article");
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("3 bytes"));
+
+        await page.Find("[aria-label='Remove notes.txt']").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Server.Requests.Should().Contain(request => request.Method == "DELETE" && request.Path == $"{space}/files/{fileId}"));
+        page.FindAll(".dv-attached-file").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_first_file_of_a_new_side_chat_makes_its_thread_once_even_when_a_message_races_it()
+    {
+        var fileId = Guid.CreateVersion7();
+        var making = Server.Hold("POST", $"{space}/bots/{botId}/threads");
+        Server.Answer("POST", $"{space}/bots/{botId}/threads", Side with { Title = null }, HttpStatusCode.Created);
+        Server.Answer("GET", $"{space}/threads/{sideId}", Side with { Title = null });
+        Server.Answer("GET", $"{space}/threads/{sideId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        Server.Answer("POST", $"{space}/threads/{sideId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        Server.Answer("POST", $"{space}/threads/{sideId}/messages",
+            new SendMessageResponse(Said("user", "First sample words") with { ThreadId = sideId }, Run("queued") with { ThreadId = sideId }), HttpStatusCode.Accepted);
+        Server.Stream($"{space}/runs/{runId}/events");
+        var page = RenderSide("new");
+        page.WaitForAssertion(() => page.Find("aside h1").TextContent.Should().Be("New side chat"));
+
+        await page.Find("aside textarea").InputAsync(new ChangeEventArgs { Value = "First sample words" });
+
+        // The message asks for the thread first. Choosing the file waits for its handler, so the thread is let
+        // through from aside while both are waiting on it.
+        var submitted = page.Find("aside form").SubmitAsync();
+        _ = ReleaseSoon(making);
+        page.FindComponents<InputFile>()[^1].UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+        await submitted;
+
+        page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/side/{sideId}", string.Join("\n", Server.Addresses)));
+        page.Render(parameters => parameters.Add(talk => talk.SideChat, sideId.ToString()));
+        page.WaitForAssertion(() => page.Find("aside .dv-attached-status").TextContent.Should().Be("3 bytes"));
+        Server.Sent("POST", $"{space}/bots/{botId}/threads").Should().ContainSingle("the message and the file share one new thread");
+        Server.Sent("POST", $"{space}/threads/{sideId}/messages").Should().ContainSingle();
+        Server.Sent("POST", $"{space}/threads/{sideId}/files").Should().ContainSingle("the file went to the thread the message went to");
+    }
+
+    [Fact]
+    public async Task An_upload_that_fails_with_no_reason_from_the_server_says_so_and_holds_the_message()
+    {
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", HttpStatusCode.InternalServerError);
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+        await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "Here" });
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-problem .dv-attached-status").TextContent
+            .Should().Be("Not uploaded. Remove it and attach it again."));
+        page.Find("button[type=submit]").HasAttribute("disabled").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_file_taken_off_while_it_uploads_is_removed_from_the_server_when_it_arrives()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        var uploading = Server.Hold("POST", $"{space}/threads/{threadId}/files");
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        Server.Answer("DELETE", $"{space}/files/{fileId}", HttpStatusCode.NoContent);
+        var page = RenderMain();
+        page.WaitForElement("article");
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().StartWith("Uploading"));
+
+        await page.Find("[aria-label='Remove notes.txt']").ClickAsync(new MouseEventArgs());
+        uploading.SetResult();
+
+        page.WaitForAssertion(() => Server.Requests.Should().Contain(request => request.Method == "DELETE" && request.Path == $"{space}/files/{fileId}"));
+        page.FindAll(".dv-attached-file").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_file_attached_while_a_message_is_on_its_way_stays_for_the_next_one()
+    {
+        var sentId = Guid.CreateVersion7();
+        var laterId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(sentId, "first.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        var sending = Server.Hold("POST", $"{space}/threads/{threadId}/messages");
+        RunStarts("With a file");
+        var page = RenderMain();
+        page.WaitForElement("article");
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("one", "first.txt"));
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("3 bytes"));
+        await page.Find("textarea").InputAsync(new ChangeEventArgs { Value = "With a file" });
+
+        var submitted = page.Find("form").SubmitAsync();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(laterId, "later.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        page.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromText("two", "later.txt"));
+        page.WaitForAssertion(() => page.FindAll(".dv-attached-file").Should().HaveCount(2));
+        sending.SetResult();
+        await submitted;
+
+        page.WaitForAssertion(() => page.FindAll(".dv-attached-name").Select(name => name.TextContent).Should().Equal("later.txt"));
+        Server.Sent("POST", $"{space}/threads/{threadId}/messages").Single().Should().Contain(sentId.ToString()).And.NotContain(laterId.ToString());
     }
 
     #endregion
@@ -605,6 +775,15 @@ public sealed class TalkTests : ScreenTest
         Server.Answer("POST", $"{space}/threads/{threadId}/messages", new SendMessageResponse(Said("user", text), Run("queued")), HttpStatusCode.Accepted);
         return Server.Stream($"{space}/runs/{runId}/events");
     }
+
+    private static async Task ReleaseSoon(TaskCompletionSource gate)
+    {
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        gate.SetResult();
+    }
+
+    private void AttachmentsAllowed() =>
+        Server.Answer("GET", $"{space}/threads/{threadId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
 
     private IRenderedComponent<Talk> RenderMain()
     {

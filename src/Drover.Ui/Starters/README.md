@@ -44,7 +44,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #148 | `AttentionWords.cs`, `AttentionNote.razor`, `FailureLine.razor` | The word beside a bot in the crew column, the tab title count, the failed run's line and its causes |
 | #149 | `PushWords.cs`, `PushControl.razor` | Notifications on this device: every state and its one action |
 | #150 | `TakeoverPhase.cs`, `TakeoverCard.razor` | The bot's request for a person at its screen: asked, holding, answered |
-| #151 | `FileWords.cs`, `AttachmentTray.razor`, `FileCard.razor` | Files chosen for a message, refusals said before sending, a file as it shows in the conversation |
 | #152 | `HistoryWords.cs`, `HistoryList.razor`, `LineDiff.cs`, `DiffView.razor` | A bot's changes as sentences, values before and after, a line-by-line comparison |
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
@@ -55,11 +54,10 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #162 | `DelegationWords.cs`, `DelegationCard.razor` | Work handed to another bot in the conversation, every refusal |
 | #163 | `UsageWords.cs`, `UsageTable.razor` | Cost and tokens per bot as a hierarchy, the order, unknown prices |
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
-| #165 | `FilesPanelState.cs`, `FilesPanel.razor` | The files exchanged with a bot. Uses `FileCard` from #151 |
+| #165 | `FilesPanelState.cs`, `FilesPanel.razor` | The files exchanged with a bot. Uses `FileCard` and `SharedFile`, which #151 moved to `Chat/` |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |
 | #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164 and `AttentionNote` from #148 |
 | #168 | `ActivityWords.cs`, `WaitingList.razor`, `ActivityRunRow.razor` | Answering what waits, several at once with every sentence listed, a run in the list |
-| Shared | `Words.cs` | Counts, lists, ordinals, sizes, durations. Moves to `Drover.Ui` with the first starter that uses it, and stays |
 | Samples | `ConversationSamples.razor`, `RoutineSamples.razor`, `RecordSamples.razor`, `BoldSamples.razor` | The starter gallery's sections. Each loses a section as its starter moves |
 | Gallery | `StarterGallery.razor`, `_Imports.razor` | The page at `/dev/starters`, and the one `@using` the samples need. They go with the last starter |
 

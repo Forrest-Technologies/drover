@@ -21,6 +21,6 @@
                          Problem="@problem" Notice="@Notice" Decide="Decide" />
         }
         <Composer @ref="composer" BotName="@Bot.Name" Running="Working" Waiting="@(run?.Status is "waiting")" Disabled="loading" Sending="sending"
-                  OnSend="Send" OnCancel="Stop" />
+                  Attachments="draft.Items" OnSend="Send" OnCancel="Stop" OnFiles="Attach" OnRemoveFile="RemoveFile" />
     }
 </div>

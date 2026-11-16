@@ -2,8 +2,20 @@
 @inject IJSRuntime JS
 @inject ILogger<Composer> Logger
 
-<form class="dv-composer" @onsubmit="Send">
+<form @ref="form" class="dv-composer" @onsubmit="Send">
+    <AttachmentTray Items="Attachments" BotName="@BotName" OnRemove="OnRemoveFile" />
+    @if (optionsOpen)
+    {
+        <div id="@optionsId" class="dv-composer-options" role="group" aria-label="Message options">
+            <Button OnClick="Pick" Disabled="@(Disabled || module is null)">
+                <Icon Name="IconName.Attach" />
+                Attach
+            </Button>
+        </div>
+    }
     <div class="dv-composer-frame dv-facet @(Running && !Waiting ? "dv-state-tool" : null)">
+    <IconButton Icon="IconName.Plus" Label="More options" OnClick="ToggleOptions"
+                aria-expanded="@(optionsOpen ? "true" : "false")" aria-controls="@optionsId" />
     <textarea @ref="field" class="dv-composer-field" rows="1" aria-label="Message to @BotName" placeholder="Write to @BotName"
               value="@text" @oninput="Typed" disabled="@Disabled" enterkeyhint="send"></textarea>
     @if (Running)
@@ -13,14 +25,18 @@
             Stop
         </Button>
     }
-    @if (!Running || !string.IsNullOrWhiteSpace(text))
+    @if (!Running || HasSomething)
     {
-        <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(Disabled || Sending || string.IsNullOrWhiteSpace(text))">
+        <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(!CanSend)">
             <Icon Name="IconName.Send" />
             Send
         </Button>
     }
     </div>
+    @* Held over the composer, the files are said to be taken, in words as well as by the frame's edge. *@
+    <p class="dv-composer-drop-note">Drop the files to attach them.</p>
+    @* Chosen with Attach, pasted into the field, or dropped on the composer: the script hands every file to this. *@
+    <InputFile @ref="picker" hidden multiple OnChange="Chosen" />
 </form>
 
 @code {
@@ -28,7 +44,21 @@
 
     private const string ModulePath = "./_content/Drover.Ui/Chat/Composer.razor.js";
 
+    // More than a message may carry is still taken, so each one past the limit can say why it cannot go.
+    private const int MaxFilesAtOnce = 100;
+
+    private readonly string optionsId = $"composer-options-{Guid.NewGuid():N}";
+
     private ElementReference field;
+
+    private ElementReference form;
+
+    private InputFile? picker;
+
+    private bool optionsOpen;
+
+    // Opening the row by keyboard puts focus on its first option, since the row comes before the plus button.
+    private bool focusOptions;
 
     private IJSObjectReference? module;
 
@@ -59,12 +89,29 @@
     [Parameter]
     public bool Sending { get; set; }
 
+    /// <summary>The files chosen for this message, each with its state.</summary>
+    [Parameter]
+    public IReadOnlyList<AttachmentItem> Attachments { get; set; } = [];
+
     [Parameter]
     public EventCallback<string> OnSend { get; set; }
+
+    /// <summary>Files the person chose, pasted, or dropped.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<IBrowserFile>> OnFiles { get; set; }
+
+    /// <summary>A chosen file taken off before sending.</summary>
+    [Parameter]
+    public EventCallback<Guid> OnRemoveFile { get; set; }
 
     /// <summary>Stops the whole run, including work it handed to other bots.</summary>
     [Parameter]
     public EventCallback OnCancel { get; set; }
+
+    private bool HasSomething => !string.IsNullOrWhiteSpace(text) || Attachments.Count > 0;
+
+    // Send waits until every file is uploaded, and a file that cannot go holds the message until it is taken off.
+    private bool CanSend => !Disabled && !Sending && HasSomething && FileWords.CanSend(Attachments);
 
     #endregion
 
@@ -88,15 +135,24 @@
     // The script makes Enter send and Shift+Enter break the line, and grows the field with its text.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
+        if (firstRender)
         {
-            return;
+            await AttachScript();
+            StateHasChanged();
         }
+        else if (focusOptions && module is not null)
+        {
+            focusOptions = false;
+            await FocusFirstOption();
+        }
+    }
 
+    private async Task AttachScript()
+    {
         try
         {
             module = await JS.InvokeAsync<IJSObjectReference>("import", ModulePath);
-            await module.InvokeVoidAsync("attach", field);
+            await module.InvokeVoidAsync("attach", field, form, picker?.Element);
         }
         catch (JSException exception)
         {
@@ -105,11 +161,52 @@
         }
     }
 
+    private async Task FocusFirstOption()
+    {
+        try
+        {
+            await module!.InvokeVoidAsync("focusFirst", form, ".dv-composer-options button");
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The composer script failed to move focus to the message options");
+            throw;
+        }
+    }
+
     private void Typed(ChangeEventArgs change) => text = change.Value?.ToString() ?? string.Empty;
+
+    private void ToggleOptions()
+    {
+        optionsOpen = !optionsOpen;
+        focusOptions = optionsOpen;
+    }
+
+    // The file input is hidden; Attach opens the device's file chooser through it.
+    private async Task Pick()
+    {
+        if (module is null || picker?.Element is not { } input)
+        {
+            return;
+        }
+
+        try
+        {
+            await module.InvokeVoidAsync("pick", input);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The composer script failed to open the file chooser");
+            throw;
+        }
+    }
+
+    private Task Chosen(InputFileChangeEventArgs chosen) =>
+        OnFiles.InvokeAsync([.. chosen.GetMultipleFiles(MaxFilesAtOnce)]);
 
     private async Task Send()
     {
-        if (Disabled || Sending || string.IsNullOrWhiteSpace(text))
+        if (!CanSend)
         {
             return;
         }

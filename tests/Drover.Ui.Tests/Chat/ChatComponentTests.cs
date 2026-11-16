@@ -183,7 +183,7 @@ public sealed class ChatComponentTests : BunitContext
 
         var field = composer.Find("textarea");
         field.GetAttribute("aria-label").Should().Be("Message to Sample bot");
-        var send = composer.Find("button");
+        var send = composer.Find("button[type=submit]");
         send.TextContent.Trim().Should().Be("Send");
         send.GetAttribute("type").Should().Be("submit");
         send.ClassList.Should().Contain("dv-button-primary");
@@ -191,7 +191,7 @@ public sealed class ChatComponentTests : BunitContext
 
         field.Input("Hello");
 
-        composer.Find("button").HasAttribute("disabled").Should().BeFalse();
+        composer.Find("button[type=submit]").HasAttribute("disabled").Should().BeFalse();
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public sealed class ChatComponentTests : BunitContext
         var stopped = 0;
         var composer = RenderComposer(running: true, onCancel: () => stopped++);
 
-        var buttons = composer.FindAll("button");
+        var buttons = composer.FindAll("button.dv-button");
         buttons.Select(button => button.TextContent.Trim()).Should().Equal("Stop");
         buttons[0].GetAttribute("type").Should().Be("button");
 
@@ -230,12 +230,12 @@ public sealed class ChatComponentTests : BunitContext
 
         composer.Find("textarea").Input("Use the shorter name");
 
-        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop", "Send");
+        composer.FindAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Stop", "Send");
 
         composer.Find("form").Submit();
 
         sent.Should().Equal("Use the shorter name");
-        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
+        composer.FindAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
     }
 
     #endregion
