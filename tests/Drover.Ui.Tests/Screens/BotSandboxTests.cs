@@ -251,7 +251,7 @@ public sealed class BotSandboxTests : ScreenTest
     [Fact]
     public async Task A_start_the_server_refuses_says_why_in_its_words_and_only_a_tap_tries_again()
     {
-        const string refusal = "The server's sandbox provider key does not work. Tell the server's operator.";
+        var refusal = "The server's sandbox provider key does not work. Tell the server's operator.";
         Answer(Status("none", lastUsed: null));
         Server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, refusal);
         var page = RenderSandbox();
