@@ -22,7 +22,7 @@
         }
         @if (ReadOnly)
         {
-            <p class="dv-talk-hint dv-talk-read">@Bot.Name did this for @Asker. It is here to read.</p>
+            <p class="dv-talk-hint dv-talk-read">@(Working ? $"{Bot.Name} is doing this for {Asker}." : $"{Bot.Name} did this for {Asker}. It is here to read.")</p>
         }
         else
         {

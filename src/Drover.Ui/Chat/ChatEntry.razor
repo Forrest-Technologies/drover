@@ -3,10 +3,14 @@
    this same component. Inside such a card the bot's head stands beside the card, so its messages are compact. *@
 @if (Message.FromPerson)
 {
-    <article class="dv-message dv-message-person" aria-label="@(Asker is null ? "You said" : $"{Asker} asked")">
+    <article class="dv-message dv-message-person" aria-label="@(Asker is null ? Message.SentBy ?? "You said" : $"{Asker} asked")">
         @if (Message.Text.Length > 0)
         {
             <p class="dv-message-bubble dv-facet">@Message.Text</p>
+        }
+        @if (Message.SentBy is { } sentBy)
+        {
+            <p class="dv-message-sent-by">@sentBy</p>
         }
         @if (Message.Files.Count > 0)
         {

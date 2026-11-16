@@ -23,7 +23,10 @@
                 </div>
                 @if (Item.Depth >= DelegationWords.DeepestShown)
                 {
-                    <p class="dv-handoff-line">@Item.ChildName's work is shown on its own side.</p>
+                    @if (Item.ChildHref is not null)
+                    {
+                        <p class="dv-handoff-line">@Item.ChildName's work is shown on its own side.</p>
+                    }
                 }
                 else if (ChildContent is not null)
                 {

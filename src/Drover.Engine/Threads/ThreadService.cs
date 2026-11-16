@@ -14,6 +14,7 @@ public sealed class ThreadService(
     BotRepository bots,
     RunRepository runs,
     RunEventRepository events,
+    BotScheduleRepository schedules,
     TenantScope scope,
     UserSignalHub signals,
     TimeProvider time,
@@ -164,6 +165,15 @@ public sealed class ThreadService(
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
     /// <summary>
+    /// The time of each schedule that sent one of these messages and still exists, by schedule id, so the conversation
+    /// can say which schedule sent it.
+    /// </summary>
+    public async Task<Dictionary<Guid, string>> ListScheduleCrons(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
+        sent.Any(message => message.ScheduleId is not null)
+            ? await schedules.ListCrons([.. sent.Select(message => message.ScheduleId).OfType<Guid>().Distinct()], cancellationToken)
+            : [];
+
+    /// <summary>
     /// What the thread's runs did with their tools, as their logs hold it, or null when the caller may not see the
     /// thread: each run's tool and delegation events oldest first, the runs oldest first. With them come the events of
     /// the runs those delegations started, at any depth: their tool and delegation events, their messages, and their
@@ -176,7 +186,7 @@ public sealed class ThreadService(
         await threads.FindThread(threadId, cancellationToken) switch
         {
             null => null,
-            { Origin: ThreadOrigin.Delegation } => await ListDelegatedToolEvents(threadId, cancellationToken),
+            { Origin: ThreadOrigin.Delegation } => await events.ListEventsBelowThread(threadId, toolEventTypes, delegatedEventTypes, cancellationToken),
             _ => await events.ListEventsOfTrees(
                 await runs.ListRootRunIds(threadId, cancellationToken),
                 toolEventTypes,
@@ -216,23 +226,6 @@ public sealed class ThreadService(
     {
         var facts = await threads.ListFacts([.. views.Select(view => view.Thread.Id)], userId, cancellationToken);
         return [.. views.Select(view => view with { Attention = facts[view.Thread.Id].ToAttention() })];
-    }
-
-    #endregion
-
-    #region Handed Work
-
-    private async Task<List<RunEvent>> ListDelegatedToolEvents(Guid threadId, CancellationToken cancellationToken)
-    {
-        List<RunEvent> found = [];
-
-        foreach (var runId in await runs.ListRunIds(threadId, cancellationToken))
-        {
-            List<Guid> below = [.. (await runs.ListSelfAndDescendants(runId, cancellationToken)).Select(run => run.Id).Where(id => id != runId)];
-            found.AddRange(await events.ListEventsOfSubtree(runId, below, toolEventTypes, delegatedEventTypes, cancellationToken));
-        }
-
-        return found;
     }
 
     #endregion

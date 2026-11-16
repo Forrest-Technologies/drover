@@ -58,9 +58,15 @@
   min-width: 0;
 }
 
+.dv-messages-column ::deep .dv-message-sent-by,
 .dv-messages-column ::deep .dv-message-pending {
   font-size: var(--dv-text-12);
   color: var(--dv-text-3);
+}
+
+.dv-messages-column ::deep .dv-message-sent-by {
+  max-width: 85%;
+  text-align: end;
 }
 
 .dv-messages-column ::deep .dv-message-from {

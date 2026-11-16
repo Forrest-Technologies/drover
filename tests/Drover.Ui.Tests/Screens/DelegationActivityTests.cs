@@ -100,6 +100,7 @@ public sealed partial class DelegationActivityTests : ScreenTest
         Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", Load<List<RunEventResponse>>($"{TwoLevels}.tool-events.json"));
         Server.Answer("GET", $"{space}/threads/{scoutThread}", new ThreadSummary(scoutThread, scout, "Find three sources", false, DateTimeOffset.UnixEpoch, null));
         Server.Answer("GET", $"{space}/threads/{scoutThread}/messages", ScoutsMessages(log, started, scoutThread));
+        Server.Answer("GET", $"{space}/runs/{started.ChildRunId}", new RunSummary(started.ChildRunId, scoutThread, scout, log[0].RunId, "completed", null, null, 1, 0, new(0, 0, 0, 0), null, null));
         Server.Answer("GET", $"{space}/threads/{scoutThread}/tool-events",
             log.Where(stored => (stored.RunId == started.ChildRunId && own.Contains(stored.Type)) || (below.Contains(stored.RunId) && deeper.Contains(stored.Type))).ToList());
         Navigation.NavigateTo($"/talk/{botId}/work/{scout}/{scoutThread}");
@@ -115,6 +116,45 @@ public sealed partial class DelegationActivityTests : ScreenTest
         side.QuerySelector(".dv-talk-read")!.TextContent.Should().Be("Scout did this for Marshal. It is here to read.");
         side.QuerySelectorAll(".dv-composer").Should().BeEmpty("the child's side is there to read");
         Server.Sent("PUT", $"{space}/threads/{scoutThread}/seen").Should().BeEmpty("reading a bot's side marks nothing seen");
+    }
+
+    [Fact]
+    public async Task A_childs_side_opened_while_the_work_is_out_follows_the_child_as_it_works_and_waits()
+    {
+        var log = Load<List<RunEventResponse>>($"{ChildWaits}.json");
+        var (scribe, _) = Crew(log, "Scribe", "Unused");
+        var root = log[0].RunId;
+        var started = RunEventTypes.Read<DelegationStarted>(log.Single(stored => stored.Type == RunEventTypes.DelegationStarted));
+        var child = started.ChildRunId;
+        var scribeThread = started.ChildThreadId!.Value;
+        var requested = log.First(stored => stored.RunId == child && stored.Type == RunEventTypes.ToolRequested).Seq;
+        string[] own = [RunEventTypes.ToolRequested, RunEventTypes.ToolApprovalRequested, RunEventTypes.ToolStarted, RunEventTypes.ToolCompleted];
+        Server.Answer("GET", $"{space}/threads/{threadId}", Thread(null));
+        Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(null));
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", Load<List<MessageResponse>>($"{TwoLevels}.messages.json").Take(1).ToList());
+        Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", new List<RunEventResponse>());
+        Server.Answer("GET", $"{space}/threads/{scribeThread}", new ThreadSummary(scribeThread, scribe, "Write the notes", false, DateTimeOffset.UnixEpoch, null));
+        Server.Answer("GET", $"{space}/threads/{scribeThread}/messages", new List<MessageResponse>
+        {
+            new(Guid.NewGuid(), scribeThread, 1, "user", child, [new MessagePartResponse("text") { Text = "Write the notes to a file." }], DateTimeOffset.UnixEpoch),
+        });
+
+        // The side is opened with the child's log cut off mid-run: its call has been asked for and has not ended.
+        Server.Answer("GET", $"{space}/threads/{scribeThread}/tool-events", log.Where(stored => stored.RunId == child && stored.Seq <= requested && own.Contains(stored.Type)).ToList());
+        Server.Answer("GET", $"{space}/runs/{child}", new RunSummary(child, scribeThread, scribe, root, "running", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        var events = Server.Stream($"{space}/runs/{root}/events");
+        Navigation.NavigateTo($"/talk/{botId}/work/{scribe}/{scribeThread}");
+        var page = Render<Talk>(parameters => parameters.Add(view => view.BotId, botId).Add(view => view.WorkBotId, scribe).Add(view => view.WorkThreadId, scribeThread));
+        await Feed(events, log, requested);
+
+        page.WaitForAssertion(() => page.Find("aside .dv-tool .dv-badge").TextContent.Should().Be("Starting", "a call of a child still at work is not history"));
+        page.Find("aside .dv-talk-read").TextContent.Should().Be("Scribe is doing this for Marshal.");
+
+        await Feed(events, log, log[^1].Seq);
+
+        page.WaitForAssertion(() => page.Find("aside section.dv-tool-ask h2").TextContent.Should().StartWith("Scribe asks to"));
+        page.Find("aside section.dv-tool-ask .dv-badge").TextContent.Should().Be("Waiting for you");
+        page.FindAll("aside .dv-badge").Select(badge => badge.TextContent).Should().NotContain("Stopped");
     }
 
     #endregion

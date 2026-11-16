@@ -128,6 +128,10 @@ public sealed class DelegationCardTests : BunitContext
         card.FindAll("#work").Should().BeEmpty();
         card.Find(".dv-handoff-line").TextContent.Should().Be("Checker's work is shown on its own side.");
         card.Find("a.dv-handoff-link").GetAttribute("href").Should().Be("/work");
+
+        card.Render(set => set.Add(view => view.Item, deep with { ChildHref = null }));
+
+        card.FindAll(".dv-handoff-line, a.dv-handoff-link").Should().BeEmpty("without a way there, the card does not point there");
     }
 
     [Fact]

@@ -187,12 +187,14 @@ public sealed partial class ConversationPane(
             }
 
             stored = await api.ListMessages(SpaceId, thread.Id);
-            history = await LoadToolHistory(thread);
 
             if (ReadOnly)
             {
+                await FollowHandedWork(thread.Id);
                 return;
             }
+
+            history = await LoadToolHistory(thread.Id, thread.ActiveRunId);
 
             ResumeActiveRun(thread);
             await ReportBusy();
@@ -227,15 +229,15 @@ public sealed partial class ConversationPane(
 
     // Past tool calls are shown as their runs' logs left them. Without the log the conversation still reads: each call
     // is then shown as the stored messages tell it.
-    private async Task<ImmutableDictionary<Guid, ToolCallView>> LoadToolHistory(ThreadSummary shown)
+    private async Task<ImmutableDictionary<Guid, ToolCallView>> LoadToolHistory(Guid threadId, Guid? activeRunId, CancellationToken cancellationToken = default)
     {
         try
         {
-            return ToolHistory.From(await api.ListToolEvents(SpaceId, shown.Id), ReadOnly ? null : shown.ActiveRunId);
+            return ToolHistory.From(await api.ListToolEvents(SpaceId, threadId, cancellationToken), activeRunId);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "The tool history of thread {ThreadId} could not be loaded", shown.Id);
+            logger.LogWarning(exception, "The tool history of thread {ThreadId} could not be loaded", threadId);
             return [];
         }
     }
@@ -535,6 +537,75 @@ public sealed partial class ConversationPane(
     #endregion
 
     #region Watching A Run
+
+    // A bot's side of handed work is one child run. While it is out, its calls are not settled as history: the child is
+    // followed live, on its tree's stream, since a child run has no stream of its own. Once it has ended, what is
+    // stored says everything.
+    private async Task FollowHandedWork(Guid threadId)
+    {
+        var runId = stored.Select(message => message.RunId).FirstOrDefault(id => id is not null);
+        var child = runId is { } id ? await FindRun(id) : null;
+
+        if (child is null || child.Status is not ("queued" or "running" or "waiting"))
+        {
+            history = await LoadToolHistory(threadId, null);
+            return;
+        }
+
+        history = await LoadToolHistory(threadId, child.Id);
+        run = RunView.Start(child.Id);
+        watch = new();
+        _ = FollowUntilDone(threadId, child.RootRunId, child.Id, watch.Token);
+    }
+
+    // Without the run, the side still reads as its stored messages and log tell it.
+    private async Task<RunSummary?> FindRun(Guid runId)
+    {
+        try
+        {
+            return await api.GetRun(SpaceId, runId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "Run {RunId} could not be read to follow it", runId);
+            return null;
+        }
+    }
+
+    private async Task FollowUntilDone(Guid threadId, Guid rootRunId, Guid runId, CancellationToken cancellationToken)
+    {
+        var tree = RunView.Start(rootRunId);
+        try
+        {
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            {
+                tree = RunReducer.Apply(tree, change);
+                (run, reconnecting) = (tree.Find(runId) ?? run, null);
+                StateHasChanged();
+
+                if (run is { IsActive: false })
+                {
+                    break;
+                }
+            }
+
+            stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
+            history = await LoadToolHistory(threadId, null, cancellationToken);
+            run = null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug("Stopped following run {RunId}", runId);
+            return;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            (reconnecting, problem) = (null, $"Drover lost track of this work. {Failures.Sentence(exception)} Reload the page to see how it ended.");
+        }
+
+        StateHasChanged();
+    }
 
     // The run watched before keeps its tool calls on screen as history.
     private void Watch(Guid runId)
