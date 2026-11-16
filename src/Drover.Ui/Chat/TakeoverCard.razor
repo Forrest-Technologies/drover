@@ -57,7 +57,7 @@
             <p class="dv-takeover-note">Use I'm done at the screen when you have finished.</p>
             break;
         case TakeoverPhase.Holding:
-            <p class="dv-takeover-note">What you type and click goes to the screen only and is not recorded. @BotName sees only what the screen shows when it next looks.</p>
+            <p class="dv-takeover-note">Drover records nothing you type or click, and no bot can start anything new on this screen while you hold it. @BotName sees the screen again when it next looks.</p>
             <div class="dv-takeover-actions">
                 <Button @ref="done" Kind="ButtonKind.Primary" Disabled="Sending" OnClick="() => OnDone.InvokeAsync()" aria-describedby="@titleId">I'm done</Button>
                 <Button Disabled="Sending" OnClick="() => declining = true" aria-describedby="@titleId">I could not do it</Button>

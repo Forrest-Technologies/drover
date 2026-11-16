@@ -154,7 +154,7 @@ public sealed class TakeoverCardTests : BunitContext
             .Add(view => view.Phase, TakeoverPhase.Holding)
             .Add(view => view.OnDone, () => done++));
 
-        card.Find(".dv-takeover-note").TextContent.Should().Be("What you type and click goes to the screen only and is not recorded. Sample bot sees only what the screen shows when it next looks.");
+        card.Find(".dv-takeover-note").TextContent.Should().Be("Drover records nothing you type or click, and no bot can start anything new on this screen while you hold it. Sample bot sees the screen again when it next looks.");
         Button(card, "I'm done").Click();
         card.Render(set => set.Add(view => view.Sending, true).Add(view => view.Problem, "Your answer was not sent. Drover could not reach its server. Check that it is running."));
 

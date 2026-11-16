@@ -68,7 +68,14 @@
                 {
                     <div class="dv-sandbox-hold">
                         <p class="dv-sandbox-hint">@SandboxWords.Hold(hold)</p>
-                        <Button OnClick="() => stoppingHold = true" Disabled="busy">Stop the run that holds it</Button>
+                        @if (hold.RunId == stopAsked)
+                        {
+                            <p class="dv-sandbox-hint" role="status">Stopping the run. The screen frees once it stops.</p>
+                        }
+                        else
+                        {
+                            <Button OnClick="() => stoppingHold = true" Disabled="busy">Stop the run that holds it</Button>
+                        }
                     </div>
                 }
             </header>
