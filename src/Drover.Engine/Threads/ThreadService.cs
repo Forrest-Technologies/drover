@@ -30,6 +30,22 @@ public sealed class ThreadService(
         RunEventTypes.ToolStarted,
         RunEventTypes.ToolOutput,
         RunEventTypes.ToolCompleted,
+        RunEventTypes.DelegationStarted,
+        RunEventTypes.DelegationCompleted,
+    ];
+
+    // A delegated bot's work is shown inside the call that handed it over, so its words and how its run went come
+    // with its calls. The root's own words are the thread's messages.
+    private static readonly string[] delegatedEventTypes =
+    [
+        .. toolEventTypes,
+        RunEventTypes.MessageCompleted,
+        RunEventTypes.RunQueued,
+        RunEventTypes.RunStarted,
+        RunEventTypes.RunWaiting,
+        RunEventTypes.RunCompleted,
+        RunEventTypes.RunFailed,
+        RunEventTypes.RunCancelled,
     ];
 
     private const int ListLimit = 200;
@@ -149,13 +165,24 @@ public sealed class ThreadService(
 
     /// <summary>
     /// What the thread's runs did with their tools, as their logs hold it, or null when the caller may not see the
-    /// thread: each run's tool events oldest first, the runs oldest first. Arguments, output, and results in them
-    /// were redacted before they were stored. A delegated bot's own calls belong to its own thread and are not here.
+    /// thread: each run's tool and delegation events oldest first, the runs oldest first. With them come the events of
+    /// the runs those delegations started, at any depth: their tool and delegation events, their messages, and their
+    /// status, so the work handed over reads as it did live. Arguments, output, and results in them were redacted
+    /// before they were stored. A delegated run's thread has the root thread's audience, so row-level security lets
+    /// exactly the same people read both. A thread a delegation made has no root run: its runs are children, and what
+    /// they did and handed further down is listed the same way, from them.
     /// </summary>
     public async Task<IReadOnlyList<RunEvent>?> ListToolEvents(Guid threadId, CancellationToken cancellationToken) =>
-        await threads.FindThread(threadId, cancellationToken) is null
-            ? null
-            : await events.ListOwnEventsOfRoots(await runs.ListRootRunIds(threadId, cancellationToken), toolEventTypes, cancellationToken);
+        await threads.FindThread(threadId, cancellationToken) switch
+        {
+            null => null,
+            { Origin: ThreadOrigin.Delegation } => await ListDelegatedToolEvents(threadId, cancellationToken),
+            _ => await events.ListEventsOfTrees(
+                await runs.ListRootRunIds(threadId, cancellationToken),
+                toolEventTypes,
+                delegatedEventTypes,
+                cancellationToken),
+        };
 
     /// <summary>
     /// The thread's running summary, or null when the caller may not see the thread. A side chat has none, and a main
@@ -189,6 +216,23 @@ public sealed class ThreadService(
     {
         var facts = await threads.ListFacts([.. views.Select(view => view.Thread.Id)], userId, cancellationToken);
         return [.. views.Select(view => view with { Attention = facts[view.Thread.Id].ToAttention() })];
+    }
+
+    #endregion
+
+    #region Handed Work
+
+    private async Task<List<RunEvent>> ListDelegatedToolEvents(Guid threadId, CancellationToken cancellationToken)
+    {
+        List<RunEvent> found = [];
+
+        foreach (var runId in await runs.ListRunIds(threadId, cancellationToken))
+        {
+            List<Guid> below = [.. (await runs.ListSelfAndDescendants(runId, cancellationToken)).Select(run => run.Id).Where(id => id != runId)];
+            found.AddRange(await events.ListEventsOfSubtree(runId, below, toolEventTypes, delegatedEventTypes, cancellationToken));
+        }
+
+        return found;
     }
 
     #endregion

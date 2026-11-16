@@ -13,59 +13,7 @@
         }
         @foreach (var message in Messages)
         {
-            if (message.FromPerson)
-            {
-                <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
-                    @if (message.Text.Length > 0)
-                    {
-                        <p class="dv-message-bubble dv-facet">@message.Text</p>
-                    }
-                    @if (message.Files.Count > 0)
-                    {
-                        <div class="dv-message-files">
-                            @foreach (var file in message.Files)
-                            {
-                                <FileCard @key="file.Id" File="file" />
-                            }
-                        </div>
-                    }
-                    @if (message.Pending)
-                    {
-                        <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
-                    }
-                </article>
-            }
-            else if (message.Text.Length == 0)
-            {
-                <article @key="message.Key" class="dv-message dv-message-tools" aria-label="What @BotName did">
-                    @foreach (var tool in message.Tools)
-                    {
-                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
-                    }
-                </article>
-            }
-            else
-            {
-                <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
-                    <div class="dv-message-head dv-facet @(message.Streaming ? "dv-message-head-live" : null)">
-                        <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
-                    </div>
-                    <div class="dv-message-body">
-                        <header class="dv-message-from">
-                            <span class="dv-mono" aria-hidden="true">@BotName</span>
-                            @if (message.Streaming)
-                            {
-                                <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
-                            }
-                        </header>
-                        <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
-                        @foreach (var tool in message.Tools)
-                        {
-                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
-                        }
-                    </div>
-                </article>
-            }
+            <ChatEntry @key="message.Key" Message="message" BotName="@BotName" BotHue="BotHue" Asker="@Asker" Decide="Decide" />
         }
         @if (Thinking)
         {
@@ -121,6 +69,10 @@
 
     [Parameter]
     public int BotHue { get; set; }
+
+    /// <summary>The bot that wrote the messages a person would have, on a bot's side of work handed to it.</summary>
+    [Parameter]
+    public string? Asker { get; set; }
 
     /// <summary>True while the bot is working and has not started to answer.</summary>
     [Parameter]
@@ -191,7 +143,7 @@
     protected override void OnParametersSet()
     {
         var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
-        var changes = tools.Next(Messages.AllTools(), BotName);
+        var changes = tools.Next(Messages.AllTools(BotName));
         spoken = (sentences, changes) switch
         {
             (null, null) => spoken,

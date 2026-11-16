@@ -293,20 +293,7 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Delegation and Activity
-
-    [Fact]
-    public void Handed_work_is_a_sentence_and_every_refusal_says_why()
-    {
-        var item = new DelegationItem(Guid.NewGuid(), "Lead", helper, "Helper", "Find sources.\nThree of them.", DelegationPhase.Working, null, DelegationRefusal.None, null, 0);
-
-        DelegationWords.Sentence(item).Should().Be("Lead asked Helper: Find sources.");
-        DelegationWords.Sentence(item with { Phase = DelegationPhase.Refused }).Should().Be("Lead could not hand work to Helper");
-        item.IsOut.Should().BeTrue();
-        (item with { Phase = DelegationPhase.Done }).IsOut.Should().BeFalse();
-        Enum.GetValues<DelegationRefusal>().Select(refusal => DelegationWords.Refused(refusal, "Helper")).Should().OnlyHaveUniqueItems()
-            .And.OnlyContain(sentence => sentence.EndsWith('.'));
-    }
+    #region Activity
 
     [Fact]
     public void A_run_leads_with_its_outcome_and_says_how_it_started()

@@ -1,8 +1,8 @@
-@* Starter for #162. Work one bot handed to a bot beneath it, in the parent's conversation. Closed: who asked
-   whom for what, and the state in words. Open: the whole task, the child's own activity (passed in, so it is the
-   same message and tool components the main conversation uses), and the child's answer. The card's edge is
-   violet while the work is out. The pulse itself belongs to the crew connector, not to this card. *@
-<div class="dv-handoff @(Item.IsOut ? "dv-handoff-out" : null)">
+@* Work one bot handed to a bot beneath it, in the parent's conversation. Closed: who asked whom for what, and the
+   state in words. Open: the whole task, the child's own activity (passed in, so it is the same message and tool
+   components the main conversation uses), and the child's answer. The card's edge is violet while the work is out,
+   then the result's color. The pulse itself belongs to the crew connector, not to this card. *@
+<div class="dv-handoff @EdgeClass">
     <div class="dv-handoff-head">
         <Avatar Name="@Item.ChildName" Hue="BotIdentity.Hue(Item.ChildId)" Size="32" State="DelegationWords.Head(Item.Phase)" />
     </div>
@@ -71,6 +71,14 @@
     #endregion
 
     #region Private Methods
+
+    private string? EdgeClass => Item.Phase switch
+    {
+        _ when Item.IsOut => "dv-handoff-out",
+        DelegationPhase.Done => "dv-handoff-done",
+        DelegationPhase.Failed => "dv-handoff-failed",
+        _ => null,
+    };
 
     protected override void OnParametersSet()
     {

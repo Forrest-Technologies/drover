@@ -85,20 +85,38 @@ public sealed class RunEventRepository(DroverDbContext db)
             .ToListAsync(cancellationToken);
 
     /// <summary>
-    /// The events with one of the given types that the root runs wrote themselves, not the runs they started: each
-    /// tree's oldest first, the trees in the order given.
+    /// The events of the trees under the given root runs: those with one of <paramref name="rootTypes"/> that a root
+    /// wrote itself, and those with one of <paramref name="descendantTypes"/> that a run it started, at any depth,
+    /// wrote. Each tree's oldest first, the trees in the order given.
     /// </summary>
-    public async Task<List<RunEvent>> ListOwnEventsOfRoots(
+    public async Task<List<RunEvent>> ListEventsOfTrees(
         IReadOnlyList<Guid> rootRunIds,
-        IReadOnlyCollection<string> types,
+        IReadOnlyCollection<string> rootTypes,
+        IReadOnlyCollection<string> descendantTypes,
         CancellationToken cancellationToken)
     {
         var found = await db.RunEvents.AsNoTracking()
-            .Where(stored => rootRunIds.Contains(stored.RootRunId) && stored.RunId == stored.RootRunId && types.Contains(stored.Type))
+            .Where(stored => rootRunIds.Contains(stored.RootRunId)
+                && (stored.RunId == stored.RootRunId ? rootTypes.Contains(stored.Type) : descendantTypes.Contains(stored.Type)))
             .ToListAsync(cancellationToken);
         var order = rootRunIds.Select((id, index) => (id, index)).ToDictionary(root => root.id, root => root.index);
         return [.. found.OrderBy(stored => order[stored.RootRunId]).ThenBy(stored => stored.Seq)];
     }
+
+    /// <summary>
+    /// The events of one run with one of <paramref name="ownTypes"/>, and those of the runs below it with one of
+    /// <paramref name="belowTypes"/>, oldest first. The runs of one tree share one sequence.
+    /// </summary>
+    public Task<List<RunEvent>> ListEventsOfSubtree(
+        Guid runId,
+        IReadOnlyCollection<Guid> below,
+        IReadOnlyCollection<string> ownTypes,
+        IReadOnlyCollection<string> belowTypes,
+        CancellationToken cancellationToken) =>
+        db.RunEvents.AsNoTracking()
+            .Where(stored => (stored.RunId == runId && ownTypes.Contains(stored.Type)) || (below.Contains(stored.RunId) && belowTypes.Contains(stored.Type)))
+            .OrderBy(stored => stored.Seq)
+            .ToListAsync(cancellationToken);
 
     /// <summary>The newest event of one run with one of the given types, or null.</summary>
     public Task<RunEvent?> FindLastEvent(Guid runId, IReadOnlyCollection<string> types, CancellationToken cancellationToken) =>

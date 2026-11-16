@@ -63,6 +63,8 @@ public sealed partial class ConversationPane(
 
     private bool reportedBusy;
 
+    private ImmutableDictionary<Guid, Handoff> reportedHandoffs = [];
+
     #endregion
 
     #region Properties
@@ -98,6 +100,25 @@ public sealed partial class ConversationPane(
     [Parameter]
     public EventCallback<bool> OnBusyChanged { get; set; }
 
+    /// <summary>Every bot in the crew, so work handed to one is shown under its name.</summary>
+    [Parameter]
+    public IReadOnlyList<BotSummary> Crew { get; set; } = [];
+
+    /// <summary>The address of a bot's side of work handed to it, from that bot and its thread. Without it, no link.</summary>
+    [Parameter]
+    public Func<Guid, Guid, string>? WorkAddress { get; set; }
+
+    /// <summary>
+    /// True for a bot's side of work handed to it, opened to read: there is no field to write in, and opening it marks
+    /// nothing seen. The conversation that handed the work over shows it live.
+    /// </summary>
+    [Parameter]
+    public bool ReadOnly { get; set; }
+
+    /// <summary>The work this conversation's run has handed to other bots changed, by the bot that has it.</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyDictionary<Guid, Handoff>> OnHandoffsChanged { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private bool Working => run?.IsActive ?? false;
@@ -109,9 +130,16 @@ public sealed partial class ConversationPane(
     // What is stored, then what the active run has said that is not stored yet. Each message appears once, with the
     // tool calls it made: as the run being watched has them, or as the thread's past runs left them.
     private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run)
-        .ToChatMessages(history.With(run), run, fileId => api.FileAddress(SpaceId, fileId));
+        .ToChatMessages(
+            history.With(run),
+            run,
+            fileId => api.FileAddress(SpaceId, fileId),
+            new Handover(Bot.Name, Crew.ToDictionary(bot => bot.Id, bot => bot.Name), WorkAddress));
 
     private string? Notice => reconnecting ?? notice;
+
+    // A bot's side of handed work was asked for by the bot above it, which wrote the task.
+    private string Asker => Crew.FirstOrDefault(bot => bot.Id == Bot.ParentBotId)?.Name ?? Handover.Unknown;
 
     // The conversation ends with its failed run until a run after it is under way.
     private RunFailure? Failure => Working ? null : thread?.Attention?.LastFailure;
@@ -137,6 +165,12 @@ public sealed partial class ConversationPane(
     {
         left = leaving.Token;
 
+        // A new conversation has handed nothing out yet; the one shown before may have.
+        if (!ReadOnly)
+        {
+            await OnHandoffsChanged.InvokeAsync(reportedHandoffs);
+        }
+
         if (!Main && ThreadId is null)
         {
             return;
@@ -154,6 +188,12 @@ public sealed partial class ConversationPane(
 
             stored = await api.ListMessages(SpaceId, thread.Id);
             history = await LoadToolHistory(thread);
+
+            if (ReadOnly)
+            {
+                return;
+            }
+
             ResumeActiveRun(thread);
             await ReportBusy();
             await MarkSeen();
@@ -191,7 +231,7 @@ public sealed partial class ConversationPane(
     {
         try
         {
-            return ToolHistory.From(await api.ListToolEvents(SpaceId, shown.Id), shown.ActiveRunId);
+            return ToolHistory.From(await api.ListToolEvents(SpaceId, shown.Id), ReadOnly ? null : shown.ActiveRunId);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -525,6 +565,7 @@ public sealed partial class ConversationPane(
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
                 await ReportBusy();
+                await ReportHandoffs();
                 StateHasChanged();
             }
 
@@ -573,7 +614,7 @@ public sealed partial class ConversationPane(
     // crew may still say there is something here until the next time; the conversation itself is unaffected.
     private async Task MarkSeen()
     {
-        if (thread is null || !Opened)
+        if (thread is null || !Opened || ReadOnly)
         {
             return;
         }
@@ -594,6 +635,19 @@ public sealed partial class ConversationPane(
     }
 
     private Task Changed(ThreadSummary changed) => OnThreadChanged.InvokeAsync(changed with { LastActivityAt = DateTimeOffset.UtcNow });
+
+    // The crew column draws work passing along its connectors, so it is told each time that work moves. A run that is
+    // followed from its start tells it from nothing; a new run starts from nothing again.
+    private async Task ReportHandoffs()
+    {
+        var now = run?.Handoffs() ?? reportedHandoffs.Clear();
+
+        if (now.Count != reportedHandoffs.Count || now.Any(pair => !reportedHandoffs.TryGetValue(pair.Key, out var before) || before != pair.Value))
+        {
+            reportedHandoffs = now;
+            await OnHandoffsChanged.InvokeAsync(now);
+        }
+    }
 
     // The screen around the pane lights the bot's head while it works here, so it is told when that starts and stops.
     private async Task ReportBusy()

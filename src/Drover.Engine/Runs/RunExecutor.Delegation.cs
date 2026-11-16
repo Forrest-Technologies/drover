@@ -44,7 +44,7 @@ public sealed partial class RunExecutor
 
             var child = await AddChild(services, parent, request, target!, callRowId, cancellationToken);
             call.ChildRunId = child.Id;
-            produced.Add(RunEventWriter.Event(parent.RunId, RunEventTypes.DelegationStarted, new DelegationStarted(callRowId, child.Id, target!.Id)));
+            produced.Add(RunEventWriter.Event(parent.RunId, RunEventTypes.DelegationStarted, new DelegationStarted(callRowId, child.Id, target!.Id, child.ThreadId)));
             logger.LogInformation("Run {RunId} handed a task to bot {BotId} as child run {ChildRunId}", parent.RunId, target.Id, child.Id);
             return new ChildRun(child.Id, target.Name) { BotId = target.Id };
         });
@@ -84,8 +84,8 @@ public sealed partial class RunExecutor
 
         if (target.Status is not BotStatus.Active)
         {
-            var state = target.Status is BotStatus.Paused ? "is paused" : "was removed";
-            return (null, Refused(request, "target_unavailable", $"{target.Name} {state}, so it cannot take the task."));
+            var (state, detail) = target.Status is BotStatus.Paused ? ("is paused", "paused") : ("was removed", "removed");
+            return (null, Refused(request, "target_unavailable", $"{target.Name} {state}, so it cannot take the task.", detail));
         }
 
         var runs = services.GetRequiredService<RunRepository>();
@@ -105,18 +105,18 @@ public sealed partial class RunExecutor
     {
         if (parent.Depth + 1 > limits.MaxDepth)
         {
-            return OverBudget(request, $"This chain of tasks is as deep as it may go: {nameof(DeploymentPolicy.MaxDelegationDepth)} is {limits.MaxDepth}.");
+            return OverBudget(request, "depth", $"This chain of tasks is as deep as it may go: {nameof(DeploymentPolicy.MaxDelegationDepth)} is {limits.MaxDepth}.");
         }
 
         if (await runs.CountRunsInTree(parent.RootRunId, cancellationToken) + 1 > limits.MaxRuns)
         {
-            return OverBudget(request, $"This chain of tasks has as many runs as it may have: {nameof(DeploymentPolicy.MaxRunsPerDelegationTree)} is {limits.MaxRuns}.");
+            return OverBudget(request, "runs", $"This chain of tasks has as many runs as it may have: {nameof(DeploymentPolicy.MaxRunsPerDelegationTree)} is {limits.MaxRuns}.");
         }
 
         var cost = await runs.SumTreeCost(parent.RootRunId, cancellationToken);
 
         return cost >= limits.MaxCost
-            ? OverBudget(request, $"This chain of tasks has spent its budget: it cost {cost:0.00}, and {nameof(DeploymentPolicy.MaxDelegationTreeCostCents)} is {limits.MaxCostCents}.")
+            ? OverBudget(request, "cost", $"This chain of tasks has spent its budget: it cost {cost:0.00}, and {nameof(DeploymentPolicy.MaxDelegationTreeCostCents)} is {limits.MaxCostCents}.")
             : null;
     }
 
@@ -274,14 +274,26 @@ public sealed partial class RunExecutor
         }
     }
 
-    private static ChildRun Refused(DelegationRequest request, string reason, string message) =>
-        new(Guid.Empty, request.AgentName)
+    // The detail says which state or limit a refusal is about, so a screen can say it in its own words: paused or
+    // removed for a target, depth, runs, or cost for a budget.
+    private static ChildRun Refused(DelegationRequest request, string reason, string message, string? detail = null)
+    {
+        var result = new JsonObject { ["error"] = message, ["reason"] = reason };
+
+        if (detail is not null)
+        {
+            result["detail"] = detail;
+        }
+
+        return new(Guid.Empty, request.AgentName)
         {
             BotId = request.BotId ?? Guid.Empty,
-            Refusal = new ToolOutcome(JsonSerializer.SerializeToElement(new { error = message, reason }), true),
+            Refusal = new ToolOutcome(JsonSerializer.SerializeToElement(result), true),
         };
+    }
 
-    private static ChildRun OverBudget(DelegationRequest request, string message) => Refused(request, RunReasons.BudgetExceeded, message);
+    private static ChildRun OverBudget(DelegationRequest request, string limit, string message) =>
+        Refused(request, RunReasons.BudgetExceeded, message, limit);
 
     #endregion
 
