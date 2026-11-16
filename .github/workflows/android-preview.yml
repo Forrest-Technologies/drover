@@ -66,6 +66,12 @@ jobs:
         run: |
           dotnet publish src/Drover.App/Drover.App.csproj -c Release -warnaserror \
             "-p:ApplicationDisplayVersion=$DISPLAY_VERSION" "-p:ApplicationVersion=$GITHUB_RUN_NUMBER"
+      - name: Check the packaged launcher icon
+        run: |
+          apk=src/Drover.App/bin/Release/net11.0-android/publish/com.forresttechnologies.drover.preview.apk
+          resources=$("$ANDROID_HOME/build-tools/37.0.0/aapt" dump xmltree "$apk" AndroidManifest.xml)
+          grep -q 'A: android:icon(' <<< "$resources"
+          grep -q 'A: android:roundIcon(' <<< "$resources"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-android-apk
