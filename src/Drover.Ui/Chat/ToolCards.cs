@@ -20,6 +20,7 @@ public static partial class ToolCards
         ("sandbox.read_file", new("Reading a file", "Read a file", "read a file")),
         ("sandbox.write_file", new("Writing a file", "Wrote a file", "write a file")),
         ("sandbox.list_files", new("Listing files", "Listed files", "list files")),
+        ("sandbox.share_file", new("Sharing a file", "Shared a file", "share a file")),
         ("computer.screenshot", new("Taking a screenshot", "Took a screenshot", "take a screenshot")),
         ("computer.click", new("Clicking", "Clicked", "click")),
         ("computer.type", new("Typing", "Typed", "type")),
@@ -150,7 +151,7 @@ public static partial class ToolCards
         return toolName switch
         {
             "sandbox.run" => OneLine(Text(values, "command")),
-            "sandbox.read_file" or "sandbox.write_file" or "sandbox.list_files" => Text(values, "path"),
+            "sandbox.read_file" or "sandbox.write_file" or "sandbox.list_files" or "sandbox.share_file" => Text(values, "path"),
             "computer.screenshot" => string.Empty,
             "computer.click" => $"{Text(values, "x")}, {Text(values, "y")}",
             "computer.type" => OneLine(Text(values, "text")),

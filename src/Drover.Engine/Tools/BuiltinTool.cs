@@ -24,6 +24,12 @@ public sealed record BuiltinTool(
     public bool AlwaysAsks { get; init; }
 
     /// <summary>
+    /// Running a call twice has the same effect as running it once, so a call cut off by a restart may run again,
+    /// though the tool changes something. A call a person approved runs again without asking again.
+    /// </summary>
+    public bool IsIdempotent { get; init; }
+
+    /// <summary>
     /// What a person asked to approve a call should also see that the call's arguments do not say, read on the server
     /// when the call starts to wait. It must only read. Null for a tool that adds nothing.
     /// </summary>

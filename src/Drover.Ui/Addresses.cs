@@ -36,6 +36,13 @@ public static class Addresses
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
 
+    /// <summary>The files a person and a bot exchanged, beside its main conversation.</summary>
+    public static string Files(Guid botId) => $"/talk/{botId}/files";
+
+    /// <summary>The moment a message was said, in the main conversation or in a side chat.</summary>
+    public static string Moment(Guid botId, Guid threadId, Guid messageId, bool inMainConversation) =>
+        $"{(inMainConversation ? Talk(botId) : SideChat(botId, threadId))}#{MessageList.Anchor(messageId)}";
+
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
 

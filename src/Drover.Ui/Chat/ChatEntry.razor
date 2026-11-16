@@ -3,7 +3,7 @@
    this same component. Inside such a card the bot's head stands beside the card, so its messages are compact. *@
 @if (Message.FromPerson)
 {
-    <article class="dv-message dv-message-person" aria-label="@(Asker is null ? Message.SentBy ?? "You said" : $"{Asker} asked")">
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-person" aria-label="@(Asker is null ? Message.SentBy ?? "You said" : $"{Asker} asked")">
         @if (Message.Text.Length > 0)
         {
             <p class="dv-message-bubble dv-facet">@Message.Text</p>
@@ -12,15 +12,7 @@
         {
             <p class="dv-message-sent-by">@sentBy</p>
         }
-        @if (Message.Files.Count > 0)
-        {
-            <div class="dv-message-files">
-                @foreach (var file in Message.Files)
-                {
-                    <FileCard @key="file.Id" File="file" />
-                }
-            </div>
-        }
+        @Files
         @if (Message.Pending)
         {
             <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
@@ -29,11 +21,12 @@
 }
 else if (Message.Text.Length == 0)
 {
-    <article class="dv-message dv-message-tools @(Compact ? "dv-message-compact" : null)" aria-label="What @BotName did">
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-tools @(Compact ? "dv-message-compact" : null)" aria-label="What @BotName did">
         @foreach (var tool in Message.Tools)
         {
             @Tool(tool)
         }
+        @Files
     </article>
 }
 else if (Compact)
@@ -44,11 +37,12 @@ else if (Compact)
         {
             @Tool(tool)
         }
+        @Files
     </article>
 }
 else
 {
-    <article class="dv-message dv-message-bot" aria-label="@BotName said">
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-bot" aria-label="@BotName said">
         <div class="dv-message-head dv-facet @(Message.Streaming ? "dv-message-head-live" : null)">
             <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(Message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
         </div>
@@ -65,6 +59,7 @@ else
             {
                 @Tool(tool)
             }
+            @Files
         </div>
     </article>
 }
@@ -97,9 +92,34 @@ else
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
 
+    /// <summary>The message's address in the page, so a link to this moment lands on it.</summary>
+    [Parameter]
+    public string? Anchor { get; set; }
+
+    /// <summary>"-1" for the message a moment link names, so the person lands on it; no other message is a stop.</summary>
+    [Parameter]
+    public string? TabIndex { get; set; }
+
+    /// <summary>Reads a text file whole, for a file card that shows only its first lines.</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
     #endregion
 
     #region Private Methods
+
+    private RenderFragment Files =>
+        @<text>
+            @if (Message.Files.Count > 0)
+            {
+                <div class="dv-message-files">
+                    @foreach (var file in Message.Files)
+                    {
+                        <FileCard @key="file.Id" File="file" ReadWhole="ReadWhole" />
+                    }
+                </div>
+            }
+        </text>;
 
     // A waiting call inside handed work is asked for by the bot that made it, so the sentence names that bot.
     private RenderFragment Tool(ToolCard tool) => tool.Delegation is { } work
@@ -110,7 +130,7 @@ else
         @<text>
             @foreach (var entry in work.Work)
             {
-                <ChatEntry @key="entry.Key" Message="entry" BotName="@work.ChildName" BotHue="BotIdentity.Hue(work.ChildId)" Decide="Decide" Compact="true" />
+                <ChatEntry @key="entry.Key" Message="entry" BotName="@work.ChildName" BotHue="BotIdentity.Hue(work.ChildId)" Decide="Decide" ReadWhole="ReadWhole" Compact="true" />
             }
         </text>;
 

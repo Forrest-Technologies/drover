@@ -32,6 +32,10 @@ public static class FileEndpoints
         space.MapGet("/files/{fileId:guid}", Download)
             .WithName("DownloadFile")
             .WithSummary("The file's content, for someone who can see its conversation. download=true asks for it as an attachment.");
+        space.MapGet("/bots/{botId:guid}/files", ListExchanged)
+            .AddEndpointFilter<TenantScopeFilter>()
+            .WithName("ListExchangedFiles")
+            .WithSummary("The files the caller and the bot exchanged in the caller's conversations with it, newest first: the ones the bot shared and the ones the caller sent.");
         space.MapDelete("/files/{fileId:guid}", RemovePending)
             .WithName("RemovePendingFile")
             .WithSummary("Removes a file the caller attached and has not sent. A sent file is kept as long as its message.");
@@ -87,6 +91,11 @@ public static class FileEndpoints
         }.ToString();
         return TypedResults.Stream(found.Content, contentType);
     }
+
+    private static async Task<Results<Ok<IReadOnlyList<ExchangedFileResponse>>, NotFound>> ListExchanged(Guid botId, HttpContext context, FileService files) =>
+        await files.ListExchanged(botId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } exchanged
+            ? TypedResults.Ok<IReadOnlyList<ExchangedFileResponse>>([.. exchanged.Select(found => found.ToResponse())])
+            : TypedResults.NotFound();
 
     private static async Task<Results<NoContent, NotFound>> RemovePending(Guid fileId, HttpContext context, FileService files) =>
         await files.RemovePending(fileId, context.GetSpaceAccess().UserId, context.RequestAborted)

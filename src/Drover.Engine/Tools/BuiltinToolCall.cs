@@ -43,6 +43,9 @@ public sealed record BuiltinToolCall(
     /// <summary>The conversation the run works in. Null outside a run.</summary>
     public Guid? ThreadId { get; init; }
 
+    /// <summary>The run is a delegated child run: its conversation is its own, not the person's.</summary>
+    public bool IsDelegated { get; init; }
+
     /// <summary>
     /// Takes out of a text anything the run knows to be secret, as the run's events and stored results are. A tool
     /// that keeps text the model wrote calls it first, so no secret is kept or given to a later run.
@@ -51,6 +54,12 @@ public sealed record BuiltinToolCall(
 
     /// <summary>Whether the run has read text from an untrusted source, as it stands when the tool asks.</summary>
     public Func<bool> IsTainted { get; init; } = () => false;
+
+    /// <summary>
+    /// Tells the run's watchers that a message the tool changed is now as given, with <c>message.completed</c>: a
+    /// file shared into the reply that asked for it.
+    /// </summary>
+    public Func<Message, Task> AnnounceMessage { get; init; } = _ => Task.CompletedTask;
 
     #endregion
 }

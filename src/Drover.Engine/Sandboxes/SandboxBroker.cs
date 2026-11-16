@@ -190,6 +190,37 @@ public sealed class SandboxBroker(
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
     }
 
+    /// <summary>
+    /// Hands the file at <paramref name="path"/>, and nothing else in the sandbox, to <paramref name="keep"/> as it is
+    /// read, for a bot sharing it into its conversation. A file that holds the sandbox's access token is refused. It is
+    /// a read of the sandbox like any other, so it taints the run as one would.
+    /// </summary>
+    public async Task<T> CopyOut<T>(
+        BuiltinToolCall call,
+        string? environment,
+        string path,
+        Func<Stream, Task<T>> keep,
+        CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
+        T kept;
+
+        try
+        {
+            await using var content = await provider.ReadFile(lease.Handle, path, cancellationToken);
+            await using var guarded = new TokenGuardStream(content, lease.Handle.AccessToken);
+            kept = await keep(guarded);
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure, path);
+        }
+
+        await Finish(caller, lease, readsSandbox: true, cancellationToken);
+        return kept;
+    }
+
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
         var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
