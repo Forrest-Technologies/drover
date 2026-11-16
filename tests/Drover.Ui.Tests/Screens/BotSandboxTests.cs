@@ -127,7 +127,7 @@ public sealed class BotSandboxTests : ScreenTest
         var page = RenderSandbox();
 
         page.WaitForAssertion(() => page.FindAll("[role=tab]").Select(tab => tab.TextContent.Trim()).Should().Equal("Terminal"));
-        page.Find("[role=tabpanel] label").TextContent.Should().Be("Command");
+        page.Find("[role=tabpanel] label").TextContent.Should().Be("Shell command");
     }
 
     [Fact]
@@ -792,6 +792,40 @@ public sealed class BotSandboxTests : ScreenTest
     #region Terminal
 
     [Fact]
+    public async Task Opening_the_interactive_terminal_launches_it_then_opens_the_screen()
+    {
+        Answer(Status("running"));
+        Navigation.NavigateTo(Addresses.BotTerminal(botId));
+        var page = RenderSandbox();
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-terminal"));
+
+        await page.FindAll(".dv-sandbox-terminal button")
+            .Single(button => button.TextContent.Trim() == "Open interactive terminal").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.Find("[role=tab][aria-selected=true]").TextContent.Should().Be("Screen"));
+        Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("open_terminal");
+    }
+
+    [Fact]
+    public async Task Password_entry_is_masked_cleared_and_never_sends_Enter()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
+        await page.FindAll(".dv-sandbox-options label")
+            .Single(label => label.TextContent.Contains("Type a password", StringComparison.Ordinal))
+            .QuerySelector("input")!.ChangeAsync(new ChangeEventArgs { Value = true });
+        var field = page.Find(".dv-sandbox-type input");
+        field.GetAttribute("type").Should().Be("password");
+        await field.InputAsync(new ChangeEventArgs { Value = "sample password" });
+        await page.Find("form.dv-sandbox-type").SubmitAsync();
+
+        page.WaitForAssertion(() => Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle()
+            .Which.Should().Be(new SandboxInputRequest("password", Text: "sample password")));
+        page.Find(".dv-sandbox-type input").GetAttribute("value").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_command_runs_and_its_exit_code_and_output_are_listed_with_the_commands_of_this_visit()
     {
         Answer(Status("running") with { Desktop = false });
@@ -843,7 +877,8 @@ public sealed class BotSandboxTests : ScreenTest
         return page;
     }
 
-    private static IElement EnterAfterSwitch(IRenderedComponent<BotSandbox> page) => page.Find(".dv-sandbox-options input[role=switch]");
+    private static IElement EnterAfterSwitch(IRenderedComponent<BotSandbox> page) => page.FindAll(".dv-sandbox-options label")
+        .Single(label => label.TextContent.Contains("Press Enter after typing", StringComparison.Ordinal)).QuerySelector("input")!;
 
     private static IElement ZoomButton(IRenderedComponent<BotSandbox> page, string name) =>
         page.FindAll("[role=group][aria-label=Zoom] button").Single(button => (button.GetAttribute("aria-label") ?? button.TextContent.Trim()) == name);
