@@ -164,16 +164,16 @@ public sealed class ThreadService(
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
-    /// <summary>
-    /// The time of each schedule that sent one of these messages and still exists, by schedule id, so the conversation
-    /// can say which schedule sent it.
-    /// </summary>
     /// <summary>The person each run that wrote one of the messages acts for, by run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListRunPrincipals(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
         sent.Any(message => message.RunId is not null)
             ? await runs.ListPrincipals([.. sent.Select(message => message.RunId).OfType<Guid>().Distinct()], cancellationToken)
             : [];
 
+    /// <summary>
+    /// The time of each schedule that sent one of these messages and still exists, by schedule id, so the conversation
+    /// can say which schedule sent it.
+    /// </summary>
     public async Task<Dictionary<Guid, string>> ListScheduleCrons(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
         sent.Any(message => message.ScheduleId is not null)
             ? await schedules.ListCrons([.. sent.Select(message => message.ScheduleId).OfType<Guid>().Distinct()], cancellationToken)
