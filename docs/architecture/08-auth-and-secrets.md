@@ -58,7 +58,7 @@ Other people join through `POST /api/register` only where the deployment policy 
 
 ## Secrets
 
-Secrets are: model provider keys, MCP header values, OAuth token sets and client secrets, per-sandbox access tokens (`SandboxToken`, stored by the sandbox broker as a space secret), push keys. The operator's sandbox provider key is not one of them: it belongs to the whole server, so it is configuration (`Drover:Sandbox:E2B:ApiKey` or `Drover:Sandbox:E2B:ApiKeyFile`), held in memory only, never in the database or the vault, never returned or logged ([07-sandbox.md](07-sandbox.md#operator-key)). `SandboxProviderKey` is reserved for a hosted space that brings its own provider key.
+Secrets are: model provider keys, MCP header values, OAuth token sets and client secrets, per-sandbox access tokens (`SandboxToken`, stored by the sandbox broker as a space secret). The server's Web Push key pair is not one of them: it belongs to the whole server, so it is kept encrypted beside the key ring ([13-deployment-and-push.md](13-deployment-and-push.md#adapters)). The operator's sandbox provider key is not one of them either: it belongs to the whole server, so it is configuration (`Drover:Sandbox:E2B:ApiKey` or `Drover:Sandbox:E2B:ApiKeyFile`), held in memory only, never in the database or the vault, never returned or logged ([07-sandbox.md](07-sandbox.md#operator-key)). `SandboxProviderKey` is reserved for a hosted space that brings its own provider key.
 
 ### Interface
 

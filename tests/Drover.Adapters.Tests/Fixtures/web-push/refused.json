@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from RFC 8030: a subscription the push service cannot use answers 400 Bad Request. No real push service produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 400,
+      "body": { "code": 400, "errno": 110, "error": "Bad Request", "message": "Invalid subscription" }
+    }
+  ]
+}

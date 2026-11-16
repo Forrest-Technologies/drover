@@ -85,6 +85,15 @@ else
             <StatusNote Text="A sample note with nothing to act on." />
         </GallerySection>
 
+        <GallerySection Title="Notifications on this device" Note="Each state says what is so. A state fixed outside Drover has no button. The account menu opens this in a dialog.">
+            @foreach (var state in Enum.GetValues<PushState>())
+            {
+                <PushControl State="state" />
+            }
+            <PushControl State="PushState.Off" Working="true" />
+            <PushControl State="PushState.On" Problem="Sample: notifications did not change. The server did not answer. Try again." />
+        </GallerySection>
+
         <GallerySection Title="Setup steps">
             <SetupSteps Current="2" />
         </GallerySection>

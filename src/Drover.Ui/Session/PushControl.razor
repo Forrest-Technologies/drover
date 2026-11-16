@@ -1,10 +1,11 @@
-@* Starter for #149. Notifications on this device: what is so, in a sentence, and the one action when there is
-   one. A state whose next step is in the browser or the operating system says so and offers no dead button. *@
+@* Notifications on this device: what is so, in a sentence, and the one action when there is one. A state whose
+   next step is in the browser, the operating system, or the server's setup says so and offers no dead button. *@
 <section class="dv-push" aria-labelledby="@titleId">
-    <h3 class="dv-push-title" id="@titleId">Notifications on this device</h3>
+    <h3 class="@(TitleHidden ? "dv-visually-hidden" : "dv-push-title")" id="@titleId">Notifications on this device</h3>
     <p class="dv-push-state">@PushWords.Sentence(State)</p>
     @if (PushWords.Action(State) is { } action)
     {
+        <p class="dv-push-contents">@PushWords.Contents</p>
         <div>
             <Button Kind="@(State is PushState.Off ? ButtonKind.Primary : ButtonKind.Quiet)" Disabled="Working" OnClick="() => OnToggle.InvokeAsync()">@action</Button>
         </div>
@@ -34,6 +35,10 @@
 
     [Parameter]
     public EventCallback OnToggle { get; set; }
+
+    /// <summary>True where a heading around it already says this, such as a dialog's title. The section keeps its name.</summary>
+    [Parameter]
+    public bool TitleHidden { get; set; }
 
     #endregion
 }

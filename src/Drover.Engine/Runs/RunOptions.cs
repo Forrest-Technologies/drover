@@ -56,5 +56,12 @@ public sealed class RunOptions
     /// <summary>How long an event stream stays silent before it sends a heartbeat and looks at the table again.</summary>
     public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// How long a push the push service could not take waits before each new try. After the last one it is dropped:
+    /// a wake-up hours late is no longer worth waking a device for.
+    /// </summary>
+    public IReadOnlyList<TimeSpan> PushRetryDelays { get; set; } =
+        [TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(10)];
+
     #endregion
 }
