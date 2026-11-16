@@ -706,7 +706,7 @@ public sealed class BotEditorTests : ScreenTest
     #region Sandbox Grants
 
     [Fact]
-    public async Task A_sandbox_the_bot_may_not_use_says_so_and_one_tap_stages_the_four_grants_that_save_applies()
+    public async Task A_sandbox_the_bot_may_not_use_says_so_and_one_tap_stages_a_grant_for_each_sandbox_tool_that_save_applies()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
@@ -733,7 +733,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Requests.Should().NotContain(request => request.Method == "PUT", "nothing is granted until the person saves");
         await page.FindAll(".dv-editor-save button").Single(button => button.TextContent.Trim() == "Save changes").ClickAsync(new MouseEventArgs());
 
-        page.WaitForAssertion(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path.Contains("/tools/", StringComparison.Ordinal)).Should().Be(4));
+        page.WaitForAssertion(() => Server.Requests.Count(request => request.Method == "PUT" && request.Path.Contains("/tools/", StringComparison.Ordinal)).Should().Be(sandboxTools.Length));
         foreach (var tool in sandboxTools)
         {
             Server.Sent("PUT", $"{bot}/tools/{tool.ToolId}").Should().ContainSingle()
@@ -774,6 +774,23 @@ public sealed class BotEditorTests : ScreenTest
         await group.QuerySelector("button")!.ClickAsync(new MouseEventArgs());
 
         page.WaitForAssertion(() => page.FindAll(".dv-disclosure-toggle")[1].GetAttribute("aria-expanded").Should().Be("true", "the Tools section opens"));
+    }
+
+    [Fact]
+    public async Task An_optional_tool_that_is_off_does_not_hide_existing_sandbox_grants()
+    {
+        Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
+        var sandboxTools = SandboxToolEntries("allow", "allow", null);
+        Server.Answer("GET", $"{bot}/tools", sandboxTools.Select(tool =>
+            tool.Name == "sandbox.share_file" ? tool with { Grant = "off" } : tool).ToArray());
+
+        var page = RenderEditor();
+        Words(page.FindAll(".dv-disclosure-toggle")[5].TextContent).Should().Be("Sandbox, Private · network off · some tools allowed");
+        await Open(page, 5);
+
+        var group = page.Find(".dv-disclosure-open [role=group][aria-label='What this bot may do in its sandbox']");
+        group.TextContent.Should().Contain("Some sandbox tools are allowed.");
+        group.QuerySelector("button")!.TextContent.Trim().Should().Be("Allow remaining sandbox tools");
     }
 
     [Fact]

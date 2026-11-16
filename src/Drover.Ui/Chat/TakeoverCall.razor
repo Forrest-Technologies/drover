@@ -1,5 +1,5 @@
 @* A bot's request for a person at its screen, in the conversation: the card, with what is on its way to the server. *@
-<TakeoverCard BotName="@BotName" Reason="@Takeover.Reason" Phase="Phase" Access="Access" SetupHref="@SetupHref" AnswerBesideScreen="Held"
+<TakeoverCard BotName="@BotName" Reason="@Takeover.Reason" Phase="Phase" Access="Takeovers.Access" SetupHref="@Takeovers.SetupHref" AnswerBesideScreen="Held"
               Sending="sending" Problem="@problem" OnOpenScreen="Open" OnDone="() => Answer(true, null)" OnCouldNot="note => Answer(false, note)" />
 
 @code {
@@ -19,25 +19,12 @@
     [Parameter, EditorRequired]
     public string BotName { get; set; } = string.Empty;
 
-    /// <summary>The person took the screen over for this request and has it open, so they answer there.</summary>
-    [Parameter]
-    public bool Held { get; set; }
+    /// <summary>The page around the conversation: the held request, the person's access, and the steps sent.</summary>
+    [Parameter, EditorRequired]
+    public ScreenTakeovers Takeovers { get; set; } = null!;
 
-    /// <summary>Whether this person can open the bot's screen.</summary>
-    [Parameter]
-    public ScreenAccess Access { get; set; }
-
-    /// <summary>Where the bot's screen is set up, for a bot that has none now.</summary>
-    [Parameter]
-    public string? SetupHref { get; set; }
-
-    /// <summary>Takes over the screen and opens it. Returns why it failed, or nothing.</summary>
-    [Parameter]
-    public Func<Takeover, Task<string?>>? OpenScreen { get; set; }
-
-    /// <summary>Hands the screen back: done, or could not with the person's line. Returns why it failed, or nothing.</summary>
-    [Parameter]
-    public Func<Guid, bool, string?, Task<string?>>? HandBack { get; set; }
+    // The person took the screen over for this request and has it open, so they answer there.
+    private bool Held => Takeovers.HeldCallId == Takeover.ToolCallId;
 
     private TakeoverPhase Phase => Takeover.Phase is TakeoverPhase.Asked && Held ? TakeoverPhase.Holding : Takeover.Phase;
 
@@ -45,9 +32,9 @@
 
     #region Private Methods
 
-    private Task Open() => Send(() => OpenScreen?.Invoke(Takeover) ?? Task.FromResult<string?>(null));
+    private Task Open() => Send(() => Takeovers.OpenScreen?.Invoke(Takeover) ?? Task.FromResult<string?>(null));
 
-    private Task Answer(bool done, string? note) => Send(() => HandBack?.Invoke(Takeover.ToolCallId, done, note) ?? Task.FromResult<string?>(null));
+    private Task Answer(bool done, string? note) => Send(() => Takeovers.HandBack?.Invoke(Takeover.ToolCallId, done, note) ?? Task.FromResult<string?>(null));
 
     private async Task Send(Func<Task<string?>> request)
     {

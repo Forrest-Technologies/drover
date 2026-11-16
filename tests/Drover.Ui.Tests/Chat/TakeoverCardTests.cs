@@ -230,12 +230,11 @@ public sealed class TakeoverCardTests : BunitContext
         var list = Render<MessageList>(set => set
             .Add(view => view.Messages, [message])
             .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.ScreenAccess, ScreenAccess.Usable)
-            .Add(view => view.OpenScreen, takeover =>
+            .Add(view => view.Takeovers, new ScreenTakeovers(null, ScreenAccess.Usable, null, takeover =>
             {
                 opened = takeover;
                 return Task.FromResult<string?>(null);
-            }));
+            }, null)));
 
         list.FindAll(".dv-takeover").Should().ContainSingle();
         list.FindAll(".dv-tool-ask").Should().BeEmpty();
@@ -246,14 +245,59 @@ public sealed class TakeoverCardTests : BunitContext
     }
 
     [Fact]
+    public void Without_what_a_takeover_needs_the_request_is_a_plain_tool_card()
+    {
+        var message = new ChatMessage("m1", false, string.Empty) { Tools = [Handover("awaiting_approval", string.Empty).ToCard()] };
+        var list = Render<MessageList>(set => set.Add(view => view.Messages, [message]).Add(view => view.BotName, "Sample bot"));
+
+        list.FindAll(".dv-takeover").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_bot_beneath_asking_for_its_own_screen_points_to_its_sandbox_page_and_is_answered_here()
+    {
+        var card = Render<TakeoverCard>(set => set
+            .Add(view => view.BotName, "Helper")
+            .Add(view => view.Reason, "Sign in.")
+            .Add(view => view.Phase, TakeoverPhase.Asked)
+            .Add(view => view.Access, ScreenAccess.Elsewhere)
+            .Add(view => view.SetupHref, "/bots/helper/sandbox"));
+
+        card.Find(".dv-takeover-note").TextContent.Should().MatchRegex(@"^\s*Helper works on a screen of its own\. Open it from\s+its sandbox page, then tell Helper here\.\s*$");
+        card.Find(".dv-takeover-note a").GetAttribute("href").Should().Be("/bots/helper/sandbox");
+        card.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("It is done", "I cannot do it");
+        card.FindAll("button.dv-button-primary").Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(ScreenAccess.Usable, "Helper works on a screen of its own.")]
+    [InlineData(ScreenAccess.NotPermitted, "Owners and admins of this space use Helper's screen.")]
+    public void A_bot_beneaths_request_inside_handed_work_is_a_takeover_named_for_that_bot(ScreenAccess parent, string sentence)
+    {
+        var helper = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c2");
+        var work = new DelegationItem(Guid.NewGuid(), "Sample bot", helper, "Helper", "Read the mail.", DelegationPhase.WaitingForYou, null, DelegationRefusal.None, null, 1)
+        {
+            Work = [new ChatMessage("w1", false, string.Empty) { Tools = [Handover("awaiting_approval", string.Empty).ToCard()] }],
+        };
+        var handed = Handover("completed", string.Empty).ToCard() with { Delegation = work };
+        var entry = Render<ChatEntry>(set => set
+            .Add(view => view.Message, new ChatMessage("m1", false, string.Empty) { Tools = [handed] })
+            .Add(view => view.BotName, "Sample bot")
+            .Add(view => view.Takeovers, new ScreenTakeovers(null, parent, "/bots/sample", null, null)));
+
+        entry.Find(".dv-takeover h3").TextContent.Should().Be("Helper needs you at its screen");
+        entry.Find(".dv-takeover-note").TextContent.Trim().Should().StartWith(sentence);
+        entry.FindAll(".dv-takeover button").Select(button => button.TextContent.Trim()).Should().Equal("It is done", "I cannot do it");
+    }
+
+    [Fact]
     public void In_the_conversation_a_held_screen_is_answered_beside_it()
     {
         var message = new ChatMessage("m1", false, string.Empty) { Tools = [Handover("awaiting_approval", string.Empty).ToCard()] };
         var list = Render<MessageList>(set => set
             .Add(view => view.Messages, [message])
             .Add(view => view.BotName, "Sample bot")
-            .Add(view => view.ScreenAccess, ScreenAccess.Usable)
-            .Add(view => view.HeldCallId, callId));
+            .Add(view => view.Takeovers, new ScreenTakeovers(callId, ScreenAccess.Usable, null, null, null)));
 
         list.Find(".dv-takeover h3").TextContent.Should().Be("You have Sample bot's screen");
         list.FindAll(".dv-takeover button").Should().BeEmpty();

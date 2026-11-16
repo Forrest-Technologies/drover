@@ -355,7 +355,7 @@ public sealed class TalkTests : ScreenTest
         page.Find("aside h1").TextContent.Should().Be("Screen");
         page.Find("aside a.dv-shell-up").GetAttribute("aria-label").Should().Be("Close the screen");
         page.Find("aside .dv-screen-panel-state .dv-badge").TextContent.Should().Be("Running");
-        page.Find("aside a.dv-screen-panel-more").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox");
+        page.Find("aside a.dv-screen-panel-more").GetAttribute("href").Should().Be($"/bots/{botId}/sandbox?tab=terminal");
         var way = page.Find("a.dv-shell-side[href$=\"/screen\"]");
         way.TextContent.Should().Be("Screen");
         way.GetAttribute("aria-current").Should().Be("true");
@@ -363,8 +363,8 @@ public sealed class TalkTests : ScreenTest
 
         page.Find("aside input[role=switch]").Change(true);
 
-        page.Find("aside button.dv-sandbox-picture").GetAttribute("aria-label").Should().StartWith("Marshal's sandbox screen. Tap to click there");
-        page.Find("aside .dv-sandbox-screen [role=status]").TextContent.Should().Contain("You have control");
+        page.Find("aside button.dv-sandbox-picture").GetAttribute("aria-label").Should().StartWith("Marshal's sandbox screen. Click or tap the desktop");
+        page.Find("aside .dv-sandbox-screen [role=status]").TextContent.Should().Contain("Clicks and keys go to the sandbox");
     }
 
     [Fact]
@@ -1070,6 +1070,57 @@ public sealed class TalkTests : ScreenTest
         Server.Sent("POST", $"{space}/threads/{threadId}/messages").Single().Should().Contain(sentId.ToString()).And.NotContain(laterId.ToString());
     }
 
+    [Fact]
+    public void The_files_rail_lists_what_was_exchanged_both_ways_newest_first_with_a_link_to_each_moment()
+    {
+        var shared = Guid.CreateVersion7();
+        var sent = Guid.CreateVersion7();
+        Server.Answer("GET", $"{space}/bots/{botId}/files", new[]
+        {
+            new ExchangedFileResponse(new(Guid.CreateVersion7(), "report.pdf", "application/pdf", FileKinds.Other, 2048), threadId, shared, true, true, DateTimeOffset.UnixEpoch),
+            new ExchangedFileResponse(new(Guid.CreateVersion7(), "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), sideId, sent, false, false, DateTimeOffset.UnixEpoch),
+        });
+
+        var page = RenderFiles();
+
+        page.WaitForAssertion(() => page.FindAll("aside li").Should().HaveCount(2));
+        page.Find("aside").GetAttribute("aria-label").Should().Be("Files exchanged with Marshal");
+        page.Find("aside h1").TextContent.Should().Be("Files");
+        page.Find("aside a.dv-shell-up").GetAttribute("aria-label").Should().Be("Close the files");
+        page.Find("a.dv-shell-side[href$=\"/files\"]").GetAttribute("aria-current").Should().Be("true");
+        page.FindAll("aside .dv-files-origin a").Select(link => link.GetAttribute("href"))
+            .Should().Equal($"/talk/{botId}#message-{shared}", $"/talk/{botId}/side/{sideId}#message-{sent}");
+        page.Markup.Should().Contain("Whose files", "files came from both sides");
+        page.FindAll("main article").Should().HaveCount(2, "the main conversation stays beside it");
+    }
+
+    [Fact]
+    public void A_files_rail_with_nothing_yet_says_what_it_will_hold_and_one_that_failed_tries_again()
+    {
+        Server.Answer("GET", $"{space}/bots/{botId}/files", HttpStatusCode.InternalServerError);
+        var page = RenderFiles();
+        page.WaitForAssertion(() => page.Find("aside .dv-empty-title").TextContent.Should().Be("Drover could not load the files"));
+
+        Server.Answer("GET", $"{space}/bots/{botId}/files", Array.Empty<ExchangedFileResponse>());
+        page.Find("aside .dv-empty button").Click();
+
+        page.WaitForAssertion(() => page.Find("aside .dv-files-hint").TextContent
+            .Should().Be("No files yet. Files you attach and files Marshal shares are listed here."));
+    }
+
+    [Fact]
+    public void A_link_to_a_moment_lands_on_its_message()
+    {
+        var question = Said("user", "Sample question");
+        Server.Answer("GET", $"{space}/threads/{threadId}/messages", new[] { question, Said("assistant", "Sample answer") });
+        Navigation.NavigateTo($"/talk/{botId}#message-{question.Id}");
+
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId));
+
+        page.WaitForAssertion(() => page.Find($"#message-{question.Id}").GetAttribute("tabindex").Should().Be("-1"));
+        page.FindAll("main article[tabindex]").Should().ContainSingle("only the message the link names takes focus");
+    }
+
     #endregion
 
     #region Private Methods
@@ -1146,6 +1197,12 @@ public sealed class TalkTests : ScreenTest
     // The header of a 1024 by 768 PNG: as much of one as the screen reads.
     private static byte[] ScreenPng { get; } =
         [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R', 0, 0, 4, 0, 0, 0, 3, 0, 8, 6, 0, 0, 0, 0, 0, 0, 0];
+
+    private IRenderedComponent<Talk> RenderFiles()
+    {
+        Navigation.NavigateTo($"/talk/{botId}/files");
+        return Render<Talk>(parameters => parameters.Add(page => page.BotId, botId).Add(page => page.Rail, "files"));
+    }
 
     private IRenderedComponent<Talk> RenderSummary()
     {

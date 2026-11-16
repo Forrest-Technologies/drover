@@ -33,6 +33,23 @@
                 <Button Disabled="Sending" OnClick="() => declining = true" aria-describedby="@titleId">I cannot do it</Button>
             </div>
             break;
+        case TakeoverPhase.Asked when Access is ScreenAccess.Elsewhere:
+            <p class="dv-takeover-note">
+                @BotName works on a screen of its own. Open it from
+                @if (SetupHref is not null)
+                {
+                    <a href="@SetupHref">its sandbox page</a>
+                }
+                else
+                {
+                    <text>its sandbox page</text>
+                }, then tell @BotName here.
+            </p>
+            <div class="dv-takeover-actions">
+                <Button Disabled="Sending" OnClick="() => OnDone.InvokeAsync()" aria-describedby="@titleId">It is done</Button>
+                <Button Disabled="Sending" OnClick="() => declining = true" aria-describedby="@titleId">I cannot do it</Button>
+            </div>
+            break;
         case TakeoverPhase.Asked:
             <p class="dv-takeover-note" role="status">Checking whether you can use @BotName's screen.</p>
             break;

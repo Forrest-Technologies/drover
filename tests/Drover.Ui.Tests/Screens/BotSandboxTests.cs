@@ -476,14 +476,25 @@ public sealed class BotSandboxTests : ScreenTest
     #region Taking Control
 
     [Fact]
-    public async Task Taking_control_says_so_and_offers_named_controls_for_typing_keys_and_scrolling()
+    public void A_terminal_link_opens_the_terminal_even_when_the_bot_has_a_desktop()
+    {
+        Answer(Status("running"));
+        Navigation.NavigateTo(Addresses.BotTerminal(botId));
+        var page = RenderSandbox();
+
+        page.WaitForAssertion(() => page.Find("[role=tab][aria-selected=true]").TextContent.Should().Be("Terminal"));
+        page.Find(".dv-sandbox-terminal").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Desktop_input_names_where_clicks_and_keys_go()
     {
         Answer(Status("running"));
         var page = await RenderInControl();
 
-        page.Find(".dv-sandbox-screen [role=status]").TextContent.Should().Contain("You have control");
+        page.Find(".dv-sandbox-screen [role=status]").TextContent.Should().Contain("Clicks and keys go to the sandbox");
         var screen = page.Find("button.dv-sandbox-picture");
-        screen.GetAttribute("aria-label").Should().Contain("Tap to click there").And.Contain("arrow keys move the pointer");
+        screen.GetAttribute("aria-label").Should().Contain("Click or tap the desktop").And.Contain("arrow keys move the pointer");
         page.Find("[id^=dv-sandbox-pointer-words]").TextContent.Should().Be("The pointer is at 512, 384 of 1024 by 768.");
         page.FindAll(".dv-sandbox-type label").Select(label => label.TextContent).Should().Equal("Text to type");
         var keys = page.Find("[role=group][aria-label=Keys]");
@@ -491,7 +502,7 @@ public sealed class BotSandboxTests : ScreenTest
             .Should().Equal("Enter", "Tab", "Escape", "Backspace", "Arrow left", "Arrow up", "Arrow down", "Arrow right");
         keys.QuerySelector(".dv-menu-trigger")!.TextContent.Should().Be("Key combinations");
         page.Find("[role=group][aria-label=Scroll]").QuerySelectorAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Scroll up", "Scroll down");
-        page.Find(".dv-segmented legend").TextContent.Should().Be("What a tap on the screen does");
+        page.Find(".dv-segmented legend").TextContent.Should().Be("Desktop click type");
     }
 
     [Fact]
@@ -528,7 +539,7 @@ public sealed class BotSandboxTests : ScreenTest
     {
         Answer(Status("running"));
         var page = await RenderInControl();
-        await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = false });
+        EnterAfterSwitch(page).HasAttribute("checked").Should().BeFalse();
 
         await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "sample text" });
         await page.Find("form.dv-sandbox-type").SubmitAsync();
@@ -541,26 +552,27 @@ public sealed class BotSandboxTests : ScreenTest
     }
 
     [Fact]
-    public async Task While_the_bot_is_working_taking_control_says_it_is_working_there_too()
+    public async Task An_active_bot_run_can_use_the_same_desktop()
     {
         Answer(Status("running") with { BotWorking = true });
         var page = await RenderInControl();
 
         page.FindAll(".dv-sandbox-state .dv-badge").Select(badge => badge.TextContent).Should().Contain("Bot working");
-        page.Find(".dv-sandbox-screen").TextContent.Should().Contain("Sample bot is working in this sandbox right now.");
+        page.Find(".dv-sandbox-screen").TextContent.Should().Contain("Sample bot has an active run and may use the same desktop.");
     }
 
     [Fact]
-    public async Task Text_is_sent_from_the_keyboards_own_action_key_and_Enter_follows_it_by_default()
+    public async Task The_keyboard_action_types_text_and_can_press_Enter_when_requested()
     {
         Answer(Status("running"));
         var page = await RenderInControl();
         var field = page.Find(".dv-sandbox-type input");
 
         field.GetAttribute("enterkeyhint").Should().Be("send");
-        EnterAfterSwitch(page).HasAttribute("checked").Should().BeTrue();
-        page.Find(".dv-sandbox-options .dv-switch-label").TextContent.Should().Be("Press Enter after");
-        page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Send");
+        page.Find(".dv-sandbox-options .dv-switch-label").TextContent.Should().Be("Press Enter after typing");
+        page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type text");
+        await EnterAfterSwitch(page).ChangeAsync(new ChangeEventArgs { Value = true });
+        page.Find(".dv-sandbox-type button[type=submit]").TextContent.Trim().Should().Be("Type and press Enter");
 
         await field.InputAsync(new ChangeEventArgs { Value = "ls -la" });
         await page.Find("form.dv-sandbox-type").SubmitAsync();
@@ -639,10 +651,10 @@ public sealed class BotSandboxTests : ScreenTest
         page.WaitForAssertion(() => page.Find("[role=group][aria-label=Zoom]"));
         var zoom = page.Find("[role=group][aria-label=Zoom]");
         zoom.QuerySelectorAll("button").Select(button => button.GetAttribute("aria-label") ?? button.TextContent.Trim())
-            .Should().Equal("Zoom out", "Zoom in", "Fit");
+            .Should().Equal("Zoom out", "Zoom in", "Fit screen");
         zoom.QuerySelector("[aria-live=polite]")!.TextContent.Should().Be("100%");
         ZoomButton(page, "Zoom out").HasAttribute("disabled").Should().BeTrue();
-        ZoomButton(page, "Fit").HasAttribute("disabled").Should().BeTrue();
+        ZoomButton(page, "Fit screen").HasAttribute("disabled").Should().BeTrue();
         ZoomButton(page, "Zoom in").HasAttribute("disabled").Should().BeFalse();
         page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("scale(1)");
         page.Find(".dv-sandbox-frame").GetAttribute("style").Should().Contain("aspect-ratio: 1024 / 768");
@@ -663,7 +675,7 @@ public sealed class BotSandboxTests : ScreenTest
         page.Find(".dv-sandbox-frame").ClassList.Should().Contain("dv-sandbox-frame-zoomed");
         ZoomButton(page, "Zoom out").HasAttribute("disabled").Should().BeFalse();
 
-        await ZoomButton(page, "Fit").ClickAsync(new MouseEventArgs());
+        await ZoomButton(page, "Fit screen").ClickAsync(new MouseEventArgs());
 
         page.Find("[role=group][aria-label=Zoom] [aria-live=polite]").TextContent.Should().Be("100%");
         page.Find(".dv-sandbox-layer").GetAttribute("style").Should().Contain("translate(0%, 0%) scale(1)");

@@ -328,15 +328,10 @@ public sealed class RunService(
         Parts =
         [
             .. string.IsNullOrWhiteSpace(text) ? Array.Empty<MessagePart>() : [new TextPart(text)],
-            .. attached.Select(ToPart),
+            .. attached.Select(file => file.ToPart()),
         ],
         CreatedAt = time.GetUtcNow(),
     };
-
-    private static MessagePart ToPart(StoredFile file) =>
-        FileInspector.KindOf(file.ContentType) is FileKind.Image
-            ? new ImagePart(file.Id, file.ContentType, null, file.Name, file.Size, file.Width, file.Height)
-            : new FilePart(file.Id, file.Name, file.ContentType, file.Size, file.Preview);
 
     /// <summary>Why the request cannot be a message, before anything is read: no words and no files, too long, too many files.</summary>
     private string? FindInvalidRequest(string text, IReadOnlyList<Guid> fileIds)

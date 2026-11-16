@@ -103,6 +103,12 @@ else
             </div>
         </GallerySection>
 
+        <GallerySection Title="Work passing between bots" Note="A violet edge while the work is out, then the result's color. Inside: the other bot's own words and calls, and a call waiting for an answer. Past two levels a card links instead of nesting. Every name and text is a sample.">
+            <div class="dv-gallery-conversation">
+                <MessageList Messages="handoffs" BotName="Sample lead bot" BotHue="BotIdentity.Hue(sampleLead)" />
+            </div>
+        </GallerySection>
+
         <GallerySection Title="Composer" Note="One field. Send is the primary action; Stop takes its place while a run is active.">
             <Composer BotName="Sample bot" />
             <Composer BotName="Sample bot" Running="true" />
@@ -184,7 +190,50 @@ else
         new("sample-3", true, "A sample follow-up."),
     ];
 
+    private static readonly string[] sampleLine = ["Sample lead bot", "Sample helper", "Sample scout", "Sample runner"];
+
+    private static readonly ChatMessage[] handoffs =
+    [
+        Said("sample-handoff-1", "A sample reply that hands work over.",
+            Handed("00000000-0000-7000-8000-000000000211", DelegationPhase.WaitingForYou, 0, work:
+                Said("sample-handoff-2", "A sample line of the helper's work.",
+                    Call("00000000-0000-7000-8000-000000000212", "awaiting_approval")))),
+        Said("sample-handoff-3", "A sample reply with finished, failed, and refused work.",
+            Handed("00000000-0000-7000-8000-000000000213", DelegationPhase.Done, 0, answer: "A sample answer with **bold** text."),
+            Handed("00000000-0000-7000-8000-000000000214", DelegationPhase.Failed, 0),
+            Handed("00000000-0000-7000-8000-000000000215", DelegationPhase.Refused, 0, refusal: DelegationRefusal.Loop)),
+        Said("sample-handoff-4", "A sample reply with work handed down three levels.",
+            Handed("00000000-0000-7000-8000-000000000216", DelegationPhase.Working, 0, work:
+                Said("sample-handoff-5", "A sample line of the helper's work.",
+                    Handed("00000000-0000-7000-8000-000000000217", DelegationPhase.Working, 1, work:
+                        Said("sample-handoff-6", "A sample line one level further down.",
+                            Handed("00000000-0000-7000-8000-000000000218", DelegationPhase.Working, 2)))))),
+    ];
+
     private string address = string.Empty;
+
+    private static ChatMessage Said(string key, string text, params ToolCard[] tools) => new(key, false, text) { Tools = tools };
+
+    private static ToolCard Call(string id, string state) =>
+        new ToolCallView(Guid.Parse(id), "sandbox_run", "sandbox_run", """{"command":"sample command"}""", "write", state).ToCard();
+
+    // A sample card for handed work: each level down is handed to the next sample bot in the line.
+    private static ToolCard Handed(
+        string id,
+        DelegationPhase phase,
+        int depth,
+        ChatMessage? work = null,
+        string? answer = null,
+        DelegationRefusal refusal = DelegationRefusal.None) =>
+        Call(id, "running") with
+        {
+            Delegation = new DelegationItem(
+                Guid.Parse(id), sampleLine[depth], depth == 0 ? sampleHelper : Guid.Parse(id), sampleLine[depth + 1],
+                "Sample task: find three sample sources.\nA second sample line.", phase, answer, refusal, "/", depth)
+            {
+                Work = work is null ? [] : [work],
+            },
+        };
 
     // A sample row opens the workspace, which says that the sample bot is not there.
     private static SideChatItem Chat(string id, string title, bool working) =>

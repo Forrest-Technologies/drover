@@ -1,5 +1,5 @@
-@* A bot's sandbox screen beside the conversation, so a person watches the bot work and can take over, and hands it back
-   here when the bot asked them to take over. *@
+@* A bot's sandbox screen beside the conversation, so a person can watch it and send desktop input, and hand it back
+   here when the bot asked them to take it over. *@
 @implements IAsyncDisposable
 
 <div class="dv-screen-panel">
@@ -53,7 +53,7 @@
             {
                 <Badge Kind="BadgeKind.Live">Bot working</Badge>
             }
-            <a class="dv-screen-panel-more" href="@Addresses.BotSandbox(Bot.Id)">Power and terminal</a>
+            <a class="dv-screen-panel-more" href="@Addresses.BotTerminal(Bot.Id)">Open terminal and power controls</a>
         </p>
         <SandboxScreen BotId="Bot.Id" BotName="@Bot.Name" Status="status" Held="Takeover is { Waits: true }" OnSandboxChanged="() => Refresh(disposal.Token)" />
     }

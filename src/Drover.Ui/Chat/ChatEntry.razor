@@ -1,0 +1,172 @@
+@* One message of a conversation: a person's words and files, or a bot's words and the tool calls it made with them.
+   A call that handed work to another bot is that work's card, with the other bot's own messages inside it, shown by
+   this same component. Inside such a card the bot's head stands beside the card, so its messages are compact. *@
+@if (Message.FromPerson)
+{
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-person" aria-label="@(Asker is null ? Message.SentBy ?? "You said" : $"{Asker} asked")">
+        @if (Message.Text.Length > 0)
+        {
+            <p class="dv-message-bubble dv-facet">@Message.Text</p>
+        }
+        @if (Message.SentBy is { } sentBy)
+        {
+            <p class="dv-message-sent-by">@sentBy</p>
+        }
+        @Files
+        @if (Message.Pending)
+        {
+            <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
+        }
+    </article>
+}
+else if (Message.Text.Length == 0)
+{
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-tools @(Compact ? "dv-message-compact" : null)" aria-label="What @BotName did">
+        @foreach (var tool in Message.Tools)
+        {
+            @Tool(tool)
+        }
+        @Files
+    </article>
+}
+else if (Compact)
+{
+    <article class="dv-message dv-message-compact" aria-label="@BotName said">
+        <MarkdownView Text="@Message.Text" Streaming="Message.Streaming" />
+        @foreach (var tool in Message.Tools)
+        {
+            @Tool(tool)
+        }
+        @Files
+    </article>
+}
+else
+{
+    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-bot" aria-label="@BotName said">
+        <div class="dv-message-head dv-facet @(Message.Streaming ? "dv-message-head-live" : null)">
+            <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(Message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
+        </div>
+        <div class="dv-message-body">
+            <header class="dv-message-from">
+                <span class="dv-mono" aria-hidden="true">@BotName</span>
+                @if (Message.Streaming)
+                {
+                    <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
+                }
+            </header>
+            <MarkdownView Text="@Message.Text" Streaming="Message.Streaming" />
+            @foreach (var tool in Message.Tools)
+            {
+                @Tool(tool)
+            }
+            @Files
+        </div>
+    </article>
+}
+
+@code {
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public ChatMessage Message { get; set; } = null!;
+
+    /// <summary>The bot whose conversation, or whose part of handed work, this message is in.</summary>
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    [Parameter]
+    public int BotHue { get; set; }
+
+    /// <summary>
+    /// The bot that wrote what a person would have written here, on a bot's side of work handed to it. Null where
+    /// the person did.
+    /// </summary>
+    [Parameter]
+    public string? Asker { get; set; }
+
+    /// <summary>True inside work handed to another bot: no head beside each message, the card has it.</summary>
+    [Parameter]
+    public bool Compact { get; set; }
+
+    /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
+    [Parameter]
+    public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Removes a note the bot saved, from its card, while it still says the given text.</summary>
+    [Parameter]
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>The notes forgotten from their cards, which then say so.</summary>
+    [Parameter]
+    public IReadOnlySet<Guid> ForgottenNotes { get; set; } = new HashSet<Guid>();
+
+    /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
+
+    /// <summary>The message's address in the page, so a link to this moment lands on it.</summary>
+    [Parameter]
+    public string? Anchor { get; set; }
+
+    /// <summary>"-1" for the message a moment link names, so the person lands on it; no other message is a stop.</summary>
+    [Parameter]
+    public string? TabIndex { get; set; }
+
+    /// <summary>What a request for a person at the bot's screen needs here. Without it such a request is a plain tool card.</summary>
+    [Parameter]
+    public ScreenTakeovers? Takeovers { get; set; }
+
+    /// <summary>Reads a text file whole, for a file card that shows only its first lines.</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    private RenderFragment Files =>
+        @<text>
+            @if (Message.Files.Count > 0)
+            {
+                <div class="dv-message-files">
+                    @foreach (var file in Message.Files)
+                    {
+                        <FileCard @key="file.Id" File="file" ReadWhole="ReadWhole" />
+                    }
+                </div>
+            }
+        </text>;
+
+    // A waiting call inside handed work is asked for by the bot that made it, so the sentence names that bot.
+    // A request for a person at the bot's screen has a card of its own.
+    private RenderFragment Tool(ToolCard tool) => (tool.Delegation, tool.Takeover, Takeovers) switch
+    {
+        ({ } work, _, _) => @<DelegationCard @key="tool.Id" Item="work" ChildContent="@(work.Work.Count > 0 ? WorkOf(work) : null)" />,
+        (_, { } takeover, { } takeovers) => @<TakeoverCall @key="tool.Id" Takeover="takeover" BotName="@BotName" Takeovers="takeovers" />,
+        _ => Plain(tool),
+    };
+
+    private RenderFragment Plain(ToolCard tool) =>
+        @<ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget"
+                         Forgotten="@(tool.NoteId is { } noteId && ForgottenNotes.Contains(noteId))" MemoryHref="@MemoryHref" />;
+
+    // A bot beneath works on its own screen, which opens from its sandbox page. A person who does not use screens, or
+    // whose access is not known yet, is told so as for the bot's own request.
+    private ScreenTakeovers? ForBotBeneath(DelegationItem work) => Takeovers switch
+    {
+        null => null,
+        { Access: ScreenAccess.Usable or ScreenAccess.Missing } => Takeovers with { HeldCallId = null, Access = ScreenAccess.Elsewhere, SetupHref = Addresses.BotSandbox(work.ChildId) },
+        _ => Takeovers with { HeldCallId = null },
+    };
+
+    private RenderFragment WorkOf(DelegationItem work) =>
+        @<text>
+            @foreach (var entry in work.Work)
+            {
+                <ChatEntry @key="entry.Key" Message="entry" BotName="@work.ChildName" BotHue="BotIdentity.Hue(work.ChildId)" Decide="Decide" ReadWhole="ReadWhole" Compact="true"
+                           Takeovers="@(ForBotBeneath(work))" />
+            }
+        </text>;
+
+    #endregion
+}

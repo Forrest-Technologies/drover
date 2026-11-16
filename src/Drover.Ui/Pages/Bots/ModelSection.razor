@@ -97,6 +97,10 @@ else
 @if (Known is { StructuredOutput: true })
 {
     <Switch Label="Answer as a JSON object" @bind-Value="Draft.StructuredOutput" @bind-Value:after="Changed" />
+    @if (Draft.StructuredOutput && Connections.FirstOrDefault(connection => connection.Id == Draft.ModelConnectionId)?.Kind is "venice")
+    {
+        <p class="dv-editor-hint">Applies when tools are unavailable.</p>
+    }
 }
 
 <div class="dv-editor-pair">

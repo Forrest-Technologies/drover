@@ -31,7 +31,7 @@ A starter is a starting point with a strong opinion. If what you find while buil
 
 - Everything on the server, and the contracts.
 - Loading data, live updates, and error handling against the real API.
-- Focus management across a whole screen, routing, and the address of each rail. That includes focus where a starter replaces the control a person just used: after Start and Stop on the voice button, after Change, Save, and Cancel on a note, and after Approve or Deny on a waiting call, focus moves to the control that took its place.
+- Focus management across a whole screen, routing, and the address of each rail. That includes focus where a starter replaces the control a person just used: after Start and Stop on the voice button, and after Approve or Deny on a waiting call, focus moves to the control that took its place.
 - Screenshots and a manual pass on a real device. The gallery proves the pieces, not the screen.
 - Anything the issue lists that has no starter. The table says what each starter covers.
 
@@ -48,11 +48,8 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #157 | `RoutineWords.cs`, `RoutineRow.razor`, `RoutineWhenFields.razor` | A routine as a sentence, building a schedule without cron, next run and last outcome |
 | #158 | `RoutineWords.cs` (`Proposal`) | The facts an approval card shows for a routine a bot proposes. The card itself is the existing `ToolCallCard` |
 | #159 | `RoutineCallWords.cs`, `RoutineCallAddress.razor` | A routine's address, its secret shown once, today's calls |
-| #160 | `MemoryWords.cs`, `MemoryPanel.razor` | What a bot remembers: every state, in-place editing, the conversation cards' wording |
-| #162 | `DelegationWords.cs`, `DelegationCard.razor` | Work handed to another bot in the conversation, every refusal |
 | #163 | `UsageWords.cs`, `UsageTable.razor` | Cost and tokens per bot as a hierarchy, the order, unknown prices |
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
-| #165 | `FilesPanelState.cs`, `FilesPanel.razor` | The files exchanged with a bot. Uses `FileCard` and `SharedFile`, which #151 moved to `Chat/` |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |
 | #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164, and `AttentionNote` from #148, which is now in `Chat/` |
 | #168 | `ActivityWords.cs`, `WaitingList.razor`, `ActivityRunRow.razor` | Answering what waits, several at once with every sentence listed, a run in the list |

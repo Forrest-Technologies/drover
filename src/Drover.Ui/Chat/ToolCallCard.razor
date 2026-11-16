@@ -44,7 +44,19 @@ else
                 <Badge Kind="StateKind">@Card.State</Badge>
             </Status>
             <ChildContent>
-                @if (Card.Arguments is not ("{}" or ""))
+                @if (Card.Facts.Count > 0)
+                {
+                    <dl class="dv-tool-facts">
+                        @foreach (var fact in Card.Facts)
+                        {
+                            <div class="dv-tool-fact">
+                                <dt>@fact.Name</dt>
+                                <dd>@fact.Value</dd>
+                            </div>
+                        }
+                    </dl>
+                }
+                else if (Card.Arguments is not ("{}" or ""))
                 {
                     <div class="dv-tool-part">
                         <h3 class="dv-tool-part-title">Arguments</h3>
@@ -91,6 +103,38 @@ else
                 }
             </ChildContent>
         </Disclosure>
+        @if (Card.CommandError is { } commandError)
+        {
+            <p class="dv-tool-error">@commandError</p>
+        }
+        else if (!open && OutputPreview is { } preview)
+        {
+            <pre class="dv-tool-preview" aria-label="Command output preview">@preview</pre>
+        }
+        @if (Card.NoteId is { } noteId && Forget is not null)
+        {
+            <div class="dv-tool-note">
+                @if (Forgotten)
+                {
+                    <p class="dv-tool-forgotten" tabindex="-1" @ref="forgottenLine">@MemoryWords.Forgotten</p>
+                }
+                else if (changedSince)
+                {
+                    <p class="dv-tool-forgotten" tabindex="-1" @ref="forgottenLine">
+                        @MemoryWords.ChangedSince(BotName)
+                        @if (MemoryHref is not null)
+                        {
+                            <a href="@MemoryHref">Open Memory to see it</a>
+                        }
+                    </p>
+                }
+                else
+                {
+                    <Button OnClick="() => ForgetNote(noteId)" aria-label="@($"Forget the note: {Card.NoteText}")">Forget</Button>
+                }
+                <StatusNote Kind="NoteKind.Danger" Text="@forgetProblem" />
+            </div>
+        }
     </div>
 }
 
@@ -105,6 +149,17 @@ else
 
     private string? problem;
 
+    private bool forgetting;
+
+    // The note changed after the bot saved it, so Forget left it alone.
+    private bool changedSince;
+
+    private string? forgetProblem;
+
+    private bool focusForgotten;
+
+    private ElementReference forgottenLine;
+
     #endregion
 
     #region Properties
@@ -118,6 +173,37 @@ else
     /// <summary>Sends a person's answer to a call that waits for one. Returns why it failed, or nothing when it was sent.</summary>
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Removes the note a save kept, from its card, while it still says what the card shows.</summary>
+    [Parameter]
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>True once the card's note was forgotten, until that is undone.</summary>
+    [Parameter]
+    public bool Forgotten { get; set; }
+
+    /// <summary>The bot's memory, where a note that changed since this card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
+
+    private string? OutputPreview
+    {
+        get
+        {
+            if (Card.ExitCode is null || Card.Output.Count == 0)
+            {
+                return null;
+            }
+
+            const int previewLength = 240;
+            var first = Card.Output[0];
+            var text = first.Text.AsSpan().Trim();
+            var end = text.IndexOfAny('\r', '\n');
+            var length = Math.Min(end < 0 ? text.Length : end, previewLength);
+            var line = text[..length].TrimEnd().ToString();
+            return length < text.Length || Card.Output.Count > 1 ? $"{line}…" : line;
+        }
+    }
 
     // The frame's top edge: a traveling line while the tool runs, then green or red once it has finished.
     private string? FrameClass => Card.Phase switch
@@ -162,6 +248,31 @@ else
         (deciding, problem) = (true, null);
         problem = await Decide(Card.Id, approved);
         deciding = problem is null;
+    }
+
+    // The button is replaced by a line saying the note is gone, or that it changed since and so was kept, and the focus
+    // moves to that line. The button stays enabled while the note is removed, so it keeps the focus if that fails; a
+    // second press meanwhile does nothing.
+    private async Task ForgetNote(Guid noteId)
+    {
+        if (Forget is null || forgetting)
+        {
+            return;
+        }
+
+        (forgetting, forgetProblem) = (true, null);
+        var outcome = await Forget(noteId, Card.NoteText ?? string.Empty);
+        (forgetting, changedSince, forgetProblem) = (false, outcome.Changed, outcome.Problem);
+        focusForgotten = outcome.Forgotten || outcome.Changed;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusForgotten && (Forgotten || changedSince))
+        {
+            focusForgotten = false;
+            await forgottenLine.FocusAsync();
+        }
     }
 
     #endregion

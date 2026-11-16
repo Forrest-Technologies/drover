@@ -14,4 +14,7 @@ public enum ScreenAccess
 
     /// <summary>The bot has no screen now: no provider, no sandbox, or Desktop off.</summary>
     Missing,
+
+    /// <summary>The request is from a bot beneath, whose screen is its own and opens from its sandbox page.</summary>
+    Elsewhere,
 }

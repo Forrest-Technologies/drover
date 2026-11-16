@@ -1,0 +1,99 @@
+/* The child's head stands beside its card, the way a bot's head stands beside its replies. On a phone it stands
+   above the card instead, so each level of work handed further down costs only the card's edge and one set-in line,
+   and three levels still read at 360 px. */
+.dv-handoff {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dv-space-1);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (min-width: 560px) {
+  .dv-handoff {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--dv-space-2);
+  }
+
+  .dv-handoff-head {
+    padding-top: var(--dv-space-1);
+  }
+}
+
+/* Work that is out: the frame takes the delegation color. A still edge; the state is also in the badge's words. */
+.dv-handoff-out ::deep .dv-handoff-frame {
+  --dv-facet-edge: var(--dv-violet);
+}
+
+/* Work that came back: the edge takes the result's color, which the badge also says in words. */
+.dv-handoff-done ::deep .dv-handoff-frame {
+  --dv-facet-edge: var(--dv-ok);
+}
+
+.dv-handoff-failed ::deep .dv-handoff-frame {
+  --dv-facet-edge: var(--dv-danger);
+}
+
+.dv-handoff ::deep .dv-disclosure-title {
+  font-weight: var(--dv-weight-label);
+  overflow-wrap: anywhere;
+}
+
+.dv-handoff ::deep .dv-badge {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.dv-handoff-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-handoff-part-title {
+  margin: 0;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+  color: var(--dv-text-2);
+}
+
+.dv-handoff-task {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The child's work is set in from the card's edge by one line, not by a second frame. */
+.dv-handoff-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+  padding-inline-start: var(--dv-space-2);
+  border-inline-start: var(--dv-border) solid var(--dv-line);
+}
+
+@media (min-width: 560px) {
+  .dv-handoff-work {
+    padding-inline-start: var(--dv-space-3);
+  }
+}
+
+.dv-handoff-line {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-handoff-link {
+  color: var(--dv-text-2);
+}
+
+/* Work handed further down sits inside another card, which already gives it room: on a phone its own card keeps
+   a narrower inner margin. */
+@media (max-width: 559.98px) {
+  .dv-handoff-work ::deep .dv-handoff-frame .dv-disclosure-toggle,
+  .dv-handoff-work ::deep .dv-handoff-frame .dv-disclosure-body:not([hidden]) {
+    padding-inline: var(--dv-space-3);
+  }
+}

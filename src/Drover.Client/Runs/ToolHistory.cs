@@ -13,15 +13,33 @@ public static class ToolHistory
     /// The calls in a thread's tool events, as <c>ListToolEvents</c> returns them. The events of
     /// <paramref name="activeRunId"/>, the run still working, are left out: it is watched, and its own view is newer.
     /// A run that is over has stopped every call that was still open in its log, such as one that waited for an
-    /// answer when the run was cancelled.
+    /// answer when the run was cancelled. The events of a run that a call handed work to are applied under that call,
+    /// as a live stream applies them; they always come after the call's <c>delegation.started</c>.
     /// </summary>
-    public static ImmutableDictionary<Guid, ToolCallView> From(IEnumerable<RunEventResponse> events, Guid? activeRunId = null) =>
-        events
-            .Where(stored => stored.RunId != activeRunId)
-            .GroupBy(stored => stored.RunId)
-            .SelectMany(run => RunReducer.Apply(RunView.Start(run.Key), run.OrderBy(stored => stored.Seq)).ToolCalls)
+    public static ImmutableDictionary<Guid, ToolCallView> From(IEnumerable<RunEventResponse> events, Guid? activeRunId = null)
+    {
+        List<RunView> roots = [];
+
+        foreach (var stored in events)
+        {
+            var index = roots.FindIndex(root => root.Holds(stored.RunId));
+
+            if (index < 0)
+            {
+                roots.Add(RunReducer.Apply(RunView.Start(stored.RunId), stored));
+            }
+            else
+            {
+                roots[index] = RunReducer.Apply(roots[index], stored);
+            }
+        }
+
+        return roots
+            .Where(root => root.RunId != activeRunId)
+            .SelectMany(root => root.ToolCalls)
             .Select(tool => tool.Settled())
             .ToImmutableDictionary(tool => tool.ToolCallId);
+    }
 
     /// <summary>The history with a run's calls added, or replaced where the history had them already.</summary>
     public static ImmutableDictionary<Guid, ToolCallView> With(this ImmutableDictionary<Guid, ToolCallView> history, RunView? run) =>

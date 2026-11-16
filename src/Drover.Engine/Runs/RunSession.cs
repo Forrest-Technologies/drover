@@ -15,8 +15,11 @@ public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, Bu
     /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
     public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
 
-    /// <summary>A call cut off by a restart is asked again: it only reads, or it resolves to the same child run.</summary>
-    public bool MayRunAgain => IsKnownToOnlyRead || IsDelegation;
+    /// <summary>
+    /// A call cut off by a restart is asked again: it only reads, it resolves to the same child run, or Drover knows
+    /// running it twice does what running it once did.
+    /// </summary>
+    public bool MayRunAgain => IsKnownToOnlyRead || IsDelegation || Builtin is { IsIdempotent: true };
 }
 
 /// <summary>
@@ -326,6 +329,24 @@ public sealed class RunSession(
                 ? RunEventWriter.Event(RunId, RunEventTypes.StepDiscarded, pending)
                 : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()));
             await writer.Write(null, [.. Delivered(taken), closed]);
+        }
+        finally
+        {
+            announcing.Release();
+        }
+    }
+
+    /// <summary>
+    /// <c>message.completed</c> again for a reply a tool changed after it was announced, as stored now: a file the bot
+    /// shared is added to the reply that asked for it. A client replaces the message it holds by id.
+    /// </summary>
+    public async Task AnnounceChangedMessage(Message stored)
+    {
+        await announcing.WaitAsync();
+
+        try
+        {
+            await writer.Write(null, [RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()))]);
         }
         finally
         {
