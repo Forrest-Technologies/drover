@@ -1,12 +1,14 @@
-[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Roadmap](ROADMAP.md)
+[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Android preview](#android-preview) · [Roadmap](ROADMAP.md)
 
 # Drover
 
-**Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a desktop or phone browser.
+<img src="src/Drover.App/Resources/AppIcon/drover.svg" width="64" height="64" alt="Drover robot head" />
+
+**Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a browser or the Android preview.
 
 ![Drover on desktop, streaming a bot reply in a dark conversation view](docs/screenshots/readme/conversation-streaming-dark.png)
 
-Drover is in early development. You can run the browser app from source today. The native Android and Windows apps are on the [roadmap](ROADMAP.md).
+Drover is in early development. You can run the browser app from source today. The [roadmap](ROADMAP.md) tracks the Android and Windows apps.
 
 ## Quick start
 
@@ -34,7 +36,13 @@ DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy
 
 The proxy obtains a certificate for that name and forwards requests to Drover. Drover trusts the client address and scheme the proxy forwards, and nothing else forwards them. Put `DROVER_DOMAIN=...` in a file named `.env` beside `compose.yaml` to keep it between runs. With a proxy of your own instead, set `DROVER_PUBLIC_URL` to the address people open and `Drover__Proxy__TrustedAddresses__0` to the proxy's address; see [deployment](docs/architecture/13-deployment-and-push.md#reaching-drover-from-another-device).
 
-### What building it costs
+## Android preview
+
+[Download the APK from GitHub Releases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter your Drover server’s HTTPS address and sign in with your existing account.
+
+The app remembers the server address. Sign in again if Android stops the app. Native push isn’t included in the preview. See the [Android build and release guide](docs/android-preview.md).
+
+## What building it costs
 
 The image is built from source on your machine. The CI compose job builds it inside a 2 GB memory limit on every change and reports these numbers. Measured on a GitHub-hosted runner (4 cores) with an empty build cache, November 2026:
 

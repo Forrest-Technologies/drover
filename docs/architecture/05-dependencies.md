@@ -56,7 +56,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | YamlDotNet 16.3.0 | MIT | Antoine Aubry and contributors; the standard .NET YAML library, active | `ComposeFileTests` reads `compose.yaml` and `compose.proxy.yaml` as data to check the hardening rules | Direct. Test project only. |
 | OpenTelemetry .NET | Apache-2.0 | CNCF project | Traces and metrics, exported only if the operator configures an endpoint | Direct. Standard instrumentation. |
 | `Microsoft.Extensions.Logging` | MIT | Microsoft | Logging, as the guide requires | Direct. No third-party logger. |
-| .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
+| `Microsoft.Maui.Controls`, `Microsoft.AspNetCore.Components.WebView.Maui` | MIT | Microsoft | Android shell | Direct in `Drover.App`; renders the shared Drover UI. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
 | Inter 4.1 (variable), JetBrains Mono 2.304 (regular, medium) | SIL OFL 1.1, the one license outside the code list, accepted for fonts only | Their respective projects | UI and monospace type, bundled as WOFF2 in `Drover.Ui/wwwroot/fonts` with each license file beside them. Nothing loads from another host. | Assets |
 

@@ -25,6 +25,7 @@ public sealed class SolutionLayoutTests
         ["Drover.Client"] = ["Drover.Contracts"],
         ["Drover.Ui"] = ["Drover.Client", "Drover.Contracts"],
         ["Drover.Web"] = ["Drover.Ui"],
+        ["Drover.App"] = ["Drover.Ui"],
         ["Drover.Server"] =
         [
             "Drover.Engine",
@@ -40,7 +41,7 @@ public sealed class SolutionLayoutTests
         ],
     };
 
-    private static readonly string[] clientProjects = ["Drover.Client", "Drover.Ui", "Drover.Web"];
+    private static readonly string[] clientProjects = ["Drover.Client", "Drover.Ui", "Drover.Web", "Drover.App"];
 
     private static readonly string[] serverOnlyProjects = ["Drover.Domain", "Drover.Data", "Drover.Engine"];
 
@@ -105,6 +106,18 @@ public sealed class SolutionLayoutTests
         {
             ReadProjectReferences(FindSourceProject(client)).Should().NotIntersectWith(serverOnlyProjects);
         }
+    }
+
+    [Fact]
+    public void The_MAUI_shell_is_only_in_the_apps_solution()
+    {
+        var root = FindRepositoryRoot();
+        XDocument.Load(Path.Combine(root, "Drover.slnx")).Descendants("Project")
+            .Should().NotContain(project => project.Attribute("Path")!.Value.EndsWith(
+                "Drover.App.csproj", StringComparison.Ordinal));
+        XDocument.Load(Path.Combine(root, "Drover.Apps.slnx")).Descendants("Project")
+            .Should().ContainSingle(project => project.Attribute("Path")!.Value.EndsWith(
+                "Drover.App.csproj", StringComparison.Ordinal));
     }
 
     [Fact]
