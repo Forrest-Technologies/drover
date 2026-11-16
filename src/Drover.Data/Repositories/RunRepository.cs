@@ -128,6 +128,12 @@ public sealed class RunRepository(DroverDbContext db)
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
+    /// <summary>The person each of the runs acts for, by run.</summary>
+    public Task<Dictionary<Guid, Guid>> ListPrincipals(IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken) =>
+        db.Runs.AsNoTracking()
+            .Where(run => runIds.Contains(run.Id))
+            .ToDictionaryAsync(run => run.Id, run => run.PrincipalUserId, cancellationToken);
+
     /// <summary>How many runs a tree holds, its root included.</summary>
     public Task<int> CountRunsInTree(Guid rootRunId, CancellationToken cancellationToken) =>
         db.Runs.CountAsync(run => run.RootRunId == rootRunId, cancellationToken);

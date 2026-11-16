@@ -69,8 +69,8 @@ public sealed record ToolCompleted(Guid ToolCallId, string Outcome, bool IsError
 /// </summary>
 public sealed record RuleFired(Guid RuleId, string RuleName, string Checkpoint, string Effect, string Why, Guid? ToolCallId);
 
-/// <summary>Data of <c>usage.recorded</c>: what one model call used.</summary>
-public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal Cost, string Currency);
+/// <summary>Data of <c>usage.recorded</c>: what one model call used. <see cref="Cost"/> is null when its price is not known.</summary>
+public sealed record UsageRecorded(int Step, long Input, long Output, long Cached, decimal? Cost, string Currency);
 
 /// <summary>
 /// Data of <c>delegation.started</c>: the parent's tool call, the child run it began, the bot that works it, and the

@@ -35,14 +35,16 @@ public static class Conversations
     /// message. A call the screen has no events for is shown as the stored messages tell it. A message's files are
     /// shown at the address <paramref name="fileAddress"/> gives each; without one, they are left out. With a
     /// <paramref name="handover"/>, a call that handed work to another bot is shown as that work, with the other bot's
-    /// own activity inside it; without one, as any other call.
+    /// own activity inside it; without one, as any other call. What a finished reply used is offered only to a
+    /// <paramref name="reader"/> the server will answer; without one, nowhere.
     /// </summary>
     public static IReadOnlyList<ChatMessage> ToChatMessages(
         this IEnumerable<MessageView> messages,
         IReadOnlyDictionary<Guid, ToolCallView>? tools = null,
         RunView? run = null,
         Func<Guid, string>? fileAddress = null,
-        Handover? handover = null)
+        Handover? handover = null,
+        UsageReader? reader = null)
     {
         List<MessageView> shown = [.. messages.Where(message => message.Role is PersonRole or BotRole)];
         var all = messages.SelectMany(message => message.Parts).ToList();
@@ -67,10 +69,17 @@ public static class Conversations
                 unplaced.Clear();
             }
 
-            conversation.Add(ToChatMessage(message, cards, fileAddress));
+            conversation.Add(ToChatMessage(message, cards, fileAddress) with { RunId = RunOf(message, run) });
         }
 
         conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
+        if (reader is not null)
+        {
+            var principals = shown.Where(message => message.RunPrincipalUserId is not null)
+                .ToDictionary(message => message.Id.ToString(), message => message.RunPrincipalUserId);
+            MarkReplyEnds(conversation, run, entry => reader.MayRead(principals.GetValueOrDefault(entry.Key)));
+        }
+
         AddUnplaced(conversation, unplaced, run, handover);
         return conversation;
     }
@@ -161,6 +170,32 @@ public static class Conversations
                 var call = tools?.GetValueOrDefault(part.ToolCallId.Value) ?? ToolCards.FromParts(part, result);
                 return call.ToCard(result).Handed(call, result, handover);
             });
+
+    private static Guid? RunOf(MessageView message, RunView? run) => message switch
+    {
+        { Role: PersonRole } => null,
+        { RunId: { } runId } => runId,
+        _ when run is not null && run.Messages.Any(own => own.Id == message.Id) => run.RunId,
+        _ => null,
+    };
+
+    // What a reply used is read at its last words, once the run that wrote them has finished.
+    private static void MarkReplyEnds(List<ChatMessage> conversation, RunView? run, Func<ChatMessage, bool> readable)
+    {
+        var ends = conversation.Select((message, index) => (message, index))
+            .Where(entry => entry.message is { FromPerson: false, RunId: not null } && entry.message.Text.Length > 0)
+            .Where(entry => run is not { IsActive: true } || entry.message.RunId != run.RunId)
+            .GroupBy(entry => entry.message.RunId)
+            .Select(group => group.Last())
+            .Where(entry => readable(entry.message))
+            .Select(entry => entry.index)
+            .ToList();
+
+        foreach (var index in ends)
+        {
+            conversation[index] = conversation[index] with { EndsReply = true };
+        }
+    }
 
     // Calls of the run whose reply has no message on screen yet go after the last message that is no longer pending,
     // where the reply will appear.

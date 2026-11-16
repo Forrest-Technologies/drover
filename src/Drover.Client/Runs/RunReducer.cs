@@ -191,7 +191,7 @@ public static class RunReducer
                 view.Usage.Input + used.Input,
                 view.Usage.Output + used.Output,
                 view.Usage.Cached + used.Cached,
-                view.Usage.Cost + used.Cost),
+                view.Usage.Cost + (used.Cost ?? 0)),
         };
 
     #endregion

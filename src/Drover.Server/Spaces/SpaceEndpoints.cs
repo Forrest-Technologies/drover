@@ -31,6 +31,7 @@ public static class SpaceEndpoints
         root.MapFileEndpoints();
         root.MapRunEndpoints();
         root.MapRunStreamEndpoints();
+        root.MapUsageEndpoints();
 
         // A bot's sandbox waits on the provider, so its controls open their own short scopes.
         root.MapSandboxEndpoints();

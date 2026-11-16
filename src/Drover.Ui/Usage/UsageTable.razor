@@ -1,0 +1,105 @@
+@* Which bot is spending, to decide what to change. A real table, cost first, the crew as the
+   hierarchy it is, the biggest spender first at every level. No chart and no totals card: the question is "which
+   bot", and the order answers it. On a phone each bot becomes a block with its figures labeled. *@
+@if (UsageWords.IsEmpty(Crew))
+{
+    <p class="dv-usage-hint">No bot ran in this period.</p>
+}
+else
+{
+    <table class="dv-usage">
+        <caption class="dv-visually-hidden">@Caption</caption>
+        <thead>
+            <tr>
+                <th scope="col">Bot</th>
+                <th scope="col">Cost</th>
+                <th scope="col">Tokens in</th>
+                <th scope="col">Tokens out</th>
+                <th scope="col">Model</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in UsageWords.Rows(Crew))
+            {
+                <tr @key="row.Bot.BotId">
+                    <th scope="row" class="dv-usage-who" style="--dv-usage-depth: @row.Depth">
+                        <span class="dv-usage-bot">
+                            <Avatar Name="@row.Bot.BotName" Hue="BotIdentity.Hue(row.Bot.BotId)" Size="24" />
+                            <a href="@BotHref(row.Bot.BotId)" class="@(row.Bot.BotId == ChosenId ? "dv-usage-chosen" : null)"
+                               aria-current="@(row.Bot.BotId == ChosenId ? "true" : null)">@row.Bot.BotName</a>
+                            @if (row.Bot.IsRemoved)
+                            {
+                                @* A removed bot's figures still count, so it stays in the crew and says it is gone. *@
+                                <span class="dv-usage-removed"><span class="dv-visually-hidden">, </span>removed</span>
+                            }
+                        </span>
+                    </th>
+                    <td data-label="Cost">
+                        @if (row.Bot.WithBeneath is { } beneath)
+                        {
+                            <span class="dv-usage-own">@UsageWords.Cost(row.Bot.Own, Currency) on its own</span>
+                            <span class="dv-usage-beneath">@UsageWords.Cost(beneath, Currency) with the bots beneath it</span>
+                        }
+                        else
+                        {
+                            <span class="dv-usage-own">@UsageWords.Cost(row.Bot.Own, Currency)</span>
+                        }
+                        @* The figure with the bots beneath holds the bot's own, so one sentence covers whichever leaves something out. *@
+                        @if ((UsageWords.LeftOut(row.Bot.WithBeneath ?? row.Bot.Own) ?? UsageWords.LeftOut(row.Bot.Own)) is { } leftOut)
+                        {
+                            <span class="dv-usage-beneath">@leftOut</span>
+                        }
+                    </td>
+                    @* Tokens follow the cost cell: the bot's own first, then with the bots beneath it. The words are read out, and shown on a phone. *@
+                    <td data-label="Tokens in" class="dv-usage-number">
+                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.InputTokens)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
+                        @if (row.Bot.WithBeneath is { } beneathIn)
+                        {
+                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathIn.InputTokens)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
+                        }
+                    </td>
+                    <td data-label="Tokens out" class="dv-usage-number">
+                        <span class="dv-usage-own">@UsageWords.Tokens(row.Bot.Own.OutputTokens)<span class="dv-usage-figure-label">@OwnSuffix(row.Bot)</span></span>
+                        @if (row.Bot.WithBeneath is { } beneathOut)
+                        {
+                            <span class="dv-usage-beneath">@UsageWords.Tokens(beneathOut.OutputTokens)<span class="dv-usage-figure-label"> with the bots beneath it</span></span>
+                        }
+                    </td>
+                    <td data-label="Model" class="dv-usage-model">@row.Bot.Model</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    #region Properties
+
+    /// <summary>The bots at the top of the crew, each with the bots beneath it.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<UsageNode> Crew { get; set; } = [];
+
+    /// <summary>The currency the catalog's prices are in, named beside every figure.</summary>
+    [Parameter, EditorRequired]
+    public string Currency { get; set; } = string.Empty;
+
+    /// <summary>What the table shows and for when, such as "What each bot used in the last 7 days".</summary>
+    [Parameter, EditorRequired]
+    public string Caption { get; set; } = string.Empty;
+
+    /// <summary>Where choosing a bot goes: its most expensive runs in the period.</summary>
+    [Parameter, EditorRequired]
+    public Func<Guid, string> BotHref { get; set; } = _ => string.Empty;
+
+    /// <summary>The bot whose runs are listed below the table, marked as the current one.</summary>
+    [Parameter]
+    public Guid? ChosenId { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    private static string? OwnSuffix(UsageNode bot) => bot.WithBeneath is null ? null : " on its own";
+
+    #endregion
+}

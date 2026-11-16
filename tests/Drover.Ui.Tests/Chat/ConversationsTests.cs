@@ -146,6 +146,62 @@ public sealed class ConversationsTests
 
     #endregion
 
+    #region What a Reply Used
+
+    [Fact]
+    public void What_a_reply_used_is_offered_once_at_the_last_words_of_each_finished_run_and_not_while_it_works()
+    {
+        var first = Guid.CreateVersion7();
+        var second = Guid.CreateVersion7();
+        MessageView[] stored =
+        [
+            Message("user", false, new PartView("text", "Plan it")),
+            Message("assistant", false, new PartView("text", "Thinking aloud.")) with { RunId = first },
+            Message("assistant", false, new PartView("text", "Here is the plan.")) with { RunId = first },
+            Message("user", false, new PartView("text", "And now?")),
+        ];
+        var arriving = Message("assistant", true, new PartView("text", "Working on"));
+        var working = RunView.Start(second) with { Status = "running", Messages = [arriving] };
+
+        var reader = new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true);
+        var whileWorking = stored.Append(arriving).ToChatMessages(run: working, reader: reader);
+        var done = stored.Append(arriving with { IsStreaming = false }).ToChatMessages(run: working with { Status = "completed" }, reader: reader);
+
+        whileWorking.Select(message => (message.Text, message.RunId, message.EndsReply)).Should().Equal(
+            ("Plan it", null, false),
+            ("Thinking aloud.", first, false),
+            ("Here is the plan.", first, true),
+            ("And now?", null, false),
+            ("Working on", second, false));
+        done[^1].Should().Match<ChatMessage>(message => message.RunId == second && message.EndsReply);
+    }
+
+    [Fact]
+    public void In_a_shared_conversation_a_member_is_offered_what_their_own_replies_used_and_an_admin_every_reply()
+    {
+        var alice = Guid.CreateVersion7();
+        var bob = Guid.CreateVersion7();
+        var aliceRun = Guid.CreateVersion7();
+        var bobRun = Guid.CreateVersion7();
+        MessageView[] shared =
+        [
+            Message("user", false, new PartView("text", "Alice asks")),
+            Message("assistant", false, new PartView("text", "Answer for Alice.")) with { RunId = aliceRun, RunPrincipalUserId = alice },
+            Message("user", false, new PartView("text", "Bob asks")),
+            Message("assistant", false, new PartView("text", "Answer for Bob.")) with { RunId = bobRun, RunPrincipalUserId = bob },
+        ];
+
+        static IEnumerable<string> Offered(IReadOnlyList<ChatMessage> shown) => shown.Where(message => message.EndsReply).Select(message => message.Text);
+
+        Offered(shared.ToChatMessages(reader: new UsageReader(bob, IsSpaceAdmin: false))).Should().Equal(
+            ["Answer for Bob."], "the server answers a member only for the runs that act for them");
+        Offered(shared.ToChatMessages(reader: new UsageReader(alice, IsSpaceAdmin: false))).Should().Equal("Answer for Alice.");
+        Offered(shared.ToChatMessages(reader: new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true))).Should().Equal("Answer for Alice.", "Answer for Bob.");
+        Offered(shared.ToChatMessages()).Should().BeEmpty("without a reader nothing is offered");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static MessageView Message(string role, bool streaming, params PartView[] parts) =>
