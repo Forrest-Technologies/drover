@@ -176,3 +176,17 @@
   flex-wrap: wrap;
   gap: var(--dv-space-2);
 }
+
+/* Under a "Remembered" card: the one step that takes the note back, then the line that says it is gone. */
+.dv-tool-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  margin-block-start: var(--dv-space-2);
+}
+
+.dv-tool-forgotten {
+  margin: 0;
+  color: var(--dv-text-2);
+}

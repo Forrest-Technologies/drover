@@ -69,10 +69,10 @@ public static class MemoryTools
             {
                 var noteId = NoteId(call.Arguments);
                 var text = Text(call);
-                var (note, used, limits) = await call.Tenant.Transact(
+                var (note, before, used, limits) = await call.Tenant.Transact(
                     services => services.GetRequiredService<MemoryService>().Change(Writer(call), noteId, text, cancellationToken),
                     cancellationToken);
-                return Result(new { note = Describe(note), characters_used = used, characters_allowed = limits.NotesCharacters });
+                return Result(new { note = Describe(note), before, characters_used = used, characters_allowed = limits.NotesCharacters });
             });
 
     public static BuiltinTool ForgetNote() =>
@@ -88,7 +88,7 @@ public static class MemoryTools
                 var note = await call.Tenant.Transact(
                     services => services.GetRequiredService<MemoryService>().Forget(Writer(call), noteId, cancellationToken),
                     cancellationToken);
-                return Result(new { removed = note.Id });
+                return Result(new { removed = note.Id, text = note.Text });
             });
 
     public static BuiltinTool ListNotes() =>

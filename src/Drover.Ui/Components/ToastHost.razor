@@ -26,7 +26,13 @@
                 <span class="dv-toast-kind">@KindWord(toast.Kind)</span>
                 @toast.Message
             </p>
-            <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
+            <div class="dv-toast-actions">
+                @if (toast.Action is { } action)
+                {
+                    <Button OnClick="() => Act(toast, action)">@action.Label</Button>
+                }
+                <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
+            </div>
         </div>;
 
     #endregion
@@ -50,6 +56,13 @@
     };
 
     private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    // Dismissed first, so the action cannot be chosen twice while it runs.
+    private Task Act(ToastMessage toast, ToastAction action)
+    {
+        Toasts.Dismiss(toast.Id);
+        return action.Run();
+    }
 
     #endregion
 }

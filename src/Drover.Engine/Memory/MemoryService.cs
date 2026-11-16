@@ -11,6 +11,46 @@ public sealed record NoteWriter(Guid BotId, Guid UserId, Guid? ThreadId, Guid Ru
 public sealed record NoteLimits(int NoteCharacters, int NotesCharacters);
 
 
+/// <summary>Why a person's change to their notes was not made.</summary>
+public enum NoteProblem
+{
+    None,
+    NotFound,
+    Invalid,
+}
+
+
+/// <summary>
+/// What became of a person's change to their notes: the note as it now stands (or as it stood, once removed), or why
+/// nothing changed. <see cref="Detail"/> says why in a sentence the person can act on.
+/// </summary>
+public sealed record NoteOutcome(MemoryNote? Note, NoteProblem Problem = NoteProblem.None, string? Detail = null)
+{
+    public static NoteOutcome NotFound { get; } = new(null, NoteProblem.NotFound);
+
+    public static NoteOutcome Invalid(string detail) => new(null, NoteProblem.Invalid, detail);
+}
+
+
+/// <summary>
+/// Where a note a bot wrote came from: the message in the conversation, and whether that conversation is the main
+/// one. A person sees it only for a conversation they can still open.
+/// </summary>
+public sealed record NoteOrigin(Guid ThreadId, Guid MessageId, bool IsMain);
+
+
+/// <summary>
+/// What a person sees of a bot's notes about them: whether memory is on for the bot, every note newest first with
+/// where it came from, and whether the notes are nearly as large as they may grow.
+/// </summary>
+public sealed record PersonMemory(
+    Bot Bot,
+    bool Enabled,
+    IReadOnlyList<MemoryNote> Notes,
+    IReadOnlyDictionary<Guid, NoteOrigin> Origins,
+    bool NearlyFull);
+
+
 /// <summary>
 /// The notes a bot keeps about the person it works for. A bot reads and changes only its own notes about the person
 /// its run acts for, and only while memory is on for it and the conversation is private to that person: a note is
@@ -84,7 +124,8 @@ public sealed class MemoryService(
         return (note, used + text.Length, limits);
     }
 
-    public async Task<(MemoryNote Note, int Used, NoteLimits Limits)> Change(
+    /// <summary>Rewrites one of the bot's notes. <c>Before</c> is the text it replaced.</summary>
+    public async Task<(MemoryNote Note, string Before, int Used, NoteLimits Limits)> Change(
         NoteWriter writer,
         Guid noteId,
         string text,
@@ -97,10 +138,11 @@ public sealed class MemoryService(
         var others = Used(await memories.ListNotes(writer.BotId, writer.UserId, cancellationToken)) - note.Text.Length;
         RefuseFullNotes(others, text.Length, limits);
 
+        var before = note.Text;
         note.Text = text;
         note.UpdatedAt = time.GetUtcNow();
         await WrittenBy(note, writer, cancellationToken);
-        return (note, others + text.Length, limits);
+        return (note, before, others + text.Length, limits);
     }
 
     public async Task<MemoryNote> Forget(NoteWriter writer, Guid noteId, CancellationToken cancellationToken)
@@ -110,6 +152,138 @@ public sealed class MemoryService(
         var note = await FindNote(writer, noteId, cancellationToken);
         memories.Remove(note);
         return note;
+    }
+
+    #endregion
+
+    #region A Person's Own Notes
+
+    /// <summary>
+    /// The bot's notes about the person, newest first, or null when there is no such bot. They are listed whether or
+    /// not memory is on, so a person can always see and remove what is kept about them.
+    /// </summary>
+    public async Task<PersonMemory?> ListForPerson(Guid botId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var notes = await memories.ListNotes(botId, userId, cancellationToken);
+        var limits = LimitsFor(bot.MemorySettings);
+        return new(
+            bot,
+            bot.MemorySettings.Enabled,
+            [.. notes.OrderByDescending(note => note.UpdatedAt).ThenByDescending(note => note.Id)],
+            await OriginsOf(notes, userId, cancellationToken),
+            IsNearlyFull(Used(notes), limits));
+    }
+
+    /// <summary>A note the person writes themselves. It is theirs, so it is never tainted.</summary>
+    public async Task<NoteOutcome> AddByPerson(Guid botId, Guid userId, string text, CancellationToken cancellationToken)
+    {
+        text = NoteText.Flatten(text);
+        var opened = await OpenForPerson(botId, text, cancellationToken);
+        if (opened.Limits is not { } limits)
+        {
+            return opened.Refused ?? NoteOutcome.NotFound;
+        }
+
+        await memories.LockNotes(botId, userId, cancellationToken);
+        var used = Used(await memories.ListNotes(botId, userId, cancellationToken));
+        if (TooFullFor(used, text.Length, limits) is { } full)
+        {
+            return NoteOutcome.Invalid(full);
+        }
+
+        var now = time.GetUtcNow();
+        var note = new MemoryNote
+        {
+            BotId = botId,
+            AudienceUserId = userId,
+            Text = text,
+            WrittenByUserId = userId,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        memories.Add(note);
+        return new(note);
+    }
+
+    /// <summary>
+    /// The person rewrites a note, which makes it theirs. A note a tainted run wrote stays tainted unless the person
+    /// keeps none of its words: what they kept may still carry what the run read.
+    /// </summary>
+    public async Task<NoteOutcome> ChangeByPerson(Guid botId, Guid userId, Guid noteId, string text, CancellationToken cancellationToken)
+    {
+        text = NoteText.Flatten(text);
+        var opened = await OpenForPerson(botId, text, cancellationToken);
+        if (opened.Limits is not { } limits)
+        {
+            return opened.Refused ?? NoteOutcome.NotFound;
+        }
+
+        await memories.LockNotes(botId, userId, cancellationToken);
+        if (await memories.GetNote(noteId, botId, userId, cancellationToken) is not { } note)
+        {
+            return NoteOutcome.NotFound;
+        }
+
+        var others = Used(await memories.ListNotes(botId, userId, cancellationToken)) - note.Text.Length;
+        if (TooFullFor(others, text.Length, limits) is { } full)
+        {
+            return NoteOutcome.Invalid(full);
+        }
+
+        note.Tainted = note.Tainted && !NoteText.IsRewrite(note.Text, text);
+        note.Text = text;
+        note.UpdatedAt = time.GetUtcNow();
+        note.WrittenByUserId = userId;
+        note.WrittenByBotId = null;
+        note.SourceThreadId = null;
+        note.SourceMessageId = null;
+        return new(note);
+    }
+
+    /// <summary>Removes the note at once, memory on or off, and returns it as it was so it can be put back exactly.</summary>
+    public async Task<NoteOutcome> RemoveByPerson(Guid botId, Guid userId, Guid noteId, CancellationToken cancellationToken)
+    {
+        await memories.LockNotes(botId, userId, cancellationToken);
+        if (await memories.GetNote(noteId, botId, userId, cancellationToken) is not { } note)
+        {
+            return NoteOutcome.NotFound;
+        }
+
+        memories.Remove(note);
+        return new(note);
+    }
+
+    /// <summary>
+    /// Puts back a note the person removed, exactly as it was: its text, who wrote it, where it came from, and whether
+    /// it is tainted. <paramref name="removed"/> must be the server's own record of the removal, never a client's
+    /// account of it. A note already back is left as it is.
+    /// </summary>
+    public async Task<NoteOutcome> RestoreByPerson(Guid botId, Guid userId, MemoryNote removed, CancellationToken cancellationToken)
+    {
+        if (removed.BotId != botId || removed.AudienceUserId != userId || await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return NoteOutcome.NotFound;
+        }
+
+        await memories.LockNotes(botId, userId, cancellationToken);
+        if (await memories.GetNote(removed.Id, botId, userId, cancellationToken) is { } already)
+        {
+            return new(already);
+        }
+
+        var used = Used(await memories.ListNotes(botId, userId, cancellationToken));
+        if (TooFullFor(used, removed.Text.Length, LimitsFor(bot.MemorySettings)) is { } full)
+        {
+            return NoteOutcome.Invalid(full);
+        }
+
+        memories.Add(removed);
+        return new(removed);
     }
 
     #endregion
@@ -165,6 +339,37 @@ public sealed class MemoryService(
         }
     }
 
+    /// <summary>
+    /// The bot's limits, once it is clear the person may write a note to it: the bot exists, memory is on for it, and
+    /// the text is a note it may hold. Otherwise the limits are null and the problem says why.
+    /// </summary>
+    private async Task<(NoteLimits? Limits, NoteOutcome? Refused)> OpenForPerson(Guid botId, string text, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return (null, NoteOutcome.NotFound);
+        }
+
+        if (!bot.MemorySettings.Enabled)
+        {
+            return (null, NoteOutcome.Invalid($"Memory is off for {bot.Name}, so it keeps no notes."));
+        }
+
+        var limits = LimitsFor(bot.MemorySettings);
+        return text.Length switch
+        {
+            0 => (null, NoteOutcome.Invalid("Write the note first.")),
+            var length when length > limits.NoteCharacters => (null, NoteOutcome.Invalid(
+                $"A note may hold at most {limits.NoteCharacters} characters, and this one has {length}. Keep one fact to a note, in fewer words.")),
+            _ => (limits, null),
+        };
+    }
+
+    private static string? TooFullFor(int used, int adding, NoteLimits limits) =>
+        used + adding > limits.NotesCharacters
+            ? $"The notes hold {used} of the {limits.NotesCharacters} characters they may hold, and this note needs {adding}. Shorten or remove a note first."
+            : null;
+
     private async Task<MemoryNote> FindNote(NoteWriter writer, Guid noteId, CancellationToken cancellationToken) =>
         await memories.GetNote(noteId, writer.BotId, writer.UserId, cancellationToken)
             ?? throw new BuiltinToolException($"There is no note with the id {noteId} among your notes about this person. memory_list shows them.");
@@ -174,6 +379,34 @@ public sealed class MemoryService(
     #region Private Methods
 
     private static int Used(IReadOnlyList<MemoryNote> notes) => notes.Sum(note => note.Text.Length);
+
+    /// <summary>Nearly full is nine tenths of what the notes may hold: from there a new note may not fit.</summary>
+    private static bool IsNearlyFull(int used, NoteLimits limits) => used * 10L >= limits.NotesCharacters * 9L;
+
+    /// <summary>
+    /// Where each note a bot wrote came from, for the conversations the person can still open. Row-level security
+    /// hides a conversation that is no longer theirs alone, so its notes simply have no origin.
+    /// </summary>
+    private async Task<Dictionary<Guid, NoteOrigin>> OriginsOf(IReadOnlyList<MemoryNote> notes, Guid userId, CancellationToken cancellationToken)
+    {
+        Dictionary<Guid, NoteOrigin> origins = [];
+        foreach (var group in notes.GroupBy(note => note.SourceThreadId))
+        {
+            if (group.Key is not { } threadId
+                || await threads.FindThread(threadId, cancellationToken) is not { ArchivedAt: null } thread
+                || thread.AudienceUserId != userId)
+            {
+                continue;
+            }
+
+            foreach (var note in group.Where(note => note.SourceMessageId is not null))
+            {
+                origins[note.Id] = new(threadId, note.SourceMessageId.GetValueOrDefault(), thread.IsMain);
+            }
+        }
+
+        return origins;
+    }
 
     /// <summary>
     /// The bot wrote the note now, in this conversation, in the reply that made this call. A note a tainted run wrote

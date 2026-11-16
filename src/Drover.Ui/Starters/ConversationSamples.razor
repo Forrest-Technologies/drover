@@ -15,12 +15,6 @@
     <TakeoverCard BotName="Sample bot" Reason="Sample reason: sign in to the sample site." Phase="TakeoverPhase.Done" />
 </GallerySection>
 
-<GallerySection Title="What a bot remembers (#160)" Note="Every note is readable, says where it came from, and is changed in place.">
-    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Ready" BotName="Sample bot" Notes="notes" NearlyFull="true" /></div>
-    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Ready" BotName="Sample bot" /></div>
-    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Off" BotName="Sample bot" EditorHref="/" /></div>
-</GallerySection>
-
 <GallerySection Title="Notifications on this device (#149)" Note="Each state says what is so. A state fixed outside Drover has no button.">
     <PushControl State="PushState.Off" />
     <PushControl State="PushState.On" />
@@ -38,8 +32,6 @@
 </GallerySection>
 
 @code {
-    private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
-
     private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
 
     private static readonly DelegationItem working = new(
@@ -55,10 +47,4 @@
     {
         Id = Guid.Parse("00000000-0000-7000-8000-000000000203"), Phase = DelegationPhase.Refused, Refusal = DelegationRefusal.Loop,
     };
-
-    private static readonly MemoryNote[] notes =
-    [
-        new(Guid.Parse("00000000-0000-7000-8000-000000000301"), "Sample note: prefers short answers.", true, sampleDay, "/"),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000302"), "Sample note written by hand.", false, sampleDay.AddDays(-3), null),
-    ];
 }

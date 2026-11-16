@@ -24,9 +24,9 @@ public sealed class ToastService
 
     #region Public Methods
 
-    public void Show(string message, ToastKind kind = ToastKind.Info)
+    public void Show(string message, ToastKind kind = ToastKind.Info, ToastAction? action = null)
     {
-        toasts.Add(new(++lastId, message, kind));
+        toasts.Add(new(++lastId, message, kind, action));
         Changed?.Invoke();
     }
 

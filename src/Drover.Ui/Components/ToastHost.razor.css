@@ -10,6 +10,7 @@
 
 .dv-toast {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--dv-space-3);
   margin-block-start: var(--dv-space-2);
@@ -30,7 +31,7 @@
 }
 
 .dv-toast-message {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -52,4 +53,12 @@
 
 .dv-toast-error .dv-toast-kind {
   color: var(--dv-danger);
+}
+
+/* A long message takes the whole line and its buttons go below it, so a narrow toast never becomes a column. */
+.dv-toast-actions {
+  display: flex;
+  margin-inline-start: auto;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2);
 }

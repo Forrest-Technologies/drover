@@ -98,6 +98,10 @@ public sealed partial class ConversationPane(
     [Parameter]
     public EventCallback<bool> OnBusyChanged { get; set; }
 
+    /// <summary>A message to bring into view once the conversation has loaded, from a link to that moment.</summary>
+    [Parameter]
+    public Guid? Reveal { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private bool Working => run?.IsActive ?? false;
@@ -318,6 +322,27 @@ public sealed partial class ConversationPane(
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
             return $"Your answer was not sent. {Failures.Sentence(exception)}";
+        }
+    }
+
+    // "Forget" on a note the bot saved in this conversation removes the note; the card then says so.
+    private async Task<string?> Forget(Guid noteId)
+    {
+        try
+        {
+            await api.RemoveMemoryNote(SpaceId, Bot.Id, noteId);
+            return null;
+        }
+        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
+        {
+            // Removed already, in the rail or by the bot: what the person asked for is so, and the card says it.
+            logger.LogInformation(exception, "Note {NoteId} was gone before it was forgotten", noteId);
+            return null;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            return $"The note was not forgotten. {Failures.Sentence(exception)}";
         }
     }
 

@@ -33,6 +33,12 @@ public static class Addresses
     /// <summary>The summary the server keeps of a bot's main conversation.</summary>
     public static string Summary(Guid botId) => $"/talk/{botId}/summary";
 
+    /// <summary>A bot's main conversation, opened at one of its messages.</summary>
+    public static string TalkAt(Guid botId, Guid messageId) => $"/talk/{botId}?message={messageId}";
+
+    /// <summary>What a bot remembers about the person, beside its main conversation.</summary>
+    public static string Memory(Guid botId) => $"/talk/{botId}/memory";
+
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
 
@@ -44,7 +50,13 @@ public static class Addresses
 
     public static string SideChat(Guid botId, Guid threadId) => $"/talk/{botId}/side/{threadId}";
 
+    /// <summary>A side chat, opened at one of its messages.</summary>
+    public static string SideChatAt(Guid botId, Guid threadId, Guid messageId) => $"/talk/{botId}/side/{threadId}?message={messageId}";
+
     public static string Bot(Guid botId) => $"/bots/{botId}";
+
+    /// <summary>A bot's editor with its Memory section open.</summary>
+    public static string BotMemory(Guid botId) => $"/bots/{botId}?section=memory";
 
     /// <summary>A bot's sandbox: its screen, its terminal, and its power controls.</summary>
     public static string BotSandbox(Guid botId) => $"/bots/{botId}/sandbox";

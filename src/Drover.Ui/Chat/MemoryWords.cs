@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Chat;
 
 /// <summary>What the memory panel has to show.</summary>
 public enum MemoryPanelState
@@ -29,6 +29,9 @@ public static class MemoryWords
 
     public static string Forgot(string text) => $"Forgot: {text}";
 
+    /// <summary>The toast after a removal, which offers Undo.</summary>
+    public static string Removed(string text) => $"Removed the note: {text}";
+
     /// <summary>Why the panel is empty, and when it will not be.</summary>
     public static string Empty(string botName) =>
         $"{botName} has not noted anything about you yet. It keeps a note when it learns a preference or a fact worth keeping.";
@@ -38,6 +41,19 @@ public static class MemoryWords
     /// <summary>Said only when the notes are nearly full, because that is when a person can act on it.</summary>
     public static string NearlyFull(string botName) =>
         $"{botName}'s notes are nearly full. From here it merges or replaces notes when it learns something new.";
+
+    #endregion
+
+    #region Fixed Words
+
+    /// <summary>The conversation card for a changed note. Before and after are in the card's disclosure.</summary>
+    public const string Updated = "Updated a note";
+
+    /// <summary>What the card says once the person has had the bot forget the note it shows.</summary>
+    public const string Forgotten = "Forgotten. The note is no longer kept.";
+
+    /// <summary>Said when a note acted on is not there any more.</summary>
+    public const string Gone = "This note is no longer kept, so there is nothing to change.";
 
     #endregion
 }

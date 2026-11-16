@@ -7,6 +7,8 @@ public sealed class ToolCardTests : BunitContext
 
     private static readonly Guid callId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
 
+    private static readonly Guid noteId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
+
     #endregion
 
     #region Constructors
@@ -255,6 +257,106 @@ public sealed class ToolCardTests : BunitContext
         announcer.Next([done], "Sample bot").Should().BeNull();
         announcer.Next([done, waiting], "Sample bot").Should().Be("Sample bot asks to run a command. Waiting for you.");
         announcer.Next([done, waiting], "Sample bot").Should().BeNull("nothing changed");
+    }
+
+    #endregion
+
+    #region Notes
+
+    [Fact]
+    public void A_saved_note_reads_as_the_note_and_offers_one_button_named_for_it_that_forgets_it()
+    {
+        Guid? forgot = null;
+        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers tea.","written_by":"bot"},"characters_used":12}""",
+        };
+        var card = Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Sample bot")
+            .Add(component => component.Forget, id =>
+            {
+                forgot = id;
+                return Task.FromResult<string?>(null);
+            }));
+
+        card.Find(".dv-disclosure-title").TextContent.Trim().Should().Be("Remembered: Prefers tea.");
+        var forget = card.Find(".dv-tool-note button");
+        forget.TextContent.Trim().Should().Be("Forget");
+        forget.GetAttribute("aria-label").Should().Be("Forget the note: Prefers tea.");
+        forget.Click();
+
+        forgot.Should().Be(noteId);
+        card.FindAll(".dv-tool-note button").Should().BeEmpty("the button is replaced once the note is gone");
+        card.Find(".dv-tool-forgotten").TextContent.Should().Be("Forgotten. The note is no longer kept.");
+        JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>("the focus moves to the line that took the button's place");
+    }
+
+    [Fact]
+    public void A_note_that_could_not_be_forgotten_keeps_its_button_and_says_why()
+    {
+        var call = Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
+        };
+        var card = Render<ToolCallCard>(parameters => parameters
+            .Add(component => component.Card, call.ToCard())
+            .Add(component => component.BotName, "Sample bot")
+            .Add(component => component.Forget, _ => Task.FromResult<string?>("This note is no longer kept, so there is nothing to change.")));
+
+        card.Find(".dv-tool-note button").Click();
+
+        card.Find(".dv-tool-note button").TextContent.Trim().Should().Be("Forget");
+        card.Find("[role=alert]").TextContent.Should().Contain("This note is no longer kept");
+    }
+
+    [Fact]
+    public void A_changed_note_shows_before_and_after_and_a_forgotten_one_names_the_note()
+    {
+        var changed = (Call("memory.change", $$"""{"note_id":"{{noteId}}","text":"Prefers green tea."}""", "completed") with
+        {
+            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers green tea."},"before":"Prefers tea."}""",
+        }).ToCard();
+        var forgotten = (Call("memory.forget", $$"""{"note_id":"{{noteId}}"}""", "completed") with
+        {
+            Preview = $$"""{"removed":"{{noteId}}","text":"Prefers tea."}""",
+        }).ToCard();
+
+        changed.Label.Should().Be("Updated a note");
+        changed.Facts.Should().Equal(new ToolFact("Before", "Prefers tea."), new ToolFact("After", "Prefers green tea."));
+        changed.NoteId.Should().BeNull("only a saved note is offered to forget");
+        forgotten.Label.Should().Be("Forgot: Prefers tea.");
+        var shown = RenderCard(changed);
+        shown.Find("button[aria-expanded]").Click();
+        shown.Find(".dv-disclosure-title").TextContent.Trim().Should().Be("Updated a note");
+        shown.FindAll(".dv-tool-fact dt").Select(term => term.TextContent).Should().Equal("Before", "After");
+        shown.FindAll(".dv-tool-note").Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("running")]
+    [InlineData("failed")]
+    public void A_note_call_that_has_not_finished_well_reads_as_the_call_and_offers_nothing(string state)
+    {
+        var card = (Call("memory.save", """{"text":"Prefers tea."}""", state) with
+        {
+            Preview = $$$"""{"note":{"id":"{{{noteId}}}","text":"Prefers tea."}}""",
+        }).ToCard();
+
+        card.Label.Should().Be(state is "running" ? "Saving a note" : "Saved a note");
+        card.NoteId.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_cut_off_result_still_names_the_note_from_the_arguments()
+    {
+        var card = (Call("memory.save", """{"text":"Prefers tea."}""", "completed") with
+        {
+            Preview = $$"""{"note":{"id":"{{noteId}}","text":"Prefers t""",
+        }).ToCard();
+
+        card.Label.Should().Be("Remembered: Prefers tea.");
+        card.NoteId.Should().BeNull("the note's id is known only once the whole result is");
     }
 
     #endregion

@@ -29,7 +29,11 @@ public static partial class ToolCards
         ("crew.add", new("Making a bot", "Made a bot", "make a bot")),
         ("crew.change", new("Changing a bot", "Changed a bot", "change a bot")),
         ("crew.remove", new("Removing a bot", "Removed a bot", "remove a bot")),
-        ("time.now", new("Checking the time", "Checked the time", "check the time")));
+        ("time.now", new("Checking the time", "Checked the time", "check the time")),
+        ("memory.save", new("Saving a note", "Saved a note", "save a note")),
+        ("memory.change", new("Changing a note", "Changed a note", "change a note")),
+        ("memory.forget", new("Removing a note", "Removed a note", "remove a note")),
+        ("memory.list", new("Reading its notes", "Read its notes", "read its notes")));
 
     #endregion
 
@@ -49,7 +53,7 @@ public static partial class ToolCards
         // A stored result is JSON. The preview in the call's events is the start of it, which may be cut off.
         var resultText = result?.Result is { Length: > 0 } stored ? Pretty(JsonElement.Parse(stored)) : call.Preview;
 
-        return new(
+        var card = new ToolCard(
             call.ToolCallId,
             phase,
             LabelFor(words, phase),
@@ -63,6 +67,8 @@ public static partial class ToolCards
         {
             Facts = FactsOf(Canonical(call.ToolName), arguments, call.Details),
         };
+
+        return phase is ToolPhase.Done ? card.AsNote(Canonical(call.ToolName), arguments, resultText) : card;
     }
 
     /// <summary>
@@ -133,6 +139,51 @@ public static partial class ToolCards
         }
 
         return known;
+    }
+
+    #endregion
+
+    #region Notes
+
+    // A bot's note, once kept, changed, or removed, reads as the note itself, so nothing has to be opened to know
+    // what the bot remembers. The words come from the result, which holds the note as it was kept.
+    private static ToolCard AsNote(this ToolCard card, string toolName, JsonElement arguments, string result)
+    {
+        var kept = ParsedOrNull(result) is { ValueKind: JsonValueKind.Object } whole ? whole : (JsonElement?)null;
+        var note = kept is { } found && found.TryGetProperty("note", out var saved) && saved.ValueKind is JsonValueKind.Object ? saved : (JsonElement?)null;
+        var text = (note is { } written ? Text(written, "text") : string.Empty) is { Length: > 0 } stored ? stored : Text(arguments, "text");
+
+        return toolName switch
+        {
+            "memory.save" when text.Length > 0 => card with
+            {
+                Label = MemoryWords.Remembered(text),
+                Summary = string.Empty,
+                NoteId = note is { } keptNote && Guid.TryParse(Text(keptNote, "id"), out var noteId) ? noteId : null,
+                NoteText = text,
+            },
+            "memory.change" when text.Length > 0 => card with
+            {
+                Label = MemoryWords.Updated,
+                Summary = string.Empty,
+                Facts = [.. new ToolFact[] { new("Before", kept is { } before ? Text(before, "before") : string.Empty), new("After", text) }
+                    .Where(fact => fact.Value.Length > 0)],
+            },
+            "memory.forget" when kept is { } forgot && Text(forgot, "text") is { Length: > 0 } forgotten => card with
+            {
+                Label = MemoryWords.Forgot(forgotten),
+                Summary = string.Empty,
+            },
+            _ => card,
+        };
+    }
+
+    // A result's start, as a call's events carry it, can be cut off. Read as a block with more to come, a cut-off
+    // result is simply not a whole value yet.
+    private static JsonElement? ParsedOrNull(string result)
+    {
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(result), isFinalBlock: false, state: default);
+        return JsonElement.TryParseValue(ref reader, out var parsed) ? parsed : null;
     }
 
     #endregion

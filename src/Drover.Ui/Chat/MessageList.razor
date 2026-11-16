@@ -15,7 +15,7 @@
         {
             if (message.FromPerson)
             {
-                <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@RevealStop(message)" class="dv-message dv-message-person" aria-label="You said">
                     @if (message.Text.Length > 0)
                     {
                         <p class="dv-message-bubble dv-facet">@message.Text</p>
@@ -37,16 +37,16 @@
             }
             else if (message.Text.Length == 0)
             {
-                <article @key="message.Key" class="dv-message dv-message-tools" aria-label="What @BotName did">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@RevealStop(message)" class="dv-message dv-message-tools" aria-label="What @BotName did">
                     @foreach (var tool in message.Tools)
                     {
-                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
+                        <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget" />
                     }
                 </article>
             }
             else
             {
-                <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@RevealStop(message)" class="dv-message dv-message-bot" aria-label="@BotName said">
                     <div class="dv-message-head dv-facet @(message.Streaming ? "dv-message-head-live" : null)">
                         <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
                     </div>
@@ -61,7 +61,7 @@
                         <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
                         @foreach (var tool in message.Tools)
                         {
-                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" />
+                            <ToolCallCard @key="tool.Id" Card="tool" BotName="@BotName" Decide="Decide" Forget="Forget" />
                         }
                     </div>
                 </article>
@@ -109,6 +109,9 @@
 
     private Guid? announcedFailure;
 
+    // The message last brought into view for a link, so it is brought into view once, not on every render.
+    private string? revealed;
+
     #endregion
 
     #region Properties
@@ -149,6 +152,14 @@
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Removes a note the bot saved, from its card. Returns why it failed, or nothing.</summary>
+    [Parameter]
+    public Func<Guid, Task<string?>>? Forget { get; set; }
+
+    /// <summary>The key of a message to bring into view and focus once it is in the list, from a link to that moment.</summary>
+    [Parameter]
+    public string? Reveal { get; set; }
 
     #endregion
 
@@ -205,6 +216,35 @@
             spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
         }
     }
+
+    // A message linked to is brought into view and focused, so its place is clear by keyboard and screen reader too.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Reveal is not { } key || key == revealed || Messages.All(message => message.Key != key))
+        {
+            return;
+        }
+
+        revealed = key;
+        try
+        {
+            module ??= JS.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            var loaded = await module;
+            await loaded.InvokeVoidAsync("reveal", scroller, AnchorOf(key));
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The message list script failed to show a linked message");
+            throw;
+        }
+    }
+
+    private static string AnchorOf(string key) => $"dv-message-{key}";
+
+    private static string Anchor(ChatMessage message) => AnchorOf(message.Key);
+
+    // Only the linked message can take the focus, and only from script: it is never a tab stop.
+    private string? RevealStop(ChatMessage message) => message.Key == Reveal ? "-1" : null;
 
     #endregion
 }

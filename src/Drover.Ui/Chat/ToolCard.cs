@@ -25,6 +25,12 @@ public sealed record ToolCard(
     /// </summary>
     public IReadOnlyList<ToolFact> Facts { get; init; } = [];
 
+    /// <summary>The note a finished save kept, which the card offers to forget. Null on any other card.</summary>
+    public Guid? NoteId { get; init; }
+
+    /// <summary>What that note says, to name the control that forgets it.</summary>
+    public string? NoteText { get; init; }
+
     /// <summary>True while the bot is working on the call.</summary>
     public bool IsLive => Phase is ToolPhase.Starting or ToolPhase.Approved or ToolPhase.Running;
 

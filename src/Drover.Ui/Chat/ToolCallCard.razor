@@ -44,7 +44,19 @@ else
                 <Badge Kind="StateKind">@Card.State</Badge>
             </Status>
             <ChildContent>
-                @if (Card.Arguments is not ("{}" or ""))
+                @if (Card.Facts.Count > 0)
+                {
+                    <dl class="dv-tool-facts">
+                        @foreach (var fact in Card.Facts)
+                        {
+                            <div class="dv-tool-fact">
+                                <dt>@fact.Name</dt>
+                                <dd>@fact.Value</dd>
+                            </div>
+                        }
+                    </dl>
+                }
+                else if (Card.Arguments is not ("{}" or ""))
                 {
                     <div class="dv-tool-part">
                         <h3 class="dv-tool-part-title">Arguments</h3>
@@ -91,6 +103,20 @@ else
                 }
             </ChildContent>
         </Disclosure>
+        @if (Card.NoteId is { } noteId && Forget is not null)
+        {
+            <div class="dv-tool-note">
+                @if (forgotten)
+                {
+                    <p class="dv-tool-forgotten" tabindex="-1" @ref="forgottenLine">@MemoryWords.Forgotten</p>
+                }
+                else
+                {
+                    <Button OnClick="() => ForgetNote(noteId)" aria-label="@($"Forget the note: {Card.NoteText}")">Forget</Button>
+                }
+                <StatusNote Kind="NoteKind.Danger" Text="@forgetProblem" />
+            </div>
+        }
     </div>
 }
 
@@ -105,6 +131,16 @@ else
 
     private string? problem;
 
+    private bool forgetting;
+
+    private bool forgotten;
+
+    private string? forgetProblem;
+
+    private bool focusForgotten;
+
+    private ElementReference forgottenLine;
+
     #endregion
 
     #region Properties
@@ -118,6 +154,10 @@ else
     /// <summary>Sends a person's answer to a call that waits for one. Returns why it failed, or nothing when it was sent.</summary>
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Removes the note a save kept, from its card. Returns why it failed, or nothing when it is gone.</summary>
+    [Parameter]
+    public Func<Guid, Task<string?>>? Forget { get; set; }
 
     // The frame's top edge: a traveling line while the tool runs, then green or red once it has finished.
     private string? FrameClass => Card.Phase switch
@@ -162,6 +202,29 @@ else
         (deciding, problem) = (true, null);
         problem = await Decide(Card.Id, approved);
         deciding = problem is null;
+    }
+
+    // The button is replaced by a line saying the note is gone, and the focus moves to that line. The button stays
+    // enabled while the note is removed, so it keeps the focus if that fails; a second press meanwhile does nothing.
+    private async Task ForgetNote(Guid noteId)
+    {
+        if (Forget is null || forgetting)
+        {
+            return;
+        }
+
+        (forgetting, forgetProblem) = (true, null);
+        forgetProblem = await Forget(noteId);
+        (forgetting, forgotten, focusForgotten) = (false, forgetProblem is null, forgetProblem is null);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusForgotten)
+        {
+            focusForgotten = false;
+            await forgottenLine.FocusAsync();
+        }
     }
 
     #endregion

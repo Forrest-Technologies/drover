@@ -74,6 +74,8 @@
                     <nav class="dv-shell-beside" aria-label="Beside the conversation">
                         <a class="dv-shell-side dv-facet" href="@Addresses.Summary(Shown.Id)"
                            aria-current="@(Side is SideView.Summary ? "true" : null)">Summary</a>
+                        <a class="dv-shell-side dv-facet" href="@Addresses.Memory(Shown.Id)"
+                           aria-current="@(Side is SideView.Memory ? "true" : null)">Memory</a>
                         @if (hasScreen || Side is SideView.Screen)
                         {
                             <a class="dv-shell-side dv-facet" href="@Addresses.Screen(Shown.Id)"
@@ -83,14 +85,14 @@
                            aria-current="@(Side is SideView.List or SideView.New or SideView.Chat ? "true" : null)">@SideChatsLabel</a>
                     </nav>
                 </header>
-                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
+                <ConversationPane @key="Shown.Id" Bot="Shown" Main="true" Opened="@(At is not "crew")" Reveal="@(Side is SideView.Closed ? MessageId : null)" OnThreadChanged="Remember" OnBusyChanged="MainBusyChanged" />
             }
         </main>
         @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
-                    @if (Side is SideView.List or SideView.Summary or SideView.Screen)
+                    @if (Side is SideView.List or SideView.Summary or SideView.Memory or SideView.Screen)
                     {
                         <a class="dv-shell-up" href="@Addresses.Talk(Shown.Id)" aria-label="@CloseRailName">
                             <Icon Name="IconName.Close" Size="20" />
@@ -108,6 +110,10 @@
                 @if (Side is SideView.Summary)
                 {
                     <SummaryPanel @key="Shown.Id" Bot="Shown" Version="summaryVersion" />
+                }
+                else if (Side is SideView.Memory)
+                {
+                    <MemoryRail @key="Shown.Id" Bot="Shown" Version="summaryVersion" />
                 }
                 else if (Side is SideView.Screen)
                 {
@@ -129,7 +135,7 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
+                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Reveal="MessageId" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged" />
                 }
             </aside>
         }

@@ -1,6 +1,6 @@
-@* Starter for #160. What a bot remembers about the person reading, beside its conversation. Every note is
-   readable, says where it came from, and is changed in place. The panel has no filter and no folders: the
-   notes are few by design, and a list short enough to read needs neither. *@
+@* What a bot remembers about the person reading, beside its conversation. Every note is readable, says where it
+   came from, and is changed in place. The panel has no filter and no folders: the notes are few by design, and a
+   list short enough to read needs neither. *@
 <div class="dv-memory">
     @switch (State)
     {
@@ -20,7 +20,7 @@
         default:
             <StatusNote Kind="NoteKind.Danger" Text="@saveProblem" />
             <form class="dv-memory-add" @onsubmit="Add">
-                <TextArea Label="Add a note" Rows="2" @bind-Value="adding" Hint="@($"Something {BotName} should know about you from now on.")" />
+                <TextArea @ref="addField" Label="Add a note" Rows="2" @bind-Value="adding" Hint="@($"Something {BotName} should know about you from now on.")" />
                 <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(adding)">Add the note</Button>
             </form>
             @if (NearlyFull)
@@ -40,10 +40,10 @@
                             @if (editing == note.Id)
                             {
                                 <form class="dv-memory-edit" @onsubmit="() => Save(note)">
-                                    <TextArea Label="Note" Rows="3" @bind-Value="draft" />
+                                    <TextArea @ref="editField" Label="Note" Rows="3" @bind-Value="draft" />
                                     <div class="dv-memory-actions">
                                         <Button Type="submit" Kind="ButtonKind.Primary" Disabled="@string.IsNullOrWhiteSpace(draft)">Save</Button>
-                                        <Button OnClick="() => (editing, saveProblem) = (null, null)">Cancel</Button>
+                                        <Button OnClick="() => Cancel(note)">Cancel</Button>
                                     </div>
                                 </form>
                             }
@@ -58,8 +58,8 @@
                                     }
                                 </p>
                                 <div class="dv-memory-actions">
-                                    <Button OnClick="() => Edit(note)" aria-label="@($"Change the note: {note.Text}")">Change</Button>
-                                    <Button OnClick="() => OnRemove.InvokeAsync(note.Id)" aria-label="@($"Remove the note: {note.Text}")">Remove</Button>
+                                    <Button @ref="changeButtons[note.Id]" OnClick="() => Edit(note)" aria-label="@($"Change the note: {note.Text}")">Change</Button>
+                                    <Button OnClick="() => Remove(note)" aria-label="@($"Remove the note: {note.Text}")">Remove</Button>
                                 </div>
                             }
                         </li>
@@ -81,6 +81,18 @@
 
     // Why the last add or change was not saved. The text stays where it was typed, so nothing is lost.
     private string? saveProblem;
+
+    private readonly Dictionary<Guid, Button> changeButtons = [];
+
+    private TextArea? addField;
+
+    private TextArea? editField;
+
+    // Where the focus goes once the panel has drawn: into the field, onto a note's Change button, or to adding.
+    private Focus? pendingFocus;
+
+    // A note being removed, and where it stood, so the focus can stay in the list once it is gone.
+    private (Guid Id, int Index)? removing;
 
     #endregion
 
@@ -130,7 +142,49 @@
 
     #endregion
 
+    #region Public Methods
+
+    /// <summary>Moves the focus to a note's Change button once the note is shown, as after it is put back.</summary>
+    public void FocusNote(Guid noteId)
+    {
+        pendingFocus = new Focus(Note: noteId);
+        StateHasChanged();
+    }
+
+    #endregion
+
     #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        if (removing is { } removed && Notes.All(note => note.Id != removed.Id))
+        {
+            removing = null;
+            pendingFocus = Notes.Count is 0 ? new Focus(AddField: true) : new Focus(Note: Notes[Math.Min(removed.Index, Notes.Count - 1)].Id);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pendingFocus is not { } focus)
+        {
+            return;
+        }
+
+        pendingFocus = null;
+        var target = focus switch
+        {
+            { EditField: true } => editField?.Focus(),
+            { AddField: true } => addField?.Focus(),
+            { Note: { } id } => changeButtons.GetValueOrDefault(id)?.Focus(),
+            _ => null,
+        };
+
+        if (target is { } moving)
+        {
+            await moving;
+        }
+    }
 
     // The field empties only once the server has the note.
     private async Task Add()
@@ -147,7 +201,15 @@
         }
     }
 
-    private void Edit(MemoryNote note) => (editing, draft, saveProblem) = (note.Id, note.Text, null);
+    private void Edit(MemoryNote note) => (editing, draft, saveProblem, pendingFocus) = (note.Id, note.Text, null, new Focus(EditField: true));
+
+    private void Cancel(MemoryNote note) => (editing, saveProblem, pendingFocus) = (null, null, new Focus(Note: note.Id));
+
+    private Task Remove(MemoryNote note)
+    {
+        removing = (note.Id, Notes.ToList().FindIndex(shown => shown.Id == note.Id));
+        return OnRemove.InvokeAsync(note.Id);
+    }
 
     // The note stays open for change until the server has it.
     private async Task Save(MemoryNote note)
@@ -160,9 +222,15 @@
         saveProblem = await OnChange(note.Id, draft.Trim());
         if (saveProblem is null)
         {
-            editing = null;
+            (editing, pendingFocus) = (null, new Focus(Note: note.Id));
         }
     }
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record Focus(bool EditField = false, bool AddField = false, Guid? Note = null);
 
     #endregion
 }
