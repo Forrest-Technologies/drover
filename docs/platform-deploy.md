@@ -108,6 +108,7 @@ Run the image with no command and only these variables. This table is the strict
 | `Database__SslMode` | Only to require TLS, the same value as the initialization |
 | `Drover__Policy__Rules__AllowMigrationCredentialInServer` | `false` |
 | `DataProtection__KeyPath` | `/var/lib/drover/keys` |
+| `Files__Path` | `/var/lib/drover/files` |
 | `DROVER_PUBLIC_URL` | The HTTPS address people open Drover at, such as `https://drover.example.org` |
 | `Drover__Proxy__TrustedAddresses__0` | The platform proxy's network, see below |
 
@@ -124,7 +125,7 @@ Volumes, both writable by the image's user:
 | Path | Holds |
 | --- | --- |
 | `/var/lib/drover/keys` | The key ring. Without it, every stored key and password is unreadable. Back it up with the database. |
-| `/var/lib/drover/files` | Stored files. Mount it now so an upgrade does not need it added. |
+| `/var/lib/drover/files` | Files people attach to messages. Set `Files__Path` to this path. Back it up with the database: a message's file is read from here. Nothing scans these files for viruses. |
 
 The image runs as a non-root user (uid 1654) and owns these paths. Leave the user as it is. If the platform lets you,
 also make the root file system read-only (with `/tmp` writable), drop every Linux capability, and set

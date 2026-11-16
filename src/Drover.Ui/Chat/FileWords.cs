@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Chat;
 
 /// <summary>How a file is shown: as a picture, as its first lines, or as a card to download.</summary>
 public enum FileKind
@@ -24,10 +24,18 @@ public enum FileRefusal
     TooMany,
     ModelCannotReadImages,
     NothingCanOpenIt,
+    SpaceFull,
+    PrivateConversation,
 }
 
 /// <summary>A file chosen for a message that has not been sent yet.</summary>
-public sealed record AttachmentItem(Guid Id, string Name, long Size, UploadPhase Phase, int Percent, FileRefusal Refusal = FileRefusal.None);
+public sealed record AttachmentItem(
+    Guid Id,
+    string Name,
+    long Size,
+    UploadPhase Phase,
+    int Percent,
+    FileRefusal Refusal = FileRefusal.None);
 
 /// <summary>
 /// A file in a conversation, from the person or from the bot. <see cref="Width"/> and <see cref="Height"/> are set
@@ -69,7 +77,8 @@ public static class FileWords
 
     public static FileKind Kind(SharedFile file) => file switch
     {
-        { Width: not null, Height: not null } when file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) => FileKind.Image,
+        { Width: not null, Height: not null }
+            when file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) => FileKind.Image,
         { Preview: not null } => FileKind.Text,
         _ => FileKind.Other,
     };
@@ -105,6 +114,7 @@ public static class FileWords
     public static string Status(AttachmentItem item, string botName) => item switch
     {
         { Refusal: not FileRefusal.None } => Refused(item.Refusal, botName),
+        { Phase: UploadPhase.Uploading, Percent: <= 0 } => "Uploading",
         { Phase: UploadPhase.Uploading } => $"Uploading, {Math.Clamp(item.Percent, 0, 100)} percent",
         { Phase: UploadPhase.Failed } => "Not uploaded. Remove it and attach it again.",
         _ => Words.Size(item.Size),
@@ -116,8 +126,41 @@ public static class FileWords
         FileRefusal.TooMany => "More files than one message may carry.",
         FileRefusal.ModelCannotReadImages => $"{botName}'s model cannot read pictures.",
         FileRefusal.NothingCanOpenIt => $"{botName} has no way to open this kind of file. It needs a sandbox for it.",
+        FileRefusal.SpaceFull => "This space has no room left for files on this server.",
+        FileRefusal.PrivateConversation => $"This conversation is private, and others in this space can reach {botName}'s sandbox, so this file cannot go there.",
         _ => string.Empty,
     };
+
+    /// <summary>
+    /// The refusal a server's refusal code names. A code this screen does not know reads as a failed upload.
+    /// </summary>
+    public static FileRefusal RefusalFrom(string? code) => code switch
+    {
+        FileRefusals.TooLarge => FileRefusal.TooLarge,
+        FileRefusals.TooMany => FileRefusal.TooMany,
+        FileRefusals.SpaceFull => FileRefusal.SpaceFull,
+        FileRefusals.ModelCannotReadImages => FileRefusal.ModelCannotReadImages,
+        FileRefusals.NothingCanOpenIt => FileRefusal.NothingCanOpenIt,
+        FileRefusals.PrivateConversation => FileRefusal.PrivateConversation,
+        _ => FileRefusal.None,
+    };
+
+    /// <summary>
+    /// A file a message carries, as the conversation shows it. <paramref name="href"/> is where the server serves
+    /// it. The card does not show when it was shared, so the moment is left at its default here.
+    /// </summary>
+    public static SharedFile Shared(FileResponse file, string href, bool fromBot) =>
+        new(
+            file.Id,
+            file.Name,
+            file.ContentType,
+            file.Size,
+            href,
+            fromBot,
+            default,
+            Preview: file.Preview,
+            Width: file.Width,
+            Height: file.Height);
 
     /// <summary>True when the message can be sent: every file is uploaded and none is refused.</summary>
     public static bool CanSend(IEnumerable<AttachmentItem> items) =>

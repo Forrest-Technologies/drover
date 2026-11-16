@@ -35,7 +35,13 @@ public static class SecurityHeaders
             context.Response.OnStarting(() =>
             {
                 var headers = context.Response.Headers;
-                headers["Content-Security-Policy"] = ContentSecurityPolicy;
+
+                // A stored file sets a stricter policy of its own, which sandboxes it and lets it load nothing.
+                if (!headers.ContainsKey("Content-Security-Policy"))
+                {
+                    headers["Content-Security-Policy"] = ContentSecurityPolicy;
+                }
+
                 headers["X-Content-Type-Options"] = "nosniff";
                 headers["Referrer-Policy"] = "no-referrer";
                 headers["X-Frame-Options"] = "DENY";

@@ -17,6 +17,8 @@ public sealed partial class RunExecutor(
     RunSignal signal,
     UserSignalHub signals,
     ConversationSummarizer summarizer,
+    IFileStore fileStore,
+    IEnumerable<SandboxBroker> sandboxBrokers,
     IOptions<RunOptions> options,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
@@ -254,7 +256,10 @@ public sealed partial class RunExecutor(
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children);
+        var carriesFiles = thread is not null
+            && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -458,6 +463,25 @@ public sealed partial class RunExecutor(
             : null;
     }
 
+    /// <summary>
+    /// The files people attached, as this run gives them to its model: by whether the model reads pictures and
+    /// whether the run was given a sandbox tool, which takes a sandbox on this server, on the bot, and in its grants.
+    /// </summary>
+    private RunFiles NewRunFiles(RunSession session, LoadedRun loaded)
+    {
+        var hasSandbox = loaded.Granted.Any(granted => SandboxTools.IsSandboxTool(granted.Tool.Name)
+            && session.FindTool(granted.Tool.Id) is not null);
+        return new RunFiles(
+            session.Tenant,
+            loaded.Bot!.Id,
+            loaded.ModelSeesImages,
+            hasSandbox,
+            fileStore,
+            sandboxBrokers.FirstOrDefault(),
+            session.Taint,
+            loggers.CreateLogger<RunFiles>());
+    }
+
     #endregion
 
     #region Running
@@ -491,6 +515,7 @@ public sealed partial class RunExecutor(
         }
 
         await TaintFromNotes(session, loaded);
+        await TaintFromFiles(session, loaded);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -507,6 +532,7 @@ public sealed partial class RunExecutor(
             rules,
             loggers.CreateLogger<RunGovernor>(),
             loaded.ModelSeesImages,
+            NewRunFiles(session, loaded),
             new ChildRuns(this, session, serverStopping));
         using var model = new MeteredModelClient(
             provider.CreateChatClient(endpoint, loaded.Key, bot.Model, bot.ModelSettings),
@@ -690,6 +716,20 @@ public sealed partial class RunExecutor(
     private static async Task TaintFromNotes(RunSession session, LoadedRun loaded)
     {
         if (loaded.Memory is { Tainted: true } && OfferedMemoryTools(session, loaded).Count > 0)
+        {
+            await session.Taint();
+        }
+    }
+
+    /// <summary>
+    /// A file a person attached is text from outside Drover, a document or a picture of anything, so a run whose
+    /// conversation carries one is tainted before its agent is built, as a run given a tool's result would be once it
+    /// had read it: its consequential tools ask from the first call. Every later run of the conversation is given
+    /// the file again, so it is tainted the same way.
+    /// </summary>
+    private static async Task TaintFromFiles(RunSession session, LoadedRun loaded)
+    {
+        if (loaded.CarriesFiles)
         {
             await session.Taint();
         }
@@ -1120,7 +1160,8 @@ public sealed partial class RunExecutor(
         IReadOnlyList<ToolConnection> ToolConnections,
         bool ModelSeesImages,
         RecalledMemory? Memory,
-        IReadOnlyList<Bot> Children);
+        IReadOnlyList<Bot> Children,
+        bool CarriesFiles);
 
     #endregion
 }

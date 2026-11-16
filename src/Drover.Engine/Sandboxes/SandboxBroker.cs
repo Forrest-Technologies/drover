@@ -161,6 +161,35 @@ public sealed class SandboxBroker(
         return lease.NewSandbox;
     }
 
+    /// <summary>
+    /// Puts a file a person attached into the bot's own sandbox, made on first use, for the bot to work on. Not a tool
+    /// call: the server does it while it builds what the model reads, for a bot whose grants let it use a sandbox. The
+    /// same file size limit binds it as a bot's own writes. Refusals are <see cref="BuiltinToolException"/>.
+    /// </summary>
+    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, CancellationToken cancellationToken)
+    {
+        var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
+
+        if (size > maxBytes)
+        {
+            throw new BuiltinToolException($"It is {size} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
+        }
+
+        var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
+        await MarkTainted(caller, lease, cancellationToken);
+
+        try
+        {
+            await provider.WriteFile(lease.Handle, path, content, cancellationToken);
+        }
+        catch (SandboxProviderException failure)
+        {
+            throw Refusal(failure, path);
+        }
+
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
+    }
+
     public async Task<SandboxListResult> ListFiles(BuiltinToolCall call, string? environment, string path, CancellationToken cancellationToken)
     {
         var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
@@ -741,7 +770,8 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
-    /// longer for a long command goes back to its idle time. Text from a sandbox that can reach the network taints the run.
+    /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network, or
+    /// from one marked tainted (<see cref="MarkTainted"/>), taints the run.
     /// </summary>
     private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
@@ -758,6 +788,7 @@ public sealed class SandboxBroker(
         }
 
         var now = time.GetUtcNow();
+        var tainted = false;
         await caller.Tenant.Transact(
             async services =>
             {
@@ -766,6 +797,7 @@ public sealed class SandboxBroker(
                     MarkRunning(row);
                     row.LastUsedAt = now;
                     row.ExpiresAt = now + lease.Idle;
+                    tainted = row.Tainted;
                 }
 
                 if (caller.Call is { } call)
@@ -776,9 +808,35 @@ public sealed class SandboxBroker(
             cancellationToken);
 
         // A person reading their bot's sandbox is in no run, so there is nothing to taint.
-        if (readsSandbox && lease.Network.Access is not NetworkAccess.Off && caller.Call is { } reading)
+        if (readsSandbox && (tainted || lease.Network.Access is not NetworkAccess.Off) && caller.Call is { } reading)
         {
             await reading.Taint();
+        }
+    }
+
+    /// <summary>
+    /// Marks the sandbox as holding a file a person attached, for good, in its own committed transaction before the
+    /// file is written: a write that is cancelled or fails after the provider took it still leaves the mark. A sandbox
+    /// whose row is gone is not written to, since nothing could carry the mark.
+    /// </summary>
+    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        var marked = await caller.Tenant.Transact(
+            async services =>
+            {
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                {
+                    return false;
+                }
+
+                row.Tainted = true;
+                return true;
+            },
+            cancellationToken);
+
+        if (!marked)
+        {
+            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
         }
     }
 

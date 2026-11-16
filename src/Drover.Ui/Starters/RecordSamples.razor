@@ -1,13 +1,4 @@
 @* Samples for the starters about files, history, skills, and usage. Every name, text, and figure is a sample. *@
-<GallerySection Title="Files on a message (#151)" Note="Each file says its state in words and can be taken off. A file that cannot go says why before sending.">
-    <AttachmentTray Items="attachments" BotName="Sample bot" />
-</GallerySection>
-
-<GallerySection Title="A file in the conversation (#151, #165)" Note="Text shows its first lines; anything else is a card. A picture is shown with its dimensions set (not sampled here: the gallery loads nothing from another host).">
-    <FileCard File="textFile" />
-    <FileCard File="otherFile" />
-</GallerySection>
-
 <GallerySection Title="Files exchanged with a bot (#165)" Note="Newest first. The filter appears only when files came from both sides.">
     <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" Files="files" /></div>
     <div class="dv-sample-rail"><FilesPanel State="FilesPanelState.Ready" BotName="Sample bot" /></div>
@@ -40,13 +31,6 @@
     private const string after = "Sample line one.\nSample line two, changed.\nSample line three.\nSample line four.";
 
     private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
-
-    private static readonly AttachmentItem[] attachments =
-    [
-        new(Guid.Parse("00000000-0000-7000-8000-000000000401"), "sample-notes.txt", 2_400, UploadPhase.Ready, 100),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000402"), "sample-report.pdf", 3_400_000, UploadPhase.Uploading, 40),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000403"), "sample-photo.png", 900_000, UploadPhase.Ready, 100, FileRefusal.ModelCannotReadImages),
-    ];
 
     private static readonly SharedFile textFile = new(
         Guid.Parse("00000000-0000-7000-8000-000000000404"), "sample-notes.txt", "text/plain", 2_400, "/", true, sampleDay,

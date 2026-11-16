@@ -17,6 +17,7 @@ public static class DeploymentPolicyExtensions
             .WithoutToolConnections()
             .WithBoundedSandboxes()
             .WithBoundedBotsPerSpace()
+            .WithBoundedFiles()
             .WithBoundedDelegation()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
@@ -68,6 +69,14 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
         policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
+
+    public static DeploymentPolicy WithBoundedFiles(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxFileBytes = DeploymentPolicy.HostedMaxFileBytes,
+            MaxFilesPerMessage = DeploymentPolicy.HostedMaxFilesPerMessage,
+            MaxSpaceFileMegabytes = DeploymentPolicy.HostedMaxSpaceFileMegabytes,
+        };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
     public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>

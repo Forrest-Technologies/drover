@@ -1,6 +1,6 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui;
 
-/// <summary>Small pieces of wording every starter shares, so counts, lists, and sizes read the same everywhere.</summary>
+/// <summary>Small pieces of wording every screen shares, so counts, lists, and sizes read the same.</summary>
 public static class Words
 {
     #region Private Fields

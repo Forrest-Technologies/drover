@@ -27,6 +27,7 @@ public static class SpaceEndpoints
         // and then wake the workers.
         root.MapBotEndpoints();
         root.MapThreadEndpoints();
+        root.MapFileEndpoints();
         root.MapRunEndpoints();
         root.MapRunStreamEndpoints();
 

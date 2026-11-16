@@ -88,7 +88,7 @@ public static class ThreadEndpoints
 
         var access = context.GetSpaceAccess();
         var steer = request.WhenBusy is not BusyModes.Queue;
-        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, steer, access.UserId, context.RequestAborted);
+        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, request.FileIds ?? [], steer, access.UserId, context.RequestAborted);
 
         return post.Problem switch
         {

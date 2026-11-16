@@ -42,6 +42,9 @@ public sealed class RunWorld : IAsyncDisposable
 
     public ScriptedModel Script { get; }
 
+    /// <summary>The files every host of this world keeps, in memory.</summary>
+    public MemoryFileStore Files { get; } = new();
+
     /// <summary>Every host of the world, the one that seeds first.</summary>
     public IReadOnlyList<EngineHost> Hosts => hosts;
 
@@ -170,11 +173,26 @@ public sealed class RunWorld : IAsyncDisposable
     }
 
     /// <summary>Posts as the world's person, or as <paramref name="asUser"/>. <paramref name="steer"/> is what the sender asked for if the bot is busy.</summary>
-    public async Task<MessagePost> PostRaw(Guid threadId, string text, EngineHost? through = null, bool steer = true, Guid? asUser = null)
+    public async Task<MessagePost> PostRaw(
+        Guid threadId,
+        string text,
+        EngineHost? through = null,
+        bool steer = true,
+        Guid? asUser = null,
+        IReadOnlyList<Guid>? fileIds = null)
     {
         await using var scope = (through ?? seeder).Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
-        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, steer, asUser ?? UserId, Token);
+        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, fileIds ?? [], steer, asUser ?? UserId, Token);
+    }
+
+    /// <summary>Uploads a file to a thread through the engine, as the API does, as the world's person or <paramref name="asUser"/>.</summary>
+    public async Task<FileUpload> Upload(Guid threadId, string name, byte[] content, Guid? asUser = null, bool declareLength = true)
+    {
+        await using var scope = seeder.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
+        return await scope.ServiceProvider.GetRequiredService<FileService>()
+            .Upload(threadId, name, new MemoryStream(content), declareLength ? content.Length : null, asUser ?? UserId, Token);
     }
 
     public Task<RunCancel> Cancel(Guid runId, EngineHost through) => CancelAs(runId, through, UserId, isSpaceAdmin: false);
@@ -387,6 +405,7 @@ public sealed class RunWorld : IAsyncDisposable
             services =>
             {
                 services.AddSingleton<IToolSource>(Server);
+                services.AddSingleton<IFileStore>(Files);
                 everyHost?.Invoke(services);
                 replaceServices?.Invoke(services);
             });

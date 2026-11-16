@@ -48,6 +48,16 @@
   white-space: pre-wrap;
 }
 
+/* A person's files sit under their words, on the same side. */
+.dv-message-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--dv-space-2);
+  max-width: 85%;
+  min-width: 0;
+}
+
 .dv-message-pending {
   font-size: var(--dv-text-12);
   color: var(--dv-text-3);

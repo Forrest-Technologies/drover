@@ -111,6 +111,25 @@ public sealed class ConversationsTests
 
     #endregion
 
+    #region Files
+
+    [Fact]
+    public void A_messages_files_are_shown_at_the_address_given_and_a_message_with_only_files_is_kept()
+    {
+        var file = new FileResponse(Guid.NewGuid(), "cat.png", "image/png", FileKinds.Image, 2048, 64, 48);
+        var withFile = new MessageView(Guid.NewGuid(), "user", [new PartView("image", File: file)], false, null);
+
+        var shown = new[] { withFile }.ToChatMessages(fileAddress: id => $"/files/{id}").Single();
+        var without = new[] { withFile }.ToChatMessages();
+
+        shown.Text.Should().BeEmpty();
+        shown.Files.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { file.Id, Name = "cat.png", Href = $"/files/{file.Id}", FromBot = false, Width = 64, Height = 48 });
+        without.Should().BeEmpty("without an address there is nothing to show");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static MessageView Message(string role, bool streaming, params PartView[] parts) =>

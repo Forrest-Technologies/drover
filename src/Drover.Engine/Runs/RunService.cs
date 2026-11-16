@@ -39,6 +39,9 @@ public sealed class RunService(
     ThreadRepository threads,
     MessageRepository messages,
     BotRepository bots,
+    FileRepository files,
+    FileAbilityReader abilities,
+    IOptions<DeploymentPolicyOptions> deployment,
     RunRepository runs,
     RunEventRepository events,
     ToolCallRepository toolCalls,
@@ -81,13 +84,20 @@ public sealed class RunService(
     /// one root run at a time. With none active, the message joins the conversation and a run is queued for it. With
     /// one active, the message is stored as pending and is never refused: it steers that run at its next step when
     /// <paramref name="steer"/> is set and the run acts for the sender, and otherwise waits for the run to end and
-    /// starts the next one. A run only ever takes instructions from the person it acts for.
+    /// starts the next one. A run only ever takes instructions from the person it acts for. Files go with the message
+    /// only when the sender uploaded them to this thread, has not sent them yet, and the bot can open each one.
     /// </summary>
-    public async Task<MessagePost> PostMessage(Guid threadId, string text, bool steer, Guid userId, CancellationToken cancellationToken)
+    public async Task<MessagePost> PostMessage(
+        Guid threadId,
+        string text,
+        IReadOnlyList<Guid> fileIds,
+        bool steer,
+        Guid userId,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(text) || text.Length > MaxMessageLength)
+        if (FindInvalidRequest(text, fileIds) is { } invalid)
         {
-            return new MessagePost(null, null, PostProblem.Invalid, $"Write a message of up to {MaxMessageLength} characters.");
+            return new MessagePost(null, null, PostProblem.Invalid, invalid);
         }
 
         Message message;
@@ -103,7 +113,15 @@ public sealed class RunService(
                 return new MessagePost(null, null, PostProblem.NotFound);
             }
 
-            message = NewUserMessage(text, userId);
+            var bot = await bots.FindBot(thread.BotId, cancellationToken);
+            var attached = await TakeFiles(thread, bot, fileIds, userId, cancellationToken);
+
+            if (attached.Problem is not null)
+            {
+                return new MessagePost(null, null, PostProblem.Invalid, attached.Problem);
+            }
+
+            message = NewUserMessage(text, attached.Files, userId);
             thread.LastActivityAt = time.GetUtcNow();
 
             if (await runs.FindActiveRun(threadId, cancellationToken) is { } active)
@@ -114,14 +132,19 @@ public sealed class RunService(
             }
             else
             {
-                if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
+                if (bot is not { Status: BotStatus.Active })
                 {
                     return new MessagePost(null, null, PostProblem.Invalid, "This bot is paused or removed, so it cannot answer.");
                 }
 
                 await messages.AppendMessages(thread, [message], cancellationToken);
-                TitleFromFirstMessage(thread, text);
+                TitleFromFirstMessage(thread, string.IsNullOrWhiteSpace(text) ? attached.Files[0].Name : text);
                 (run, appended) = await queue.Queue(thread, message, userId, cancellationToken);
+            }
+
+            foreach (var file in attached.Files)
+            {
+                file.MessageId = message.Id;
             }
 
             await work.Commit(cancellationToken);
@@ -298,13 +321,78 @@ public sealed class RunService(
         }
     }
 
-    private Message NewUserMessage(string text, Guid userId) => new()
+    private Message NewUserMessage(string text, IReadOnlyList<StoredFile> attached, Guid userId) => new()
     {
         Role = MessageRole.User,
         AuthorUserId = userId,
-        Parts = [new TextPart(text)],
+        Parts =
+        [
+            .. string.IsNullOrWhiteSpace(text) ? Array.Empty<MessagePart>() : [new TextPart(text)],
+            .. attached.Select(ToPart),
+        ],
         CreatedAt = time.GetUtcNow(),
     };
+
+    private static MessagePart ToPart(StoredFile file) =>
+        FileInspector.KindOf(file.ContentType) is FileKind.Image
+            ? new ImagePart(file.Id, file.ContentType, null, file.Name, file.Size, file.Width, file.Height)
+            : new FilePart(file.Id, file.Name, file.ContentType, file.Size, file.Preview);
+
+    /// <summary>Why the request cannot be a message, before anything is read: no words and no files, too long, too many files.</summary>
+    private string? FindInvalidRequest(string text, IReadOnlyList<Guid> fileIds)
+    {
+        if (text.Length > MaxMessageLength || (string.IsNullOrWhiteSpace(text) && fileIds.Count == 0))
+        {
+            return $"Write a message of up to {MaxMessageLength} characters.";
+        }
+
+        if (fileIds.Count > deployment.Value.Rules.MaxFilesPerMessage)
+        {
+            return FileWords.TooMany(deployment.Value.Rules.MaxFilesPerMessage);
+        }
+
+        return fileIds.Distinct().Count() != fileIds.Count ? "The same file is attached twice." : null;
+    }
+
+    /// <summary>
+    /// The files to send, tracked and in the order asked for: each one the sender's own, uploaded to this thread, not
+    /// sent before, and one the bot can open now. Row-level security has already hidden any file the sender cannot see.
+    /// </summary>
+    private async Task<AttachedFiles> TakeFiles(
+        ChatThread thread,
+        Bot? bot,
+        IReadOnlyList<Guid> fileIds,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (fileIds.Count == 0)
+        {
+            return new AttachedFiles([], null);
+        }
+
+        var found = await files.GetFilesForUpdate(fileIds, cancellationToken);
+        List<StoredFile> ordered = [.. fileIds.Select(id => found.FirstOrDefault(file => file.Id == id)).OfType<StoredFile>()];
+
+        if (ordered.Count != fileIds.Count
+            || ordered.Any(file => file.ThreadId != thread.Id || file.MessageId is not null || file.CreatedByUserId != userId))
+        {
+            return new AttachedFiles([], "A file on this message is not one you attached in this conversation, or it was sent already. Attach it again.");
+        }
+
+        if (bot is null)
+        {
+            return new AttachedFiles([], "This bot is paused or removed, so it cannot answer.");
+        }
+
+        var can = await abilities.Read(bot, thread, cancellationToken);
+        var refused = ordered
+            .Select(file => (file.Name, Refusal: FileUses.RefusalFor(FileInspector.KindOf(file.ContentType), can)))
+            .FirstOrDefault(pair => pair.Refusal is not null);
+
+        return refused.Refusal is { } refusal
+            ? new AttachedFiles([], $"{refused.Name}: {FileWords.CannotOpen(refusal, bot.Name)}")
+            : new AttachedFiles(ordered, null);
+    }
 
     /// <summary>A side chat is named after its first message. A main thread is the bot's conversation and takes no title.</summary>
     private static void TitleFromFirstMessage(ChatThread thread, string text)
@@ -320,6 +408,12 @@ public sealed class RunService(
             run.Id,
             RunEventTypes.RunCancelled,
             new RunStatusChanged(RunStatus.Cancelled.ToWireName(), run.StatusReason, null, run.Attempt, run.Usage.ToTotals()));
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record AttachedFiles(IReadOnlyList<StoredFile> Files, string? Problem);
 
     #endregion
 }

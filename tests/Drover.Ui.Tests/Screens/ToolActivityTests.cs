@@ -80,7 +80,7 @@ public sealed class ToolActivityTests : ScreenTest
         answers.Select(button => button.TextContent.Trim()).Should().Equal("Approve", "Deny");
         answers.Should().OnlyContain(button => button.GetAttribute("aria-describedby") == title.Id && !button.HasAttribute("disabled"));
         page.FindAll(".dv-message-state").Should().BeEmpty("the bot is not thinking while it waits for a person");
-        page.Find(".dv-composer button").TextContent.Trim().Should().Be("Stop");
+        page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Stop");
         page.FindAll("main [role=status] .dv-note").Should().BeEmpty("the card says what is waiting; no notice repeats it");
         Spoken(page).Should().Contain("Marshal asks to run a command. Waiting for you.");
     }
@@ -110,7 +110,7 @@ public sealed class ToolActivityTests : ScreenTest
         await Feed(events, CommandStarted + 1, log[^1].Seq);
         await events.End();
 
-        page.WaitForAssertion(() => page.Find(".dv-composer button").TextContent.Trim().Should().Be("Send"));
+        page.WaitForAssertion(() => page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Send"));
         var commandCard = page.FindAll(".dv-tool")[^1];
         commandCard.QuerySelector(".dv-disclosure-toggle")!.TextContent.Should().Contain("Ran a command").And.Contain("Failed");
         commandCard.QuerySelector("section")!.ClassList.Should().Contain("dv-tool-ended-failed").And.NotContain("dv-state-tool");

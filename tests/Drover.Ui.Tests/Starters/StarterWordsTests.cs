@@ -16,8 +16,6 @@ public sealed class StarterWordsTests
 
     private static readonly DateTimeOffset start = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
 
-    private static readonly int[] ordinals = [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31];
-
     #endregion
 
     #region Routines
@@ -124,31 +122,6 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Shared Words
-
-    [Fact]
-    public void Counts_lists_ordinals_sizes_and_durations_read_the_same_everywhere()
-    {
-        Words.Count(1, "run").Should().Be("1 run");
-        Words.Count(1200, "run").Should().Be("1,200 runs");
-        Words.List([]).Should().BeEmpty();
-        Words.List(["a"]).Should().Be("a");
-        Words.List(["a", "b"]).Should().Be("a and b");
-        Words.List(["a", "b", "c"]).Should().Be("a, b and c");
-        ordinals.Select(Words.Ordinal).Should().Equal(
-            "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "31st");
-        Words.Size(840).Should().Be("840 bytes");
-        Words.Size(12_288).Should().Be("12 KB");
-        Words.Size(3_565_158).Should().Be("3.4 MB");
-        Words.Duration(TimeSpan.FromMilliseconds(300)).Should().Be("under a second");
-        Words.Duration(TimeSpan.FromSeconds(12)).Should().Be("12 seconds");
-        Words.Duration(TimeSpan.FromMinutes(3)).Should().Be("3 minutes");
-        Words.Duration(new TimeSpan(2, 5, 0)).Should().Be("2 hours 5 minutes");
-        Words.Clock(TimeSpan.FromSeconds(67)).Should().Be("1:07");
-    }
-
-    #endregion
-
     #region History
 
     [Fact]
@@ -184,30 +157,6 @@ public sealed class StarterWordsTests
         HistoryWords.Heading("instructions").Should().Be("The instructions");
         HistoryWords.IsLong(new("instructions", "one\ntwo", "one")).Should().BeTrue();
         HistoryWords.IsLong(new("name", "Sample", "Sample two")).Should().BeFalse();
-    }
-
-    #endregion
-
-    #region Files
-
-    [Fact]
-    public void A_file_is_named_by_its_kind_and_a_refused_one_says_why()
-    {
-        FileWords.KindName("application/pdf", "report.pdf").Should().Be("PDF document");
-        FileWords.KindName("image/png", "photo.png").Should().Be("PNG image");
-        FileWords.KindName("application/octet-stream", "data.parquet").Should().Be("PARQUET file");
-        FileWords.KindName("application/octet-stream", "data").Should().Be("File");
-
-        var ready = new AttachmentItem(Guid.NewGuid(), "a.txt", 840, UploadPhase.Ready, 100);
-        var uploading = ready with { Phase = UploadPhase.Uploading, Percent = 40 };
-        var refused = ready with { Refusal = FileRefusal.ModelCannotReadImages };
-
-        FileWords.Status(ready, "Sample bot").Should().Be("840 bytes");
-        FileWords.Status(uploading, "Sample bot").Should().Be("Uploading, 40 percent");
-        FileWords.Status(refused, "Sample bot").Should().Be("Sample bot's model cannot read pictures.");
-        FileWords.CanSend([ready]).Should().BeTrue();
-        FileWords.CanSend([ready, uploading]).Should().BeFalse();
-        FileWords.CanSend([ready, refused]).Should().BeFalse();
     }
 
     #endregion

@@ -211,6 +211,16 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_file_rules_bound_one_file_one_message_and_one_spaces_total()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.MaxFileBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxFileBytes)));
+        rules.MaxFilesPerMessage.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxFilesPerMessage)));
+        rules.MaxSpaceFileMegabytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSpaceFileMegabytes)));
+    }
+
+    [Fact]
     public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
     {
         await using var scope = Services.CreateAsyncScope();

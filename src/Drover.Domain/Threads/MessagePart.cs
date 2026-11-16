@@ -17,9 +17,21 @@ public sealed record TextPart(string Text) : MessagePart;
 
 public sealed record ReasoningPart(string Text) : MessagePart;
 
-public sealed record ImagePart(Guid FileId, string MediaType, string? AltText = null) : MessagePart;
+/// <summary>
+/// A picture, by its <c>files</c> row. The name, size, and dimensions are copied from the row when the message is
+/// sent, so the conversation can show the picture at its size without reading the row.
+/// </summary>
+public sealed record ImagePart(
+    Guid FileId,
+    string MediaType,
+    string? AltText = null,
+    string? Name = null,
+    long Size = 0,
+    int? Width = null,
+    int? Height = null) : MessagePart;
 
-public sealed record FilePart(Guid FileId, string Name, string MediaType) : MessagePart;
+/// <summary>Any other file, by its <c>files</c> row. A text file carries its first lines for the conversation to show.</summary>
+public sealed record FilePart(Guid FileId, string Name, string MediaType, long Size = 0, string? Preview = null) : MessagePart;
 
 /// <summary>
 /// <see cref="ToolCallId"/> is the <c>tool_calls</c> row. <see cref="CallId"/> is the id the model gave the call; it

@@ -120,6 +120,18 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxBotsPerSpace = 100;
 
+    public const int SelfHostedMaxFileBytes = 25 * 1024 * 1024;
+
+    public const int HostedMaxFileBytes = 10 * 1024 * 1024;
+
+    public const int SelfHostedMaxFilesPerMessage = 10;
+
+    public const int HostedMaxFilesPerMessage = 5;
+
+    public const int SelfHostedMaxSpaceFileMegabytes = 10 * 1024;
+
+    public const int HostedMaxSpaceFileMegabytes = 1024;
+
     public const int DelegationDepth = 5;
 
     public const int RunsPerDelegationTree = 50;
@@ -201,6 +213,17 @@ public sealed record DeploymentPolicy
     /// </summary>
     public int MaxBotsPerSpace { get; init; } = SelfHostedMaxBotsPerSpace;
 
+    /// <summary>The most bytes of one file a person attaches to a message. A larger one is refused, not cut.</summary>
+    public int MaxFileBytes { get; init; } = SelfHostedMaxFileBytes;
+
+    /// <summary>The most files one message carries.</summary>
+    public int MaxFilesPerMessage { get; init; } = SelfHostedMaxFilesPerMessage;
+
+    /// <summary>
+    /// The most megabytes of files one space keeps on the operator's disk, counted across every member's files,
+    /// private ones included. A file that would take the space past it is refused when it is uploaded.
+    /// </summary>
+    public int MaxSpaceFileMegabytes { get; init; } = SelfHostedMaxSpaceFileMegabytes;
     /// <summary>
     /// How many levels below the run a person started a chain of delegations may reach. A space may only lower it.
     /// Each level is another bot working, and a chain is where a runaway loop spends money.
@@ -423,6 +446,21 @@ public sealed record DeploymentPolicy
             policy => policy.MaxBotsPerSpace,
             HostedMaxBotsPerSpace,
             Enforcement.Now("BotService, on every path that makes a bot: created, created beneath a parent, duplicated, or made by a bot")),
+        PolicyRule.Limit(
+            nameof(MaxFileBytes),
+            policy => policy.MaxFileBytes,
+            HostedMaxFileBytes,
+            Enforcement.Now("FileService, on every upload, and the upload endpoint's body limit")),
+        PolicyRule.Limit(
+            nameof(MaxFilesPerMessage),
+            policy => policy.MaxFilesPerMessage,
+            HostedMaxFilesPerMessage,
+            Enforcement.Now("RunService, on every message sent with files")),
+        PolicyRule.Limit(
+            nameof(MaxSpaceFileMegabytes),
+            policy => policy.MaxSpaceFileMegabytes,
+            HostedMaxSpaceFileMegabytes,
+            Enforcement.Now("FileService, on every upload, against the space's stored total")),
         PolicyRule.Limit(
             nameof(MaxDelegationDepth),
             policy => policy.MaxDelegationDepth,
