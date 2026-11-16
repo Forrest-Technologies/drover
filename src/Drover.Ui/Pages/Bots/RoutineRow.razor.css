@@ -31,6 +31,10 @@
   overflow-wrap: anywhere;
 }
 
+.dv-routine-prompt-whole {
+  white-space: pre-wrap;
+}
+
 .dv-routine-facts {
   display: flex;
   flex-direction: column;
@@ -62,6 +66,18 @@
 .dv-routine-link {
   margin-inline-start: var(--dv-space-2);
   color: var(--dv-text-2);
+}
+
+.dv-routine-note {
+  margin: 0;
+  font-size: var(--dv-text-13);
+  color: var(--dv-text-2);
+}
+
+.dv-routine-started {
+  margin: 0;
+  font-size: var(--dv-text-13);
+  color: var(--dv-text);
 }
 
 .dv-routine-actions {

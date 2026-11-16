@@ -3,14 +3,23 @@ namespace Drover.Engine.Bots;
 /// <summary>What a person sets on a schedule. A null thread mode is a word the request spelled wrongly.</summary>
 public sealed record ScheduleEdit(string Cron, string TimeZone, string Prompt, ScheduleThreadMode? ThreadMode, bool Enabled);
 
-/// <summary>The result of a change to a schedule. With neither a schedule nor a problem, there is none such.</summary>
-public sealed record ScheduleChange(BotSchedule? Schedule, string? Problem)
+/// <summary>
+/// The result of a change to a schedule, with how its last run stands for the person who made the change. With
+/// neither a schedule nor a problem, there is none such.
+/// </summary>
+public sealed record ScheduleChange(BotSchedule? Schedule, string? Problem, RunGlance? LastRun = null)
 {
     public static ScheduleChange NotFound { get; } = new(null, null);
 }
 
-/// <summary>A schedule and, when the last time it was due started a run, that run's status now.</summary>
-public sealed record ScheduleView(BotSchedule Schedule, RunStatus? LastRunStatus);
+/// <summary>A time checked before it is saved: the server's sentence when it would refuse it, or the next times it runs.</summary>
+public sealed record ScheduleCheck(string? Problem, IReadOnlyList<DateTimeOffset> Next);
+
+/// <summary>
+/// A schedule and, when the last time it was due started a run whose conversation the caller can see, how that run
+/// stands now. A run in another person's private conversation is left out: the caller learns only that it started.
+/// </summary>
+public sealed record ScheduleView(BotSchedule Schedule, RunGlance? LastRun);
 
 /// <summary>
 /// A bot's schedules. They are checked and stored here, with the next time each is due; <see cref="ScheduleFiring"/>
@@ -34,6 +43,8 @@ public sealed class ScheduleService(
 
     private const int MaxCronLength = 100;
 
+    private const int CheckedTimes = 3;
+
     private const string NotTheOwners =
         "Only the person who made this schedule can change what it sends or when, or turn it back on, because it runs as them. You can turn it off or remove it.";
 
@@ -53,8 +64,8 @@ public sealed class ScheduleService(
         }
 
         var found = await schedules.ListSchedules(botId, cancellationToken);
-        var statuses = await runs.ListStatuses([.. found.Select(schedule => schedule.LastRunId).OfType<Guid>()], cancellationToken);
-        return [.. found.Select(schedule => new ScheduleView(schedule, schedule.LastRunId is { } runId && statuses.TryGetValue(runId, out var status) ? status : null))];
+        var glances = await runs.ListVisibleGlances([.. found.Select(schedule => schedule.LastRunId).OfType<Guid>()], cancellationToken);
+        return [.. found.Select(schedule => new ScheduleView(schedule, Glance(schedule, glances)))];
     }
 
     /// <summary>
@@ -67,6 +78,27 @@ public sealed class ScheduleService(
             ? CronExpression.Parse(schedule.Cron, CronFormat.Standard)
                 .GetNextOccurrence(after, TimeZoneInfo.FindSystemTimeZoneById(schedule.TimeZone))?.ToUniversalTime()
             : null;
+
+    /// <summary>
+    /// Checks a time as saving it would: the sentence a save would refuse it with, or its next three times in UTC.
+    /// Lets the editor explain an expression it cannot put in words before anything is saved.
+    /// </summary>
+    public ScheduleCheck Check(string cron, string timeZone)
+    {
+        var edit = new ScheduleEdit(cron, timeZone, string.Empty, ScheduleThreadMode.NewThread, true);
+
+        if ((FindTimeProblem(edit) ?? FindIntervalProblem(edit)) is { } problem)
+        {
+            return new ScheduleCheck(problem, []);
+        }
+
+        var from = time.GetUtcNow();
+        var next = CronExpression.Parse(edit.Cron.Trim(), CronFormat.Standard)
+            .GetOccurrences(from, from + gapSearch, TimeZoneInfo.FindSystemTimeZoneById(edit.TimeZone.Trim()), fromInclusive: false)
+            .Take(CheckedTimes)
+            .Select(occurrence => occurrence.ToUniversalTime());
+        return new ScheduleCheck(null, [.. next]);
+    }
 
     public async Task<ScheduleChange> Create(Guid botId, ScheduleEdit edit, Guid actorUserId, CancellationToken cancellationToken)
     {
@@ -121,7 +153,8 @@ public sealed class ScheduleService(
 
         if (schedule.OwnerUserId != actorUserId)
         {
-            return TurnOffForOwner(schedule, edit, actorUserId);
+            var turnedOff = TurnOffForOwner(schedule, edit, actorUserId);
+            return turnedOff.Schedule is { } kept ? await WithLastRun(kept, cancellationToken) : turnedOff;
         }
 
         if (FindProblem(edit) is { } problem)
@@ -142,7 +175,7 @@ public sealed class ScheduleService(
             logger.LogInformation("Schedule {ScheduleId} of bot {BotId} changed", schedule.Id, botId);
         }
 
-        return new ScheduleChange(schedule, null);
+        return await WithLastRun(schedule, cancellationToken);
     }
 
     /// <summary>Removes a schedule. False when there is no such bot or schedule.</summary>
@@ -193,6 +226,12 @@ public sealed class ScheduleService(
         return new ScheduleChange(schedule, null);
     }
 
+    private static RunGlance? Glance(BotSchedule schedule, Dictionary<Guid, RunGlance> glances) =>
+        schedule.LastRunId is { } runId && glances.TryGetValue(runId, out var glance) ? glance : null;
+
+    private async Task<ScheduleChange> WithLastRun(BotSchedule schedule, CancellationToken cancellationToken) =>
+        new(schedule, null, Glance(schedule, await runs.ListVisibleGlances(schedule.LastRunId is { } runId ? [runId] : [], cancellationToken)));
+
     private static JsonObject Snapshot(BotSchedule schedule) =>
         AuditLog.Snapshot(new { schedule.Cron, schedule.TimeZone, schedule.Prompt, schedule.ThreadMode, schedule.Enabled });
 
@@ -200,16 +239,23 @@ public sealed class ScheduleService(
 
     private string? FindProblem(ScheduleEdit edit) => FindWritingProblem(edit) ?? FindIntervalProblem(edit);
 
-    private static string? FindWritingProblem(ScheduleEdit edit)
+    private static string? FindTimeProblem(ScheduleEdit edit)
     {
         if (edit.Cron.Trim().Length > MaxCronLength || !CronExpression.TryParse(edit.Cron.Trim(), CronFormat.Standard, out _))
         {
             return "Write the time as five cron fields: minute, hour, day of month, month, day of week. For example 0 9 * * 1-5.";
         }
 
-        if (!TimeZoneInfo.TryFindSystemTimeZoneById(edit.TimeZone.Trim(), out _))
+        return TimeZoneInfo.TryFindSystemTimeZoneById(edit.TimeZone.Trim(), out _)
+            ? null
+            : "Choose a time zone by its IANA name, for example Europe/Berlin.";
+    }
+
+    private static string? FindWritingProblem(ScheduleEdit edit)
+    {
+        if (FindTimeProblem(edit) is { } problem)
         {
-            return "Choose a time zone by its IANA name, for example Europe/Berlin.";
+            return problem;
         }
 
         if (string.IsNullOrWhiteSpace(edit.Prompt) || edit.Prompt.Length > MaxPromptLength)

@@ -316,7 +316,11 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         var tooOften = await Create(world, host, "*/5 * * * *");
         var twiceAtNine = await Create(world, host, "0,10 9 * * *");
         var quarterly = await Create(world, host, "*/15 * * * *");
+        var checkedFirst = await AsPerson(world, host, world.UserId, services =>
+            Task.FromResult(services.GetRequiredService<ScheduleService>().Check("*/5 * * * *", "UTC")));
 
+        checkedFirst.Should().Match<ScheduleCheck>(check => check.Problem == tooOften.Problem && check.Next.Count == 0,
+            "checking a time before saving it refuses it with the sentence a save would");
         tooOften.Problem.Should().Be($"Schedules on this server run at most once every {DeploymentPolicy.HostedMinScheduleIntervalMinutes} minutes. Choose a time that repeats less often.");
         twiceAtNine.Problem.Should().NotBeNull("two times ten minutes apart are closer than the hosted floor, however rarely they come");
         quarterly.Problem.Should().BeNull();
@@ -343,6 +347,122 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
 
         third.Schedule.Should().BeNull();
         third.Problem.Should().Be("A space on this server holds at most 2 schedules. Remove one first.");
+    }
+
+    #endregion
+
+    #region Time Zones
+
+    [Theory]
+    [InlineData("0 8 * * *", "Europe/Berlin", "2026-03-28T12:00:00Z", "2026-03-29T06:00:00Z")]
+    [InlineData("0 8 * * *", "Europe/Berlin", "2026-10-24T12:00:00Z", "2026-10-25T07:00:00Z")]
+    [InlineData("30 2 * * *", "America/New_York", "2026-03-07T12:00:00Z", "2026-03-08T07:00:00Z")]
+    [InlineData("30 1 * * *", "America/New_York", "2026-10-31T12:00:00Z", "2026-11-01T05:30:00Z")]
+    [InlineData("0 9 * * 1-5", "Asia/Tokyo", "2026-01-02T12:00:00Z", "2026-01-05T00:00:00Z")]
+    public void A_schedule_runs_at_its_wall_clock_time_in_its_zone_across_daylight_saving_changes(string cron, string zone, string after, string expected)
+    {
+        var schedule = new BotSchedule { Cron = cron, TimeZone = zone, Prompt = Prompt };
+
+        ScheduleService.NextOccurrence(schedule, DateTimeOffset.Parse(after, CultureInfo.InvariantCulture))
+            .Should().Be(DateTimeOffset.Parse(expected, CultureInfo.InvariantCulture));
+    }
+
+    #endregion
+
+    #region Running Once
+
+    [Fact]
+    public async Task Running_once_now_starts_one_run_for_the_person_who_asked_in_their_own_conversation_and_leaves_the_schedule_as_it_was()
+    {
+        var clock = new MovableClock(Now());
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
+        var otherAdmin = await world.AddMember(MembershipRole.Admin);
+        var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
+        var sameThread = await AddSchedule(world, host, world.UserId, "0 18 * * *", ScheduleThreadMode.SameThread);
+        var before = await ReadSchedule(world, schedule.Id);
+
+        var byOtherAdmin = await RunOnce(world, host, otherAdmin, schedule.Id);
+        var byOwner = await RunOnce(world, host, world.UserId, schedule.Id);
+        var intoMain = await RunOnce(world, host, otherAdmin, sameThread.Id);
+        var due = await SendDue(host);
+
+        new[] { byOtherAdmin, byOwner, intoMain }.Should().OnlyContain(trial => trial.Problem == null && trial.ThreadId != null && trial.RunId != null);
+        due.Should().Be(0, "running a schedule once does not make it due");
+        var runs = await world.Read(db => db.Runs.AsNoTracking().ToListAsync(RunWorld.Token));
+        runs.Should().HaveCount(3, "each press starts exactly one run");
+        var asked = runs.Single(run => run.Id == byOtherAdmin.RunId);
+        asked.Should().Match<Run>(run => run.PrincipalUserId == otherAdmin && run.Trigger == RunTrigger.Schedule && run.ThreadId == byOtherAdmin.ThreadId);
+        (await ReadThreadAs(world, otherAdmin, byOtherAdmin.ThreadId!.Value)).Should().Match<ChatThread>(thread =>
+            thread.OwnerUserId == otherAdmin && thread.AudienceUserId == otherAdmin && thread.Origin == ThreadOrigin.Schedule && !thread.IsMain);
+        (await ReadMessagesAs(world, otherAdmin, byOtherAdmin.ThreadId.Value)).Should().ContainSingle().Which.Should().Match<Message>(message =>
+            message.AuthorUserId == otherAdmin && message.ScheduleId == schedule.Id);
+        runs.Single(run => run.Id == byOwner.RunId).PrincipalUserId.Should().Be(world.UserId);
+        byOwner.ThreadId.Should().NotBe(byOtherAdmin.ThreadId!.Value);
+        (await ReadThreadAs(world, otherAdmin, intoMain.ThreadId!.Value)).Should().Match<ChatThread>(thread =>
+            thread.IsMain && thread.OwnerUserId == otherAdmin && thread.AudienceUserId == otherAdmin,
+            "the same thread is the main conversation of the person who asked, never the owner's");
+        var ownerSees = await AsPerson(world, host, world.UserId, services =>
+            services.GetRequiredService<ThreadService>().FindThread(byOtherAdmin.ThreadId.Value, world.UserId, RunWorld.Token));
+        ownerSees.Should().BeNull("the conversation is private to the admin who ran it");
+        (await ReadSchedule(world, schedule.Id)).Should().Match<BotSchedule>(after =>
+            after.NextRunAt == before.NextRunAt && after.LastRunId == null && after.LastRunAt == null && after.LastOutcome == null && after.Enabled);
+    }
+
+    [Fact]
+    public async Task Running_once_on_a_paused_bot_says_why_and_an_unknown_schedule_is_not_found()
+    {
+        var clock = new MovableClock(Now());
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
+        var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
+        await world.Read(db => db.Bots.Where(bot => bot.Id == world.BotId)
+            .ExecuteUpdateAsync(set => set.SetProperty(bot => bot.Status, BotStatus.Paused), RunWorld.Token));
+
+        var paused = await RunOnce(world, host, world.UserId, schedule.Id);
+        var unknown = await RunOnce(world, host, world.UserId, Guid.CreateVersion7());
+
+        paused.Problem.Should().EndWith("is paused, so its routines do not run. Resume it first.");
+        paused.ThreadId.Should().BeNull();
+        unknown.Should().Be(ScheduleTrial.NotFound);
+        (await world.Read(db => db.Runs.AnyAsync(RunWorld.Token))).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Last Outcome
+
+    [Fact]
+    public async Task The_last_run_is_told_in_full_only_to_someone_who_can_see_its_conversation()
+    {
+        const string Reason = "The model connection could not be reached.";
+        var clock = new MovableClock(Now());
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var host = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
+        var otherAdmin = await world.AddMember(MembershipRole.Admin);
+        var schedule = await AddSchedule(world, host, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
+        await MakeDue(world, clock, TimeSpan.FromMinutes(1));
+        await SendDue(host);
+        var run = await world.Read(db => db.Runs.AsNoTracking().SingleAsync(RunWorld.Token));
+        await world.Read(db => db.Runs.Where(found => found.Id == run.Id).ExecuteUpdateAsync(
+            set => set.SetProperty(found => found.Status, RunStatus.Failed).SetProperty(found => found.Error, new RunError("model_unreachable", Reason)),
+            RunWorld.Token));
+
+        var toOwner = (await ListSchedules(world, host, world.UserId)).Single().ToResponse();
+        var toOtherAdmin = (await ListSchedules(world, host, otherAdmin)).Single().ToResponse();
+        var turnedOffByOtherAdmin = await Edit(world, host, otherAdmin, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", Prompt, ScheduleThreadMode.NewThread, false));
+        var changedByOwner = await Edit(world, host, world.UserId, schedule.Id, new ScheduleEdit("0 9 * * *", "UTC", Prompt, ScheduleThreadMode.NewThread, true));
+
+        toOwner.Should().Match<BotScheduleResponse>(response =>
+            response.LastOutcome == "failed" && response.LastRunId == run.Id && response.LastThreadId == run.ThreadId && response.LastReason == Reason);
+        toOtherAdmin.Should().Match<BotScheduleResponse>(response =>
+            response.LastOutcome == "started" && response.LastRunId == null && response.LastThreadId == null && response.LastReason == null
+            && response.LastRunAt == toOwner.LastRunAt && response.LastRunAt != null,
+            "another admin learns that it ran, and nothing from the owner's private conversation");
+        turnedOffByOtherAdmin.ToResponse().Should().Match<BotScheduleResponse>(response =>
+            response.LastOutcome == "started" && response.LastRunId == null && response.LastThreadId == null && response.LastReason == null);
+        changedByOwner.ToResponse().Should().Match<BotScheduleResponse>(response =>
+            response.LastOutcome == "failed" && response.LastThreadId == run.ThreadId && response.LastReason == Reason);
     }
 
     #endregion
@@ -395,9 +515,25 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         AsPerson(world, host, actorUserId, services =>
             services.GetRequiredService<ScheduleService>().Update(world.BotId, scheduleId, edit, actorUserId, RunWorld.Token));
 
-    private static Task<List<ScheduleView>> ListSchedules(RunWorld world, EngineHost host) =>
-        AsPerson(world, host, world.UserId, async services =>
+    private static Task<List<ScheduleView>> ListSchedules(RunWorld world, EngineHost host, Guid? userId = null) =>
+        AsPerson(world, host, userId ?? world.UserId, async services =>
             (await services.GetRequiredService<ScheduleService>().ListSchedules(world.BotId, RunWorld.Token))!);
+
+    private static Task<ChatThread> ReadThreadAs(RunWorld world, Guid userId, Guid threadId) =>
+        world.TransactAs(world.SpaceId, userId, services => services.GetRequiredService<DroverDbContext>().Threads.AsNoTracking()
+            .SingleAsync(thread => thread.Id == threadId, RunWorld.Token));
+
+    private static Task<List<Message>> ReadMessagesAs(RunWorld world, Guid userId, Guid threadId) =>
+        world.TransactAs(world.SpaceId, userId, services => services.GetRequiredService<DroverDbContext>().Messages.AsNoTracking()
+            .Where(message => message.ThreadId == threadId).ToListAsync(RunWorld.Token));
+
+    /// <summary>"Run once now" as a request makes it: the person set, no scope open, since the firing opens its own.</summary>
+    private static async Task<ScheduleTrial> RunOnce(RunWorld world, EngineHost host, Guid userId, Guid scheduleId)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, userId);
+        return await scope.ServiceProvider.GetRequiredService<ScheduleFiring>().RunOnce(world.BotId, scheduleId, userId, RunWorld.Token);
+    }
 
     private static Task<BotSchedule> ReadSchedule(RunWorld world, Guid scheduleId) =>
         world.Read(db => db.BotSchedules.AsNoTracking().SingleAsync(schedule => schedule.Id == scheduleId, RunWorld.Token));

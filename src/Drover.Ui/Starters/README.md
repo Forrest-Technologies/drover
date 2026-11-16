@@ -46,8 +46,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #152 | `HistoryWords.cs`, `HistoryList.razor`, `LineDiff.cs`, `DiffView.razor` | A bot's changes as sentences, values before and after, a line-by-line comparison |
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
-| #157 | `RoutineWords.cs`, `RoutineRow.razor`, `RoutineWhenFields.razor` | A routine as a sentence, building a schedule without cron, next run and last outcome |
-| #158 | `RoutineWords.cs` (`Proposal`) | The facts an approval card shows for a routine a bot proposes. The card itself is the existing `ToolCallCard` |
 | #159 | `RoutineCallWords.cs`, `RoutineCallAddress.razor` | A routine's address, its secret shown once, today's calls |
 | #163 | `UsageWords.cs`, `UsageTable.razor` | Cost and tokens per bot as a hierarchy, the order, unknown prices |
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
