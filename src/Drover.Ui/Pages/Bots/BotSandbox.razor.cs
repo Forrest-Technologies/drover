@@ -9,6 +9,7 @@ namespace Drover.Ui.Pages.Bots;
 public sealed partial class BotSandbox(
     DroverApi api,
     SessionState session,
+    NavigationManager navigation,
     ToastService toasts,
     TimeProvider time,
     ILogger<BotSandbox> logger) : IAsyncDisposable
@@ -71,7 +72,7 @@ public sealed partial class BotSandbox(
     [Parameter]
     public Guid BotId { get; set; }
 
-    /// <summary>A link can open directly to the terminal.</summary>
+    /// <summary>A link can open directly to either tab.</summary>
     [SupplyParameterFromQuery(Name = "tab")]
     public string? Tab { get; set; }
 
@@ -133,9 +134,9 @@ public sealed partial class BotSandbox(
             view = Tab is TerminalView ? TerminalView : null;
             await Load();
         }
-        else if (Tab is TerminalView)
+        else if (status is not null)
         {
-            view = TerminalView;
+            view = Tab is TerminalView || !status.Desktop ? TerminalView : ScreenView;
         }
     }
 
@@ -310,6 +311,12 @@ public sealed partial class BotSandbox(
 
     #region Terminal
 
+    private void SelectView(string selected)
+    {
+        view = selected;
+        navigation.NavigateTo(navigation.GetUriWithQueryParameter("tab", selected), replace: true);
+    }
+
     private async Task OpenTerminal()
     {
         if (busy)
@@ -322,7 +329,7 @@ public sealed partial class BotSandbox(
         try
         {
             await api.SendBotSandboxInput(SpaceId, BotId, new SandboxInputRequest("open_terminal"), disposal.Token);
-            view = ScreenView;
+            SelectView(ScreenView);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {

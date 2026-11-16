@@ -76,7 +76,32 @@ public sealed class BotSandboxTests : ScreenTest
         page.WaitForAssertion(() => page.Find(".dv-sandbox-state .dv-badge").TextContent.Should().Be("Paused"));
         page.Find("[role=group][aria-label=Power] .dv-button-primary").TextContent.Trim().Should().Be("Resume");
         page.Find(".dv-sandbox-screen").TextContent.Should().Contain("Resume it to see the screen");
+        page.FindAll(".dv-sandbox-screen [role=switch]").Should().BeEmpty();
         Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("looking at a paused sandbox would resume it");
+    }
+
+    [Fact]
+    public async Task Pausing_discards_the_old_picture_and_input_and_resuming_returns_to_view_only()
+    {
+        Answer(Status("running"));
+        var page = await RenderInControl();
+        await page.FindAll(".dv-sandbox-options label")
+            .Single(label => label.TextContent.Contains("Type a password", StringComparison.Ordinal))
+            .QuerySelector("input")!.ChangeAsync(new ChangeEventArgs { Value = true });
+        await page.Find(".dv-sandbox-type input").InputAsync(new ChangeEventArgs { Value = "unsent sample" });
+
+        Server.Answer("POST", $"{sandbox}/pause", Status("paused"));
+        await PowerButton(page, "Pause").ClickAsync(new MouseEventArgs());
+        page.FindAll(".dv-sandbox-screen img, .dv-sandbox-screen [role=switch], .dv-sandbox-type").Should().BeEmpty();
+
+        Server.Answer("POST", $"{sandbox}/resume", Status("running"));
+        await PowerButton(page, "Resume").ClickAsync(new MouseEventArgs());
+        (await PicturesWithin(2, TimeSpan.FromSeconds(3))).Should().Be(2);
+        page.WaitForAssertion(() => page.Find(".dv-sandbox-controlbar input").HasAttribute("checked").Should().BeFalse());
+        await page.Find(".dv-sandbox-controlbar input").ChangeAsync(new ChangeEventArgs { Value = true });
+        page.Find(".dv-sandbox-type input").GetAttribute("value").Should().BeEmpty();
+        page.Find(".dv-sandbox-type input").GetAttribute("type").Should().Be("text");
+        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty();
     }
 
     [Fact]
@@ -334,6 +359,7 @@ public sealed class BotSandboxTests : ScreenTest
         Pictures().Should().Be(1, "each try asks the provider for a sandbox, so only a tap tries again");
 
         Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        Answer(Status("running"));
         await WakeButton(page).ClickAsync(new MouseEventArgs());
 
         (await PicturesWithin(2)).Should().Be(2);
@@ -822,6 +848,7 @@ public sealed class BotSandboxTests : ScreenTest
             .Single(button => button.TextContent.Trim() == "Open interactive terminal").ClickAsync(new MouseEventArgs());
 
         page.WaitForAssertion(() => page.Find("[role=tab][aria-selected=true]").TextContent.Should().Be("Screen"));
+        Navigation.Uri.Should().EndWith("?tab=screen");
         Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("open_terminal");
     }
 

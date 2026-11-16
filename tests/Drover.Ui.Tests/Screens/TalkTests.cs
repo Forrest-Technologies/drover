@@ -98,6 +98,24 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
+    public void Opening_a_panel_directly_keeps_loading_and_retry_visible_until_the_panel_is_ready()
+    {
+        var bots = Server.Hold("GET", $"{space}/bots");
+        Navigation.NavigateTo($"/talk/{botId}/screen");
+        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId).Add(talk => talk.Rail, "screen"));
+
+        page.Find(".dv-shell-at-main main [role=status]").TextContent.Should().Be("Loading your space.");
+        Server.Answer("GET", $"{space}/bots", HttpStatusCode.InternalServerError);
+        bots.SetResult();
+        page.WaitForAssertion(() => page.Find(".dv-shell-at-main main .dv-empty-title").TextContent.Should().Be("Drover could not load this space"));
+
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        page.Find("main .dv-empty button").Click();
+        page.WaitForAssertion(() => page.Find(".dv-shell-at-side aside h1").TextContent.Should().Be("Screen"));
+    }
+
+    [Fact]
     public void The_pages_title_is_drawn_while_the_space_is_still_loading_and_names_the_bot_once_it_has()
     {
         var bots = Server.Hold("GET", $"{space}/bots");

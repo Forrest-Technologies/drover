@@ -136,6 +136,8 @@ public sealed partial class SandboxScreen(
     /// </summary>
     private bool WatchesScreen => visible && Status.Desktop && (waking || Status.State is "running");
 
+    private bool DesktopReady => Status is { Desktop: true, State: "running" } && picture is not null;
+
     private string? ScreenNote => waking ? null : Status.State switch
     {
         "none" when Status.StartFailed => "The last start of this sandbox did not finish. Start it here to see why.",
@@ -233,8 +235,6 @@ public sealed partial class SandboxScreen(
 
     #region Overrides
 
-    // A sandbox that is gone or being replaced shows no picture of the one before it. One the person is starting here
-    // keeps its picture until the state catches up and says it runs.
     protected override void OnParametersSet()
     {
         if (Held != heldSeen)
@@ -246,10 +246,17 @@ public sealed partial class SandboxScreen(
         {
             (waking, wakeFailed) = (false, false);
         }
-
-        if (!waking && Status.State is "none" or "replacing")
+        else if (!waking)
         {
+            if (picture is not null)
+            {
+                (screenProblem, failures) = (null, 0);
+            }
+
             picture = null;
+            typed = string.Empty;
+            passwordMode = false;
+            control = Held;
         }
     }
 
@@ -358,6 +365,11 @@ public sealed partial class SandboxScreen(
         try
         {
             var png = await api.GetBotSandboxScreen(SpaceId, BotId, stop);
+            if (!woke && Status.State is not "running")
+            {
+                return;
+            }
+
             (pictureWidth, pictureHeight) = SizeOf(png) ?? throw new InvalidDataException("The screen's answer was not a PNG picture.");
             picture = $"data:image/png;base64,{Convert.ToBase64String(png)}";
             (screenProblem, failures) = (null, 0);
@@ -369,6 +381,11 @@ public sealed partial class SandboxScreen(
         }
         catch (Exception exception)
         {
+            if (!woke && Status.State is not "running")
+            {
+                return;
+            }
+
             // Whatever goes wrong with one picture, it says so and the next one still comes, later each time: only
             // closing the screen ends the refresh.
             logger.Log(
@@ -508,6 +525,11 @@ public sealed partial class SandboxScreen(
     /// <summary>Sends one input, then shows the screen it left, so the person sees what it did.</summary>
     private async Task<bool> Send(SandboxInputRequest input)
     {
+        if (!DesktopReady || sending || (!control && input.Kind is not "open_terminal"))
+        {
+            return false;
+        }
+
         sending = true;
         screenProblem = null;
         var sent = false;

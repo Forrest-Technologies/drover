@@ -8,7 +8,7 @@
 <PageTitle>@PageName</PageTitle>
 
 <SessionGate>
-    <div class="dv-shell dv-shell-at-@At @(Side is SideView.Closed ? null : "dv-shell-with-rail") @(Side is SideView.Screen ? "dv-shell-with-screen" : null)">
+    <div class="dv-shell dv-shell-at-@At @(CanShowRail ? "dv-shell-with-rail" : null) @(CanShowRail && Side is SideView.Screen ? "dv-shell-with-screen" : null)">
         <div class="dv-shell-list">
             <header class="dv-shell-list-header">
                 <span class="dv-wordmark"><DroverMark />Drover</span>
@@ -95,7 +95,7 @@
                                   HeldCallId="HeldCallId" ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" OnTakeoverChanged="MainTakeoverChanged" />
             }
         </main>
-        @if (Side is not SideView.Closed && Shown is not null && NotReady is null)
+        @if (CanShowRail && Shown is not null)
         {
             <aside class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
