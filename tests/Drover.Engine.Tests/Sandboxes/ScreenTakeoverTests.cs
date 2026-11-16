@@ -46,7 +46,8 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         var call = (await world.ReadToolCalls(runId)).Single();
 
         (await HandBack(world, call.Id, done: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
-        (await world.ReadRun(runId)).StatusReason.Should().Be(RunReasons.AwaitingApproval, "the screen is free once the answer is stored");
+        // Waiting for a worker (awaiting_approval) or already taken up (no reason): either way the screen is free.
+        (await world.ReadRun(runId)).StatusReason.Should().NotBe(RunReasons.AwaitingTakeover, "the screen is free once the answer is stored");
         var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
         run.Status.Should().Be(RunStatus.Completed);
