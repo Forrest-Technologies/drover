@@ -287,8 +287,8 @@ public sealed class TalkTests : ScreenTest
 
         page.Find("aside input[role=switch]").Change(true);
 
-        page.Find("aside button.dv-sandbox-picture").GetAttribute("aria-label").Should().StartWith("Marshal's sandbox screen. Tap to click there");
-        page.Find("aside .dv-sandbox-screen [role=status]").TextContent.Should().Contain("You have control");
+        page.Find("aside button.dv-sandbox-picture").GetAttribute("aria-label").Should().StartWith("Marshal's sandbox screen. Click or tap the desktop");
+        page.Find("aside .dv-sandbox-screen [role=status]").TextContent.Should().Contain("Clicks and keys go to the sandbox");
     }
 
     [Fact]

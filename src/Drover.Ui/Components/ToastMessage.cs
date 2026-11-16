@@ -4,7 +4,10 @@ namespace Drover.Ui.Components;
 /// One toast on screen. The id is what a dismissal names. <see cref="Action"/> is the one thing the toast offers
 /// besides dismissing it, such as Undo.
 /// </summary>
-public sealed record ToastMessage(long Id, string Message, ToastKind Kind, ToastAction? Action = null);
+public sealed record ToastMessage(long Id, string Message, ToastKind Kind, ToastAction? Action = null)
+{
+    internal bool Held { get; init; }
+}
 
 
 /// <summary>

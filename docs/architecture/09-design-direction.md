@@ -232,6 +232,8 @@ The gallery is the page `/dev/gallery`. It renders only when the host reports a 
 
 The set is small: Button, IconButton, Field, Select, Switch, SegmentedControl, Dialog, Sheet, Menu, Tooltip, Toast, Avatar, Badge, Tabs, Tree, Timeline, MarkdownView, CodeBlock, EmptyState. Each has component tests and a page in an in-app gallery (development builds only) that doubles as the visual reference.
 
+A routine notification clears after six seconds. Warnings and errors stay until dismissed. An Undo remains available through its deadline, and a notification stays visible if its control has taken keyboard focus.
+
 ## Markdown
 
 Markdig, as decided. No reason was found to do otherwise.

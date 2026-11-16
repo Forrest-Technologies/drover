@@ -314,7 +314,7 @@ public sealed partial class BotEditor(
                 await ApplyGrants(staged);
                 justSaved = true;
                 editingHandle = false;
-                toasts.Show($"{saved!.Name} is saved.");
+                toasts.Show($"Settings saved for {saved!.Name}.", ToastKind.Success);
             },
             problem => saveProblem = problem);
         saving = false;

@@ -1,14 +1,16 @@
 namespace Drover.Ui.Components;
 
 /// <summary>
-/// Holds the toasts on screen. Anything can show one; <see cref="ToastHost"/> renders them.
-/// A toast stays until the person dismisses it, so nothing is lost to a timer.
+/// Holds the toasts on screen. Routine confirmations clear after a short delay. Warnings, errors and actions stay
+/// available for the person reading them.
 /// </summary>
 public sealed class ToastService(TimeProvider time)
 {
     #region Private Fields
 
-    private readonly List<ToastMessage> toasts = [];
+    private static readonly TimeSpan toastLifetime = TimeSpan.FromSeconds(6);
+
+    private ImmutableList<ToastMessage> toasts = [];
 
     private long lastId;
 
@@ -26,40 +28,73 @@ public sealed class ToastService(TimeProvider time)
 
     public void Show(string message, ToastKind kind = ToastKind.Info, ToastAction? action = null)
     {
-        var toast = new ToastMessage(++lastId, message, kind, action);
-        toasts.Add(toast);
+        var toast = new ToastMessage(Interlocked.Increment(ref lastId), message, kind, action);
+        ImmutableInterlocked.Update(ref toasts, items => items.Add(toast));
+
         Changed?.Invoke();
-        if (action?.Until is { } until)
-        {
-            _ = WithdrawActionAt(toast.Id, until);
-        }
+        _ = Expire(toast);
     }
 
-    public void Dismiss(long id)
-    {
-        if (toasts.RemoveAll(toast => toast.Id == id) > 0)
-        {
-            Changed?.Invoke();
-        }
-    }
+    public void Dismiss(long id) => Remove(id, automatic: false);
+
+    /// <summary>Keep a toast on screen once someone focuses one of its controls.</summary>
+    public void Hold(long id) => UpdateToast(id, toast => toast with { Held = true });
 
     #endregion
 
     #region Private Methods
 
-    // Once an action has run out, its toast says only its message: a control that can no longer work does not stay.
-    private async Task WithdrawActionAt(long id, DateTimeOffset until)
+    private async Task Expire(ToastMessage toast)
     {
-        var left = until - time.GetUtcNow();
-        if (left > TimeSpan.Zero)
+        if (toast.Action is { } action)
         {
-            await Task.Delay(left, time);
+            if (action.Until is not { } until)
+            {
+                return;
+            }
+
+            var left = until - time.GetUtcNow();
+            if (left > TimeSpan.Zero)
+            {
+                await Task.Delay(left, time);
+            }
+
+            if (!WithdrawAction(toast.Id))
+            {
+                return;
+            }
         }
 
-        var index = toasts.FindIndex(toast => toast.Id == id);
-        if (index >= 0)
+        if (toast.Kind is ToastKind.Info or ToastKind.Success)
         {
-            toasts[index] = toasts[index] with { Action = null };
+            await Task.Delay(toastLifetime, time);
+            Remove(toast.Id, automatic: true);
+        }
+    }
+
+    private bool WithdrawAction(long id)
+    {
+        if (!UpdateToast(id, toast => toast with { Action = null }))
+        {
+            return false;
+        }
+
+        Changed?.Invoke();
+        return true;
+    }
+
+    private bool UpdateToast(long id, Func<ToastMessage, ToastMessage> update) =>
+        ImmutableInterlocked.Update(ref toasts, items =>
+        {
+            var index = items.FindIndex(toast => toast.Id == id);
+            return index < 0 ? items : items.SetItem(index, update(items[index]));
+        });
+
+    private void Remove(long id, bool automatic)
+    {
+        if (ImmutableInterlocked.Update(ref toasts, items =>
+                items.RemoveAll(toast => toast.Id == id && (!automatic || !toast.Held))))
+        {
             Changed?.Invoke();
         }
     }
