@@ -66,15 +66,18 @@ jobs:
         run: |
           dotnet publish src/Drover.App/Drover.App.csproj -c Release -warnaserror \
             "-p:ApplicationDisplayVersion=$DISPLAY_VERSION" "-p:ApplicationVersion=$GITHUB_RUN_NUMBER"
-          dotnet format Drover.Apps.slnx --no-restore --verify-no-changes
-          dotnet tool restore
-          dotnet tool run nuget-license -- -i Drover.Apps.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-android-apk
           path: src/Drover.App/bin/Release/net11.0-android/publish/com.forresttechnologies.drover.preview.apk
           if-no-files-found: error
           retention-days: 1
+      - name: Check formatting and dependency licenses
+        run: |
+          # The release compiler checks analyzers; the format workspace does not generate the Razor components.
+          dotnet format whitespace Drover.Apps.slnx --no-restore --verify-no-changes
+          dotnet tool restore
+          dotnet tool run nuget-license -- -i Drover.Apps.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -err
 
   sign:
     name: Sign and verify APK
