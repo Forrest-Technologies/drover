@@ -103,8 +103,8 @@ public sealed class SandboxWordsTests
     {
         var now = DateTimeOffset.UtcNow;
 
-        SandboxWords.Summary(new BotSandboxStatus(true, true, "running", now.AddMinutes(-5), false, false), now).Should().Be("Running · used 5 minutes ago");
-        SandboxWords.Summary(new BotSandboxStatus(true, true, "none", null, false, false), now).Should().Be("No sandbox yet");
+        SandboxWords.Summary(new BotSandboxStatus(true, true, "running", now.AddMinutes(-5), false, false, true), now).Should().Be("Running · used 5 minutes ago");
+        SandboxWords.Summary(new BotSandboxStatus(true, true, "none", null, false, false, true), now).Should().Be("No sandbox yet");
     }
 
     [Fact]

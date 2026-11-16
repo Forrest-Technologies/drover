@@ -344,7 +344,7 @@ public sealed class BotEditorTests : ScreenTest
     public async Task The_sandbox_section_says_how_the_sandbox_is_now_and_leads_to_its_screen()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
-        Server.Answer("GET", $"{bot}/sandbox", new BotSandboxStatus(true, true, "paused", DateTimeOffset.UtcNow.AddMinutes(-10.5), Desktop: true, BotWorking: false));
+        Server.Answer("GET", $"{bot}/sandbox", new BotSandboxStatus(true, true, "paused", DateTimeOffset.UtcNow.AddMinutes(-10.5), Desktop: true, BotWorking: false, DesktopOffered: true));
         var page = RenderEditor();
         await Open(page, 5);
 
