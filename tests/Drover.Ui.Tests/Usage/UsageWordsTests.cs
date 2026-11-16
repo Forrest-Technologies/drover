@@ -63,10 +63,32 @@ public sealed class UsageWordsTests
     [Fact]
     public void Runs_in_conversations_the_person_cannot_open_are_one_total_that_names_none_of_them()
     {
-        UsageWords.Unopened(new(1, new(0.40m, 400, 40)), "USD")
+        UsageWords.Unopened(new(1, new(0.40m, 400, 40)), "USD", afterListed: true)
             .Should().Be("One more run is in a conversation you cannot open: USD 0.40, 400 tokens in, 40 out.");
-        UsageWords.Unopened(new(3, new(null, 400, 40)), "USD")
+        UsageWords.Unopened(new(3, new(null, 400, 40, true)), "USD", afterListed: true)
             .Should().Be("3 more runs are in conversations you cannot open. Together: price not known, 400 tokens in, 40 out.");
+        UsageWords.Unopened(new(1, new(0.40m, 400, 40)), "USD", afterListed: false)
+            .Should().Be("One run is in a conversation you cannot open: USD 0.40, 400 tokens in, 40 out.", "nothing is listed above it to be more than");
+        UsageWords.Unopened(new(2, new(0.40m, 400, 40)), "USD", afterListed: false)
+            .Should().Be("2 runs are in conversations you cannot open. Together: USD 0.40, 400 tokens in, 40 out.");
+    }
+
+    [Fact]
+    public void A_call_priced_in_another_currency_is_named_and_never_called_unpriced()
+    {
+        UsageFigure onlyEuro = new(null, 10, 1, UncountedCurrencies: "EUR");
+        UsageFigure mixed = new(1.00m, 10, 1, UncountedCurrencies: "EUR");
+        UsageFigure everything = new(1.00m, 10, 1, LeavesOutUnpriced: true, UncountedCurrencies: "EUR, GBP");
+        UsageFigure unpricedAndEuro = new(null, 10, 1, LeavesOutUnpriced: true, UncountedCurrencies: "EUR");
+
+        UsageWords.Cost(onlyEuro, "USD").Should().Be("priced in EUR");
+        UsageWords.LeftOut(onlyEuro).Should().BeNull("its cost already says where its price is");
+        UsageWords.Cost(mixed, "USD").Should().Be("USD 1.00");
+        UsageWords.LeftOut(mixed).Should().Be("Not counting calls priced in EUR");
+        UsageWords.LeftOut(everything).Should().Be("Not counting models whose price is not known. Not counting calls priced in EUR, GBP");
+        UsageWords.Cost(unpricedAndEuro, "USD").Should().Be("price not known");
+        UsageWords.LeftOut(unpricedAndEuro).Should().Be("Some calls priced in EUR", "with no sum there is nothing to leave them out of");
+        UsageWords.Cost(new(null, 10, 1, LeavesOutUnpriced: true), "USD").Should().Be("price not known");
     }
 
     [Fact]

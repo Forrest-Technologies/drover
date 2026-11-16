@@ -1,14 +1,22 @@
 namespace Drover.Contracts.Runs;
 
 /// <summary>
-/// What a bot, a run, or a tree of runs used. <see cref="Cost"/> is null when no model it ran on has a known price.
-/// <see cref="LeavesOutUnpriced"/> is true when the cost is a sum that some unpriced use is missing from.
+/// What a bot, a run, or a tree of runs used. <see cref="Cost"/> counts the calls priced in the period's currency, and
+/// is null when none was. <see cref="LeavesOutUnpriced"/> is true when some calls were on a model whose price is not
+/// known. <see cref="UncountedCurrencies"/> names the other currencies some calls were priced in, such as "EUR", or is
+/// null when there were none; those calls are not in <see cref="Cost"/> either.
 /// </summary>
-public sealed record UsageFigure(decimal? Cost, long InputTokens, long OutputTokens, bool LeavesOutUnpriced = false);
+public sealed record UsageFigure(
+    decimal? Cost,
+    long InputTokens,
+    long OutputTokens,
+    bool LeavesOutUnpriced = false,
+    string? UncountedCurrencies = null);
 
 /// <summary>
 /// One bot's usage and the bots beneath it. <see cref="WithBeneath"/> is null for a bot with none beneath it that
-/// used anything. <see cref="Model"/> is the model the bot is set to now.
+/// used anything. <see cref="Model"/> is the model the bot is set to now. <see cref="IsRemoved"/> is true for a bot
+/// removed since: what it used still counts.
 /// </summary>
 public sealed record UsageNode(
     Guid BotId,
@@ -16,7 +24,8 @@ public sealed record UsageNode(
     string Model,
     UsageFigure Own,
     UsageFigure? WithBeneath,
-    IReadOnlyList<UsageNode> Children);
+    IReadOnlyList<UsageNode> Children,
+    bool IsRemoved = false);
 
 /// <summary>
 /// What the crew used in a period that began at <see cref="Since"/>, in the viewer's time zone. <see cref="Currency"/>

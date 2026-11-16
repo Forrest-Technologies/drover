@@ -1,16 +1,24 @@
 namespace Drover.Data.Repositories;
 
 /// <summary>
-/// The sums of a set of model calls: tokens in and out, the cost of the calls priced in the currency asked for, and
-/// how many calls were priced in it and how many were not (no known price, or another currency).
+/// The sums of a set of model calls: tokens in and out, the cost of the calls priced in the currency asked for, how
+/// many calls were priced in it, how many had no known price, and how many were priced in another currency, with
+/// those currencies named ("EUR, GBP").
 /// </summary>
-public sealed record UsageSum(long InputTokens, long OutputTokens, decimal Cost, int PricedCalls, int UnpricedCalls)
+public sealed record UsageSum(
+    long InputTokens,
+    long OutputTokens,
+    decimal Cost,
+    int PricedCalls,
+    int UnpricedCalls,
+    int OtherCurrencyCalls = 0,
+    string? OtherCurrencies = null)
 {
     #region Properties
 
     public static UsageSum None { get; } = new(0, 0, 0, 0, 0);
 
-    public bool IsEmpty => PricedCalls + UnpricedCalls == 0;
+    public bool IsEmpty => PricedCalls + UnpricedCalls + OtherCurrencyCalls == 0;
 
     #endregion
 
@@ -22,7 +30,21 @@ public sealed record UsageSum(long InputTokens, long OutputTokens, decimal Cost,
             OutputTokens + other.OutputTokens,
             Cost + other.Cost,
             PricedCalls + other.PricedCalls,
-            UnpricedCalls + other.UnpricedCalls);
+            UnpricedCalls + other.UnpricedCalls,
+            OtherCurrencyCalls + other.OtherCurrencyCalls,
+            JoinCurrencies(OtherCurrencies, other.OtherCurrencies));
+
+    #endregion
+
+    #region Private Methods
+
+    private static string? JoinCurrencies(string? one, string? other) =>
+        (one, other) switch
+        {
+            (null, _) => other,
+            (_, null) => one,
+            _ => string.Join(", ", one.Split(", ").Union(other.Split(", ")).Order(StringComparer.Ordinal)),
+        };
 
     #endregion
 }
@@ -43,27 +65,20 @@ public sealed class UsageRepository(DroverDbContext db)
 {
     #region Reads
 
-    /// <summary>The currency most of the calls since then were priced in, or null when there were none.</summary>
+    /// <summary>The currency most of the priced calls since then were priced in, or null when none had a price.</summary>
     public Task<string?> FindCurrency(DateTimeOffset since, Guid? principalUserId, CancellationToken cancellationToken) =>
         Currency(Calls(since, principalUserId), cancellationToken);
 
-    /// <summary>The currency most of the runs' calls were priced in, or null when they made none.</summary>
+    /// <summary>The currency most of the runs' priced calls were priced in, or null when none had a price.</summary>
     public Task<string?> FindCurrency(IReadOnlyCollection<Guid> runIds, CancellationToken cancellationToken) =>
         Currency(db.UsageRecords.Where(usage => runIds.Contains(usage.RunId)), cancellationToken);
 
     /// <summary>Each bot that made a call since then, and what its calls add up to.</summary>
-    public Task<List<BotUsageSum>> ListBotSums(DateTimeOffset since, Guid? principalUserId, string currency, CancellationToken cancellationToken) =>
-        Calls(since, principalUserId)
-            .GroupBy(usage => usage.BotId)
-            .Select(calls => new BotUsageSum(
-                calls.Key,
-                new UsageSum(
-                    calls.Sum(usage => usage.InputTokens),
-                    calls.Sum(usage => usage.OutputTokens),
-                    calls.Sum(usage => usage.Currency == currency ? usage.Cost : null) ?? 0,
-                    calls.Count(usage => usage.Cost != null && usage.Currency == currency),
-                    calls.Count(usage => usage.Cost == null || usage.Currency != currency))))
-            .ToListAsync(cancellationToken);
+    public async Task<List<BotUsageSum>> ListBotSums(DateTimeOffset since, Guid? principalUserId, string currency, CancellationToken cancellationToken) =>
+        [
+            .. (await BotSums(since, principalUserId, currency).ToListAsync(cancellationToken))
+                .Select(sum => sum with { Usage = sum.Usage with { OtherCurrencies = NoneIfEmpty(sum.Usage.OtherCurrencies) } }),
+        ];
 
     /// <summary>
     /// The bot's runs since then that cost the most, in conversations the viewer can see: priced runs first, by cost,
@@ -91,7 +106,11 @@ public sealed class UsageRepository(DroverDbContext db)
                     OutputTokens = calls.Sum(usage => usage.OutputTokens),
                     Cost = calls.Sum(usage => usage.Currency == currency ? usage.Cost : null) ?? 0,
                     Priced = calls.Count(usage => usage.Cost != null && usage.Currency == currency),
-                    Unpriced = calls.Count(usage => usage.Cost == null || usage.Currency != currency),
+                    Unpriced = calls.Count(usage => usage.Cost == null),
+                    Other = calls.Count(usage => usage.Cost != null && usage.Currency != currency),
+                    OtherCurrencies = string.Join(
+                        ", ",
+                        calls.Where(usage => usage.Cost != null && usage.Currency != currency).Select(usage => usage.Currency).Distinct()),
                 })
             .OrderBy(run => run.Priced == 0)
             .ThenByDescending(run => run.Cost)
@@ -109,7 +128,7 @@ public sealed class UsageRepository(DroverDbContext db)
                 run.Key.IsMain,
                 run.Key.Title,
                 run.At,
-                new UsageSum(run.InputTokens, run.OutputTokens, run.Cost, run.Priced, run.Unpriced))),
+                new UsageSum(run.InputTokens, run.OutputTokens, run.Cost, run.Priced, run.Unpriced, run.Other, NoneIfEmpty(run.OtherCurrencies)))),
         ];
     }
 
@@ -141,6 +160,20 @@ public sealed class UsageRepository(DroverDbContext db)
 
     #region Private Methods
 
+    private IQueryable<BotUsageSum> BotSums(DateTimeOffset since, Guid? principalUserId, string currency) =>
+        Calls(since, principalUserId)
+            .GroupBy(usage => usage.BotId)
+            .Select(calls => new BotUsageSum(
+                calls.Key,
+                new UsageSum(
+                    calls.Sum(usage => usage.InputTokens),
+                    calls.Sum(usage => usage.OutputTokens),
+                    calls.Sum(usage => usage.Currency == currency ? usage.Cost : null) ?? 0,
+                    calls.Count(usage => usage.Cost != null && usage.Currency == currency),
+                    calls.Count(usage => usage.Cost == null),
+                    calls.Count(usage => usage.Cost != null && usage.Currency != currency),
+                    string.Join(", ", calls.Where(usage => usage.Cost != null && usage.Currency != currency).Select(usage => usage.Currency).Distinct()))));
+
     private IQueryable<UsageRecord> Calls(DateTimeOffset since, Guid? principalUserId) =>
         principalUserId is { } userId
             ? db.UsageRecords.AsNoTracking().Where(usage =>
@@ -148,7 +181,8 @@ public sealed class UsageRepository(DroverDbContext db)
             : db.UsageRecords.AsNoTracking().Where(usage => usage.CreatedAt >= since);
 
     private static Task<string?> Currency(IQueryable<UsageRecord> calls, CancellationToken cancellationToken) =>
-        calls.GroupBy(usage => usage.Currency)
+        calls.Where(usage => usage.Cost != null)
+            .GroupBy(usage => usage.Currency)
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key)
             .Select(group => group.Key)
@@ -162,9 +196,14 @@ public sealed class UsageRepository(DroverDbContext db)
                 group.Sum(usage => usage.OutputTokens),
                 group.Sum(usage => usage.Currency == currency ? usage.Cost : null) ?? 0,
                 group.Count(usage => usage.Cost != null && usage.Currency == currency),
-                group.Count(usage => usage.Cost == null || usage.Currency != currency)))
-            .SingleOrDefaultAsync(cancellationToken)
-        ?? UsageSum.None;
+                group.Count(usage => usage.Cost == null),
+                group.Count(usage => usage.Cost != null && usage.Currency != currency),
+                string.Join(", ", group.Where(usage => usage.Cost != null && usage.Currency != currency).Select(usage => usage.Currency).Distinct())))
+            .SingleOrDefaultAsync(cancellationToken) is { } sum
+            ? sum with { OtherCurrencies = NoneIfEmpty(sum.OtherCurrencies) }
+            : UsageSum.None;
+
+    private static string? NoneIfEmpty(string? currencies) => string.IsNullOrEmpty(currencies) ? null : currencies;
 
     #endregion
 }

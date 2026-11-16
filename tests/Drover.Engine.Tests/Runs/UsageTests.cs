@@ -144,7 +144,10 @@ public sealed class UsageTests(PostgresServer postgres)
         var record = (await world.ReadUsage(runId)).Should().ContainSingle().Subject;
         record.Cost.Should().BeNull();
         record.InputTokens.Should().BePositive();
-        (await RunUsage(world, runId, world.UserId, isSpaceAdmin: false))!.Own.Should().Be(new UsageFigure(null, record.InputTokens, record.OutputTokens));
+        (await RunUsage(world, runId, world.UserId, isSpaceAdmin: false))!.Own.Should().Be(new UsageFigure(null, record.InputTokens, record.OutputTokens, true));
+        var completed = (await world.ReadEvents(runId)).Where(stored => stored.Type == RunEventTypes.MessageCompleted).Select(RunWorld.Data<MessageCompleted>);
+        completed.Should().NotBeEmpty().And.OnlyContain(
+            message => message.Message.RunPrincipalUserId == world.UserId, "a client decides from it whether the reply's usage can be read");
     }
 
     [Fact]
@@ -156,6 +159,7 @@ public sealed class UsageTests(PostgresServer postgres)
         var root = await SeedRun(world, threadId, world.BotId, world.UserId);
         var child = await SeedRun(world, threadId, helperId, world.UserId, root);
         await SeedCall(world, root, 1.00m, 100, 10);
+        await SeedCall(world, root, 0.50m, 50, 5);
         await SeedCall(world, child, null, 400, 40);
         await SeedCall(world, child, 0.25m, 25, 2, currency: "EUR");
 
@@ -163,11 +167,50 @@ public sealed class UsageTests(PostgresServer postgres)
         var detail = await RunUsage(world, root.Id, world.UserId, isSpaceAdmin: true);
 
         var lead = crew.Crew.Should().ContainSingle().Subject;
-        lead.Own.Should().Be(new UsageFigure(1.00m, 100, 10));
-        lead.WithBeneath.Should().Be(new UsageFigure(1.00m, 525, 52, LeavesOutUnpriced: true));
+        lead.Own.Should().Be(new UsageFigure(1.50m, 150, 15));
+        lead.WithBeneath.Should().Be(new UsageFigure(1.50m, 575, 57, LeavesOutUnpriced: true, UncountedCurrencies: "EUR"));
         lead.Children.Should().ContainSingle().Which.Own.Should().Be(
-            new UsageFigure(null, 425, 42), "no call of the planner has a price in the period's currency, so it has no cost at all");
-        detail!.Tree.Should().Be(new UsageFigure(1.00m, 525, 52, LeavesOutUnpriced: true));
+            new UsageFigure(null, 425, 42, LeavesOutUnpriced: true, UncountedCurrencies: "EUR"),
+            "no call of the planner has a price in the period's currency, so it has no cost at all, and says why");
+        detail!.Tree.Should().Be(new UsageFigure(1.50m, 575, 57, LeavesOutUnpriced: true, UncountedCurrencies: "EUR"));
+    }
+
+    [Fact]
+    public async Task The_periods_currency_is_the_one_most_priced_calls_used_and_unpriced_calls_do_not_choose_it()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var threadId = await world.NewThread();
+        var run = await SeedRun(world, threadId, world.BotId, world.UserId);
+        await SeedCall(world, run, null, 10, 1);
+        await SeedCall(world, run, null, 10, 1);
+        await SeedCall(world, run, null, 10, 1);
+        await SeedCall(world, run, 0.50m, 10, 1, currency: "EUR");
+        await SeedCall(world, run, 0.25m, 10, 1, currency: "EUR");
+        await SeedCall(world, run, 1.00m, 10, 1, currency: "USD");
+
+        var crew = await Crew(world, world.UserId, isSpaceAdmin: true);
+
+        crew.Currency.Should().Be("EUR", "three unpriced calls carry the catalog's default currency, which says nothing about a price");
+        crew.Crew.Should().ContainSingle().Which.Own.Should().Be(
+            new UsageFigure(0.75m, 60, 6, LeavesOutUnpriced: true, UncountedCurrencies: "USD"));
+    }
+
+    [Fact]
+    public async Task A_bot_removed_since_keeps_its_figures_and_is_marked_removed()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var helperId = await world.NewBotBeneath(world.BotId, "Planner");
+        var threadId = await world.NewThread();
+        var run = await SeedRun(world, threadId, helperId, world.UserId);
+        await SeedCall(world, run, 0.30m, 30, 3);
+        await world.Read(async db =>
+            await db.Bots.Where(bot => bot.Id == helperId).ExecuteUpdateAsync(bot => bot.SetProperty(row => row.Status, BotStatus.Removed), RunWorld.Token));
+
+        var crew = await Crew(world, world.UserId, isSpaceAdmin: true);
+
+        var lead = crew.Crew.Should().ContainSingle().Subject;
+        lead.IsRemoved.Should().BeFalse();
+        lead.Children.Should().ContainSingle().Which.Should().Match<UsageNode>(node => node.IsRemoved && node.Own.Cost == 0.30m);
     }
 
     #endregion

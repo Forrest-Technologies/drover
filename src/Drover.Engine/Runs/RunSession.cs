@@ -312,7 +312,7 @@ public sealed class RunSession(
             // Messages that steered the call were stored just before its reply, so they are announced before it.
             var closed = stored is null
                 ? RunEventWriter.Event(RunId, RunEventTypes.StepDiscarded, pending)
-                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()));
+                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse(runPrincipalUserId: Tenant.UserId)));
             await writer.Write(null, [.. Delivered(taken), closed]);
         }
         finally
@@ -331,7 +331,7 @@ public sealed class RunSession(
 
         try
         {
-            await writer.Write(null, [RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()))]);
+            await writer.Write(null, [RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse(runPrincipalUserId: Tenant.UserId)))]);
         }
         finally
         {

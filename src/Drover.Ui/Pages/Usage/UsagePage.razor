@@ -51,7 +51,7 @@
                             @foreach (var run in runs.Runs)
                             {
                                 <li @key="run.RunId" class="dv-usage-run">
-                                    <span class="dv-usage-run-cost">@UsageWords.Money(run.Usage.Cost, runs.Currency)</span>
+                                    <span class="dv-usage-run-cost">@UsageWords.Cost(run.Usage, runs.Currency)</span>
                                     <a href="@ConversationOf(run)">@UsageWords.RunPlace(run)</a>
                                     <span class="dv-usage-run-tokens dv-mono">@UsageWords.Tokens(run.Usage.InputTokens) tokens in, @UsageWords.Tokens(run.Usage.OutputTokens) out</span>
                                     @if (UsageWords.LeftOut(run.Usage) is { } leftOut)
@@ -64,7 +64,7 @@
                     }
                     @if (runs.Unopened is { } unopened)
                     {
-                        <p class="dv-usage-page-hint">@UsageWords.Unopened(unopened, runs.Currency)</p>
+                        <p class="dv-usage-page-hint">@UsageWords.Unopened(unopened, runs.Currency, afterListed: runs.Runs.Count > 0)</p>
                     }
                 }
             </section>

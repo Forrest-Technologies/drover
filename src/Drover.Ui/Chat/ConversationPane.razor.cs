@@ -142,7 +142,13 @@ public sealed partial class ConversationPane(
             history.With(run),
             run,
             fileId => api.FileAddress(SpaceId, fileId),
-            new Handover(Bot.Name, Crew.ToDictionary(bot => bot.Id, bot => bot.Name), WorkAddress));
+            new Handover(Bot.Name, Crew.ToDictionary(bot => bot.Id, bot => bot.Name), WorkAddress),
+            Reader);
+
+    // Who reads what a reply used, by the same rule the server answers with.
+    private UsageReader? Reader => session.Current is { } person
+        ? new UsageReader(person.UserId, session.Space?.Role is "owner" or "admin")
+        : null;
 
     private string? Notice => reconnecting ?? notice;
 

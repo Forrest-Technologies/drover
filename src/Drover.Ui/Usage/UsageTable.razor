@@ -27,17 +27,22 @@ else
                             <Avatar Name="@row.Bot.BotName" Hue="BotIdentity.Hue(row.Bot.BotId)" Size="24" />
                             <a href="@BotHref(row.Bot.BotId)" class="@(row.Bot.BotId == ChosenId ? "dv-usage-chosen" : null)"
                                aria-current="@(row.Bot.BotId == ChosenId ? "true" : null)">@row.Bot.BotName</a>
+                            @if (row.Bot.IsRemoved)
+                            {
+                                @* A removed bot's figures still count, so it stays in the crew and says it is gone. *@
+                                <span class="dv-usage-removed"><span class="dv-visually-hidden">, </span>removed</span>
+                            }
                         </span>
                     </th>
                     <td data-label="Cost">
                         @if (row.Bot.WithBeneath is { } beneath)
                         {
-                            <span class="dv-usage-own">@UsageWords.Money(row.Bot.Own.Cost, Currency) on its own</span>
-                            <span class="dv-usage-beneath">@UsageWords.Money(beneath.Cost, Currency) with the bots beneath it</span>
+                            <span class="dv-usage-own">@UsageWords.Cost(row.Bot.Own, Currency) on its own</span>
+                            <span class="dv-usage-beneath">@UsageWords.Cost(beneath, Currency) with the bots beneath it</span>
                         }
                         else
                         {
-                            <span class="dv-usage-own">@UsageWords.Money(row.Bot.Own.Cost, Currency)</span>
+                            <span class="dv-usage-own">@UsageWords.Cost(row.Bot.Own, Currency)</span>
                         }
                         @* The figure with the bots beneath holds the bot's own, so one sentence covers whichever leaves something out. *@
                         @if ((UsageWords.LeftOut(row.Bot.WithBeneath ?? row.Bot.Own) ?? UsageWords.LeftOut(row.Bot.Own)) is { } leftOut)

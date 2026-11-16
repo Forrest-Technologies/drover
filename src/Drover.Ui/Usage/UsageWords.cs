@@ -20,12 +20,43 @@ public static class UsageWords
     };
 
     /// <summary>
-    /// What a sum is missing, said beside it, or null when it is missing nothing. A total that leaves something
-    /// out always says so.
+    /// A figure's cost in words: the sum in the period's currency, "price not known" when nothing in it has a known
+    /// price, or "priced in EUR" when everything in it was priced in another currency. Never a made-up zero.
     /// </summary>
-    public static string? LeftOut(UsageFigure figure) => figure.LeavesOutUnpriced && figure.Cost is not null
-        ? "Not counting models whose price is not known"
-        : null;
+    public static string Cost(UsageFigure figure, string currency) => figure switch
+    {
+        { Cost: { } cost } => Money(cost, currency),
+        { LeavesOutUnpriced: false, UncountedCurrencies: { } others } => $"priced in {others}",
+        _ => Money(null, currency),
+    };
+
+    /// <summary>
+    /// What a sum is missing, said beside it, or null when it is missing nothing. A total that leaves something
+    /// out always says so: calls on a model with no known price, and calls priced in another currency, each in its
+    /// own words. What a figure's cost already says is not said again.
+    /// </summary>
+    public static string? LeftOut(UsageFigure figure)
+    {
+        List<string> missing = [];
+
+        if (figure is { LeavesOutUnpriced: true, Cost: not null })
+        {
+            missing.Add("Not counting models whose price is not known");
+        }
+
+        // With no sum there is nothing to leave out of, so calls in another currency are only named.
+        switch (figure)
+        {
+            case { UncountedCurrencies: { } others, Cost: not null }:
+                missing.Add($"Not counting calls priced in {others}");
+                break;
+            case { UncountedCurrencies: { } others, LeavesOutUnpriced: true }:
+                missing.Add($"Some calls priced in {others}");
+                break;
+        }
+
+        return missing.Count == 0 ? null : string.Join(". ", missing);
+    }
 
     public static string Tokens(long tokens) => tokens.ToString("N0", CultureInfo.InvariantCulture);
 
@@ -71,7 +102,7 @@ public static class UsageWords
 
     /// <summary>A figure in one line, cost first: "USD 0.02, 1,200 tokens in, 340 out".</summary>
     public static string Figure(UsageFigure figure, string currency) =>
-        $"{Money(figure.Cost, currency)}, {Tokens(figure.InputTokens)} tokens in, {Tokens(figure.OutputTokens)} out";
+        $"{Cost(figure, currency)}, {Tokens(figure.InputTokens)} tokens in, {Tokens(figure.OutputTokens)} out";
 
     /// <summary>The heading over a bot's most expensive runs.</summary>
     public static string RunsTitle(string botName, string period) => $"{botName}'s most expensive runs {During(period)}";
@@ -84,11 +115,18 @@ public static class UsageWords
     public static string RunPlace(RunCost run) =>
         $"{run.At.ToLocalTime().ToString("ddd d MMM, HH:mm", CultureInfo.CurrentCulture)} in {(run.IsMain ? "the main conversation" : run.ThreadTitle ?? "a side chat")}";
 
-    /// <summary>The runs in conversations the person cannot open, as one total that says nothing about any one of them.</summary>
-    public static string Unopened(UnopenedRuns unopened, string currency) =>
-        unopened.Count == 1
-            ? $"One more run is in a conversation you cannot open: {Figure(unopened.Usage, currency)}."
-            : $"{unopened.Count} more runs are in conversations you cannot open. Together: {Figure(unopened.Usage, currency)}.";
+    /// <summary>
+    /// The runs in conversations the person cannot open, as one total that says nothing about any one of them.
+    /// "More" only when runs the person can open are listed above it.
+    /// </summary>
+    public static string Unopened(UnopenedRuns unopened, string currency, bool afterListed) =>
+        (unopened.Count, afterListed) switch
+        {
+            (1, true) => $"One more run is in a conversation you cannot open: {Figure(unopened.Usage, currency)}.",
+            (1, false) => $"One run is in a conversation you cannot open: {Figure(unopened.Usage, currency)}.",
+            (var count, true) => $"{count} more runs are in conversations you cannot open. Together: {Figure(unopened.Usage, currency)}.",
+            (var count, false) => $"{count} runs are in conversations you cannot open. Together: {Figure(unopened.Usage, currency)}.",
+        };
 
     /// <summary>The line in a reply's details: what the run used, and with the bots it asked when it asked any.</summary>
     public static IReadOnlyList<string> Reply(RunUsageDetail detail)

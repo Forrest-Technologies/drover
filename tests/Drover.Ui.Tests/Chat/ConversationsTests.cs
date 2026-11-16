@@ -163,8 +163,9 @@ public sealed class ConversationsTests
         var arriving = Message("assistant", true, new PartView("text", "Working on"));
         var working = RunView.Start(second) with { Status = "running", Messages = [arriving] };
 
-        var whileWorking = stored.Append(arriving).ToChatMessages(run: working);
-        var done = stored.Append(arriving with { IsStreaming = false }).ToChatMessages(run: working with { Status = "completed" });
+        var reader = new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true);
+        var whileWorking = stored.Append(arriving).ToChatMessages(run: working, reader: reader);
+        var done = stored.Append(arriving with { IsStreaming = false }).ToChatMessages(run: working with { Status = "completed" }, reader: reader);
 
         whileWorking.Select(message => (message.Text, message.RunId, message.EndsReply)).Should().Equal(
             ("Plan it", null, false),
@@ -173,6 +174,30 @@ public sealed class ConversationsTests
             ("And now?", null, false),
             ("Working on", second, false));
         done[^1].Should().Match<ChatMessage>(message => message.RunId == second && message.EndsReply);
+    }
+
+    [Fact]
+    public void In_a_shared_conversation_a_member_is_offered_what_their_own_replies_used_and_an_admin_every_reply()
+    {
+        var alice = Guid.CreateVersion7();
+        var bob = Guid.CreateVersion7();
+        var aliceRun = Guid.CreateVersion7();
+        var bobRun = Guid.CreateVersion7();
+        MessageView[] shared =
+        [
+            Message("user", false, new PartView("text", "Alice asks")),
+            Message("assistant", false, new PartView("text", "Answer for Alice.")) with { RunId = aliceRun, RunPrincipalUserId = alice },
+            Message("user", false, new PartView("text", "Bob asks")),
+            Message("assistant", false, new PartView("text", "Answer for Bob.")) with { RunId = bobRun, RunPrincipalUserId = bob },
+        ];
+
+        static IEnumerable<string> Offered(IReadOnlyList<ChatMessage> shown) => shown.Where(message => message.EndsReply).Select(message => message.Text);
+
+        Offered(shared.ToChatMessages(reader: new UsageReader(bob, IsSpaceAdmin: false))).Should().Equal(
+            ["Answer for Bob."], "the server answers a member only for the runs that act for them");
+        Offered(shared.ToChatMessages(reader: new UsageReader(alice, IsSpaceAdmin: false))).Should().Equal("Answer for Alice.");
+        Offered(shared.ToChatMessages(reader: new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true))).Should().Equal("Answer for Alice.", "Answer for Bob.");
+        Offered(shared.ToChatMessages()).Should().BeEmpty("without a reader nothing is offered");
     }
 
     #endregion

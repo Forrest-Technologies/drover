@@ -44,6 +44,12 @@
   text-decoration-thickness: calc(var(--dv-border) * 2);
 }
 
+.dv-usage-removed {
+  color: var(--dv-text-3);
+  font-size: var(--dv-text-12);
+  font-weight: var(--dv-weight-body);
+}
+
 .dv-usage-own,
 .dv-usage-beneath {
   display: block;

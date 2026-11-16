@@ -129,18 +129,29 @@ public sealed class UsageService(
             return subtree.IsEmpty
                 ? null
                 : new CrewBranch(
-                    new UsageNode(bot.Id, bot.Name, bot.Model, Figure(own), children.Count == 0 ? null : Figure(subtree), [.. children.Select(child => child.Node)]),
+                    new UsageNode(
+                        bot.Id,
+                        bot.Name,
+                        bot.Model,
+                        Figure(own),
+                        children.Count == 0 ? null : Figure(subtree),
+                        [.. children.Select(child => child.Node)],
+                        bot.Status is BotStatus.Removed),
                     subtree);
         }
     }
 
-    /// <summary>A sum as people read it: no cost at all when nothing in it had a known price, never a zero.</summary>
+    /// <summary>
+    /// A sum as people read it: no cost at all when nothing in it had a price in the period's currency, never a zero,
+    /// and what it leaves out named: calls with no known price, and calls priced in another currency.
+    /// </summary>
     private static UsageFigure Figure(UsageSum sum) =>
         new(
-            sum is { PricedCalls: 0, UnpricedCalls: > 0 } ? null : sum.Cost,
+            sum is { PricedCalls: 0 } && !sum.IsEmpty ? null : sum.Cost,
             sum.InputTokens,
             sum.OutputTokens,
-            sum is { PricedCalls: > 0, UnpricedCalls: > 0 });
+            sum.UnpricedCalls > 0,
+            sum.OtherCurrencyCalls > 0 ? sum.OtherCurrencies : null);
 
     #endregion
 

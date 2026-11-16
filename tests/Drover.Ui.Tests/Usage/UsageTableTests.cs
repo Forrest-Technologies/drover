@@ -76,5 +76,19 @@ public sealed class UsageTableTests : BunitContext
         table.FindAll("a[aria-current=true]").Should().ContainSingle().Which.TextContent.Should().Be("Helper");
     }
 
+    [Fact]
+    public void A_removed_bot_stays_with_its_figures_and_says_it_is_removed()
+    {
+        UsageNode[] crew = [new(lead, "Lead", "sample-model", new(1.00m, 100, 10), null, [], IsRemoved: true), new(helper, "Helper", "sample-model", new(0.50m, 50, 5), null, [])];
+        var table = Render<UsageTable>(set => set
+            .Add(view => view.Crew, crew)
+            .Add(view => view.Currency, "USD")
+            .Add(view => view.Caption, "What each bot used today")
+            .Add(view => view.BotHref, id => $"/usage?bot={id}"));
+
+        table.FindAll("tbody th[scope=row]").Select(header => header.TextContent.Trim()).Should().Equal("Lead, removed", "Helper");
+        table.Find(".dv-usage-removed").TextContent.Should().Be(", removed");
+    }
+
     #endregion
 }

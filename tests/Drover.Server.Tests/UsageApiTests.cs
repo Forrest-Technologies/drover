@@ -16,7 +16,7 @@ public sealed class UsageApiTests(PostgresServer postgres) : ServerTestBase(post
     #region Overrides
 
     protected override void ConfigureServices(IServiceCollection services) =>
-        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel([new TextOutput("Done.")])));
 
     #endregion
 
@@ -75,6 +75,29 @@ public sealed class UsageApiTests(PostgresServer postgres) : ServerTestBase(post
         (await GetFor<BotRunsUsage>(stranger, $"{Space(strangerSpace)}/usage/bots/{bot.Id}/runs?{Week}"))
             .Should().Match<BotRunsUsage>(runs => runs.Runs.Count == 0 && runs.Unopened == null);
         (await stranger.Get($"{Space(strangerSpace)}/runs/{runId}/usage")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_reply_in_the_thread_names_the_person_its_run_acts_for_so_a_client_offers_its_usage_only_where_it_is_answered()
+    {
+        var (owner, session, _) = await SetUpFirstAccount();
+        var spaceId = session.Spaces[0].Id;
+        var bot = await CreateBot(owner, spaceId);
+        var thread = await PostFor<ThreadSummary>(owner, $"{Space(spaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest(null));
+        var sent = await owner.Post($"{Space(spaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("Hello."));
+        var runId = (await sent.Content.ReadFromJsonAsync<SendMessageResponse>(Token))!.Run.Id;
+        var watch = Stopwatch.StartNew();
+
+        while ((await GetFor<RunSummary>(owner, $"{Space(spaceId)}/runs/{runId}")).Status is not ("completed" or "failed"))
+        {
+            (watch.Elapsed < TimeSpan.FromSeconds(30)).Should().BeTrue("the run should finish");
+            await Task.Delay(25, Token);
+        }
+
+        var messages = await GetFor<List<MessageResponse>>(owner, $"{Space(spaceId)}/threads/{thread.Id}/messages");
+
+        messages.Should().Contain(message => message.Role == "assistant" && message.RunId == runId && message.RunPrincipalUserId == session.UserId);
+        messages.Where(message => message.RunId is null).Should().OnlyContain(message => message.RunPrincipalUserId == null);
     }
 
     [Fact]
