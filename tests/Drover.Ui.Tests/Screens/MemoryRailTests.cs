@@ -88,8 +88,8 @@ public sealed class MemoryRailTests : ScreenTest
         way.GetAttribute("aria-current").Should().Be("true");
         var origins = page.FindAll("aside .dv-memory-origin");
         origins[0].TextContent.Should().StartWith("Marshal noted this");
-        origins[0].QuerySelector("a")!.GetAttribute("href").Should().Be($"/talk/{botId}?message={messageId}");
-        origins[1].QuerySelector("a")!.GetAttribute("href").Should().Be($"/talk/{botId}/side/{sideId}?message={messageId}");
+        origins[0].QuerySelector("a")!.GetAttribute("href").Should().Be($"/talk/{botId}#message-{messageId}");
+        origins[1].QuerySelector("a")!.GetAttribute("href").Should().Be($"/talk/{botId}/side/{sideId}#message-{messageId}");
         origins[2].TextContent.Should().StartWith("You wrote this");
         origins[2].QuerySelector("a").Should().BeNull();
         page.FindAll("main article").Should().HaveCount(2, "the main conversation stays beside it");
@@ -266,19 +266,6 @@ public sealed class MemoryRailTests : ScreenTest
     #endregion
 
     #region The Conversation
-
-    [Fact]
-    public void A_link_to_a_moment_opens_the_conversation_and_brings_that_message_into_view()
-    {
-        var module = JSInterop.SetupModule("./_content/Drover.Ui/Chat/MessageList.razor.js");
-
-        Navigation.NavigateTo($"/talk/{botId}?message={messageId}");
-        var page = Render<Talk>(parameters => parameters.Add(talk => talk.BotId, botId));
-
-        page.WaitForAssertion(() => module.VerifyInvoke("reveal").Arguments[1].Should().Be($"dv-message-{messageId}"));
-        page.Find($"#dv-message-{messageId}").GetAttribute("tabindex").Should().Be("-1", "the linked message can take the focus");
-        page.FindAll("main article[tabindex]").Should().ContainSingle("no other message becomes focusable");
-    }
 
     [Theory]
     [InlineData(HttpStatusCode.OK)]

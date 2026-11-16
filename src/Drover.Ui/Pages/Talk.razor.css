@@ -193,7 +193,7 @@
     flex: 1;
   }
 
-  /* Up to four ways beside the conversation: they wrap rather than push the page sideways. */
+  /* The ways beside the conversation wrap rather than push the page sideways. */
   .dv-shell-beside {
     flex-basis: 100%;
     flex-wrap: wrap;
