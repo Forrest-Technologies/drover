@@ -15,6 +15,8 @@ public enum FailureCause
     Unknown,
     ModelUnreachable,
     ModelRefused,
+    ModelBusy,
+    ModelOutOfCredit,
     BudgetReached,
     ServerRestarted,
     StoppedByRule,
@@ -65,6 +67,8 @@ public static class AttentionWords
     {
         FailureCauses.ModelUnreachable => FailureCause.ModelUnreachable,
         FailureCauses.ModelRefused => FailureCause.ModelRefused,
+        FailureCauses.ModelBusy => FailureCause.ModelBusy,
+        FailureCauses.ModelOutOfCredit => FailureCause.ModelOutOfCredit,
         FailureCauses.BudgetReached => FailureCause.BudgetReached,
         FailureCauses.ServerRestarted => FailureCause.ServerRestarted,
         FailureCauses.StoppedByRule => FailureCause.StoppedByRule,
@@ -95,6 +99,8 @@ public static class AttentionWords
     {
         FailureCause.ModelUnreachable => $"{botName} could not reach its model. Check the model connection, then try again.",
         FailureCause.ModelRefused => $"{botName}'s model refused the request. Try again, or change what was asked.",
+        FailureCause.ModelBusy => $"{botName}'s model is busy right now. Try again shortly.",
+        FailureCause.ModelOutOfCredit => $"{botName}'s model account is out of credit. Add credit with the model's provider, then try again.",
         FailureCause.BudgetReached => $"{botName} stopped because a limit on this work was reached. An owner can raise the limit.",
         FailureCause.ServerRestarted => $"The server restarted while {botName} was working, and the outcome is not known. Check what was done before trying again.",
         FailureCause.StoppedByRule => $"{botName} stopped because one of its rules ended this work. An owner can change the rule in the bot's settings.",

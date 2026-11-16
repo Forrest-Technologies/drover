@@ -117,16 +117,11 @@ public sealed class AgentSessionSeeder : PlainSeeder<AgentSession>
     };
 }
 
-/// <summary>
-/// A marker is keyed by its thread and its person, and the suite may put several rows under one thread, so each row
-/// is a different person's: a second row then reaches the check under test, not the primary key.
-/// </summary>
-public sealed class ThreadReadSeeder : TableSeeder<ThreadRead>
+public sealed class ThreadReadSeeder : PlainSeeder<ThreadRead>
 {
-    public override async Task<IReadOnlyDictionary<string, object?>> Row(SeedRow seed) => new Dictionary<string, object?>
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
     {
-        ["thread_id"] = seed.Parent("threads"),
-        ["user_id"] = await seed.CreateUser(),
+        ["thread_id"] = Guid.CreateVersion7(),
         ["seen_through_position"] = 0,
         ["seen_at"] = DateTimeOffset.UtcNow,
     };

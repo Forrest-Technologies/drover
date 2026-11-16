@@ -67,7 +67,7 @@ public sealed class RunAttentionTests(PostgresServer postgres)
         failed.Failed.Should().BeTrue();
         failed.LastFailure.Should().Be(new RunFailure(
             failedId,
-            FailureCauses.BudgetReached,
+            FailureCauses.ModelOutOfCredit,
             "out_of_credit: The provider says the account is out of credit."));
         seen.Failed.Should().BeFalse("the person has opened the thread since");
         seen.LastFailure!.RunId.Should().Be(failedId, "the conversation still ends with the failure");
@@ -103,8 +103,8 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     [InlineData("invalid_key", FailureCauses.ModelUnreachable)]
     [InlineData("model_unavailable", FailureCauses.ModelUnreachable)]
     [InlineData("rejected", FailureCauses.ModelRefused)]
-    [InlineData("retry_later", FailureCauses.ModelRefused)]
-    [InlineData("out_of_credit", FailureCauses.BudgetReached)]
+    [InlineData("retry_later", FailureCauses.ModelBusy)]
+    [InlineData("out_of_credit", FailureCauses.ModelOutOfCredit)]
     [InlineData("step_limit", FailureCauses.BudgetReached)]
     [InlineData("stopped_by_rule", FailureCauses.StoppedByRule)]
     [InlineData("blocked_by_rule", FailureCauses.StoppedByRule)]
@@ -165,15 +165,19 @@ public sealed class RunAttentionTests(PostgresServer postgres)
         await world.WaitForStatus(rootId, RunStatus.Waiting);
         var child = (await world.ReadTree(rootId)).Single(run => run.Id != rootId);
         var call = (await world.ReadToolCalls(child.Id)).Single(found => found.Status == ToolCallStatus.PendingApproval);
+        using var signals = await world.WithService<UserSignalHub, UserSignalSubscription>(hub => Task.FromResult(hub.Subscribe(world.SpaceId, world.UserId)));
 
         var root = await AttentionOf(world, threadId, world.UserId);
         var childsThread = await AttentionOf(world, child.ThreadId, world.UserId);
         (await world.Decide(call.Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
         var answered = await AttentionOf(world, threadId, world.UserId);
+        var heard = Drain(signals);
 
         root.WaitingForYou.Should().BeTrue("the call that waits is in the root's tree");
         childsThread.WaitingForYou.Should().BeFalse("the person answers through the bot they asked, so it is counted once");
         answered.WaitingForYou.Should().BeFalse();
+        heard.Should().Contain(new UserSignal(UserSignalKinds.ThreadChanged, threadId, rootId), "the root's thread is the one that read as waiting");
+        heard.Should().NotContain(signal => signal.ThreadId == child.ThreadId && signal.Kind == UserSignalKinds.ThreadChanged && signal.RunId == child.Id);
         await world.WaitForStatus(rootId, RunStatus.Completed);
     }
 
@@ -237,6 +241,27 @@ public sealed class RunAttentionTests(PostgresServer postgres)
 
         mine.Should().Be(new ThreadAttention(false, false, true, null), "the member's waiting run and marker are theirs alone");
         theirs.Should().Be(new ThreadAttention(true, false, false, null), "the reply to the owner is not new to the member");
+    }
+
+    [Fact]
+    public async Task A_member_with_no_marker_gets_neither_new_nor_failed_from_another_members_runs()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("For the owner.")]));
+        world.StartHost();
+        var member = await world.AddMember(MembershipRole.Member);
+        var threadId = await world.NewSharedThread();
+
+        await world.WaitForStatus(await world.Post(threadId, "Hello"), RunStatus.Completed);
+        var afterReply = await AttentionOf(world, threadId, member);
+        world.Model.FailNext = ModelProviderException.FromStatus(503);
+        await world.WaitForStatus(await world.Post(threadId, "Again"), RunStatus.Failed);
+        var afterFailure = await AttentionOf(world, threadId, member);
+        var owners = await AttentionOf(world, threadId, world.UserId);
+
+        afterReply.Should().Be(new ThreadAttention(false, false, false, null), "the reply answered the owner's run, and the member has never opened the thread");
+        afterFailure.Should().Be(new ThreadAttention(false, false, false, null), "the failed run acted for the owner");
+        owners.Failed.Should().BeTrue("control: the owner's own run failed");
+        owners.HasNew.Should().BeTrue("control: the owner has not seen the reply");
     }
 
     #endregion

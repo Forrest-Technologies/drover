@@ -87,18 +87,18 @@ public sealed class ThreadRepository(DroverDbContext db)
 
     /// <summary>
     /// Marks the thread seen by the person as far as its newest message, now. A marker never moves back: two screens
-    /// marking at once keep the further one. The marker takes the thread's audience, which a later change of the
-    /// thread's audience carries along.
+    /// marking at once keep the further one. Its audience is the person, so the database lets nobody else read or
+    /// write it.
     /// </summary>
     public Task MarkSeen(ChatThread thread, Guid userId, DateTimeOffset now, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlAsync(
             $"""
-            INSERT INTO thread_reads (space_id, thread_id, user_id, audience_user_id, seen_through_position, seen_at)
+            INSERT INTO thread_reads (space_id, thread_id, audience_user_id, seen_through_position, seen_at)
             VALUES (
-              sys.current_space(), {thread.Id}, {userId}, {thread.AudienceUserId},
+              sys.current_space(), {thread.Id}, {userId},
               COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id}), 0),
               {now})
-            ON CONFLICT (space_id, thread_id, user_id) DO UPDATE
+            ON CONFLICT (space_id, thread_id, audience_user_id) DO UPDATE
             SET seen_through_position = GREATEST(thread_reads.seen_through_position, EXCLUDED.seen_through_position),
                 seen_at = GREATEST(thread_reads.seen_at, EXCLUDED.seen_at)
             """,
@@ -134,13 +134,13 @@ public sealed class ThreadRepository(DroverDbContext db)
             .Distinct()
             .ToListAsync(cancellationToken)).ToHashSet();
         var seen = await db.ThreadReads.AsNoTracking()
-            .Where(read => ids.Contains(read.ThreadId) && read.UserId == userId)
+            .Where(read => ids.Contains(read.ThreadId) && read.AudienceUserId == userId)
             .ToDictionaryAsync(read => read.ThreadId, read => read.SeenAt, cancellationToken);
         var withNew = (await db.Messages.AsNoTracking()
             .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null)
             .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
             .Where(message => message.Position > (db.ThreadReads
-                .Where(read => read.ThreadId == message.ThreadId && read.UserId == userId)
+                .Where(read => read.ThreadId == message.ThreadId && read.AudienceUserId == userId)
                 .Select(read => (int?)read.SeenThroughPosition)
                 .FirstOrDefault() ?? 0))
             .Select(message => message.ThreadId)

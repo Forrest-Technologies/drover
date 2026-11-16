@@ -23,6 +23,10 @@ public static class FailureCauses
 
     public const string ModelRefused = "model_refused";
 
+    public const string ModelBusy = "model_busy";
+
+    public const string ModelOutOfCredit = "model_out_of_credit";
+
     public const string BudgetReached = "budget_reached";
 
     public const string ServerRestarted = "server_restarted";

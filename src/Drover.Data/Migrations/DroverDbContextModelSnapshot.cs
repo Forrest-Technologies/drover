@@ -1797,10 +1797,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("thread_id");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
                     b.Property<Guid>("AudienceUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("audience_user_id");
@@ -1813,14 +1809,8 @@ namespace Drover.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("seen_through_position");
 
-                    b.HasKey("SpaceId", "ThreadId", "UserId")
+                    b.HasKey("SpaceId", "ThreadId", "AudienceUserId")
                         .HasName("pk_thread_reads");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("ix_thread_reads_user_id");
-
-                    b.HasIndex("SpaceId", "ThreadId", "AudienceUserId")
-                        .HasDatabaseName("ix_thread_reads_space_id_thread_id_audience_user_id");
 
                     b.ToTable("thread_reads", null, t =>
                         {
@@ -2606,24 +2596,6 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_messages_threads_space_id_thread_id_audience_user_id");
-                });
-
-            modelBuilder.Entity("Drover.Domain.Threads.ThreadRead", b =>
-                {
-                    b.HasOne("Drover.Data.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_thread_reads_asp_net_users_user_id");
-
-                    b.HasOne("Drover.Domain.Threads.ChatThread", null)
-                        .WithMany()
-                        .HasForeignKey("SpaceId", "ThreadId", "AudienceUserId")
-                        .HasPrincipalKey("SpaceId", "Id", "AudienceUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_thread_reads_threads_space_id_thread_id_audience_user_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Tools.OAuthFlow", b =>

@@ -40,6 +40,8 @@ public sealed class AttentionWordsTests
     [Theory]
     [InlineData(FailureCauses.ModelUnreachable, FailureCause.ModelUnreachable)]
     [InlineData(FailureCauses.ModelRefused, FailureCause.ModelRefused)]
+    [InlineData(FailureCauses.ModelBusy, FailureCause.ModelBusy)]
+    [InlineData(FailureCauses.ModelOutOfCredit, FailureCause.ModelOutOfCredit)]
     [InlineData(FailureCauses.BudgetReached, FailureCause.BudgetReached)]
     [InlineData(FailureCauses.ServerRestarted, FailureCause.ServerRestarted)]
     [InlineData(FailureCauses.StoppedByRule, FailureCause.StoppedByRule)]

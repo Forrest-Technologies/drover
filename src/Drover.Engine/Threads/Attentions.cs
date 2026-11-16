@@ -27,8 +27,10 @@ public static class Attentions
     public static string Cause(string? code) => code switch
     {
         "unreachable" or "invalid_key" or "model_unavailable" => FailureCauses.ModelUnreachable,
-        "rejected" or "retry_later" => FailureCauses.ModelRefused,
-        "out_of_credit" or RunReasons.StepLimit => FailureCauses.BudgetReached,
+        "rejected" => FailureCauses.ModelRefused,
+        "retry_later" => FailureCauses.ModelBusy,
+        "out_of_credit" => FailureCauses.ModelOutOfCredit,
+        RunReasons.StepLimit => FailureCauses.BudgetReached,
         RunRules.StoppedByRule or RunRules.BlockedByRule => FailureCauses.StoppedByRule,
         RunReasons.LeaseLost => FailureCauses.ServerRestarted,
         _ => FailureCauses.Unknown,

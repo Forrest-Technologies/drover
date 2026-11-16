@@ -733,7 +733,6 @@ public sealed class TalkTests : ScreenTest
         page.FindAll("main .dv-failure").Should().BeEmpty("a run after the failure is under way");
         Server.Sent("POST", $"{space}/runs/{failedRunId}/retry").Should().ContainSingle();
 
-
         // Focus goes to the composer, where Stop took the place of Try again. The composer is the one thing on this
         // screen that moves focus, and this page renders no element ids to compare a reference with.
         page.WaitForAssertion(() => JSInterop.VerifyFocusAsyncInvoke().Arguments[0].Should().BeOfType<ElementReference>());
