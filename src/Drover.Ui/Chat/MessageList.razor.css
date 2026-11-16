@@ -65,9 +65,15 @@
   max-width: 100%;
 }
 
+.dv-message-sent-by,
 .dv-message-pending {
   font-size: var(--dv-text-12);
   color: var(--dv-text-3);
+}
+
+.dv-message-sent-by {
+  max-width: 85%;
+  text-align: end;
 }
 
 .dv-message-from {

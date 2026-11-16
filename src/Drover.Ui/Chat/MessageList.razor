@@ -15,10 +15,14 @@
         {
             if (message.FromPerson)
             {
-                <article @key="message.Key" id="@Anchor(message)" tabindex="@MomentTabIndex(message)" class="dv-message dv-message-person" aria-label="You said">
+                <article @key="message.Key" id="@Anchor(message)" tabindex="@MomentTabIndex(message)" class="dv-message dv-message-person" aria-label="@(message.SentBy ?? "You said")">
                     @if (message.Text.Length > 0)
                     {
                         <p class="dv-message-bubble dv-facet">@message.Text</p>
+                    }
+                    @if (message.SentBy is { } sentBy)
+                    {
+                        <p class="dv-message-sent-by">@sentBy</p>
                     }
                     @FilesOf(message)
                     @if (message.Pending)

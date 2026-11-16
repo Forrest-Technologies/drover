@@ -2,8 +2,8 @@ namespace Drover.Data.Tests;
 
 /// <summary>
 /// The first functions in schema <c>sys</c>: what each returns, that each writes <c>sys.audit</c>, and that each keeps
-/// the rules of docs/architecture/04-tenancy-and-permissions.md. <c>claim_runs</c> has its own tests in
-/// <see cref="RunClaimTests"/>.
+/// the rules of docs/architecture/04-tenancy-and-permissions.md. <c>claim_runs</c> and <c>claim_due_schedules</c> have their own tests in
+/// <see cref="RunClaimTests"/> and <see cref="ScheduleClaimTests"/>.
 /// </summary>
 [Collection(PostgresFixtureDefinition.Name)]
 public sealed class SystemFunctionTests(PostgresFixture postgres)
@@ -11,7 +11,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
     #region Private Fields
 
     private static readonly string[] functionNames =
-        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "sandboxes_to_sweep", "purge_expired", "health"];
+        ["claim_runs", "find_user_for_sign_in", "memberships_for_user", "resolve_oauth_state", "tool_sign_ins_running_out", "forget_tool_credentials", "sandboxes_to_sweep", "claim_due_schedules", "purge_expired", "health"];
 
     #endregion
 
@@ -368,6 +368,7 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             ("tool_sign_ins_running_out", "SELECT * FROM sys.tool_sign_ins_running_out(@before, @since, @renewed, @limit)", 0, [("before", DateTime.UtcNow), ("since", DateTime.UtcNow), ("renewed", DateTime.UtcNow), ("limit", 10)]),
             ("forget_tool_credentials", "SELECT sys.forget_tool_credentials(@connection)", 0, [("connection", Guid.CreateVersion7())]),
             ("sandboxes_to_sweep", "SELECT * FROM sys.sandboxes_to_sweep(@now, @stuck, @limit)", 0, [("now", DateTime.UtcNow), ("stuck", DateTime.UtcNow.AddMinutes(-10)), ("limit", 10)]),
+            ("claim_due_schedules", "SELECT * FROM sys.claim_due_schedules(@now, @until, @limit)", 0, [("now", DateTime.UtcNow), ("until", DateTime.UtcNow.AddMinutes(5)), ("limit", 10)]),
             ("purge_expired", "SELECT sys.purge_expired(@limit)", 0, [("limit", 10)]),
             ("health", "SELECT * FROM sys.health()", 1, []),
             ("applied_migration", "SELECT sys.applied_migration()", 1, []),
@@ -466,6 +467,8 @@ public sealed class SystemFunctionTests(PostgresFixture postgres)
             .. Columns("tool_connection_credentials", "SELECT", "id space_id audience_user_id tool_connection_id secret_id status expires_at renew_attempted_at renewed_at"),
             .. Columns("secrets", "SELECT", "id space_id"),
             .. Columns("tool_connections", "SELECT", "id space_id auth_kind status"),
+            .. Columns("bot_schedules", "SELECT", "id space_id owner_user_id enabled next_run_at"),
+            .. Columns("bot_schedules", "UPDATE", "next_run_at"),
             .. Columns("__EFMigrationsHistory", "SELECT", "migration_id"),
         ]);
     }
