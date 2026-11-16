@@ -21,7 +21,7 @@ public sealed partial class BotEditor(
 
     private const string Memory = nameof(Memory);
 
-    private const string Schedule = nameof(Schedule);
+    private const string Routines = nameof(Routines);
 
     private const string Sandbox = nameof(Sandbox);
 

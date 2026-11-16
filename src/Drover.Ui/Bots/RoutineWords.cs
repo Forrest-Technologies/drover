@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Bots;
 
 /// <summary>How a routine repeats, as the editor offers it. Each choice shows only its own fields.</summary>
 public enum RoutineRhythm
@@ -11,12 +11,27 @@ public enum RoutineRhythm
     Custom,
 }
 
-/// <summary>How a routine's last run ended.</summary>
+/// <summary>How a routine's last run went, as far as the person reading may know.</summary>
 public enum RoutineOutcome
 {
     Finished,
     Failed,
     DidNotRun,
+
+    /// <summary>Its run is queued or working.</summary>
+    UnderWay,
+
+    /// <summary>Its run waits for a person to answer it, in its conversation.</summary>
+    WaitingForPerson,
+
+    /// <summary>Its run was stopped before it finished.</summary>
+    Stopped,
+
+    /// <summary>Its conversation was busy, so its message waits for the reply under way there.</summary>
+    WaitingForReply,
+
+    /// <summary>It ran in another person's private conversation, so how it went is theirs to read.</summary>
+    Private,
 }
 
 /// <summary>
@@ -172,6 +187,11 @@ public static class RoutineWords
     {
         null => "Has not run yet",
         { Outcome: RoutineOutcome.Finished } => $"Ran {moment} and finished",
+        { Outcome: RoutineOutcome.UnderWay } => $"Started {moment} and is still under way",
+        { Outcome: RoutineOutcome.WaitingForPerson } => $"Started {moment} and waits for an answer in its conversation",
+        { Outcome: RoutineOutcome.Stopped } => $"Started {moment} and was stopped before it finished",
+        { Outcome: RoutineOutcome.WaitingForReply } => $"Sent {moment}, and waits for the reply under way in its conversation",
+        { Outcome: RoutineOutcome.Private } => $"Ran {moment}, in the private conversation of the person who made it",
         { Outcome: RoutineOutcome.Failed, Reason: { Length: > 0 } reason } => $"Failed {moment}: {reason}",
         { Outcome: RoutineOutcome.Failed } => $"Failed {moment}",
         { Reason: { Length: > 0 } reason } => $"Did not run {moment}: {reason}",
@@ -189,6 +209,13 @@ public static class RoutineWords
             (var count, _) => $"{Words.Count(count, "routine")}, {off} off",
         };
     }
+
+    /// <summary>
+    /// A routine as the server holds it, for the Routines section. The last run links to its conversation only when
+    /// the server gave it, which it does only to someone who can read that conversation.
+    /// </summary>
+    public static RoutineItem Item(BotScheduleResponse schedule, string botName) =>
+        new(schedule.Id, schedule.Prompt, schedule.Cron, schedule.TimeZone, schedule.Enabled, schedule.NextRunAt, LastRun(schedule, botName));
 
     /// <summary>The first line of a prompt, for a row that has room for one.</summary>
     public static string FirstLine(string prompt) =>
@@ -215,6 +242,30 @@ public static class RoutineWords
     #endregion
 
     #region Private Methods
+
+    private static RoutineLastRun? LastRun(BotScheduleResponse schedule, string botName)
+    {
+        if (schedule.LastRunAt is not { } when)
+        {
+            return null;
+        }
+
+        var href = schedule.LastThreadId is { } threadId ? Addresses.Conversation(threadId) : null;
+        return schedule.LastOutcome switch
+        {
+            "completed" => new(when, RoutineOutcome.Finished, null, href),
+            "failed" => new(when, RoutineOutcome.Failed, schedule.LastReason, href),
+            "cancelled" => new(when, RoutineOutcome.Stopped, null, href),
+            "queued" or "running" => new(when, RoutineOutcome.UnderWay, null, href),
+            "waiting" => new(when, RoutineOutcome.WaitingForPerson, null, href),
+            "waiting_for_reply" => new(when, RoutineOutcome.WaitingForReply, null, null),
+            "started" => new(when, RoutineOutcome.Private, null, null),
+            "bot_paused" => new(when, RoutineOutcome.DidNotRun, $"{botName} was paused", null),
+            "bot_removed" => new(when, RoutineOutcome.DidNotRun, $"{botName} was removed", null),
+            "owner_left" => new(when, RoutineOutcome.DidNotRun, "the person who made it left the space, so it was turned off", null),
+            _ => new(when, RoutineOutcome.DidNotRun, null, null),
+        };
+    }
 
     private static string[] DayNames(ImmutableSortedSet<DayOfWeek> days) =>
         [.. week.Where(days.Contains).Select(day => day.ToString())];

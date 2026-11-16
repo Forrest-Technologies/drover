@@ -129,7 +129,7 @@
 }
 
 .dv-editor ::deep .dv-editor-checks,
-.dv-editor ::deep .dv-schedule-form,
+.dv-editor ::deep .dv-routine-form,
 .dv-editor ::deep .dv-rule-form,
 .dv-editor ::deep .dv-rule-condition {
   display: flex;
@@ -176,7 +176,6 @@
 }
 
 .dv-editor ::deep .dv-tools,
-.dv-editor ::deep .dv-schedules,
 .dv-editor ::deep .dv-rules {
   display: flex;
   flex-direction: column;
@@ -186,7 +185,6 @@
 }
 
 .dv-editor ::deep .dv-tool,
-.dv-editor ::deep .dv-schedule,
 .dv-editor ::deep .dv-rule {
   display: flex;
   flex-wrap: wrap;
@@ -198,7 +196,6 @@
 }
 
 .dv-editor ::deep .dv-tool-text,
-.dv-editor ::deep .dv-schedule-text,
 .dv-editor ::deep .dv-rule-text {
   display: flex;
   flex-direction: column;
@@ -208,13 +205,11 @@
 }
 
 .dv-editor ::deep .dv-tool-title,
-.dv-editor ::deep .dv-schedule-when,
 .dv-editor ::deep .dv-rule-sentence {
   font-weight: var(--dv-weight-label);
 }
 
 .dv-editor ::deep .dv-tool-description,
-.dv-editor ::deep .dv-schedule-prompt,
 .dv-editor ::deep .dv-rule-name {
   color: var(--dv-text-2);
   font-size: var(--dv-text-13);
@@ -264,8 +259,7 @@
   color: var(--dv-text-2);
 }
 
-.dv-editor ::deep .dv-schedule-actions,
-.dv-editor ::deep .dv-schedule-form-actions,
+.dv-editor ::deep .dv-routine-form-actions,
 .dv-editor ::deep .dv-rule-actions,
 .dv-editor ::deep .dv-rule-starts,
 .dv-editor ::deep .dv-rule-days {
@@ -275,8 +269,18 @@
   gap: var(--dv-space-2);
 }
 
-.dv-editor ::deep .dv-schedule-form-actions {
+.dv-editor ::deep .dv-routine-form-actions {
   justify-content: flex-end;
+}
+
+/* Routines: one card for each, the sentence first. */
+.dv-editor ::deep .dv-routines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* Rules: each condition is a block of its own, and what a trial leaves is shown as the machine text it is. */

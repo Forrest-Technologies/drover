@@ -1,8 +1,8 @@
-@* Starter for #157. One routine: when it runs as a sentence, what it is sent, when it runs next, how the last
-   run went, and its controls. The sentence is the row's heading, so it is what is read out first. *@
+@* One routine: when it runs as a sentence, what it is sent, when it runs next, how the last run went, and its
+   controls. The sentence is the row's heading, so it is what is read out first. *@
 <article class="dv-routine dv-facet" aria-labelledby="@titleId">
     <div class="dv-routine-head">
-        <h3 class="dv-routine-when" id="@titleId">@RoutineWords.Sentence(Routine.Cron, Routine.TimeZone)</h3>
+        <h3 class="dv-routine-when" id="@titleId">@Sentence</h3>
         @if (RoutineWords.Describe(Routine.Cron) is null)
         {
             <code class="dv-routine-cron dv-mono">@Routine.Cron</code>
@@ -25,14 +25,25 @@
             </dd>
         </div>
     </dl>
+    @if (StartedHref is { } started)
+    {
+        <p class="dv-routine-started">Started once now, as you. <a class="dv-routine-link" href="@started">Open the conversation it started</a></p>
+    }
     @if (CanChange)
     {
         <div class="dv-routine-actions">
-            <Switch Label="Runs on its own" Value="Routine.Enabled" ValueChanged="value => OnEnabledChanged.InvokeAsync(value)" />
+            <Switch Label="Runs on its own" About="@($"{Sentence}: {RoutineWords.FirstLine(Routine.Prompt)}")" Value="Routine.Enabled" ValueChanged="value => OnEnabledChanged.InvokeAsync(value)" Disabled="Busy" />
             <Button OnClick="() => OnRunOnce.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Run once now</Button>
-            <Button OnClick="() => OnChange.InvokeAsync()" aria-describedby="@titleId">Change</Button>
-            <Button Kind="ButtonKind.Danger" OnClick="() => OnRemove.InvokeAsync()" aria-describedby="@titleId">Remove</Button>
+            @if (CanRewrite)
+            {
+                <Button OnClick="() => OnChange.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Change</Button>
+            }
+            <Button Kind="ButtonKind.Danger" OnClick="() => OnRemove.InvokeAsync()" Disabled="Busy" aria-describedby="@titleId">Remove</Button>
         </div>
+        @if (!CanRewrite)
+        {
+            <p class="dv-routine-note">Only the person who made it can change what it sends or when, because it runs as them.</p>
+        }
     }
     <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
 </article>
@@ -60,9 +71,20 @@
     [Parameter]
     public bool CanChange { get; set; }
 
-    /// <summary>True while a run started from this row is being asked for.</summary>
+    /// <summary>
+    /// Only the person who made a routine changes what it sends or when, because it runs as them. Another owner or
+    /// admin may turn it off, run it once as themselves, or remove it.
+    /// </summary>
+    [Parameter]
+    public bool CanRewrite { get; set; } = true;
+
+    /// <summary>True while a change to this section is being asked for.</summary>
     [Parameter]
     public bool Busy { get; set; }
+
+    /// <summary>The conversation a run started from this row went to, once it started.</summary>
+    [Parameter]
+    public string? StartedHref { get; set; }
 
     /// <summary>What the server said when it refused this row's last action, as a sentence.</summary>
     [Parameter]
@@ -87,6 +109,8 @@
         (_, _, { } next) => $"Runs {ScheduleWords.Moment(next)}",
         _ => "Drover has not worked out the next time yet.",
     };
+
+    private string Sentence => RoutineWords.Sentence(Routine.Cron, Routine.TimeZone);
 
     private string Last =>
         RoutineWords.Outcome(Routine.LastRun, Routine.LastRun is { } last ? ScheduleWords.Moment(last.When) : string.Empty);
