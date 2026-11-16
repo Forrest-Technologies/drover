@@ -29,6 +29,8 @@ public sealed class ScriptedModel(params IReadOnlyList<ModelOutput>[] turns)
 
     private readonly ConcurrentQueue<IReadOnlyList<SeenMessage>> requests = new();
 
+    private readonly ConcurrentQueue<string?> instructions = new();
+
     private readonly TaskCompletionSource paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     #endregion
@@ -37,6 +39,9 @@ public sealed class ScriptedModel(params IReadOnlyList<ModelOutput>[] turns)
 
     public IReadOnlyList<IReadOnlyList<SeenMessage>> Requests => [.. requests];
 
+    /// <summary>The system instructions each call was given beside its messages, in the order of <see cref="Requests"/>.</summary>
+    public IReadOnlyList<string?> Instructions => [.. instructions];
+
     /// <summary>Completes when a call reaches a <see cref="PauseOutput"/>.</summary>
     public Task Paused => paused.Task;
 
@@ -44,9 +49,10 @@ public sealed class ScriptedModel(params IReadOnlyList<ModelOutput>[] turns)
 
     #region Public Methods
 
-    public IReadOnlyList<ModelOutput> NextTurn(IReadOnlyList<SeenMessage> request)
+    public IReadOnlyList<ModelOutput> NextTurn(IReadOnlyList<SeenMessage> request, string? instructionsGiven = null)
     {
         requests.Enqueue(request);
+        instructions.Enqueue(instructionsGiven);
         return remaining.TryDequeue(out var turn)
             ? turn
             : throw new InvalidOperationException($"The model was called {requests.Count} times; the script has fewer turns.");
