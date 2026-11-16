@@ -52,6 +52,12 @@ public sealed record BuiltinToolCall(
     /// <summary>Whether the run has read text from an untrusted source, as it stands when the tool asks.</summary>
     public Func<bool> IsTainted { get; init; } = () => false;
 
+    /// <summary>
+    /// Tells the run's watchers that a message the tool changed is now as given, with <c>message.completed</c>: a
+    /// file shared into the reply that asked for it.
+    /// </summary>
+    public Func<Message, Task> AnnounceMessage { get; init; } = _ => Task.CompletedTask;
+
     #endregion
 }
 

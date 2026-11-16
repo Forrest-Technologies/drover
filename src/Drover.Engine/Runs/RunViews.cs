@@ -67,6 +67,16 @@ public static class RunViews
     public static FileResponse ToResponse(this StoredFile file) =>
         new(file.Id, file.Name, file.ContentType, KindName(file.ContentType), file.Size, file.Width, file.Height, file.Preview);
 
+    /// <summary>A file a person and a bot exchanged, as the API shows it.</summary>
+    public static ExchangedFileResponse ToResponse(this ExchangedFile exchanged) =>
+        new(
+            exchanged.File.ToResponse(),
+            exchanged.File.ThreadId ?? Guid.Empty,
+            exchanged.File.MessageId ?? Guid.Empty,
+            exchanged.InMainConversation,
+            exchanged.File.CreatedByBotId is not null,
+            exchanged.File.CreatedAt);
+
     #endregion
 
     #region Private Methods
@@ -82,14 +92,14 @@ public static class RunViews
             FileId = image.FileId,
             MediaType = image.MediaType,
             Text = image.AltText,
-            File = new FileResponse(image.FileId, image.Name ?? "picture", image.MediaType, FileKinds.Image, image.Size, image.Width, image.Height),
+            File = new FileResponse(image.FileId, image.Name ?? "picture", image.MediaType, FileKinds.Image, image.Size, image.Width, image.Height, Caption: image.Caption),
         },
         FilePart file => new("file")
         {
             FileId = file.FileId,
             MediaType = file.MediaType,
             Text = file.Name,
-            File = new FileResponse(file.FileId, file.Name, file.MediaType, KindName(file.MediaType), file.Size, Preview: file.Preview),
+            File = new FileResponse(file.FileId, file.Name, file.MediaType, KindName(file.MediaType), file.Size, Preview: file.Preview, Caption: file.Caption),
         },
         _ => new("unknown"),
     };

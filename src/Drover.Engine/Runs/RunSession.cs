@@ -319,6 +319,24 @@ public sealed class RunSession(
     }
 
     /// <summary>
+    /// <c>message.completed</c> again for a reply a tool changed after it was announced, as stored now: a file the bot
+    /// shared is added to the reply that asked for it. A client replaces the message it holds by id.
+    /// </summary>
+    public async Task AnnounceChangedMessage(Message stored)
+    {
+        await announcing.WaitAsync();
+
+        try
+        {
+            await writer.Write(null, [RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()))]);
+        }
+        finally
+        {
+            announcing.Release();
+        }
+    }
+
+    /// <summary>
     /// <c>message.delivered</c> for each message this run took that the log has not announced yet: a pending message
     /// now has its place in the conversation.
     /// </summary>

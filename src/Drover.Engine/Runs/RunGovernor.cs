@@ -406,6 +406,7 @@ public sealed class RunGovernor(
             ThreadId = session.Thread.Id,
             Redact = session.Redactor.Redact,
             IsTainted = () => session.Tainted,
+            AnnounceMessage = session.AnnounceChangedMessage,
         };
 
     #endregion

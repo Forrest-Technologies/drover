@@ -58,6 +58,13 @@
   min-width: 0;
 }
 
+/* A bot's files sit in its reply, under what it said and did. */
+.dv-message-bot .dv-message-files,
+.dv-message-tools .dv-message-files {
+  align-items: flex-start;
+  max-width: 100%;
+}
+
 .dv-message-pending {
   font-size: var(--dv-text-12);
   color: var(--dv-text-3);
@@ -126,4 +133,10 @@
   .dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
     animation: none;
   }
+}
+
+/* The message a moment link landed on is marked however the person followed the link, by pointer as well as by key. */
+.dv-message[tabindex="-1"]:focus {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
 }

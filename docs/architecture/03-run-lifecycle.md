@@ -178,7 +178,7 @@ Live delivery inside a server is a convenience, not the record. A subscriber tha
 | `run.queued`, `run.started`, `run.waiting`, `run.completed`, `run.failed`, `run.cancelled` | Status, reason, error, usage totals |
 | `step.started`, `step.discarded` | Step number and the step's message id. `step.discarded` tells clients to drop the partial output of a step whose model call was cut off: its message was never stored. |
 | `message.delta` | Message id, part index, text chunk, part kind (`text` or `reasoning`) |
-| `message.completed` | The final message as stored. Written for each model reply, once the runtime has stored it: before the reply's first tool is decided, before the next step, or when the run ends. |
+| `message.completed` | The final message as stored. Written for each model reply, once the runtime has stored it: before the reply's first tool is decided, before the next step, or when the run ends. Written again for a reply a tool added to, as stored then (a file the bot shared); a client replaces the message it holds by id. |
 | `message.delivered` | A message that was pending, as stored now that it has its position. Written when a run starts with pending messages, and before the `message.completed` of a step a message steered. |
 | `tool.requested` | Tool call id, tool name, display title, redacted arguments, effect |
 | `tool.approval_requested` | Tool call id, and the request id and model call id an answer must name. `details`, when the tool adds any: things the person should see beside the arguments, each a name and a redacted text (`crew.add` adds `model` and `beneath`, the new bot's model and the name of the bot it goes beneath) |

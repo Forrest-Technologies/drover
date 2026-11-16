@@ -108,7 +108,7 @@ Every scenario also checks that no vendor type leaves the adapter.
 
 ## The broker
 
-Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider` for a bot's work; the only other caller is the sweep ([Retiring and the sweep](#retiring-and-the-sweep)), which only pauses and destroys. Both are registered, with the four sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
+Bots never hold a sandbox. `SandboxBroker` in `Drover.Engine` (`src/Drover.Engine/Sandboxes/`) is the only caller of `ISandboxProvider` for a bot's work; the only other caller is the sweep ([Retiring and the sweep](#retiring-and-the-sweep)), which only pauses and destroys. Both are registered, with the five sandbox tools, only on a server whose operator configured a provider key (below); a server without one has no sandbox tools in its catalog at all.
 
 For each sandbox tool call it:
 
@@ -260,7 +260,18 @@ All built-in (`SandboxTools`), all granted per bot like any tool, and none on th
 | `sandbox.read_file` | read | `path`, `environment?` | `content` as UTF-8 text, or `binary: true` and `size` |
 | `sandbox.write_file` | write | `path`, `content`, `environment?` | `path`, `bytes` |
 | `sandbox.list_files` | read | `path`, `environment?` | `entries` (name, kind, size), at most 1000 |
+| `sandbox.share_file` | read | `path`, `caption?`, `environment?` | `path`, `shared` (the name it is shown under), `content_type`, `size` |
 | `sandbox.enter` (use another bot's environment as its ancestor) | critical | Not built yet | |
+
+### Sharing a file into the conversation
+
+`sandbox.share_file` hands a file the bot made to the person. The server reads the one path the bot names, and nothing else in the sandbox (no listing, no command), through the broker like any read (`SandboxBroker.CopyOut`), and keeps it through the same file store, storage keys, kinds, and limits as a file a person attaches (`FileSharing`): `MaxFileBytes` for the file and `MaxSpaceFileMegabytes` for the space, read as the bytes arrive, and `MaxFilesPerMessage` for the reply. A refusal is the call's error result in the same sentence the upload endpoint answers with, so the bot can pass it on. A file that holds the sandbox's access token is refused, since a file's bytes are kept as they are and cannot be scrubbed the way printed text is.
+
+The sandbox is not private to one conversation, so a file read from it may hold what another conversation put there. The file belongs to the conversation that asked for it: its row takes that thread's audience, `created_by_bot_id` the bot, and `message_id` the reply whose call shared it, and the server adds an `image` or `file` part, with the bot's one-line caption, to that reply and writes `message.completed` again so the reply shows it live. One call shares one file, and the file's id is the call's, so a call run again after a restart finds the file it shared instead of keeping a second; that is why the tool may be a read.
+
+It is untrusted content. Reading it taints the sharing run as any read of the sandbox does (a sandbox with network, or one marked tainted), and every later run of the conversation is tainted before its agent is built, because the conversation now carries a file (`RunExecutor.TaintFromFiles`). A later run is not given the file's content: a file part in a bot's own reply is left out of what the model reads, and the call and its result already say what was shared. The person downloads it the way every file is served, so HTML or SVG a bot wrote is shown as plain text or saved, never rendered in Drover's page. Proof: `SharedFileTests` and `SharedFileApiTests`.
+
+### Files a person attaches
 
 A file a person attaches that the bot's model cannot read directly (anything but text, and a picture for a model that does not read images) is copied into the bot's own sandbox by the server, at `attachments/{file id}/{name}` in the home folder, and the model is told the path. It is copied only for a run that was given a sandbox tool, through the broker like any write, under `MaxSandboxFileBytes`, and once a run ([14-agent-framework.md](14-agent-framework.md)).
 

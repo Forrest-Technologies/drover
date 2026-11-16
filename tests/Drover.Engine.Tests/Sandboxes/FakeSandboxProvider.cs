@@ -53,6 +53,11 @@ public sealed class FakeSandboxProvider : ISandboxProvider
     /// <summary>How a command runs. The default prints the command line and exits 0.</summary>
     public Func<CommandRequest, string, CancellationToken, IAsyncEnumerable<CommandOutput>> Behaviour { get; set; } = PrintCommand;
 
+    /// <summary>Every path a file was read from, and every folder listed, in order.</summary>
+    public ConcurrentQueue<string> Reads { get; } = new();
+
+    public ConcurrentQueue<string> Listings { get; } = new();
+
     public IReadOnlyCollection<string> Tokens => [.. sandboxes.Values.Select(sandbox => sandbox.Token)];
 
     #endregion
@@ -162,10 +167,13 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         }
     }
 
-    public Task<Stream> ReadFile(SandboxHandle sandbox, string path, CancellationToken cancellationToken) =>
-        Enter(sandbox).Files.TryGetValue(path, out var content)
+    public Task<Stream> ReadFile(SandboxHandle sandbox, string path, CancellationToken cancellationToken)
+    {
+        Reads.Enqueue(path);
+        return Enter(sandbox).Files.TryGetValue(path, out var content)
             ? Task.FromResult<Stream>(new MemoryStream(content, writable: false))
             : throw new SandboxProviderException(SandboxFailure.NotFound, "Not found.");
+    }
 
     public async Task WriteFile(SandboxHandle sandbox, string path, Stream content, CancellationToken cancellationToken)
     {
@@ -176,13 +184,16 @@ public sealed class FakeSandboxProvider : ISandboxProvider
         AfterWrite?.Invoke(path);
     }
 
-    public Task<IReadOnlyList<SandboxEntry>> ListFiles(SandboxHandle sandbox, string path, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<SandboxEntry>>(
+    public Task<IReadOnlyList<SandboxEntry>> ListFiles(SandboxHandle sandbox, string path, CancellationToken cancellationToken)
+    {
+        Listings.Enqueue(path);
+        return Task.FromResult<IReadOnlyList<SandboxEntry>>(
         [
             .. Enter(sandbox).Files
                 .Where(file => file.Key.StartsWith($"{path.TrimEnd('/')}/", StringComparison.Ordinal))
                 .Select(file => new SandboxEntry(file.Key[(path.TrimEnd('/').Length + 1)..], file.Key, SandboxEntryKind.File, file.Value.Length, null)),
         ]);
+    }
 
     public Task SetNetworkPolicy(SandboxHandle sandbox, NetworkPolicy policy, CancellationToken cancellationToken)
     {
