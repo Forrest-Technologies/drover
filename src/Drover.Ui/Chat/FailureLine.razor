@@ -1,14 +1,17 @@
-@* Starter for #148. How a failed run ends in the conversation: what failed in a sentence, one way forward,
-   and what the server reported behind a disclosure for whoever needs it. *@
+@* How a failed run ends in the conversation: what failed in a sentence, one way forward, and what the server
+   reported behind a disclosure for whoever needs it. The report is a sentence of machine text, so it wraps: at
+   360 px a scrolling code block hid most of it. *@
 <section class="dv-failure dv-facet" aria-labelledby="@titleId">
     <h3 class="dv-failure-title" id="@titleId">@AttentionWords.Failure(Cause, BotName)</h3>
     <div class="dv-failure-actions">
-        <Button Kind="ButtonKind.Primary" Disabled="Retrying" OnClick="() => OnRetry.InvokeAsync()">Try again</Button>
+        @* Not disabled while asking: the button keeps focus, says it is busy, and a second press does nothing. *@
+        <Button Kind="ButtonKind.Primary" aria-disabled="@(Retrying ? "true" : null)"
+                OnClick="() => Retrying ? Task.CompletedTask : OnRetry.InvokeAsync()">Try again</Button>
     </div>
     @if (!string.IsNullOrWhiteSpace(Reported))
     {
         <Disclosure Title="What the server reported" Open="open" OpenChanged="value => open = value">
-            <CodeBlock Code="@Reported" />
+            <pre class="dv-failure-report">@Reported</pre>
         </Disclosure>
     }
 </section>

@@ -81,6 +81,11 @@
                 </div>
             </div>
         }
+        @if (Failure is { } failure)
+        {
+            <FailureLine @key="failure.RunId" Cause="AttentionWords.CauseOf(failure.Cause)" BotName="@BotName"
+                         Reported="@failure.Reported" Retrying="Retrying" OnRetry="OnRetry" />
+        }
         <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
         <StatusNote Text="@Notice" />
     </div>
@@ -102,6 +107,8 @@
 
     private string? spoken;
 
+    private Guid? announcedFailure;
+
     #endregion
 
     #region Properties
@@ -122,6 +129,18 @@
     /// <summary>Why the last reply failed and what to do, when it did.</summary>
     [Parameter]
     public string? Problem { get; set; }
+
+    /// <summary>The run the conversation ends with, when it failed and nothing came after it.</summary>
+    [Parameter]
+    public RunFailure? Failure { get; set; }
+
+    /// <summary>True while trying the failed run again is being asked for.</summary>
+    [Parameter]
+    public bool Retrying { get; set; }
+
+    /// <summary>Starts a new run from the message the failed run answered.</summary>
+    [Parameter]
+    public EventCallback OnRetry { get; set; }
 
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     [Parameter]
@@ -168,7 +187,7 @@
     #region Private Methods
 
     // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
-    // is read out once each time its state changes.
+    // is read out once each time its state changes, and a failure once, when it appears.
     protected override void OnParametersSet()
     {
         var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
@@ -179,6 +198,12 @@
             ({ } said, { } done) => $"{said} {done}",
             _ => sentences ?? changes,
         };
+
+        if (Failure is { } failure && failure.RunId != announcedFailure)
+        {
+            announcedFailure = failure.RunId;
+            spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
+        }
     }
 
     #endregion

@@ -84,11 +84,6 @@ public static class Conversations
         && !run.Messages.Any(message => message.IsStreaming && Words(message).Length > 0)
         && !run.ToolCalls.Any(tool => tool.State is "requested" or "approved" or "running");
 
-    /// <summary>Why a run ended without an answer and what to do, or nothing when it did not fail.</summary>
-    public static string? Problem(this RunView run) => run.Status is "failed"
-        ? $"{run.Error?.Message ?? "The bot stopped before it could answer."} Send your message again to retry."
-        : null;
-
     /// <summary>Something the person should know about a run that is not a failure.</summary>
     public static string? Notice(this RunView run) => run.Status switch
     {

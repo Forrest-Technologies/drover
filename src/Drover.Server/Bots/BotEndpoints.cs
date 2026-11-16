@@ -51,10 +51,10 @@ public static class BotEndpoints
         HttpContext context,
         ThreadService threads)
     {
-        var found = await threads.ListThreads(botId, context.RequestAborted);
+        var found = await threads.ListThreads(botId, context.GetSpaceAccess().UserId, context.RequestAborted);
         return found is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(found.Select(view => view.Thread.ToSummary(view.ActiveRunId)).ToList());
+            : TypedResults.Ok(found.Select(view => view.Thread.ToSummary(view.ActiveRunId, view.Attention)).ToList());
     }
 
     private static async Task<Results<Created<ThreadSummary>, NotFound>> CreateThread(
@@ -78,7 +78,7 @@ public static class BotEndpoints
         ThreadService threads)
     {
         var main = await threads.OpenMainThread(botId, context.GetSpaceAccess().UserId, context.RequestAborted);
-        return main is null ? TypedResults.NotFound() : TypedResults.Ok(main.Thread.ToSummary(main.ActiveRunId));
+        return main is null ? TypedResults.NotFound() : TypedResults.Ok(main.Thread.ToSummary(main.ActiveRunId, main.Attention));
     }
 
     #endregion

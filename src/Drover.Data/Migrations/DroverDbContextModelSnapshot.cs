@@ -1837,6 +1837,37 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Threads.ThreadRead", b =>
+                {
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<Guid>("ThreadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("thread_id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<DateTimeOffset>("SeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("seen_at");
+
+                    b.Property<int>("SeenThroughPosition")
+                        .HasColumnType("integer")
+                        .HasColumnName("seen_through_position");
+
+                    b.HasKey("SpaceId", "ThreadId", "AudienceUserId")
+                        .HasName("pk_thread_reads");
+
+                    b.ToTable("thread_reads", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_thread_reads_position", "seen_through_position >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Tools.OAuthFlow", b =>
                 {
                     b.Property<string>("StateHash")

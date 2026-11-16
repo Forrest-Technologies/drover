@@ -41,7 +41,6 @@ A test reads this table: every file in this folder must be listed, and every fil
 
 | Issue | Files | Covers |
 | --- | --- | --- |
-| #148 | `AttentionWords.cs`, `AttentionNote.razor`, `FailureLine.razor` | The word beside a bot in the crew column, the tab title count, the failed run's line and its causes |
 | #149 | `PushWords.cs`, `PushControl.razor` | Notifications on this device: every state and its one action |
 | #150 | `TakeoverPhase.cs`, `TakeoverCard.razor` | The bot's request for a person at its screen: asked, holding, answered |
 | #152 | `HistoryWords.cs`, `HistoryList.razor`, `LineDiff.cs`, `DiffView.razor` | A bot's changes as sentences, values before and after, a line-by-line comparison |
@@ -56,7 +55,7 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
 | #165 | `FilesPanelState.cs`, `FilesPanel.razor` | The files exchanged with a bot. Uses `FileCard` and `SharedFile`, which #151 moved to `Chat/` |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |
-| #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164 and `AttentionNote` from #148 |
+| #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164, and `AttentionNote` from #148, which is now in `Chat/` |
 | #168 | `ActivityWords.cs`, `WaitingList.razor`, `ActivityRunRow.razor` | Answering what waits, several at once with every sentence listed, a run in the list |
 | Samples | `ConversationSamples.razor`, `RoutineSamples.razor`, `RecordSamples.razor`, `BoldSamples.razor` | The starter gallery's sections. Each loses a section as its starter moves |
 | Gallery | `StarterGallery.razor`, `_Imports.razor` | The page at `/dev/starters`, and the one `@using` the samples need. They go with the last starter |

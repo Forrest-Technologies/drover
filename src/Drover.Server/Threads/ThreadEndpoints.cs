@@ -25,6 +25,9 @@ public static class ThreadEndpoints
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
             .WithSummary("Stores the message and returns the run that answers it. While a run is active the message is pending: it steers that run or waits for it to end, as whenBusy says.");
+        space.MapPut("/threads/{threadId:guid}/seen", MarkThreadSeen)
+            .WithName("MarkThreadSeen")
+            .WithSummary("Marks the thread seen by the caller as far as its newest message, on every screen of theirs.");
         return space;
     }
 
@@ -33,8 +36,13 @@ public static class ThreadEndpoints
     #region Endpoints
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>
-        await threads.FindThread(threadId, context.RequestAborted) is { } view
-            ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId))
+        await threads.FindThread(threadId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } view
+            ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId, view.Attention))
+            : TypedResults.NotFound();
+
+    private static async Task<Results<NoContent, NotFound>> MarkThreadSeen(Guid threadId, HttpContext context, ThreadService threads) =>
+        await threads.MarkSeen(threadId, context.GetSpaceAccess().UserId, context.RequestAborted)
+            ? TypedResults.NoContent()
             : TypedResults.NotFound();
 
     private static async Task<Results<Ok<ConversationSummary>, NotFound>> GetConversationSummary(

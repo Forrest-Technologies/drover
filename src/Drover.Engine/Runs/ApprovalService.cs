@@ -23,6 +23,7 @@ public sealed class ApprovalService(
     TenantScope scope,
     RunSignal signal,
     RunEventHub hub,
+    UserSignalHub signals,
     TimeProvider time,
     ILogger<ApprovalService> logger)
 {
@@ -101,6 +102,10 @@ public sealed class ApprovalService(
 
         hub.Publish(root.Id, appended);
         signal.Wake();
+
+        // The run's person sees on every screen that the call no longer waits for them. A delegated child's call
+        // waits in the root's tree, and the root's thread is the one that reads as waiting, so that is the one named.
+        signals.Publish(root.SpaceId, root.PrincipalUserId, new UserSignal(UserSignalKinds.ThreadChanged, root.ThreadId, root.Id));
         logger.LogInformation("Tool call {ToolCallId} of run {RunId} was {Decision}", toolCallId, root.Id, approved ? "approved" : "denied");
         return new ToolDecision(DecisionOutcome.Recorded, root);
     }

@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Drover.Data.Migrations
 {
     [DbContext(typeof(DroverDbContext))]
-    [Migration("20261116030000_AttachedFiles")]
-    partial class AttachedFiles
+    [Migration("20261116031313_ThreadReads")]
+    partial class ThreadReads
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -579,12 +579,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("content_type");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
-
                     b.Property<Guid?>("CreatedByBotId")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by_bot_id");
@@ -593,24 +587,11 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by_user_id");
 
-                    b.Property<int?>("Height")
-                        .HasColumnType("integer")
-                        .HasColumnName("height");
-
-                    b.Property<Guid?>("MessageId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("message_id");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("name");
-
-                    b.Property<string>("Preview")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("preview");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
@@ -632,14 +613,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("storage_key");
 
-                    b.Property<Guid?>("ThreadId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("thread_id");
-
-                    b.Property<int?>("Width")
-                        .HasColumnType("integer")
-                        .HasColumnName("width");
-
                     b.HasKey("Id")
                         .HasName("pk_files");
 
@@ -649,17 +622,86 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "CreatedByBotId")
                         .HasDatabaseName("ix_files_space_id_created_by_bot_id");
 
-                    b.HasIndex("SpaceId", "MessageId")
-                        .HasDatabaseName("ix_files_space_id_message_id");
+                    b.ToTable("files", (string)null);
+                });
 
-                    b.HasIndex("SpaceId", "ThreadId", "AudienceUserId")
-                        .HasDatabaseName("ix_files_space_id_thread_id_audience_user_id");
+            modelBuilder.Entity("Drover.Domain.Memory.MemoryNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
-                    b.ToTable("files", null, t =>
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("SourceMessageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_message_id");
+
+                    b.Property<Guid?>("SourceThreadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_thread_id");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<bool>("Tainted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("tainted");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("WrittenByBotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("written_by_bot_id");
+
+                    b.Property<Guid?>("WrittenByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("written_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_memories");
+
+                    b.HasIndex("WrittenByUserId")
+                        .HasDatabaseName("ix_memories_written_by_user_id");
+
+                    b.HasIndex("SpaceId", "WrittenByBotId")
+                        .HasDatabaseName("ix_memories_space_id_written_by_bot_id");
+
+                    b.HasIndex("SpaceId", "BotId", "AudienceUserId")
+                        .HasDatabaseName("ix_memories_space_id_bot_id_audience_user_id");
+
+                    b.ToTable("memories", null, t =>
                         {
-                            t.HasCheckConstraint("ck_files_picture_size", "(width IS NULL) = (height IS NULL) AND (width IS NULL OR (width > 0 AND height > 0))");
+                            t.HasCheckConstraint("ck_memories_source", "(source_thread_id IS NULL) = (source_message_id IS NULL) AND (written_by_bot_id IS NOT NULL OR source_message_id IS NULL)");
 
-                            t.HasCheckConstraint("ck_files_size", "size >= 0");
+                            t.HasCheckConstraint("ck_memories_text", "char_length(btrim(text)) > 0");
+
+                            t.HasCheckConstraint("ck_memories_writer", "(written_by_bot_id IS NULL) <> (written_by_user_id IS NULL)");
                         });
                 });
 
@@ -1423,10 +1465,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("state");
 
-                    b.Property<bool>("Tainted")
-                        .HasColumnType("boolean")
-                        .HasColumnName("tainted");
-
                     b.HasKey("Id")
                         .HasName("pk_sandboxes");
 
@@ -1565,12 +1603,6 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("slug");
 
-                    b.Property<long>("StoredFileBytes")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(0L)
-                        .HasColumnName("stored_file_bytes");
-
                     b.HasKey("Id")
                         .HasName("pk_spaces");
 
@@ -1581,8 +1613,6 @@ namespace Drover.Data.Migrations
                     b.ToTable("spaces", null, t =>
                         {
                             t.HasCheckConstraint("ck_spaces_kind", "kind IN ('personal', 'shared')");
-
-                            t.HasCheckConstraint("ck_spaces_stored_file_bytes", "stored_file_bytes >= 0");
                         });
                 });
 
@@ -1757,6 +1787,37 @@ namespace Drover.Data.Migrations
                     b.ToTable("messages", null, t =>
                         {
                             t.HasCheckConstraint("ck_messages_role", "role IN ('system', 'user', 'assistant', 'tool')");
+                        });
+                });
+
+            modelBuilder.Entity("Drover.Domain.Threads.ThreadRead", b =>
+                {
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<Guid>("ThreadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("thread_id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<DateTimeOffset>("SeenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("seen_at");
+
+                    b.Property<int>("SeenThroughPosition")
+                        .HasColumnType("integer")
+                        .HasColumnName("seen_through_position");
+
+                    b.HasKey("SpaceId", "ThreadId", "AudienceUserId")
+                        .HasName("pk_thread_reads");
+
+                    b.ToTable("thread_reads", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_thread_reads_position", "seen_through_position >= 0");
                         });
                 });
 
@@ -2206,13 +2267,30 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_files_bots_space_id_created_by_bot_id");
+                });
 
-                    b.HasOne("Drover.Domain.Threads.ChatThread", null)
+            modelBuilder.Entity("Drover.Domain.Memory.MemoryNote", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
                         .WithMany()
-                        .HasForeignKey("SpaceId", "ThreadId", "AudienceUserId")
-                        .HasPrincipalKey("SpaceId", "Id", "AudienceUserId")
+                        .HasForeignKey("WrittenByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_files_threads_space_id_thread_id_audience_user_id");
+                        .HasConstraintName("fk_memories_asp_net_users_written_by_user_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_memories_bots_space_id_bot_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "WrittenByBotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_memories_bots_space_id_written_by_bot_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Models.ModelCatalogEntry", b =>
