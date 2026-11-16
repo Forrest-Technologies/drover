@@ -32,20 +32,28 @@ public static class DesktopCommands
     /// it to answer, the Xfce session, and a wait for its window manager and desktop. Both start in their own session
     /// with no open output, so they outlive this command and its output stream ends when it does. A session just
     /// started gets three more seconds: its processes are up before it has drawn anything (a first screenshot was
-    /// black without them, live).
+    /// black without them, live). A session that has been up for a minute and a half is on the screen even while its
+    /// window manager or desktop is restarting, so the screen is not held back, or refused, for those. A sandbox
+    /// resumed from disk comes back without its display and with the old display's lock file, which would stop a
+    /// new one from starting, so the lock and socket are removed when no display is running. Exit code 3:
+    /// the display never answered. Exit code 4: no session came up at all.
     /// </summary>
     private const string StartDisplayScript =
         """
         export DISPLAY=:0
         if ! xdpyinfo -display :0 >/dev/null 2>&1; then
+          pgrep -x Xvfb >/dev/null || rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
           setsid -f Xvfb :0 -ac -screen 0 1024x768x24 -retro -dpi 96 -nolisten tcp -nolisten unix </dev/null >/dev/null 2>&1
           for attempt in $(seq 1 40); do xdpyinfo -display :0 >/dev/null 2>&1 && break; sleep 0.25; done
           xdpyinfo -display :0 >/dev/null 2>&1 || exit 3
         fi
         session_running() { pgrep -x xfce4-session >/dev/null && pgrep -x xfwm4 >/dev/null && pgrep -x xfdesktop >/dev/null; }
         session_running && exit 0
+        session_age=$(ps -o etimes= -C xfce4-session 2>/dev/null | sort -n | tail -n 1 | tr -d ' ')
+        [ "${session_age:-0}" -ge 90 ] && exit 0
         pgrep -x xfce4-session >/dev/null || setsid -f startxfce4 </dev/null >/dev/null 2>&1
         for attempt in $(seq 1 120); do session_running && sleep 3 && exit 0; sleep 0.5; done
+        pgrep -x xfce4-session >/dev/null && exit 0
         exit 4
         """;
 

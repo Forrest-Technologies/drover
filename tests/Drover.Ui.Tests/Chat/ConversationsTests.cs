@@ -109,11 +109,10 @@ public sealed class ConversationsTests
     }
 
     [Fact]
-    public void A_failed_run_says_why_in_the_servers_words_and_what_to_do()
+    public void A_failed_run_is_not_a_notice_because_the_conversation_ends_with_its_failure_line()
     {
         var failed = RunView.Start(Guid.CreateVersion7()) with { Status = "failed", Error = new("unauthorized", "The provider rejected the API key.") };
 
-        failed.Problem().Should().Be("The provider rejected the API key. Send your message again to retry.");
         failed.Notice().Should().BeNull();
     }
 
@@ -122,9 +121,27 @@ public sealed class ConversationsTests
     {
         var stopped = RunView.Start(Guid.CreateVersion7()) with { Status = "cancelled" };
 
-        stopped.Problem().Should().BeNull();
         stopped.Notice().Should().Be("You stopped this reply.");
         (stopped with { Status = "completed" }).Notice().Should().BeNull();
+    }
+
+    #endregion
+
+    #region Files
+
+    [Fact]
+    public void A_messages_files_are_shown_at_the_address_given_and_a_message_with_only_files_is_kept()
+    {
+        var file = new FileResponse(Guid.NewGuid(), "cat.png", "image/png", FileKinds.Image, 2048, 64, 48);
+        var withFile = new MessageView(Guid.NewGuid(), "user", [new PartView("image", File: file)], false, null);
+
+        var shown = new[] { withFile }.ToChatMessages(fileAddress: id => $"/files/{id}").Single();
+        var without = new[] { withFile }.ToChatMessages();
+
+        shown.Text.Should().BeEmpty();
+        shown.Files.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { file.Id, Name = "cat.png", Href = $"/files/{file.Id}", FromBot = false, Width = 64, Height = 48 });
+        without.Should().BeEmpty("without an address there is nothing to show");
     }
 
     #endregion

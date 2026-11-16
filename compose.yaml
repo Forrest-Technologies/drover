@@ -111,6 +111,8 @@ services:
       Database__Host: db
       Database__AppPasswordFile: /run/secrets/app_password
       DataProtection__KeyPath: /var/lib/drover/keys
+      # Files people attach to messages. Back this volume up with the database.
+      Files__Path: /var/lib/drover/files
       # The address people open Drover at. Tool server sign-ins need it. Empty is fine on this machine alone.
       DROVER_PUBLIC_URL: ${DROVER_PUBLIC_URL:-}
       # Sandboxes (optional): put an E2B API key in ./secrets/e2b_api_key, readable by uid 1654, then uncomment this

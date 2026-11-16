@@ -12,15 +12,14 @@ public sealed class RunGovernor(
     IToolSource? toolServers,
     RunRules rules,
     ILogger logger,
-    bool modelSeesImages = false) : IRunGovernor
+    bool modelSeesImages = false,
+    RunFiles? files = null,
+    RunExecutor.ChildRuns? children = null) : IRunGovernor
 {
-    #region Private Fields
-
-    private const string NotAvailable = "Delegation is not available in Phase 0.";
-
-    #endregion
-
     #region Interface Implementations
+
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
+        files is null ? new Dictionary<Guid, FileForModel>() : await files.Open(fileIds, cancellationToken);
 
     public async Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {
@@ -28,13 +27,21 @@ public sealed class RunGovernor(
         await session.AnnounceStoredMessage();
         var decision = await DecideNow(toolCall, cancellationToken);
 
+        if (decision.Verdict is ToolGateVerdict.Ask && session.IsRerun(toolCall.CallId) && await ResumesWithoutAsking(toolCall, cancellationToken))
+        {
+            decision = ToolGateDecision.Run with { Arguments = decision.Arguments };
+        }
+
         if (decision.Verdict is ToolGateVerdict.Refuse)
         {
             session.MarkRefused(toolCall.CallId);
             logger.LogInformation("Tool {ToolName} refused in run {RunId}: {Reason}", toolCall.ToolName, session.RunId, decision.Reason);
         }
 
-        if (decision.Verdict is not ToolGateVerdict.Run && session.IsRerun(toolCall.CallId))
+        // A call a person approved runs on ask: the gate holds the approval, so it is no reason to settle the call.
+        var mayRun = decision.Verdict is ToolGateVerdict.Run || (decision.Verdict is ToolGateVerdict.Ask && toolCall.Approved);
+
+        if (!mayRun && session.IsRerun(toolCall.CallId))
         {
             // A cut-off call that may no longer run is settled as interrupted by the runtime; say so in the log too.
             await session.CompleteTool(toolCall.CallId, Error("interrupted, outcome unknown"), "interrupted");
@@ -65,11 +72,64 @@ public sealed class RunGovernor(
         }
     }
 
-    public Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken) =>
-        throw new NotSupportedException(NotAvailable);
+    public async Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken)
+    {
+        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
 
-    public Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken) =>
-        throw new NotSupportedException(NotAvailable);
+        if (children is null || tool is not { IsDelegation: true } || request is not { ParentCallId: { } callId, BotId: not null })
+        {
+            return new ChildRun(Guid.Empty, request.AgentName) { Refusal = Error("This bot may not hand work to other bots.") };
+        }
+
+        await session.StartTool(callId);
+        var child = await children.Begin(request, tool.Tool.Id, cancellationToken);
+
+        if (child.Refusal is not null)
+        {
+            session.MarkRefused(callId);
+            logger.LogInformation("Delegation from run {RunId} refused: {Refusal}", session.RunId, child.Refusal.Result.GetRawText());
+        }
+
+        return child;
+    }
+
+    public Task<ChildRunReport> RunChildRun(ChildRun child, CancellationToken cancellationToken) =>
+        children?.Execute(child, cancellationToken) ?? throw new InvalidOperationException("This run cannot run child runs.");
+
+    /// <summary>
+    /// The child's answer becomes the call's result: its last reply when it completed, what went wrong when it
+    /// failed, "cancelled" when it was stopped while this run went on. A child that waits for a person pauses this
+    /// run with it, and a child stopped because this run was stopped stops this run too. The result passes this bot's
+    /// rules on tool results, as any tool's does, before it is stored or shown.
+    /// </summary>
+    public async Task<ToolOutcome> CompleteChildRun(ChildRun child, ChildRunReport report, CancellationToken cancellationToken)
+    {
+        if (children is null)
+        {
+            throw new InvalidOperationException("This run cannot run child runs.");
+        }
+
+        var callId = children.CallOf(child);
+
+        // What a tainted child hands back carries the untrusted text it read. This run is tainted with it before
+        // anything else, so its own consequential tools ask from its next model call on, whatever the child came to.
+        if (report.Tainted)
+        {
+            await session.Taint();
+        }
+
+        await StopWithChild(child, report, callId);
+        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
+        var request = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = DelegateTool.Name, ToolId = tool?.Tool.Id, Arguments = default };
+        var outcome = await RuleOnResult(request, ToResult(child, report), cancellationToken);
+        var toolCallId = ToolCallIds.For(session.RunId, callId);
+        await session.Writer.Append(
+            session.RunId,
+            RunEventTypes.DelegationCompleted,
+            new DelegationCompleted(toolCallId, child.RunId, child.BotId, report.Outcome.ToString().ToLowerInvariant(), session.Preview(outcome.Result)));
+        await session.CompleteTool(callId, outcome);
+        return outcome;
+    }
 
     public Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken) =>
         Record(new ToolModelUsage(bot.ModelConnectionId, bot.Model, pricing, usage.InputTokens, usage.OutputTokens));
@@ -343,6 +403,9 @@ public sealed class RunGovernor(
             ModelSeesImages = modelSeesImages,
             BeginModelCall = session.BeginToolModelCall,
             RecordModelUsage = Record,
+            ThreadId = session.Thread.Id,
+            Redact = session.Redactor.Redact,
+            IsTainted = () => session.Tainted,
         };
 
     #endregion
@@ -423,6 +486,57 @@ public sealed class RunGovernor(
             ? result
             : JsonSerializer.SerializeToElement($"{text[..limit]}\n[The result was {text.Length} characters long. Only the first {limit} are shown.]");
     }
+
+    #endregion
+
+    #region Delegation
+
+    /// <summary>
+    /// A delegation cut off by a restart or a wait is asked again, and asking again must not undo what was decided: once
+    /// its child run has begun it goes on as the same child, even when its grant is ask or this run has since been
+    /// tainted. A grant that no longer allows the call still refuses it; only asking is not repeated. (A call a person
+    /// approved never reaches this: its approval is handed over again and it comes back through the gate.)
+    /// </summary>
+    private async Task<bool> ResumesWithoutAsking(ToolCallRequest toolCall, CancellationToken cancellationToken)
+    {
+        var row = await session.Tenant.Transact(
+            services => services.GetRequiredService<ToolCallRepository>().GetToolCall(ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken),
+            cancellationToken);
+        return row is { ChildRunId: not null } && toolCall.ToolId is { } toolId && session.FindTool(toolId) is { IsDelegation: true };
+    }
+
+    /// <summary>Throws when this run must stop with its child: the child waits for a person, or this run was stopped.</summary>
+    private async Task StopWithChild(ChildRun child, ChildRunReport report, string callId)
+    {
+        if (report.Outcome is ChildRunOutcome.Waiting)
+        {
+            logger.LogInformation("Run {RunId} waits with its child run {ChildRunId}", session.RunId, child.RunId);
+            session.PauseForChild(callId);
+            throw new OperationCanceledException($"Run {session.RunId} waits for its child run {child.RunId}.");
+        }
+
+        // A child cancelled together with this run (the whole tree was asked to stop) stops this run as well, even when
+        // this run's own watch has not seen the request yet.
+        if (report.Outcome is ChildRunOutcome.Cancelled && !session.Stopped.IsCancellationRequested && await children!.IsParentCancelRequested())
+        {
+            session.CancelByUser();
+        }
+
+        if (session.Stopped.IsCancellationRequested)
+        {
+            throw new OperationCanceledException($"Run {session.RunId} was stopped while its child run {child.RunId} worked.");
+        }
+    }
+
+    private static ToolOutcome ToResult(ChildRun child, ChildRunReport report) => report.Outcome switch
+    {
+        ChildRunOutcome.Completed => new ToolOutcome(JsonSerializer.SerializeToElement(
+            string.IsNullOrWhiteSpace(report.Answer) ? $"{child.AgentName} finished without an answer." : report.Answer)),
+        ChildRunOutcome.Cancelled => new ToolOutcome(
+            JsonSerializer.SerializeToElement(new { error = $"{child.AgentName} was cancelled before it finished the task.", outcome = "cancelled" }),
+            true),
+        _ => Error($"{child.AgentName} could not finish the task: {report.Answer ?? "no reason was given."}"),
+    };
 
     #endregion
 

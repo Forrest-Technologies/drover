@@ -17,6 +17,10 @@ public static class Conversations
 
     private const string ToolResultKind = "tool_result";
 
+    private const string ImageKind = "image";
+
+    private const string FileKind = "file";
+
     #endregion
 
     #region Public Methods
@@ -26,12 +30,14 @@ public static class Conversations
     /// after the bot's words the tool calls it made with them. <paramref name="tools"/> are the calls this screen
     /// knows from the thread's past runs and from <paramref name="run"/>, the run being watched; a call the stored
     /// messages do not have yet (the bot has not finished the reply that makes it) is shown after that run's newest
-    /// message. A call the screen has no events for is shown as the stored messages tell it.
+    /// message. A call the screen has no events for is shown as the stored messages tell it. A message's files are
+    /// shown at the address <paramref name="fileAddress"/> gives each; without one, they are left out.
     /// </summary>
     public static IReadOnlyList<ChatMessage> ToChatMessages(
         this IEnumerable<MessageView> messages,
         IReadOnlyDictionary<Guid, ToolCallView>? tools = null,
-        RunView? run = null)
+        RunView? run = null,
+        Func<Guid, string>? fileAddress = null)
     {
         List<MessageView> shown = [.. messages.Where(message => message.Role is PersonRole or BotRole)];
         var all = messages.SelectMany(message => message.Parts).ToList();
@@ -56,10 +62,10 @@ public static class Conversations
                 unplaced.Clear();
             }
 
-            conversation.Add(ToChatMessage(message, cards));
+            conversation.Add(ToChatMessage(message, cards, fileAddress));
         }
 
-        conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0);
+        conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
         AddUnplaced(conversation, unplaced, run);
         return conversation;
     }
@@ -78,11 +84,6 @@ public static class Conversations
         && !run.Messages.Any(message => message.IsStreaming && Words(message).Length > 0)
         && !run.ToolCalls.Any(tool => tool.State is "requested" or "approved" or "running");
 
-    /// <summary>Why a run ended without an answer and what to do, or nothing when it did not fail.</summary>
-    public static string? Problem(this RunView run) => run.Status is "failed"
-        ? $"{run.Error?.Message ?? "The bot stopped before it could answer."} Send your message again to retry."
-        : null;
-
     /// <summary>Something the person should know about a run that is not a failure.</summary>
     public static string? Notice(this RunView run) => run.Status switch
     {
@@ -96,11 +97,20 @@ public static class Conversations
 
     #region Private Methods
 
-    private static ChatMessage ToChatMessage(MessageView message, List<ToolCard> cards)
+    private static ChatMessage ToChatMessage(MessageView message, List<ToolCard> cards, Func<Guid, string>? fileAddress)
     {
-        var shown = new ChatMessage(message.Id.ToString(), message.Role is PersonRole, Words(message), message.IsStreaming, message.IsPending)
+        var fromPerson = message.Role is PersonRole;
+        var shown = new ChatMessage(message.Id.ToString(), fromPerson, Words(message), message.IsStreaming, message.IsPending)
         {
             SentBy = SentBy(message),
+            Files = fileAddress is null
+                ? []
+                :
+                [
+                    .. message.Parts
+                        .Where(part => part.Kind is ImageKind or FileKind && part.File is not null)
+                        .Select(part => FileWords.Shared(part.File!, fileAddress(part.File!.Id), fromBot: !fromPerson)),
+                ],
         };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }

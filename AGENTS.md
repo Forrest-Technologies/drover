@@ -135,6 +135,7 @@ hadolint Dockerfile
 ## 12. User interface
 
 - **Read `DESIGN.md` before any change a person can see.** It is the direction: identity, palette, type, motion, and the list of things Drover's interface never does. Build toward it; do not invent a look.
+- **Start from the starter when there is one.** `src/Drover.Ui/Starters/` holds designed, tested pieces for screens that are not built yet, each tied to an issue. If your issue has a "Start from" section, read `src/Drover.Ui/Starters/README.md`, look at the pieces at `/dev/starters`, and build by moving them into place. Change the design only for a reason you state in the pull request. Delete what you moved from the starter folder in the same pull request. Never reference a starter from product code.
 - Before you finish, check your change against every item under "What Drover's interface never does". The ones marked (test) fail the build. The rest are yours to hold.
 - No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
 - Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.

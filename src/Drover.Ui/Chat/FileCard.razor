@@ -1,0 +1,37 @@
+@* One file in a conversation. A picture is shown with its dimensions set; a text
+   file shows its first lines; anything else is a card. Every form has the same way to download it. Content a
+   bot wrote is never rendered as a page here: it is shown as text or downloaded. *@
+<figure class="dv-file">
+    @switch (FileWords.Kind(File))
+    {
+        case FileKind.Image:
+            <a class="dv-file-picture" href="@File.Href">
+                <img src="@File.Href" width="@File.Width" height="@File.Height" alt="@(File.Caption ?? File.Name)" loading="lazy" />
+            </a>
+            break;
+        case FileKind.Text:
+            <div class="dv-file-preview" tabindex="0" role="group" aria-label="@($"The first lines of {File.Name}")">
+                <pre class="dv-file-preview-text">@File.Preview</pre>
+            </div>
+            break;
+    }
+    <figcaption class="dv-file-card dv-facet">
+        <span class="dv-file-words">
+            <span class="dv-file-name">@File.Name</span>
+            <span class="dv-file-facts dv-mono">@FileWords.Facts(File)</span>
+        </span>
+        <a class="dv-file-get" href="@File.Href" download="@File.Name" aria-label="@($"Download {File.Name}")">
+            <Icon Name="IconName.Download" />
+            <span>Download</span>
+        </a>
+    </figcaption>
+    @if (!string.IsNullOrWhiteSpace(File.Caption))
+    {
+        <p class="dv-file-caption">@File.Caption</p>
+    }
+</figure>
+
+@code {
+    [Parameter, EditorRequired]
+    public SharedFile File { get; set; } = null!;
+}

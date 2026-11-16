@@ -42,6 +42,12 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxBotsPerSpace), "1000", "100"),
         new(nameof(DeploymentPolicy.MinScheduleIntervalMinutes), "1", "15"),
         new(nameof(DeploymentPolicy.MaxSchedulesPerSpace), "1000", "100"),
+        new(nameof(DeploymentPolicy.MaxFileBytes), "26214400", "10485760"),
+        new(nameof(DeploymentPolicy.MaxFilesPerMessage), "10", "5"),
+        new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
+        new(nameof(DeploymentPolicy.MaxDelegationDepth), "5", "5"),
+        new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "50", "50"),
+        new(nameof(DeploymentPolicy.MaxDelegationTreeCostCents), "10000", "1000"),
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
@@ -62,6 +68,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
         new(nameof(DeploymentPolicy.AllowConversationSummaries), "true", "true"),
         new(nameof(DeploymentPolicy.MaxConversationSummarySeconds), "120", "60"),
+        new(nameof(DeploymentPolicy.MaxMemoryNoteCharacters), "1000", "500"),
+        new(nameof(DeploymentPolicy.MaxMemoryCharactersPerPerson), "20000", "8000"),
     ];
 
     /// <summary>

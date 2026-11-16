@@ -41,12 +41,12 @@
             <header class="dv-sandbox-head">
                 <h1 id="dv-sandbox-title" class="dv-sandbox-title" tabindex="-1">@bot.Name's sandbox</h1>
                 <p class="dv-sandbox-state">
-                    <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status.State)</Badge>
+                    <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status)</Badge>
                     @if (status.BotWorking)
                     {
                         <Badge Kind="BadgeKind.Live">Bot working</Badge>
                     }
-                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, DateTimeOffset.UtcNow)</span>
+                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, time.GetUtcNow())</span>
                 </p>
                 <div class="dv-sandbox-power" role="group" aria-label="Power">
                     @if (status.State is "paused")
@@ -68,10 +68,21 @@
 
             <StatusNote Kind="NoteKind.Danger" Text="@actionProblem" />
 
+            @if (SandboxWords.NoScreen(status) is { } noScreen)
+            {
+                <p class="dv-sandbox-hint">
+                    @noScreen
+                    @if (status.DesktopOffered)
+                    {
+                        @(" ")<a href="@Addresses.Bot(BotId)">Open its settings</a>
+                    }
+                </p>
+            }
+
             <Tabs Label="Sandbox" Items="Views" @bind-Active="view">
                 @if (context.Id is ScreenView)
                 {
-                    <SandboxScreen BotId="BotId" BotName="@bot.Name" Status="status" />
+                    <SandboxScreen BotId="BotId" BotName="@bot.Name" Status="status" OnSandboxChanged="() => RefreshStatus(disposal.Token)" />
                 }
                 else
                 {

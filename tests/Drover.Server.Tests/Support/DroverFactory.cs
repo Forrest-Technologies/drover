@@ -14,6 +14,13 @@ public sealed class DroverFactory(
     bool useAppConnection = true,
     Action<IServiceCollection>? configure = null) : WebApplicationFactory<Program>
 {
+    #region Public Methods
+
+    /// <summary>Where the server under test keeps stored files: beside its key ring, removed with it.</summary>
+    public static string FilesPath(string keyRing) => $"{keyRing}-files";
+
+    #endregion
+
     #region Constants
 
     public const string RemoteIpHeader = "X-Test-Remote-Ip";
@@ -29,6 +36,7 @@ public sealed class DroverFactory(
             builder.UseSetting("ConnectionStrings:Drover", database.AppConnectionString);
         }
         builder.UseSetting("DataProtection:KeyPath", keyRing);
+        builder.UseSetting("Files:Path", FilesPath(keyRing));
 
         foreach (var (key, value) in settings)
         {

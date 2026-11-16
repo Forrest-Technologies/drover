@@ -24,8 +24,34 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
         var status = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
 
-        status.Value.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: false, BotWorking: false));
+        status.Value.Should().Be(new BotSandboxStatus(Available: true, HasSandbox: true, "none", null, Desktop: false, BotWorking: false, DesktopOffered: true));
         provider.Created.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_bot_whose_last_start_was_given_up_before_the_provider_made_it_says_so_until_it_has_a_sandbox_again()
+    {
+        var provider = new FakeSandboxProvider();
+        await using var world = await ControlWorld(provider);
+        var control = Control(world);
+        await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        await world.Read(async db =>
+        {
+            // As the sweep leaves a row whose creation never finished: destroyed, with no provider id.
+            var row = await db.Sandboxes.SingleAsync(RunWorld.Token);
+            row.State = SandboxState.Destroyed;
+            row.ProviderSandboxId = string.Empty;
+            return true;
+        });
+
+        var failed = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+        await control.Run(world.SpaceId, world.UserId, world.BotId, "true", RunWorld.Token);
+        var running = await control.GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
+
+        failed.Value!.State.Should().Be("none");
+        failed.Value.StartFailed.Should().BeTrue("the bot tried to get a sandbox, so no sandbox yet is not the whole story");
+        running.Value!.State.Should().Be("running");
+        running.Value.StartFailed.Should().BeFalse();
     }
 
     [Fact]
@@ -277,6 +303,29 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         shot.Refusal.Should().Be(SandboxControlRefusal.Refused);
         shot.Problem.Should().Contain(nameof(DeploymentPolicy.AllowDesktopSandboxes));
         provider.Created.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_state_says_whether_the_server_offers_screens_so_a_sandbox_without_one_can_say_why()
+    {
+        await using var offered = await ControlWorld(DesktopProvider(), desktop: false);
+        await using var forbidden = await ControlWorld(DesktopProvider(), desktop: true, policy: DeploymentPolicy.SelfHosted with { AllowDesktopSandboxes = false });
+
+        var off = (await Control(offered).GetStatus(offered.SpaceId, offered.UserId, offered.BotId, RunWorld.Token)).Value!;
+        var refused = (await Control(forbidden).GetStatus(forbidden.SpaceId, forbidden.UserId, forbidden.BotId, RunWorld.Token)).Value!;
+
+        off.Should().Match<BotSandboxStatus>(status => !status.Desktop && status.DesktopOffered, "Desktop is off, and turning it on would give it a screen");
+        refused.Should().Match<BotSandboxStatus>(status => !status.Desktop && !status.DesktopOffered, "the server offers none, whatever the bot's setting");
+    }
+
+    [Fact]
+    public async Task A_bot_without_a_sandbox_still_hears_whether_the_server_offers_screens()
+    {
+        await using var world = await ControlWorld(new FakeSandboxProvider(), SandboxPolicy.None, policy: DeploymentPolicy.SelfHosted with { AllowDesktopSandboxes = false });
+
+        var status = (await Control(world).GetStatus(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Value!;
+
+        status.Should().Match<BotSandboxStatus>(found => !found.HasSandbox && !found.DesktopOffered);
     }
 
     [Fact]

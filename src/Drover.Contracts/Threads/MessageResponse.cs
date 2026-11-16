@@ -45,5 +45,8 @@ public sealed record MessagePartResponse(string Kind)
 
     public string? MediaType { get; init; }
 
+    /// <summary>An image or file part's file: its name, kind, size, and how it is shown.</summary>
+    public FileResponse? File { get; init; }
+
     #endregion
 }

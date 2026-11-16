@@ -3,7 +3,8 @@ namespace Drover.Contracts.Threads;
 /// <summary>
 /// A conversation with one bot. <see cref="ActiveRunId"/> is the run still working on it, if any: a client opens
 /// that run's event stream to follow it, and sending another message waits until it ends. <see cref="IsMain"/> marks
-/// the caller's one main conversation with the bot; every other thread with it is a side chat.
+/// the caller's one main conversation with the bot; every other thread with it is a side chat. <see cref="Attention"/>
+/// is what the thread has for the caller.
 /// </summary>
 public sealed record ThreadSummary(
     Guid Id,
@@ -12,4 +13,5 @@ public sealed record ThreadSummary(
     bool IsShared,
     DateTimeOffset LastActivityAt,
     Guid? ActiveRunId,
-    bool IsMain = false);
+    bool IsMain = false,
+    ThreadAttention? Attention = null);

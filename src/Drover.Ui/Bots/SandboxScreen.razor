@@ -18,6 +18,12 @@
     {
         <p class="dv-sandbox-hint">@note</p>
     }
+    @if (WakeLabel is { } wake)
+    {
+        <div class="dv-sandbox-wake">
+            <Button OnClick="Wake">@wake</Button>
+        </div>
+    }
 
     @if (picture is not null)
     {
@@ -59,7 +65,7 @@
     }
     else if (WatchesScreen && screenProblem is null)
     {
-        <p class="dv-sandbox-hint" role="status">Getting the screen.</p>
+        <p class="dv-sandbox-hint" role="status">@(waking ? WakingWords : "Getting the screen.")</p>
     }
 
     <StatusNote Kind="NoteKind.Danger" Text="@screenProblem" />

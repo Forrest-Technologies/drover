@@ -1,0 +1,64 @@
+@* Samples for the starters that live in or beside a conversation. Every name and text here is a sample. *@
+<GallerySection Title="Work passing between bots (#162)" Note="Violet edge while the work is out. The child's own activity sits inside, set in by one line.">
+    <div class="dv-sample-wide">
+        <DelegationCard Item="working">
+            <p>A sample line of the helper's work, where its messages and tool cards go.</p>
+        </DelegationCard>
+    </div>
+    <div class="dv-sample-wide"><DelegationCard Item="done" /></div>
+    <div class="dv-sample-wide"><DelegationCard Item="refused" /></div>
+</GallerySection>
+
+<GallerySection Title="A bot asks for its screen to be taken over (#150)" Note="The ask, the person holding the screen, and the answer given.">
+    <TakeoverCard BotName="Sample bot" Reason="Sample reason: sign in to the sample site." Phase="TakeoverPhase.Asked" />
+    <TakeoverCard BotName="Sample bot" Reason="Sample reason: sign in to the sample site." Phase="TakeoverPhase.Holding" />
+    <TakeoverCard BotName="Sample bot" Reason="Sample reason: sign in to the sample site." Phase="TakeoverPhase.Done" />
+</GallerySection>
+
+<GallerySection Title="What a bot remembers (#160)" Note="Every note is readable, says where it came from, and is changed in place.">
+    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Ready" BotName="Sample bot" Notes="notes" NearlyFull="true" /></div>
+    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Ready" BotName="Sample bot" /></div>
+    <div class="dv-sample-rail"><MemoryPanel State="MemoryPanelState.Off" BotName="Sample bot" EditorHref="/" /></div>
+</GallerySection>
+
+<GallerySection Title="Notifications on this device (#149)" Note="Each state says what is so. A state fixed outside Drover has no button.">
+    <PushControl State="PushState.Off" />
+    <PushControl State="PushState.On" />
+    <PushControl State="PushState.Blocked" />
+    <PushControl State="PushState.NeedsHomeScreen" />
+</GallerySection>
+
+<GallerySection Title="Speaking and hearing (#154)" Note="Idle, recording, writing it down, and a refusal. The words go to the composer, never straight to the bot.">
+    <VoiceButton Phase="VoicePhase.Idle" />
+    <VoiceButton Phase="VoicePhase.Recording" Elapsed="TimeSpan.FromSeconds(7)" />
+    <VoiceButton Phase="VoicePhase.Transcribing" />
+    <VoiceButton Phase="VoicePhase.Idle" Problem="VoiceProblem.PermissionRefused" />
+    <ReadAloudButton />
+    <ReadAloudButton Playing="true" />
+</GallerySection>
+
+@code {
+    private static readonly DateTimeOffset sampleDay = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
+
+    private static readonly DelegationItem working = new(
+        Guid.Parse("00000000-0000-7000-8000-000000000201"), "Sample lead", sampleHelper, "Sample helper",
+        "Sample task: find three sample sources.\nA second sample line.", DelegationPhase.Working, null, DelegationRefusal.None, "/", 0);
+
+    private static readonly DelegationItem done = working with
+    {
+        Id = Guid.Parse("00000000-0000-7000-8000-000000000202"), Phase = DelegationPhase.Done, Answer = "A sample answer with **bold** text.",
+    };
+
+    private static readonly DelegationItem refused = working with
+    {
+        Id = Guid.Parse("00000000-0000-7000-8000-000000000203"), Phase = DelegationPhase.Refused, Refusal = DelegationRefusal.Loop,
+    };
+
+    private static readonly MemoryNote[] notes =
+    [
+        new(Guid.Parse("00000000-0000-7000-8000-000000000301"), "Sample note: prefers short answers.", true, sampleDay, "/"),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000302"), "Sample note written by hand.", false, sampleDay.AddDays(-3), null),
+    ];
+}

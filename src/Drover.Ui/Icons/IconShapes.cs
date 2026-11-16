@@ -25,12 +25,16 @@ public static class IconShapes
             """<path d="m6 6 12 12"/><path d="M18 6 6 18"/>""",
         [IconName.Copy] =
             """<path d="M11 8h10v10l-3 3H8V11z"/><path d="M5 16H3V6l3-3h10v2"/>""",
+        [IconName.Download] =
+            """<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>""",
         [IconName.Edit] =
             """<path d="m4 20 1-5L16 4l4 4L9 19z"/><path d="m14 6 4 4"/>""",
         [IconName.ExternalLink] =
             """<path d="M14 4h6v6"/><path d="m20 4-9 9"/><path d="M18 14v4l-2 2H4V9l3-3h3"/>""",
         [IconName.Info] =
             """<path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/><path d="M12 11v6"/><path d="M12 7.5h.01"/>""",
+        [IconName.Microphone] =
+            """<path d="M10 3h4l1 1v8l-1 1h-4l-1-1V4z"/><path d="M6 11v2l3 3h6l3-3v-2"/><path d="M12 16v5"/><path d="M8 21h8"/>""",
         [IconName.More] =
             """<path d="M4.5 11.5h1v1h-1z"/><path d="M11.5 11.5h1v1h-1z"/><path d="M18.5 11.5h1v1h-1z"/>""",
         [IconName.Pause] =
@@ -47,6 +51,8 @@ public static class IconShapes
             """<path d="m3 11 17-7-7 16-2-7z"/><path d="m11 13 9-9"/>""",
         [IconName.Settings] =
             """<path d="M4 8h9"/><path d="M17 8h3"/><path d="M13 6h4v4h-4z"/><path d="M4 16h3"/><path d="M11 16h9"/><path d="M7 14h4v4H7z"/>""",
+        [IconName.Speaker] =
+            """<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9v6"/><path d="M20 6v12"/>""",
         [IconName.Stop] =
             """<path d="M8 5h11v11l-3 3H5V8z"/>""",
         [IconName.Warning] =

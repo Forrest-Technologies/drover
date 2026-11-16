@@ -15,5 +15,12 @@ public sealed class Space
 
     public SpaceSettings Settings { get; set; } = new();
 
+    /// <summary>
+    /// The bytes of every file the space keeps, counted across all its members, private files included, so the
+    /// space's limit can be held without anyone reading another member's rows. Changed only by the file repository,
+    /// in the statement that checks the limit.
+    /// </summary>
+    public long StoredFileBytes { get; set; }
+
     #endregion
 }

@@ -86,9 +86,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
         await factory.DisposeAsync();
         await database.DisposeAsync();
 
-        if (Directory.Exists(keyRing))
+        foreach (var folder in new[] { keyRing, DroverFactory.FilesPath(keyRing) }.Where(Directory.Exists))
         {
-            Directory.Delete(keyRing, recursive: true);
+            Directory.Delete(folder, recursive: true);
         }
 
         GC.SuppressFinalize(this);

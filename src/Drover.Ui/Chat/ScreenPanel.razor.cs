@@ -9,6 +9,7 @@ namespace Drover.Ui.Chat;
 public sealed partial class ScreenPanel(
     DroverApi api,
     SessionState session,
+    TimeProvider time,
     ILogger<ScreenPanel> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -43,9 +44,17 @@ public sealed partial class ScreenPanel(
     {
         await disposal.CancelAsync();
 
+        // Closing never fails because of how the refresh ended: the screen is going away either way.
         if (watching is not null)
         {
-            await watching;
+            try
+            {
+                await watching;
+            }
+            catch (Exception ended)
+            {
+                logger.LogDebug(ended, "The screen panel's refresh ended with a failure as it closed");
+            }
         }
 
         disposal.Dispose();
@@ -91,7 +100,7 @@ public sealed partial class ScreenPanel(
 
     private async Task Watch(CancellationToken stop)
     {
-        using var timer = new PeriodicTimer(statusEvery);
+        using var timer = new PeriodicTimer(statusEvery, time);
 
         try
         {
@@ -107,16 +116,27 @@ public sealed partial class ScreenPanel(
     }
 
     // A failure to read the state again leaves the screen as it was; the picture says for itself when it cannot be read.
+    // A read that works clears a first load that failed, so the screen recovers without a tap. Whatever goes wrong with
+    // one read, the next one still comes: only closing the screen ends the reads.
     private async Task Refresh(CancellationToken stop)
     {
         try
         {
             status = await api.GetBotSandbox(SpaceId, Bot.Id, stop);
+            problem = null;
             await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException stopped) when (stop.IsCancellationRequested)
+        {
+            logger.LogDebug(stopped, "The screen panel closed while the sandbox state was being read again");
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "The sandbox state could not be read again in the {Screen}", nameof(ScreenPanel));
+        }
+        catch (Exception unexpected)
+        {
+            logger.LogWarning(unexpected, "Reading the sandbox state again failed unexpectedly in the {Screen}; the next read still comes", nameof(ScreenPanel));
         }
     }
 

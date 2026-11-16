@@ -87,6 +87,17 @@ public sealed class ComposeFileTests
     }
 
     [Fact]
+    public void The_server_keeps_attached_files_and_its_key_ring_on_the_volumes_mounted_for_them()
+    {
+        var drover = main.Service("drover");
+        var environment = ComposeFile.Map(drover, "environment");
+        var volumes = ComposeFile.List(drover, "volumes");
+
+        volumes.Should().Contain($"drover-files:{ComposeFile.Text(environment, "Files__Path")}");
+        volumes.Should().Contain($"drover-keys:{ComposeFile.Text(environment, "DataProtection__KeyPath")}");
+    }
+
+    [Fact]
     public void Optional_services_stay_off_unless_their_profile_is_asked_for()
     {
         var required = main.ServiceNames.Where(name => ComposeFile.List(main.Service(name), "profiles").Count == 0);

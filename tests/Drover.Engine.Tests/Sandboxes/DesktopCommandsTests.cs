@@ -71,6 +71,27 @@ public sealed class DesktopCommandsTests
     }
 
     [Fact]
+    public void A_session_that_has_been_up_a_while_is_not_waited_for_or_refused_while_a_part_of_it_restarts()
+    {
+        var script = DesktopCommands.StartDisplay().Arguments[^1];
+
+        script.Should().Contain("""[ "${session_age:-0}" -ge 90 ] && exit 0""", "a screenshot every two seconds cannot wait a minute for a window manager");
+        script.IndexOf("pgrep -x xfce4-session >/dev/null && exit 0", StringComparison.Ordinal)
+            .Should().BeGreaterThan(script.IndexOf("seq 1 120", StringComparison.Ordinal), "a session that came up without its desktop still has a screen");
+        script.TrimEnd().Should().EndWith("exit 4", "no session at all is still a failure");
+    }
+
+    [Fact]
+    public void A_display_lock_left_by_a_display_that_is_gone_is_removed_before_a_new_one_starts()
+    {
+        var script = DesktopCommands.StartDisplay().Arguments[^1];
+
+        var removal = script.IndexOf("pgrep -x Xvfb >/dev/null || rm -f /tmp/.X0-lock /tmp/.X11-unix/X0", StringComparison.Ordinal);
+        removal.Should().BeGreaterThan(-1, "a sandbox resumed from disk keeps the lock of a display it no longer runs");
+        removal.Should().BeLessThan(script.IndexOf("setsid -f Xvfb", StringComparison.Ordinal), "the lock is cleared before the display is started");
+    }
+
+    [Fact]
     public void A_screenshot_and_its_removal_name_only_the_file()
     {
         DesktopCommands.Screenshot("/tmp/drover-screen-x.png").Arguments.Should().Equal("--pointer", "/tmp/drover-screen-x.png");

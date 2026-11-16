@@ -52,6 +52,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<ThreadRead> ThreadReads => Set<ThreadRead>();
+
     public DbSet<Run> Runs => Set<Run>();
 
     public DbSet<RunEvent> RunEvents => Set<RunEvent>();
@@ -67,6 +69,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
     public DbSet<StoredFile> Files => Set<StoredFile>();
 
     public DbSet<Secret> Secrets => Set<Secret>();
+
+    public DbSet<MemoryNote> Memories => Set<MemoryNote>();
 
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 

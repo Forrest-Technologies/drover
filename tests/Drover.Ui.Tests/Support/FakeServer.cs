@@ -67,6 +67,33 @@ public sealed class FakeServer : HttpMessageHandler
         return gate;
     }
 
+    /// <summary>
+    /// Fails every request to the address the way the client's own time limit ends one: cancelled, because of a
+    /// timeout, while the screen that asked is still open.
+    /// </summary>
+    public FakeServer TimeOut(string method, string path)
+    {
+        answers[$"{method} {path}"] = () => throw new TaskCanceledException("The request ran past the client's time limit.", new TimeoutException());
+        return this;
+    }
+
+    /// <summary>
+    /// Answers the address with a web page and success, as a proxy in front of the server sometimes does, so a screen
+    /// that asked for data gets something it cannot read.
+    /// </summary>
+    public FakeServer AnswerPage(string method, string path)
+    {
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK) { Content = new StringContent("<!DOCTYPE html><title>Sample proxy page</title>", Encoding.UTF8, "text/html") };
+        return this;
+    }
+
+    /// <summary>Fails every request to the address with the given exception, for a failure no screen expects.</summary>
+    public FakeServer Fail(string method, string path, Exception failure)
+    {
+        answers[$"{method} {path}"] = () => throw failure;
+        return this;
+    }
+
     /// <summary>Answers the way the server does when it refuses: a problem document with a sentence as its title.</summary>
     public FakeServer Refuse(string method, string path, HttpStatusCode status, string title)
     {

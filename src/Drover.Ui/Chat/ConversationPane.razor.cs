@@ -12,7 +12,24 @@ public sealed partial class ConversationPane(
 {
     #region Private Fields
 
+    private readonly AttachmentDraft draft = new();
+
     private IReadOnlyList<MessageResponse> stored = [];
+
+    private AttachmentRules? rules;
+
+    // The one request making this conversation's thread, while it is on its way. Sending and attaching both wait
+    // for it, so a new side chat is made once however the first message and the first file race.
+    private Task<ThreadSummary>? opening;
+
+    // Uploads stop when the person leaves the conversation. The token is read once, here, so code that resumes after
+    // the pane is gone still reads it, and never the disposed source.
+    private readonly CancellationTokenSource leaving = new();
+
+    private CancellationToken left;
+
+    // The files of the message on its way, which leaving must not remove from under it.
+    private IReadOnlyList<Guid> inFlight = [];
 
     private ImmutableDictionary<Guid, ToolCallView> history = [];
 
@@ -38,6 +55,10 @@ public sealed partial class ConversationPane(
 
     private bool sending;
 
+    private bool retrying;
+
+    private bool markedOnOpen;
+
     private bool missing;
 
     private bool reportedBusy;
@@ -53,6 +74,13 @@ public sealed partial class ConversationPane(
     /// <summary>True for the bot's main conversation, which the server keeps one of for each person.</summary>
     [Parameter]
     public bool Main { get; set; }
+
+    /// <summary>
+    /// The person chose this conversation, so having it open is seeing it. False where the pane is there without being
+    /// chosen: at the start page a phone shows the crew, not the lead's conversation.
+    /// </summary>
+    [Parameter]
+    public bool Opened { get; set; } = true;
 
     /// <summary>The side chat to open. Read once, when the pane is first shown.</summary>
     [Parameter]
@@ -80,9 +108,13 @@ public sealed partial class ConversationPane(
 
     // What is stored, then what the active run has said that is not stored yet. Each message appears once, with the
     // tool calls it made: as the run being watched has them, or as the thread's past runs left them.
-    private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run).ToChatMessages(history.With(run), run);
+    private IReadOnlyList<ChatMessage> Messages => ChatTimeline.Merge(stored, run)
+        .ToChatMessages(history.With(run), run, fileId => api.FileAddress(SpaceId, fileId));
 
     private string? Notice => reconnecting ?? notice;
+
+    // The conversation ends with its failed run until a run after it is under way.
+    private RunFailure? Failure => Working ? null : thread?.Attention?.LastFailure;
 
     #endregion
 
@@ -92,6 +124,9 @@ public sealed partial class ConversationPane(
     {
         watch?.Cancel();
         watch?.Dispose();
+        leaving.Cancel();
+        leaving.Dispose();
+        RemoveUnsentFiles();
     }
 
     #endregion
@@ -100,6 +135,8 @@ public sealed partial class ConversationPane(
 
     protected override async Task OnInitializedAsync()
     {
+        left = leaving.Token;
+
         if (!Main && ThreadId is null)
         {
             return;
@@ -119,6 +156,8 @@ public sealed partial class ConversationPane(
             history = await LoadToolHistory(thread);
             ResumeActiveRun(thread);
             await ReportBusy();
+            await MarkSeen();
+            markedOnOpen = Opened;
         }
         catch (DroverApiException exception) when (!Main && exception.StatusCode is HttpStatusCode.NotFound)
         {
@@ -133,6 +172,16 @@ public sealed partial class ConversationPane(
         finally
         {
             loading = false;
+        }
+    }
+
+    // The start page's conversation becomes seen when the person chooses its bot: the pane stays, the address changes.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Opened && !markedOnOpen && thread is not null && !loading)
+        {
+            markedOnOpen = true;
+            await MarkSeen();
         }
     }
 
@@ -183,10 +232,15 @@ public sealed partial class ConversationPane(
         (problem, notice) = (null, null);
         try
         {
-            thread ??= Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await StartSideChat();
-            var sent = await api.SendMessage(SpaceId, thread.Id, text);
+            thread = await OpenThread();
+            var fileIds = inFlight = draft.FileIds;
+            var sent = await api.SendMessage(SpaceId, thread.Id, text, fileIds: fileIds);
+
+            // Only the files that went: one attached while the message was on its way stays for the next.
+            draft.Sent(fileIds);
             stored = [.. stored, sent.Message];
-            thread = thread with { Title = thread.Title ?? (thread.IsMain ? null : text), ActiveRunId = sent.Run.Id };
+            var title = thread.Title ?? (thread.IsMain || text.Length == 0 ? null : text);
+            thread = thread with { Title = title, ActiveRunId = sent.Run.Id };
             await Changed(thread);
             if (run is not { IsActive: true } || run.RunId != sent.Run.Id)
             {
@@ -205,6 +259,7 @@ public sealed partial class ConversationPane(
         finally
         {
             sending = false;
+            inFlight = [];
         }
     }
 
@@ -266,6 +321,177 @@ public sealed partial class ConversationPane(
         }
     }
 
+    // The failed run's message is answered again by a new run, which is followed like any other.
+    private async Task Retry()
+    {
+        if (retrying || thread?.Attention?.LastFailure is not { } failure)
+        {
+            return;
+        }
+
+        retrying = true;
+        (problem, notice) = (null, null);
+        try
+        {
+            var started = await api.RetryRun(SpaceId, failure.RunId);
+            thread = thread with { ActiveRunId = started.Id, Attention = thread.Attention with { Failed = false, LastFailure = null } };
+            await Changed(thread);
+            Watch(started.Id);
+            await ReportBusy();
+
+            // The line and its button are gone; Stop, in the composer, took their place.
+            returnToComposer = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            retrying = false;
+        }
+    }
+
+    #endregion
+
+    #region Attaching Files
+
+    // The conversation's thread, made now when it has none: the main one through its bot, a new side chat from its
+    // first message or its first file, whichever comes first.
+    private Task<ThreadSummary> OpenThread() =>
+        thread is not null ? Task.FromResult(thread) : opening ??= MakeThread();
+
+    private async Task<ThreadSummary> MakeThread()
+    {
+        try
+        {
+            thread = Main ? await api.OpenMainThread(SpaceId, Bot.Id) : await StartSideChat();
+            return thread;
+        }
+        finally
+        {
+            opening = null;
+        }
+    }
+
+    // A file goes to the server as soon as it is chosen, so Send has nothing left to wait for once each is ready. A
+    // new side chat gets its thread now, from its first file, since a file belongs to a conversation.
+    private async Task Attach(IReadOnlyList<IBrowserFile> files)
+    {
+        problem = null;
+        ThreadSummary shown;
+        try
+        {
+            shown = await OpenThread();
+            rules ??= await api.GetAttachmentRules(SpaceId, shown.Id);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
+            problem = $"The files were not attached. {Failures.Sentence(exception)}";
+            return;
+        }
+
+        foreach (var file in files)
+        {
+            var item = draft.Add(file.Name, file.Size, rules);
+
+            if (item.Phase is UploadPhase.Uploading)
+            {
+                _ = Upload(file, item.Id, shown.Id, rules.MaxFileBytes);
+            }
+        }
+    }
+
+    // How far a file has got is said only where it can be measured. In a browser the request is read whole before it
+    // is sent, so a number would only say that, and the chip says "Uploading" until the server answers.
+    private async Task Upload(IBrowserFile file, Guid id, Guid threadId, long maxBytes)
+    {
+        var progress = OperatingSystem.IsBrowser() ? null : new Progress<long>(sent =>
+        {
+            if (draft.Progress(id, sent))
+            {
+                _ = InvokeAsync(StateHasChanged);
+            }
+        });
+
+        try
+        {
+            await using var content = file.OpenReadStream(maxBytes, left);
+            var stored = await api.UploadFile(
+                SpaceId, threadId, file.Name, content, file.Size, progress, left);
+
+            // Taken off while it was on its way, or the conversation was left: the server keeps nothing nobody will
+            // send, so this removal goes ahead even after leaving.
+            if (!draft.Uploaded(id, stored))
+            {
+                await api.RemoveFile(SpaceId, stored.Id, CancellationToken.None);
+            }
+        }
+        catch (DroverApiException exception) when (exception.Refusal is not null)
+        {
+            logger.LogInformation(exception, "The server refused a file: {Refusal}", exception.Refusal);
+            draft.Refused(id, FileWords.RefusalFrom(exception.Refusal));
+        }
+        catch (OperationCanceledException) when (left.IsCancellationRequested)
+        {
+            logger.LogDebug("An upload stopped because the conversation was left");
+            return;
+        }
+        catch (Exception exception)
+        {
+            // Whatever stopped it (the network, the server, the time limit, the browser's file going away), the chip
+            // says it was not uploaded and how to go on, and the message is held until it is taken off.
+            logger.LogWarning(exception, "A file could not be uploaded in the {Screen}", nameof(ConversationPane));
+            draft.Failed(id);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // A file taken off before sending is removed from the server too, when it got there.
+    private async Task RemoveFile(Guid id)
+    {
+        if (draft.Remove(id) is not { } fileId)
+        {
+            return;
+        }
+
+        try
+        {
+            await api.RemoveFile(SpaceId, fileId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A file taken off a message could not be removed from the server");
+        }
+    }
+
+    // Leaving the conversation with files attached and not sent removes them from the server, as taking each off
+    // would. A page that is closed or reloaded cannot do this; those files stay until they are removed.
+    private void RemoveUnsentFiles()
+    {
+        foreach (var fileId in draft.FileIds.Except(inFlight))
+        {
+            _ = RemoveQuietly(fileId);
+        }
+
+        draft.Clear();
+    }
+
+    private async Task RemoveQuietly(Guid fileId)
+    {
+        try
+        {
+            await api.RemoveFile(SpaceId, fileId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A file left unsent could not be removed from the server");
+        }
+    }
+
     #endregion
 
     #region Watching A Run
@@ -303,11 +529,12 @@ public sealed partial class ConversationPane(
             }
 
             stored = await api.ListMessages(SpaceId, threadId, cancellationToken);
-            (run, problem, notice) = (view, view.Problem(), view.Notice());
+            (run, problem, notice) = (view, null, view.Notice());
 
             // A message sent just as the run ended is answered by a run of its own, which is followed next.
             thread = await api.GetThread(SpaceId, threadId, cancellationToken);
             await Changed(thread);
+            await MarkSeen();
             if (thread.ActiveRunId is { } next && next != runId)
             {
                 Watch(next);
@@ -341,6 +568,30 @@ public sealed partial class ConversationPane(
     #endregion
 
     #region Private Methods
+
+    // Having the conversation open is seeing it, on every screen of the person's. If the server does not hear it, the
+    // crew may still say there is something here until the next time; the conversation itself is unaffected.
+    private async Task MarkSeen()
+    {
+        if (thread is null || !Opened)
+        {
+            return;
+        }
+
+        try
+        {
+            await api.MarkThreadSeen(SpaceId, thread.Id);
+            if (thread.Attention is { } attention)
+            {
+                thread = thread with { Attention = attention with { Failed = false, HasNew = false } };
+                await Changed(thread);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "Thread {ThreadId} could not be marked seen", thread.Id);
+        }
+    }
 
     private Task Changed(ThreadSummary changed) => OnThreadChanged.InvokeAsync(changed with { LastActivityAt = DateTimeOffset.UtcNow });
 

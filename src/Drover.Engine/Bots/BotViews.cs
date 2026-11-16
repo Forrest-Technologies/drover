@@ -29,7 +29,9 @@ public static class BotViews
                 bot.MemorySettings.Enabled,
                 Words.Of(bot.MemorySettings.Compaction),
                 bot.MemorySettings.CompactAtTokens,
-                bot.MemorySettings.KeepRecentMessages),
+                bot.MemorySettings.KeepRecentMessages,
+                bot.MemorySettings.MaxNoteCharacters,
+                bot.MemorySettings.MaxNotesCharacters),
             Words.Of(bot.SandboxPolicy),
             new SandboxSettingsBody(
                 Words.Of(bot.SandboxSettings.Network),
@@ -145,6 +147,8 @@ public static class BotViews
                 Compaction = compaction,
                 CompactAtTokens = body.CompactAtTokens,
                 KeepRecentMessages = body.KeepRecentMessages,
+                MaxNoteCharacters = body.MaxNoteCharacters,
+                MaxNotesCharacters = body.MaxNotesCharacters,
             }
             : null;
 

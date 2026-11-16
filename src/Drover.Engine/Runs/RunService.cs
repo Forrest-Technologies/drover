@@ -19,6 +19,17 @@ public enum CancelOutcome
 
 public sealed record RunCancel(CancelOutcome Outcome, Run? Run = null);
 
+public enum RetryOutcome
+{
+    Queued,
+    NotFound,
+    Forbidden,
+    NotRetryable,
+    BotUnavailable,
+}
+
+public sealed record RunRetry(RetryOutcome Outcome, Run? Run = null);
+
 /// <summary>
 /// Starting and stopping runs. Posting a message and cancelling open their own tenant scope, because both tell the
 /// workers after the commit; their endpoints sit outside the scope filter. Reading a run happens in the scope the
@@ -28,8 +39,12 @@ public sealed class RunService(
     ThreadRepository threads,
     MessageRepository messages,
     BotRepository bots,
+    FileRepository files,
+    FileAbilityReader abilities,
+    IOptions<DeploymentPolicyOptions> deployment,
     RunRepository runs,
     RunEventRepository events,
+    ToolCallRepository toolCalls,
     ThreadLine queue,
     TenantScope scope,
     RunSignal signal,
@@ -44,6 +59,8 @@ public sealed class RunService(
     public const int MaxMessageLength = 100_000;
 
     private const int TitleLength = 80;
+
+    private const string CancelledBeforeApproval = "The run was cancelled before this call was approved.";
 
     #endregion
 
@@ -67,13 +84,20 @@ public sealed class RunService(
     /// one root run at a time. With none active, the message joins the conversation and a run is queued for it. With
     /// one active, the message is stored as pending and is never refused: it steers that run at its next step when
     /// <paramref name="steer"/> is set and the run acts for the sender, and otherwise waits for the run to end and
-    /// starts the next one. A run only ever takes instructions from the person it acts for.
+    /// starts the next one. A run only ever takes instructions from the person it acts for. Files go with the message
+    /// only when the sender uploaded them to this thread, has not sent them yet, and the bot can open each one.
     /// </summary>
-    public async Task<MessagePost> PostMessage(Guid threadId, string text, bool steer, Guid userId, CancellationToken cancellationToken)
+    public async Task<MessagePost> PostMessage(
+        Guid threadId,
+        string text,
+        IReadOnlyList<Guid> fileIds,
+        bool steer,
+        Guid userId,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(text) || text.Length > MaxMessageLength)
+        if (FindInvalidRequest(text, fileIds) is { } invalid)
         {
-            return new MessagePost(null, null, PostProblem.Invalid, $"Write a message of up to {MaxMessageLength} characters.");
+            return new MessagePost(null, null, PostProblem.Invalid, invalid);
         }
 
         Message message;
@@ -89,7 +113,15 @@ public sealed class RunService(
                 return new MessagePost(null, null, PostProblem.NotFound);
             }
 
-            message = NewUserMessage(text, userId);
+            var bot = await bots.FindBot(thread.BotId, cancellationToken);
+            var attached = await TakeFiles(thread, bot, fileIds, userId, cancellationToken);
+
+            if (attached.Problem is not null)
+            {
+                return new MessagePost(null, null, PostProblem.Invalid, attached.Problem);
+            }
+
+            message = NewUserMessage(text, attached.Files, userId);
             thread.LastActivityAt = time.GetUtcNow();
 
             if (await runs.FindActiveRun(threadId, cancellationToken) is { } active)
@@ -100,14 +132,19 @@ public sealed class RunService(
             }
             else
             {
-                if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
+                if (bot is not { Status: BotStatus.Active })
                 {
                     return new MessagePost(null, null, PostProblem.Invalid, "This bot is paused or removed, so it cannot answer.");
                 }
 
                 await messages.AppendMessages(thread, [message], cancellationToken);
-                TitleFromFirstMessage(thread, text);
+                TitleFromFirstMessage(thread, string.IsNullOrWhiteSpace(text) ? attached.Files[0].Name : text);
                 (run, appended) = await queue.Queue(thread, message, userId, cancellationToken);
+            }
+
+            foreach (var file in attached.Files)
+            {
+                file.MessageId = message.Id;
             }
 
             await work.Commit(cancellationToken);
@@ -162,12 +199,18 @@ public sealed class RunService(
             await runs.RequestCancel(runId, cancellationToken);
             run.CancelRequestedAt ??= time.GetUtcNow();
 
+            if (run.ParentRunId is not null)
+            {
+                await DenyWaitingApprovalsBeneath(run, cancellationToken);
+            }
+
             if (run is { Status: RunStatus.Queued or RunStatus.Waiting, ParentRunId: null } && thread is not null)
             {
                 run.Status = RunStatus.Cancelled;
                 run.StatusReason = RunReasons.CancelledByUser;
                 run.FinishedAt = time.GetUtcNow();
-                appended = await events.Append(run.RootRunId, thread, [CancelledEvent(run)], cancellationToken);
+                await runs.AddToSubtreeUsage(run.Id, run.Usage, cancellationToken);
+                appended = [.. await events.Append(run.RootRunId, thread, [CancelledEvent(run)], cancellationToken), .. await queue.EndOpenDescendants(run, cancellationToken)];
                 next = await queue.RunEnded(run, thread, cancellationToken);
             }
 
@@ -194,9 +237,80 @@ public sealed class RunService(
         return new RunCancel(CancelOutcome.Requested, run);
     }
 
+    /// <summary>
+    /// Starts a new run from the message a failed run answered. Only the run's own person may, only while it is the
+    /// newest run of theirs in the thread, and only while nothing else works on the thread: a failure that something
+    /// came after is history, not something to try again.
+    /// </summary>
+    public async Task<RunRetry> Retry(Guid runId, Guid userId, CancellationToken cancellationToken)
+    {
+        QueuedRun queued;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            var failed = await runs.FindRun(runId, cancellationToken);
+            var thread = failed is null ? null : await threads.GetThreadForUpdate(failed.ThreadId, cancellationToken);
+
+            if (failed is null || thread is null)
+            {
+                return new RunRetry(RetryOutcome.NotFound);
+            }
+
+            if (failed.PrincipalUserId != userId)
+            {
+                return new RunRetry(RetryOutcome.Forbidden);
+            }
+
+            var facts = (await threads.ListFacts([thread.Id], userId, cancellationToken))[thread.Id];
+            var trigger = failed.TriggerMessageId is { } messageId ? await messages.FindMessage(messageId, cancellationToken) : null;
+
+            if (failed.Status is not RunStatus.Failed || facts.NewestRun?.Id != failed.Id || trigger is null
+                || await runs.FindActiveRun(thread.Id, cancellationToken) is not null)
+            {
+                return new RunRetry(RetryOutcome.NotRetryable);
+            }
+
+            if (await bots.FindBot(thread.BotId, cancellationToken) is not { Status: BotStatus.Active })
+            {
+                return new RunRetry(RetryOutcome.BotUnavailable);
+            }
+
+            thread.LastActivityAt = time.GetUtcNow();
+            queued = await queue.Queue(thread, trigger, userId, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        hub.Publish(queued.Run.RootRunId, queued.Events);
+        signal.Wake();
+        Tell(queued.Run, UserSignalKinds.ThreadChanged);
+        logger.LogInformation("Run {RunId} was tried again as run {RetryRunId}", runId, queued.Run.Id);
+        return new RunRetry(RetryOutcome.Queued, queued.Run);
+    }
+
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// A child run that waits for a person holds its whole tree. When it is cancelled, the approvals it and the runs
+    /// beneath it wait for are denied, so the tree can be taken up again: the child then ends as cancelled, and the
+    /// run above it gets a "cancelled" result and goes on.
+    /// </summary>
+    private async Task DenyWaitingApprovalsBeneath(Run child, CancellationToken cancellationToken)
+    {
+        foreach (var run in await runs.ListSelfAndDescendants(child.Id, cancellationToken))
+        {
+            if (run.Status is not RunStatus.Waiting)
+            {
+                continue;
+            }
+
+            foreach (var call in await toolCalls.ListPendingApprovals(run.ThreadId, cancellationToken))
+            {
+                ToolDecisions.Deny(call, CancelledBeforeApproval, time.GetUtcNow());
+            }
+        }
+    }
 
     /// <summary>Hints to the run's own person, on any of their screens, that the thread changed.</summary>
     private void Tell(Run run, string kind)
@@ -207,13 +321,78 @@ public sealed class RunService(
         }
     }
 
-    private Message NewUserMessage(string text, Guid userId) => new()
+    private Message NewUserMessage(string text, IReadOnlyList<StoredFile> attached, Guid userId) => new()
     {
         Role = MessageRole.User,
         AuthorUserId = userId,
-        Parts = [new TextPart(text)],
+        Parts =
+        [
+            .. string.IsNullOrWhiteSpace(text) ? Array.Empty<MessagePart>() : [new TextPart(text)],
+            .. attached.Select(ToPart),
+        ],
         CreatedAt = time.GetUtcNow(),
     };
+
+    private static MessagePart ToPart(StoredFile file) =>
+        FileInspector.KindOf(file.ContentType) is FileKind.Image
+            ? new ImagePart(file.Id, file.ContentType, null, file.Name, file.Size, file.Width, file.Height)
+            : new FilePart(file.Id, file.Name, file.ContentType, file.Size, file.Preview);
+
+    /// <summary>Why the request cannot be a message, before anything is read: no words and no files, too long, too many files.</summary>
+    private string? FindInvalidRequest(string text, IReadOnlyList<Guid> fileIds)
+    {
+        if (text.Length > MaxMessageLength || (string.IsNullOrWhiteSpace(text) && fileIds.Count == 0))
+        {
+            return $"Write a message of up to {MaxMessageLength} characters.";
+        }
+
+        if (fileIds.Count > deployment.Value.Rules.MaxFilesPerMessage)
+        {
+            return FileWords.TooMany(deployment.Value.Rules.MaxFilesPerMessage);
+        }
+
+        return fileIds.Distinct().Count() != fileIds.Count ? "The same file is attached twice." : null;
+    }
+
+    /// <summary>
+    /// The files to send, tracked and in the order asked for: each one the sender's own, uploaded to this thread, not
+    /// sent before, and one the bot can open now. Row-level security has already hidden any file the sender cannot see.
+    /// </summary>
+    private async Task<AttachedFiles> TakeFiles(
+        ChatThread thread,
+        Bot? bot,
+        IReadOnlyList<Guid> fileIds,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (fileIds.Count == 0)
+        {
+            return new AttachedFiles([], null);
+        }
+
+        var found = await files.GetFilesForUpdate(fileIds, cancellationToken);
+        List<StoredFile> ordered = [.. fileIds.Select(id => found.FirstOrDefault(file => file.Id == id)).OfType<StoredFile>()];
+
+        if (ordered.Count != fileIds.Count
+            || ordered.Any(file => file.ThreadId != thread.Id || file.MessageId is not null || file.CreatedByUserId != userId))
+        {
+            return new AttachedFiles([], "A file on this message is not one you attached in this conversation, or it was sent already. Attach it again.");
+        }
+
+        if (bot is null)
+        {
+            return new AttachedFiles([], "This bot is paused or removed, so it cannot answer.");
+        }
+
+        var can = await abilities.Read(bot, thread, cancellationToken);
+        var refused = ordered
+            .Select(file => (file.Name, Refusal: FileUses.RefusalFor(FileInspector.KindOf(file.ContentType), can)))
+            .FirstOrDefault(pair => pair.Refusal is not null);
+
+        return refused.Refusal is { } refusal
+            ? new AttachedFiles([], $"{refused.Name}: {FileWords.CannotOpen(refusal, bot.Name)}")
+            : new AttachedFiles(ordered, null);
+    }
 
     /// <summary>A side chat is named after its first message. A main thread is the bot's conversation and takes no title.</summary>
     private static void TitleFromFirstMessage(ChatThread thread, string text)
@@ -231,6 +410,12 @@ public sealed class RunService(
             new RunStatusChanged(RunStatus.Cancelled.ToWireName(), run.StatusReason, null, run.Attempt, run.Usage.ToTotals()));
 
     #endregion
+
+    #region Nested Types
+
+    private sealed record AttachedFiles(IReadOnlyList<StoredFile> Files, string? Problem);
+
+    #endregion
 }
 
 
@@ -246,6 +431,12 @@ public static class RunReasons
     public const string CancelledByUser = "cancelled_by_user";
 
     public const string LeaseLost = "lease_lost";
+
+    public const string CancelledByParent = "cancelled_by_parent";
+
+    public const string LoopDetected = "loop_detected";
+
+    public const string BudgetExceeded = "budget_exceeded";
 
     #endregion
 }

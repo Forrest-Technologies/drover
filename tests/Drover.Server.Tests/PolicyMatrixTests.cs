@@ -211,6 +211,16 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_file_rules_bound_one_file_one_message_and_one_spaces_total()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.MaxFileBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxFileBytes)));
+        rules.MaxFilesPerMessage.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxFilesPerMessage)));
+        rules.MaxSpaceFileMegabytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxSpaceFileMegabytes)));
+    }
+
+    [Fact]
     public async Task MaxBotsPerSpace_is_the_cap_on_a_spaces_bots_where_the_space_sets_none_and_a_space_may_only_lower_it()
     {
         await using var scope = Services.CreateAsyncScope();
@@ -245,6 +255,27 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         {
             everyFiveMinutes.StatusCode.Should().Be(HttpStatusCode.Created, await everyFiveMinutes.Content.ReadAsStringAsync(Token));
         }
+    }
+
+    [Fact]
+    public async Task The_delegation_budgets_are_each_a_ceiling_a_space_may_only_lower()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var ceilings = new DelegationLimits(
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationDepth)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxDelegationTreeCostCents)), CultureInfo.InvariantCulture));
+
+        policies.Delegation(new SpaceSettings()).Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings
+        {
+            MaxDelegationDepth = ceilings.MaxDepth + 1,
+            MaxRunsPerDelegationTree = ceilings.MaxRuns + 1,
+            MaxDelegationTreeCostCents = ceilings.MaxCostCents + 1,
+        }).Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings { MaxDelegationDepth = 1, MaxRunsPerDelegationTree = 2, MaxDelegationTreeCostCents = 3 })
+            .Should().Be(new DelegationLimits(1, 2, 3));
     }
 
     [Fact]

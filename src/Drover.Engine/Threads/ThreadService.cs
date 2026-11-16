@@ -1,12 +1,12 @@
 namespace Drover.Engine.Threads;
 
-/// <summary>A thread and the run still working on it, if any.</summary>
-public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId);
+/// <summary>A thread, the run still working on it, if any, and what it has for the person who asked.</summary>
+public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAttention? Attention = null);
 
 /// <summary>
 /// Threads and their messages, as the caller may see them: row-level security shows a person their own threads and
 /// the shared ones, so a thread that is not theirs simply is not found. Runs in the tenant scope the endpoint filter
-/// opened.
+/// opened, except marking a thread seen, which opens its own so the person's other screens are told after the commit.
 /// </summary>
 public sealed class ThreadService(
     ThreadRepository threads,
@@ -15,6 +15,8 @@ public sealed class ThreadService(
     RunRepository runs,
     RunEventRepository events,
     BotScheduleRepository schedules,
+    TenantScope scope,
+    UserSignalHub signals,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -39,8 +41,11 @@ public sealed class ThreadService(
 
     #region Public Methods
 
-    /// <summary>The caller's threads with one bot, newest activity first. Null when the bot does not exist here.</summary>
-    public async Task<List<ThreadView>?> ListThreads(Guid botId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's threads with one bot, newest activity first, each with what it has for them. Null when the bot
+    /// does not exist here.
+    /// </summary>
+    public async Task<List<ThreadView>?> ListThreads(Guid botId, Guid userId, CancellationToken cancellationToken)
     {
         if (await bots.FindBot(botId, cancellationToken) is null)
         {
@@ -49,7 +54,10 @@ public sealed class ThreadService(
 
         var found = await threads.ListThreadsForBot(botId, ListLimit, cancellationToken);
         var active = await runs.ListActiveRunIds([.. found.Select(thread => thread.Id)], cancellationToken);
-        return [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))];
+        return await WithAttention(
+            [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))],
+            userId,
+            cancellationToken);
     }
 
     /// <summary>A new private thread with the bot, owned by the caller. Null when the bot cannot be talked to.</summary>
@@ -97,15 +105,38 @@ public sealed class ThreadService(
             main = await threads.FindMainThread(botId, ownerUserId, cancellationToken);
         }
 
-        return main is null ? null : new ThreadView(main, (await runs.FindActiveRun(main.Id, cancellationToken))?.Id);
+        return main is null ? null : await WithAttention(main, ownerUserId, cancellationToken);
     }
 
-    public async Task<ThreadView?> FindThread(Guid threadId, CancellationToken cancellationToken)
+    public async Task<ThreadView?> FindThread(Guid threadId, Guid userId, CancellationToken cancellationToken)
     {
         var thread = await threads.FindThread(threadId, cancellationToken);
-        return thread is null
-            ? null
-            : new ThreadView(thread, (await runs.FindActiveRun(threadId, cancellationToken))?.Id);
+        return thread is null ? null : await WithAttention(thread, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Marks the thread seen by the caller as far as its newest message, then tells their other screens. False when
+    /// the caller may not see the thread.
+    /// </summary>
+    public async Task<bool> MarkSeen(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        ChatThread? thread;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            thread = await threads.FindThread(threadId, cancellationToken);
+
+            if (thread is null)
+            {
+                return false;
+            }
+
+            await threads.MarkSeen(thread, userId, time.GetUtcNow(), cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        signals.Publish(thread.SpaceId, userId, new UserSignal(UserSignalKinds.ThreadSeen, thread.Id, null));
+        return true;
     }
 
     /// <summary>
@@ -153,6 +184,22 @@ public sealed class ThreadService(
 
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task<ThreadView> WithAttention(ChatThread thread, Guid userId, CancellationToken cancellationToken)
+    {
+        var view = new ThreadView(thread, (await runs.FindActiveRun(thread.Id, cancellationToken))?.Id);
+        return (await WithAttention([view], userId, cancellationToken))[0];
+    }
+
+    private async Task<List<ThreadView>> WithAttention(List<ThreadView> views, Guid userId, CancellationToken cancellationToken)
+    {
+        var facts = await threads.ListFacts([.. views.Select(view => view.Thread.Id)], userId, cancellationToken);
+        return [.. views.Select(view => view with { Attention = facts[view.Thread.Id].ToAttention() })];
+    }
 
     #endregion
 }

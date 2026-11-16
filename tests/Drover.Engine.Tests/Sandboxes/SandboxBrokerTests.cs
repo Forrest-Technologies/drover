@@ -347,6 +347,25 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
 
     #region Taint
 
+    [Fact]
+    public async Task A_sandbox_is_marked_tainted_before_an_attached_file_is_written_so_a_cancel_after_the_write_leaves_the_mark()
+    {
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
+        var provider = new FakeSandboxProvider { AfterWrite = _ => cancelled.Cancel() };
+        await using var world = await SandboxWorld(provider);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var host = world.StartHost();
+        var broker = host.Services.GetRequiredService<SandboxBroker>();
+        var caller = new SandboxCaller(new RunTenant(host.Services.GetRequiredService<IServiceScopeFactory>(), world.SpaceId, world.UserId), world.BotId);
+        using var content = new MemoryStream("attached"u8.ToArray());
+
+        var put = () => broker.PutFile(caller, "attachments/a/notes.txt", content, content.Length, cancelled.Token);
+
+        await put.Should().ThrowAsync<OperationCanceledException>();
+        provider.Only().Files.Should().ContainKey("attachments/a/notes.txt");
+        (await world.Read(db => db.Sandboxes.SingleAsync(RunWorld.Token))).Tainted.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData(NetworkAccess.Off, false)]
     [InlineData(NetworkAccess.Allowlist, true)]

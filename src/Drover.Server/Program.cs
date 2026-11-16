@@ -52,6 +52,9 @@ if (startupMigration is not StartupMigrationMode.Off && !await StartupMigration.
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
+var filesPath = builder.Configuration["Files:Path"]
+    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "files");
+
 builder.Services.Configure<DatabaseOptions>(options => options.ConnectionString = connectionString);
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database")
     .AddCheck<MigrationHealthCheck>("migrations");
@@ -66,6 +69,7 @@ builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataPr
 builder.Services.AddDroverSecurity(builder.Configuration);
 builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
+builder.Services.AddSingleton<IFileStore>(new LocalFileStore(filesPath));
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
 builder.Services.AddHostedService<MigrationStartupCheck>();

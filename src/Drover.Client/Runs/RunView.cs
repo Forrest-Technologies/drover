@@ -65,7 +65,7 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
         new(
             stored.Id,
             stored.Role,
-            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError))],
+            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File))],
             IsStreaming: false,
             Step: null)
         {
@@ -88,7 +88,8 @@ public sealed record PartView(
     string? ToolName = null,
     string? Arguments = null,
     string? Result = null,
-    bool IsError = false);
+    bool IsError = false,
+    FileResponse? File = null);
 
 
 /// <summary>

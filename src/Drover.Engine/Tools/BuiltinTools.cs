@@ -27,7 +27,9 @@ public static class BuiltinTools
     public static IServiceCollection AddBuiltinTools(this IServiceCollection services) =>
         services
             .AddSingleton(provider => TimeNow(provider.GetRequiredService<TimeProvider>()))
-            .AddCrewTools();
+            .AddCrewTools()
+            .AddDelegateTool()
+            .AddMemoryTools();
 
     /// <summary><c>time.now</c>: the current time, in UTC and in a time zone the model may name. Reads nothing else.</summary>
     public static BuiltinTool TimeNow(TimeProvider time) =>

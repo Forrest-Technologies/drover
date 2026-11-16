@@ -17,6 +17,8 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
 
     private readonly ConcurrentQueue<ModelUsage> recordedUsage = new();
 
+    private readonly ConcurrentQueue<ChildRun> childrenRun = new();
+
     private readonly ConcurrentQueue<string> ruledReplies = new();
 
     #endregion
@@ -30,6 +32,15 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
     public IReadOnlyList<(ChildRun Child, ChildRunOutcome Outcome)> Completions => [.. completions];
 
     public IReadOnlyList<ModelUsage> Usage => [.. recordedUsage];
+
+    /// <summary>The child runs the runtime asked the governor to execute.</summary>
+    public IReadOnlyList<ChildRun> ChildrenRun => [.. childrenRun];
+
+    /// <summary>How a child run the runtime asks for ends. Without it, the governor executes no child runs.</summary>
+    public Func<ChildRun, ChildRunReport>? ChildReport { get; init; }
+
+    /// <summary>When set, every delegation is refused with this result.</summary>
+    public ToolOutcome? DelegationRefusal { get; init; }
 
     /// <summary>What a rule does to a reply. When set, the governor holds every reply until this has seen all of it.</summary>
     public Func<string, string>? ReplyRule { get; init; }
@@ -53,13 +64,22 @@ public sealed class ScriptedGovernor(ScriptedTools tools, IReadOnlyDictionary<st
     public Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken)
     {
         delegations.Enqueue(request);
-        return Task.FromResult(new ChildRun(Guid.CreateVersion7(), request.AgentName));
+        return Task.FromResult(new ChildRun(Guid.CreateVersion7(), request.AgentName) { BotId = request.BotId ?? Guid.Empty, Refusal = DelegationRefusal });
     }
 
-    public Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken)
+    // A team member runs its own agent. A delegation's child run is played by the script, when it has one.
+    public Task<ChildRunReport> RunChildRun(ChildRun child, CancellationToken cancellationToken)
     {
-        completions.Enqueue((child, outcome));
-        return Task.CompletedTask;
+        childrenRun.Enqueue(child);
+        return ChildReport is { } report
+            ? Task.FromResult(report(child))
+            : throw new NotSupportedException("The scripted governor does not execute child runs.");
+    }
+
+    public Task<ToolOutcome> CompleteChildRun(ChildRun child, ChildRunReport report, CancellationToken cancellationToken)
+    {
+        completions.Enqueue((child, report.Outcome));
+        return Task.FromResult(new ToolOutcome(JsonSerializer.SerializeToElement(report.Answer ?? string.Empty), report.Outcome is not ChildRunOutcome.Completed));
     }
 
     public Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken)

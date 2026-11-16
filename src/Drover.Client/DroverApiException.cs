@@ -11,25 +11,31 @@ public sealed class DroverApiException(HttpStatusCode statusCode, string message
 
     public HttpStatusCode StatusCode => statusCode;
 
+    /// <summary>Why a file was refused, as one of the <c>FileRefusals</c> codes, when the server named one.</summary>
+    public string? Refusal { get; init; }
+
     #endregion
 
     #region Public Methods
 
     public static async Task<DroverApiException> From(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        var title = await ReadTitle(response, cancellationToken);
-        return new DroverApiException(response.StatusCode, title ?? $"The server refused the request ({(int)response.StatusCode}).");
+        var (title, refusal) = await ReadProblem(response, cancellationToken);
+        return new DroverApiException(response.StatusCode, title ?? $"The server refused the request ({(int)response.StatusCode}).")
+        {
+            Refusal = refusal,
+        };
     }
 
     #endregion
 
     #region Private Methods
 
-    private static async Task<string?> ReadTitle(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<(string? Title, string? Refusal)> ReadProblem(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.Content.Headers.ContentType?.MediaType is not ("application/problem+json" or "application/json"))
         {
-            return null;
+            return (null, null);
         }
 
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -38,17 +44,20 @@ public sealed class DroverApiException(HttpStatusCode statusCode, string message
         // TryParseValue reports malformed JSON as false, so a body that is not a problem document is simply no title.
         if (!JsonDocument.TryParseValue(ref reader, out var problem))
         {
-            return null;
+            return (null, null);
         }
 
         using (problem)
         {
-            return problem.RootElement.ValueKind is JsonValueKind.Object
-                && problem.RootElement.TryGetProperty("title", out var title) && title.ValueKind is JsonValueKind.String
-                    ? title.GetString()
-                    : null;
+            return (ReadString(problem.RootElement, "title"), ReadString(problem.RootElement, "refusal"));
         }
     }
+
+    private static string? ReadString(JsonElement problem, string name) =>
+        problem.ValueKind is JsonValueKind.Object
+        && problem.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     #endregion
 }

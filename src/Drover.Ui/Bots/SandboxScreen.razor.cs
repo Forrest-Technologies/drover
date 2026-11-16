@@ -5,13 +5,16 @@ namespace Drover.Ui.Bots;
 /// Its job: let a person watch what the bot does on its screen and take over the mouse and keyboard when they choose.
 /// The picture refreshes on its own every two seconds while it is shown, the sandbox runs, and the page is visible,
 /// waits longer after each failure, and is fetched again soon after anything a person sends. It can be enlarged and
-/// moved (<see cref="ScreenZoom"/>); a tap still lands on the sandbox pixel under it. The sandbox's state comes from
-/// whatever shows the screen, which reads it; this component only reads the picture. The server does everything.
+/// moved (<see cref="ScreenZoom"/>); a tap still lands on the sandbox pixel under it. A sandbox that is not made yet
+/// or is paused is never started by looking: the person starts or resumes it here with one button, and a failure says
+/// why in the server's words. The sandbox's state comes from whatever shows the screen, which reads it; this component
+/// only reads the picture. The server does everything.
 /// </summary>
 public sealed partial class SandboxScreen(
     DroverApi api,
     SessionState session,
     IJSRuntime js,
+    TimeProvider time,
     ILogger<SandboxScreen> logger) : IAsyncDisposable
 {
     #region Private Fields
@@ -55,6 +58,12 @@ public sealed partial class SandboxScreen(
     private bool control;
 
     private bool visible = true;
+
+    /// <summary>The person asked for the sandbox to be started or resumed here, and its state does not say running yet.</summary>
+    private bool waking;
+
+    /// <summary>The person's last start here failed, so a sandbox left starting can be tried again.</summary>
+    private bool wakeFailed;
 
     private bool enterAfter = true;
 
@@ -101,19 +110,46 @@ public sealed partial class SandboxScreen(
     [Parameter, EditorRequired]
     public BotSandboxStatus Status { get; set; } = null!;
 
+    /// <summary>
+    /// Called after the person started or resumed the sandbox here, or tried to, so whatever shows the screen reads
+    /// the state again at once instead of on its timer.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnSandboxChanged { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
-    /// <summary>The picture is fetched only while someone can see it and the sandbox runs: looking at a paused one would resume it.</summary>
-    private bool WatchesScreen => visible && Status is { Desktop: true, State: "running" };
+    /// <summary>
+    /// The picture is fetched only while someone can see it and the sandbox runs, or the person asked for it to be
+    /// started or resumed: looking alone never resumes a paused one or makes a missing one.
+    /// </summary>
+    private bool WatchesScreen => visible && Status.Desktop && (waking || Status.State is "running");
 
-    private string? ScreenNote => Status.State switch
+    private string? ScreenNote => waking ? null : Status.State switch
     {
+        "none" when Status.StartFailed => "The last start of this sandbox did not finish. Start it here to see why.",
         "none" => "No sandbox yet. It starts when the bot first uses it.",
         "paused" => "The sandbox is paused and its files are kept. Resume it to see the screen.",
         "replacing" => "The old sandbox is being taken down. A new one starts on its next use.",
-        "starting" => "The sandbox is starting.",
+        "starting" => "The sandbox is starting. The screen shows once it runs.",
+        _ => SandboxWords.NoScreen(Status),
+    };
+
+    /// <summary>
+    /// The one button that brings the screen up, named for what it does, when a tap is what is missing: no sandbox
+    /// yet, a paused one, or one left starting after the person's own start failed.
+    /// </summary>
+    private string? WakeLabel => (waking || !Status.Desktop) ? null : Status.State switch
+    {
+        "none" => "Start the sandbox",
+        "paused" => "Resume the sandbox",
+        "starting" when wakeFailed => "Try again",
         _ => null,
     };
+
+    private string WakingWords => Status.State is "paused"
+        ? "Resuming the sandbox."
+        : "Starting the sandbox. A new one can take a minute.";
 
     private string ControlWords => control
         ? "You have control. A tap on the screen clicks there, in the sandbox."
@@ -150,9 +186,17 @@ public sealed partial class SandboxScreen(
     {
         await disposal.CancelAsync();
 
+        // Closing never fails because of how the refresh ended: the screen is going away either way.
         if (watching is not null)
         {
-            await watching;
+            try
+            {
+                await watching;
+            }
+            catch (Exception ended)
+            {
+                logger.LogDebug(ended, "The sandbox picture's refresh ended with a failure as it closed");
+            }
         }
 
         if (module is not null)
@@ -176,10 +220,16 @@ public sealed partial class SandboxScreen(
 
     #region Overrides
 
-    // A sandbox that is gone or being replaced shows no picture of the one before it.
+    // A sandbox that is gone or being replaced shows no picture of the one before it. One the person is starting here
+    // keeps its picture until the state catches up and says it runs.
     protected override void OnParametersSet()
     {
-        if (Status.State is "none" or "replacing")
+        if (Status.State is "running")
+        {
+            (waking, wakeFailed) = (false, false);
+        }
+
+        if (!waking && Status.State is "none" or "replacing")
         {
             picture = null;
         }
@@ -249,12 +299,12 @@ public sealed partial class SandboxScreen(
     private async Task<bool> WaitForNextPicture(CancellationToken stop)
     {
         var sent = soon.Task;
-        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), stop);
+        var next = Task.Delay(SandboxWords.NextPictureAfter(failures), time, stop);
 
         if (await Task.WhenAny(next, sent) == sent)
         {
             soon = NewSoon();
-            next = Task.Delay(SandboxWords.PictureAfterInput, stop);
+            next = Task.Delay(SandboxWords.PictureAfterInput, time, stop);
         }
 
         try
@@ -269,14 +319,28 @@ public sealed partial class SandboxScreen(
         }
     }
 
+    /// <summary>
+    /// The person asks for the sandbox: the next picture is fetched at once, and asking for it makes a missing sandbox
+    /// and resumes a paused one.
+    /// </summary>
+    private void Wake()
+    {
+        (waking, wakeFailed, screenProblem, failures) = (true, false, null, 0);
+        soon.TrySetResult();
+    }
+
     private static TaskCompletionSource NewSoon() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private async Task RefreshPicture(CancellationToken stop)
     {
+        // The first picture after the person asked for the sandbox: whatever shows the screen reads the state again
+        // once it has come or failed, since it has just changed.
+        var woke = waking && picture is null;
+
         try
         {
             var png = await api.GetBotSandboxScreen(SpaceId, BotId, stop);
-            (pictureWidth, pictureHeight) = SizeOf(png) ?? (pictureWidth, pictureHeight);
+            (pictureWidth, pictureHeight) = SizeOf(png) ?? throw new InvalidDataException("The screen's answer was not a PNG picture.");
             picture = $"data:image/png;base64,{Convert.ToBase64String(png)}";
             (screenProblem, failures) = (null, 0);
         }
@@ -285,14 +349,34 @@ public sealed partial class SandboxScreen(
             logger.LogDebug(stopped, "The screen closed while the sandbox picture was being fetched");
             return;
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (Exception exception)
         {
-            logger.LogInformation(exception, "The sandbox screen could not be fetched");
-            failures++;
-            screenProblem = $"{Failures.Sentence(exception)} The screen is tried again shortly.";
+            // Whatever goes wrong with one picture, it says so and the next one still comes, later each time: only
+            // closing the screen ends the refresh.
+            logger.Log(
+                Failures.IsReportable(exception) ? LogLevel.Information : LogLevel.Warning,
+                exception,
+                "The sandbox screen could not be fetched");
+            if (woke)
+            {
+                // A start that failed is not tried again on its own: each try asks the provider for a sandbox. The
+                // person reads why, and the button is there for another try.
+                (waking, wakeFailed) = (false, true);
+                screenProblem = Failures.Sentence(exception);
+            }
+            else
+            {
+                failures++;
+                screenProblem = $"{Failures.Sentence(exception)} The screen is tried again shortly.";
+            }
         }
 
         await InvokeAsync(StateHasChanged);
+
+        if (woke)
+        {
+            await InvokeAsync(() => OnSandboxChanged.InvokeAsync());
+        }
     }
 
     /// <summary>The width and height a PNG says it has, from its header.</summary>

@@ -57,15 +57,27 @@ public sealed partial class DroverApi
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
     /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
     /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it
-    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered.
+    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered. <paramref name="fileIds"/> are
+    /// files uploaded with <see cref="UploadFile"/> for this message.
     /// </summary>
     public Task<SendMessageResponse> SendMessage(
         Guid spaceId,
         Guid threadId,
         string text,
         string? whenBusy = null,
+        IReadOnlyList<Guid>? fileIds = null,
         CancellationToken cancellationToken = default) =>
-        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text, whenBusy), cancellationToken);
+        Post<SendMessageResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/messages",
+            new SendMessageRequest(text, whenBusy, fileIds is { Count: > 0 } ? fileIds : null),
+            cancellationToken);
+
+    /// <summary>
+    /// Marks the thread seen by the signed-in person as far as its newest message. Their other screens hear
+    /// <see cref="UserSignalKinds.ThreadSeen"/>.
+    /// </summary>
+    public Task MarkThreadSeen(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/seen", null, cancellationToken);
 
     #endregion
 
@@ -76,6 +88,13 @@ public sealed partial class DroverApi
 
     public Task<RunSummary> CancelRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
         Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/cancel", null, cancellationToken);
+
+    /// <summary>
+    /// Starts a new run from the message a failed run answered, and returns it. Throws <see cref="DroverApiException"/>
+    /// with 409 when the run cannot be tried again: something came after it, or the bot cannot answer.
+    /// </summary>
+    public Task<RunSummary> RetryRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/retry", null, cancellationToken);
 
     /// <summary>
     /// Answers a tool call that waits for approval (<see cref="ToolCallView.State"/> is awaiting_approval). The

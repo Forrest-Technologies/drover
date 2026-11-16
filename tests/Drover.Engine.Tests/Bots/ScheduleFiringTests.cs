@@ -84,6 +84,46 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         runs[1].Should().Match<Run>(next => next.Trigger == RunTrigger.Schedule && next.PrincipalUserId == world.UserId && next.ThreadId == main);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_scheduled_run_acts_for_its_owner_recalls_their_notes_starts_clean_unless_a_note_taints_it_and_its_reply_is_new_to_them(
+        bool taintedNote)
+    {
+        const string Note = "Reads the brief before standup.";
+        var clock = new MovableClock(monday);
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing changed overnight.")]));
+        await world.Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == world.BotId, RunWorld.Token);
+            bot.MemorySettings = bot.MemorySettings with { Enabled = true };
+            db.Memories.Add(new MemoryNote { BotId = world.BotId, AudienceUserId = world.UserId, Text = Note, WrittenByUserId = world.UserId, Tainted = taintedNote });
+            return true;
+        });
+        await world.Grant("memory.list", GrantEffect.Allow);
+        var scheduler = world.IdleHost(services => services.AddSingleton<TimeProvider>(clock));
+        await AddSchedule(world, scheduler, world.UserId, "0 9 * * *", ScheduleThreadMode.NewThread);
+
+        clock.Now = monday.AddHours(1);
+        await SendDue(scheduler);
+        var queued = await world.Read(db => db.Runs.AsNoTracking().SingleAsync(RunWorld.Token));
+        world.StartHost();
+        var run = await world.WaitForStatus(queued.Id, RunStatus.Completed, RunStatus.Failed);
+        var thread = await world.ReadThread(run.ThreadId);
+        var attention = (await world.Transact(services =>
+            services.GetRequiredService<ThreadService>().FindThread(run.ThreadId, world.UserId, RunWorld.Token)))!.Attention!;
+
+        queued.Tainted.Should().BeFalse("a scheduled run starts clean");
+        run.Status.Should().Be(RunStatus.Completed);
+        run.PrincipalUserId.Should().Be(world.UserId);
+        run.Tainted.Should().Be(taintedNote, "a note a tainted run wrote taints the run given it, as it would any run");
+        thread.AudienceUserId.Should().Be(world.UserId, "the conversation a schedule makes is private to its owner");
+        world.Model.Requests.Should().ContainSingle().Which.Messages
+            .SelectMany(message => message.Contents.OfType<ModelText>())
+            .Should().Contain(text => text.Text.Contains(Note, StringComparison.Ordinal), "the run recalls its owner's notes");
+        attention.HasNew.Should().BeTrue("the owner has not seen the reply the schedule's run wrote");
+    }
+
     #endregion
 
     #region Edge Cases

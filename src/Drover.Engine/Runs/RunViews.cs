@@ -40,7 +40,7 @@ public static class RunViews
             bot.ParentBotId,
             bot.CreatedByBotId);
 
-    public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId) =>
+    public static ThreadSummary ToSummary(this ChatThread thread, Guid? activeRunId, ThreadAttention? attention = null) =>
         new(
             thread.Id,
             thread.BotId,
@@ -48,7 +48,8 @@ public static class RunViews
             thread.AudienceUserId == Audience.Everyone,
             thread.LastActivityAt,
             activeRunId,
-            thread.IsMain);
+            thread.IsMain,
+            attention);
 
     /// <summary>The message as the API returns it. <paramref name="scheduleCron"/> is the time of the schedule that sent it, while that schedule exists.</summary>
     public static MessageResponse ToResponse(this Message message, string? scheduleCron = null) =>
@@ -65,6 +66,10 @@ public static class RunViews
             message.ScheduleId,
             message.ScheduleId is null ? null : scheduleCron);
 
+    /// <summary>A stored file as the API shows it.</summary>
+    public static FileResponse ToResponse(this StoredFile file) =>
+        new(file.Id, file.Name, file.ContentType, KindName(file.ContentType), file.Size, file.Width, file.Height, file.Preview);
+
     #endregion
 
     #region Private Methods
@@ -75,9 +80,28 @@ public static class RunViews
         ReasoningPart reasoning => new("reasoning") { Text = reasoning.Text },
         ToolCallPart call => new("tool_call") { ToolCallId = call.ToolCallId, ToolName = call.ToolName, Arguments = call.Arguments.GetRawText() },
         ToolResultPart result => new("tool_result") { ToolCallId = result.ToolCallId, Result = result.Result.GetRawText(), IsError = result.IsError },
-        ImagePart image => new("image") { FileId = image.FileId, MediaType = image.MediaType, Text = image.AltText },
-        FilePart file => new("file") { FileId = file.FileId, MediaType = file.MediaType, Text = file.Name },
+        ImagePart image => new("image")
+        {
+            FileId = image.FileId,
+            MediaType = image.MediaType,
+            Text = image.AltText,
+            File = new FileResponse(image.FileId, image.Name ?? "picture", image.MediaType, FileKinds.Image, image.Size, image.Width, image.Height),
+        },
+        FilePart file => new("file")
+        {
+            FileId = file.FileId,
+            MediaType = file.MediaType,
+            Text = file.Name,
+            File = new FileResponse(file.FileId, file.Name, file.MediaType, KindName(file.MediaType), file.Size, Preview: file.Preview),
+        },
         _ => new("unknown"),
+    };
+
+    private static string KindName(string contentType) => FileInspector.KindOf(contentType) switch
+    {
+        FileKind.Image => FileKinds.Image,
+        FileKind.Text => FileKinds.Text,
+        _ => FileKinds.Other,
     };
 
     #endregion

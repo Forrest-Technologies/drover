@@ -42,6 +42,9 @@ public sealed class RunWorld : IAsyncDisposable
 
     public ScriptedModel Script { get; }
 
+    /// <summary>The files every host of this world keeps, in memory.</summary>
+    public MemoryFileStore Files { get; } = new();
+
     /// <summary>Every host of the world, the one that seeds first.</summary>
     public IReadOnlyList<EngineHost> Hosts => hosts;
 
@@ -118,6 +121,35 @@ public sealed class RunWorld : IAsyncDisposable
             return true;
         });
 
+    /// <summary>Gives any bot of the world a grant for a tool, as its own row, whatever the bots above it hold.</summary>
+    public Task GrantTo(Guid botId, string toolName, GrantEffect effect) =>
+        Read(async db =>
+        {
+            var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
+            await db.ToolGrants.Where(grant => grant.BotId == botId && grant.ToolId == tool.Id).ExecuteDeleteAsync(Token);
+            db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = effect, GrantedByUserId = UserId });
+            return true;
+        });
+
+    /// <summary>A bot made beneath another through the engine, as a person makes one in the crew.</summary>
+    public Task<Guid> NewBotBeneath(Guid parentId, string name, string description = "") =>
+        Transact(async services =>
+        {
+            var change = await services.GetRequiredService<BotService>()
+                .Create(new NewBot(name, description, $"You are {name}.", ConnectionId, null, parentId), AuditActor.Person(UserId), Token);
+            change.Problem.Should().BeNull();
+            return change.Bot!.Id;
+        });
+
+    /// <summary>Replaces the space's own limits, as its owner would set them.</summary>
+    public Task SetSpaceSettings(SpaceSettings settings) =>
+        Read(async db =>
+        {
+            var space = await db.Spaces.SingleAsync(found => found.Id == SpaceId, Token);
+            space.Settings = settings;
+            return true;
+        });
+
     public Task Revoke(string toolName) =>
         Read(async db =>
         {
@@ -144,11 +176,26 @@ public sealed class RunWorld : IAsyncDisposable
     }
 
     /// <summary>Posts as the world's person, or as <paramref name="asUser"/>. <paramref name="steer"/> is what the sender asked for if the bot is busy.</summary>
-    public async Task<MessagePost> PostRaw(Guid threadId, string text, EngineHost? through = null, bool steer = true, Guid? asUser = null)
+    public async Task<MessagePost> PostRaw(
+        Guid threadId,
+        string text,
+        EngineHost? through = null,
+        bool steer = true,
+        Guid? asUser = null,
+        IReadOnlyList<Guid>? fileIds = null)
     {
         await using var scope = (through ?? seeder).Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
-        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, steer, asUser ?? UserId, Token);
+        return await scope.ServiceProvider.GetRequiredService<RunService>().PostMessage(threadId, text, fileIds ?? [], steer, asUser ?? UserId, Token);
+    }
+
+    /// <summary>Uploads a file to a thread through the engine, as the API does, as the world's person or <paramref name="asUser"/>.</summary>
+    public async Task<FileUpload> Upload(Guid threadId, string name, byte[] content, Guid? asUser = null, bool declareLength = true)
+    {
+        await using var scope = seeder.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, asUser ?? UserId);
+        return await scope.ServiceProvider.GetRequiredService<FileService>()
+            .Upload(threadId, name, new MemoryStream(content), declareLength ? content.Length : null, asUser ?? UserId, Token);
     }
 
     public Task<RunCancel> Cancel(Guid runId, EngineHost through) => CancelAs(runId, through, UserId, isSpaceAdmin: false);
@@ -224,17 +271,26 @@ public sealed class RunWorld : IAsyncDisposable
         (await WithService<ToolConnectionService, ToolRefresh?>(service => service.Refresh(connectionId, Token)))!;
 
     /// <summary>Calls a service that opens its own tenant scope, as the world's person.</summary>
-    public async Task<TResult> WithService<TService, TResult>(Func<TService, Task<TResult>> call)
+    public Task<TResult> WithService<TService, TResult>(Func<TService, Task<TResult>> call)
+        where TService : notnull =>
+        WithServiceAs(UserId, call);
+
+    /// <summary>Calls a service that opens its own tenant scope, as <paramref name="userId"/>.</summary>
+    public async Task<TResult> WithServiceAs<TService, TResult>(Guid userId, Func<TService, Task<TResult>> call)
         where TService : notnull
     {
         await using var scope = seeder.Services.CreateAsyncScope();
-        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, UserId);
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(SpaceId, userId);
         return await call(scope.ServiceProvider.GetRequiredService<TService>());
     }
 
     /// <summary>The root runs of a thread, oldest first.</summary>
     public Task<List<Run>> ReadRuns(Guid threadId) =>
         Read(db => db.Runs.AsNoTracking().Where(run => run.ThreadId == threadId).OrderBy(run => run.Id).ToListAsync(Token));
+
+    /// <summary>Every run of a tree, its root first and then in the order they were made.</summary>
+    public Task<List<Run>> ReadTree(Guid rootRunId) =>
+        Read(db => db.Runs.AsNoTracking().Where(run => run.RootRunId == rootRunId).OrderBy(run => run.Depth).ThenBy(run => run.Id).ToListAsync(Token));
 
     public Task<Run> ReadRun(Guid runId) => Read(db => db.Runs.AsNoTracking().SingleAsync(run => run.Id == runId, Token));
 
@@ -352,6 +408,7 @@ public sealed class RunWorld : IAsyncDisposable
             services =>
             {
                 services.AddSingleton<IToolSource>(Server);
+                services.AddSingleton<IFileStore>(Files);
                 everyHost?.Invoke(services);
                 replaceServices?.Invoke(services);
             });
