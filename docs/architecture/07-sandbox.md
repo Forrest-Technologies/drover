@@ -272,7 +272,7 @@ Before the file is written, the broker marks the sandbox row `tainted` in its ow
 
 ## Computer use
 
-A bot can see a screen in its sandbox and drive it with the mouse and keyboard. This is the bare minimum: five tools, a fixed screen, one picture at a time.
+A bot can see a screen in its sandbox and drive it with the mouse and keyboard, and ask a person to take the screen over when only a person should act there. This is the bare minimum: five tools to see and drive, one to ask, a fixed screen, one picture at a time.
 
 **Turning it on.** In the bot editor's Sandbox section, a bot with a sandbox gets a **Desktop** switch (`SandboxSettings.Desktop`, in the bot's JSON settings column; no migration). Then grant the bot the computer tools on its Tools tab; no new bot is granted them. The tools are offered to a model only when all of these hold: the server has a sandbox provider, the bot's sandbox policy is not `none`, Desktop is on, the deployment allows it (`AllowDesktopSandboxes`, [16-deployment-policies.md](16-deployment-policies.md)), and something can read a screenshot: the bot's model reports `Vision` in its capability record ([15-model-providers.md](15-model-providers.md)), or a screen reader is set (below). A compatible endpoint claims no vision until the operator says so, so a model that cannot look, with nothing to look for it, is never handed a mouse. `RunExecutor.ToRunTool` is the one place that decides this.
 
@@ -293,6 +293,7 @@ A bot can see a screen in its sandbox and drive it with the mouse and keyboard. 
 | `computer.type` | write | `text` (1 to 2000 characters; no control characters but new line and tab) | `xdotool type --delay 12 -- <text>` | `{"done":true}` |
 | `computer.key` | write | `keys`, 1 to 5 names pressed together | `xdotool key <symbol>+<symbol>` | `{"done":true}` |
 | `computer.scroll` | write | `direction` (up, down), `amount?` (1 to 20, default 3), `x?` and `y?` together | `xdotool [mousemove X Y] click --repeat N 4\|5` | `{"done":true}` |
+| `computer.handover` | read; always waits for a person | `reason` (1 to 300 characters) | nothing on the sandbox | `{"done":true,"note":...}` once the person is done; `{"done":false,"note":"The person could not do it.","said":...}` when they could not (see [A person takes over](#a-person-takes-over)) |
 
 Every action is a program and its arguments through `ISandboxProvider.Run`, never a shell line: coordinates are whole numbers checked against the screen before the sandbox is touched, a key name must be on a fixed list (letters, digits, F1 to F12, and the names E2B's SDK maps, such as `ctrl`, `enter`, `escape`, `page_down`) and becomes its X key symbol, and typed text is one argument after `--`, so nothing in it is read as an option or by a shell (`DesktopCommands`, unit-tested). An action's output is not read, so nothing from the sandbox comes back with it, and a failure is Drover's own sentence. The move and the click are one xdotool run, so the click lands where the pointer went; `mousemove --sync`, which E2B's SDK uses, is left out because it can wait for a motion that never comes when the pointer is already there.
 
@@ -307,6 +308,27 @@ Verified live on 2026-11-14 (`ComputerLiveTests`, explicit): a run with a script
 Verified live on 2026-11-14 (`ScreenReaderLiveTests`, explicit): a bot with a text-only scripted model and a scripted screen reader took a screenshot of a real desktop sandbox; the reader's one request carried a valid 1024 by 768 PNG and the fixed instruction, the bot got the description as the tool result, and none of the bot model's requests held an image. No model that reads images was at hand, so the reader's answer was scripted: what a real one writes was not checked.
 
 Not built: a streamed view of the screen (a person's sandbox screen shows a fresh picture every two seconds, below), screenshots in the activity view, dragging, holding a key down, a screen size other than 1024 by 768, and a smaller Drover-owned desktop image.
+
+### A person takes over
+
+Some things on a screen only a person should do: a sign-in, a passkey, a check that a human is there. `computer.handover` lets a bot say so and wait, instead of giving up or faking a result. It is offered like the other computer tools (granted on the Tools tab, only with a screen), and it always waits for a person (`AlwaysAsks`), whatever its grant says.
+
+**The wait is an approval.** The call goes through the same gate and the same machinery as an approval ([03-run-lifecycle.md](03-run-lifecycle.md#approval)): the row is `pending_approval`, the log has `tool.approval_requested`, the session is saved, and the run (and the tree above it) is `waiting`. The one difference is the reason: a run whose step asked for a person at the screen waits with `awaiting_takeover`, not `awaiting_approval`. A restart keeps the wait, and the answer is handed over once, as for any approval.
+
+**The screen is held.** While any run of a bot that shares the sandbox (the same sharing-group owner, [Sharing policies](#sharing-policies)) waits with `awaiting_takeover`, every bot's computer action (`SandboxBroker.AcquireScreen` with a tool call: the screenshot, a click, typing, a key, a scroll) is refused before the sandbox is touched, with a result that says a person has the screen. The hold is read from `runs`, which every member's runs can read, so it holds against another member's conversation that cannot see the call. A person's own input from the screen is not held. The hold ends when the answer is stored (the run's reason goes back to `awaiting_approval` until a worker takes it up), or when the run ends.
+
+**Answering.** Two routes, beside the approval's decision route, under `/api/spaces/{spaceId}/tool-calls/{id}`:
+
+| Route | Does | Who |
+| --- | --- | --- |
+| `POST /takeover` | Records that the person took over: one `sandbox.taken_over` audit row. The call does not change | An owner or admin who can see the call (the people who use a bot's screen) |
+| `POST /handback` | `ToolHandbackRequest`: `done`, and an optional `note`. Done approves the call, which runs and returns that the person is done; could not stores `{"done":false,...,"said":note}` as the call's result. One `sandbox.handed_back` audit row with the outcome | Like an approval: the run's person, or a space admin, who can see the call |
+
+Both are refused with 409 for a call that is not a request for a person, and the decision route refuses a request for a person the same way. A second answer gets 409. `ApprovalService` holds all three, with one path for answering. Nothing the person typed, clicked, or saw on the screen is part of the answer, a run event, a tool result, or an audit row: the person's input reaches the sandbox through the screen's own route as before, which records only its kind. The bot learns what happened only from the answer, and from the screen when it next takes a screenshot, which taints like any other.
+
+**In the conversation.** The call shows as its own card where an approval card would be (`TakeoverCard`, `Drover.Ui/Chat`): "<Bot> needs you at its screen", the reason, "Open the screen", and "I cannot do it" with an optional line for the bot. "Open the screen" records the takeover and opens the screen rail beside the conversation (on a phone the rail takes the conversation's place, with its close control to go back). While the rail is open the person holds the screen: the rail shows the card with "I'm done" and "I could not do it" above the picture, the focus moves to "I'm done", and the card in the conversation points to it. A person who does not use the bot's screen (a member) is told that owners and admins do, and answers from the card. No thinking state shows while the run waits; the composer and the crew treat it as a wait on the person.
+
+Not built: a vault that fills passwords for the bot, and recording what a person does to teach the bot.
 
 ## People and the sandbox
 
@@ -335,7 +357,7 @@ The screen is a POST, with the antiforgery token like every state-changing call,
 
 **State without asking the provider.** The provider pauses a sandbox on its own once its idle time runs out, so a `running` row past its `expires_at` reads as `paused`. `replacing` means a sandbox taken out of use is not destroyed yet (the provider could not be reached, or the Desktop switch changed and the next use has not come).
 
-**Audit.** Each action writes one `audit_log` row after it is done: `sandbox.paused`, `sandbox.resumed`, `sandbox.rebuilt`, `sandbox.turned_off`, `sandbox.command`, or `sandbox.input` with the kind of input. Never the text typed, the command, its output, or a picture. Looking at the screen and reading the state write nothing. A power control that found no sandbox to act on writes nothing.
+**Audit.** Each action writes one `audit_log` row after it is done: `sandbox.paused`, `sandbox.resumed`, `sandbox.rebuilt`, `sandbox.turned_off`, `sandbox.command`, or `sandbox.input` with the kind of input. Taking over the screen at a bot's request and handing it back write `sandbox.taken_over` and `sandbox.handed_back` with the outcome ([A person takes over](#a-person-takes-over)). Never the text typed, the command, its output, or a picture. Looking at the screen and reading the state write nothing. A power control that found no sandbox to act on writes nothing.
 
 **The screen in the interface.** A header with the bot's name, the state in words (never by color alone), whether the bot is working, the last use, and the power controls: Pause or Resume, Rebuild, Turn off. Rebuild and Turn off ask first and say what is lost; cancelling sends nothing. Two tabs: Screen (only for a sandbox with one) and Terminal. The picture fills the width it has and keeps its shape; it is fetched every two seconds while the Screen tab is shown, the sandbox runs, and the page is visible, and waits twice as long after each failure in a row, up to thirty seconds. It is never fetched for a paused sandbox, since that would resume it. "Take control" is off by default; on, a tap on the picture clicks at the same place of the sandbox's own screen (mapped from the size the picture is shown at, `ScreenPoint`), a small control picks click, right click, or double click, and there are a text field with Send, key buttons (Enter, Tab, Escape, Backspace, the arrows), key combinations in a menu (Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+Z, Ctrl+A, Ctrl+L, Alt+Tab, Alt+F4), and scroll buttons. By keyboard, the arrow keys move a pointer over the picture and Enter clicks there. While control is on and a run of the bot is working, the screen says the bot is working in this sandbox right now.
 

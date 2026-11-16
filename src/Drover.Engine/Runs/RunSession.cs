@@ -109,6 +109,9 @@ public sealed class RunSession(
     /// <summary>A delegation beneath this run waits for a person, so this run stops here and waits with it.</summary>
     public bool PausedForChild { get; private set; }
 
+    /// <summary>The run asked a person to take over its bot's screen in this execution, so it waits for them there.</summary>
+    public bool WaitsForAPersonAtTheScreen { get; private set; }
+
     public ChatThread Thread => thread;
 
     public RunTenant Tenant => tenant;
@@ -199,6 +202,18 @@ public sealed class RunSession(
         waitingOnChildren[callId] = true;
         PausedForChild = true;
         Stop();
+    }
+
+    /// <summary>
+    /// The model asked for a call that waits for a person. When it is the call that asks a person to take over the
+    /// screen, the run waits with the screen held, so no bot that shares it acts there until it is handed back.
+    /// </summary>
+    public void NoteWaitFor(string modelName)
+    {
+        if (FindToolByModelName(modelName)?.Builtin?.Name is ComputerTools.HandoverName)
+        {
+            WaitsForAPersonAtTheScreen = true;
+        }
     }
 
     public void CancelByUser()

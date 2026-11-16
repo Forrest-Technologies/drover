@@ -561,7 +561,7 @@ public sealed partial class RunExecutor(
             }
 
             var status = outcome is RunOutcome.Waiting ? RunStatus.Waiting : RunStatus.Completed;
-            await Finish(session, status, status is RunStatus.Waiting ? RunReasons.AwaitingApproval : null, null);
+            await Finish(session, status, status is RunStatus.Waiting ? WaitingReason(session) : null, null);
             return status;
         }
         catch (Exception exception) when (exception is not LeaseLostException)
@@ -627,6 +627,7 @@ public sealed partial class RunExecutor(
                     await session.CompleteTool(finished.CallId, new ToolOutcome(finished.Result, finished.IsError));
                     break;
                 case ApprovalRequested approval:
+                    session.NoteWaitFor(approval.ToolName);
                     await session.RequestTool(approval.CallId, approval.ToolName, approval.Arguments);
                     await governor.RuleOnApprovalRequest(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
                     var details = await governor.DescribeForApproval(approval.CallId, approval.ToolName, approval.Arguments, cancellationToken);
@@ -837,6 +838,9 @@ public sealed partial class RunExecutor(
         return null;
     }
 
+    private static string WaitingReason(RunSession session) =>
+        session.WaitsForAPersonAtTheScreen ? RunReasons.AwaitingTakeover : RunReasons.AwaitingApproval;
+
     private static Refusal Failed(string code, string message) => new(RunStatus.Failed, null, new RunError(code, message));
 
     #endregion
@@ -888,7 +892,7 @@ public sealed partial class RunExecutor(
         // A run beneath this one waits for a person, so this one waits with it.
         if (session.PausedForChild)
         {
-            return (RunStatus.Waiting, RunReasons.AwaitingApproval, null);
+            return (RunStatus.Waiting, WaitingReason(session), null);
         }
 
         if (stopping.IsCancellationRequested && failure is OperationCanceledException)

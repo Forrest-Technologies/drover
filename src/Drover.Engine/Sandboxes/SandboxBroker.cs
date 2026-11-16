@@ -281,6 +281,12 @@ public sealed class SandboxBroker(
     /// </summary>
     private async Task<SandboxLease?> AcquireScreen(SandboxCaller caller, bool create, CancellationToken cancellationToken)
     {
+        if (caller.Call is not null && await caller.Tenant.Transact(services => IsHeldByAPerson(services, caller.BotId, cancellationToken), cancellationToken))
+        {
+            throw new BuiltinToolException(
+                "A person has this bot's screen right now, because a bot that shares it asked them to take it over. Nothing was done on the screen. Try again once they hand it back.");
+        }
+
         if (await Prepare(caller, null, desktopMargin, screen: true, create, cancellationToken) is not { } lease)
         {
             return null;
@@ -295,6 +301,33 @@ public sealed class SandboxBroker(
         }
 
         return lease;
+    }
+
+    /// <summary>
+    /// True while a run of a bot that shares this bot's sandbox waits for a person at the screen. The run rows are
+    /// shared space-wide, so every run of every bot in the group sees the hold, whichever conversation asked for it.
+    /// </summary>
+    private static async Task<bool> IsHeldByAPerson(IServiceProvider services, Guid botId, CancellationToken cancellationToken)
+    {
+        var holders = await services.GetRequiredService<RunRepository>().ListBotsWaitingFor(RunReasons.AwaitingTakeover, cancellationToken);
+
+        if (holders.Count == 0)
+        {
+            return false;
+        }
+
+        var bots = services.GetRequiredService<BotRepository>();
+        var owner = SandboxGroups.OwnerOf(botId, await bots.ListSandboxPath(botId, cancellationToken));
+
+        foreach (var holder in holders)
+        {
+            if (SandboxGroups.OwnerOf(holder, await bots.ListSandboxPath(holder, cancellationToken)) == owner)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task RunOnScreen(SandboxLease lease, CommandRequest command, string doing, CancellationToken cancellationToken)
