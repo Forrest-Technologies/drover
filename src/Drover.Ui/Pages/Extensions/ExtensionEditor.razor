@@ -1,0 +1,68 @@
+@page "/extensions/edit"
+@layout WorkLayout
+
+<PageTitle>Make an extension · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-extension-editor-header">
+        <h1 class="dv-extension-editor-title">Make an extension</h1>
+        <a class="dv-extension-editor-back" href="@Addresses.Extensions">Back to extensions</a>
+    </header>
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not open this bot as an extension" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (draft is null)
+    {
+        <p class="dv-extension-editor-hint" role="status">Opening the bot.</p>
+    }
+    else if (!CanEdit)
+    {
+        <p class="dv-extension-editor-hint">An owner or admin of the space can make an extension.</p>
+    }
+    else
+    {
+        <div class="dv-extension-editor dv-facet">
+            <p class="dv-extension-editor-hint">Write a bot down so someone else can import it. The file holds words only: no tools, no keys, no notes.</p>
+
+            <Tabs Label="How the extension is shown" Items="tabs" Active="@tab" ActiveChanged="Show">
+                @if (context.Id == JsonTab)
+                {
+                    <TextArea Label="The file as text" Value="@text" ValueChanged="EditText" Rows="18" Machine="true" Disabled="busy" spellcheck="false"
+                              Hint="Changes here become the form when you go back to it." />
+                }
+                else
+                {
+                    <div class="dv-extension-editor-fields">
+                        <Field Label="Extension name" Value="@draft.Name" ValueChanged="Rename" maxlength="200" autocomplete="off" Disabled="busy" />
+                        <Field Label="Id" Value="@draft.Id" ValueChanged="ChooseId" maxlength="100" autocomplete="off" spellcheck="false" Disabled="busy"
+                               Hint="Names the extension wherever it is installed. Lower-case letters, digits, dots, and hyphens." />
+                        <TextArea Label="What the extension is for" @bind-Value="draft.Description" Rows="2" Disabled="busy" maxlength="2000" />
+
+                        <h2 class="dv-extension-editor-part">The bot it adds</h2>
+                        <Field Label="Bot name" @bind-Value="draft.BotName" maxlength="200" autocomplete="off" Disabled="busy" />
+                        <TextArea Label="What the bot is for" @bind-Value="draft.BotDescription" Rows="2" Disabled="busy" maxlength="2000"
+                                  Hint="Other bots read this to decide whether to hand it a task." />
+                        <TextArea Label="Instructions" @bind-Value="draft.Instructions" Rows="10" Disabled="busy"
+                                  Hint="Everything the bot is told. Whoever imports the file reads all of it first." />
+                        <Field Label="Suggested model" @bind-Value="draft.SuggestedModel" maxlength="200" autocomplete="off" spellcheck="false" Disabled="busy"
+                               Hint="Optional. Used only where the importing space has a model by this name." />
+                    </div>
+                }
+            </Tabs>
+
+            <StatusNote Kind="@(noticeIsProblem ? NoteKind.Danger : NoteKind.Ok)" Text="@notice" />
+
+            <div class="dv-extension-editor-actions">
+                <Button OnClick="Check" Disabled="busy">@(busy ? "Checking" : "Check the file")</Button>
+                <Button OnClick="Copy" Disabled="busy">Copy its text</Button>
+                @if (CanDownload)
+                {
+                    <a class="dv-extension-editor-download" href="@DownloadAddress" download="@FileName">Download @FileName</a>
+                }
+                <Button Kind="ButtonKind.Primary" OnClick="Import" Disabled="busy">Import into this space</Button>
+            </div>
+        </div>
+    }
+</SessionGate>

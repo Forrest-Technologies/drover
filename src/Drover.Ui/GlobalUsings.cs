@@ -33,6 +33,7 @@ global using Drover.Ui.Chat;
 global using Drover.Ui.Components;
 global using Drover.Ui.Icons;
 global using Drover.Ui.Markdown;
+global using Drover.Ui.Pages.Extensions;
 global using Drover.Ui.Session;
 global using Drover.Ui.Theme;
 global using Drover.Ui.Tools;

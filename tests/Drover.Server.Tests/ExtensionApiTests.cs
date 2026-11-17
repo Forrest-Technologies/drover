@@ -174,6 +174,75 @@ public sealed class ExtensionApiTests(PostgresServer postgres) : ServerTestBase(
     }
 
     [Fact]
+    public async Task A_bot_is_written_down_as_its_words_and_nothing_else_and_the_file_imports_elsewhere()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var client = await SignIn(alice);
+        var asBob = await SignIn(bob);
+        var connection = await CreateConnection(client, alice.SpaceId);
+        await CreateConnection(asBob, bob.SpaceId);
+        var bot = await PostFor<BotSummary>(client, $"{Space(alice.SpaceId)}/bots", new CreateBotRequest("Sample Scribe", "Keep notes short.", connection.Id, null), HttpStatusCode.Created);
+
+        var exported = await client.Get($"{Space(alice.SpaceId)}/extensions/from-bot/{bot.Id}");
+        var fields = (await exported.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("contents")[0].EnumerateObject().Select(field => field.Name).ToList();
+        var package = await GetFor<ExtensionPackage>(client, $"{Space(alice.SpaceId)}/extensions/from-bot/{bot.Id}");
+        var imported = await PostFor<ExtensionSummary>(asBob, $"{Space(bob.SpaceId)}/extensions", new ExtensionText(ExtensionFile.Write(package)), HttpStatusCode.Created);
+
+        fields.Should().BeEquivalentTo(
+            ["kind", "name", "instructions", "description", "suggestedModel"],
+            "a file holds a bot's words: no grant, sandbox, limit, schedule, or note has a field to be in");
+        package.Should().BeEquivalentTo(new ExtensionPackage(1, bot.Handle, "Sample Scribe")
+        {
+            Contents = [new BotTemplate("Sample Scribe", "Keep notes short.") { SuggestedModel = bot.Model }],
+        });
+        imported.Should().Match<ExtensionSummary>(found => found.BotName == "Sample Scribe" && found.BotStatus == "paused");
+    }
+
+    [Fact]
+    public async Task Only_an_admin_of_the_bots_own_space_writes_it_down_or_has_a_file_read()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var member = await SeedMember(alice.SpaceId, "carol", MembershipRole.Member);
+        var client = await SignIn(alice);
+        var asBob = await SignIn(bob);
+        var asMember = NewClient();
+        (await asMember.SignIn(member.Email, member.Password)).EnsureSuccessStatusCode();
+        var connection = await CreateConnection(client, alice.SpaceId);
+        var bot = await PostFor<BotSummary>(client, $"{Space(alice.SpaceId)}/bots", new CreateBotRequest("Sample scribe", "Keep notes short.", connection.Id, null), HttpStatusCode.Created);
+
+        var byMember = await asMember.Get($"{Space(alice.SpaceId)}/extensions/from-bot/{bot.Id}");
+        var readByMember = await asMember.Post($"{Space(alice.SpaceId)}/extensions/read", new ExtensionText(Sample));
+        var fromBobsSpace = await asBob.Get($"{Space(bob.SpaceId)}/extensions/from-bot/{bot.Id}");
+        var intoAlices = await asBob.Get($"{Space(alice.SpaceId)}/extensions/from-bot/{bot.Id}");
+        var unknown = await client.Get($"{Space(alice.SpaceId)}/extensions/from-bot/{Guid.CreateVersion7()}");
+
+        byMember.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        readByMember.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        fromBobsSpace.StatusCode.Should().Be(HttpStatusCode.NotFound, "another space's bot is not there to be written down");
+        intoAlices.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Forbidden);
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Reading_a_file_gives_its_package_as_the_importer_would_read_it_or_the_reason_it_would_not()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+
+        var read = await PostFor<ExtensionPackage>(client, $"{Space(alice.SpaceId)}/extensions/read", new ExtensionText(Sample), HttpStatusCode.OK);
+        var refused = await client.Post($"{Space(alice.SpaceId)}/extensions/read", new ExtensionText(Sample.Replace("\"kind\": \"bot\"", "\"kind\": \"skill\"", StringComparison.Ordinal)));
+
+        read.Contents.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new BotTemplate("Sample scribe", "Keep notes short.\u200B") { Description = "Takes notes.", SuggestedModel = "sample-model" },
+            "the text is given back as it is, so the form holds what the file holds");
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Title(refused)).Should().Be("This extension holds a part of the kind \"skill\", which this server does not know. Nothing was added.");
+        (await GetFor<List<ExtensionSummary>>(client, $"{Space(alice.SpaceId)}/extensions")).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_request_larger_than_an_extension_can_be_is_refused_before_it_is_read()
     {
         var alice = await SeedPerson("alice");
