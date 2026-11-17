@@ -37,5 +37,12 @@ public sealed partial class DroverApi
     public Task<ExtensionPackage> ExportBotAsExtension(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<ExtensionPackage>($"{Space(spaceId)}/extensions/from-bot/{botId}", cancellationToken);
 
+    /// <summary>
+    /// Connects the tool server an installed extension names (admin only) and asks it for its tools. The address is
+    /// the file's. A header value, where the server wants one, goes to the vault and is never returned.
+    /// </summary>
+    public Task<ExtensionSummary> ConnectExtension(Guid spaceId, Guid extensionId, ConnectExtensionRequest request, CancellationToken cancellationToken = default) =>
+        Post<ExtensionSummary>($"{Space(spaceId)}/extensions/{extensionId}/connection", request, cancellationToken);
+
     #endregion
 }

@@ -28,6 +28,9 @@ public sealed class ExtensionInstall : ISpaceOwned
     /// <summary>The bot the extension added. The bot is the space's own from then on: removing the extension keeps it.</summary>
     public Guid? BotId { get; set; }
 
+    /// <summary>The tool connection made from the file's recipe. Null until a person connects it, and after it is removed.</summary>
+    public Guid? ToolConnectionId { get; set; }
+
     public Guid InstalledByUserId { get; set; }
 
     public DateTimeOffset InstalledAt { get; set; }

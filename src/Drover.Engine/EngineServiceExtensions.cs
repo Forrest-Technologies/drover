@@ -60,6 +60,7 @@ public static class EngineServiceExtensions
         services.AddScoped<AuditLog>();
         services.AddScoped<BotService>();
         services.AddScoped<ExtensionService>();
+        services.AddScoped<ExtensionConnector>();
         services.AddScoped<GrantService>();
         services.AddScoped<ScheduleService>();
         services.AddScoped<ScheduleFiring>();
