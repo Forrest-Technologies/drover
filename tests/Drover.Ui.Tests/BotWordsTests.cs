@@ -24,11 +24,25 @@ public sealed class BotWordsTests
             Guid.CreateVersion7(), "Marshal", "marshal", new BotAvatarBody(null, null), "Sample purpose", "Sample instructions",
             Guid.CreateVersion7(), "sample", new ModelSettingsBody(null, null, null, "off", false),
             new MemorySettingsBody(true, "none", null, null, 300, 4000), "none", new SandboxSettingsBody("off", [], null), [],
-            "active", null, 0, new BuildLimitsBody(null, null), null, null);
+            "active", null, 0, new BuildLimitsBody(null, null), new RunLimitsBody(null, null, null), null, null);
 
         var request = BotDraft.From(bot).ToRequest();
 
         request.MemorySettings.Should().Be(new MemorySettingsBody(true, "none", null, null, 300, 4000));
+    }
+
+    [Fact]
+    public void The_limits_summary_says_what_is_in_force_the_bots_own_limit_or_else_its_spaces()
+    {
+        var space = new BotRunLimitOptions(50, 5_000_000, 49);
+
+        BotSummaries.Limits(new BotDraft(), null).Should().Be("The space's limits", "nothing is claimed before the server has said");
+        BotSummaries.Limits(new BotDraft(), space).Should().Be("50 model calls · 5,000,000 tokens · 49 handoffs");
+        BotSummaries.Limits(new BotDraft { MaxSteps = " 1 ", MaxDelegations = "0" }, space).Should().Be("1 model call · 5,000,000 tokens · 0 handoffs");
+        BotSummaries.Limits(new BotDraft { MaxTokens = "20000" }, null).Should().Be("20,000 tokens");
+        BotSummaries.Limits(new BotDraft { MaxTokens = "lots" }, space).Should().Be("50 model calls · 5,000,000 tokens · 49 handoffs", "a half-typed limit is not shown as one");
+        new BotDraft { MaxDelegations = "1.5" }.FindProblem().Should().Be("The limit on handoffs is a whole number.");
+        new BotDraft { MaxSteps = "7", MaxTokens = "9000", MaxDelegations = "2" }.ToRequest().RunLimits.Should().Be(new RunLimitsBody(7, 9000, 2));
     }
 
     [Fact]

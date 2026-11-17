@@ -67,6 +67,13 @@ public sealed class BotDraft
 
     public string MaxDepthBelow { get; set; } = string.Empty;
 
+    /// <summary>The bot's own limits on one piece of its work. Empty leaves the space's limit.</summary>
+    public string MaxSteps { get; set; } = string.Empty;
+
+    public string MaxTokens { get; set; } = string.Empty;
+
+    public string MaxDelegations { get; set; } = string.Empty;
+
     /// <summary>
     /// Tool grants a person chose in the Sandbox section, by tool, applied through the tools API when the bot is saved
     /// and dropped when the changes are discarded.
@@ -106,6 +113,9 @@ public sealed class BotDraft
         SandboxSharedWith = bot.SandboxSharedWith,
         MaxChildren = Text(bot.BuildLimits.MaxChildren),
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
+        MaxSteps = Text(bot.RunLimits.MaxSteps),
+        MaxTokens = Text(bot.RunLimits.MaxTokens),
+        MaxDelegations = Text(bot.RunLimits.MaxDelegations),
     };
 
     /// <summary>
@@ -143,6 +153,9 @@ public sealed class BotDraft
             ("The idle time", IdleTimeoutMinutes),
             ("The number of bots it may build", MaxChildren),
             ("The number of levels beneath it", MaxDepthBelow),
+            ("The limit on model calls", MaxSteps),
+            ("The limit on tokens", MaxTokens),
+            ("The limit on handoffs", MaxDelegations),
         ];
 
         foreach (var (name, value) in wholeNumbers)
@@ -170,7 +183,8 @@ public sealed class BotDraft
             SandboxPolicy,
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
-            new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)));
+            new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
+            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)));
 
     /// <summary>
     /// Clears the model settings the chosen model does not have, so a setting made for another model is not sent

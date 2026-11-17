@@ -23,6 +23,12 @@ public sealed record SpaceSettings
     /// <summary>Lowers the deployment's <c>MaxDelegationTreeCostCents</c> for this space. It can never raise it.</summary>
     public int? MaxDelegationTreeCostCents { get; init; }
 
+    /// <summary>Lowers the deployment's <c>MaxStepsPerRun</c> for this space. It can never raise it.</summary>
+    public int? MaxStepsPerRun { get; init; }
+
+    /// <summary>Lowers the deployment's <c>MaxTokensPerRun</c> for this space. It can never raise it.</summary>
+    public int? MaxTokensPerRun { get; init; }
+
     /// <summary>False forbids requests to private addresses from this space. True, or null, changes nothing.</summary>
     public bool? AllowPrivateAddresses { get; init; }
 

@@ -141,6 +141,15 @@ public sealed class RunWorld : IAsyncDisposable
             return change.Bot!.Id;
         });
 
+    /// <summary>Replaces the world's bot's own limits on one run, as its editor would save them.</summary>
+    public Task SetRunLimits(RunLimits limits, Guid? botId = null) =>
+        Read(async db =>
+        {
+            var bot = await db.Bots.SingleAsync(found => found.Id == (botId ?? BotId), Token);
+            bot.RunLimits = limits;
+            return true;
+        });
+
     /// <summary>Replaces the space's own limits, as its owner would set them.</summary>
     public Task SetSpaceSettings(SpaceSettings settings) =>
         Read(async db =>

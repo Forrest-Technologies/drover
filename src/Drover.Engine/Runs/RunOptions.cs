@@ -16,9 +16,6 @@ public sealed class RunOptions
 
     public TimeSpan LeaseRenewInterval { get; set; } = TimeSpan.FromSeconds(15);
 
-    /// <summary>The most model calls one run may make.</summary>
-    public int StepLimit { get; set; } = 50;
-
     /// <summary>The most characters of one tool result a model is given. A longer result is cut, and says so.</summary>
     public int MaxToolResultCharacters { get; set; } = 100_000;
 

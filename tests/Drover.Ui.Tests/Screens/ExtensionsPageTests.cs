@@ -261,7 +261,7 @@ public sealed class ExtensionsPageTests : ScreenTest
             botId, "Sample scribe", "sample-scribe", new BotAvatarBody(null, null), "Sample purpose", "Keep notes short.",
             Guid.Parse("0196f1a0-0000-7000-8000-000000000023"), "sample-default", new ModelSettingsBody(null, null, null, "off", false),
             new MemorySettingsBody(true, "none", null, null, 300, 4000), "none", new SandboxSettingsBody("off", [], null), [],
-            status, null, 0, new BuildLimitsBody(null, null), null, null);
+            status, null, 0, new BuildLimitsBody(null, null), new RunLimitsBody(null, null, null), null, null);
 
     /// <summary>Opens the import, pastes the sample file, and asks the server to read it.</summary>
     private static async Task ReadSample(IRenderedComponent<ExtensionsPage> page)

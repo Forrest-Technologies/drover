@@ -43,6 +43,7 @@ public sealed class RunSession(
     Redactor redactor,
     RunOptions options,
     TimeProvider time,
+    RunCeilings limits,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
     bool escalateWhenTainted = true,
@@ -243,11 +244,18 @@ public sealed class RunSession(
     {
         await AnnounceStoredMessage();
 
-        if (step + Volatile.Read(ref toolModelCalls) >= options.StepLimit)
+        if (step + Volatile.Read(ref toolModelCalls) >= limits.MaxSteps)
         {
             throw new RunLimitException(
                 RunReasons.StepLimit,
-                $"The run stopped after {options.StepLimit} model calls, the most one run may make.");
+                $"This work stopped after {limits.MaxSteps} model calls, the most it may make. The limit is in the bot's settings, under Limits.");
+        }
+
+        if (TokensUsed >= limits.MaxTokens)
+        {
+            throw new RunLimitException(
+                RunReasons.TokenLimit,
+                $"This work stopped after it used {TokensUsed:N0} tokens. It may use {limits.MaxTokens:N0}. The limit is in the bot's settings, under Limits.");
         }
 
         var started = new StepChanged(++step, Guid.CreateVersion7());
@@ -263,10 +271,15 @@ public sealed class RunSession(
     /// </summary>
     public Task BeginToolModelCall()
     {
-        if (step + Interlocked.Increment(ref toolModelCalls) > options.StepLimit)
+        if (TokensUsed >= limits.MaxTokens)
+        {
+            throw new BuiltinToolException($"This run has used {TokensUsed:N0} tokens, and it may use {limits.MaxTokens:N0}, so no other model is called for it.");
+        }
+
+        if (step + Interlocked.Increment(ref toolModelCalls) > limits.MaxSteps)
         {
             Interlocked.Decrement(ref toolModelCalls);
-            throw new BuiltinToolException($"This run has made {options.StepLimit} model calls, the most one run may make, so no other model is called for it.");
+            throw new BuiltinToolException($"This run has made {limits.MaxSteps} model calls, the most one run may make, so no other model is called for it.");
         }
 
         return Task.CompletedTask;
@@ -521,6 +534,12 @@ public sealed class RunSession(
         };
 
     public int CurrentStep => step;
+
+    /// <summary>The tokens every model call of this run has read and written so far, earlier executions included.</summary>
+    public long TokensUsed => usage.InputTokens + usage.OutputTokens;
+
+    /// <summary>What this run may use before it is stopped: the space's limits, lowered by its bot's own.</summary>
+    public RunCeilings Limits => limits;
 
     #endregion
 

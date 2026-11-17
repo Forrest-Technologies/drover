@@ -101,7 +101,7 @@ public static class AttentionWords
         FailureCause.ModelRefused => $"{botName}'s model refused the request. Try again, or change what was asked.",
         FailureCause.ModelBusy => $"{botName}'s model is busy right now. Try again shortly.",
         FailureCause.ModelOutOfCredit => $"{botName}'s model account is out of credit. Add credit with the model's provider, then try again.",
-        FailureCause.BudgetReached => $"{botName} stopped because a limit on this work was reached. An owner can raise the limit.",
+        FailureCause.BudgetReached => $"{botName} stopped at a limit on how much one piece of work may use. An owner can change it in the bot's settings, under Limits.",
         FailureCause.ServerRestarted => $"The server restarted while {botName} was working, and the outcome is not known. Check what was done before trying again.",
         FailureCause.StoppedByRule => $"{botName} stopped because one of its rules ended this work. An owner can change the rule in the bot's settings.",
         _ => $"{botName} stopped because something went wrong on the server. Try again.",

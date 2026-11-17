@@ -53,6 +53,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         Names<SandboxSettingsBody>().Should().BeEquivalentTo(Names<SandboxSettings>());
         Names<ScreenReaderBody>().Should().BeEquivalentTo(Names<ScreenReader>());
         Names<BuildLimitsBody>().Should().BeEquivalentTo(Names<BuildLimits>());
+        Names<RunLimitsBody>().Should().BeEquivalentTo(Names<RunLimits>());
         Names<BotAvatarBody>().Should().BeEquivalentTo(Names<BotAvatar>());
     }
 
@@ -80,7 +81,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             "named",
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
-            new BuildLimitsBody(3, 2));
+            new BuildLimitsBody(3, 2),
+            new RunLimitsBody(12, 400_000, 0));
 
         var saved = await PutFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition", edit);
         var read = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
@@ -102,6 +104,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, "seeing")),
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
+                edit.RunLimits,
                 Status = "active",
                 Depth = 0,
                 CreatedByUserId = (Guid?)alice.UserId,
@@ -170,6 +173,11 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "misspelled sandbox", nothing with { SandboxPolicy = "public" }, "A sandbox is" },
             { "host with a scheme", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", ["https://example.com"], null) }, "is not a host name" },
             { "shared with a stranger", nothing with { SandboxPolicy = "named", SandboxSharedWith = [Guid.CreateVersion7()] }, "only with bots of this space" },
+            { "no model calls at all", nothing with { RunLimits = new RunLimitsBody(0, null, null) }, "The limit on model calls is a whole number from 1 to 50, the most this space allows" },
+            { "more model calls than the space allows", nothing with { RunLimits = new RunLimitsBody(DeploymentPolicy.StepsPerRun + 1, null, null) }, "The limit on model calls is a whole number from 1 to 50" },
+            { "more tokens than the space allows", nothing with { RunLimits = new RunLimitsBody(null, DeploymentPolicy.SelfHostedMaxTokensPerRun + 1, null) }, "The limit on tokens is a whole number from 1 to 5,000,000" },
+            { "fewer handoffs than none", nothing with { RunLimits = new RunLimitsBody(null, null, -1) }, "The limit on handoffs is a whole number from 0 to 49" },
+            { "more handoffs than a tree holds runs", nothing with { RunLimits = new RunLimitsBody(null, null, DeploymentPolicy.RunsPerDelegationTree) }, "The limit on handoffs is a whole number from 0 to 49" },
             { "negative build limit", nothing with { BuildLimits = new BuildLimitsBody(-1, null) }, "build limit" },
             { "endless reasoning effort on a model nobody knows", nothing with { ModelSettings = new ModelSettingsBody(null, null, new string('x', 2_000_000), "off", false) }, "reasoning effort" },
             { "an answer longer than any model writes", nothing with { ModelSettings = new ModelSettingsBody(null, int.MaxValue, null, "off", false) }, "longest answer" },
@@ -181,6 +189,18 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "a host that is nothing", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [null!], null) }, "is not a host name" },
             { "a blank host", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [" "], null) }, "is not a host name" },
         };
+    }
+
+    [Fact]
+    public async Task The_editor_is_told_what_the_space_lets_one_run_use()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+
+        var options = await GetFor<BotRunLimitOptions>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/limits/options");
+
+        options.Should().Be(new BotRunLimitOptions(DeploymentPolicy.StepsPerRun, DeploymentPolicy.SelfHostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1));
     }
 
     [Fact]

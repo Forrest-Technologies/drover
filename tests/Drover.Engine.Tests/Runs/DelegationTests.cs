@@ -236,6 +236,29 @@ public sealed class DelegationTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_bots_own_limit_on_handoffs_refuses_the_one_past_it_and_the_bot_goes_on()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Helper");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.SetRunLimits(new RunLimits { MaxDelegations = 1 });
+        world.Script.Then(
+            [Delegate("d1", childId, "First task.")],
+            [new TextOutput("First done.")],
+            [Delegate("d2", childId, "Second task.")],
+            [new TextOutput("Only one was allowed.")]);
+        world.StartHost();
+
+        var rootId = await world.Post(await world.NewThread(), "Two tasks.");
+        var root = await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed);
+
+        root.Status.Should().Be(RunStatus.Completed, "a refused handoff is a result the bot reads, not the end of its run");
+        (await world.ReadTree(rootId)).Should().HaveCount(2);
+        world.Script.Requests[3].Last(seen => seen.Role == "tool").Summary
+            .Should().StartWith("d2 = ").And.Contain(RunReasons.BudgetExceeded).And.Contain("its limit is 1").And.Contain("\"detail\":\"handoffs\"");
+    }
+
+    [Fact]
     public async Task The_cost_budget_refuses_at_its_limit_and_the_result_names_the_limit()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
