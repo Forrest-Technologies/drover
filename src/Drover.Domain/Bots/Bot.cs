@@ -40,6 +40,8 @@ public sealed class Bot : ISpaceOwned
 
     public BuildLimits BuildLimits { get; set; } = new();
 
+    public RunLimits RunLimits { get; set; } = new();
+
     public Guid? CreatedByUserId { get; set; }
 
     public Guid? CreatedByBotId { get; set; }

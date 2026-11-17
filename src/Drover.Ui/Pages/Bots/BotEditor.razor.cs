@@ -27,6 +27,8 @@ public sealed partial class BotEditor(
 
     private const string Team = nameof(Team);
 
+    private const string Limits = nameof(Limits);
+
     private readonly HashSet<string> open = [];
 
     private BotDetail? saved;
@@ -52,6 +54,8 @@ public sealed partial class BotEditor(
     private bool writtenPatterns = true;
 
     private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
+
+    private BotRunLimitOptions? runLimitOptions;
 
     private BotSandboxStatus? sandboxStatus;
 
@@ -204,6 +208,7 @@ public sealed partial class BotEditor(
             schedules = await api.ListBotSchedules(SpaceId, BotId);
             writtenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
             sandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
+            runLimitOptions = await api.GetBotRunLimitOptions(SpaceId, BotId);
             rules = await api.ListBotRules(SpaceId, BotId);
             sandboxStatus = await ReadSandbox();
             readers = await ListReaders();

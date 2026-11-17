@@ -1,0 +1,28 @@
+@* The Limits section of the bot editor: what one piece of this bot's work may use before the server stops it. *@
+<StatusNote Text="These stop a bot that runs away before it spends your model credit. Each counts one piece of work: one message answered, or one task handed to it. Leave a limit empty to use the space's." />
+
+<div class="dv-editor-pair">
+    <Field Label="Model calls" @bind-Value="Draft.MaxSteps" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="@BotSummaries.Count(Options?.MaxSteps)" Hint="@Allowed("Each time the bot asks its model what to do next.", Options?.MaxSteps)" />
+    <Field Label="Tokens" @bind-Value="Draft.MaxTokens" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="@BotSummaries.Count(Options?.MaxTokens)" Hint="@Allowed("What the bot reads and writes, added together.", Options?.MaxTokens)" />
+    <Field Label="Handoffs" @bind-Value="Draft.MaxDelegations" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"
+           Placeholder="@BotSummaries.Count(Options?.MaxDelegations)" Hint="@Allowed("Times the bot hands work to a bot beneath it. 0 keeps all work with this bot.", Options?.MaxDelegations)" />
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public BotDraft Draft { get; set; } = new();
+
+    /// <summary>The space's limits, which a bot's own may only lower. Null until the server has said.</summary>
+    [Parameter]
+    public BotRunLimitOptions? Options { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private static string Allowed(string what, int? most) =>
+        most is { } value ? $"{what} This space allows up to {BotSummaries.Count(value)}." : what;
+}

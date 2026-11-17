@@ -392,6 +392,13 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("parent_bot_id");
 
+                    b.Property<string>("RunLimits")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("run_limits")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
                     b.Property<string>("SandboxPolicy")
                         .IsRequired()
                         .HasMaxLength(32)

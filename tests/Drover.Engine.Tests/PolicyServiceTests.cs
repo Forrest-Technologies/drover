@@ -121,6 +121,23 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         policies.Delegation(new SpaceSettings { MaxDelegationTreeCostCents = 250 }).MaxCost.Should().Be(2.50m);
     }
 
+    [Fact]
+    public async Task A_space_and_then_a_bot_can_lower_each_limit_on_one_run_and_neither_can_raise_one()
+    {
+        await using var provider = Build(DeploymentPolicy.Hosted);
+        await using var scope = provider.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var ceilings = new RunCeilings(DeploymentPolicy.StepsPerRun, DeploymentPolicy.HostedMaxTokensPerRun, DeploymentPolicy.RunsPerDelegationTree - 1);
+
+        policies.Runs(new SpaceSettings()).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = 5000, MaxTokensPerRun = int.MaxValue }).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = 8, MaxTokensPerRun = 90_000, MaxRunsPerDelegationTree = 3 })
+            .Should().Be(new RunCeilings(8, 90_000, 2));
+        ceilings.NarrowedBy(new RunLimits()).Should().Be(ceilings);
+        ceilings.NarrowedBy(new RunLimits { MaxSteps = 4, MaxDelegations = 0 }).Should().Be(ceilings with { MaxSteps = 4, MaxDelegations = 0 });
+        ceilings.NarrowedBy(new RunLimits { MaxSteps = 51, MaxTokens = int.MaxValue, MaxDelegations = 50 }).Should().Be(ceilings);
+    }
+
     #endregion
 
     #region Private Methods

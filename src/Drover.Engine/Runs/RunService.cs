@@ -426,6 +426,9 @@ public static class RunReasons
 
     public const string StepLimit = "step_limit";
 
+    /// <summary>The run used as many tokens as one run may. It is checked before each model call, so the last call may take it past.</summary>
+    public const string TokenLimit = "token_limit";
+
     public const string CancelledByUser = "cancelled_by_user";
 
     public const string LeaseLost = "lease_lost";

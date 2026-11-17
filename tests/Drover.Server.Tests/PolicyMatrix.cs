@@ -48,6 +48,8 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxDelegationDepth), "5", "5"),
         new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "50", "50"),
         new(nameof(DeploymentPolicy.MaxDelegationTreeCostCents), "10000", "1000"),
+        new(nameof(DeploymentPolicy.MaxStepsPerRun), "50", "50"),
+        new(nameof(DeploymentPolicy.MaxTokensPerRun), "5000000", "2000000"),
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
