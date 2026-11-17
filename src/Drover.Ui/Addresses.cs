@@ -49,6 +49,12 @@ public static class Addresses
     /// <summary>A bot's sandbox screen, beside its main conversation.</summary>
     public static string Screen(Guid botId) => $"/talk/{botId}/screen";
 
+    /// <summary>The newest run of a bot's main conversation, as a timeline beside it.</summary>
+    public static string Activity(Guid botId) => $"/talk/{botId}/activity";
+
+    /// <summary>An earlier run of a bot's main conversation, as a timeline beside it.</summary>
+    public static string Activity(Guid botId, Guid runId) => $"/talk/{botId}/activity/{runId}";
+
     /// <summary>The files a person and a bot exchanged, beside its main conversation.</summary>
     public static string Files(Guid botId) => $"/talk/{botId}/files";
 

@@ -186,5 +186,5 @@ jobs:
           apk="drover-$GITHUB_REF_NAME.apk"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Drover Android $GITHUB_REF_NAME" --prerelease --latest=false \
-            --notes 'Sideload the APK, enter the HTTPS address of your Drover server, and sign in. Native push is not included in this preview.' \
+            --notes 'Install the APK and sign in with the HTTPS address of your Drover server. See the [Android preview guide](https://github.com/Forrest-Technologies/drover/blob/main/docs/android-preview.md) for server requirements and notification setup.' \
             "release/$apk" "release/$apk.sha256"
