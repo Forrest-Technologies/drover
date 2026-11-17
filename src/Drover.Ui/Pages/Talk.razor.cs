@@ -459,6 +459,8 @@ public sealed partial class Talk(
 
     #region Private Methods
 
+    private void OpenSide(string address) => navigation.NavigateTo(address);
+
     private void ScreenTakenOver(Takeover takeover)
     {
         (openedTakeover, handedBack) = (takeover, null);
