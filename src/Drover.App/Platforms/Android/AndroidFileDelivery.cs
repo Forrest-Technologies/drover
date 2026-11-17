@@ -1,6 +1,6 @@
 namespace Drover.App.Platforms.Android;
 
-public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination documents) : IFileDelivery
+public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination documents, ILogger<AndroidFileDelivery> logger) : IFileDelivery
 {
     #region Interface Implementations
 
@@ -14,16 +14,22 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
                 return false;
             }
 
-            await using var source = staged.OpenRead();
             var resolver = AndroidApplication.Context.ContentResolver!;
-            await using var target = resolver.OpenOutputStream(destination, "wt")
-                ?? throw new IOException("Android did not open the location you chose.");
-            await source.CopyToAsync(target, cancellationToken);
-            return true;
+            try
+            {
+                // Off the interface's thread: the place chosen may be a cloud provider that is slow to open or close.
+                await Task.Run(() => Copy(staged, resolver, destination, cancellationToken), cancellationToken);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Discard(resolver, destination);
+                throw AsFileFailure(exception) ?? exception;
+            }
         }
         finally
         {
-            staged.Directory!.Delete(recursive: true);
+            Remove(staged.Directory!);
         }
     }
 
@@ -35,10 +41,10 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
             await MainThread.InvokeOnMainThreadAsync(() => global::Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(
                 new ShareFileRequest { Title = "Share file", File = new ShareFile(staged.FullName, MimeType(file)) }));
         }
-        catch
+        catch (Exception exception)
         {
-            staged.Directory!.Delete(recursive: true);
-            throw;
+            Remove(staged.Directory!);
+            throw AsFileFailure(exception) ?? exception;
         }
     }
 
@@ -68,6 +74,46 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
         }
     }
 
+    private static async Task Copy(FileInfo staged, ContentResolver resolver, AndroidUri destination, CancellationToken cancellationToken)
+    {
+        await using var source = staged.OpenRead();
+        await using var target = resolver.OpenOutputStream(destination, "wt")
+            ?? throw new IOException("Android did not open the location you chose.");
+        await source.CopyToAsync(target, cancellationToken);
+    }
+
+    // Android's own failures are Java exceptions. The file card knows a failed save or share as an IOException.
+    private static IOException? AsFileFailure(Exception exception) =>
+        exception is Java.Lang.Exception or UnauthorizedAccessException
+            ? new IOException("Android could not write or share the file.", exception)
+            : null;
+
+    // A save that failed must not leave an empty or cut-off document where the person chose to put the file.
+    private void Discard(ContentResolver resolver, AndroidUri destination)
+    {
+        try
+        {
+            global::Android.Provider.DocumentsContract.DeleteDocument(resolver, destination);
+        }
+        catch (Exception exception) when (exception is Java.Lang.Exception or IOException)
+        {
+            logger.LogWarning(exception, "A document left by a failed save could not be removed");
+        }
+    }
+
+    private void Remove(DirectoryInfo folder)
+    {
+        try
+        {
+            folder.Delete(recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // It is in the app's own cache, and a later download clears folders left behind.
+            logger.LogWarning(exception, "A staged copy of a conversation file could not be removed");
+        }
+    }
+
     private static string SafeName(string name) =>
         Path.GetFileName(name.Replace('\\', '/')) is { Length: > 0 } filename && filename is not ("." or "..")
             ? filename
@@ -78,14 +124,14 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
             ? type
             : "application/octet-stream";
 
-    private static void ClearOldShares(string root)
+    private void ClearOldShares(string root)
     {
         foreach (var folder in Directory.EnumerateDirectories(root))
         {
             if (Guid.TryParseExact(Path.GetFileName(folder), "N", out _)
                 && Directory.GetCreationTimeUtc(folder) < DateTime.UtcNow.AddDays(-1))
             {
-                Directory.Delete(folder, recursive: true);
+                Remove(new DirectoryInfo(folder));
             }
         }
     }

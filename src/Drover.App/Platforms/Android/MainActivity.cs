@@ -33,8 +33,14 @@ public sealed class MainActivity : MauiAppCompatActivity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
-        OpenConversation(Intent);
-        ReturnFromSignIn(Intent);
+
+        // The launch intent stays with the activity. It is acted on once: not when Android rebuilds the activity,
+        // and not when the app is opened again from the recent apps.
+        if (savedInstanceState is null && Intent?.Flags.HasFlag(ActivityFlags.LaunchedFromHistory) != true)
+        {
+            OpenConversation(Intent);
+            ReturnFromSignIn(Intent);
+        }
     }
 
     protected override void OnNewIntent(Intent? intent)

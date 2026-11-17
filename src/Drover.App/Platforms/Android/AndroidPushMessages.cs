@@ -16,23 +16,44 @@ internal sealed class AndroidPushMessages(DroverApi api, AndroidPushRegistration
         if (kind == "device.test")
         {
             AndroidNotifications.ShowTest();
+            return;
         }
-        else if (await api.ReadPushWake(kind, thread, cancellationToken) is { } wake
-            && await registration.BelongsTo(saved.UserId, saved.Token))
+
+        try
         {
-            AndroidNotifications.Show(wake, saved, canReply: kind == "run.finished");
+            if (await api.ReadPushWake(kind, thread, cancellationToken) is { } wake
+                && await registration.BelongsTo(saved.UserId, saved.Token))
+            {
+                AndroidNotifications.Show(wake, saved, canReply: kind == "run.finished");
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)
+        {
+            // The wake-up is the signed-in person's own, and it is acknowledged already. Losing it silently
+            // would look like notifications had stopped.
+            logger.LogWarning("Drover could not read what a notification is about");
+            if (await registration.BelongsTo(saved.UserId, saved.Token))
+            {
+                AndroidNotifications.ShowChange();
+            }
         }
     }
 
     public async Task Reply(Intent intent, CancellationToken cancellationToken)
     {
-        if (intent.Action != AndroidNotifications.ReplyAction || !AndroidNotifications.Conversation(intent, out var bot, out var thread)
-            || !Guid.TryParse(intent.GetStringExtra("user"), out var user)
+        if (intent.Action != AndroidNotifications.ReplyAction || !AndroidNotifications.Conversation(intent, out var bot, out var thread))
+        {
+            return;
+        }
+
+        if (!Guid.TryParse(intent.GetStringExtra("user"), out var user)
             || !Guid.TryParse(intent.GetStringExtra("space"), out var space)
             || intent.GetStringExtra("registration") is not { } token
             || RemoteInput.GetResultsFromIntent(intent)?.GetCharSequence(AndroidNotifications.ReplyText)?.ToString()?.Trim() is not { Length: > 0 } text
             || !await registration.BelongsTo(user, token))
         {
+            // Nothing is sent, and the notification goes, so Android does not show the reply as still sending.
+            AndroidNotifications.Clear(thread);
             return;
         }
 

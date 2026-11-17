@@ -30,13 +30,21 @@ internal static class AndroidNotifications
     {
         if (Allowed)
         {
+            // A reply is offered only where Android can ask for the device to be unlocked first. Without that,
+            // whoever holds a locked phone could write to a bot as its owner.
             Post(wake.BotId, wake.ThreadId, wake.IsMain, wake.Body,
-                canReply && wake.SpaceId is { } space ? ReplyFor(wake, saved, space) : null);
+                canReply && wake.SpaceId is { } space && OperatingSystem.IsAndroidVersionAtLeast(31) ? ReplyFor(wake, saved, space) : null);
         }
     }
 
     public static void ShowReplyResult(Guid bot, Guid thread, bool main, string body) =>
         Post(bot, thread, main, body);
+
+    /// <summary>For a wake-up whose words could not be fetched: the person still learns that something happened.</summary>
+    public static void ShowChange() => Post(Guid.Empty, Guid.Empty, true, "Something changed. Open Drover to see it.");
+
+    /// <summary>Takes a conversation's notification away, which also ends a reply Android still shows as sending.</summary>
+    public static void Clear(Guid thread) => Manager.Cancel(thread.ToString(), 1);
 
     public static void ShowTest() => Post(Guid.Empty, Guid.Empty, true, "Drover can send notifications to this device.");
 
@@ -114,6 +122,7 @@ internal static class AndroidNotifications
         return new Notification.Builder(context, Channel);
     }
 
+    [SupportedOSPlatform("android31.0")]
     private static Notification.Action? ReplyFor(PushWakeText wake, AndroidPushSubscription saved, Guid space)
     {
         var context = AndroidApplication.Context;
@@ -122,16 +131,10 @@ internal static class AndroidNotifications
             .PutExtra("bot", wake.BotId.ToString())!.PutExtra("thread", wake.ThreadId.ToString())!
             .PutExtra("space", space.ToString())!.PutExtra("user", saved.UserId.ToString())!
             .PutExtra("registration", saved.Token)!.PutExtra("main", wake.IsMain)!;
-        var flags = PendingIntentFlags.UpdateCurrent;
-        if (OperatingSystem.IsAndroidVersionAtLeast(31))
-        {
-            flags |= PendingIntentFlags.Mutable;
-        }
-
-        using var target = PendingIntent.GetBroadcast(context, 0, intent, flags);
+        using var target = PendingIntent.GetBroadcast(context, 0, intent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Mutable);
         using var input = new RemoteInput.Builder(ReplyText).SetLabel("Reply to bot")!.Build();
         using var action = new Notification.Action.Builder(global::Android.Resource.Drawable.IcMenuSend, "Reply", target);
-        return action.AddRemoteInput(input)!.SetAllowGeneratedReplies(false)!.Build();
+        return action.AddRemoteInput(input)!.SetAllowGeneratedReplies(false)!.SetAuthenticationRequired(true).Build();
     }
 
     #endregion
