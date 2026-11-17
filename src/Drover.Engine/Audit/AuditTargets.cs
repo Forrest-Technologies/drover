@@ -4,4 +4,6 @@ namespace Drover.Engine.Audit;
 public static class AuditTargets
 {
     public const string Bot = "bot";
+
+    public const string Extension = "extension";
 }

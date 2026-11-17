@@ -19,15 +19,15 @@ public sealed class BotService(
 {
     #region Private Fields
 
-    private const int MaxNameLength = 200;
+    public const int MaxNameLength = 200;
 
     private const int MaxHandleLength = 100;
 
-    private const int MaxDescriptionLength = 2_000;
+    public const int MaxDescriptionLength = 2_000;
 
-    private const int MaxInstructionsLength = 32_000;
+    public const int MaxInstructionsLength = 32_000;
 
-    private const int MaxModelLength = 200;
+    public const int MaxModelLength = 200;
 
     private const int MaxSymbolLength = 16;
 
@@ -130,6 +130,7 @@ public sealed class BotService(
             Model = chosen,
             ParentBotId = parent?.Id,
             Depth = parent is null ? 0 : parent.Depth + 1,
+            Status = request.Paused ? BotStatus.Paused : BotStatus.Active,
             CreatedByUserId = maker.UserId,
             CreatedByBotId = maker.BotId,
         };

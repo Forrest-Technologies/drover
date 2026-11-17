@@ -26,6 +26,8 @@ public static class Addresses
 
     public const string Tools = "/tools";
 
+    public const string Extensions = "/extensions";
+
     public const string Status = "/status";
 
     public const string Usage = "/usage";

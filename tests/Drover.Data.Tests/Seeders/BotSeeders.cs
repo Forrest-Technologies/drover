@@ -78,3 +78,18 @@ public sealed class BotRuleSeeder : PlainSeeder<BotRule>
         ["created_by_user_id"] = seed.Placement.User,
     };
 }
+
+public sealed class ExtensionInstallSeeder : PlainSeeder<ExtensionInstall>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["package_id"] = seed.Unique("sample.extension"),
+        ["name"] = "Sample extension",
+        ["description"] = string.Empty,
+        ["content_hash"] = new string('0', 64),
+        ["bot_id"] = seed.Parent("bots"),
+        ["installed_by_user_id"] = seed.Placement.User,
+        ["installed_at"] = DateTimeOffset.UnixEpoch,
+    };
+}
