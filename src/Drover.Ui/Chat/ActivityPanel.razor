@@ -1,0 +1,46 @@
+@* A run of the main conversation as a timeline: the newest run unless the person opened an earlier one from its
+   reply. It is read from the run's one stream, which replays what is stored and then follows the run live. *@
+<div class="dv-activity dv-yard">
+    @if (problem is not null)
+    {
+        <EmptyState Title="Drover could not load this run" Cause="@problem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (loading || tree is { LastSeq: 0 } && !watched)
+    {
+        <p class="dv-activity-hint" role="status">Loading the run.</p>
+    }
+    else if (tree is null)
+    {
+        <EmptyState Title="Nothing has run in this conversation yet" Cause="@($"When {Bot.Name} answers a message, what it does shows here as it happens.")"
+                    ActionLabel="@($"Write to {Bot.Name}")" ActionHref="@Addresses.Talk(Bot.Id)" />
+    }
+    else
+    {
+        <div class="dv-activity-head">
+            <p class="dv-activity-facts dv-mono">@Facts</p>
+            <SegmentedControl TValue="bool" Label="Show the run as" Options="forms" Value="asList" ValueChanged="value => asList = value" />
+        </div>
+        @if (RunId is not null)
+        {
+            <a class="dv-activity-link" href="@Addresses.Activity(Bot.Id)">Show the newest run</a>
+        }
+        @if (reconnecting)
+        {
+            <StatusNote Text="The connection to the server dropped. Reconnecting." />
+        }
+        @if (tree.LostEarlierEvents)
+        {
+            <StatusNote Text="The start of this run is no longer kept, so its earliest events are not shown." />
+        }
+        <Timeline Model="Model" Label="@($"What happened in this run of {Bot.Name}")" AsList="asList"
+                  EmptyText="This run's events are no longer kept. The conversation still has what was said.">
+            <Detail Context="node">
+                @if (MomentOf(node) is { } moment)
+                {
+                    <RunMomentDetail Tree="tree" Moment="moment" BotName="@NameOf(node.Lane)"
+                                     ChildName="@(node.BranchLane is { } lane ? NameOf(lane) : string.Empty)" Results="results" Decide="Decide" />
+                }
+            </Detail>
+        </Timeline>
+    }
+</div>

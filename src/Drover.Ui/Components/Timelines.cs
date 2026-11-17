@@ -1,4 +1,4 @@
-namespace Drover.Ui.Starters;
+namespace Drover.Ui.Components;
 
 /// <summary>What a point on a run's timeline is.</summary>
 public enum TimelineKind
@@ -6,6 +6,7 @@ public enum TimelineKind
     Step,
     Tool,
     Delegation,
+    Answer,
     Waiting,
     Rule,
 }
@@ -17,6 +18,8 @@ public enum TimelineState
     Done,
     Failed,
     Waiting,
+    Pending,
+    Denied,
     Cancelled,
 }
 
@@ -24,9 +27,10 @@ public enum TimelineState
 public sealed record TimelineBot(Guid Id, string Name);
 
 /// <summary>
-/// One thing that happened in a run: a bot thinking and writing, a tool call, work handed to another bot, a wait
-/// for a person, a rule that fired. <see cref="Label"/> says it in plain words ("Ran a command").
-/// <see cref="ChildBotId"/> is the bot that work was handed to, for a delegation.
+/// One thing that happened in a run: a bot thinking and writing, a tool call, work handed to another bot, the
+/// answer to that work coming back, a wait for a person, a rule that fired. <see cref="Label"/> says it in plain
+/// words ("Ran a command"). <see cref="ChildBotId"/> is the bot that work was handed to, for a delegation and its
+/// answer.
 /// </summary>
 public sealed record TimelineEvent(
     Guid Id,
@@ -37,11 +41,16 @@ public sealed record TimelineEvent(
     DateTimeOffset Started,
     TimeSpan? Took = null,
     string? Summary = null,
-    Guid? ChildBotId = null);
+    Guid? ChildBotId = null)
+{
+    /// <summary>True for a live step that has begun to write: it shows steadily, where a step still thinking breathes.</summary>
+    public bool Writing { get; init; }
+}
 
 /// <summary>
 /// An event placed on the timeline: its lane, its row in time order, and for a delegation the lane the work
-/// branches into. <see cref="BranchLane"/> is null when the event stays in its own lane.
+/// branches into, or for an answer the lane it comes back from. <see cref="BranchLane"/> is null when the event
+/// stays in its own lane.
 /// </summary>
 public sealed record TimelineNode(TimelineEvent Event, int Lane, int Row, int? BranchLane);
 
@@ -86,7 +95,7 @@ public static class Timelines
                 item,
                 laneIds.IndexOf(item.BotId),
                 row,
-                item is { Kind: TimelineKind.Delegation, ChildBotId: { } child } ? laneIds.IndexOf(child) : null)),
+                item is { Kind: TimelineKind.Delegation or TimelineKind.Answer, ChildBotId: { } child } ? laneIds.IndexOf(child) : null)),
         ];
         return new(lanes, nodes);
     }
@@ -121,6 +130,8 @@ public static class Timelines
         TimelineState.Done => "Done",
         TimelineState.Failed => "Failed",
         TimelineState.Waiting => "Waiting for you",
+        TimelineState.Pending => "Not run yet",
+        TimelineState.Denied => "Denied",
         _ => "Cancelled",
     };
 
@@ -135,12 +146,17 @@ public static class Timelines
 
     /// <summary>
     /// A node as one sentence, for its accessible name and for the list form: "Sample bot: Ran a command.
-    /// Done, took 12 seconds." A hand-off names the bot the work went to.
+    /// Done, took 12 seconds." A hand-off names the bot the work went to, and an answer the bot it came from.
     /// </summary>
     public static string Sentence(TimelineModel model, TimelineNode node)
     {
         var who = model.Lanes[node.Lane].Name;
-        var what = node.BranchLane is { } lane ? $"{node.Event.Label} to {model.Lanes[lane].Name}" : node.Event.Label;
+        var what = node switch
+        {
+            { BranchLane: { } lane, Event.Kind: TimelineKind.Answer } => $"{node.Event.Label} from {model.Lanes[lane].Name}",
+            { BranchLane: { } lane } => $"{node.Event.Label} to {model.Lanes[lane].Name}",
+            _ => node.Event.Label,
+        };
         var took = node.Event.Took is { } duration ? $", took {Words.Duration(duration)}" : string.Empty;
         return $"{who}: {what}. {State(node.Event.State)}{took}.";
     }

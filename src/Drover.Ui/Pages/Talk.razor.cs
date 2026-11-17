@@ -20,6 +20,8 @@ public sealed partial class Talk(
 
     private const string ScreenRail = "screen";
 
+    private const string ActivityRail = "activity";
+
     private const string FilesRail = "files";
 
     private const string MemorySide = "memory";
@@ -79,6 +81,9 @@ public sealed partial class Talk(
     // Raised each time the bot stops working in the main conversation, so the summary on screen is read again.
     private int summaryVersion;
 
+    // Raised each time the bot starts or stops working in the main conversation, so the activity rail finds the newest run.
+    private int activityVersion;
+
     /// <summary>Changes each time a conversation with the shown bot has moved on, so the files rail reads its list again.</summary>
     private int conversationVersion;
 
@@ -95,7 +100,7 @@ public sealed partial class Talk(
 
     /// <summary>
     /// What is open beside the main conversation: "summary" for its summary, "memory" for what the bot remembers about
-    /// the person, "screen" for the bot's screen, "files" for the files exchanged with it, "side" for its side chats.
+    /// the person, "screen" for the bot's screen, "files" for the files exchanged with it, "activity" for its newest run, "side" for its side chats.
     /// </summary>
     [Parameter]
     public string? Rail { get; set; }
@@ -103,6 +108,10 @@ public sealed partial class Talk(
     /// <summary>The side chat that is open: its thread, or "new" for one its first message will make.</summary>
     [Parameter]
     public string? SideChat { get; set; }
+
+    /// <summary>An earlier run of the main conversation, opened in the activity rail from its reply.</summary>
+    [Parameter]
+    public Guid? ActivityRunId { get; set; }
 
     /// <summary>The bot whose side of handed work is open beside the conversation.</summary>
     [Parameter]
@@ -142,6 +151,8 @@ public sealed partial class Talk(
         (_, not null, _) or (SideRail, _, _) => SideView.List,
         (SummaryRail, _, _) => SideView.Summary,
         (ScreenRail, _, _) => SideView.Screen,
+        (ActivityRail, _, _) => SideView.Activity,
+        _ when ActivityRunId is not null => SideView.Activity,
         (FilesRail, _, _) => SideView.Files,
         (MemorySide, _, _) => SideView.Memory,
         _ => SideView.Closed,
@@ -244,6 +255,7 @@ public sealed partial class Talk(
         SideView.New => NewSideChatName,
         SideView.Summary => "Summary",
         SideView.Screen => "Screen",
+        SideView.Activity => "Activity",
         SideView.Files => "Files",
         SideView.Memory => "Memory",
         _ => "Side chats",
@@ -253,6 +265,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => $"Summary of the conversation with {Shown!.Name}",
         SideView.Screen => $"{Shown!.Name}'s screen",
+        SideView.Activity => $"What {Shown!.Name} and its crew did in a run",
         SideView.Work => $"{WorkName}'s side of work handed to it",
         SideView.Files => $"Files exchanged with {Shown!.Name}",
         SideView.Memory => $"What {Shown!.Name} remembers about you",
@@ -263,6 +276,7 @@ public sealed partial class Talk(
     {
         SideView.Summary => "Close the summary",
         SideView.Screen => "Close the screen",
+        SideView.Activity => "Close the activity",
         SideView.Work => $"Close {WorkName}'s side",
         SideView.Files => "Close the files",
         SideView.Memory => "Close memory",
@@ -563,6 +577,7 @@ public sealed partial class Talk(
     private async Task MainBusyChanged(bool busy)
     {
         mainBusy = busy;
+        activityVersion++;
         if (!busy)
         {
             summaryVersion++;

@@ -45,9 +45,8 @@ A test reads this table: every file in this folder must be listed, and every fil
 | #153 | `SkillWords.cs`, `SkillFields.razor`, `SkillRow.razor` | Writing a skill, a skill in the library |
 | #154 | `VoiceWords.cs`, `VoiceButton.razor`, `ReadAloudButton.razor` | Speaking a message, hearing a reply, every refusal |
 | #159 | `RoutineCallWords.cs`, `RoutineCallAddress.razor` | A routine's address, its secret shown once, today's calls |
-| #164 | `Timelines.cs`, `Timeline.razor`, `ArrowKeyZone.razor`, `ArrowKeyZone.razor.js` | A run laid out in lanes, keyboard movement, the list form |
 | #166 | `SkillProposalCard.razor` | A skill a bot offers, edited and approved by a person. Uses `SkillFields` from #153 |
-| #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone` from #164, and `AttentionNote` from #148, which is now in `Chat/` |
+| #167 | `TreeLayout.cs`, `CrewCanvas.razor` | The crew as a tree: layout, connectors, the pulse, tree-view keys. Uses `ArrowKeyZone`, which #164 moved to `Components/`, and `AttentionNote` from #148, which is now in `Chat/` |
 | #168 | `ActivityWords.cs`, `WaitingList.razor`, `ActivityRunRow.razor` | Answering what waits, several at once with every sentence listed, a run in the list |
 | Samples | `ConversationSamples.razor`, `RoutineSamples.razor`, `RecordSamples.razor`, `BoldSamples.razor` | The starter gallery's sections. Each loses a section as its starter moves |
 | Gallery | `StarterGallery.razor`, `_Imports.razor` | The page at `/dev/starters`, and the one `@using` the samples need. They go with the last starter |

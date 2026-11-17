@@ -55,7 +55,7 @@ public sealed class ShellPieceTests : ScreenTest
 
         menu.Find("button.dv-menu-trigger").TextContent.Should().Be("Sam Sample");
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Usage", "Status", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Models", "Notifications", "Usage", "Status", "Sign out"));
         menu.FindAll("[role=menuitem]")[0].TextContent.Should().Contain(", in use");
     }
 
@@ -67,7 +67,7 @@ public sealed class ShellPieceTests : ScreenTest
         var menu = Render<AccountMenu>();
 
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Usage", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Models", "Notifications", "Usage", "Sign out"));
     }
 
     [Fact]

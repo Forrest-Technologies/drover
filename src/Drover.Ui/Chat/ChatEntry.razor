@@ -53,6 +53,10 @@ else
                 {
                     <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
                 }
+                @if (RunAddress is not null && Message.ActivityRunId is { } activityRunId)
+                {
+                    <a class="dv-message-run" href="@RunAddress(activityRunId)">See what happened</a>
+                }
             </header>
             <MarkdownView Text="@Message.Text" Streaming="Message.Streaming" />
             @foreach (var tool in Message.Tools)
@@ -77,6 +81,10 @@ else
     /// <summary>The bot whose conversation, or whose part of handed work, this message is in.</summary>
     [Parameter, EditorRequired]
     public string BotName { get; set; } = string.Empty;
+
+    /// <summary>Where a reply leads to the run that wrote it, as a timeline. Without it, replies lead nowhere.</summary>
+    [Parameter]
+    public Func<Guid, string>? RunAddress { get; set; }
 
     [Parameter]
     public int BotHue { get; set; }

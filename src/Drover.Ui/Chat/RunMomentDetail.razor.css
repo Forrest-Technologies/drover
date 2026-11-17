@@ -1,0 +1,95 @@
+/* A node's details, under it on the timeline. */
+.dv-moment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+.dv-moment p {
+  margin: 0;
+}
+
+.dv-moment-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-1) var(--dv-space-4);
+  margin: 0;
+}
+
+.dv-moment-fact {
+  display: flex;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-moment-fact dt {
+  color: var(--dv-text-3);
+}
+
+.dv-moment-fact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dv-moment-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-moment-title {
+  margin: 0;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+.dv-moment-quiet {
+  color: var(--dv-text-2);
+}
+
+/* Output is laid out bottom-up, so the newest line stays in view while output arrives. */
+.dv-moment-output,
+.dv-moment-terminal {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: var(--dv-output-lines);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: var(--dv-border) solid var(--dv-line);
+  background: var(--dv-bg-0);
+}
+
+.dv-moment-output-text,
+.dv-moment-terminal-text {
+  margin: 0;
+  padding: var(--dv-space-2) var(--dv-space-3);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  color: var(--dv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-moment-prompt {
+  color: var(--dv-text-3);
+}
+
+.dv-moment-stderr {
+  color: var(--dv-danger);
+}
+
+.dv-moment-stream {
+  margin-inline-end: var(--dv-space-2);
+  padding: 0 var(--dv-space-1);
+  border: var(--dv-border) solid currentColor;
+  font-size: var(--dv-text-12);
+}
+
+.dv-moment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-2);
+}
