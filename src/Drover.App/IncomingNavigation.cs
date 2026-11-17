@@ -1,6 +1,10 @@
 namespace Drover.App;
 
-public sealed class NotificationNavigation
+/// <summary>
+/// Where Android asked the app to go from outside it: a tapped notification, or a browser coming back from a tool
+/// server's sign-in page. The interface takes the address when it is ready to show it.
+/// </summary>
+public sealed class IncomingNavigation
 {
     #region Private Fields
 

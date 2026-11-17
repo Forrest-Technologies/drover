@@ -15,7 +15,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<AppRequests>();
         builder.Services.AddSingleton<DocumentDestination>();
         builder.Services.AddScoped<IFileDelivery, AndroidFileDelivery>();
-        builder.Services.AddSingleton<NotificationNavigation>();
+        builder.Services.AddSingleton<IncomingNavigation>();
+        builder.Services.AddSingleton(new AppSignInReturn(MainActivity.SignInReturnScheme));
         builder.Services.AddSingleton<AndroidPushRegistration>();
         builder.Services.AddSingleton<IPushRegistration>(services => services.GetRequiredService<AndroidPushRegistration>());
         builder.Services.AddScoped<AndroidPushMessages>();

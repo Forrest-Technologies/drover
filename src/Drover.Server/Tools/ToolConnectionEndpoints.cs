@@ -51,13 +51,23 @@ public static class ToolConnectionEndpoints
     /// </summary>
     public static IEndpointRouteBuilder MapToolSignInCallback(this IEndpointRouteBuilder app)
     {
-        app.MapGet(ToolSignInOptions.CallbackPath, CompleteSignIn).RequireAuthorization().ExcludeFromDescription();
+        app.MapGet(ToolSignInOptions.CallbackPath, CompleteSignIn).AllowAnonymous().ExcludeFromDescription();
         app.MapGet(ToolSignInOptions.ClientDocumentPath, DescribeClient).AllowAnonymous().ExcludeFromDescription();
         return app;
     }
 
+    /// <summary>
+    /// A native app ends the sign-in its browser came back from. Outside any space, as the callback is: the ticket
+    /// says which sign-in it is, and only the signed-in person who started it can end it.
+    /// </summary>
+    public static RouteGroupBuilder MapToolSignInFinish(this RouteGroupBuilder api)
+    {
+        api.MapPost("/tool-sign-ins/finish", FinishSignIn).RequireAuthorization().WithName("FinishToolSignIn")
+            .WithSummary("Ends a sign-in to a tool server whose browser came back into a native app. The ticket works once.");
+        return api;
+    }
 
-    private static async Task<RedirectHttpResult> CompleteSignIn(
+    private static async Task<IResult> CompleteSignIn(
         string? state,
         string? code,
         string? iss,
@@ -65,7 +75,20 @@ public static class ToolConnectionEndpoints
         HttpContext context,
         ToolSignIns signIns)
     {
-        var finish = await signIns.Complete(context.User.GetUserId(), state, code, iss, refused: !string.IsNullOrEmpty(error), context.RequestAborted);
+        var refused = !string.IsNullOrEmpty(error);
+
+        // A sign-in a native app started ends in that app, whoever the browser is signed in as, or nobody.
+        if (signIns.Arrive(state, code, iss, refused) is { } app)
+        {
+            return AppReturnPage.For(app);
+        }
+
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        var finish = await signIns.Complete(context.User.GetUserId(), state, code, iss, refused, context.RequestAborted);
 
         // Only words this server chose go into the address: nothing the provider sent is echoed.
         var outcome = finish.Connected ? "connected" : "failed";
@@ -73,6 +96,12 @@ public static class ToolConnectionEndpoints
             finish is { SpaceId: { } spaceId, ConnectionId: { } connectionId }
                 ? $"/?tool-sign-in={outcome}&space={spaceId}&connection={connectionId}"
                 : $"/?tool-sign-in={outcome}");
+    }
+
+    private static async Task<Ok<ToolSignInFinish>> FinishSignIn(FinishToolSignInRequest request, HttpContext context, ToolSignIns signIns)
+    {
+        var finish = await signIns.Finish(context.User.GetUserId(), request.Ticket, context.RequestAborted);
+        return TypedResults.Ok(new ToolSignInFinish(finish.Connected, finish.SpaceId, finish.ConnectionId));
     }
 
     /// <summary>
@@ -120,7 +149,11 @@ public static class ToolConnectionEndpoints
             return TypedResults.Forbid();
         }
 
-        var start = await signIns.Begin(access.SpaceId, access.UserId, connectionId, context.RequestAborted);
+        // The web app sends no body. A native app names itself, so the browser can be sent back into it.
+        var request = context.Request.HasJsonContentType() && context.Request.ContentLength is not 0
+            ? await context.Request.ReadFromJsonAsync<BeginToolSignInRequest>(context.RequestAborted)
+            : null;
+        var start = await signIns.Begin(access.SpaceId, access.UserId, connectionId, request?.ReturnTo, context.RequestAborted);
         return start.Step is SignInStep.NotFound
             ? TypedResults.NotFound()
             : TypedResults.Ok(new ToolSignInStart(start.Step.ToString().ToLowerInvariant(), start.AuthorizationUrl?.ToString(), start.Problem));

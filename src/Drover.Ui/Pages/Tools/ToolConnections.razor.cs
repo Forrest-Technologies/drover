@@ -8,6 +8,7 @@ public sealed partial class ToolConnections(
     DroverApi api,
     SessionState session,
     NavigationManager navigation,
+    IServiceProvider services,
     ILogger<ToolConnections> logger)
 {
     #region Private Fields
@@ -46,6 +47,13 @@ public sealed partial class ToolConnections(
     [SupplyParameterFromQuery(Name = "connection")]
     public Guid? SignInConnection { get; set; }
 
+    /// <summary>
+    /// The one-time ticket a browser carried into the native app after a sign-in at the provider. This screen
+    /// ends that sign-in with it, once, and takes it off the address.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "ticket")]
+    public string? SignInTicket { get; set; }
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
@@ -59,8 +67,9 @@ public sealed partial class ToolConnections(
     {
         if (await session.Load() is not null)
         {
+            var finished = await FinishSignIn();
             await Load();
-            SayHowSignInEnded();
+            SayHowSignInEnded(finished?.Outcome ?? SignInOutcome, finished?.ConnectionId ?? SignInConnection);
         }
     }
 
@@ -88,16 +97,41 @@ public sealed partial class ToolConnections(
         }
     }
 
-    // The address carries only one of two words this server chose and an id; the name is looked up here.
-    private void SayHowSignInEnded()
+    // The sign-in was started here, in a native app, and its browser has just come back into the app. Only the
+    // server can end it, for the person who started it; a ticket that is not theirs ends as a failure.
+    private async Task<(string Outcome, Guid? ConnectionId)?> FinishSignIn()
     {
-        if (SignInOutcome is not ("connected" or "failed"))
+        if (string.IsNullOrEmpty(SignInTicket))
+        {
+            return null;
+        }
+
+        (string Outcome, Guid? ConnectionId) finished = ("failed", null);
+
+        try
+        {
+            var finish = await api.FinishToolSignIn(SignInTicket);
+            finished = (finish.Connected ? "connected" : "failed", finish.ConnectionId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnections));
+        }
+
+        navigation.NavigateTo(Addresses.ToolSignIn(finished.Outcome, finished.ConnectionId?.ToString()), replace: true);
+        return finished;
+    }
+
+    // The address carries only one of two words this server chose and an id; the name is looked up here.
+    private void SayHowSignInEnded(string? outcome, Guid? connectionId)
+    {
+        if (outcome is not ("connected" or "failed"))
         {
             return;
         }
 
-        var name = connections?.Find(connection => connection.Id == SignInConnection)?.Name ?? "the tool server";
-        noticeIsProblem = SignInOutcome is "failed";
+        var name = connections?.Find(connection => connection.Id == connectionId)?.Name ?? "the tool server";
+        noticeIsProblem = outcome is "failed";
         notice = noticeIsProblem
             ? $"The sign-in to {name} did not finish. Nothing was stored. Try again."
             : $"You are signed in to {name}.";
@@ -146,7 +180,7 @@ public sealed partial class ToolConnections(
     private Task SignIn(ToolConnectionSummary connection) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<AppSignInReturn>()?.Scheme);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {

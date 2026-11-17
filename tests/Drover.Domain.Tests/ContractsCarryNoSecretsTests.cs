@@ -14,7 +14,7 @@ public sealed class ContractsCarryNoSecretsTests
 
     private static readonly string[] allowedWords = ["hasvalue", "requirescode"];
 
-    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest"];
+    private static readonly string[] inboundCredentialForms = ["SignInRequest", "SetupRequest", "RegisterRequest", "CreateModelConnectionRequest", "UpdateModelKeyRequest", "CreateToolConnectionRequest", "ReplaceToolHeaderRequest", "ChangePasswordRequest", "ResetPasswordRequest", "PushDeviceRequest", "FinishToolSignInRequest"];
 
     #endregion
 
@@ -49,6 +49,7 @@ public sealed class ContractsCarryNoSecretsTests
             .ToString().Should().NotContain("password-value").And.NotContain("A-RESET-CODE");
         new Drover.Contracts.Push.PushDeviceRequest("https://push.example.test/a-device", "a-device-key", "a-device-secret")
             .ToString().Should().NotContain("a-device");
+        new Drover.Contracts.Tools.FinishToolSignInRequest("a-ticket-value").ToString().Should().NotContain("a-ticket-value");
         inboundCredentialForms.Should().OnlyContain(name => name.EndsWith("Request", StringComparison.Ordinal));
         sample.ToString().Should().NotContain("a-password-value");
         setup.ToString().Should().NotContain("a-password-value").And.NotContain("CODE");
