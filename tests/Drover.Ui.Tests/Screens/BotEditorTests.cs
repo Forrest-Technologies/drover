@@ -160,6 +160,23 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task An_unlisted_model_id_can_be_saved_when_the_connection_has_a_catalog()
+    {
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Model = "sample-custom" });
+        var page = RenderEditor();
+        await Open(page, 0);
+
+        await page.FindAll(".dv-disclosure-open button")
+            .Single(button => button.TextContent.Trim() == "Enter a model ID").ClickAsync(new MouseEventArgs());
+        var label = page.FindAll(".dv-disclosure-open label").Single(element => element.TextContent == "Model name");
+        await page.Find($"#{label.GetAttribute("for")}").InputAsync(new ChangeEventArgs { Value = "sample-custom" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition")
+            .Should().ContainSingle().Which.Should().Contain("\"model\":\"sample-custom\""));
+    }
+
+    [Fact]
     public async Task A_model_without_tool_calling_hides_the_tool_controls_and_says_why()
     {
         var page = RenderEditor();

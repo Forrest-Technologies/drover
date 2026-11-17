@@ -40,6 +40,8 @@ The proxy obtains a certificate for that name and forwards requests to Drover. D
 
 [Download the APK from GitHub Releases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter your Drover server’s HTTPS address and sign in with your existing account.
 
+Open **Account → Models** to add a provider, refresh its model list, or replace a key. Set the model a bot uses in the bot’s **Model** section.
+
 The app remembers the server address. Sign in again if Android stops the app. Native push isn’t included in the preview. See the [Android build and release guide](docs/android-preview.md).
 
 ## What building it costs

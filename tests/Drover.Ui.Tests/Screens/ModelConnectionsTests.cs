@@ -43,6 +43,33 @@ public sealed class ModelConnectionsTests : ScreenTest
     }
 
     [Fact]
+    public void Loading_an_empty_list_explains_how_to_add_the_first_connection()
+    {
+        SignedIn();
+        Server.Answer("GET", connections, Array.Empty<ModelConnectionSummary>());
+        var loading = Server.Hold("GET", connections);
+
+        var page = Render<Drover.Ui.Pages.Models.ModelConnections>();
+        page.WaitForAssertion(() => page.Find(".dv-models-hint[role=status]").TextContent.Should().Be("Loading the model connections."));
+        loading.SetResult();
+
+        page.WaitForAssertion(() => page.Find(".dv-empty-title").TextContent.Should().Be("No model connection yet"));
+        page.Find(".dv-empty button").TextContent.Trim().Should().Be("Add a model connection");
+    }
+
+    [Fact]
+    public void A_connection_list_error_offers_a_retry()
+    {
+        SignedIn();
+        Server.Answer("GET", connections, HttpStatusCode.ServiceUnavailable);
+
+        var page = Render<Drover.Ui.Pages.Models.ModelConnections>();
+
+        page.WaitForAssertion(() => page.Find(".dv-empty-title").TextContent.Should().Be("Drover could not load the model connections"));
+        page.Find(".dv-empty button").TextContent.Trim().Should().Be("Try again");
+    }
+
+    [Fact]
     public void A_member_can_view_models_and_cannot_change_the_connection()
     {
         var entry = new ModelCatalogResponse("model-a", "Example model",
