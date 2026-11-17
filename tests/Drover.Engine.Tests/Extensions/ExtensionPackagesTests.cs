@@ -150,6 +150,80 @@ public sealed class ExtensionPackagesTests
 
     #endregion
 
+    #region Tool Servers
+
+    [Fact]
+    public void A_tool_server_reads_as_where_it_is_how_to_call_it_and_the_tools_it_suggests()
+    {
+        var reading = ExtensionPackages.Read("""
+            {"version":1,"id":"sample.helpdesk","name":"Sample","contents":[
+              {"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","auth":"header","headerName":"X-Api-Key",
+               "suggestedTools":[{"name":"lookup","why":"Finds a ticket."},{"name":"reply"}]}]}
+            """);
+
+        reading.Problem.Should().BeNull("an extension may name a tool server and add no bot");
+        reading.Package!.Contents.Should().ContainSingle().Which.Should().BeEquivalentTo(new ConnectionRecipe("Helpdesk", "https://tools.example.test/mcp")
+        {
+            Auth = "header",
+            HeaderName = "X-Api-Key",
+            SuggestedTools = [new SuggestedTool("lookup", "Finds a ticket."), new SuggestedTool("reply")],
+        });
+    }
+
+    [Theory]
+    [InlineData(""""headerValue":"sample-value"""")]
+    [InlineData(""""trust":"trusted"""")]
+    [InlineData(""""grants":["lookup"]"""")]
+    [InlineData(""""clientSecret":"sample-value"""")]
+    public void A_tool_server_has_no_field_for_a_credential_a_grant_or_trust(string field)
+    {
+        var reading = ExtensionPackages.Read($$"""{"version":1,"id":"sample.helpdesk","name":"Sample","contents":[{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp",{{field}}}]}""");
+
+        reading.Package.Should().BeNull();
+        reading.Problem.Should().StartWith("This is not an extension file Drover can read.");
+    }
+
+    [Theory]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"ftp://tools.example.test/mcp"}""", "The tool server in this extension needs a name")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://user:pass@tools.example.test/mcp"}""", "The tool server in this extension needs a name")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp?key=sample"}""", "The tool server in this extension needs a name")]
+    [InlineData("""{"kind":"mcp_connection","name":" ","url":"https://tools.example.test/mcp"}""", "The tool server in this extension needs a name")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","auth":"basic"}""", "The tool server in this extension must say how Drover proves who is calling")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","auth":"header"}""", "The tool server in this extension must name its header")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","auth":"none","headerName":"X-Api-Key"}""", "The tool server in this extension must name its header")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","auth":"header","headerName":"Host"}""", "The tool server in this extension must name its header")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","suggestedTools":[{"name":""}]}""", "Each suggested tool needs the tool's name")]
+    [InlineData("""{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp","suggestedTools":[{"name":"lookup"},{"name":"lookup"}]}""", "An extension suggests each tool once.")]
+    public void A_tool_server_that_breaks_a_rule_is_refused_with_the_rule(string part, string problem) =>
+        ExtensionPackages.Read($$"""{"version":1,"id":"sample.helpdesk","name":"Sample","contents":[{{part}}]}""").Problem.Should().StartWith(problem);
+
+    [Fact]
+    public void An_extension_names_one_tool_server_at_most()
+    {
+        var part = """{"kind":"mcp_connection","name":"Helpdesk","url":"https://tools.example.test/mcp"}""";
+
+        ExtensionPackages.Read($$"""{"version":1,"id":"sample.helpdesk","name":"Sample","contents":[{{part}},{{part}}]}""").Problem
+            .Should().Be("An extension names one tool server at most. This one names more.");
+    }
+
+    [Theory]
+    [InlineData("https://tools.example.com/mcp", false)]
+    [InlineData("https://8.8.8.8/mcp", false)]
+    [InlineData("http://tools.example.com/mcp", true)]
+    [InlineData("https://localhost/mcp", true)]
+    [InlineData("https://127.0.0.1:9000/mcp", true)]
+    [InlineData("https://[::1]/mcp", true)]
+    [InlineData("https://192.168.1.20/mcp", true)]
+    [InlineData("https://10.0.0.5/mcp", true)]
+    [InlineData("https://169.254.169.254/latest", true)]
+    [InlineData("https://nas/mcp", true)]
+    [InlineData("https://tools.internal/mcp", true)]
+    [InlineData("https://printer.local/mcp", true)]
+    public void An_address_on_the_servers_own_network_or_not_https_is_local(string address, bool local) =>
+        ExtensionPackages.IsLocal(new Uri(address)).Should().Be(local);
+
+    #endregion
+
     #region Ids
 
     [Theory]
