@@ -229,7 +229,7 @@ public sealed class PushNotifierTests(PostgresServer postgres)
         var members = await world.WithServiceAs<PushService, PushWakeText?>(member, service => service.Describe(member, PushKinds.ApprovalWaiting, threadId, RunWorld.Token));
         var unknown = await world.WithService<PushService, PushWakeText?>(service => service.Describe(world.UserId, "something.else", threadId, RunWorld.Token));
 
-        owners.Should().Be(new PushWakeText($"{botName} is waiting for you to approve a step.", world.BotId, threadId, false));
+        owners.Should().Be(new PushWakeText($"{botName} is waiting for you to approve a step.", world.BotId, threadId, false, world.SpaceId));
         members.Should().BeNull("the thread is the owner's private conversation");
         unknown.Should().BeNull();
     }
