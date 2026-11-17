@@ -112,22 +112,52 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ vars.ANDROID_SIGNING_KEY_ALIAS }}
           CERT_SHA256: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        shell: bash
         run: |
           umask 077
-          key=$(mktemp "$RUNNER_TEMP/drover-key.XXXXXX")
-          trap 'rm -f "$key"' EXIT
+          temp=$(mktemp -d "$RUNNER_TEMP/drover-signing.XXXXXX")
+          trap 'rm -r "$temp"' EXIT
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" ]]; then
+            echo "::error::The Android signing environment is incomplete."
+            exit 1
+          fi
+          expected=$(tr -d '\r\n' <<< "$CERT_SHA256")
+          if [[ ! "$expected" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "::error::Set the Android certificate SHA-256 in the signing environment."
+            exit 1
+          fi
+
+          key="$temp/preview.p12"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$key"
           tools="$ANDROID_HOME/build-tools/37.0.0"
-          "$tools/zipalign" -P 16 -f 4 unsigned/com.forresttechnologies.drover.preview.apk "$RUNNER_TEMP/aligned.apk"
+          input=unsigned/com.forresttechnologies.drover.preview.apk
+          "$tools/zipalign" -P 16 -f 4 "$input" "$temp/aligned.apk"
+          echo "Aligned the unsigned APK."
+
           mkdir release
           apk="drover-$GITHUB_REF_NAME.apk"
-          "$tools/apksigner" sign --ks "$key" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" \
+          java -jar "$tools/lib/apksigner.jar" sign \
+            --ks "$key" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" \
             --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD \
-            --out "release/$apk" "$RUNNER_TEMP/aligned.apk"
-          "$tools/zipalign" -c -P 16 4 "release/$apk"
-          actual=$("$tools/apksigner" verify --print-certs "release/$apk" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-          [[ -n "$CERT_SHA256" && "$actual" == "$CERT_SHA256" ]]
+            --v4-signing-enabled false --out "release/$apk" "$temp/aligned.apk"
+          echo "Signed the APK."
+
+          if ! "$tools/zipalign" -c -P 16 -v 4 "release/$apk" > "$temp/alignment.log"; then
+            tail -n 20 "$temp/alignment.log"
+            echo "::error::The signed APK did not pass the alignment check."
+            exit 1
+          fi
+          echo "Verified APK alignment."
+          verified=$(java -jar "$tools/lib/apksigner.jar" verify --print-certs "release/$apk")
+          # Some signing schemes name the signer by version instead of number.
+          actual=$(tr -d '\r' <<< "$verified" |
+            awk '/Signer.*certificate SHA-256 digest:/ { print tolower($NF) }' | sort -u)
+          if [[ "${actual,,}" != "${expected,,}" ]]; then
+            echo "::error::The APK signer does not match the configured Android certificate."
+            exit 1
+          fi
+          echo "Verified the APK signature and certificate."
+
           cd release
           sha256sum "$apk" > "$apk.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
