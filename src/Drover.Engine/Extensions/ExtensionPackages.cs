@@ -19,8 +19,6 @@ public static partial class ExtensionPackages
     /// <summary>The most bytes of an extension file. A bot's instructions are the largest thing in one.</summary>
     public const int MaxPackageBytes = 256 * 1024;
 
-    private const int MaxIdLength = 100;
-
     private static readonly string[] knownKinds = [BotTemplate.Kind];
 
     private static readonly JsonSerializerOptions strict = new(JsonSerializerDefaults.Web)
@@ -32,13 +30,6 @@ public static partial class ExtensionPackages
         PropertyNameCaseInsensitive = false,
         NumberHandling = JsonNumberHandling.Strict,
         MaxDepth = 16,
-    };
-
-    private static readonly JsonSerializerOptions written = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     #endregion
@@ -78,9 +69,6 @@ public static partial class ExtensionPackages
             return Refused(NotAnExtension(unreadable.Path));
         }
     }
-
-    /// <summary>The package as the text of a file, the way an export or the editor writes it.</summary>
-    public static string Write(ExtensionPackage package) => JsonSerializer.Serialize(package, written);
 
     /// <summary>
     /// The text with every character that does not show on a screen written out where it stands, as
@@ -164,7 +152,7 @@ public static partial class ExtensionPackages
             return $"This extension is written in version {package.Version} of the format. This server reads version {ExtensionPackage.CurrentVersion}.";
         }
 
-        if (package.Id.Length > MaxIdLength || !IdPattern().IsMatch(package.Id))
+        if (package.Id.Length > ExtensionFile.MaxIdLength || !IdPattern().IsMatch(package.Id))
         {
             return "The extension's id must be 3 to 100 lower-case letters, digits, dots, and hyphens, starting with a letter or digit.";
         }
