@@ -1,5 +1,5 @@
-/* A run as a timeline. Lanes are columns; time runs down. Each event takes two grid rows: its node, and under
-   it the row its details open into across every lane. */
+/* A run as a timeline. Lanes are columns that share the width, so three lanes fit a phone; time runs down. Each
+   event takes two grid rows: its node, and under it the row its details open into across every lane. */
 .dv-timeline {
   min-width: 0;
   max-width: 100%;
@@ -9,7 +9,7 @@
 
 .dv-timeline-grid {
   display: grid;
-  grid-template-columns: repeat(var(--dv-timeline-lanes), minmax(var(--dv-column-min), 1fr));
+  grid-template-columns: repeat(var(--dv-timeline-lanes), minmax(var(--dv-lane-min), 1fr));
   gap: var(--dv-space-2) var(--dv-space-3);
   align-items: start;
   min-width: 0;
@@ -19,7 +19,7 @@
   grid-row: 1;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: var(--dv-space-2);
@@ -34,6 +34,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The nodes are a list for assistive technology and grid items for the eye: the list and its items take no
+   box of their own, so each node and its details sit in the grid. */
+.dv-timeline-nodes,
+.dv-timeline-item {
+  display: contents;
 }
 
 /* The lane's line, behind its nodes, in the bot's identity hue. */
@@ -93,6 +100,21 @@
   --dv-facet-edge: var(--dv-violet);
 }
 
+/* A step being thought through: a band of light on the node's top edge that breathes, like the bot's visor.
+   With reduced motion it holds still. */
+.dv-timeline-breath {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--dv-focus-width);
+  background: var(--dv-ion);
+}
+
+/* A narrow lane wraps a node's state in words rather than cutting it off. */
+.dv-timeline-node ::deep .dv-badge {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .dv-timeline-label {
   font-weight: var(--dv-weight-label);
   overflow-wrap: anywhere;
@@ -123,6 +145,14 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.dv-timeline-earlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-3);
+  margin-block-end: var(--dv-space-3);
 }
 
 .dv-timeline-hint {

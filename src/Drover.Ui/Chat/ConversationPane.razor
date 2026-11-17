@@ -19,7 +19,8 @@
         {
             <MessageList @ref="list" Messages="Messages" BotName="@Bot.Name" BotHue="BotIdentity.Hue(Bot.Id)" Thinking="Thinking" Asker="@(ReadOnly ? Asker : null)"
                          Problem="@problem" Notice="@Notice" Decide="Decide" Forget="Forget" ForgottenNotes="forgottenNotes" MemoryHref="@Addresses.Memory(Bot.Id)" Failure="Failure" Retrying="retrying" OnRetry="Retry"
-                         ReadWhole="ReadWhole" Moment="Moment" LoadUsage="runId => api.GetRunUsage(SpaceId, runId)" Takeovers="Takeovers" />
+                         ReadWhole="ReadWhole" Moment="Moment" LoadUsage="runId => api.GetRunUsage(SpaceId, runId)" Takeovers="Takeovers"
+                         RunAddress="@(Main ? runId => Addresses.Activity(Bot.Id, runId) : null)" />
         }
         @if (ReadOnly)
         {
