@@ -18,7 +18,11 @@ public sealed class AntiforgeryFilter(IAntiforgery antiforgery) : IEndpointFilte
             return await next(context);
         }
 
-        if (!await antiforgery.IsRequestValidAsync(http))
+        var bearer = http.GetEndpoint()?.Metadata.GetOrderedMetadata<IAuthorizeData>()
+            .All(data => string.IsNullOrEmpty(data.AuthenticationSchemes)) != false
+            && NativeBearer.HasBearerHeader(http)
+            && (await http.AuthenticateAsync(NativeBearer.Scheme)).Succeeded;
+        if (!bearer && !await antiforgery.IsRequestValidAsync(http))
         {
             return TypedResults.Problem(
                 title: "The antiforgery token is missing or invalid.",
