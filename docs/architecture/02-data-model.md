@@ -130,7 +130,7 @@ Notes:
 | `thread_reads` | Space-owned with an audience: the person whose marker it is | `thread_id` (no foreign key), `audience_user_id`, `seen_through_position`, `seen_at`. Primary key `(space_id, thread_id, audience_user_id)` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at`, `waiting_since null` (when the run last began to wait for a person) |
 | `run_events` | Space-owned with an audience, inherited from the thread | `root_run_id`, `seq`, `run_id`, `thread_id`, `audience_user_id`, `type`, `data jsonb`, `created_at`. Primary key `(space_id, root_run_id, seq, created_at)`, because PostgreSQL requires the partition column in every unique key |
-| `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
+| `tool_calls` | Space-owned with an audience, inherited from the thread | `id`, `run_id`, `thread_id`, `audience_user_id`, `tool_id`, `tool_name`, `tool_definition_hash null`, `arguments jsonb`, `status`, `result jsonb`, `result_file_id null`, `is_error`, `decided_by_user_id null`, `decided_at null`, `child_run_id null`, `sandbox_id null`, `started_at`, `finished_at` |
 | `usage_records` | Space-owned | `id`, `run_id`, `root_run_id`, `bot_id`, `model_connection_id`, `model`, `input_tokens`, `output_tokens`, `cached_tokens`, `cost` (null when the catalog does not know the price), `currency`, `created_at` |
 
 Notes:
@@ -143,6 +143,7 @@ Notes:
 - `runs.root_run_id` equals `id` for a root run. `last_event_seq` is used only on the root row.
 - `runs.status` values and transitions are in [03-run-lifecycle.md](03-run-lifecycle.md).
 - `tool_calls` is a first-class table, not only events, because the activity view, the approval inbox, and restart recovery all query it by status.
+- `tool_calls.tool_definition_hash` is the tool's definition hash when the call was asked for. An approval covers that definition only: the gate refuses an approved call whose tool has a different hash by the time it would run. Null on rows written before the column existed, which are not checked.
 - `tool_calls.arguments` and `result` are stored after redaction ([08-auth-and-secrets.md](08-auth-and-secrets.md)). Large results go to a file and the row keeps a preview.
 - A thread is private to its owner by default. Sharing it with the space sets its audience to everyone, and the cascade carries that to its messages, events, and tool calls. A check constraint allows only two audiences for a thread, its owner or everyone, and the app role has no privilege to update `owner_user_id`, so one member cannot take over another's thread.
 - A delegated child run's thread inherits the audience of the root thread.

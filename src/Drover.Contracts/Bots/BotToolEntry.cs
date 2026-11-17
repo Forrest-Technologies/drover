@@ -30,6 +30,9 @@ public sealed record BotToolEntry(
     /// </summary>
     public bool NeedsReview { get; init; }
 
+    /// <summary>Names this version of the tool's definition. Sent back when a person accepts a change.</summary>
+    public string DefinitionHash { get; init; } = string.Empty;
+
     /// <summary>The definition a person last accepted, to compare with the one shown, while a review is waiting.</summary>
     public ToolDefinitionSnapshot? Reviewed { get; init; }
 

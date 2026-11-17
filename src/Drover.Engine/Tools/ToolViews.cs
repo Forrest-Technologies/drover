@@ -52,6 +52,7 @@ public static class ToolViews
         {
             InputSchema = tool.InputSchema.GetRawText(),
             NeedsReview = listed.NeedsReview,
+            DefinitionHash = tool.DefinitionHash,
             Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
         };
     }

@@ -40,6 +40,7 @@ public sealed class RunContext(RunExecution execution, IRunGovernor governor, Ru
         ThreadId = thread.Id,
         ToolId = toolId,
         ToolName = toolName,
+        ToolDefinitionHash = execution.Tools.FirstOrDefault(tool => tool.ToolId == toolId)?.DefinitionHash,
         Arguments = governor.Redact(arguments),
     };
 
