@@ -1,7 +1,7 @@
-namespace Drover.Contracts.Auth;
+namespace Drover.Server.Accounts;
 
 /// <summary>The opaque credential a native client presents to refresh its session.</summary>
-public sealed record NativeSessionRefresh(string RefreshToken)
+internal sealed record NativeSessionRefresh(string RefreshToken)
 {
     public override string ToString() => nameof(NativeSessionRefresh);
 }
