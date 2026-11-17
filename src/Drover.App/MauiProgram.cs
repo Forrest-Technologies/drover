@@ -13,6 +13,7 @@ public static class MauiProgram
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<NativeSession>();
         builder.Services.AddSingleton<AppRequests>();
+        builder.Services.AddScoped<IServerChoice, AppServerChoice>();
         builder.Services.AddSingleton<DocumentDestination>();
         builder.Services.AddScoped<IFileDelivery, AndroidFileDelivery>();
         builder.Services.AddSingleton<IncomingNavigation>();

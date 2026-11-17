@@ -11,6 +11,7 @@ else if (unreachable)
     <main class="dv-gate">
         <h1 class="dv-visually-hidden">Drover</h1>
         <EmptyState Title="The server did not answer" Cause="@Failures.Unreachable" ActionLabel="Try again" OnAction="Check" />
+        <ServerChoice />
     </main>
 }
 else
