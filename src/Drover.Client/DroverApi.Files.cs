@@ -8,6 +8,31 @@ public sealed partial class DroverApi
 {
     #region Files
 
+    /// <summary>Opens a conversation file as a stream; the caller disposes the response.</summary>
+    public async Task<HttpResponseMessage> OpenConversationFile(string address, CancellationToken cancellationToken = default)
+    {
+        if (http.BaseAddress is not { } origin || !Uri.TryCreate(origin, address, out var file)
+            || !origin.IsBaseOf(file)
+            || file.AbsolutePath.Split('/') is not ["", "api", "spaces", var space, "files", var id]
+            || !Guid.TryParse(space, out var spaceId) || !Guid.TryParse(id, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        var response = await http.GetAsync(FileAddress(spaceId, fileId, download: true),
+            HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        try
+        {
+            await response.ThrowIfRefused(cancellationToken);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
     /// <summary>What the thread's bot can take and the server's file limits, so the composer can refuse before uploading.</summary>
     public Task<AttachmentRules> GetAttachmentRules(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<AttachmentRules>($"{Space(spaceId)}/threads/{threadId}/attachment-rules", cancellationToken);

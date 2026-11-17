@@ -2,7 +2,7 @@
 
 Download the APK from the [GitHub prereleases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter the HTTPS address of your Drover server and sign in with your existing account.
 
-The preview remembers the server. With native sessions available on your server, the app stays signed in when Android stops the process. Older servers require signing in again. To change servers, clear Drover Preview’s storage in Android Settings and reopen it. Use the browser for integrations that need an OAuth return or file downloads.
+The preview remembers the server. With native sessions available on your server, the app stays signed in when Android stops the process. Older servers require signing in again. To change servers, clear Drover Preview’s storage in Android Settings and reopen it. Use the browser for integrations that need an OAuth return. In a conversation’s file card, choose **Save** for Android’s file picker or **Share** for the Android Sharesheet.
 
 ## Notifications
 

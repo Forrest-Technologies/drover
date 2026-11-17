@@ -22,6 +22,12 @@ public sealed class MainActivity : MauiAppCompatActivity
         OpenConversation(intent);
     }
 
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+        IPlatformApplication.Current?.Services.GetService<DocumentDestination>()?.Complete(requestCode, resultCode, data);
+    }
+
     private static void OpenConversation(Intent? intent)
     {
         if (intent?.Action == AndroidNotifications.OpenAction && AndroidNotifications.Conversation(intent, out var bot, out var thread))
