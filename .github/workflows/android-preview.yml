@@ -149,7 +149,9 @@ jobs:
           fi
           echo "Verified APK alignment."
           verified=$(java -jar "$tools/lib/apksigner.jar" verify --print-certs "release/$apk")
-          actual=$(tr -d '\r' <<< "$verified" | awk '/^Signer #1 certificate SHA-256 digest:/ { print $NF }')
+          # Some signing schemes name the signer by version instead of number.
+          actual=$(tr -d '\r' <<< "$verified" |
+            awk '/Signer.*certificate SHA-256 digest:/ { print tolower($NF) }' | sort -u)
           if [[ "${actual,,}" != "${expected,,}" ]]; then
             echo "::error::The APK signer does not match the configured Android certificate."
             exit 1
