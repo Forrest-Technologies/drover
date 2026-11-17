@@ -182,6 +182,7 @@
 /* Where calls would go is the thing to read before saying yes, so it is the largest text in its block. */
 ::deep .dv-import-host,
 ::deep .dv-extension-server-host {
+  color: var(--dv-text);
   font-size: var(--dv-text-20);
   overflow-wrap: anywhere;
 }
