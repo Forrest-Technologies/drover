@@ -18,6 +18,6 @@ Drover is in early development. Only the newest release and `main` get fixes.
 
 ## Scope
 
-In scope: the Drover server, its web client, the compose files in this repository, and the release workflow.
+In scope: the Drover server, its web and Android clients, the Compose files in this repository, and the release workflows.
 
 Out of scope: problems in a model provider, a tool server, or Docker itself. Report those to their maintainers.

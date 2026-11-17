@@ -8,10 +8,10 @@ This guide covers running Drover on a machine you control: reaching it from othe
 | --- | --- |
 | Start, restart, and data kept across restarts | Tested on macOS with Docker |
 | Setup, chat, the bot editor, tool connections with a header | Tested on macOS with Docker |
-| A live model provider key | Not tested by anyone yet |
-| A tool server sign-in | Not tested by anyone yet |
-| The HTTPS proxy on a real domain | Not tested by anyone yet |
-| Backup and restore as written below | Not tested by anyone yet |
+| A live model provider key | Not verified for this guide |
+| A tool server sign-in | Not verified for this guide |
+| The HTTPS proxy on a real domain | Not verified for this guide |
+| Backup and restore as written below | Not verified for this guide |
 
 Where a section below covers an untested part, it says so.
 
@@ -39,7 +39,7 @@ Replace `drover.example.org` with your own name. Put `DROVER_DOMAIN=...` in a fi
 
 The overlay adds a `proxy` service that gets and renews the certificate, redirects HTTP to HTTPS, and forwards to Drover. It gives the compose network a fixed subnet (`DROVER_PROXY_SUBNET`, default `172.30.80.0/24`) and the proxy a fixed address in it (`DROVER_PROXY_ADDRESS`, default `172.30.80.250`). Drover trusts the forwarded client address and scheme from that address only. If the default subnet clashes with another network on the machine, set both variables.
 
-This overlay has not been run on a real domain by anyone yet. If the certificate is not issued, read the proxy log with `docker compose -f compose.yaml -f compose.proxy.yaml logs proxy`.
+The overlay was not tested on a real domain for this guide. If the certificate is not issued, read the proxy log with `docker compose -f compose.yaml -f compose.proxy.yaml logs proxy`.
 
 ### A proxy of your own
 
@@ -54,18 +54,10 @@ Without the second setting Drover still works, but every person shares the proxy
 
 ## Before you expose it
 
-A review of the code found no blocker for exposing Drover through the proxy overlay, and these known gaps:
-
-1. Anyone who knows the owner's email can lock that account out for five minutes at a time ([#91](https://github.com/Forrest-Technologies/drover/issues/91)).
-2. Signing out does not end the session on the server, and there is no password change ([#92](https://github.com/Forrest-Technologies/drover/issues/92)). Pick a strong, unique password.
-3. By default an admin can point a model or tool connection at a private address, such as the database container ([#93](https://github.com/Forrest-Technologies/drover/issues/93)). On a cloud machine, set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service unless you run a local model.
-
-Also:
-
-- Try it on a throwaway domain first. The proxy and its certificate have not been run by anyone yet.
-- Finish setup right away, reading the code from `docker compose logs drover`. Use an owner email that is not public.
-- Keep open registration off.
-- Anyone who copies the `drover-keys` volume together with the database can read every stored secret. Keep both copies private.
+- Finish setup before making Drover available over the internet. Read the one-time code from `docker compose logs drover`.
+- Leave open registration off for a private server.
+- Set `Drover__Policy__Rules__AllowPrivateAddresses=false` on the `drover` service if you do not need model and tool connections to private networks. Drover refuses to start with open registration and private addresses both enabled.
+- Keep database and key ring backups private. Together they can be used to read stored secrets.
 
 ## The public address
 
@@ -88,22 +80,33 @@ Look for `drover_drover-db`, `drover_drover-keys`, `drover_drover-files`, and `d
 | `drover-db` | The database: accounts, bots, threads, connections |
 | `drover-keys` | The key ring that encrypts every stored model key, tool header, and sign-in |
 | `drover-files` | Files that bots and people add |
-| `drover-secrets` | The database passwords. Optional: a fresh machine makes new ones and resets the database roles to match. |
+| `drover-secrets` | The database passwords. A physical database restore needs the original PostgreSQL password. |
 
 A copy of the database without `drover-keys` cannot be read for stored secrets. Keep the key ring copy somewhere other than where the database copy lives.
 
-Stop the stack so the copies are consistent, then copy each volume to an archive:
+`drover-app-secrets` is generated again from `drover-secrets` on startup. Keep a copy of any Compose overrides, `.env` settings, and separately mounted secrets needed on the new machine.
+
+Stop the stack so the copies are consistent, then copy each volume to an archive. Use the same Compose project name throughout. The commands default to `drover`. Set `COMPOSE_PROJECT_NAME` first if you use another name. Run from the checkout and use the same Compose files you started with.
 
 ```sh
-docker compose down
-for volume in drover-db drover-keys drover-files drover-secrets; do
-  docker run --rm -v "drover_${volume}:/data:ro" -v "$PWD:/backup" alpine \
-    tar czf "/backup/${volume}.tar.gz" -C /data .
-done
-docker compose up -d
+(
+  set -eu
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-drover}"
+  umask 077
+  backup_dir=$(mktemp -d "$HOME/drover-backup.XXXXXX")
+  printf 'Backup directory: %s\n' "$backup_dir"
+  docker compose down
+  for volume in drover-db drover-keys drover-files drover-secrets; do
+    source_volume="${COMPOSE_PROJECT_NAME}_${volume}"
+    docker volume inspect "$source_volume" > /dev/null
+    docker run --rm -v "$source_volume:/data:ro" alpine tar czf - -C /data . > "$backup_dir/${volume}.tar.gz"
+    tar tzf "$backup_dir/${volume}.tar.gz" > /dev/null
+  done
+  docker compose up -d
+)
 ```
 
-`docker compose down` keeps the volumes. These commands were not run in the environment that wrote this guide.
+`docker compose down` keeps the volumes. Keep the archives together in encrypted storage.
 
 ## What is lost if the key volume is lost
 
@@ -113,22 +116,36 @@ To recover, start Drover and enter each model key and tool credential again. The
 
 ## Restore onto a fresh machine
 
-1. Install Docker with Compose and clone the repository at the same version you ran before.
-2. Create empty volumes by starting once and stopping: `docker compose up --build -d` then `docker compose down`.
-3. Put each archive back:
+1. Install Docker with Compose, check out the same version, and copy the four archives to a private directory outside the checkout. Set `DROVER_BACKUP_DIR` to its absolute path.
+2. Apply your deployment settings. Run the commands below with the same Compose files and project name you will use to start Drover. The project name must be unused on the destination machine.
 
 ```sh
-for volume in drover-db drover-keys drover-files; do
-  docker run --rm -v "drover_${volume}:/data" -v "$PWD:/backup" alpine \
-    sh -c "rm -rf /data/* /data/.[!.]* ; tar xzf /backup/${volume}.tar.gz -C /data"
-done
+(
+  set -eu
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-drover}"
+  : "${DROVER_BACKUP_DIR:?Set DROVER_BACKUP_DIR to the archive directory}"
+  for volume in drover-db drover-keys drover-files drover-secrets; do
+    if docker volume inspect "${COMPOSE_PROJECT_NAME}_${volume}" > /dev/null 2>&1; then
+      echo "Restore requires a new volume for ${volume}." >&2
+      exit 1
+    fi
+    tar tzf "$DROVER_BACKUP_DIR/${volume}.tar.gz" > /dev/null
+  done
+
+  docker compose create --build
+  for volume in drover-db drover-keys drover-files drover-secrets; do
+    target_volume="${COMPOSE_PROJECT_NAME}_${volume}"
+    docker volume inspect "$target_volume" > /dev/null
+    docker run --rm -i -v "$target_volume:/data" alpine \
+      sh -eu -c 'test -z "$(ls -A /data)"; tar xzpf - -C /data' < "$DROVER_BACKUP_DIR/${volume}.tar.gz"
+  done
+  docker compose up -d
+)
 ```
 
-4. Start: `docker compose up --build -d`. The initialization step sets the database passwords to the ones this machine created, so you do not need to restore `drover-secrets`.
+3. Open `/status`, sign in, and check a thread with an attachment and a model or tool connection that uses a stored credential.
 
-Check `/status` and sign in. Threads should be there, and model and tool connections should report as working.
-
-Nobody has run this restore yet. The first person who does should note any difference on the tracking issue.
+A full restore is tracked in [#17](https://github.com/Forrest-Technologies/drover/issues/17).
 
 ## Moving to another machine
 
