@@ -13,6 +13,9 @@ public static class Addresses
 
     public const string Setup = "/setup";
 
+    /// <summary>Where a person chooses which bot gets what another app shared.</summary>
+    public const string Share = "/share";
+
     public const string SetupModel = "/setup/model";
 
     public const string SetupBot = "/setup/bot";

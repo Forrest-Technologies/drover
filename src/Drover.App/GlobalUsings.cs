@@ -29,6 +29,7 @@ global using Drover.Ui.Chat;
 global using Drover.Ui.Pages.Tools;
 global using Drover.Ui.Session;
 global using Microsoft.AspNetCore.Components;
+global using Microsoft.AspNetCore.Components.Forms;
 global using Microsoft.AspNetCore.Components.Web;
 global using Microsoft.AspNetCore.Components.WebView.Maui;
 global using Microsoft.Extensions.DependencyInjection;
