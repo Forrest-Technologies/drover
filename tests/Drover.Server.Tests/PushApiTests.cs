@@ -27,8 +27,8 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     protected override void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
-        services.RemoveAll<IPushChannel>();
-        services.AddSingleton<IPushChannel>(channel);
+        services.RemoveAll<IEnumerable<IPushChannel>>();
+        services.AddSingleton<IEnumerable<IPushChannel>>([channel]);
     }
 
     #endregion
@@ -174,15 +174,23 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
 
     private sealed class TestPushChannel : IPushChannel
     {
+        #region Properties
+
         public string Kind => "test";
 
         public List<PushWakeUp> Wakes { get; } = [];
+
+        #endregion
+
+        #region Interface Implementations
 
         public Task<PushOutcome> Send(PushSubscription subscription, PushWakeUp wakeUp, CancellationToken cancellationToken)
         {
             Wakes.Add(wakeUp);
             return Task.FromResult(PushOutcome.Delivered);
         }
+
+        #endregion
     }
 
     private static PushDeviceRequest Device(string endpoint)

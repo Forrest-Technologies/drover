@@ -19,7 +19,8 @@ internal static class AndroidNotifications
     private static NotificationManager Manager =>
         (NotificationManager)AndroidApplication.Context.GetSystemService(Context.NotificationService)!;
 
-    public static bool Allowed => Manager.AreNotificationsEnabled();
+    public static bool Allowed => Manager.AreNotificationsEnabled()
+        && (!OperatingSystem.IsAndroidVersionAtLeast(26) || Manager.GetNotificationChannel(Channel)?.Importance != NotificationImportance.None);
 
     #endregion
 
@@ -82,7 +83,7 @@ internal static class AndroidNotifications
             .SetData(AndroidUri.Parse($"drover://conversation/{thread}"))!
             .PutExtra("bot", bot.ToString())!.PutExtra("thread", thread.ToString())!.PutExtra("main", main)!;
         using var open = PendingIntent.GetActivity(context, 0, target, PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent);
-        builder.SetSmallIcon(global::Android.Resource.Drawable.IcDialogEmail)!
+        builder.SetSmallIcon(Resource.Drawable.drover_notification)!
             .SetContentTitle("Drover")!
             .SetContentText(body)!
             .SetVisibility(NotificationVisibility.Private)!

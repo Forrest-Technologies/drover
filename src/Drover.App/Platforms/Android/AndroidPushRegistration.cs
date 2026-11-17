@@ -21,7 +21,8 @@ public sealed class AndroidPushRegistration(
     public async Task<DevicePushCheck> Check(CancellationToken cancellationToken = default)
     {
         var saved = await Read(server.Current);
-        var support = !AndroidNotifications.Allowed && Preferences.Default.Get(PermissionAsked, false)
+        var requiresPermission = OperatingSystem.IsAndroidVersionAtLeast(33) && !Preferences.Default.Get(PermissionAsked, false);
+        var support = !AndroidNotifications.Allowed && !requiresPermission
             ? DevicePushSupport.Blocked
             : UnifiedPushTransport.Distributors().Count == 0 ? DevicePushSupport.NeedsDistributor : DevicePushSupport.Available;
         return new(support, saved?.Endpoint);
@@ -97,12 +98,9 @@ public sealed class AndroidPushRegistration(
         var target = saved?.Distributor;
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
-            var intent = new Intent(global::Android.Provider.Settings.ActionIgnoreBatteryOptimizationSettings);
-            if (target is not null)
-            {
-                intent = new Intent(global::Android.Provider.Settings.ActionApplicationDetailsSettings, AndroidUri.Parse($"package:{target}"));
-            }
-
+            using var intent = target is null
+                ? new Intent(global::Android.Provider.Settings.ActionIgnoreBatteryOptimizationSettings)
+                : new Intent(global::Android.Provider.Settings.ActionApplicationDetailsSettings, AndroidUri.Parse($"package:{target}"));
             Platform.CurrentActivity?.StartActivity(intent);
         });
     }
