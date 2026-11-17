@@ -27,6 +27,7 @@ public static class ExtensionViews
         var installed = state.Installed;
         return new(installed.Install.Id, installed.Install.PackageId, installed.Install.Name, installed.Install.Description, installed.Install.InstalledAt)
         {
+            AddsBot = installed.Install.BotId is not null,
             BotId = installed.BotName is null ? null : installed.Install.BotId,
             BotName = installed.BotName,
             BotStatus = installed.BotStatus is { } status ? Words.Of(status) : null,

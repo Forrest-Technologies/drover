@@ -1,0 +1,162 @@
+@* The tool server of an installed extension: connect it, then choose which of its suggested tools the bot gets. *@
+@inject DroverApi Api
+@inject ILogger<ExtensionServerSteps> Logger
+
+<section class="dv-extension-server" aria-labelledby="@headingId">
+    <h3 class="dv-extension-server-title" id="@headingId">Tool server: @Connection.Name</h3>
+    <p class="dv-extension-server-host dv-mono">@Connection.Host</p>
+
+    @if (!Connection.Available)
+    {
+        <p class="dv-extension-server-hint">Tool connections are turned off on this server, so this tool server is not connected.</p>
+    }
+    else if (Connection.ConnectionId is null && !CanEdit)
+    {
+        <p class="dv-extension-server-hint">Not connected yet. An owner or admin of the space can connect it.</p>
+    }
+    else if (Connection.ConnectionId is null)
+    {
+        <form class="dv-extension-server-form" @onsubmit="Connect">
+            <p class="dv-extension-server-hint">@ExtensionWords.Auth(Connection.Auth, Connection.HeaderName)</p>
+            @if (Connection.Auth is "header")
+            {
+                <Field Label="@($"Value of {Connection.HeaderName}")" Type="password" @bind-Value="headerValue" autocomplete="new-password" Disabled="busy"
+                       Hint="Stored encrypted. It is not shown again." />
+            }
+            @if (Connection.IsLocal)
+            {
+                <Switch Label="@($"Yes, connect to {Connection.Host}. It is on this server's own network, or is not https.")" @bind-Value="acceptLocal" Disabled="busy" />
+            }
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            <div class="dv-extension-server-actions">
+                <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? "Connecting" : $"Connect {Connection.Name}")</Button>
+            </div>
+        </form>
+    }
+    else
+    {
+        <div class="dv-extension-server-state">
+            <Badge Kind="@(Connection.Status is "ready" ? BadgeKind.Ok : BadgeKind.Warn)">@ExtensionWords.ConnectionStatus(Connection)</Badge>
+            <a class="dv-extension-server-link" href="@Addresses.Tools">@(Connection.Auth is "oauth" ? "Sign in on the Tools screen" : "Open on the Tools screen")</a>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(Connection.Problem))
+        {
+            <p class="dv-extension-server-hint">@Connection.Problem</p>
+        }
+
+        @if (Extension.BotId is not null && Connection.Tools.Count > 0)
+        {
+            <fieldset class="dv-extension-tools" disabled="@(!CanEdit || busy)">
+                <legend class="dv-extension-tools-legend">Tools suggested for @Extension.BotName</legend>
+                @foreach (var tool in Connection.Tools)
+                {
+                    <label class="dv-extension-tool" @key="tool.Name">
+                        <input type="checkbox" checked="@(tool.Grant is not "off" || ticked.Contains(tool.Name))" disabled="@(tool.ToolId is null || tool.Grant is not "off")"
+                               @onchange="change => Tick(tool.Name, change.Value is true)" />
+                        <span class="dv-extension-tool-text">
+                            <span class="dv-mono">@tool.Name</span>
+                            @if (!string.IsNullOrWhiteSpace(tool.Why))
+                            {
+                                <span class="dv-extension-server-hint">@tool.Why</span>
+                            }
+                            @if (ExtensionWords.ToolState(tool) is { Length: > 0 } state)
+                            {
+                                <span class="dv-extension-server-hint">@state</span>
+                            }
+                        </span>
+                    </label>
+                }
+            </fieldset>
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            @if (CanEdit && Connection.Tools.Any(tool => tool is { ToolId: not null, Grant: "off" }))
+            {
+                <div class="dv-extension-server-actions">
+                    <Button OnClick="Grant" Disabled="@(busy || ticked.Count == 0)">@(busy ? "Giving the tools" : $"Give {Extension.BotName} the ticked tools, asking first")</Button>
+                </div>
+            }
+        }
+    }
+</section>
+
+@code {
+    private readonly string headingId = $"dv-extension-server-{Guid.NewGuid():N}";
+
+    private readonly HashSet<string> ticked = new(StringComparer.Ordinal);
+
+    private string headerValue = string.Empty;
+
+    private string? problem;
+
+    private bool acceptLocal;
+
+    private bool busy;
+
+    [Parameter, EditorRequired]
+    public Guid SpaceId { get; set; }
+
+    [Parameter, EditorRequired]
+    public ExtensionSummary Extension { get; set; } = null!;
+
+    /// <summary>The server decides this for every request. Here it only keeps controls a person cannot use off the screen.</summary>
+    [Parameter]
+    public bool CanEdit { get; set; }
+
+    /// <summary>The extension as it is after a step, for the list to show.</summary>
+    [Parameter]
+    public EventCallback<ExtensionSummary> OnChanged { get; set; }
+
+    private ExtensionConnectionSummary Connection => Extension.Connection!;
+
+    private void Tick(string tool, bool on)
+    {
+        if (on)
+        {
+            ticked.Add(tool);
+        }
+        else
+        {
+            ticked.Remove(tool);
+        }
+    }
+
+    private Task Connect() =>
+        Step(async () =>
+        {
+            var connected = await Api.ConnectExtension(SpaceId, Extension.Id, new ConnectExtensionRequest(acceptLocal, Connection.Auth is "header" ? headerValue : null));
+            headerValue = string.Empty;
+            await OnChanged.InvokeAsync(connected);
+        });
+
+    /// <summary>Gives the bot each ticked tool on ask, one request a tool: the server checks each against the bots above it.</summary>
+    private Task Grant() =>
+        Step(async () =>
+        {
+            foreach (var tool in Connection.Tools.Where(tool => tool is { ToolId: not null, Grant: "off" } && ticked.Contains(tool.Name)))
+            {
+                await Api.SetBotToolGrant(SpaceId, Extension.BotId!.Value, tool.ToolId!.Value, "ask");
+            }
+
+            ticked.Clear();
+            await OnChanged.InvokeAsync((await Api.ListExtensions(SpaceId)).Find(listed => listed.Id == Extension.Id) ?? Extension);
+        });
+
+    private async Task Step(Func<Task> work)
+    {
+        busy = true;
+        problem = null;
+
+        try
+        {
+            await work();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionServerSteps));
+            problem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

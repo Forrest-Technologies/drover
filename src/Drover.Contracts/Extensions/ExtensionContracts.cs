@@ -100,6 +100,9 @@ public sealed record ExtensionSummary(Guid Id, string PackageId, string Name, st
 {
     #region Properties
 
+    /// <summary>The file holds a bot. False for an extension that only names a tool server.</summary>
+    public bool AddsBot { get; init; } = true;
+
     public Guid? BotId { get; init; }
 
     public string? BotName { get; init; }

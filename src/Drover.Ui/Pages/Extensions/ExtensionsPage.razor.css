@@ -36,9 +36,16 @@
 }
 
 .dv-extension {
+  flex-direction: column;
+}
+
+.dv-extension-head {
+  display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
+  gap: var(--dv-space-3);
+  min-width: 0;
 }
 
 .dv-extension-text {
@@ -153,5 +160,109 @@
   color: var(--dv-text);
   font-size: var(--dv-text-13);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A tool server: named on the review, then connected and granted from its extension's row. */
+::deep .dv-import-server,
+::deep .dv-extension-server,
+::deep .dv-extension-server-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+::deep .dv-import-server,
+::deep .dv-extension-server {
+  padding-top: var(--dv-space-3);
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+/* Where calls would go is the thing to read before saying yes, so it is the largest text in its block. */
+::deep .dv-import-host,
+::deep .dv-extension-server-host {
+  font-size: var(--dv-text-20);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-extension-server-title {
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-extension-server-hint {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-import-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::deep .dv-extension-server-state,
+::deep .dv-extension-server-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-extension-server-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  color: var(--dv-text);
+  text-decoration: underline;
+}
+
+::deep .dv-extension-server-link:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+::deep .dv-extension-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+::deep .dv-extension-tools-legend {
+  padding: 0;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-extension-tool {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-touch);
+  cursor: pointer;
+}
+
+::deep .dv-extension-tool input {
+  flex: none;
+  width: var(--dv-space-4);
+  height: var(--dv-space-4);
+  margin-top: var(--dv-space-1);
+  accent-color: var(--dv-ember);
+}
+
+::deep .dv-extension-tool-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  min-width: 0;
   overflow-wrap: anywhere;
 }

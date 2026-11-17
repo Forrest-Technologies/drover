@@ -125,6 +125,15 @@ public sealed partial class ExtensionsPage(DroverApi api, SessionState session, 
         }
     }
 
+    /// <summary>Shows an extension as it is after one of its steps.</summary>
+    private void Replace(ExtensionSummary changed)
+    {
+        if (extensions!.FindIndex(listed => listed.Id == changed.Id) is >= 0 and var index)
+        {
+            extensions[index] = changed;
+        }
+    }
+
     private async Task TurnOn(ExtensionSummary extension)
     {
         busy = extension.Id;
