@@ -25,26 +25,59 @@ public sealed partial class DroverApi
     public Task<ThreadSummary> CreateThread(Guid spaceId, Guid botId, string? title = null, CancellationToken cancellationToken = default) =>
         Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title), cancellationToken);
 
+    /// <summary>
+    /// The caller's one main thread with the bot, made the first time it is asked for. Asking again returns the same
+    /// thread; every other thread with the bot is a side chat.
+    /// </summary>
+    public Task<ThreadSummary> OpenMainThread(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/main-thread", null, cancellationToken);
+
     /// <summary>One thread. <see cref="ThreadSummary.ActiveRunId"/> is the run to watch, if one is still working.</summary>
     public Task<ThreadSummary> GetThread(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ThreadSummary>($"{Space(spaceId)}/threads/{threadId}", cancellationToken);
+
+    /// <summary>
+    /// The server's running summary of a main thread. <see cref="ConversationSummary.Text"/> is null until the first
+    /// one is written, and always for a side chat.
+    /// </summary>
+    public Task<ConversationSummary> GetConversationSummary(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<ConversationSummary>($"{Space(spaceId)}/threads/{threadId}/summary", cancellationToken);
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 
     /// <summary>
+    /// The tool events of the thread's runs, each run's oldest first, already redacted. Feed them to
+    /// <see cref="ToolHistory.From"/> to show past tool calls as they were shown live.
+    /// </summary>
+    public Task<List<RunEventResponse>> ListToolEvents(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<List<RunEventResponse>>($"{Space(spaceId)}/threads/{threadId}/tool-events", cancellationToken);
+
+    /// <summary>
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
     /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
     /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it
-    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered.
+    /// to end (<see cref="BusyModes.Queue"/>). The run's events say when it is delivered. <paramref name="fileIds"/> are
+    /// files uploaded with <see cref="UploadFile"/> for this message.
     /// </summary>
     public Task<SendMessageResponse> SendMessage(
         Guid spaceId,
         Guid threadId,
         string text,
         string? whenBusy = null,
+        IReadOnlyList<Guid>? fileIds = null,
         CancellationToken cancellationToken = default) =>
-        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages", new SendMessageRequest(text, whenBusy), cancellationToken);
+        Post<SendMessageResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/messages",
+            new SendMessageRequest(text, whenBusy, fileIds is { Count: > 0 } ? fileIds : null),
+            cancellationToken);
+
+    /// <summary>
+    /// Marks the thread seen by the signed-in person as far as its newest message. Their other screens hear
+    /// <see cref="UserSignalKinds.ThreadSeen"/>.
+    /// </summary>
+    public Task MarkThreadSeen(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/seen", null, cancellationToken);
 
     #endregion
 
@@ -55,6 +88,13 @@ public sealed partial class DroverApi
 
     public Task<RunSummary> CancelRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
         Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/cancel", null, cancellationToken);
+
+    /// <summary>
+    /// Starts a new run from the message a failed run answered, and returns it. Throws <see cref="DroverApiException"/>
+    /// with 409 when the run cannot be tried again: something came after it, or the bot cannot answer.
+    /// </summary>
+    public Task<RunSummary> RetryRun(Guid spaceId, Guid runId, CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/runs/{runId}/retry", null, cancellationToken);
 
     /// <summary>
     /// Answers a tool call that waits for approval (<see cref="ToolCallView.State"/> is awaiting_approval). The
@@ -68,6 +108,26 @@ public sealed partial class DroverApi
         string? reason = null,
         CancellationToken cancellationToken = default) =>
         Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/decision", new ToolDecisionRequest(approved, reason), cancellationToken);
+
+    /// <summary>
+    /// Records that this person took over the bot's screen because the call asked them to. Throws
+    /// <see cref="DroverApiException"/> with 403 for a member who does not use the bot's screens, and 409 when the call
+    /// no longer waits.
+    /// </summary>
+    public Task<RunSummary> TakeOverScreen(Guid spaceId, Guid toolCallId, CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/takeover", null, cancellationToken);
+
+    /// <summary>
+    /// Hands the bot's screen back after the call asked for a person: done, or could not with an optional line the bot
+    /// reads. Throws <see cref="DroverApiException"/> with 409 when the call was already answered.
+    /// </summary>
+    public Task<RunSummary> HandBackScreen(
+        Guid spaceId,
+        Guid toolCallId,
+        bool done,
+        string? note = null,
+        CancellationToken cancellationToken = default) =>
+        Post<RunSummary>($"{Space(spaceId)}/tool-calls/{toolCallId}/handback", new ToolHandbackRequest(done, note), cancellationToken);
 
     /// <summary>
     /// The events of a run, from after <paramref name="afterSeq"/> to its end, each once and in order. The stream

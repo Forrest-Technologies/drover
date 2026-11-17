@@ -14,6 +14,8 @@ public sealed class FakeServer : HttpMessageHandler
 
     private readonly Dictionary<string, Func<HttpResponseMessage>> answers = [];
 
+    private readonly Dictionary<string, TaskCompletionSource> holds = [];
+
     private ServiceProvider? clients;
 
     #endregion
@@ -21,6 +23,12 @@ public sealed class FakeServer : HttpMessageHandler
     #region Properties
 
     public List<(string Method, string Path, string Body)> Requests { get; } = [];
+
+    /// <summary>Every request's method and address with its query, in order, for a test that checks what a query carried.</summary>
+    public List<string> Addresses { get; } = [];
+
+    /// <summary>The antiforgery token each request carried, by request, or null when it carried none.</summary>
+    public List<string?> AntiforgeryTokens { get; } = [];
 
     /// <summary>When set, every request fails as it does when the server cannot be reached.</summary>
     public bool Unreachable { get; set; }
@@ -38,6 +46,51 @@ public sealed class FakeServer : HttpMessageHandler
     public FakeServer Answer(string method, string path, HttpStatusCode status)
     {
         answers[$"{method} {path}"] = () => new(status);
+        return this;
+    }
+
+    /// <summary>Answers the address with bytes of the given type, as the server sends a picture.</summary>
+    public FakeServer AnswerBytes(string method, string path, byte[] body, string contentType)
+    {
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK) { Content = new ByteArrayContent(body) { Headers = { ContentType = new(contentType) } } };
+        return this;
+    }
+
+    /// <summary>
+    /// Holds every request to the address until the test completes what this returns, so a screen can be seen while it
+    /// waits for the server.
+    /// </summary>
+    public TaskCompletionSource Hold(string method, string path)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        holds[$"{method} {path}"] = gate;
+        return gate;
+    }
+
+    /// <summary>
+    /// Fails every request to the address the way the client's own time limit ends one: cancelled, because of a
+    /// timeout, while the screen that asked is still open.
+    /// </summary>
+    public FakeServer TimeOut(string method, string path)
+    {
+        answers[$"{method} {path}"] = () => throw new TaskCanceledException("The request ran past the client's time limit.", new TimeoutException());
+        return this;
+    }
+
+    /// <summary>
+    /// Answers the address with a web page and success, as a proxy in front of the server sometimes does, so a screen
+    /// that asked for data gets something it cannot read.
+    /// </summary>
+    public FakeServer AnswerPage(string method, string path)
+    {
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK) { Content = new StringContent("<!DOCTYPE html><title>Sample proxy page</title>", Encoding.UTF8, "text/html") };
+        return this;
+    }
+
+    /// <summary>Fails every request to the address with the given exception, for a failure no screen expects.</summary>
+    public FakeServer Fail(string method, string path, Exception failure)
+    {
+        answers[$"{method} {path}"] = () => throw failure;
         return this;
     }
 
@@ -99,10 +152,17 @@ public sealed class FakeServer : HttpMessageHandler
     {
         var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
         Requests.Add((request.Method.Method, request.RequestUri!.AbsolutePath, body));
+        Addresses.Add($"{request.Method.Method} {request.RequestUri.PathAndQuery}");
+        AntiforgeryTokens.Add(request.Headers.TryGetValues("X-XSRF-TOKEN", out var tokens) ? tokens.Single() : null);
 
         if (Unreachable)
         {
             throw new HttpRequestException("The server cannot be reached.");
+        }
+
+        if (holds.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var gate))
+        {
+            await gate.Task.WaitAsync(cancellationToken);
         }
 
         return answers.TryGetValue($"{request.Method.Method} {request.RequestUri.AbsolutePath}", out var answer)

@@ -55,8 +55,23 @@ public sealed partial class DroverApi
     /// new tab; the tool server sends the person back to Drover, and the connection's
     /// <see cref="ToolConnectionSummary.SignIn"/> then reads "signed_in".
     /// </summary>
-    public Task<ToolSignInStart> BeginToolSignIn(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>
-        Post<ToolSignInStart>($"{Space(spaceId)}/tool-connections/{connectionId}/sign-in", null, cancellationToken);
+    /// <remarks>
+    /// A native app passes its own address scheme as <paramref name="returnTo"/>. The browser is then sent into the
+    /// app with a one-time ticket, and the app ends the sign-in with <see cref="FinishToolSignIn"/>.
+    /// </remarks>
+    public Task<ToolSignInStart> BeginToolSignIn(
+        Guid spaceId, Guid connectionId, string? returnTo = null, CancellationToken cancellationToken = default) =>
+        Post<ToolSignInStart>(
+            $"{Space(spaceId)}/tool-connections/{connectionId}/sign-in",
+            returnTo is null ? null : new BeginToolSignInRequest(returnTo),
+            cancellationToken);
+
+    /// <summary>
+    /// Ends a sign-in whose browser came back into this app, as the signed-in person who started it. The ticket
+    /// works once.
+    /// </summary>
+    public Task<ToolSignInFinish> FinishToolSignIn(string ticket, CancellationToken cancellationToken = default) =>
+        Post<ToolSignInFinish>("api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket), cancellationToken);
 
     /// <summary>Forgets the caller's sign-in to the connection (the space's, for an admin, where one serves everyone).</summary>
     public Task RemoveToolSignIn(Guid spaceId, Guid connectionId, CancellationToken cancellationToken = default) =>

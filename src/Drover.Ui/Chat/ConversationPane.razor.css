@@ -1,0 +1,26 @@
+/* Fills the column it is put in: the messages scroll, the composer stays at the foot. */
+.dv-talk {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dv-talk-center {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  padding: var(--dv-space-4);
+}
+
+.dv-talk-hint {
+  color: var(--dv-text-2);
+}
+
+/* In place of the field to write in, on a bot's side of work handed to it. */
+.dv-talk-read {
+  margin: 0;
+  padding: var(--dv-space-3) var(--dv-space-4);
+  border-top: var(--dv-border) solid var(--dv-line);
+}

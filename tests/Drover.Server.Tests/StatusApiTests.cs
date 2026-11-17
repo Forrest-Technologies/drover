@@ -9,9 +9,10 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
     #region Public Methods
 
     [Fact]
-    public async Task The_owner_sees_the_server_rows_and_each_is_green_on_a_fresh_server_but_the_public_address()
+    public async Task The_owner_sees_the_server_rows_and_each_is_green_on_a_fresh_server_but_the_public_address_and_sandboxes()
     {
         var (client, session, _) = await SetUpFirstAccount();
+        await Services.GetRequiredService<ScheduleRunner>().SendDue(Token);
 
         var report = await Status(client, session.Spaces[0].Id);
 
@@ -21,8 +22,12 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
             ("Migrations", "ok"),
             ("Key ring", "ok"),
             ("Public address", "warning"),
-            ("Background work", "ok"));
+            ("Background work", "ok"),
+            ("Scheduler", "ok"),
+            ("Sandboxes", "off"),
+            ("Notifications", "warning"));
         Row(report, "Database").Summary.Should().Contain("drover_app");
+        Row(report, "Notifications").Summary.Should().Contain(PublicAddress.Variable, "notifications need the public https address");
         Row(report, "Public address").Summary.Should().Contain(PublicAddress.Variable);
     }
 
@@ -76,6 +81,21 @@ public sealed class StatusApiTests(PostgresServer postgres) : ServerTestBase(pos
         var response = await stranger.Get($"/api/spaces/{session.Spaces[0].Id}/status");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public void The_scheduler_row_is_working_while_it_has_looked_lately_and_says_when_it_last_looked_once_it_has_stopped()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var never = StatusEndpoints.Scheduler(null, now);
+        var lately = StatusEndpoints.Scheduler(now.AddSeconds(-40), now);
+        var stopped = StatusEndpoints.Scheduler(now.AddMinutes(-12), now);
+
+        never.Should().Match<StatusRow>(row => row.Name == "Scheduler" && row.State == "warning" && row.CheckedAt == null);
+        lately.Should().Match<StatusRow>(row => row.State == "ok" && row.CheckedAt == now.AddSeconds(-40));
+        stopped.Should().Match<StatusRow>(row => row.State == "problem" && row.CheckedAt == now.AddMinutes(-12));
+        stopped.Summary.Should().Be("Last looked for due schedules 12 minutes ago, so schedules are not being sent. Check the server log.");
     }
 
     #endregion

@@ -16,13 +16,26 @@ public static class AccountEndpoints
         setup.MapGet("/", GetSetupStatus).WithName("GetSetupStatus");
         setup.MapPost("/", CreateFirstAccount)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("CreateFirstAccount");
 
         api.MapPost("/sign-in", SignIn)
             .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
             .WithName("SignIn");
         api.MapPost("/sign-out", (Delegate)SignOut).RequireAuthorization().WithName("SignOut");
         api.MapGet("/session", GetSession).RequireAuthorization().WithName("GetSession");
+
+        // Changing the password checks the current one, so it is limited like a sign-in. So is redeeming a reset code.
+        api.MapPost("/account/password", ChangePassword)
+            .RequireAuthorization()
+            .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
+            .WithName("ChangePassword");
+        api.MapPost("/password-reset", ResetPassword)
+            .RequireRateLimiting(SecurityServiceExtensions.SignInRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
+            .WithName("ResetPassword");
         return api;
     }
 
@@ -105,6 +118,7 @@ public static class AccountEndpoints
         var credentials = await accounts.CheckCredentials(
             request.Email ?? string.Empty,
             request.Password ?? string.Empty,
+            KnownBrowser.Read(context),
             context.RequestAborted);
 
         if (!credentials.Succeeded)
@@ -115,10 +129,80 @@ public static class AccountEndpoints
         return TypedResults.Ok(await StartSession(context, accounts, antiforgery, credentials));
     }
 
-    private static async Task<NoContent> SignOut(HttpContext context)
+    private static async Task<NoContent> SignOut(HttpContext context, SessionService sessions)
     {
+        if (context.User.GetSessionId() is { } sessionId)
+        {
+            await sessions.End(context.User.GetUserId(), sessionId, context.RequestAborted);
+        }
+
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> ChangePassword(
+        ChangePasswordRequest request,
+        HttpContext context,
+        PasswordService passwords,
+        IAntiforgery antiforgery)
+    {
+        var principal = context.User;
+
+        if (principal.GetSessionId() is not { } sessionId)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        var result = await passwords.Change(
+            principal.GetUserId(),
+            sessionId,
+            request.CurrentPassword ?? string.Empty,
+            request.NewPassword ?? string.Empty,
+            context.RequestAborted);
+
+        if (result.Status is PasswordOutcome.SessionEnded)
+        {
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return TypedResults.Problem(
+                title: "The current password was wrong too many times, so this session was signed out.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (result.Status is not PasswordOutcome.Changed)
+        {
+            return RefusedPassword(result, "The current password is not right.");
+        }
+
+        // The stamp changed with the password, so this session's cookie is issued again with the new one.
+        var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+        var renewed = SessionStamp.BuildPrincipal(
+            principal.GetUserId(),
+            principal.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+            principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
+            result.SecurityStamp,
+            sessionId,
+            now);
+        await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, renewed);
+        KnownBrowser.Remember(context, principal.GetUserId(), result.SecurityStamp);
+        context.User = renewed;
+        AntiforgeryTokens.Issue(context, antiforgery);
+        return TypedResults.NoContent();
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> ResetPassword(
+        ResetPasswordRequest request,
+        HttpContext context,
+        PasswordService passwords)
+    {
+        var result = await passwords.RedeemResetCode(
+            request.Email ?? string.Empty,
+            request.Code ?? string.Empty,
+            request.NewPassword ?? string.Empty,
+            context.RequestAborted);
+
+        return result.Status is PasswordOutcome.Changed
+            ? TypedResults.NoContent()
+            : RefusedPassword(result, "The reset code is not right, has been used, or has run out. Ask the operator for a new one.");
     }
 
     private static async Task<Ok<SessionResponse>> GetSession(HttpContext context, AccountService accounts)
@@ -144,8 +228,10 @@ public static class AccountEndpoints
     {
         var (_, userId, email, displayName, stamp) = person;
         var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
-        var principal = SessionStamp.BuildPrincipal(userId, email, displayName, stamp, now);
+        var sessionId = await context.RequestServices.GetRequiredService<SessionService>().Open(userId, context.RequestAborted);
+        var principal = SessionStamp.BuildPrincipal(userId, email, displayName, stamp, sessionId, now);
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+        KnownBrowser.Remember(context, userId, stamp);
 
         // The antiforgery token belongs to the signed-in person, so the client gets a fresh one with the session.
         context.User = principal;
@@ -154,6 +240,11 @@ public static class AccountEndpoints
         var spaces = await accounts.ListSpaces(userId, context.RequestAborted);
         return BuildSession(userId, email, displayName, spaces);
     }
+
+    private static ProblemHttpResult RefusedPassword(PasswordResult result, string refusal) =>
+        TypedResults.Problem(
+            title: result.Status is PasswordOutcome.Invalid ? string.Join(" ", result.Problems) : refusal,
+            statusCode: StatusCodes.Status400BadRequest);
 
     private static SessionResponse BuildSession(
         Guid userId,

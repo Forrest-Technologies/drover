@@ -1,12 +1,14 @@
-[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Roadmap](ROADMAP.md)
+[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Android preview](#android-preview) · [Roadmap](ROADMAP.md)
 
 # Drover
 
-**Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a desktop or phone browser.
+<img src="src/Drover.App/Resources/AppIcon/drover.svg" width="64" height="64" alt="Drover robot head" />
+
+**Run your own crew of AI bots.** Host Drover on your own machine, connect a model provider, and talk to your bots from a browser or the Android preview.
 
 ![Drover on desktop, streaming a bot reply in a dark conversation view](docs/screenshots/readme/conversation-streaming-dark.png)
 
-Drover is in early development. You can run the browser app from source today. The native Android and Windows apps are on the [roadmap](ROADMAP.md).
+Drover is in early development. You can run the browser app from source today. The [roadmap](ROADMAP.md) tracks the Android and Windows apps.
 
 ## Quick start
 
@@ -22,11 +24,11 @@ The log prints the setup address and a one-time setup code. Open [localhost:8080
 
 To upgrade, check out a newer commit and run the same command. Pending database migrations are applied before the server starts. `docker compose down` keeps your data; only `docker compose down --volumes` deletes it.
 
-Back up the `drover-db` and `drover-keys` volumes together. The keys volume holds the key ring that encrypts every stored model key and password; a database backup without it cannot be read. Steps for backup, restore, and moving machines are in the [self-hosting guide](docs/self-hosting.md).
+Back up the `drover-db`, `drover-keys`, and `drover-files` volumes together. The keys volume holds the key ring that encrypts every stored model key and password; a database backup without it cannot be read. The files volume holds the files people attach to messages. Drover does not scan them for viruses: anyone who can sign in can store a file there, so treat the volume as untrusted content. See the [self-hosting guide](docs/self-hosting.md) for backup, restore, and migration steps.
 
 ### Connect a model
 
-Setup asks for a model connection. Choose Venice and paste a key made in your Venice account under API keys, or choose Compatible endpoint and give the base address of any server that speaks the chat completions API. A key is optional for the compatible endpoint. Press Test connection; it reports the result in words. The key is stored encrypted on your server and is not shown again. Setup is the only screen that adds a model connection today.
+Setup asks for a model connection. Choose Venice and paste a key made in your Venice account under API keys, or choose Compatible endpoint and give the base address of any server that speaks the chat completions API. A key is optional for the compatible endpoint. Press Test connection; it reports the result in words. The key is stored encrypted on your server and is not shown again.
 
 ### Connect a tool server
 
@@ -42,7 +44,13 @@ DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy
 
 The proxy obtains a certificate for that name and forwards requests to Drover. Drover trusts the client address and scheme the proxy forwards, and nothing else forwards them. Put `DROVER_DOMAIN=...` in a file named `.env` beside `compose.yaml` to keep it between runs. With a proxy of your own instead, set `DROVER_PUBLIC_URL` to the address people open and `Drover__Proxy__TrustedAddresses__0` to the proxy's address; see the [self-hosting guide](docs/self-hosting.md).
 
-### What building it costs
+## Android preview
+
+[Download the APK from GitHub Releases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter your Drover server’s HTTPS address and sign in with your existing account.
+
+The app remembers the server address. With an updated server, it also keeps you signed in when Android stops the process. With a UnifiedPush distributor installed, open **Account → Notifications** to turn on alerts and send a test. See the [Android build and release guide](docs/android-preview.md).
+
+## What building it costs
 
 Requirements: Docker with Compose, and room for a build inside 2 GB of memory.
 
@@ -71,6 +79,8 @@ dotnet build Drover.slnx -warnaserror
 dotnet test --solution Drover.slnx
 dotnet run --project src/Drover.Server
 ```
+
+The service worker tests in `Drover.Ui.Tests` drive a real browser: install Chrome or Chromium, or set `DROVER_TEST_CHROMIUM` to one.
 
 </details>
 

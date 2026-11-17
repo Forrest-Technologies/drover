@@ -28,8 +28,10 @@ public static class GovernedAgentBuilder
         options.AIContextProviders = [.. (options.AIContextProviders ?? []).Select(provider => new CapabilityGuard(provider, catalogNames))];
 
         var gate = new ToolGate(run, loggerFactory.CreateLogger<ToolGate>());
-        // Rules about replies go between the tool loop and the model, so every model call's answer passes them.
-        return new ReplyRules(chatClient, run.Governor)
+        // Rules about replies go between the tool loop and the model, so every model call's answer passes them. A
+        // tool's picture and the bot's notes are added below them, after the framework has handed the call's messages
+        // to history, so neither is ever stored.
+        return new ReplyRules(new TransientImages(WithNotes(chatClient, run), run), run.Governor)
             .AsAIAgent(options, loggerFactory)
             .AsBuilder()
             .Use(gate.Invoke)
@@ -52,6 +54,14 @@ public static class GovernedAgentBuilder
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// The chat client that gives every model call of the run the notes its bot kept about its person, through the
+    /// framework's context provider pipeline. Below the per-service-call history persistence, so each call in the tool
+    /// loop has them and history never does.
+    /// </summary>
+    private static IChatClient WithNotes(IChatClient chatClient, RunContext run) =>
+        run.Execution.Memory is { } memory ? chatClient.AsBuilder().UseAIContextProviders(new NoteRecall(memory)).Build() : chatClient;
 
     private static AITool ToTool(ToolDefinition definition, RunContext run)
     {

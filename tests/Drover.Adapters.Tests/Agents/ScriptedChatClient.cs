@@ -28,7 +28,7 @@ public sealed class ScriptedChatClient(ScriptedModel model) : IChatClient
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var turn = model.NextTurn([.. messages.SelectMany(Seen)]);
+        var turn = model.NextTurn([.. messages.SelectMany(Seen)], options?.Instructions);
         var messageId = Guid.NewGuid().ToString("N");
 
         foreach (var output in turn)
@@ -81,6 +81,7 @@ public sealed class ScriptedChatClient(ScriptedModel model) : IChatClient
                 TextContent text => text.Text,
                 FunctionCallContent call => $"call {call.CallId} {call.Name}",
                 FunctionResultContent result => $"{result.CallId} = {MessageJson(result.Result)}",
+                DataContent data => $"image {data.MediaType} {Convert.ToBase64String(data.Data.Span)}",
                 _ => null,
             };
 

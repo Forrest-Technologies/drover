@@ -13,7 +13,7 @@
     else if (notPermitted)
     {
         <EmptyState Title="You cannot change this bot" Cause="Owners and admins of this space change its bots. You can still talk to them."
-                    ActionLabel="Back to threads" ActionHref="@Addresses.Home" />
+                    ActionLabel="Back to the crew" ActionHref="@Addresses.Home" />
     }
     else if (missing)
     {
@@ -77,23 +77,26 @@
 
             <div class="dv-editor-sections">
                 <Disclosure Title="Model" Summary="@BotSummaries.Model(draft, ConnectionName)" Open="@IsOpen(Model)" OpenChanged="open => Toggle(Model, open)">
-                    <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection" />
+                    <ModelSection Draft="draft" Connections="connections" Models="models" OnChanged="Changed" OnConnectionChosen="ChooseConnection"
+                                  ModelSeesImages="ModelSeesImages" Readers="readers" OnOpenSection="section => Toggle(section, true)" />
                 </Disclosure>
                 <Disclosure Title="Tools" Summary="@BotSummaries.Tools(tools, ModelCallsTools)" Open="@IsOpen(Tools)" OpenChanged="open => Toggle(Tools, open)">
                     <ToolsSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" Tools="tools" Connections="toolConnections" ModelCallsTools="ModelCallsTools"
                                   OnToolsChanged="changed => tools = changed" />
                 </Disclosure>
                 <Disclosure Title="Rules" Summary="@RuleWords.Summary(rules)" Open="@IsOpen(Rules)" OpenChanged="open => Toggle(Rules, open)">
-                    <RulesSection SpaceId="SpaceId" BotId="BotId" Rules="rules" Tools="tools" OnRulesChanged="changed => rules = changed" />
+                    <RulesSection SpaceId="SpaceId" BotId="BotId" Rules="rules" Tools="tools" WrittenPatterns="writtenPatterns" OnRulesChanged="changed => rules = changed" />
                 </Disclosure>
                 <Disclosure Title="Memory" Summary="@BotSummaries.Memory(draft)" Open="@IsOpen(Memory)" OpenChanged="open => Toggle(Memory, open)">
                     <MemorySection Draft="draft" OnChanged="Changed" />
                 </Disclosure>
-                <Disclosure Title="Schedule" Summary="@BotSummaries.Schedules(schedules)" Open="@IsOpen(Schedule)" OpenChanged="open => Toggle(Schedule, open)">
-                    <ScheduleSection SpaceId="SpaceId" BotId="BotId" Schedules="schedules" OnSchedulesChanged="changed => schedules = changed" />
+                <Disclosure Title="Routines" Summary="@BotSummaries.Routines(schedules, saved.Name)" Open="@IsOpen(Routines)" OpenChanged="open => Toggle(Routines, open)">
+                    <RoutinesSection SpaceId="SpaceId" BotId="BotId" BotName="@saved.Name" BotPaused="@(saved.Status is "paused")" Schedules="schedules"
+                                     OnSchedulesChanged="changed => schedules = changed" />
                 </Disclosure>
-                <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
-                    <SandboxSection Draft="draft" OtherBots="otherBots" OnChanged="Changed" />
+                <Disclosure Title="Sandbox" Summary="@BotSummaries.Sandbox(draft, tools, ScreenReaderName)" Open="@IsOpen(Sandbox)" OpenChanged="open => Toggle(Sandbox, open)">
+                    <SandboxSection Draft="draft" BotId="BotId" Status="sandboxStatus" OtherBots="otherBots" Options="sandboxOptions" OnChanged="Changed"
+                                    Tools="tools" ModelSeesImages="ModelSeesImages" ScreenReaderName="@ScreenReaderName" OnOpenSection="section => Toggle(section, true)" />
                 </Disclosure>
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />
@@ -104,7 +107,7 @@
             <p class="dv-visually-hidden" role="status">@SaveWords</p>
             @if (Dirty || saveProblem is not null)
             {
-                <div class="dv-editor-save dv-facet">
+                <div class="dv-editor-save dv-facet @(saveProblem is null ? null : "dv-editor-save-problem")">
                     <div class="dv-editor-save-state">
                         <StatusNote Kind="NoteKind.Danger" Text="@saveProblem" />
                         <p class="dv-editor-save-words" aria-hidden="true">@SaveWords</p>
@@ -117,11 +120,23 @@
 
         <Dialog Title="@($"Remove {saved.Name}")" @bind-Open="removing">
             <ChildContent>
-                <p>Its threads and history are kept. It stops answering and leaves the list of bots.</p>
+                <p>Its conversations are kept. It stops answering and leaves the list of bots.</p>
+                @if (Beneath.Count > 0)
+                {
+                    <p>@BeneathWords</p>
+                }
             </ChildContent>
             <Actions>
                 <Button OnClick="() => removing = false">Keep bot</Button>
-                <Button Kind="ButtonKind.Danger" OnClick="Remove">Remove bot</Button>
+                @if (Beneath.Count > 0)
+                {
+                    <Button Kind="ButtonKind.Danger" OnClick="() => Remove(false)">Remove it, keep the rest</Button>
+                    <Button Kind="ButtonKind.Danger" OnClick="() => Remove(true)">@RemoveAllWords</Button>
+                }
+                else
+                {
+                    <Button Kind="ButtonKind.Danger" OnClick="() => Remove(null)">Remove bot</Button>
+                }
             </Actions>
         </Dialog>
 

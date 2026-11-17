@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from RFC 8030 section 5: a push service accepts a message with 201 Created and a Location for it. No real push service produced this.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "*",
+      "status": 201,
+      "headers": { "Location": "https://push.example/message/m1" }
+    }
+  ]
+}

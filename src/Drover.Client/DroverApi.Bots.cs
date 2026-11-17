@@ -23,8 +23,12 @@ public sealed partial class DroverApi
     public Task<BotDetail> ResumeBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Post<BotDetail>($"{Space(spaceId)}/bots/{botId}/resume", null, cancellationToken);
 
-    public Task RemoveBot(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
-        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}", cancellationToken);
+    /// <summary>
+    /// Removes the bot. A bot with bots beneath it needs <paramref name="removeBeneath"/>: true removes them with it,
+    /// false keeps them and moves them up beneath its parent. Left null for such a bot, the server refuses.
+    /// </summary>
+    public Task RemoveBot(Guid spaceId, Guid botId, bool? removeBeneath = null, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}{BeneathQuery(removeBeneath)}", cancellationToken);
 
     #endregion
 
@@ -46,6 +50,12 @@ public sealed partial class DroverApi
 
     public Task<BotScheduleResponse> CreateBotSchedule(Guid spaceId, Guid botId, BotScheduleBody schedule, CancellationToken cancellationToken = default) =>
         Post<BotScheduleResponse>($"{Space(spaceId)}/bots/{botId}/schedules", schedule, cancellationToken);
+
+    public Task<ScheduleCheckResponse> CheckBotSchedule(Guid spaceId, Guid botId, ScheduleCheckBody time, CancellationToken cancellationToken = default) =>
+        Post<ScheduleCheckResponse>($"{Space(spaceId)}/bots/{botId}/schedules/check", time, cancellationToken);
+
+    public Task<ScheduleRunOnceResponse> RunBotScheduleOnce(Guid spaceId, Guid botId, Guid scheduleId, CancellationToken cancellationToken = default) =>
+        Post<ScheduleRunOnceResponse>($"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}/run-once", null, cancellationToken);
 
     public Task<BotScheduleResponse> UpdateBotSchedule(Guid spaceId, Guid botId, Guid scheduleId, BotScheduleBody schedule, CancellationToken cancellationToken = default) =>
         Send<BotScheduleResponse>(HttpMethod.Put, $"{Space(spaceId)}/bots/{botId}/schedules/{scheduleId}", schedule, cancellationToken);
@@ -70,9 +80,71 @@ public sealed partial class DroverApi
     public Task RemoveBotRule(Guid spaceId, Guid botId, Guid ruleId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/bots/{botId}/rules/{ruleId}", cancellationToken);
 
+    /// <summary>What a sandbox on this server may be.</summary>
+    public Task<BotSandboxOptions> GetBotSandboxOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotSandboxOptions>($"{Space(spaceId)}/bots/{botId}/sandbox/options", cancellationToken);
+
+    /// <summary>The bot's own sandbox: whether it exists, its state, whether it has a screen, whether the bot is working.</summary>
+    public Task<BotSandboxStatus> GetBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox", cancellationToken);
+
+    public Task<BotSandboxStatus> PauseBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/pause", null, cancellationToken);
+
+    public Task<BotSandboxStatus> ResumeBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/resume", null, cancellationToken);
+
+    /// <summary>Replaces the sandbox with a fresh one. Its files are gone.</summary>
+    public Task<BotSandboxStatus> RebuildBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/rebuild", null, cancellationToken);
+
+    /// <summary>Destroys the sandbox now. Its files are gone; the next use makes a new one.</summary>
+    public Task<BotSandboxStatus> TurnOffBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/turn-off", null, cancellationToken);
+
+    /// <summary>The sandbox's screen as PNG bytes, starting or resuming the sandbox if needed.</summary>
+    public Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        GetBotSandboxScreen(spaceId, botId, wake: true, cancellationToken);
+
+    /// <summary>The sandbox's screen as PNG bytes. Pass wake=false for an automatic refresh.</summary>
+    public async Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, bool wake, CancellationToken cancellationToken)
+    {
+        var options = wake ? string.Empty : "?wake=false";
+        using var response = await Send(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/screen{options}", null, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await DroverApiException.From(response, cancellationToken);
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
+
+    /// <summary>One click, typed text, key press, or scroll on the sandbox's screen.</summary>
+    public Task SendBotSandboxInput(Guid spaceId, Guid botId, SandboxInputRequest input, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/input", input, cancellationToken);
+
+    public Task<SandboxCommandResponse> RunBotSandboxCommand(Guid spaceId, Guid botId, string command, CancellationToken cancellationToken = default) =>
+        Post<SandboxCommandResponse>($"{Space(spaceId)}/bots/{botId}/sandbox/commands", new SandboxCommandRequest(command), cancellationToken);
+
+    /// <summary>What a rule on this server may use.</summary>
+    public Task<BotRuleOptions> GetBotRuleOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotRuleOptions>($"{Space(spaceId)}/bots/{botId}/rules/options", cancellationToken);
+
     /// <summary>What the bot's rules would do with a sample. The server decides, with the evaluator a run uses.</summary>
     public Task<TryRulesResponse> TryBotRules(Guid spaceId, Guid botId, TryRulesRequest sample, CancellationToken cancellationToken = default) =>
         Post<TryRulesResponse>($"{Space(spaceId)}/bots/{botId}/rules/try", sample, cancellationToken);
+
+    #endregion
+
+    #region Removing
+
+    private static string BeneathQuery(bool? removeBeneath) => removeBeneath switch
+    {
+        true => "?beneath=remove",
+        false => "?beneath=keep",
+        null => string.Empty,
+    };
 
     #endregion
 }

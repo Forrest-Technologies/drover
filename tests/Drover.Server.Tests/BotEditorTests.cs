@@ -15,7 +15,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     {
         [nameof(Bot.Id)] = "identity",
         [nameof(Bot.SpaceId)] = "the tenant, stamped by the database layer",
-        [nameof(Bot.ParentBotId)] = "the tree changes only when a bot builds a bot, which is not part of the editor",
+        [nameof(Bot.ParentBotId)] = "set once, when the bot is created; the editor does not move a bot",
         [nameof(Bot.Depth)] = "follows the parent",
         [nameof(Bot.CreatedByUserId)] = "provenance",
         [nameof(Bot.CreatedByBotId)] = "provenance",
@@ -51,6 +51,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         Names<ModelSettingsBody>().Should().BeEquivalentTo(Names<ModelSettings>());
         Names<MemorySettingsBody>().Should().BeEquivalentTo(Names<MemorySettings>());
         Names<SandboxSettingsBody>().Should().BeEquivalentTo(Names<SandboxSettings>());
+        Names<ScreenReaderBody>().Should().BeEquivalentTo(Names<ScreenReader>());
         Names<BuildLimitsBody>().Should().BeEquivalentTo(Names<BuildLimits>());
         Names<BotAvatarBody>().Should().BeEquivalentTo(Names<BotAvatar>());
     }
@@ -64,6 +65,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var other = await CreateBot(client, alice.SpaceId, "Other");
         var second = await CreateConnection(client, alice.SpaceId, "Second");
         var fileId = await SeedFile(alice.SpaceId, alice.UserId);
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "seeing", new ModelCapabilities { Vision = true });
         var untouched = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
         var edit = new UpdateBotRequest(
             "Atlas",
@@ -74,9 +76,9 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             second.Id,
             "other-model",
             new ModelSettingsBody(0.4, 900, "high", "automatic", true),
-            new MemorySettingsBody(true, "summarization", 60_000, 12),
+            new MemorySettingsBody(true, "summarization", 60_000, 12, 300, 4000),
             "named",
-            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30),
+            new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
             [other.Id],
             new BuildLimitsBody(3, 2));
 
@@ -97,7 +99,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
                 edit.ModelSettings,
                 edit.MemorySettings,
                 edit.SandboxPolicy,
-                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30),
+                SandboxSettings = new SandboxSettingsBody("allowlist", ["example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, "seeing")),
                 edit.SandboxSharedWith,
                 edit.BuildLimits,
                 Status = "active",
@@ -173,9 +175,53 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             { "an answer longer than any model writes", nothing with { ModelSettings = new ModelSettingsBody(null, int.MaxValue, null, "off", false) }, "longest answer" },
             { "a threshold larger than any context", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", int.MaxValue, null) }, "at most" },
             { "more kept messages than a thread holds", nothing with { MemorySettings = new MemorySettingsBody(true, "truncation", null, int.MaxValue) }, "at most" },
+            { "a note longer than the server allows", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, DeploymentPolicy.SelfHostedMaxMemoryNoteCharacters + 1) }, "A note may hold at most 1000 characters on this server" },
+            { "an empty allowance for one note", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, 0) }, "A note may hold at most" },
+            { "more notes than the server allows", nothing with { MemorySettings = new MemorySettingsBody(true, "none", null, null, null, DeploymentPolicy.SelfHostedMaxMemoryCharactersPerPerson + 1) }, "notes about one person may hold at most 20000 characters" },
             { "a host that is nothing", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [null!], null) }, "is not a host name" },
             { "a blank host", nothing with { SandboxSettings = new SandboxSettingsBody("allowlist", [" "], null) }, "is not a host name" },
         };
+    }
+
+    [Fact]
+    public async Task A_screen_reader_must_be_a_model_of_this_space_that_the_catalog_says_reads_images()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var asAlice = await SignIn(alice);
+        var asBob = await SignIn(bob);
+        var bot = await CreateBot(asAlice, alice.SpaceId);
+        var own = await CreateConnection(asAlice, alice.SpaceId, "Eyes");
+        var theirs = await CreateConnection(asBob, bob.SpaceId, "Bob's eyes");
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, own.Id, "seeing", new ModelCapabilities { Vision = true });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, own.Id, "blind", new ModelCapabilities());
+        await SeedCatalogEntry(bob.SpaceId, bob.UserId, theirs.Id, "seeing", new ModelCapabilities { Vision = true });
+        var at = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+
+        List<(string What, ScreenReaderBody Reader, string Expected)> refused =
+        [
+            ("another space's connection", new ScreenReaderBody(theirs.Id, "seeing"), "not on a model connection of this space"),
+            ("a connection that is not there", new ScreenReaderBody(Guid.CreateVersion7(), "seeing"), "not on a model connection of this space"),
+            ("a model that cannot read images", new ScreenReaderBody(own.Id, "blind"), "Plain cannot read images"),
+            ("a model the catalog does not list", new ScreenReaderBody(own.Id, "unlisted"), "does not know whether unlisted can read images"),
+            ("no model at all", new ScreenReaderBody(own.Id, " "), "Choose a model to read the screen"),
+        ];
+
+        foreach (var (what, reader, expected) in refused)
+        {
+            var response = await asAlice.Put(at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true, reader) });
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest, what);
+            (await Title(response)).Should().Contain(expected, what);
+        }
+
+        (await GetFor<BotDetail>(asAlice, at)).SandboxSettings.ScreenReader.Should().BeNull("a refused reader is not stored");
+
+        var chosen = await PutFor<BotDetail>(asAlice, at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true, new ScreenReaderBody(own.Id, "seeing")) });
+        chosen.SandboxSettings.ScreenReader.Should().Be(new ScreenReaderBody(own.Id, "seeing"));
+        (await GetFor<BotDetail>(asAlice, at)).SandboxSettings.ScreenReader.Should().Be(new ScreenReaderBody(own.Id, "seeing"));
+
+        var cleared = await PutFor<BotDetail>(asAlice, at, Nothing() with { SandboxSettings = new SandboxSettingsBody("off", [], null, true) });
+        cleared.SandboxSettings.ScreenReader.Should().BeNull("the bot's own model reads the screen again");
     }
 
     #endregion
@@ -253,7 +299,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var asAdmin = await SignIn(admin.Email, admin.Password);
         var asOutsider = await SignIn(outsider);
         var bot = await CreateBot(asOwner, alice.SpaceId);
-        var tool = (await GetFor<List<BotToolEntry>>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         var schedule = await PostFor<BotScheduleResponse>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/schedules", new BotScheduleBody("0 9 * * *", "UTC", "Report", "new_thread", true), HttpStatusCode.Created);
         var root = $"{Space(alice.SpaceId)}/bots/{bot.Id}";
         var body = new BotScheduleBody("0 9 * * *", "UTC", "Report", "new_thread", true);
@@ -313,11 +359,11 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
-        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         await Ask(client, alice.SpaceId, bot.Id, "With the tool");
 
         var off = await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("off"));
-        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         await Ask(client, alice.SpaceId, bot.Id, "Without the tool");
         var misspelled = await client.Put($"{Space(alice.SpaceId)}/bots/{bot.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("maybe"));
         var unknown = await client.Put($"{Space(alice.SpaceId)}/bots/{bot.Id}/tools/{Guid.CreateVersion7()}", new SetToolGrantRequest("allow"));
@@ -325,8 +371,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         tool.Should().Match<BotToolEntry>(found => found.Name == "time.now" && found.Title == "Current time" && found.Source == "builtin" && found.Grant == "allow" && found.Ceiling == "allow" && found.Sensitivity == "read");
         off.Grant.Should().Be("off");
         listed.Grant.Should().Be("off");
-        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now"], "the granted tool is sent to the model");
-        model.ToolsOffered[1].Should().BeEmpty("a tool with no grant is never sent to the model");
+        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove"], "the granted tools are sent to the model");
+        model.ToolsOffered[1].Should().BeEquivalentTo(["crew_list", "crew_add", "crew_change", "crew_remove"], "a tool with no grant is never sent to the model");
         misspelled.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -338,7 +384,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
-        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         _ = Services;
 
         // The run has assembled its tools and is at the model when a person turns the tool off in the editor.
@@ -364,12 +410,12 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var client = await SignIn(alice);
         var atlas = await CreateBot(client, alice.SpaceId, "Atlas");
         var child = await SeedChild(alice.SpaceId, alice.UserId, atlas.Id, "Scout");
-        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools")).Single(entry => entry.Name == "time.now");
         var grant = $"{Space(alice.SpaceId)}/bots/{child}/tools/{tool.ToolId}";
 
         var asParentHolds = await client.Put(grant, new SetToolGrantRequest("allow"));
         await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("ask"));
-        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{child}/tools")).Single();
+        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{child}/tools")).Single(entry => entry.Name == "time.now");
         var aboveAsk = await client.Put(grant, new SetToolGrantRequest("allow"));
         var atAsk = await client.Put(grant, new SetToolGrantRequest("ask"));
         await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{atlas.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("off"));
@@ -445,12 +491,12 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var bot = await CreateBot(client, alice.SpaceId);
-        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         var copy = await PostFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/duplicate", HttpStatusCode.Created);
         await InSpace(alice.SpaceId, alice.UserId, services =>
             services.GetRequiredService<DroverDbContext>().ToolGrants.Where(grant => grant.BotId == bot.Id).ExecuteUpdateAsync(grant => grant.SetProperty(row => row.Effect, GrantEffect.Deny), Token));
 
-        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single();
+        var listed = (await GetFor<List<BotToolEntry>>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools")).Single(entry => entry.Name == "time.now");
         await PutFor<BotToolEntry>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/tools/{tool.ToolId}", new SetToolGrantRequest("off"));
         var created = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "bot.created");
         var duplicated = (await Audit(alice, copy.Id)).Single(entry => entry.Action == "bot.duplicated");
@@ -460,10 +506,13 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         foreach (var entry in new[] { created, duplicated })
         {
             var grants = entry.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
-            grants.GetArrayLength().Should().Be(1);
-            grants[0].GetProperty("tool").GetString().Should().Be("time.now");
-            grants[0].GetProperty("effect").GetString().Should().Be("allow");
-            grants[0].GetProperty("review_state").GetString().Should().Be("current");
+            grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(), grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
+                .Should().Equal(
+                    ("crew.add", "ask", "current"),
+                    ("crew.change", "ask", "current"),
+                    ("crew.list", "ask", "current"),
+                    ("crew.remove", "ask", "current"),
+                    ("time.now", "allow", "current"));
         }
 
         Fact(taken, "effect").Should().Be(("deny", null), "taking a deny away is a change, though both show as off");
@@ -525,7 +574,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             HttpStatusCode.Created);
         var bot = await PostFor<BotSummary>(asOwner, $"{Space(alice.SpaceId)}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null), HttpStatusCode.Created);
         var root = $"{Space(alice.SpaceId)}/bots/{bot.Id}";
-        var tool = (await GetFor<List<BotToolEntry>>(asOwner, $"{root}/tools")).Single();
+        var tool = (await GetFor<List<BotToolEntry>>(asOwner, $"{root}/tools")).Single(entry => entry.Name == "time.now");
 
         await PutFor<BotDetail>(asAdmin, $"{root}/definition", Nothing() with { Name = "Atlas", ModelSettings = new ModelSettingsBody(0.2, null, null, "off", false) });
         await PutFor<BotDetail>(asAdmin, $"{root}/definition", Nothing() with { Name = "Atlas" });
@@ -635,7 +684,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         return result;
     }
 
-    /// <summary>A bot beneath another, which only a bot building a bot makes; the editor has no route for it.</summary>
+    /// <summary>A bot beneath another, made directly in the database so the test controls every column.</summary>
     private Task<Guid> SeedChild(Guid spaceId, Guid userId, Guid parentId, string name) =>
         InSpace(spaceId, userId, async services =>
         {

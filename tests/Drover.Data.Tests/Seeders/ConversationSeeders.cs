@@ -116,3 +116,13 @@ public sealed class AgentSessionSeeder : PlainSeeder<AgentSession>
         ["framework_version"] = "test",
     };
 }
+
+public sealed class ThreadReadSeeder : PlainSeeder<ThreadRead>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["thread_id"] = Guid.CreateVersion7(),
+        ["seen_through_position"] = 0,
+        ["seen_at"] = DateTimeOffset.UtcNow,
+    };
+}

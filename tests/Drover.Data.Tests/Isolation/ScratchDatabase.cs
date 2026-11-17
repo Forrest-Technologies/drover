@@ -15,6 +15,9 @@ public sealed class ScratchDatabase(
 
     public string AppConnectionString => appConnectionString;
 
+    /// <summary>The migrating role's connection, for a test that moves this database between migrations.</summary>
+    public string OwnerConnectionString => ownerConnectionString;
+
     #endregion
 
     #region Public Methods

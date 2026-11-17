@@ -1,0 +1,6 @@
+/* The gallery lays samples out in a row. This gives a sample the width it has in the product: the whole working
+   area. */
+.dv-sample-wide {
+  flex: 1 1 100%;
+  min-width: 0;
+}

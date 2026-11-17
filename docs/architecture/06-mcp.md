@@ -124,7 +124,7 @@ What Drover adds:
 | Piece | Design |
 | --- | --- |
 | Client identity | In priority order, following the spec: a client id the admin typed in; else a client ID metadata document that Drover serves at `{public-url}/oauth/client.json`; else dynamic registration; else ask the admin for a client id. The metadata document needs a public HTTPS address, so a server on `localhost` uses dynamic registration. |
-| Redirect address | `{public-url}/oauth/mcp/callback` on the Drover server, for every client. The MAUI app opens the system browser. The callback answers with a redirect into the app, `/?tool-sign-in=connected` or `failed` (with the space and connection ids when the sign-in was the caller's own), and echoes nothing the provider sent. |
+| Redirect address | `{public-url}/oauth/mcp/callback` on the Drover server, for every client. For the web app the callback answers with a redirect into the app, `/?tool-sign-in=connected` or `failed` (with the space and connection ids when the sign-in was the caller's own), and echoes nothing the provider sent. The native app opens the system browser and is returned to as described under "Coming back into a native app". |
 | Token storage | The SDK's `ITokenCache` has no user or server key. Drover creates one cache instance per credential row. It reads and writes the token set through `ISecretVault`, inside a transaction for the credential's user. Client registration results live in the same token set, as the SDK expects. |
 | The browser round trip | See the next section |
 | Refresh | The SDK refreshes on demand. Drover also renews sign-ins that run out soon, in the background, so a scheduled run at night does not start with a dead token and an unused sign-in does not lapse. |
@@ -141,6 +141,19 @@ The bridge:
 3. The browser goes to the provider and comes back to `/oauth/mcp/callback?code=...&state=...`.
 4. The callback resolves `state` through `sys.resolve_oauth_state`, checks that the signed-in user is the one who started the flow, and completes the parked source, once. One person has at most one sign-in in progress per connection; starting another ends the first. Not built: if the source lives in another server instance, the code is passed there with a PostgreSQL `NOTIFY` carrying the state hash, and the receiving instance reads the code from the row. Today a callback that reaches another instance, like one after a restart, finds nothing waiting and the person starts again.
 5. The SDK exchanges the code and writes tokens through the cache. The row is deleted.
+
+#### Coming back into a native app
+
+The native app signs in with a bearer session, so the system browser it opens is usually signed in to Drover as nobody. The callback's own check (the signed-in person is the one who started the flow) cannot be made there. The check moves to the app instead:
+
+1. The app starts the sign-in with its own address scheme (`POST .../sign-in` with `returnTo`). The server accepts only the schemes of Drover's own apps (`ToolSignInOptions.AppSchemes`), never one a request names freely.
+2. When the browser reaches the callback for such a flow, nothing is completed. The server keeps what the browser brought, in memory with the waiting half, and answers with a small page that sends the browser to `{scheme}://tool-sign-in?ticket=...`. The page redirects at once where the browser allows it and shows the same address as a link where it does not. The code is taken once: a second arrival is refused.
+3. The ticket is 32 random bytes of this server's own, stored as a hash. It is not the provider's code or the `state`, so no provider credential is in the app link.
+4. The app hands the ticket to the tools screen, which calls `POST /api/tool-sign-ins/finish`. The server ends the sign-in only for the signed-in person who started it, once. A ticket presented by anybody else ends the sign-in with nothing stored.
+
+What this holds against: a person who is sent somebody else's sign-in address and approves it ends up with a ticket on their own device, where their app presents it as them, and the server refuses it. Any app or page can send the app an address in this scheme; a ticket that is not the signed-in person's own changes nothing. Known limit: an address scheme is not owned the way a web address is. Another app on the same device that registers the same scheme can take the ticket, which stops the sign-in, and that app would need the session of the person who started the sign-in to use it.
+
+An older server ignores `returnTo` and answers as it always did: the browser stays in the web app, signed in there or not.
 
 Limits, stated honestly:
 
@@ -190,7 +203,7 @@ A tool result is text chosen by a third party that the model will read. The desi
 | The model cannot grant itself anything | Grants are enforced by the gate at call time. A hostile result can only steer the bot toward tools it already holds. |
 | Least privilege is the default | New tools are never auto-granted. The grant screen shows each tool's own description and annotations. |
 | Consequential tools ask | Tools have a `sensitivity`: `read`, `write`, or `critical`. A server's tool starts as `write` whatever its annotations claim; a human can change it. `critical` covers bot management, credential changes, and anything a human marks. |
-| **Tainted runs escalate** | Each connection has a `trust` level; servers that return open-world content (web, mail, documents from others) are `untrusted`. Once a run has received a result from an untrusted source, the run is marked `tainted` and, for the rest of that run, `allow` on `write` and `critical` tools behaves as `ask`. A child run inherits the mark. This breaks the chain "read hostile text, then act on it unattended". Spaces can turn it off per bot. |
+| **Tainted runs escalate** | Each connection has a `trust` level; servers that return open-world content (web, mail, documents from others) are `untrusted`. Once a run has received a result from an untrusted source, the run is marked `tainted` and, for the rest of that run, `allow` on `write` and `critical` tools behaves as `ask`. A child run inherits the mark. A file a person attached counts as such a source: a run given one, and every later run of its conversation, is tainted ([14-agent-framework.md](14-agent-framework.md)). This breaks the chain "read hostile text, then act on it unattended". Spaces can turn it off per bot. |
 | Results stay in their place | Results go to the model only as tool-role content, never merged into instructions. Tool descriptions from servers are treated the same way. |
 | Size limits | Results over a limit are cut for the model, with the full output saved as a file the user can open |
 | No secrets in context | Credentials are added at the transport by the adapter. The model never sees them. Known secret values are scrubbed from arguments and results before they are stored or shown ([08-auth-and-secrets.md](08-auth-and-secrets.md)). |

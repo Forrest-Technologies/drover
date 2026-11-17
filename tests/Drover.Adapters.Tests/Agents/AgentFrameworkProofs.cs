@@ -162,7 +162,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
     {
         var governor = new ScriptedGovernor(new ScriptedTools());
         var model = new ScriptedModel([new PauseOutput()]);
-        var member = new GovernedAgent(new ScriptedChatClient(model).AsAIAgent(name: "slow"), governor, Guid.CreateVersion7());
+        var member = new GovernedAgent(new ScriptedChatClient(model).AsAIAgent(name: "slow"), governor, new DelegationRequest(Guid.CreateVersion7(), "slow"));
         using var cancellation = new CancellationTokenSource();
 
         var running = member.RunAsync("Take your time", cancellationToken: cancellation.Token);
@@ -190,6 +190,73 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
         (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("named lookup").And.Contain("must be unique");
         model.Requests.Should().BeEmpty();
         tools.Count("lookup").Should().Be(0);
+    }
+
+    #endregion
+
+    #region A Tool's Picture Is Shown Once
+
+    [Fact]
+    public async Task A_tools_picture_reaches_the_next_model_call_only_and_is_never_stored()
+    {
+        var run = await world.NewRun("Look at the screen", [new ToolSpec("look")]);
+        byte[] picture = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 7, 7, 7];
+        var encoded = Convert.ToBase64String(picture);
+        var tools = new ScriptedTools().Add("look", (_, _) => Task.FromResult(
+            new ToolOutcome(ScriptedTools.Json("""{"screenshot":"attached"}""")) { Images = [new ToolImage(picture, "image/png")] }));
+        var model = new ScriptedModel([new ToolCallOutput("c1", "look")], [new TextOutput("I see it.")]);
+
+        await RunOnce(run, model, tools);
+
+        model.Requests[0].Should().NotContain(message => message.Summary.StartsWith("image", StringComparison.Ordinal));
+        model.Requests[1].TakeLast(3).Should().Equal(
+            new SeenMessage("tool", """c1 = {"screenshot":"attached"}"""),
+            new SeenMessage("user", "The image from the look call c1. It is shown once and not kept."),
+            new SeenMessage("user", $"image image/png {encoded}"));
+
+        var stored = await world.Read(db => db.Messages.Where(message => message.ThreadId == run.ThreadId).ToListAsync());
+        stored.SelectMany(message => message.Parts).OfType<TextPart>().Should().NotContain(part => part.Text.Contains("The image from"));
+        stored.SelectMany(message => message.Parts).Should().NotContain(part => part is ImagePart);
+        stored.Should().OnlyContain(message => !JsonSerializer.Serialize(message.Parts, JsonSerializerOptions.Default).Contains(encoded));
+        var sessions = await world.Read(db => db.AgentSessions.Where(session => session.ThreadId == run.ThreadId).ToListAsync());
+        sessions.Should().OnlyContain(session => !JsonSerializer.Serialize(session, JsonSerializerOptions.Default).Contains(encoded));
+
+        // A later run, in a new process, reads the thread back: the result is there, the picture is not.
+        await world.AddUserMessage(run.ThreadId, "And now?");
+        var later = new ScriptedModel([new TextOutput("Nothing new.")]);
+        await RunOnce(run, later);
+
+        later.Requests.Single().Should().Contain(new SeenMessage("tool", """c1 = {"screenshot":"attached"}"""));
+        later.Requests.Single().Should().NotContain(message => message.Summary.StartsWith("image", StringComparison.Ordinal)
+            || message.Summary.StartsWith("The image from", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_screen_read_by_another_model_reaches_a_text_only_model_as_words_and_no_image_content_is_ever_sent()
+    {
+        var run = await world.NewRun("Look at the screen", [new ToolSpec("look")]);
+        const string Described = """{"screenshot":"described","width":1024,"height":768,"description":"A terminal.\n40,700: Terminal"}""";
+        var tools = new ScriptedTools().Add("look", (_, _) => Task.FromResult(new ToolOutcome(ScriptedTools.Json(Described))));
+        var model = new ScriptedModel(
+            [new ToolCallOutput("c1", "look")],
+            [new ToolCallOutput("c2", "look")],
+            [new TextOutput("A terminal is open.")]);
+
+        await RunOnce(run, model, tools);
+
+        model.Requests.Should().HaveCount(3);
+        model.Requests.Should().AllSatisfy(request => request.Should().NotContain(message =>
+            message.Summary.StartsWith("image", StringComparison.Ordinal) || message.Summary.StartsWith("The image from", StringComparison.Ordinal)));
+        foreach (var (request, callId) in new[] { (model.Requests[1], "c1"), (model.Requests[2], "c2") })
+        {
+            var result = request[^1];
+            result.Role.Should().Be("tool");
+            result.Summary.Should().StartWith($"{callId} = ");
+            JsonElement.DeepEquals(JsonElement.Parse(result.Summary[$"{callId} = ".Length..]), JsonElement.Parse(Described)).Should().BeTrue(result.Summary);
+        }
+
+        var stored = await world.Read(db => db.Messages.Where(message => message.ThreadId == run.ThreadId).ToListAsync());
+        stored.SelectMany(message => message.Parts).Should().NotContain(part => part is ImagePart);
     }
 
     #endregion
@@ -269,7 +336,7 @@ public sealed class AgentFrameworkProofs(PostgresFixture postgres) : IAsyncLifet
             run,
             new ChatClientAgentOptions { Id = name, Name = name, Description = $"The {name} agent." },
             NullLoggerFactory.Instance);
-        return new GovernedAgent(agent, run.Governor, parentRunId);
+        return new GovernedAgent(agent, run.Governor, new DelegationRequest(parentRunId, name));
     }
 
     private async Task<IReadOnlyList<AgentEvent>> RunOnce(RunExecution run, ScriptedModel model, ScriptedTools? tools = null)

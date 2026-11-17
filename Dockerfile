@@ -20,11 +20,13 @@ COPY src/Drover.Domain/Drover.Domain.csproj src/Drover.Domain/
 COPY src/Drover.Data/Drover.Data.csproj src/Drover.Data/
 COPY src/Drover.Engine/Drover.Engine.csproj src/Drover.Engine/
 COPY src/Drover.Agents/Drover.Agents.csproj src/Drover.Agents/
+COPY src/Drover.Adapters.E2B/Drover.Adapters.E2B.csproj src/Drover.Adapters.E2B/
 COPY src/Drover.Adapters.DataProtection/Drover.Adapters.DataProtection.csproj src/Drover.Adapters.DataProtection/
 COPY src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj src/Drover.Adapters.LocalFiles/
 COPY src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj src/Drover.Adapters.Mcp/
 COPY src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj src/Drover.Adapters.OpenAICompatible/
 COPY src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj src/Drover.Adapters.Venice/
+COPY src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj src/Drover.Adapters.WebPush/
 COPY src/Drover.Client/Drover.Client.csproj src/Drover.Client/
 COPY src/Drover.Ui/Drover.Ui.csproj src/Drover.Ui/
 COPY src/Drover.Web/Drover.Web.csproj src/Drover.Web/

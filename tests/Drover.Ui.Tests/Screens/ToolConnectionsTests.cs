@@ -196,12 +196,56 @@ public sealed class ToolConnectionsTests : ScreenTest
     }
 
     [Fact]
+    public async Task A_native_app_asks_for_the_browser_to_come_back_into_it()
+    {
+        Services.AddSingleton(new AppSignInReturn("app.example.test"));
+        Listed([Connection("ready") with { AuthKind = "oauth", SignInScope = "per_user", SignIn = "needs_sign_in" }], Tool());
+        Server.Answer("POST", $"{root}/{connectionId}/sign-in", new ToolSignInStart("redirect", "https://id.example.test/authorize?sample=1", null));
+        var page = Render<ToolConnections>();
+        page.WaitForElement(".dv-connection-ask .dv-button");
+
+        await page.Find(".dv-connection-ask .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Navigation.Uri.Should().Be("https://id.example.test/authorize?sample=1"));
+        Server.Sent("POST", $"{root}/{connectionId}/sign-in").Should().Equal("""{"returnTo":"app.example.test"}""");
+    }
+
+    [Theory]
+    [InlineData(true, "You are signed in to Sample server.", "status", "connected")]
+    [InlineData(false, "The sign-in to Sample server did not finish. Nothing was stored. Try again.", "alert", "failed")]
+    public void A_browser_that_came_back_into_the_app_ends_the_sign_in_once_and_says_how_it_went(bool connected, string words, string role, string outcome)
+    {
+        Listed([Connection("ready") with { AuthKind = "oauth", SignIn = "signed_in" }], Tool());
+        Server.Answer("POST", "/api/tool-sign-ins/finish", new ToolSignInFinish(connected, SpaceId, connectionId));
+        Navigation.NavigateTo(Addresses.ToolSignInReturn("sample-ticket"));
+
+        var page = Render<ToolConnections>();
+
+        page.WaitForAssertion(() => page.Find($".dv-note-region[role={role}] .dv-note").TextContent.Trim().Should().Be(words));
+        Server.Sent("POST", "/api/tool-sign-ins/finish").Should().Equal("""{"ticket":"sample-ticket"}""");
+        Address.Should().Be($"tools?sign-in={outcome}&connection={connectionId}", "a reload must not present the ticket again");
+    }
+
+    [Fact]
+    public void A_ticket_the_server_cannot_be_asked_about_reads_as_a_sign_in_that_did_not_finish()
+    {
+        Listed([Connection("ready") with { AuthKind = "oauth", SignIn = "needs_sign_in" }], Tool());
+        Server.Refuse("POST", "/api/tool-sign-ins/finish", HttpStatusCode.ServiceUnavailable, "Sample outage.");
+        Navigation.NavigateTo(Addresses.ToolSignInReturn("sample-ticket"));
+
+        var page = Render<ToolConnections>();
+
+        page.WaitForAssertion(() => page.Find(".dv-note-region[role=alert] .dv-note").TextContent.Trim()
+            .Should().Be("The sign-in to the tool server did not finish. Nothing was stored. Try again."));
+    }
+
+    [Fact]
     public void The_start_page_hands_a_returning_sign_in_to_this_screen_and_passes_on_nothing_else()
     {
         SignedIn();
         Navigation.NavigateTo($"/?tool-sign-in=connected&space={SpaceId}&connection={connectionId}&extra=sample");
 
-        Render<Threads>();
+        Render<Talk>();
 
         Address.Should().Be($"tools?sign-in=connected&connection={connectionId}");
     }

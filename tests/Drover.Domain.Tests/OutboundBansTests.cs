@@ -21,7 +21,7 @@ public sealed class OutboundBansTests
     }
 
     [Fact]
-    public void Only_the_policy_code_the_browser_client_and_the_handler_tests_are_exempt_from_the_ban()
+    public void Only_the_policy_code_client_hosts_and_handler_tests_are_exempt_from_the_ban()
     {
         var exempt = File.ReadAllLines(Path.Combine(FindRepositoryRoot(), ".editorconfig"))
             .Select((line, index) => (line, index))
@@ -37,6 +37,7 @@ public sealed class OutboundBansTests
         [
             "[src/Drover.Engine/Policy/OutboundHttp.cs]",
             "[src/Drover.Web/Program.cs]",
+            "[src/Drover.App/{AppRequests,MauiProgram}.cs]",
             "[tests/Drover.Engine.Tests/OutboundHttpTests.cs]",
             "[**/obj/**/*.cs]",
         ]);

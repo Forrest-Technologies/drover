@@ -2,9 +2,17 @@ namespace Drover.Engine.Bots;
 
 /// <summary>
 /// One tool as a bot's editor shows it. Own is the bot's own setting, null when it holds no grant. The ceiling is the
-/// most the bot may be given: what its parent can do, or allow for a bot with no parent.
+/// most the bot may be given: what its parent can do, or allow for a bot with no parent. A tool that always asks waits
+/// for a person before every use, whatever the grant.
 /// </summary>
-public sealed record BotToolView(Tool Tool, ToolConnection? Connection, GrantEffect? Own, bool NeedsReview, GrantEffect? Ceiling, string? CeilingBotName);
+public sealed record BotToolView(
+    Tool Tool,
+    ToolConnection? Connection,
+    GrantEffect? Own,
+    bool NeedsReview,
+    GrantEffect? Ceiling,
+    string? CeilingBotName,
+    bool AlwaysAsks = false);
 
 /// <summary>The result of setting a grant. With neither a tool nor a problem, there is no such bot or tool.</summary>
 public sealed record GrantChange(BotToolView? Tool, string? Problem)
@@ -39,7 +47,10 @@ public sealed class GrantService(
         var own = (await tools.ListOwnGrants(botId, cancellationToken)).ToDictionary(grant => grant.ToolId);
         var byId = (await connections.ListConnections(cancellationToken)).ToDictionary(connection => connection.Id);
 
-        return [.. (await ListAllTools(cancellationToken)).Select(tool => View(tool, byId, own.GetValueOrDefault(tool.Id), parent, ceilings))];
+        return [.. (await ListAllTools(cancellationToken)).Select(tool => View(tool, byId, own.GetValueOrDefault(tool.Id), parent, ceilings) with
+        {
+            AlwaysAsks = catalog.AlwaysAsks(tool),
+        })];
     }
 
     /// <summary>Sets one tool for one bot. A null effect is off: the bot's grant is taken away.</summary>
@@ -95,7 +106,8 @@ public sealed class GrantService(
         }
 
         var connection = tool.ToolConnectionId is { } connectionId ? await connections.FindConnection(connectionId, cancellationToken) : null;
-        return new GrantChange(new BotToolView(tool, connection, stored?.Effect, stored?.ReviewState is ReviewState.NeedsReview, ceiling, parent?.Name), null);
+        var view = new BotToolView(tool, connection, stored?.Effect, stored?.ReviewState is ReviewState.NeedsReview, ceiling, parent?.Name, catalog.AlwaysAsks(tool));
+        return new GrantChange(view, null);
     }
 
     /// <summary>A grant as the API and the audit log spell it. No grant, and an explicit deny, are both off.</summary>

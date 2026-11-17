@@ -29,9 +29,16 @@ public static class BotViews
                 bot.MemorySettings.Enabled,
                 Words.Of(bot.MemorySettings.Compaction),
                 bot.MemorySettings.CompactAtTokens,
-                bot.MemorySettings.KeepRecentMessages),
+                bot.MemorySettings.KeepRecentMessages,
+                bot.MemorySettings.MaxNoteCharacters,
+                bot.MemorySettings.MaxNotesCharacters),
             Words.Of(bot.SandboxPolicy),
-            new SandboxSettingsBody(Words.Of(bot.SandboxSettings.Network), bot.SandboxSettings.AllowedHosts, bot.SandboxSettings.IdleTimeoutMinutes),
+            new SandboxSettingsBody(
+                Words.Of(bot.SandboxSettings.Network),
+                bot.SandboxSettings.AllowedHosts,
+                bot.SandboxSettings.IdleTimeoutMinutes,
+                bot.SandboxSettings.Desktop,
+                bot.SandboxSettings.ScreenReader is { } reader ? new ScreenReaderBody(reader.ModelConnectionId, reader.Model) : null),
             view.SandboxSharedWith,
             Words.Of(bot.Status),
             bot.ParentBotId,
@@ -79,14 +86,19 @@ public static class BotViews
             GrantService.Word(view.Own),
             GrantService.Word(view.Ceiling),
             view.CeilingBotName,
-            Words.Of(view.Tool.State))
+            Words.Of(view.Tool.State),
+            view.AlwaysAsks)
         {
             NeedsReview = view.NeedsReview,
             Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
         };
     }
 
-    public static BotScheduleResponse ToResponse(this BotSchedule schedule) =>
+    /// <summary>
+    /// A schedule as its response. The last run's id, conversation, and reason are given only with
+    /// <paramref name="lastRun"/>, which is there only when the caller can see that run's conversation.
+    /// </summary>
+    public static BotScheduleResponse ToResponse(this BotSchedule schedule, RunGlance? lastRun = null) =>
         new(
             schedule.Id,
             schedule.BotId,
@@ -96,7 +108,16 @@ public static class BotViews
             schedule.Prompt,
             Words.Of(schedule.ThreadMode),
             schedule.Enabled,
-            schedule.NextRunAt);
+            schedule.NextRunAt,
+            lastRun is null ? null : schedule.LastRunId,
+            schedule.LastRunAt,
+            LastOutcome(schedule, lastRun?.Status),
+            lastRun?.ThreadId,
+            lastRun?.Reason);
+
+    public static BotScheduleResponse ToResponse(this ScheduleView view) => view.Schedule.ToResponse(view.LastRun);
+
+    public static BotScheduleResponse ToResponse(this ScheduleChange change) => change.Schedule!.ToResponse(change.LastRun);
 
     public static ScheduleEdit ToEdit(this BotScheduleBody body) =>
         new(body.Cron ?? string.Empty, body.TimeZone ?? string.Empty, body.Prompt ?? string.Empty, Words.Read<ScheduleThreadMode>(body.ThreadMode), body.Enabled);
@@ -104,6 +125,18 @@ public static class BotViews
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// A run the schedule started reads as that run's status when the caller can see it, and as "started" when it
+    /// is another person's private conversation; anything else as what the schedule recorded.
+    /// </summary>
+    private static string? LastOutcome(BotSchedule schedule, RunStatus? lastRunStatus) =>
+        (schedule.LastOutcome, lastRunStatus) switch
+        {
+            (ScheduleOutcome.Started, { } status) => status.ToWireName(),
+            ({ } outcome, _) => Words.Of(outcome),
+            _ => null,
+        };
 
     private static ModelSettings? Read(ModelSettingsBody body) =>
         Words.Read<WebSearchMode>(body.WebSearch) is { } webSearch
@@ -125,12 +158,21 @@ public static class BotViews
                 Compaction = compaction,
                 CompactAtTokens = body.CompactAtTokens,
                 KeepRecentMessages = body.KeepRecentMessages,
+                MaxNoteCharacters = body.MaxNoteCharacters,
+                MaxNotesCharacters = body.MaxNotesCharacters,
             }
             : null;
 
     private static SandboxSettings? Read(SandboxSettingsBody body) =>
         Words.Read<NetworkAccess>(body.Network) is { } network
-            ? new SandboxSettings { Network = network, AllowedHosts = body.AllowedHosts ?? [], IdleTimeoutMinutes = body.IdleTimeoutMinutes }
+            ? new SandboxSettings
+            {
+                Network = network,
+                AllowedHosts = body.AllowedHosts ?? [],
+                IdleTimeoutMinutes = body.IdleTimeoutMinutes,
+                Desktop = body.Desktop,
+                ScreenReader = body.ScreenReader is { } reader ? new ScreenReader(reader.ModelConnectionId, reader.Model ?? string.Empty) : null,
+            }
             : null;
 
     #endregion

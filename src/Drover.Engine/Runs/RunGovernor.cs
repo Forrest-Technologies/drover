@@ -5,15 +5,21 @@ namespace Drover.Engine.Runs;
 /// the model never decides what it may do: the grant is read again when the call is made, the bot must still be
 /// active, and the result is redacted before anything stores or sees it.
 /// </summary>
-public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricing, IToolSource? toolServers, RunRules rules, ILogger logger) : IRunGovernor
+public sealed class RunGovernor(
+    RunSession session,
+    Bot bot,
+    ModelPricing pricing,
+    IToolSource? toolServers,
+    RunRules rules,
+    ILogger logger,
+    bool modelSeesImages = false,
+    RunFiles? files = null,
+    RunExecutor.ChildRuns? children = null) : IRunGovernor
 {
-    #region Private Fields
-
-    private const string NotAvailable = "Delegation is not available in Phase 0.";
-
-    #endregion
-
     #region Interface Implementations
+
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
+        files is null ? new Dictionary<Guid, FileForModel>() : await files.Open(fileIds, cancellationToken);
 
     public async Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {
@@ -21,13 +27,21 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         await session.AnnounceStoredMessage();
         var decision = await DecideNow(toolCall, cancellationToken);
 
+        if (decision.Verdict is ToolGateVerdict.Ask && session.IsRerun(toolCall.CallId) && await ResumesWithoutAsking(toolCall, cancellationToken))
+        {
+            decision = ToolGateDecision.Run with { Arguments = decision.Arguments };
+        }
+
         if (decision.Verdict is ToolGateVerdict.Refuse)
         {
             session.MarkRefused(toolCall.CallId);
             logger.LogInformation("Tool {ToolName} refused in run {RunId}: {Reason}", toolCall.ToolName, session.RunId, decision.Reason);
         }
 
-        if (decision.Verdict is not ToolGateVerdict.Run && session.IsRerun(toolCall.CallId))
+        // A call a person approved runs on ask: the gate holds the approval, so it is no reason to settle the call.
+        var mayRun = decision.Verdict is ToolGateVerdict.Run || (decision.Verdict is ToolGateVerdict.Ask && toolCall.Approved);
+
+        if (!mayRun && session.IsRerun(toolCall.CallId))
         {
             // A cut-off call that may no longer run is settled as interrupted by the runtime; say so in the log too.
             await session.CompleteTool(toolCall.CallId, Error("interrupted, outcome unknown"), "interrupted");
@@ -58,41 +72,67 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         }
     }
 
-    public Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken) =>
-        throw new NotSupportedException(NotAvailable);
-
-    public Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken) =>
-        throw new NotSupportedException(NotAvailable);
-
-    public async Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken)
+    public async Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken)
     {
-        var cost = Cost(usage);
-        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost);
-        var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, pricing.Currency);
-        await session.Writer.Write(
-            async services =>
-            {
-                var runs = services.GetRequiredService<RunRepository>();
-                runs.Add(new UsageRecord
-                {
-                    RunId = session.RunId,
-                    RootRunId = session.RootRunId,
-                    BotId = bot.Id,
-                    ModelConnectionId = bot.ModelConnectionId,
-                    Model = bot.Model,
-                    InputTokens = usage.InputTokens,
-                    OutputTokens = usage.OutputTokens,
-                    Cost = cost,
-                    Currency = pricing.Currency,
-                });
+        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
 
-                if (await runs.GetRunForUpdate(session.RunId, CancellationToken.None) is { } run)
-                {
-                    run.Usage = session.Usage;
-                }
-            },
-            [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
+        if (children is null || tool is not { IsDelegation: true } || request is not { ParentCallId: { } callId, BotId: not null })
+        {
+            return new ChildRun(Guid.Empty, request.AgentName) { Refusal = Error("This bot may not hand work to other bots.") };
+        }
+
+        await session.StartTool(callId);
+        var child = await children.Begin(request, tool.Tool.Id, cancellationToken);
+
+        if (child.Refusal is not null)
+        {
+            session.MarkRefused(callId);
+            logger.LogInformation("Delegation from run {RunId} refused: {Refusal}", session.RunId, child.Refusal.Result.GetRawText());
+        }
+
+        return child;
     }
+
+    public Task<ChildRunReport> RunChildRun(ChildRun child, CancellationToken cancellationToken) =>
+        children?.Execute(child, cancellationToken) ?? throw new InvalidOperationException("This run cannot run child runs.");
+
+    /// <summary>
+    /// The child's answer becomes the call's result: its last reply when it completed, what went wrong when it
+    /// failed, "cancelled" when it was stopped while this run went on. A child that waits for a person pauses this
+    /// run with it, and a child stopped because this run was stopped stops this run too. The result passes this bot's
+    /// rules on tool results, as any tool's does, before it is stored or shown.
+    /// </summary>
+    public async Task<ToolOutcome> CompleteChildRun(ChildRun child, ChildRunReport report, CancellationToken cancellationToken)
+    {
+        if (children is null)
+        {
+            throw new InvalidOperationException("This run cannot run child runs.");
+        }
+
+        var callId = children.CallOf(child);
+
+        // What a tainted child hands back carries the untrusted text it read. This run is tainted with it before
+        // anything else, so its own consequential tools ask from its next model call on, whatever the child came to.
+        if (report.Tainted)
+        {
+            await session.Taint();
+        }
+
+        await StopWithChild(child, report, callId);
+        var tool = session.FindToolByModelName(BuiltinTool.ModelName(DelegateTool.Name));
+        var request = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = DelegateTool.Name, ToolId = tool?.Tool.Id, Arguments = default };
+        var outcome = await RuleOnResult(request, ToResult(child, report), cancellationToken);
+        var toolCallId = ToolCallIds.For(session.RunId, callId);
+        await session.Writer.Append(
+            session.RunId,
+            RunEventTypes.DelegationCompleted,
+            new DelegationCompleted(toolCallId, child.RunId, child.BotId, report.Outcome.ToString().ToLowerInvariant(), session.Preview(outcome.Result)));
+        await session.CompleteTool(callId, outcome);
+        return outcome;
+    }
+
+    public Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken) =>
+        Record(new ToolModelUsage(bot.ModelConnectionId, bot.Model, pricing, usage.InputTokens, usage.OutputTokens));
 
     public JsonElement Redact(JsonElement value) => session.Redactor.Redact(value);
 
@@ -160,6 +200,40 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
         if (await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Ask } outcome)
         {
             await rules.Record(outcome, RuleCheckpoint.BeforeTool, ToolCallIds.For(session.RunId, callId));
+        }
+    }
+
+    /// <summary>True when the rules will refuse the call once it is answered: it blocks, or it stops the run.</summary>
+    public async Task<bool> RulesRefuse(string callId, string modelName, JsonElement arguments, CancellationToken cancellationToken) =>
+        session.FindToolByModelName(modelName) is { } tool
+        && await RuleFor(callId, tool, arguments, cancellationToken) is { Effect: RuleEffect.Block or RuleEffect.Stop };
+
+    /// <summary>
+    /// What the person asked about a call is shown beside its arguments, when the tool is a built-in one that says,
+    /// redacted as the arguments are. Never throws for the tool: a call whose details cannot be read still waits, with
+    /// none, and the reason is logged.
+    /// </summary>
+    public async Task<IReadOnlyList<ToolApprovalDetail>?> DescribeForApproval(
+        string callId,
+        string modelName,
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        if (session.FindToolByModelName(modelName)?.Builtin is not { DescribeForApproval: { } describe })
+        {
+            return null;
+        }
+
+        try
+        {
+            var call = new ToolCallRequest { RunId = session.RunId, CallId = callId, ToolName = modelName, Arguments = arguments };
+            var details = await describe(BuiltinCall(call, []), cancellationToken);
+            return [.. details.Select(detail => detail with { Text = session.Redactor.Redact(detail.Text) })];
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogInformation(exception, "The details of tool {ToolName} waiting in run {RunId} could not be read", modelName, session.RunId);
+            return null;
         }
     }
 
@@ -300,8 +374,14 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
         try
         {
-            var result = await builtin.Run(toolCall.Arguments, cancellationToken);
-            return new ToolOutcome(session.Redactor.Redact(result));
+            List<ToolImage> images = [];
+            var result = await builtin.Run(BuiltinCall(toolCall, images), cancellationToken);
+            return new ToolOutcome(session.Redactor.Redact(result)) { Images = images };
+        }
+        catch (BuiltinToolException refused)
+        {
+            logger.LogInformation("Tool {ToolName} could not do what was asked in run {RunId}: {Reason}", toolCall.ToolName, session.RunId, refused.Message);
+            return Error(refused.Message);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -309,6 +389,31 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
             return Error("The tool failed.");
         }
     }
+
+    /// <summary>
+    /// The call as a built-in tool sees it: its arguments, its run, and a way to stream output, to taint the run, to
+    /// attach a picture for the model's next call, and to call another model for the run within its limits.
+    /// </summary>
+    private BuiltinToolCall BuiltinCall(ToolCallRequest toolCall, List<ToolImage> images) =>
+        new(
+            toolCall.Arguments,
+            bot.Id,
+            session.RunId,
+            ToolCallIds.For(session.RunId, toolCall.CallId),
+            session.Tenant,
+            chunk => session.ToolOutput(toolCall.CallId, chunk),
+            session.Taint,
+            images.Add)
+        {
+            ModelSeesImages = modelSeesImages,
+            BeginModelCall = session.BeginToolModelCall,
+            RecordModelUsage = Record,
+            ThreadId = session.Thread.Id,
+            IsDelegated = session.RootRunId != session.RunId,
+            Redact = session.Redactor.Redact,
+            IsTainted = () => session.Tainted,
+            AnnounceMessage = session.AnnounceChangedMessage,
+        };
 
     #endregion
 
@@ -391,12 +496,104 @@ public sealed class RunGovernor(RunSession session, Bot bot, ModelPricing pricin
 
     #endregion
 
+    #region Delegation
+
+    /// <summary>
+    /// A delegation cut off by a restart or a wait is asked again, and asking again must not undo what was decided: once
+    /// its child run has begun it goes on as the same child, even when its grant is ask or this run has since been
+    /// tainted. A grant that no longer allows the call still refuses it; only asking is not repeated. (A call a person
+    /// approved never reaches this: its approval is handed over again and it comes back through the gate.)
+    /// </summary>
+    private async Task<bool> ResumesWithoutAsking(ToolCallRequest toolCall, CancellationToken cancellationToken)
+    {
+        var row = await session.Tenant.Transact(
+            services => services.GetRequiredService<ToolCallRepository>().GetToolCall(ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken),
+            cancellationToken);
+        return row is { ChildRunId: not null } && toolCall.ToolId is { } toolId && session.FindTool(toolId) is { IsDelegation: true };
+    }
+
+    /// <summary>Throws when this run must stop with its child: the child waits for a person, or this run was stopped.</summary>
+    private async Task StopWithChild(ChildRun child, ChildRunReport report, string callId)
+    {
+        if (report.Outcome is ChildRunOutcome.Waiting)
+        {
+            logger.LogInformation("Run {RunId} waits with its child run {ChildRunId}", session.RunId, child.RunId);
+            session.PauseForChild(callId);
+            throw new OperationCanceledException($"Run {session.RunId} waits for its child run {child.RunId}.");
+        }
+
+        // A child cancelled together with this run (the whole tree was asked to stop) stops this run as well, even when
+        // this run's own watch has not seen the request yet.
+        if (report.Outcome is ChildRunOutcome.Cancelled && !session.Stopped.IsCancellationRequested && await children!.IsParentCancelRequested())
+        {
+            session.CancelByUser();
+        }
+
+        if (session.Stopped.IsCancellationRequested)
+        {
+            throw new OperationCanceledException($"Run {session.RunId} was stopped while its child run {child.RunId} worked.");
+        }
+    }
+
+    private static ToolOutcome ToResult(ChildRun child, ChildRunReport report) => report.Outcome switch
+    {
+        ChildRunOutcome.Completed => new ToolOutcome(JsonSerializer.SerializeToElement(
+            string.IsNullOrWhiteSpace(report.Answer) ? $"{child.AgentName} finished without an answer." : report.Answer)),
+        ChildRunOutcome.Cancelled => new ToolOutcome(
+            JsonSerializer.SerializeToElement(new { error = $"{child.AgentName} was cancelled before it finished the task.", outcome = "cancelled" }),
+            true),
+        _ => Error($"{child.AgentName} could not finish the task: {report.Answer ?? "no reason was given."}"),
+    };
+
+    #endregion
+
     #region Private Methods
 
     private static ToolOutcome Error(string message) => new(JsonSerializer.SerializeToElement(new { error = message }), true);
 
-    private decimal Cost(ModelUsage usage) =>
-        ((usage.InputTokens * (pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (pricing.OutputPerMillion ?? 0))) / 1_000_000m;
+    /// <summary>
+    /// Records one model call against the run: the run's own, or one a tool made for it, such as reading the screen.
+    /// The record names the model that answered, so a call by another model is told apart from the bot's own.
+    /// </summary>
+    private async Task Record(ToolModelUsage usage)
+    {
+        var cost = Cost(usage);
+        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
+        var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
+        await session.Writer.Write(
+            async services =>
+            {
+                var runs = services.GetRequiredService<RunRepository>();
+                runs.Add(new UsageRecord
+                {
+                    RunId = session.RunId,
+                    RootRunId = session.RootRunId,
+                    BotId = bot.Id,
+                    ModelConnectionId = usage.ModelConnectionId,
+                    Model = usage.Model,
+                    InputTokens = usage.InputTokens,
+                    OutputTokens = usage.OutputTokens,
+                    Cost = cost,
+                    Currency = usage.Pricing.Currency,
+                });
+
+                if (await runs.GetRunForUpdate(session.RunId, CancellationToken.None) is { } run)
+                {
+                    run.Usage = session.Usage;
+                }
+            },
+            [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
+    }
+
+    /// <summary>
+    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
+    /// the price of tokens the call used: an unknown price is never counted as free.
+    /// </summary>
+    internal static decimal? Cost(ToolModelUsage usage) => usage switch
+    {
+        { InputTokens: > 0, Pricing.InputPerMillion: null } or { OutputTokens: > 0, Pricing.OutputPerMillion: null } => null,
+        _ => ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m,
+    };
 
     #endregion
 }

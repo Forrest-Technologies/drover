@@ -414,6 +414,45 @@ public abstract class AgentRuntimeConformance
 
     #endregion
 
+    #region Delegation
+
+    [Fact]
+    public async Task A_delegate_call_is_begun_run_and_completed_through_the_governor_and_its_result_is_the_tool_result()
+    {
+        var (run, botId) = await DelegatingRun();
+        var governor = new ScriptedGovernor(new ScriptedTools()) { ChildReport = _ => new ChildRunReport(ChildRunOutcome.Completed, "Done below.") };
+        var model = new ScriptedModel([DelegateCall(botId, "Do the work.")], [new TextOutput("Thanks.")]);
+
+        await Execute(model, run, governor);
+
+        // The gate decides the call like any other; the governor then begins, runs, and completes the child.
+        governor.Decided.Should().ContainSingle(call => call.ToolName == "delegate");
+        governor.Delegations.Should().ContainSingle().Which.Should().Match<DelegationRequest>(request =>
+            request.ParentRunId == run.RunId && request.ParentCallId == "d1" && request.BotId == botId && request.Task == "Do the work.");
+        governor.ChildrenRun.Should().ContainSingle();
+        governor.Completions.Should().ContainSingle().Which.Outcome.Should().Be(ChildRunOutcome.Completed);
+        model.Requests[1].Should().Contain(new SeenMessage("tool", "d1 = \"Done below.\""));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Completed);
+    }
+
+    [Fact]
+    public async Task A_refused_delegation_runs_no_child_and_the_refusal_is_the_tool_result()
+    {
+        var (run, botId) = await DelegatingRun();
+        var refusal = new ToolOutcome(JsonSerializer.SerializeToElement(new { error = "Over budget.", reason = "budget_exceeded" }), true);
+        var governor = new ScriptedGovernor(new ScriptedTools()) { DelegationRefusal = refusal, ChildReport = _ => new ChildRunReport(ChildRunOutcome.Completed) };
+        var model = new ScriptedModel([DelegateCall(botId, "Spend.")], [new TextOutput("I cannot.")]);
+
+        await Execute(model, run, governor);
+
+        governor.ChildrenRun.Should().BeEmpty();
+        governor.Completions.Should().BeEmpty();
+        model.Requests[1].Should().Contain(new SeenMessage("tool", """d1 = {"error":"Over budget.","reason":"budget_exceeded"}"""));
+        (await ReadToolCalls(run)).Should().ContainSingle(call => call.Status == ToolCallStatus.Failed);
+    }
+
+    #endregion
+
     #region Harness
 
     /// <summary>A thread with one user message, a run row, and the given tools granted, as the engine would make them.</summary>
@@ -467,6 +506,15 @@ public abstract class AgentRuntimeConformance
     #endregion
 
     #region Private Methods
+
+    private async Task<(RunExecution Run, Guid BotId)> DelegatingRun()
+    {
+        var run = await NewRun("Ask the helper", new ToolSpec("delegate", ToolSensitivity.Write));
+        return (run with { Tools = [run.Tools[0] with { IsDelegation = true }] }, Guid.CreateVersion7());
+    }
+
+    private static ToolCallOutput DelegateCall(Guid botId, string task) =>
+        new("d1", "delegate", JsonSerializer.Serialize(new { bot_id = botId, task }));
 
     private static string Summary(MessagePart part) => part switch
     {

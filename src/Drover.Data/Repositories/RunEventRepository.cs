@@ -84,6 +84,48 @@ public sealed class RunEventRepository(DroverDbContext db)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// The events of the trees under the given root runs: those with one of <paramref name="rootTypes"/> that a root
+    /// wrote itself, and those with one of <paramref name="descendantTypes"/> that a run it started, at any depth,
+    /// wrote. Each tree's oldest first, the trees in the order given.
+    /// </summary>
+    public async Task<List<RunEvent>> ListEventsOfTrees(
+        IReadOnlyList<Guid> rootRunIds,
+        IReadOnlyCollection<string> rootTypes,
+        IReadOnlyCollection<string> descendantTypes,
+        CancellationToken cancellationToken)
+    {
+        var found = await db.RunEvents.AsNoTracking()
+            .Where(stored => rootRunIds.Contains(stored.RootRunId)
+                && (stored.RunId == stored.RootRunId ? rootTypes.Contains(stored.Type) : descendantTypes.Contains(stored.Type)))
+            .ToListAsync(cancellationToken);
+        var order = rootRunIds.Select((id, index) => (id, index)).ToDictionary(root => root.id, root => root.index);
+        return [.. found.OrderBy(stored => order[stored.RootRunId]).ThenBy(stored => stored.Seq)];
+    }
+
+    /// <summary>
+    /// The events of a thread's own runs with one of <paramref name="ownTypes"/>, and those of every run below them,
+    /// at any depth, with one of <paramref name="belowTypes"/>, oldest first. For a thread a delegation made, whose
+    /// runs are children in a tree rooted elsewhere.
+    /// </summary>
+    public Task<List<RunEvent>> ListEventsBelowThread(
+        Guid threadId,
+        string[] ownTypes,
+        string[] belowTypes,
+        CancellationToken cancellationToken) =>
+        db.RunEvents.FromSql(
+                $"""
+                WITH RECURSIVE tree AS (
+                  SELECT id, true AS own FROM runs WHERE thread_id = {threadId}
+                  UNION ALL
+                  SELECT child.id, false FROM runs child JOIN tree ON child.parent_run_id = tree.id)
+                SELECT run_events.* FROM run_events JOIN tree ON run_events.run_id = tree.id
+                WHERE run_events.type = ANY(CASE WHEN tree.own THEN {ownTypes} ELSE {belowTypes} END)
+                """)
+            .AsNoTracking()
+            .OrderBy(stored => stored.Seq)
+            .ToListAsync(cancellationToken);
+
     /// <summary>The newest event of one run with one of the given types, or null.</summary>
     public Task<RunEvent?> FindLastEvent(Guid runId, IReadOnlyCollection<string> types, CancellationToken cancellationToken) =>
         db.RunEvents.AsNoTracking()

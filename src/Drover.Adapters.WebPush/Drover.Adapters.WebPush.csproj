@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Net.Http.WebPush" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
+  </ItemGroup>
+</Project>

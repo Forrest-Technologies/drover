@@ -11,6 +11,15 @@ public sealed record RunTool(Tool Tool, GrantEffect Effect, string ModelName, Bu
 {
     /// <summary>Drover knows this tool only reads: it is built in and marked so. A server's word for it is not enough.</summary>
     public bool IsKnownToOnlyRead => Builtin is not null && Tool.Sensitivity is ToolSensitivity.Read;
+
+    /// <summary>The built-in <c>delegate</c> tool, whose calls run a bot beneath this one as a child run.</summary>
+    public bool IsDelegation => Builtin is not null && Builtin.Name == DelegateTool.Name;
+
+    /// <summary>
+    /// A call cut off by a restart is asked again: it only reads, it resolves to the same child run, or Drover knows
+    /// running it twice does what running it once did.
+    /// </summary>
+    public bool MayRunAgain => IsKnownToOnlyRead || IsDelegation || Builtin is { IsIdempotent: true };
 }
 
 /// <summary>
@@ -36,7 +45,8 @@ public sealed class RunSession(
     TimeProvider time,
     int stepsSoFar,
     IReadOnlyList<Guid> alreadyDelivered,
-    bool escalateWhenTainted = true) : IAsyncDisposable
+    bool escalateWhenTainted = true,
+    RunSession? parent = null) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -56,7 +66,12 @@ public sealed class RunSession(
 
     private readonly HashSet<Guid> delivered = [.. alreadyDelivered];
 
+    private readonly ConcurrentDictionary<string, bool> waitingOnChildren = new(StringComparer.Ordinal);
+
     private int step = stepsSoFar;
+
+    /// <summary>Model calls tools made for this execution, such as reading the screen. They count against the step limit.</summary>
+    private int toolModelCalls;
 
     private StepChanged? openStep;
 
@@ -78,8 +93,27 @@ public sealed class RunSession(
 
     public int Attempt => run.Attempt;
 
-    /// <summary>This execution's claim. Every write it makes is checked against it.</summary>
-    public RunFence Fence { get; } = new(workerId, run.Attempt);
+    /// <summary>
+    /// This execution's claim. Every write it makes is checked against it. A child run has no claim of its own: the
+    /// root's lease covers the tree, so a child's writes are checked against the root's claim.
+    /// </summary>
+    public RunFence Fence { get; } = parent?.Fence ?? new(workerId, run.Attempt);
+
+    /// <summary>The run whose lease covers this one: the run itself for a root, the tree's root for a child.</summary>
+    public Guid LeaseRunId => parent is null ? run.Id : run.RootRunId;
+
+    /// <summary>The session of the run that delegated to this one, executing in the same worker. Null for a root.</summary>
+    public RunSession? Parent => parent;
+
+    public Guid? ParentToolCallId => run.ParentToolCallId;
+
+    public int Depth => run.Depth;
+
+    /// <summary>A delegation beneath this run waits for a person, so this run stops here and waits with it.</summary>
+    public bool PausedForChild { get; private set; }
+
+    /// <summary>The run asked a person to take over its bot's screen in this execution, so it waits for them there.</summary>
+    public bool WaitsForAPersonAtTheScreen { get; private set; }
 
     public ChatThread Thread => thread;
 
@@ -162,6 +196,29 @@ public sealed class RunSession(
                 _ => true,
             }));
 
+    /// <summary>
+    /// A child run of this one waits for a person. This run stops where it is and waits too: its call to the child
+    /// stays open, and is asked again when the answer arrives, which takes it to the same child run.
+    /// </summary>
+    public void PauseForChild(string callId)
+    {
+        waitingOnChildren[callId] = true;
+        PausedForChild = true;
+        Stop();
+    }
+
+    /// <summary>
+    /// The model asked for a call that waits for a person. When it is the call that asks a person to take over the
+    /// screen, the run waits with the screen held, so no bot that shares it acts there until it is handed back.
+    /// </summary>
+    public void NoteWaitFor(string modelName)
+    {
+        if (FindToolByModelName(modelName)?.Builtin?.Name is ComputerTools.HandoverName)
+        {
+            WaitsForAPersonAtTheScreen = true;
+        }
+    }
+
     public void CancelByUser()
     {
         CancelledByUser = true;
@@ -186,7 +243,7 @@ public sealed class RunSession(
     {
         await AnnounceStoredMessage();
 
-        if (step >= options.StepLimit)
+        if (step + Volatile.Read(ref toolModelCalls) >= options.StepLimit)
         {
             throw new RunLimitException(
                 RunReasons.StepLimit,
@@ -201,6 +258,21 @@ public sealed class RunSession(
     }
 
     /// <summary>
+    /// A tool is about to call a model for this run, as the screen reader does. The call counts against the same limit
+    /// as the run's own model calls, and is refused in words once the run has made as many as it may.
+    /// </summary>
+    public Task BeginToolModelCall()
+    {
+        if (step + Interlocked.Increment(ref toolModelCalls) > options.StepLimit)
+        {
+            Interlocked.Decrement(ref toolModelCalls);
+            throw new BuiltinToolException($"This run has made {options.StepLimit} model calls, the most one run may make, so no other model is called for it.");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// The model call finished. Its message is stored a moment later, and announced when it is. The runtime stores
     /// that message itself, so the claim is checked first: an execution whose run was taken over stops here and
     /// stores nothing.
@@ -208,7 +280,7 @@ public sealed class RunSession(
     public async Task EndStep()
     {
         var lease = await tenant.Transact(
-            services => services.GetRequiredService<RunRepository>().ReadLease(RunId, Fence, CancellationToken.None),
+            services => services.GetRequiredService<RunRepository>().ReadLease(LeaseRunId, Fence, CancellationToken.None),
             CancellationToken.None);
 
         if (!lease.Held)
@@ -255,8 +327,26 @@ public sealed class RunSession(
             // Messages that steered the call were stored just before its reply, so they are announced before it.
             var closed = stored is null
                 ? RunEventWriter.Event(RunId, RunEventTypes.StepDiscarded, pending)
-                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()));
+                : RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse(runPrincipalUserId: Tenant.UserId)));
             await writer.Write(null, [.. Delivered(taken), closed]);
+        }
+        finally
+        {
+            announcing.Release();
+        }
+    }
+
+    /// <summary>
+    /// <c>message.completed</c> again for a reply a tool changed after it was announced, as stored now: a file the bot
+    /// shared is added to the reply that asked for it. A client replaces the message it holds by id.
+    /// </summary>
+    public async Task AnnounceChangedMessage(Message stored)
+    {
+        await announcing.WaitAsync();
+
+        try
+        {
+            await writer.Write(null, [RunEventWriter.Event(RunId, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse(runPrincipalUserId: Tenant.UserId)))]);
         }
         finally
         {
@@ -280,13 +370,18 @@ public sealed class RunSession(
     #region Taint
 
     /// <summary>
-    /// What the bot may do with the tool right now. In a tainted run, "allow" on a tool that can change something
-    /// behaves as "ask": text from an untrusted source must not lead to an unattended action.
+    /// What the bot may do with the tool right now. "Allow" on a built-in tool that always asks behaves as "ask", and
+    /// so, in a tainted run, does "allow" on a tool that can change something: text from an untrusted source must not
+    /// lead to an unattended action.
     /// </summary>
     public GrantEffect EffectNow(RunTool tool, GrantEffect granted) =>
-        granted is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
+        AsTheToolAllows(tool, granted) is GrantEffect.Allow && Tainted && escalateWhenTainted && tool.Tool.Sensitivity is not ToolSensitivity.Read
             ? GrantEffect.Ask
-            : granted;
+            : AsTheToolAllows(tool, granted);
+
+    /// <summary>The grant as the tool itself lets it count: a built-in tool that always asks never runs on allow alone.</summary>
+    private static GrantEffect AsTheToolAllows(RunTool tool, GrantEffect granted) =>
+        granted is GrantEffect.Allow && tool.Builtin is { AlwaysAsks: true } ? GrantEffect.Ask : granted;
 
     /// <summary>
     /// True when the run became tainted after its agent was built and the agent holds a tool that must now ask. The
@@ -334,6 +429,9 @@ public sealed class RunSession(
 
     public bool IsRerun(string callId) => reruns.ContainsKey(ToolCallIds.For(RunId, callId));
 
+    /// <summary>A cut-off call that is to be asked again and has not started again in this execution yet.</summary>
+    public bool AwaitsRerun(string callId) => IsRerun(callId) && Call(callId).StartedAt is null;
+
     /// <summary>A call the log already holds <c>tool.requested</c> for, from an earlier execution.</summary>
     /// <summary>Counts a call the model has written, before anything else is known about it.</summary>
     public void NoteCall(string callId) => Call(callId);
@@ -362,13 +460,28 @@ public sealed class RunSession(
                 tool?.Tool.Name ?? modelName,
                 tool?.Tool.Title ?? tool?.Tool.Name ?? modelName,
                 redactor.Redact(arguments).GetRawText(),
-                (tool?.Effect ?? GrantEffect.Deny).ToString().ToLowerInvariant()));
+                (tool is null ? GrantEffect.Deny : AsTheToolAllows(tool, tool.Effect)).ToString().ToLowerInvariant()));
     }
 
     public async Task StartTool(string callId)
     {
         Call(callId).StartedAt = time.GetTimestamp();
         await writer.Append(RunId, RunEventTypes.ToolStarted, new ToolStarted(ToolCallIds.For(RunId, callId)));
+    }
+
+    /// <summary>
+    /// Streams a piece of a running tool's output into the log as <c>tool.output</c>, redacted. A call streams at most
+    /// <see cref="RunOptions.MaxToolOutputCharacters"/>; past that the log says once that the rest is left out.
+    /// </summary>
+    public async Task ToolOutput(string callId, ToolOutputChunk chunk)
+    {
+        var call = Call(callId);
+        var text = call.TakeOutput(redactor.Redact(chunk.Text), options.MaxToolOutputCharacters);
+
+        if (text.Length > 0)
+        {
+            await writer.Output(RunId, ToolCallIds.For(RunId, callId), chunk.Stream, text);
+        }
     }
 
     /// <summary>Emits <c>tool.completed</c> once for a call, whichever of the engine or the runtime reports it first.</summary>
@@ -430,6 +543,12 @@ public sealed class RunSession(
 
         foreach (var (callId, call) in calls)
         {
+            // A delegation whose child waits for a person is not over: it is asked again when the answer arrives.
+            if (waitingOnChildren.ContainsKey(callId))
+            {
+                continue;
+            }
+
             if (call.StartedAt is not null && call.TryMarkCompleted())
             {
                 closing.Add(RunEventWriter.Event(
@@ -464,6 +583,10 @@ public sealed class RunSession(
 
         private int completed;
 
+        private int outputLeft = -1;
+
+        private readonly Lock outputLock = new();
+
         #endregion
 
         #region Properties
@@ -480,6 +603,33 @@ public sealed class RunSession(
         public bool TryMarkRequested() => Interlocked.Exchange(ref requested, 1) == 0;
 
         public bool TryMarkCompleted() => Interlocked.Exchange(ref completed, 1) == 0;
+
+        /// <summary>The part of <paramref name="text"/> the call may still stream, with a note in place of what is cut.</summary>
+        public string TakeOutput(string text, int limit)
+        {
+            lock (outputLock)
+            {
+                if (outputLeft < 0)
+                {
+                    outputLeft = limit;
+                }
+
+                if (outputLeft == 0)
+                {
+                    return string.Empty;
+                }
+
+                if (text.Length < outputLeft)
+                {
+                    outputLeft -= text.Length;
+                    return text;
+                }
+
+                var kept = text[..outputLeft];
+                outputLeft = 0;
+                return $"{kept}\n[The rest of the output is not shown here: a call shows at most {limit} characters.]\n";
+            }
+        }
 
         #endregion
     }

@@ -51,7 +51,27 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         messages[3].Parts.Should().ContainSingle(part => part.Kind == "text" && part.Text == "It is noon.");
         threads.Should().ContainSingle().Which.Should().Match<ThreadSummary>(found =>
             found.Id == thread.Id && found.Title == "What time is it?" && !found.IsShared && found.ActiveRunId == null);
-        model!.ToolsOffered[0].Should().Equal("time_now");
+        model!.ToolsOffered[0].Should().BeEquivalentTo(["time_now", "crew_list", "crew_add", "crew_change", "crew_remove"], "a new bot at the top starts with these");
+    }
+
+    [Fact]
+    public async Task The_longest_message_fits_the_request_limit_even_when_every_character_is_escaped()
+    {
+        script = new ScriptedModel([new TextOutput("Read it.")]);
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var thread = await PostFor<ThreadSummary>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest(null), HttpStatusCode.Created);
+
+        // The serializer writes '<' as six bytes, the most any character costs.
+        var text = new string('<', RunService.MaxMessageLength);
+        var body = JsonSerializer.SerializeToUtf8Bytes(new SendMessageRequest(text));
+        var content = new ByteArrayContent(body);
+        content.Headers.ContentType = new("application/json");
+        var sent = await client.PostContent($"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", content);
+
+        body.Length.Should().BeGreaterThan(500_000);
+        sent.StatusCode.Should().Be(HttpStatusCode.Accepted, await sent.Content.ReadAsStringAsync(Token));
     }
 
     [Fact]
@@ -227,6 +247,60 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         outsiderOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound, "a run id from another space finds nothing in one's own");
         outsiderCancel.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await GetFor<List<MessageResponse>>(asOwner, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages")).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_threads_tool_events_come_back_redacted_run_by_run_and_only_to_those_who_can_read_the_thread()
+    {
+        // A key-shaped value made up for this test; the redactor knows the shape.
+        var key = $"ghp_{Convert.ToHexString(RandomNumberGenerator.GetBytes(20))}";
+        script = new ScriptedModel(
+            [new ToolCallOutput("c1", "time_now", $$"""{"time_zone":"{{key}}"}""")],
+            [new TextOutput("Done.")],
+            [new ToolCallOutput("c2", "time_now")],
+            [new TextOutput("Noon.")]);
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var admin = await SeedMember(alice.SpaceId, "admin", MembershipRole.Admin);
+        var outsider = await SeedPerson("outsider");
+        var asOwner = await SignIn(alice);
+        var asMember = NewClient();
+        await asMember.SignIn(member.Email, member.Password);
+        var asAdmin = NewClient();
+        await asAdmin.SignIn(admin.Email, admin.Password);
+        var asOutsider = await SignIn(outsider);
+        var bot = await CreateBot(asOwner, alice.SpaceId);
+        var thread = await PostFor<ThreadSummary>(asOwner, $"{Space(alice.SpaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest(null), HttpStatusCode.Created);
+        var first = await PostFor<SendMessageResponse>(asOwner, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("Which zone?"), HttpStatusCode.Accepted);
+        await WaitForRun(asOwner, alice.SpaceId, first.Run.Id, "completed", "failed");
+        var second = await PostFor<SendMessageResponse>(asOwner, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages", new SendMessageRequest("And now?"), HttpStatusCode.Accepted);
+        await WaitForRun(asOwner, alice.SpaceId, second.Run.Id, "completed", "failed");
+        var path = $"{Space(alice.SpaceId)}/threads/{thread.Id}/tool-events";
+
+        var response = await asOwner.Get(path);
+        var body = await response.Content.ReadAsStringAsync(Token);
+        var events = (await response.Content.ReadFromJsonAsync<List<RunEventResponse>>(Token))!;
+        var requested = events.Where(found => found.Type == RunEventTypes.ToolRequested).Select(RunEventTypes.Read<ToolRequested>).ToList();
+        var completed = events.Where(found => found.Type == RunEventTypes.ToolCompleted).Select(RunEventTypes.Read<ToolCompleted>).ToList();
+        var calls = (await GetFor<List<MessageResponse>>(asOwner, $"{Space(alice.SpaceId)}/threads/{thread.Id}/messages"))
+            .SelectMany(message => message.Parts).Where(part => part.Kind == "tool_call").Select(part => part.ToolCallId!.Value).ToList();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        events.Select(found => found.RunId).Distinct().Should().Equal(first.Run.Id, second.Run.Id);
+        events.Should().OnlyContain(found => found.Type.StartsWith("tool.", StringComparison.Ordinal), "only what the tool cards are built from");
+        events.Where(found => found.RunId == first.Run.Id).Select(found => found.Type)
+            .Should().Equal(RunEventTypes.ToolRequested, RunEventTypes.ToolStarted, RunEventTypes.ToolCompleted);
+        events.GroupBy(found => found.RunId).Should().OnlyContain(run => run.Select(found => found.Seq).SequenceEqual(run.Select(found => found.Seq).Order()));
+        requested.Select(call => call.ToolCallId).Should().Equal(calls, "each card is found by the id of the call part in the messages");
+        requested.Should().OnlyContain(call => call.ToolName == "time.now");
+        requested[0].Arguments.Should().Contain(Redactor.Mark);
+        completed[0].Preview.Should().Contain(Redactor.Mark);
+        body.Should().NotContain(key, "arguments and results were stored redacted, and are returned as stored");
+        (await asMember.Get(path)).StatusCode.Should().Be(HttpStatusCode.NotFound, "a member cannot read another member's private thread");
+        (await asAdmin.Get(path)).StatusCode.Should().Be(HttpStatusCode.NotFound, "nor can an admin: reading tool events is reading the thread");
+        (await asOutsider.Get(path)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asOutsider.Get($"{Space(outsider.SpaceId)}/threads/{thread.Id}/tool-events")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asOwner.Get($"{Space(alice.SpaceId)}/threads/{Guid.CreateVersion7()}/tool-events")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     #endregion

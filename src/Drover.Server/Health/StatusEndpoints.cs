@@ -59,6 +59,20 @@ public static class StatusEndpoints
             : Row(Server, "Database", Warning, $"Connected as {role.Name}, not {DatabaseRole.Application}.");
     }
 
+    /// <summary>
+    /// Whether this server's scheduler is sending due schedules: it looks every half minute, so a last look more than
+    /// three passes ago means it has stopped.
+    /// </summary>
+    public static StatusRow Scheduler(DateTimeOffset? lastPassAt, DateTimeOffset now) =>
+        lastPassAt switch
+        {
+            null => Row(Server, "Scheduler", Warning, "Has not looked for due schedules since the server started. If this stays, check the server log."),
+            { } last when now - last <= ScheduleRunner.Interval * 3 =>
+                Row(Server, "Scheduler", Ok, "Working. Schedules that come due are sent within a minute.", last),
+            { } last => Row(Server, "Scheduler", Problem,
+                $"Last looked for due schedules {Math.Max(1, (int)(now - last).TotalMinutes)} minutes ago, so schedules are not being sent. Check the server log.", last),
+        };
+
     #endregion
 
     #region Endpoints
@@ -69,6 +83,10 @@ public static class StatusEndpoints
         IOptions<DatabaseOptions> database,
         IOptions<ToolSignInOptions> signIn,
         KeyRingLocation keyRing,
+        SandboxAvailability sandboxes,
+        ScheduleRunner scheduler,
+        TimeProvider time,
+        PushAvailability push,
         ILoggerFactory loggers)
     {
         var logger = loggers.CreateLogger(typeof(StatusEndpoints).FullName!);
@@ -79,10 +97,13 @@ public static class StatusEndpoints
         {
             var server = await status.ReadServer(cancellationToken);
             rows.Add(await CheckDatabase(database.Value.ConnectionString, logger, cancellationToken));
-            rows.Add(Migrations(server));
+            rows.Add(Migrations(server.Migrations));
             rows.Add(KeyRing(keyRing.Path, logger));
             rows.Add(PublicUrl(signIn.Value.PublicUrl));
             rows.Add(Workload(server.Workload));
+            rows.Add(Scheduler(scheduler.LastPassAt, time.GetUtcNow()));
+            rows.Add(Sandboxes(sandboxes));
+            rows.Add(Notifications(push));
         }
 
         var space = await status.ReadSpace(cancellationToken);
@@ -95,13 +116,15 @@ public static class StatusEndpoints
 
     #region Rows
 
-    private static StatusRow Migrations(ServerReadings server) =>
-        server.AppliedMigration switch
+    private static StatusRow Migrations(MigrationState migrations) =>
+        migrations.Verdict switch
         {
-            null => Row(Server, "Migrations", Problem, "No migration is applied. Run the database initialization; docker compose up does it."),
-            var applied when applied == server.NewestKnownMigration => Row(Server, "Migrations", Ok, $"Up to date at {applied}."),
-            var applied => Row(Server, "Migrations", Problem,
-                $"The database is at {applied} and this build expects {server.NewestKnownMigration}. Run the database initialization; docker compose up does it."),
+            MigrationVerdict.UpToDate => Row(Server, "Migrations", Ok, $"Up to date at {migrations.Applied}."),
+            MigrationVerdict.NoneApplied => Row(Server, "Migrations", Problem, $"No migration is applied. {MigrationAdvice.Initialize}"),
+            MigrationVerdict.Ahead => Row(Server, "Migrations", Problem,
+                $"The database is at {migrations.Applied}, newer than the {migrations.Newest} this build carries. {MigrationAdvice.Ahead}"),
+            _ => Row(Server, "Migrations", Problem,
+                $"The database is at {migrations.Applied} and this build expects {migrations.Newest}. {MigrationAdvice.Initialize}"),
         };
 
     private static StatusRow KeyRing(string path, ILogger logger)
@@ -137,12 +160,24 @@ public static class StatusEndpoints
             _ => Row(Server, "Public address", Ok, $"People open Drover at {address.GetLeftPart(UriPartial.Authority)}."),
         };
 
+    private static StatusRow Notifications(PushAvailability push) =>
+        push.Problem is { } problem
+            ? Row(Server, "Notifications", problem == PushAvailability.NoAddress ? Warning : Problem, problem)
+            : Row(Server, "Notifications", Ok,
+                "On. Browsers and installed web apps can be woken. Its key is kept with the key ring; back them up together.");
+
     private static StatusRow Workload(RunWorkload workload) =>
         workload.ExpiredLeases > 0
             ? Row(Server, "Background work", Warning,
                 $"{workload.ExpiredLeases} running {Runs(workload.ExpiredLeases)} lost {(workload.ExpiredLeases == 1 ? "its" : "their")} worker and will be picked up again.")
             : Row(Server, "Background work", Ok,
                 $"{workload.QueuedRuns} queued, {workload.RunningRuns} running, {workload.WaitingRuns} waiting for an answer.");
+
+    /// <summary>Whether bots can have sandboxes here. Only that: never which provider, and never anything of its key.</summary>
+    private static StatusRow Sandboxes(SandboxAvailability sandboxes) =>
+        sandboxes.IsConfigured
+            ? Row(Server, "Sandboxes", Ok, "Configured. Bots given a sandbox can run code in it.")
+            : Row(Server, "Sandboxes", Off, "Not configured. Bots cannot run code until the operator sets a sandbox provider key.");
 
     private static StatusRow ModelRow(ModelConnection connection) =>
         connection.Status switch

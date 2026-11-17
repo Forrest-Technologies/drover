@@ -1,0 +1,87 @@
+@inject DroverApi Api
+@inject SessionState Session
+@inject ToastService Toasts
+@inject ILogger<BotNotifyMenu> Logger
+
+@if (ChildContent is not null || notifies is not null)
+{
+    <Menu Label="More" AriaLabel="@($"More about {Bot.Name}")"
+          TriggerIcon="@(ChildContent is not null ? IconName.More : null)" ShowTriggerLabel="@(ChildContent is null)">
+        @ChildContent
+        @if (notifies is { } on)
+        {
+            <MenuItem OnSelect="() => Set(!on)">@(on ? $"Stop notifying me about {Bot.Name}" : $"Notify me about {Bot.Name}")</MenuItem>
+        }
+    </Menu>
+}
+
+@code {
+    #region Private Fields
+
+    private bool? notifies;
+
+    private bool loaded;
+
+    private bool asking;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public BotSummary Bot { get; set; } = null!;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loaded || asking || Session.Space is not { } space)
+        {
+            return;
+        }
+
+        asking = true;
+
+        try
+        {
+            notifies = (await Api.GetBotNotify(space.Id, Bot.Id)).Notifies;
+            loaded = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotNotifyMenu));
+        }
+        finally
+        {
+            asking = false;
+        }
+    }
+
+    private async Task Set(bool on)
+    {
+        if (Session.Space is not { } space)
+        {
+            return;
+        }
+
+        try
+        {
+            notifies = (await Api.SetBotNotify(space.Id, Bot.Id, on)).Notifies;
+            Toasts.Show(
+                on ? $"{Bot.Name} can notify you on devices where notifications are on." : $"{Bot.Name} will not notify you.",
+                ToastKind.Success);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotNotifyMenu));
+            Toasts.Show($"The choice was not saved. {Failures.Sentence(exception)}", ToastKind.Error);
+        }
+    }
+
+    #endregion
+}

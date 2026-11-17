@@ -20,7 +20,7 @@ public static class SecurityServiceExtensions
     public static IServiceCollection AddDroverSecurity(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<SignInRateLimitOptions>(configuration.GetSection("Drover:SignInRateLimit"));
-        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(ConfigureSessionCookie);
+        services.AddAuthentication(NativeBearer.SelectForApi).AddCookie(ConfigureSessionCookie).AddNativeBearer();
         services.AddAuthorization();
         services.TryAddSingleton(TimeProvider.System);
         services.AddAntiforgery(ConfigureAntiforgery);
@@ -30,6 +30,7 @@ public static class SecurityServiceExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.AddPolicy(SignInRateLimit, PartitionByAddress);
+            options.AddPolicy(PushTestRateLimit, context => Partition(context, 5, TimeSpan.FromMinutes(1)));
         });
         return services;
     }
@@ -39,6 +40,8 @@ public static class SecurityServiceExtensions
     #region Constants
 
     public const string SignInRateLimit = "sign-in";
+
+    public const string PushTestRateLimit = "push-test";
 
     public const string AntiforgeryHeader = "X-XSRF-TOKEN";
 
@@ -56,7 +59,7 @@ public static class SecurityServiceExtensions
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.Path = "/";
         options.SlidingExpiration = true;
-        options.ExpireTimeSpan = TimeSpan.FromDays(14);
+        options.ExpireTimeSpan = SessionService.IdleLimit;
 
         // An API answers with a status code, never a redirect to a sign-in page.
         options.Events.OnValidatePrincipal = SessionStamp.Validate;
@@ -81,15 +84,13 @@ public static class SecurityServiceExtensions
     private static RateLimitPartition<string> PartitionByAddress(HttpContext context)
     {
         var limits = context.RequestServices.GetRequiredService<IOptions<SignInRateLimitOptions>>().Value;
-        return RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = limits.PermitLimit,
-                Window = limits.Window,
-                QueueLimit = 0,
-            });
+        return Partition(context, limits.PermitLimit, limits.Window);
     }
+
+    private static RateLimitPartition<string> Partition(HttpContext context, int permits, TimeSpan window) =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = permits, Window = window, QueueLimit = 0 });
 
     private static Task Refuse(HttpResponse response, int statusCode)
     {

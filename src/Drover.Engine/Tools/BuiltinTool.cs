@@ -3,7 +3,8 @@ namespace Drover.Engine.Tools;
 /// <summary>
 /// A tool the server itself implements. Each one is a row in every space's catalog, so it is off until granted and
 /// obeys the grant rules like any other tool. <see cref="Name"/> is the catalog name; the model sees it with dots
-/// replaced, because model providers do not accept a dot in a function name.
+/// replaced, because model providers do not accept a dot in a function name. A failure the model should read is a
+/// <see cref="BuiltinToolException"/>; any other exception reaches the model as "the tool failed" and is logged.
 /// </summary>
 public sealed record BuiltinTool(
     string Name,
@@ -11,9 +12,28 @@ public sealed record BuiltinTool(
     string Description,
     JsonElement InputSchema,
     ToolSensitivity Sensitivity,
-    Func<JsonElement, CancellationToken, Task<JsonElement>> Run)
+    Func<BuiltinToolCall, CancellationToken, Task<JsonElement>> Run)
 {
     #region Properties
+
+    /// <summary>
+    /// The tool waits for a person before every use, on every server, whatever its grant says: the tool gate treats
+    /// allow as ask, when the agent is built and again when the call is made. A property of the tool, not of a grant,
+    /// so no grant, editor, or client can take it away.
+    /// </summary>
+    public bool AlwaysAsks { get; init; }
+
+    /// <summary>
+    /// Running a call twice has the same effect as running it once, so a call cut off by a restart may run again,
+    /// though the tool changes something. A call a person approved runs again without asking again.
+    /// </summary>
+    public bool IsIdempotent { get; init; }
+
+    /// <summary>
+    /// What a person asked to approve a call should also see that the call's arguments do not say, read on the server
+    /// when the call starts to wait. It must only read. Null for a tool that adds nothing.
+    /// </summary>
+    public Func<BuiltinToolCall, CancellationToken, Task<IReadOnlyList<ToolApprovalDetail>>>? DescribeForApproval { get; init; }
 
     /// <summary>A hash of what the model is told about the tool. A change to it is a change to the definition.</summary>
     public string DefinitionHash { get; } = Convert.ToHexString(

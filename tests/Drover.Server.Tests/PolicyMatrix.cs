@@ -7,6 +7,12 @@ public sealed record PolicyMatrixRow(string Rule, string SelfHosted, string Host
 }
 
 /// <summary>
+/// Settings the server refuses to start with together, though each is allowed alone. <see cref="Names"/> are the
+/// settings the refusal must name, so the operator knows what to change.
+/// </summary>
+public sealed record PolicyRefusalRow(string Preset, IReadOnlyDictionary<string, string> Rules, IReadOnlyList<string> Names);
+
+/// <summary>
 /// The table the matrix tests run from. Adding a property to <see cref="DeploymentPolicy"/> without a row here
 /// fails <c>Every_rule_of_the_policy_has_a_row_in_the_matrix</c>, so no rule ships without a stated value for
 /// both presets and a test that starts the server under each.
@@ -27,6 +33,21 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxToolSignInRenewalPassesPerHour), "12", "12"),
         new(nameof(DeploymentPolicy.MaxToolSignInRenewalLeadMinutes), "15", "15"),
         new(nameof(DeploymentPolicy.SandboxAdapters), "All", "HardBoundaryOnly"),
+        new(nameof(DeploymentPolicy.MaxSandboxCommandSeconds), "3600", "600"),
+        new(nameof(DeploymentPolicy.MaxSandboxFileBytes), "52428800", "10485760"),
+        new(nameof(DeploymentPolicy.MaxSandboxIdleMinutes), "60", "15"),
+        new(nameof(DeploymentPolicy.AllowOpenSandboxNetwork), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowDesktopSandboxes), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowBotsBuildingBots), "true", "true"),
+        new(nameof(DeploymentPolicy.MaxBotsPerSpace), "1000", "100"),
+        new(nameof(DeploymentPolicy.MinScheduleIntervalMinutes), "1", "15"),
+        new(nameof(DeploymentPolicy.MaxSchedulesPerSpace), "1000", "100"),
+        new(nameof(DeploymentPolicy.MaxFileBytes), "26214400", "10485760"),
+        new(nameof(DeploymentPolicy.MaxFilesPerMessage), "10", "5"),
+        new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
+        new(nameof(DeploymentPolicy.MaxDelegationDepth), "5", "5"),
+        new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "50", "50"),
+        new(nameof(DeploymentPolicy.MaxDelegationTreeCostCents), "10000", "1000"),
         new(nameof(DeploymentPolicy.AllowHostStdioMcp), "false", "false"),
         new(nameof(DeploymentPolicy.SubscriptionSignIn), "WhereProviderPermits", "OnlyWithOperatorApproval"),
         new(nameof(DeploymentPolicy.ModelProviders), "All", "OperatorList"),
@@ -44,6 +65,26 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowTelemetryContent), "false", "false"),
         new(nameof(DeploymentPolicy.AllowOperatorContentAccess), "false", "false"),
         new(nameof(DeploymentPolicy.SpaceAdminsSeeServerStatus), "true", "false"),
+        new(nameof(DeploymentPolicy.AllowWrittenRulePatterns), "false", "false"),
+        new(nameof(DeploymentPolicy.AllowConversationSummaries), "true", "true"),
+        new(nameof(DeploymentPolicy.MaxConversationSummarySeconds), "120", "60"),
+        new(nameof(DeploymentPolicy.MaxMemoryNoteCharacters), "1000", "500"),
+        new(nameof(DeploymentPolicy.MaxMemoryCharactersPerPerson), "20000", "8000"),
+    ];
+
+    /// <summary>
+    /// Combinations a server refuses at start. <c>PolicyStartupTests</c> starts the server with each and checks the
+    /// refusal names every setting in the row.
+    /// </summary>
+    public static IReadOnlyList<PolicyRefusalRow> Refusals { get; } =
+    [
+        new(
+            DeploymentPolicy.SelfHostedName,
+            new Dictionary<string, string> { [nameof(DeploymentPolicy.OpenRegistration)] = "true" },
+            [
+                $"Drover:Policy:Rules:{nameof(DeploymentPolicy.OpenRegistration)}",
+                $"Drover:Policy:Rules:{nameof(DeploymentPolicy.AllowPrivateAddresses)}",
+            ]),
     ];
 
     #endregion

@@ -32,6 +32,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
 
     protected string AppConnectionString => database.AppConnectionString;
 
+    /// <summary>The superuser connection, for a test that changes the database itself.</summary>
+    protected string AdminConnectionString => database.AdminConnectionString;
+
     protected static CancellationToken Token => TestContext.Current.CancellationToken;
 
     /// <summary>Configuration for the server under test. The sign-in rate limit is out of the way unless a test asks.</summary>
@@ -83,9 +86,9 @@ public abstract class ServerTestBase(PostgresServer postgres) : IAsyncLifetime
         await factory.DisposeAsync();
         await database.DisposeAsync();
 
-        if (Directory.Exists(keyRing))
+        foreach (var folder in new[] { keyRing, DroverFactory.FilesPath(keyRing) }.Where(Directory.Exists))
         {
-            Directory.Delete(keyRing, recursive: true);
+            Directory.Delete(folder, recursive: true);
         }
 
         GC.SuppressFinalize(this);

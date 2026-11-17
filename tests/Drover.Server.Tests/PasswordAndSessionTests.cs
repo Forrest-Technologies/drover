@@ -1,0 +1,576 @@
+namespace Drover.Server.Tests;
+
+public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Properties
+
+    /// <summary>This test reads the SQL the server ran from the log, so it turns the command category back up.</summary>
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Information",
+    };
+
+    #endregion
+
+    #region Sign-Out
+
+    [Fact]
+    public async Task A_copied_session_cookie_gets_401_once_its_owner_signs_out()
+    {
+        var person = await SeedPerson("alice");
+        var owner = NewClient();
+        await owner.SignIn(person.Email, person.Password);
+        var thief = NewClient();
+        thief.TakeCookiesOf(owner);
+        (await thief.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await owner.Post("/api/sign-out")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await thief.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await thief.Post("/api/account/password", new ChangePasswordRequest(person.Password, NewPassword())))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Signing_out_ends_only_that_session()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        var phone = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        await phone.SignIn(person.Email, person.Password);
+
+        await laptop.Post("/api/sign-out");
+
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await phone.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    #endregion
+
+    #region Changing The Password
+
+    [Fact]
+    public async Task Changing_the_password_ends_every_other_session_and_keeps_this_one()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        var phone = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        await phone.SignIn(person.Email, person.Password);
+        var replacement = NewPassword();
+
+        var changed = await laptop.Post("/api/account/password", new ChangePasswordRequest(person.Password, replacement));
+
+        changed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await phone.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+        Time.Advance(TimeSpan.FromMinutes(6));
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await NewClient().SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_wrong_current_password_changes_nothing()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        var phone = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        await phone.SignIn(person.Email, person.Password);
+
+        var refused = await laptop.Post("/api/account/password", new ChangePasswordRequest("not-the-password-1", NewPassword()));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await phone.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_new_password_that_is_too_short_is_refused_with_the_reason()
+    {
+        var person = await SeedPerson("alice");
+        var client = NewClient();
+        await client.SignIn(person.Email, person.Password);
+
+        var refused = await client.Post("/api/account/password", new ChangePasswordRequest(person.Password, "short"));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Token)).Should().Contain("12");
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Changing_the_password_needs_a_session_and_the_antiforgery_token()
+    {
+        var person = await SeedPerson("alice");
+        var stranger = NewClient();
+        var client = NewClient();
+        await client.SignIn(person.Email, person.Password);
+
+        var anonymous = await stranger.Post("/api/account/password", new ChangePasswordRequest(person.Password, NewPassword()));
+        var withoutToken = await client.PostWithoutToken(
+            "/api/account/password",
+            new ChangePasswordRequest(person.Password, NewPassword()));
+
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        withoutToken.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    #endregion
+
+    #region Reset By The Operator
+
+    [Fact]
+    public async Task A_reset_code_from_the_log_sets_a_new_password_and_ends_every_session()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        var code = await IssueResetCode(person.Email);
+        var replacement = NewPassword();
+
+        var reset = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement));
+
+        reset.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await NewClient().SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_reset_code_works_once()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+
+        var first = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, NewPassword()));
+        var second = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, NewPassword()));
+
+        first.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        second.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_reset_code_runs_out_after_fifteen_minutes()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+        Time.Advance(TimeSpan.FromMinutes(16));
+
+        var late = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, NewPassword()));
+
+        late.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_and_an_unknown_email_are_refused_alike()
+    {
+        var person = await SeedPerson("alice");
+        await IssueResetCode(person.Email);
+
+        var wrong = await Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA");
+        var unknown = await NewClient().Post(
+            "/api/password-reset",
+            new ResetPasswordRequest("nobody@example.test", "AAAA-AAAA-AAAA", NewPassword()));
+
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await wrong.Content.ReadAsStringAsync(Token)).Should().Be(await unknown.Content.ReadAsStringAsync(Token));
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_reset_code_is_stored_hashed_and_a_new_one_replaces_the_old()
+    {
+        var person = await SeedPerson("alice");
+        var first = await IssueResetCode(person.Email);
+        var second = await IssueResetCode(person.Email);
+
+        var stored = await StoredTokenValues(person.UserId);
+        var stale = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, first, NewPassword()));
+        var fresh = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, second, NewPassword()));
+
+        stored.Should().ContainSingle();
+        stored.Single().Should().NotContain(second.Replace("-", string.Empty, StringComparison.Ordinal));
+        stale.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        fresh.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Redeeming_a_code_lifts_the_lockout_of_a_browser_that_signed_in_before()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        await laptop.Post("/api/sign-out");
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await laptop.SignIn(person.Email, "not-the-password-1");
+        }
+
+        var replacement = NewPassword();
+        var code = await IssueResetCode(person.Email);
+        await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement));
+
+        (await laptop.SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Two_redemptions_of_one_code_at_once_let_exactly_one_through_and_neither_fails_with_500()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+        List<ApiClient> clients = [.. Enumerable.Range(0, 6).Select(_ => NewClient())];
+        await Task.WhenAll(clients.Select(client => client.Get("/api/antiforgery")));
+
+        var statuses = await Task.WhenAll(clients.Select(async client =>
+            (await Redeem(client, person.Email, code)).StatusCode));
+
+        statuses.Count(status => status == HttpStatusCode.NoContent).Should().Be(1);
+        statuses.Where(status => status != HttpStatusCode.NoContent)
+            .Should().AllBeEquivalentTo(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_does_not_use_up_the_right_one()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+
+        var wrong = await Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA");
+        var right = await Redeem(NewClient(), person.Email, code);
+
+        wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        right.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_wrong_code_and_an_unknown_email_make_the_same_database_calls()
+    {
+        var person = await SeedPerson("alice");
+        await IssueResetCode(person.Email);
+
+        var known = await AccountCommandsDuring(() =>
+            Redeem(NewClient(), person.Email, "AAAA-AAAA-AAAA"));
+        var unknown = await AccountCommandsDuring(() =>
+            Redeem(NewClient(), "nobody@example.test", "AAAA-AAAA-AAAA"));
+
+        known.Should().NotBeEmpty();
+        unknown.Should().Equal(known);
+    }
+
+    [Fact]
+    public async Task Strangers_who_locked_sign_in_do_not_block_a_signed_in_password_change()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        var changed = await laptop.Post(
+            "/api/account/password",
+            new ChangePasswordRequest(person.Password, NewPassword()));
+
+        changed.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Five_wrong_current_passwords_end_that_session_and_leave_sign_in_alone()
+    {
+        var person = await SeedPerson("alice");
+        var thief = NewClient();
+        var phone = NewClient();
+        await thief.SignIn(person.Email, person.Password);
+        await phone.SignIn(person.Email, person.Password);
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            (await thief.Post("/api/account/password", new ChangePasswordRequest("not-the-password-1", NewPassword())))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        var fifth = await thief.Post(
+            "/api/account/password",
+            new ChangePasswordRequest("not-the-password-1", NewPassword()));
+
+        fifth.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await thief.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await phone.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Twenty_wrong_current_passwords_at_once_on_one_session_never_fail_with_500_and_are_bounded()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        var hash = await PasswordHashOf(person.UserId);
+        var afterSignIn = Hashes.ChecksAgainst(hash);
+        List<ApiClient> copies = [.. Enumerable.Range(0, 20).Select(_ => NewClient())];
+
+        foreach (var copy in copies)
+        {
+            copy.TakeCookiesOf(laptop);
+        }
+
+        var statuses = await Task.WhenAll(copies.Select(async copy =>
+            (await copy.Post("/api/account/password", new ChangePasswordRequest("not-the-password-1", NewPassword())))
+                .StatusCode));
+
+        statuses.Should().OnlyContain(status =>
+            status == HttpStatusCode.BadRequest || status == HttpStatusCode.Unauthorized);
+        (Hashes.ChecksAgainst(hash) - afterSignIn).Should().BeLessThanOrEqualTo(5);
+        (await laptop.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_password_change_leaves_the_sign_in_counters_alone()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        var replacement = NewPassword();
+        (await laptop.Post("/api/account/password", new ChangePasswordRequest(person.Password, replacement)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        for (var attempt = 3; attempt < 5; attempt++)
+        {
+            await NewClient($"198.51.100.{attempt + 1}").SignIn(person.Email, "not-the-password-1");
+        }
+
+        (await NewClient("198.51.100.9").SignIn(person.Email, replacement))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_password_change_holds_no_transaction_while_it_checks_the_current_password()
+    {
+        var person = await SeedPerson("alice");
+        var laptop = NewClient();
+        await laptop.SignIn(person.Email, person.Password);
+        (await laptop.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+
+        using var hold = Hashes.HoldNextCheck();
+        var changing = laptop.Post("/api/account/password", new ChangePasswordRequest(person.Password, NewPassword()));
+        await hold.Entered.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        await Task.Delay(400, Token);
+        var longest = await LongestOpenTransaction();
+        hold.Dispose();
+
+        (await changing).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        longest.Should().BeLessThan(TimeSpan.FromMilliseconds(300));
+    }
+
+    [Fact]
+    public async Task A_reset_hashes_the_new_password_with_no_transaction_open()
+    {
+        var person = await SeedPerson("alice");
+        var code = await IssueResetCode(person.Email);
+        var client = NewClient();
+        (await client.Get("/api/antiforgery")).EnsureSuccessStatusCode();
+
+        using var hold = Hashes.HoldNextCheck();
+        var resetting = Redeem(client, person.Email, code);
+        await hold.Entered.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        await Task.Delay(400, Token);
+        var longest = await LongestOpenTransaction();
+        hold.Dispose();
+
+        (await resetting).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        longest.Should().BeLessThan(TimeSpan.FromMilliseconds(300));
+    }
+
+    [Fact]
+    public async Task Signing_in_upgrades_a_stored_hash_that_needs_rehashing()
+    {
+        var person = await SeedPerson("alice");
+        var oldFormat = new PasswordHasher<User>(Options.Create(
+            new PasswordHasherOptions { CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV2 }));
+        await SetPasswordHash(person.UserId, oldFormat.HashPassword(new User(), person.Password));
+
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        Convert.FromBase64String(await PasswordHashOf(person.UserId))[0]
+            .Should().Be(0x01, "the hash is now the current format");
+        (await NewClient().SignIn(person.Email, person.Password)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Redeeming_a_code_lifts_a_lockout()
+    {
+        var person = await SeedPerson("alice");
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await NewClient().SignIn(person.Email, "not-the-password-1");
+        }
+
+        var replacement = NewPassword();
+        var code = await IssueResetCode(person.Email);
+        await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, replacement));
+
+        (await NewClient().SignIn(person.Email, replacement)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task The_operator_command_prints_the_code_and_nothing_else_secret()
+    {
+        var person = await SeedPerson("alice");
+
+        var exitCode = await PasswordResetCommand.Issue(Services, person.Email);
+        var unknown = await PasswordResetCommand.Issue(Services, "nobody@example.test");
+
+        exitCode.Should().Be(0);
+        unknown.Should().Be(1);
+        var line = Logs.Entries.Single(entry => entry.Category == typeof(PasswordResetCommand).FullName && entry.Level == LogLevel.Warning);
+        var code = ResetCodeIn(line.Text);
+        var reset = await NewClient().Post("/api/password-reset", new ResetPasswordRequest(person.Email, code, NewPassword()));
+        reset.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        Logs.AllText().Should().NotContain(person.Password);
+    }
+
+    [Fact]
+    public async Task The_operator_command_does_not_repeat_the_email_it_was_given()
+    {
+        var person = await SeedPerson("alice");
+
+        await PasswordResetCommand.Issue(Services, person.Email);
+        await PasswordResetCommand.Issue(Services, "nobody@example.test");
+
+        var lines = Logs.Entries.Where(entry => entry.Category == typeof(PasswordResetCommand).FullName).ToList();
+        lines.Should().HaveCount(2);
+        lines.Should().NotContain(entry => entry.Text.Contains(person.Email, StringComparison.OrdinalIgnoreCase)
+            || entry.Text.Contains("nobody@example.test", StringComparison.OrdinalIgnoreCase));
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task<string> IssueResetCode(string email)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var code = await scope.ServiceProvider.GetRequiredService<PasswordService>().IssueResetCode(email, Token);
+        return code!;
+    }
+
+    private async Task<List<string>> StoredTokenValues(Guid userId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().SetUser(userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        return await scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database
+            .SqlQuery<string>($"SELECT value AS \"Value\" FROM user_tokens")
+            .ToListAsync(Token);
+    }
+
+    /// <summary>
+    /// The account-related SQL a request runs, in order, with parameter values left out: what the database does for
+    /// it, as against the other server work that may run meanwhile.
+    /// </summary>
+    private async Task<List<string>> AccountCommandsDuring(Func<Task<HttpResponseMessage>> request)
+    {
+        var before = Logs.Entries.Count;
+        (await request()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        return
+        [
+            .. Logs.Entries.Skip(before)
+                .Where(entry => entry.Category == "Microsoft.EntityFrameworkCore.Database.Command"
+                    && entry.Text.StartsWith("Executed DbCommand", StringComparison.Ordinal))
+                .Select(entry => entry.Text[(entry.Text.IndexOf('\n', StringComparison.Ordinal) + 1)..])
+                .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
+        ];
+    }
+
+    private async Task<string> PasswordHashOf(Guid userId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().SetUser(userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<User>>().FindByIdAsync(userId.ToString());
+        await work.Commit(Token);
+        return user!.PasswordHash!;
+    }
+
+    private async Task SetPasswordHash(Guid userId, string hash)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().SetUser(userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        await scope.ServiceProvider.GetRequiredService<DroverDbContext>().Database
+            .ExecuteSqlAsync($"UPDATE users SET password_hash = {hash} WHERE id = {userId}", Token);
+        await work.Commit(Token);
+    }
+
+    /// <summary>The age of the oldest transaction another connection to this test's database has open now.</summary>
+    private async Task<TimeSpan> LongestOpenTransaction()
+    {
+        await using var connection = new NpgsqlConnection(AppConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT coalesce(max(extract(epoch FROM clock_timestamp() - xact_start)), 0)::float8
+            FROM pg_stat_activity
+            WHERE datname = current_database() AND pid <> pg_backend_pid() AND xact_start IS NOT NULL
+            """,
+            connection);
+        return TimeSpan.FromSeconds((double)(await command.ExecuteScalarAsync(Token))!);
+    }
+
+    private static Task<HttpResponseMessage> Redeem(ApiClient client, string email, string code) =>
+        client.Post("/api/password-reset", new ResetPasswordRequest(email, code, NewPassword()));
+
+    private static string ResetCodeIn(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(text, "[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}");
+        match.Success.Should().BeTrue();
+        return match.Value;
+    }
+
+    #endregion
+}
+
+public sealed class PasswordResetRateLimitTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>
+    {
+        ["Drover:SignInRateLimit:PermitLimit"] = "3",
+        ["Drover:SignInRateLimit:Window"] = "00:10:00",
+    };
+
+    #endregion
+
+    #region Public Methods
+
+    [Fact]
+    public async Task Redeeming_a_reset_code_is_rate_limited_per_address_like_sign_in()
+    {
+        var client = NewClient("198.51.100.4");
+        var statuses = new List<HttpStatusCode>();
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var request = new ResetPasswordRequest("nobody@example.test", "AAAA-AAAA-AAAA", NewPassword());
+            statuses.Add((await client.Post("/api/password-reset", request)).StatusCode);
+        }
+
+        statuses.Take(3).Should().AllBeEquivalentTo(HttpStatusCode.BadRequest);
+        statuses.Skip(3).Should().AllBeEquivalentTo(HttpStatusCode.TooManyRequests);
+    }
+
+    #endregion
+}

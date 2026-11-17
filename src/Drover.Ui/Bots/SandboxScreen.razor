@@ -1,0 +1,112 @@
+@* A bot's sandbox screen, live: a person watches it and can send mouse and keyboard input. *@
+@implements IAsyncDisposable
+
+<div class="dv-sandbox-screen">
+    @if (DesktopReady)
+    {
+        <div class="dv-sandbox-controlbar">
+            <Switch Label="Send desktop input" Value="control" ValueChanged="SetControl" />
+            <Button OnClick="OpenTerminal" Disabled="sending">Open terminal window</Button>
+            @if (control)
+            {
+                <SegmentedControl Label="Desktop click type" Options="clickModes" @bind-Value="clickMode" />
+            }
+        </div>
+        <p class="dv-sandbox-hint" role="status">@ControlWords</p>
+        @if (control && Status.BotWorking)
+        {
+            <StatusNote Text="@($"{BotName} has an active run and may use the same desktop.")" />
+        }
+    }
+    @if (ScreenNote is { } note)
+    {
+        <p class="dv-sandbox-hint">@note</p>
+    }
+    @if (WakeLabel is { } wake)
+    {
+        <div class="dv-sandbox-wake">
+            <Button OnClick="Wake">@wake</Button>
+        </div>
+    }
+
+    @if (DesktopReady)
+    {
+        <div class="dv-sandbox-zoom" role="group" aria-label="Zoom">
+            <Button OnClick="ZoomOut" Disabled="zoom.IsFit">Zoom out</Button>
+            <span class="dv-sandbox-zoom-level" aria-live="polite">@zoom.Percent</span>
+            <Button OnClick="ZoomIn" Disabled="zoom.IsMax">Zoom in</Button>
+            <Button OnClick="FitScreen" Disabled="zoom.IsFit">Fit screen</Button>
+        </div>
+        <div class="@FrameClass" style="@FrameStyle">
+            @if (control)
+            {
+                <button @ref="pictureButton" type="button" class="dv-sandbox-picture dv-sandbox-picture-control"
+                        aria-label="@($"{BotName}'s sandbox screen. Click or tap the desktop. With the keyboard, arrow keys move the pointer and Enter clicks.")"
+                        aria-describedby="@pointerWordsId" @onclick="ClickPicture" @onkeydown="MovePointer">
+                    <span class="dv-sandbox-layer" style="@LayerStyle" data-scale="@ViewNumber(zoom.Scale)"
+                          data-x="@ViewNumber(zoom.X)" data-y="@ViewNumber(zoom.Y)">
+                        <img class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight" alt="" />
+                        <span class="dv-sandbox-pointer" style="@PointerStyle" aria-hidden="true"></span>
+                    </span>
+                </button>
+            }
+            else
+            {
+                <div class="dv-sandbox-picture" tabindex="@(zoom.IsFit ? null : "0")" role="@(zoom.IsFit ? null : "group")"
+                     aria-label="@(zoom.IsFit ? null : "Enlarged screen. Arrow keys move the view.")" @onkeydown="PanView">
+                    <span class="dv-sandbox-layer" style="@LayerStyle" data-scale="@ViewNumber(zoom.Scale)"
+                          data-x="@ViewNumber(zoom.X)" data-y="@ViewNumber(zoom.Y)">
+                        <img class="dv-sandbox-image" src="@picture" width="@pictureWidth" height="@pictureHeight"
+                             alt="@($"{BotName}'s sandbox screen, as it was a moment ago. It refreshes every two seconds while it is shown.")" />
+                    </span>
+                </div>
+            }
+        </div>
+        @if (control)
+        {
+            <p id="@pointerWordsId" class="dv-visually-hidden">@PointerWords</p>
+        }
+    }
+    else if (WatchesScreen && screenProblem is null)
+    {
+        <p class="dv-sandbox-hint" role="status">@(waking ? WakingWords : "Getting the screen.")</p>
+    }
+
+    <StatusNote Kind="NoteKind.Danger" Text="@screenProblem" />
+
+    @if (DesktopReady && control)
+    {
+        <div class="dv-sandbox-options">
+            <Switch Label="Type a password" Value="passwordMode" ValueChanged="SetPasswordMode" Disabled="sending" />
+            @if (!passwordMode)
+            {
+                <Switch Label="Press Enter after typing" @bind-Value="enterAfter" />
+            }
+        </div>
+        <form @ref="typeForm" class="dv-sandbox-type" @onsubmit="TypeText">
+            <Field Label="@(passwordMode ? "Password" : "Text to type")" Type="@(passwordMode ? "password" : "text")"
+                   @bind-Value="typed" autocomplete="@(passwordMode ? "new-password" : "off")" autocapitalize="off"
+                   spellcheck="false" maxlength="2000" enterkeyhint="send" />
+            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(sending || typed.Length == 0)">@TypeAction</Button>
+        </form>
+        <p class="dv-sandbox-hint">@(passwordMode
+            ? "Focus the remote password prompt first. This sends the password without pressing Enter. The sandbox is shared with the bot."
+            : "Text goes to the focused window in the sandbox.")</p>
+        <div class="dv-sandbox-keys" role="group" aria-label="Keys">
+            @foreach (var key in keys)
+            {
+                <Button OnClick="() => Press(key.Keys)" Disabled="sending" aria-label="@key.Name">@key.Label</Button>
+            }
+            <Menu Label="Key combinations">
+                @foreach (var combination in combinations)
+                {
+                    <MenuItem OnSelect="() => Press(combination.Keys)" Disabled="sending">@combination.Label</MenuItem>
+                }
+            </Menu>
+        </div>
+        <div class="dv-sandbox-keys" role="group" aria-label="Scroll">
+            <Button OnClick="() => Scroll(up: true)" Disabled="sending">Scroll up</Button>
+            <Button OnClick="() => Scroll(up: false)" Disabled="sending">Scroll down</Button>
+        </div>
+    }
+</div>

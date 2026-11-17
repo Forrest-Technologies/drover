@@ -17,6 +17,9 @@ public static class UserSignalKinds
 
     public const string ApprovalWaiting = "approval.waiting";
 
+    /// <summary>The person opened the thread on one of their screens, so it is seen on all of them.</summary>
+    public const string ThreadSeen = "thread.seen";
+
     /// <summary>Made by the client after its connection dropped: signals may have been missed, so fetch lists again.</summary>
     public const string Reconnected = "reconnected";
 

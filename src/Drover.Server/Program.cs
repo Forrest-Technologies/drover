@@ -4,10 +4,22 @@ if (args.Contains("--initialize-database") && !initializeDatabase)
     throw new InvalidOperationException("Database initialization must run as a standalone command.");
 }
 
-var builder = WebApplication.CreateBuilder(initializeDatabase ? [] : args);
+var resetPassword = args is [PasswordResetCommand.Argument, var resetEmail] ? resetEmail : null;
+if (args.Contains(PasswordResetCommand.Argument) && resetPassword is null)
+{
+    throw new InvalidOperationException($"Usage: {PasswordResetCommand.Argument} person@example.com, as a standalone command.");
+}
+
+var builder = WebApplication.CreateBuilder(initializeDatabase || resetPassword is not null ? [] : args);
 if (initializeDatabase)
 {
     await DatabaseStartup.Initialize(builder.Configuration);
+    return;
+}
+
+if (resetPassword is not null)
+{
+    Environment.ExitCode = await PasswordResetCommand.Run(builder.Configuration, resetPassword);
     return;
 }
 
@@ -30,22 +42,38 @@ catch (Exception exception) when (exception is InvalidOperationException or Argu
     Environment.ExitCode = 1;
     return;
 }
+var startupMigration = StartupMigration.ModeFor(builder.Configuration, policy.Rules.AllowMigrationCredentialInServer);
+if (startupMigration is not StartupMigrationMode.Off && !await StartupMigration.Apply(builder.Configuration, startupMigration))
+{
+    Environment.ExitCode = 1;
+    return;
+}
+
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"]
     ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "keys");
 
+var filesPath = builder.Configuration["Files:Path"]
+    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "drover", "files");
+
 builder.Services.Configure<DatabaseOptions>(options => options.ConnectionString = connectionString);
-builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database")
+    .AddCheck<MigrationHealthCheck>("migrations");
 builder.Services.AddOpenApi();
 builder.Services.AddDroverData(connectionString);
 builder.Services.AddDroverEngine();
 builder.Services.AddDroverPolicy(builder.Configuration);
 builder.Services.AddDroverModels();
 builder.Services.AddDroverRunEngine(builder.Configuration);
+builder.Services.AddDroverSandboxes(builder.Configuration, policy.Rules);
 builder.Services.AddDroverSecretVault(keyRingPath, builder.Configuration["DataProtection:CertificatePath"], builder.Configuration["DataProtection:CertificateKeyPath"]);
 builder.Services.AddDroverSecurity(builder.Configuration);
+builder.Services.AddRequestLimits();
 builder.Services.AddSingleton(new KeyRingLocation(keyRingPath));
+builder.Services.AddDroverPush(builder.Configuration, keyRingPath);
+builder.Services.AddSingleton<IFileStore>(new LocalFileStore(filesPath));
 builder.Services.AddSingleton<SetupCode>();
 builder.Services.AddHostedService<SetupCodeAnnouncer>();
+builder.Services.AddHostedService<MigrationStartupCheck>();
 
 var app = builder.Build();
 
@@ -55,6 +83,7 @@ app.UseCookiePolicy();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRequestLimits();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -62,13 +91,21 @@ app.UseMiddleware<SpaceMembershipMiddleware>();
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();
 api.MapAccountEndpoints();
+api.MapNativeSessionEndpoints(app);
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
+api.MapPushEndpoints();
+api.MapToolSignInFinish();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
 
-app.MapOpenApi();
+// The API description is for building Drover; a running server does not hand it to strangers.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
 app.MapHealthChecks("/health/ready");
 app.MapFallbackToFile("index.html");

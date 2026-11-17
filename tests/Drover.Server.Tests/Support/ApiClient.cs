@@ -28,6 +28,18 @@ public sealed class ApiClient(HttpClient http)
 
     #region Public Methods
 
+    /// <summary>Sets one cookie by hand, as a browser holding it would send it.</summary>
+    public void SetCookie(string name, string value) => cookies[name] = value;
+
+    /// <summary>Copies another client's cookies, as someone who stole them would.</summary>
+    public void TakeCookiesOf(ApiClient other)
+    {
+        foreach (var (name, value) in other.cookies)
+        {
+            cookies[name] = value;
+        }
+    }
+
     public Task<HttpResponseMessage> Get(string path) => Send(HttpMethod.Get, path, body: null, token: false);
 
     /// <summary>Opens a response without reading its body, for a stream. The caller disposes it to disconnect.</summary>
@@ -79,6 +91,17 @@ public sealed class ApiClient(HttpClient http)
         return await Send(HttpMethod.Delete, path, body: null, token: true);
     }
 
+    /// <summary>A state-changing request whose body is sent as given, with its length, rather than as JSON.</summary>
+    public async Task<HttpResponseMessage> PostContent(string path, HttpContent content)
+    {
+        if (Cookie("XSRF-TOKEN") is null)
+        {
+            (await Get("/api/antiforgery")).EnsureSuccessStatusCode();
+        }
+
+        return await Send(HttpMethod.Post, path, content, token: true);
+    }
+
     public Task<HttpResponseMessage> PostWithoutToken(string path, object? body = null) =>
         Send(HttpMethod.Post, path, body, token: false);
 
@@ -93,10 +116,12 @@ public sealed class ApiClient(HttpClient http)
     {
         var request = new HttpRequestMessage(method, path);
 
-        if (body is not null)
+        request.Content = body switch
         {
-            request.Content = JsonContent.Create(body, body.GetType());
-        }
+            null => null,
+            HttpContent content => content,
+            _ => JsonContent.Create(body, body.GetType()),
+        };
 
         if (cookies.Count > 0)
         {

@@ -13,7 +13,10 @@ public static class BotEndpoints
         bots.MapGet("/{botId:guid}", GetBot).WithName("GetBot");
         bots.MapGet("/{botId:guid}/threads", ListThreads).WithName("ListThreads");
         bots.MapPost("/{botId:guid}/threads", CreateThread).WithName("CreateThread");
+        bots.MapPut("/{botId:guid}/main-thread", OpenMainThread).WithName("OpenMainThread");
         bots.MapBotEditorEndpoints();
+        bots.MapMemoryEndpoints();
+        space.MapScheduleRunOnce();
         return space;
     }
 
@@ -31,11 +34,8 @@ public static class BotEndpoints
     {
         var access = context.GetSpaceAccess();
         var change = await bots.Create(
-            request.Name ?? string.Empty,
-            request.Instructions ?? string.Empty,
-            request.ModelConnectionId,
-            request.Model,
-            access.UserId,
+            new NewBot(request.Name ?? string.Empty, string.Empty, request.Instructions ?? string.Empty, request.ModelConnectionId, request.Model, request.ParentBotId),
+            AuditActor.Person(access.UserId),
             context.RequestAborted);
 
         return change.Bot is { } bot
@@ -53,10 +53,10 @@ public static class BotEndpoints
         HttpContext context,
         ThreadService threads)
     {
-        var found = await threads.ListThreads(botId, context.RequestAborted);
+        var found = await threads.ListThreads(botId, context.GetSpaceAccess().UserId, context.RequestAborted);
         return found is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(found.Select(view => view.Thread.ToSummary(view.ActiveRunId)).ToList());
+            : TypedResults.Ok(found.Select(view => view.Thread.ToSummary(view.ActiveRunId, view.Attention)).ToList());
     }
 
     private static async Task<Results<Created<ThreadSummary>, NotFound>> CreateThread(
@@ -71,6 +71,16 @@ public static class BotEndpoints
         return thread is null
             ? TypedResults.NotFound()
             : TypedResults.Created($"/api/spaces/{access.SpaceId}/threads/{thread.Id}", thread.ToSummary(null));
+    }
+
+    /// <summary>The caller's main thread with the bot, made on first use. Asking again returns the same thread.</summary>
+    private static async Task<Results<Ok<ThreadSummary>, NotFound>> OpenMainThread(
+        Guid botId,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var main = await threads.OpenMainThread(botId, context.GetSpaceAccess().UserId, context.RequestAborted);
+        return main is null ? TypedResults.NotFound() : TypedResults.Ok(main.Thread.ToSummary(main.ActiveRunId, main.Attention));
     }
 
     #endregion

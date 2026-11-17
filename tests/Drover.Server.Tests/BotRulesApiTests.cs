@@ -69,8 +69,7 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         { "a misspelled condition", new("Sample", true, "before_reply", "block", [new("mood_is")]), "not a kind of condition" },
         { "a misspelled tool kind", new("Sample", true, "before_tool", "block", [new("tool_kind") { ToolKinds = ["harmless"] }]), "reads, writes, or is critical" },
         { "ask at a reply", new("Sample", true, "before_reply", "ask", []), "only before a tool is used" },
-        { "a pattern that could stall", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = "(?=a)a" }]), "cannot stall" },
-        { "a pattern too long", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = new string('a', 501) }]), "up to 500 characters" },
+        { "a pattern a person wrote, which no preset runs", new("Sample", true, "before_reply", "block", [new("text_matches") { Pattern = @"ORD-\d+" }]), "AllowWrittenRulePatterns" },
         { "eleven conditions", new("Sample", true, "before_reply", "block", [.. Enumerable.Repeat(new RuleConditionBody("text_holds") { Builtin = "key" }, 11)]), "at most 10 conditions" },
         { "a null in a list", new("Sample", true, "before_reply", "block", [new("text_contains") { Entries = [null!] }]), "no blank entry" },
         { "a misspelled weekday", new("Sample", true, "before_reply", "block", [new("time_is") { From = "22:00", To = "07:00", TimeZone = "UTC", Weekdays = ["someday"] }]), "Choose each weekday once" },
@@ -172,12 +171,72 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
     #region Try It
 
     [Fact]
+    public async Task A_rule_that_names_a_tool_nobody_has_is_saved_and_says_so_until_there_is_one()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+
+        var saved = await Send<BotRuleResponse>(
+            client.Post($"{bot}/rules", new BotRuleBody("Typo", true, "before_tool", "block", [new("tool_is") { Tools = ["time.now", "emial.send"] }])),
+            HttpStatusCode.Created);
+
+        saved.Notes.Should().ContainSingle().Which.Should().Contain("emial.send").And.Contain("No tool has that name");
+        var listed = await Send<List<BotRuleResponse>>(client.Get($"{bot}/rules"), HttpStatusCode.OK);
+        listed.Single().Notes.Should().Equal(saved.Notes, "the rule keeps saying so while it is true");
+    }
+
+    [Fact]
+    public async Task A_list_rule_saved_before_it_had_to_name_its_tools_says_what_it_does_not_cover()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        var botId = Guid.Parse(bot.Split('/')[^1]);
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            db.BotRules.Add(new BotRule
+            {
+                BotId = botId,
+                Name = "Saved earlier",
+                Checkpoint = RuleCheckpoint.BeforeTool,
+                Effect = RuleEffect.Block,
+                Conditions = [new RuleCondition { Kind = RuleConditionKind.NotInList, Argument = "to", Entries = ["example.org"] }],
+            });
+            await db.SaveChangesAsync(Token);
+            return true;
+        });
+
+        var listed = await Send<List<BotRuleResponse>>(client.Get($"{bot}/rules"), HttpStatusCode.OK);
+
+        listed.Single().Notes.Should().ContainSingle().Which.Should().Contain("does not apply when the input is missing");
+    }
+
+    [Fact]
+    public async Task A_trial_says_when_rules_that_look_for_something_in_text_were_tried_also_when_none_applied()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await NewBot(client, alice.SpaceId);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Exact", true, "before_tool", "ask", [new("tool_kind") { ToolKinds = ["write"] }])), HttpStatusCode.Created);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Pattern", true, "before_reply", "block", [new("text_holds") { Builtin = "card_number" }])), HttpStatusCode.Created);
+
+        var clean = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, "Nothing to see.")), HttpStatusCode.OK);
+        var tool = await Send<TryRulesResponse>(client.Post($"{bot}/rules/try", new TryRulesRequest("before_tool", "time.now", "{}", null)), HttpStatusCode.OK);
+
+        clean.Effect.Should().BeNull();
+        clean.CatchesCommonForms.Should().BeTrue("a rule that looks for something in text was tried, and finding nothing is not proof");
+        tool.CatchesCommonForms.Should().BeFalse("only exact conditions are checked before a tool here");
+    }
+
+    [Fact]
     public async Task A_sample_too_long_to_try_is_refused_in_words_before_any_rule_is_run()
     {
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
         var bot = await NewBot(client, alice.SpaceId);
-        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Slow pattern", true, "before_reply", "block", [new("text_matches") { Pattern = "a+b|a" }])), HttpStatusCode.Created);
+        await Send<BotRuleResponse>(client.Post($"{bot}/rules", new BotRuleBody("Looks for a letter", true, "before_reply", "block", [new("text_contains") { Entries = ["a"] }])), HttpStatusCode.Created);
         var watch = Stopwatch.StartNew();
 
         var refused = await client.Post($"{bot}/rules/try", new TryRulesRequest("before_reply", null, null, new string('a', RuleService.MaxSampleLength + 1)));
@@ -217,7 +276,7 @@ public sealed class BotRulesApiTests(PostgresServer postgres) : ServerTestBase(p
         }
 
         var active = await InSpace(alice.SpaceId, alice.UserId, async services =>
-            RuleService.Active(await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(botId, Token)));
+            RuleService.Active(await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(botId, Token), DeploymentPolicy.SelfHosted));
         var direct = samples.Select(sample => RuleEvaluator.Evaluate(active, new RuleSubject
         {
             Checkpoint = sample.Checkpoint is "before_tool" ? RuleCheckpoint.BeforeTool : sample.Checkpoint is "before_reply" ? RuleCheckpoint.BeforeReply : RuleCheckpoint.MessageArrives,

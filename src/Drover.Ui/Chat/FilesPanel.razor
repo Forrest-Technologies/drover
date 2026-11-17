@@ -1,0 +1,89 @@
+@* The files a person and a bot have exchanged, beside the conversation, newest first. Its job is finding one
+   again. The one filter appears only when files came from both sides. *@
+<div class="dv-files">
+    @switch (State)
+    {
+        case FilesPanelState.Loading:
+            <p class="dv-files-hint" role="status">Loading the files.</p>
+            break;
+        case FilesPanelState.Failed:
+            <EmptyState Title="Drover could not load the files" Cause="@(Problem ?? "The server did not answer.")" ActionLabel="Try again" OnAction="() => OnRetry.InvokeAsync()" />
+            break;
+        default:
+            @if (Files.Count is 0)
+            {
+                <p class="dv-files-hint">No files yet. Files you attach and files @BotName shares are listed here.</p>
+            }
+            else
+            {
+                @if (Files.Any(file => file.FromBot) && Files.Any(file => !file.FromBot))
+                {
+                    <div class="dv-files-filter">
+                        <SegmentedControl TValue="FilesFrom" Label="Whose files" Options="Sides" @bind-Value="from" />
+                    </div>
+                }
+                <ul class="dv-files-list" aria-label="@($"Files exchanged with {BotName}")">
+                    @foreach (var file in Shown)
+                    {
+                        <li @key="file.Id">
+                            <FileCard File="file" ReadWhole="ReadWhole" />
+                            <p class="dv-files-origin dv-mono">
+                                @FileWords.From(file, BotName), @ScheduleWords.Moment(file.When)
+                                @if (file.MomentHref is not null)
+                                {
+                                    <a href="@file.MomentHref" aria-label="@($"Open that moment: {file.Name}")">Open that moment</a>
+                                }
+                            </p>
+                        </li>
+                    }
+                </ul>
+            }
+            break;
+    }
+</div>
+
+@code {
+    #region Private Fields
+
+    private FilesFrom from = FilesFrom.Everyone;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public FilesPanelState State { get; set; }
+
+    [Parameter, EditorRequired]
+    public string BotName { get; set; } = string.Empty;
+
+    /// <summary>The files, newest first.</summary>
+    [Parameter]
+    public IReadOnlyList<SharedFile> Files { get; set; } = [];
+
+    [Parameter]
+    public string? Problem { get; set; }
+
+    [Parameter]
+    public EventCallback OnRetry { get; set; }
+
+    /// <summary>Reads a text file's whole content for "Show all".</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    private IReadOnlyList<SegmentOption<FilesFrom>> Sides =>
+    [
+        new(FilesFrom.Everyone, "All"),
+        new(FilesFrom.Bot, $"From {BotName}"),
+        new(FilesFrom.You, "From you"),
+    ];
+
+    private IEnumerable<SharedFile> Shown => from switch
+    {
+        FilesFrom.Bot => Files.Where(file => file.FromBot),
+        FilesFrom.You => Files.Where(file => !file.FromBot),
+        _ => Files,
+    };
+
+    #endregion
+}

@@ -11,16 +11,10 @@ public sealed class AccountService(
     AccountRepository accounts,
     TenantScope scope,
     TenantContext tenant,
-    ToolCatalog catalog)
+    ToolCatalog catalog,
+    IOptions<IdentityOptions> identity,
+    TimeProvider time)
 {
-    #region Private Fields
-
-    // Checked against when the email is unknown, so that a refusal takes about as long either way.
-    private static readonly Lazy<string> decoyHash =
-        new(() => new PasswordHasher<User>().HashPassword(new User(), Guid.NewGuid().ToString("N")));
-
-    #endregion
-
     #region Public Methods
 
     public async Task<bool> IsSetupOpen(CancellationToken cancellationToken)
@@ -95,22 +89,67 @@ public sealed class AccountService(
         return result;
     }
 
-    /// <summary>Checks an email and password, counting failures and locking the account as Identity is set to.</summary>
-    public async Task<CredentialResult> CheckCredentials(string email, string password, CancellationToken cancellationToken)
+    /// <summary>
+    /// Checks an email and password, counting failures and locking the account as Identity is set to. Failures are
+    /// counted in one of two buckets: from a browser that has signed in to this account before
+    /// (<paramref name="marker"/> names this account at its current security stamp), or from anyone else. Each
+    /// bucket locks on its own, so strangers cannot keep the owner's own browser out, and guessing stays bounded.
+    /// </summary>
+    public async Task<CredentialResult> CheckCredentials(
+        string email,
+        string password,
+        BrowserMarker? marker,
+        CancellationToken cancellationToken)
     {
-        var userId = await FindUserId(email, cancellationToken);
+        // An unknown email takes every step below against an account id nobody has, which row-level security shows
+        // nothing, so how long a refusal takes, alone or with others in parallel, does not say which emails exist.
+        var userId = await FindUserId(email, cancellationToken) ?? Guid.CreateVersion7();
+        tenant.SetUser(userId);
+        var user = await ReadAccount(userId, cancellationToken);
+        var knownBrowser = user is not null && marker?.Names(user) is true;
+        var lockout = identity.Value.Lockout;
+        var now = time.GetUtcNow();
+        var attempt = await InOwnTransaction(
+            () => accounts.TakeSignInAttempt(userId, knownBrowser, now, cancellationToken),
+            cancellationToken);
 
-        if (userId is not { } id)
+        // Hashed once, outside any transaction, so no lock is held while it runs. A guess is checked against the
+        // real password only with an attempt the bucket allowed; otherwise against the decoy, which costs the same.
+        var mayCheck = user?.PasswordHash is not null && attempt <= lockout.MaxFailedAccessAttempts;
+        var verdict = hasher.VerifyHashedPassword(
+            user ?? new User(),
+            mayCheck ? user!.PasswordHash! : DecoyPassword.Hash,
+            password);
+
+        if (!mayCheck || verdict is PasswordVerificationResult.Failed)
         {
-            hasher.VerifyHashedPassword(new User(), decoyHash.Value, password);
+            await InOwnTransaction(
+                () => accounts.RecordWrongPassword(
+                    userId,
+                    knownBrowser,
+                    attempt ?? 0,
+                    lockout.MaxFailedAccessAttempts,
+                    time.GetUtcNow() + lockout.DefaultLockoutTimeSpan,
+                    cancellationToken),
+                cancellationToken);
             return CredentialResult.Refused;
         }
 
-        tenant.SetUser(id);
-        await using var work = await scope.Begin(cancellationToken);
-        var result = await VerifyPassword(id, password);
-        await work.Commit(cancellationToken);
-        return result;
+        var accepted = await InOwnTransaction(
+            () => accounts.RecordRightPassword(userId, knownBrowser, time.GetUtcNow(), cancellationToken),
+            cancellationToken);
+
+        if (!accepted)
+        {
+            return CredentialResult.Refused;
+        }
+
+        if (verdict is PasswordVerificationResult.SuccessRehashNeeded)
+        {
+            await UpgradeHash(user!, password, cancellationToken);
+        }
+
+        return Accepted(user!);
     }
 
     /// <summary>The user's current security stamp, or null when the user no longer exists. Runs with only the user set.</summary>
@@ -176,37 +215,41 @@ public sealed class AccountService(
         return userId;
     }
 
-    private async Task<CredentialResult> VerifyPassword(Guid userId, string password)
+    private async Task<User?> ReadAccount(Guid userId, CancellationToken cancellationToken)
     {
+        await using var work = await scope.Begin(cancellationToken);
         var user = await users.FindByIdAsync(userId.ToString());
-
-        if (user is null)
-        {
-            return CredentialResult.Refused;
-        }
-
-        // The password is hashed before the lockout decision, so a locked account takes as long to refuse as any other.
-        var passwordIsRight = await users.CheckPasswordAsync(user, password);
-
-        if (await users.IsLockedOutAsync(user))
-        {
-            return CredentialResult.Refused;
-        }
-
-        if (!passwordIsRight)
-        {
-            await users.AccessFailedAsync(user);
-            return CredentialResult.Refused;
-        }
-
-        await users.ResetAccessFailedCountAsync(user);
-        return new CredentialResult(
-            true,
-            user.Id,
-            user.Email ?? string.Empty,
-            user.DisplayName,
-            await users.GetSecurityStampAsync(user) ?? string.Empty);
+        await work.Commit(cancellationToken);
+        return user;
     }
+
+    /// <summary>Runs one statement in a transaction of its own, so any row lock it takes ends with it.</summary>
+    private async Task<T> InOwnTransaction<T>(Func<Task<T>> statement, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var result = await statement();
+        await work.Commit(cancellationToken);
+        return result;
+    }
+
+    private async Task InOwnTransaction(Func<Task> statement, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        await statement();
+        await work.Commit(cancellationToken);
+    }
+
+    /// <summary>Stores the right password in the current format: hashed outside any transaction, then one write.</summary>
+    private async Task UpgradeHash(User user, string password, CancellationToken cancellationToken)
+    {
+        var upgraded = hasher.HashPassword(user, password);
+        await InOwnTransaction(
+            () => accounts.UpgradePasswordHash(user.Id, user.PasswordHash!, upgraded, cancellationToken),
+            cancellationToken);
+    }
+
+    private static CredentialResult Accepted(User user) =>
+        new(true, user.Id, user.Email ?? string.Empty, user.DisplayName, user.SecurityStamp ?? string.Empty);
 
     private static User NewUser(Guid userId, string email, string displayName) => new()
     {

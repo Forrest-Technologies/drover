@@ -47,6 +47,13 @@ case "${1:-}" in
       fi
       as_postgres "'$BIN/initdb' -D '$DATA/data' -A trust -U postgres >/dev/null"
     fi
+    # The superuser is trusted so the fixture needs no password, but Drover's own roles must give theirs, as on
+    # a real server: a test that a wrong password is refused means nothing where every password is accepted.
+    RULE="host all drover_app,drover_owner 127.0.0.1/32 scram-sha-256"
+    if ! grep -qxF "$RULE" "$DATA/data/pg_hba.conf"; then
+      as_postgres "sed -i '1i $RULE' '$DATA/data/pg_hba.conf'"
+      as_postgres "'$BIN/pg_ctl' -D '$DATA/data' reload >/dev/null 2>&1" || true
+    fi
     if ! as_postgres "'$BIN/pg_ctl' -D '$DATA/data' status >/dev/null 2>&1"; then
       as_postgres "'$BIN/pg_ctl' -D '$DATA/data' -o \"-p $PORT -k '$DATA' -c listen_addresses=127.0.0.1\" -l '$DATA/log' -w start >/dev/null"
     fi

@@ -4,14 +4,22 @@ public static class DeploymentPolicyExtensions
 {
     #region Public Methods
 
-    /// <summary>The hosted preset: every rule at its strict value. Registration stays off until the operator turns it on.</summary>
+    /// <summary>
+    /// The hosted preset: every rule at its strict value, except the permissions the owner decided stay on because
+    /// other rules bound them (<see cref="PolicyRule.IsAllowedWhenHosted"/>). Registration stays off until the
+    /// operator turns it on.
+    /// </summary>
     public static DeploymentPolicy AsHosted(this DeploymentPolicy policy) =>
         policy
             .WithoutPrivateAddresses()
             .WithBoundedModelDiscovery()
             .WithBoundedToolServers()
             .WithoutToolConnections()
-            .WithHardBoundarySandboxesOnly()
+            .WithBoundedSandboxes()
+            .WithBoundedBotsPerSpace()
+            .WithBoundedSchedules()
+            .WithBoundedFiles()
+            .WithBoundedDelegation()
             .WithOperatorApprovedProviders()
             .WithVerifiedRegistrationOnly()
             .WithQuotasFromTheOperator()
@@ -20,7 +28,10 @@ public static class DeploymentPolicyExtensions
             .WithoutMigrationCredential()
             .WithEnforcedAuditRetention()
             .WithGuaranteedDataRights()
-            .WithServerStatusForTheOperatorOnly();
+            .WithServerStatusForTheOperatorOnly()
+            .WithoutWrittenRulePatterns()
+            .WithBoundedConversationSummaries()
+            .WithBoundedMemory();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -43,8 +54,41 @@ public static class DeploymentPolicyExtensions
             MaxModelsPerConnection = DeploymentPolicy.HostedMaxModelsPerConnection,
         };
 
-    public static DeploymentPolicy WithHardBoundarySandboxesOnly(this DeploymentPolicy policy) =>
-        policy with { SandboxAdapters = SandboxAdapterSet.HardBoundaryOnly };
+    public static DeploymentPolicy WithBoundedSandboxes(this DeploymentPolicy policy) =>
+        policy with
+        {
+            SandboxAdapters = SandboxAdapterSet.HardBoundaryOnly,
+            MaxSandboxCommandSeconds = DeploymentPolicy.HostedMaxSandboxCommandSeconds,
+            MaxSandboxFileBytes = DeploymentPolicy.HostedMaxSandboxFileBytes,
+            MaxSandboxIdleMinutes = DeploymentPolicy.HostedMaxSandboxIdleMinutes,
+            AllowOpenSandboxNetwork = false,
+            AllowDesktopSandboxes = false,
+        };
+
+    public static DeploymentPolicy WithBoundedDelegation(this DeploymentPolicy policy) =>
+        policy with { MaxDelegationTreeCostCents = DeploymentPolicy.HostedMaxDelegationTreeCostCents };
+
+    public static DeploymentPolicy WithBoundedBotsPerSpace(this DeploymentPolicy policy) =>
+        policy with { MaxBotsPerSpace = DeploymentPolicy.HostedMaxBotsPerSpace };
+
+    public static DeploymentPolicy WithBoundedSchedules(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MinScheduleIntervalMinutes = DeploymentPolicy.HostedMinScheduleIntervalMinutes,
+            MaxSchedulesPerSpace = DeploymentPolicy.HostedMaxSchedulesPerSpace,
+        };
+
+    public static DeploymentPolicy WithBoundedFiles(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxFileBytes = DeploymentPolicy.HostedMaxFileBytes,
+            MaxFilesPerMessage = DeploymentPolicy.HostedMaxFilesPerMessage,
+            MaxSpaceFileMegabytes = DeploymentPolicy.HostedMaxSpaceFileMegabytes,
+        };
+
+    /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
+    public static bool Allows(this SandboxAdapterSet set, bool hardBoundary) =>
+        hardBoundary || set is SandboxAdapterSet.All;
 
     public static DeploymentPolicy WithOperatorApprovedProviders(this DeploymentPolicy policy) =>
         policy with
@@ -76,6 +120,19 @@ public static class DeploymentPolicyExtensions
 
     public static DeploymentPolicy WithServerStatusForTheOperatorOnly(this DeploymentPolicy policy) =>
         policy with { SpaceAdminsSeeServerStatus = false };
+
+    public static DeploymentPolicy WithoutWrittenRulePatterns(this DeploymentPolicy policy) =>
+        policy with { AllowWrittenRulePatterns = false };
+
+    public static DeploymentPolicy WithBoundedConversationSummaries(this DeploymentPolicy policy) =>
+        policy with { MaxConversationSummarySeconds = DeploymentPolicy.HostedMaxConversationSummarySeconds };
+
+    public static DeploymentPolicy WithBoundedMemory(this DeploymentPolicy policy) =>
+        policy with
+        {
+            MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
+            MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
+        };
 
     #endregion
 }

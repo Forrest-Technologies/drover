@@ -10,7 +10,18 @@ public sealed record ActiveRule(
     RuleCheckpoint Checkpoint,
     RuleEffect Effect,
     IReadOnlyList<RuleCondition> Conditions,
-    Guid FromBotId = default);
+    Guid FromBotId = default)
+{
+    #region Properties
+
+    /// <summary>
+    /// The server does not run patterns a person wrote (deployment rule AllowWrittenRulePatterns). A condition of
+    /// this rule that has one is not run: it counts as not checked, so the rule takes its effect.
+    /// </summary>
+    public bool WrittenPatternsOff { get; init; }
+
+    #endregion
+}
 
 /// <summary>
 /// What a rule is checked against. Only what the checkpoint has is set: a tool and its arguments before a tool, its

@@ -8,7 +8,8 @@ public static class RunServiceExtensions
     /// Registers the run engine, the agent runtime it drives, and the worker that executes runs. The runtime talks
     /// to the model client the engine built for the run, so every model call is counted and policy-checked by the
     /// engine. Remote tool servers are reached through the tool source registered here. Settings under <c>Runs</c> change the pace: <c>Runs:Workers</c>, <c>Runs:PollSeconds</c>,
-    /// <c>Runs:StepLimit</c>.
+    /// <c>Runs:StepLimit</c>, <c>Runs:MaxToolOutputCharacters</c>,
+    /// <c>Runs:SummaryAfterMessages</c>, <c>Runs:SummaryKeepsRecentMessages</c>.
     /// </summary>
     public static IServiceCollection AddDroverRunEngine(this IServiceCollection services, IConfiguration configuration)
     {
@@ -18,8 +19,11 @@ public static class RunServiceExtensions
             var section = configuration.GetSection("Runs");
             options.Workers = section.GetValue("Workers", options.Workers);
             options.StepLimit = section.GetValue("StepLimit", options.StepLimit);
+            options.MaxToolOutputCharacters = section.GetValue("MaxToolOutputCharacters", options.MaxToolOutputCharacters);
             options.PollInterval = TimeSpan.FromSeconds(section.GetValue("PollSeconds", options.PollInterval.TotalSeconds));
             options.HeartbeatInterval = TimeSpan.FromSeconds(section.GetValue("HeartbeatSeconds", options.HeartbeatInterval.TotalSeconds));
+            options.SummaryAfterMessages = section.GetValue("SummaryAfterMessages", options.SummaryAfterMessages);
+            options.SummaryKeepsRecentMessages = section.GetValue("SummaryKeepsRecentMessages", options.SummaryKeepsRecentMessages);
         });
         services.AddDroverAgents(execution => new ModelChatClientBridge(
             execution.Model ?? throw new InvalidOperationException("The engine starts every run with its model client.")));
@@ -42,6 +46,7 @@ public static class RunServiceExtensions
                 OutboundHttp.CreateHandlerWithoutRedirects(provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules))
             .AddHttpMessageHandler<SpaceOutboundHandler>();
         services.AddHostedService<RunWorker>();
+        services.AddHostedService<ScheduleLoop>();
         return services;
     }
 

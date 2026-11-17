@@ -28,18 +28,18 @@
   text-align: center;
 }
 
-.dv-message {
+.dv-messages-column ::deep .dv-message {
   display: flex;
   flex-direction: column;
   gap: var(--dv-space-2);
   min-width: 0;
 }
 
-.dv-message-person {
+.dv-messages-column ::deep .dv-message-person {
   align-items: flex-end;
 }
 
-.dv-message-bubble {
+.dv-messages-column ::deep .dv-message-bubble {
   max-width: 85%;
   --dv-facet-edge: var(--dv-line);
   --dv-facet-fill: var(--dv-bg-2);
@@ -48,12 +48,36 @@
   white-space: pre-wrap;
 }
 
-.dv-message-pending {
+/* A person's files sit under their words, on the same side. */
+.dv-messages-column ::deep .dv-message-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--dv-space-2);
+  max-width: 85%;
+  min-width: 0;
+}
+
+/* A bot's files sit in its reply, under what it said and did. */
+.dv-messages-column ::deep .dv-message-bot .dv-message-files,
+.dv-messages-column ::deep .dv-message-tools .dv-message-files,
+.dv-messages-column ::deep .dv-message-compact .dv-message-files {
+  align-items: flex-start;
+  max-width: 100%;
+}
+
+.dv-messages-column ::deep .dv-message-sent-by,
+.dv-messages-column ::deep .dv-message-pending {
   font-size: var(--dv-text-12);
   color: var(--dv-text-3);
 }
 
-.dv-message-from {
+.dv-messages-column ::deep .dv-message-sent-by {
+  max-width: 85%;
+  text-align: end;
+}
+
+.dv-messages-column ::deep .dv-message-from {
   display: flex;
   align-items: center;
   gap: var(--dv-space-2);
@@ -62,20 +86,20 @@
   color: var(--dv-text-2);
 }
 
-.dv-message-state,
-.dv-message-writing {
+.dv-messages-column ::deep .dv-message-state,
+.dv-messages-column ::deep .dv-message-writing {
   color: var(--dv-ion);
 }
 
 /* A bot speaks from its head: the character stands on a faceted plate beside its words, large enough to read
    as that bot. The plate's edge takes the live color while the bot is thinking or writing, and only then. */
-.dv-message-bot {
+.dv-messages-column ::deep .dv-message-bot {
   flex-direction: row;
   align-items: flex-start;
   gap: var(--dv-space-3);
 }
 
-.dv-message-head {
+.dv-messages-column ::deep .dv-message-head {
   --dv-facet-cut: var(--dv-cut-s);
   --dv-facet-fill: var(--dv-bg-1);
   flex: none;
@@ -83,11 +107,11 @@
   padding: var(--dv-space-1);
 }
 
-.dv-message-head-live {
+.dv-messages-column ::deep .dv-message-head-live {
   --dv-facet-edge: var(--dv-ion);
 }
 
-.dv-message-body {
+.dv-messages-column ::deep .dv-message-body {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -96,13 +120,35 @@
   padding-top: var(--dv-space-1);
 }
 
+/* Tool calls made without words stand under the bot's words, in line with them. A phone gives them the full width. */
+.dv-messages-column ::deep .dv-message-tools {
+  gap: var(--dv-space-2);
+}
+
+@media (min-width: 560px) {
+  .dv-messages-column ::deep .dv-message-tools {
+    padding-inline-start: calc(var(--dv-avatar-48) + 2 * var(--dv-space-1) + 2 * var(--dv-border) + var(--dv-space-3));
+  }
+
+  /* Inside work handed to another bot there is no head to line up with: that bot's head stands beside the card. */
+  .dv-messages-column ::deep .dv-message-tools.dv-message-compact {
+    padding-inline-start: 0;
+  }
+}
+
 /* Each block of a streaming reply fades in once, as it first arrives. Text added to it after that is not delayed. */
-.dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
+.dv-messages-column ::deep .dv-message-bot .dv-markdown[aria-busy="true"] > :last-child {
   animation: dv-arrive var(--dv-dur-1) var(--dv-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dv-message-bot ::deep .dv-markdown[aria-busy="true"] > :last-child {
+  .dv-messages-column ::deep .dv-message-bot .dv-markdown[aria-busy="true"] > :last-child {
     animation: none;
   }
+}
+
+/* The message a moment link landed on is marked however the person followed the link, by pointer as well as by key. */
+.dv-message[tabindex="-1"]:focus {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
 }

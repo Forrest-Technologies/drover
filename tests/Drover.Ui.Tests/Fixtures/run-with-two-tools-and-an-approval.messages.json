@@ -1,0 +1,162 @@
+[
+  {
+    "id": "01a1db86-759a-73e7-aa6b-77bdcf4cc707",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 1,
+    "role": "user",
+    "runId": null,
+    "parts": [
+      {
+        "kind": "text",
+        "text": "What time is it, and what is in the sandbox?",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:24.666482+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1db86-77fa-7e12-87f8-c88d26939eb2",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 2,
+    "role": "assistant",
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "parts": [
+      {
+        "kind": "text",
+        "text": "Let me check the time first.\n\n",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      },
+      {
+        "kind": "tool_call",
+        "text": null,
+        "toolCallId": "4dbed7c1-3904-886e-bb9a-ca15acb1ca66",
+        "toolName": "time_now",
+        "arguments": "{}",
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:25.985044+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1db86-7ef8-7bde-89bc-1ede8c99f9ae",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 3,
+    "role": "tool",
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "parts": [
+      {
+        "kind": "tool_result",
+        "text": null,
+        "toolCallId": "4dbed7c1-3904-886e-bb9a-ca15acb1ca66",
+        "toolName": null,
+        "arguments": null,
+        "result": "{\"utc\": \"2026-11-14T19:26:26.1359621+00:00\"}",
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:27.064025+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1db86-7b87-7839-93f8-686d698c00e9",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 4,
+    "role": "assistant",
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "parts": [
+      {
+        "kind": "text",
+        "text": "I have the time. Next I will list the files in the sandbox.\n\n",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      },
+      {
+        "kind": "tool_call",
+        "text": null,
+        "toolCallId": "6d2f7ac0-f024-858b-955e-0a65121e05b5",
+        "toolName": "sandbox_run",
+        "arguments": "{\"command\": \"ls -la /home/user && echo done\"}",
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:27.064173+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1db86-8c73-70de-8973-47b988101588",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 5,
+    "role": "tool",
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "parts": [
+      {
+        "kind": "tool_result",
+        "text": null,
+        "toolCallId": "6d2f7ac0-f024-858b-955e-0a65121e05b5",
+        "toolName": null,
+        "arguments": null,
+        "result": "{\"error\": \"The server's sandbox provider key does not work. Tell the server's operator.\"}",
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:30.515826+00:00",
+    "steers": false,
+    "withheld": false
+  },
+  {
+    "id": "01a1db86-8a85-792a-8a38-b987c69b7035",
+    "threadId": "01a1db86-7516-77d4-a3e8-8b2d166321a2",
+    "position": 6,
+    "role": "assistant",
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "parts": [
+      {
+        "kind": "text",
+        "text": "That is what the tools gave back.",
+        "toolCallId": null,
+        "toolName": null,
+        "arguments": null,
+        "result": null,
+        "isError": false,
+        "fileId": null,
+        "mediaType": null
+      }
+    ],
+    "createdAt": "2026-11-14T19:26:30.515896+00:00",
+    "steers": false,
+    "withheld": false
+  }
+]

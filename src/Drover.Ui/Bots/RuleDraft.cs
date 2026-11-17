@@ -3,6 +3,12 @@ namespace Drover.Ui.Bots;
 /// <summary>One condition while a person is writing it. Every field a condition kind can use is here; the kind says which are sent.</summary>
 public sealed class ConditionDraft
 {
+    #region Private Fields
+
+    private const string RecipientInputs = "to, cc, bcc";
+
+    #endregion
+
     #region Properties
 
     public string Kind { get; set; } = "text_contains";
@@ -11,7 +17,8 @@ public sealed class ConditionDraft
 
     public HashSet<string> ToolKinds { get; } = [];
 
-    public string Argument { get; set; } = string.Empty;
+    /// <summary>The inputs a list checks. It starts on the fields a recipient can be in.</summary>
+    public string Argument { get; set; } = RecipientInputs;
 
     /// <summary>The words or list entries, one on each line.</summary>
     public string Entries { get; set; } = string.Empty;
@@ -40,8 +47,8 @@ public sealed class ConditionDraft
     {
         var draft = new ConditionDraft
         {
-            Kind = body.Kind ?? "text_contains",
-            Argument = body.Argument ?? string.Empty,
+            Kind = body.Kind is "not_in_list" && string.IsNullOrWhiteSpace(body.Argument) ? RuleWords.AddressesNotInList : body.Kind ?? "text_contains",
+            Argument = body.Argument ?? RecipientInputs,
             Entries = string.Join('\n', body.Entries ?? []),
             Pattern = body.Pattern ?? string.Empty,
             Builtin = body.Builtin ?? "card_number",
@@ -68,8 +75,10 @@ public sealed class ConditionDraft
             "text_contains" => new RuleConditionBody(Kind) { Entries = entries },
             "text_holds" => new RuleConditionBody(Kind) { Builtin = Builtin },
             "text_matches" => new RuleConditionBody(Kind) { Pattern = Pattern },
-            // No input named means every email address anywhere in the tool's input.
-            "not_in_list" => new RuleConditionBody(Kind) { Argument = string.IsNullOrWhiteSpace(Argument) ? null : Argument.Trim(), Entries = entries },
+            "not_in_list" => new RuleConditionBody(Kind) { Argument = Argument.Trim(), Entries = entries },
+
+            // The server knows this as a list with no input named: every email address anywhere in the tool's input.
+            RuleWords.AddressesNotInList => new RuleConditionBody("not_in_list") { Entries = entries },
             "time_is" => new RuleConditionBody(Kind)
             {
                 From = Clock(From),
@@ -163,10 +172,11 @@ public static class RuleStarters
                 "ask",
                 [new RuleConditionBody("tool_kind") { ToolKinds = ["write", "critical"] }]),
         ]),
-        new("Never send a card number or key",
+        // These look for something in text, so their names say what they are and promise nothing more.
+        new("Block common forms of a card number or key",
         [
-            new BotRuleBody("Never send a card number", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "card_number" }]),
-            new BotRuleBody("Never send a key", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "key" }]),
+            new BotRuleBody("Block a card number (common forms)", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "card_number" }]),
+            new BotRuleBody("Block a key (common forms)", true, RuleWords.BeforeTool, "block", [new RuleConditionBody("text_holds") { Builtin = "key" }]),
         ]),
         new("Quiet hours",
         [

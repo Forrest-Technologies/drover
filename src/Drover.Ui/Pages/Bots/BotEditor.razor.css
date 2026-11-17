@@ -84,6 +84,29 @@
   font-size: var(--dv-text-13);
 }
 
+.dv-editor ::deep .dv-editor-sandbox-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-4);
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-editor ::deep .dv-editor-sandbox-grant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+}
+
+.dv-editor ::deep .dv-editor-sandbox-live a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-pointer);
+  font-weight: var(--dv-weight-label);
+}
+
 .dv-editor ::deep .dv-editor-pair {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--dv-column-min)), 1fr));
@@ -106,7 +129,7 @@
 }
 
 .dv-editor ::deep .dv-editor-checks,
-.dv-editor ::deep .dv-schedule-form,
+.dv-editor ::deep .dv-routine-form,
 .dv-editor ::deep .dv-rule-form,
 .dv-editor ::deep .dv-rule-condition {
   display: flex;
@@ -153,7 +176,6 @@
 }
 
 .dv-editor ::deep .dv-tools,
-.dv-editor ::deep .dv-schedules,
 .dv-editor ::deep .dv-rules {
   display: flex;
   flex-direction: column;
@@ -163,7 +185,6 @@
 }
 
 .dv-editor ::deep .dv-tool,
-.dv-editor ::deep .dv-schedule,
 .dv-editor ::deep .dv-rule {
   display: flex;
   flex-wrap: wrap;
@@ -175,7 +196,6 @@
 }
 
 .dv-editor ::deep .dv-tool-text,
-.dv-editor ::deep .dv-schedule-text,
 .dv-editor ::deep .dv-rule-text {
   display: flex;
   flex-direction: column;
@@ -185,13 +205,11 @@
 }
 
 .dv-editor ::deep .dv-tool-title,
-.dv-editor ::deep .dv-schedule-when,
 .dv-editor ::deep .dv-rule-sentence {
   font-weight: var(--dv-weight-label);
 }
 
 .dv-editor ::deep .dv-tool-description,
-.dv-editor ::deep .dv-schedule-prompt,
 .dv-editor ::deep .dv-rule-name {
   color: var(--dv-text-2);
   font-size: var(--dv-text-13);
@@ -241,8 +259,7 @@
   color: var(--dv-text-2);
 }
 
-.dv-editor ::deep .dv-schedule-actions,
-.dv-editor ::deep .dv-schedule-form-actions,
+.dv-editor ::deep .dv-routine-form-actions,
 .dv-editor ::deep .dv-rule-actions,
 .dv-editor ::deep .dv-rule-starts,
 .dv-editor ::deep .dv-rule-days {
@@ -252,12 +269,28 @@
   gap: var(--dv-space-2);
 }
 
-.dv-editor ::deep .dv-schedule-form-actions {
+.dv-editor ::deep .dv-routine-form-actions {
   justify-content: flex-end;
+}
+
+/* Routines: one card for each, the sentence first. */
+.dv-editor ::deep .dv-routines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* Rules: each condition is a block of its own, and what a trial leaves is shown as the machine text it is. */
 .dv-editor ::deep .dv-rule-sentence {
+  overflow-wrap: anywhere;
+}
+
+.dv-editor ::deep .dv-rule-note {
+  color: var(--dv-warn);
+  font-size: var(--dv-text-13);
   overflow-wrap: anywhere;
 }
 
@@ -337,4 +370,47 @@
 .dv-editor-save-words {
   color: var(--dv-text-2);
   font-size: var(--dv-text-13);
+}
+
+/* On a phone the words give way to the two buttons, so the bar is one row; a problem takes a row of its own. */
+@media (max-width: 559px) {
+  .dv-editor-save {
+    flex-wrap: nowrap;
+    gap: var(--dv-space-2);
+    padding: var(--dv-space-2);
+  }
+
+  .dv-editor-save-state {
+    flex-basis: 0;
+  }
+
+  .dv-editor-save-problem {
+    flex-wrap: wrap;
+  }
+
+  .dv-editor-save-problem .dv-editor-save-state {
+    flex-basis: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .dv-editor ::deep .dv-editor-sandbox-live a,
+  .dv-editor ::deep .dv-editor-sandbox-grant .dv-button {
+    min-height: var(--dv-target-touch);
+  }
+
+  .dv-editor ::deep .dv-editor-hint a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--dv-target-touch);
+  }
+}
+
+/* The whole prompt a person is about to send as their own, shown as it is written. */
+.dv-editor ::deep .dv-routine-run-prompt {
+  margin: 0;
+  padding: var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

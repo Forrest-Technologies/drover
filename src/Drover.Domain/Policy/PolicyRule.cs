@@ -12,6 +12,17 @@ public sealed record PolicyRule(
     bool IsLocked = true,
     Func<DeploymentPolicy, bool>? IsDefined = null)
 {
+    #region Properties
+
+    /// <summary>
+    /// A permission the hosted preset leaves on by the owner's decision, because what it could cost a shared server
+    /// is bounded by other rules. Every other locked rule is at its strictest in the hosted preset, so a rule left
+    /// loose there by accident is still caught. An operator may still turn such a rule off.
+    /// </summary>
+    public bool IsAllowedWhenHosted { get; init; }
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>A rule that allows something when true.</summary>
@@ -19,8 +30,12 @@ public sealed record PolicyRule(
         string name,
         Func<DeploymentPolicy, bool> read,
         Enforcement enforcement,
-        bool isLocked = true) =>
-        new(name, policy => read(policy), policy => read(policy) ? 1 : 0, enforcement, isLocked);
+        bool isLocked = true,
+        bool allowedWhenHosted = false) =>
+        new(name, policy => read(policy), policy => read(policy) ? 1 : 0, enforcement, isLocked)
+        {
+            IsAllowedWhenHosted = allowedWhenHosted,
+        };
 
     /// <summary>A rule that demands something when true.</summary>
     public static PolicyRule Requirement(
@@ -56,6 +71,18 @@ public sealed record PolicyRule(
         Enforcement enforcement,
         bool isLocked = true) =>
         new(name, policy => read(policy), policy => read(policy) - strictest, enforcement, isLocked, policy => read(policy) > 0);
+
+    /// <summary>
+    /// A numeric floor. A lower value is looser; <paramref name="strictest"/> is the value the hosted preset sets, so it
+    /// counts as looseness zero. A floor of zero or less is not a value the rule has.
+    /// </summary>
+    public static PolicyRule Floor(
+        string name,
+        Func<DeploymentPolicy, int> read,
+        int strictest,
+        Enforcement enforcement,
+        bool isLocked = true) =>
+        new(name, policy => read(policy), policy => strictest - read(policy), enforcement, isLocked, policy => read(policy) > 0);
 
     /// <summary>
     /// False for a choice whose value is not one of the declared members, which configuration binding accepts for

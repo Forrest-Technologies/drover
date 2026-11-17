@@ -1,21 +1,53 @@
 namespace Drover.Engine.Threads;
 
-/// <summary>A thread and the run still working on it, if any.</summary>
-public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId);
+/// <summary>A thread, the run still working on it, if any, and what it has for the person who asked.</summary>
+public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAttention? Attention = null);
 
 /// <summary>
 /// Threads and their messages, as the caller may see them: row-level security shows a person their own threads and
 /// the shared ones, so a thread that is not theirs simply is not found. Runs in the tenant scope the endpoint filter
-/// opened.
+/// opened, except marking a thread seen, which opens its own so the person's other screens are told after the commit.
 /// </summary>
 public sealed class ThreadService(
     ThreadRepository threads,
     MessageRepository messages,
     BotRepository bots,
     RunRepository runs,
-    TimeProvider time)
+    RunEventRepository events,
+    BotScheduleRepository schedules,
+    TenantScope scope,
+    UserSignalHub signals,
+    TimeProvider time,
+    IOptions<DeploymentPolicyOptions> deployment)
 {
     #region Private Fields
+
+    private static readonly string[] toolEventTypes =
+    [
+        RunEventTypes.ToolRequested,
+        RunEventTypes.ToolApprovalRequested,
+        RunEventTypes.ToolApproved,
+        RunEventTypes.ToolDenied,
+        RunEventTypes.ToolStarted,
+        RunEventTypes.ToolOutput,
+        RunEventTypes.ToolCompleted,
+        RunEventTypes.DelegationStarted,
+        RunEventTypes.DelegationCompleted,
+    ];
+
+    // A delegated bot's work is shown inside the call that handed it over, so its words and how its run went come
+    // with its calls. The root's own words are the thread's messages.
+    private static readonly string[] delegatedEventTypes =
+    [
+        .. toolEventTypes,
+        RunEventTypes.MessageCompleted,
+        RunEventTypes.RunQueued,
+        RunEventTypes.RunStarted,
+        RunEventTypes.RunWaiting,
+        RunEventTypes.RunCompleted,
+        RunEventTypes.RunFailed,
+        RunEventTypes.RunCancelled,
+    ];
 
     private const int ListLimit = 200;
 
@@ -25,8 +57,11 @@ public sealed class ThreadService(
 
     #region Public Methods
 
-    /// <summary>The caller's threads with one bot, newest activity first. Null when the bot does not exist here.</summary>
-    public async Task<List<ThreadView>?> ListThreads(Guid botId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's threads with one bot, newest activity first, each with what it has for them. Null when the bot
+    /// does not exist here.
+    /// </summary>
+    public async Task<List<ThreadView>?> ListThreads(Guid botId, Guid userId, CancellationToken cancellationToken)
     {
         if (await bots.FindBot(botId, cancellationToken) is null)
         {
@@ -35,7 +70,10 @@ public sealed class ThreadService(
 
         var found = await threads.ListThreadsForBot(botId, ListLimit, cancellationToken);
         var active = await runs.ListActiveRunIds([.. found.Select(thread => thread.Id)], cancellationToken);
-        return [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))];
+        return await WithAttention(
+            [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))],
+            userId,
+            cancellationToken);
     }
 
     /// <summary>A new private thread with the bot, owned by the caller. Null when the bot cannot be talked to.</summary>
@@ -58,12 +96,63 @@ public sealed class ThreadService(
         return thread;
     }
 
-    public async Task<ThreadView?> FindThread(Guid threadId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's main thread with the bot, made now when they have none: private to them, with no title. Null
+    /// when the bot does not exist here, or when there is no main thread yet and the bot cannot be talked to.
+    /// </summary>
+    public async Task<ThreadView?> OpenMainThread(Guid botId, Guid ownerUserId, CancellationToken cancellationToken)
+    {
+        if (await bots.FindBot(botId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var main = await threads.FindMainThread(botId, ownerUserId, cancellationToken);
+
+        if (main is null)
+        {
+            if (bot.Status is not BotStatus.Active)
+            {
+                return null;
+            }
+
+            // Whether this request stored it or a racing one did, the row is there to read now.
+            await threads.AddMainThread(botId, ownerUserId, time.GetUtcNow(), cancellationToken);
+            main = await threads.FindMainThread(botId, ownerUserId, cancellationToken);
+        }
+
+        return main is null ? null : await WithAttention(main, ownerUserId, cancellationToken);
+    }
+
+    public async Task<ThreadView?> FindThread(Guid threadId, Guid userId, CancellationToken cancellationToken)
     {
         var thread = await threads.FindThread(threadId, cancellationToken);
-        return thread is null
-            ? null
-            : new ThreadView(thread, (await runs.FindActiveRun(threadId, cancellationToken))?.Id);
+        return thread is null ? null : await WithAttention(thread, userId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Marks the thread seen by the caller as far as its newest message, then tells their other screens. False when
+    /// the caller may not see the thread.
+    /// </summary>
+    public async Task<bool> MarkSeen(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        ChatThread? thread;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            thread = await threads.FindThread(threadId, cancellationToken);
+
+            if (thread is null)
+            {
+                return false;
+            }
+
+            await threads.MarkSeen(thread, userId, time.GetUtcNow(), cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        signals.Publish(thread.SpaceId, userId, new UserSignal(UserSignalKinds.ThreadSeen, thread.Id, null));
+        return true;
     }
 
     /// <summary>
@@ -75,8 +164,75 @@ public sealed class ThreadService(
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
+    /// <summary>The person each run that wrote one of the messages acts for, by run.</summary>
+    public async Task<Dictionary<Guid, Guid>> ListRunPrincipals(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
+        sent.Any(message => message.RunId is not null)
+            ? await runs.ListPrincipals([.. sent.Select(message => message.RunId).OfType<Guid>().Distinct()], cancellationToken)
+            : [];
+
+    /// <summary>
+    /// The time of each schedule that sent one of these messages and still exists, by schedule id, so the conversation
+    /// can say which schedule sent it.
+    /// </summary>
+    public async Task<Dictionary<Guid, string>> ListScheduleCrons(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
+        sent.Any(message => message.ScheduleId is not null)
+            ? await schedules.ListCrons([.. sent.Select(message => message.ScheduleId).OfType<Guid>().Distinct()], cancellationToken)
+            : [];
+
+    /// <summary>
+    /// What the thread's runs did with their tools, as their logs hold it, or null when the caller may not see the
+    /// thread: each run's tool and delegation events oldest first, the runs oldest first. With them come the events of
+    /// the runs those delegations started, at any depth: their tool and delegation events, their messages, and their
+    /// status, so the work handed over reads as it did live. Arguments, output, and results in them were redacted
+    /// before they were stored. A delegated run's thread has the root thread's audience, so row-level security lets
+    /// exactly the same people read both. A thread a delegation made has no root run: its runs are children, and what
+    /// they did and handed further down is listed the same way, from them.
+    /// </summary>
+    public async Task<IReadOnlyList<RunEvent>?> ListToolEvents(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) switch
+        {
+            null => null,
+            { Origin: ThreadOrigin.Delegation } => await events.ListEventsBelowThread(threadId, toolEventTypes, delegatedEventTypes, cancellationToken),
+            _ => await events.ListEventsOfTrees(
+                await runs.ListRootRunIds(threadId, cancellationToken),
+                toolEventTypes,
+                delegatedEventTypes,
+                cancellationToken),
+        };
+
+    /// <summary>
+    /// The thread's running summary, or null when the caller may not see the thread. A side chat has none, and a main
+    /// thread has none until the first one is written.
+    /// </summary>
+    public async Task<ConversationSummary?> GetSummary(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) switch
+        {
+            null => null,
+            { IsMain: true, Summary: { } text } thread =>
+                new ConversationSummary(text, thread.SummaryThroughPosition ?? 0, thread.SummaryUpdatedAt, ServerWrites),
+            _ => new ConversationSummary(null, 0, null, ServerWrites),
+        };
+
+    private bool ServerWrites => deployment.Value.Rules.AllowConversationSummaries;
+
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task<ThreadView> WithAttention(ChatThread thread, Guid userId, CancellationToken cancellationToken)
+    {
+        var view = new ThreadView(thread, (await runs.FindActiveRun(thread.Id, cancellationToken))?.Id);
+        return (await WithAttention([view], userId, cancellationToken))[0];
+    }
+
+    private async Task<List<ThreadView>> WithAttention(List<ThreadView> views, Guid userId, CancellationToken cancellationToken)
+    {
+        var facts = await threads.ListFacts([.. views.Select(view => view.Thread.Id)], userId, cancellationToken);
+        return [.. views.Select(view => view with { Attention = facts[view.Thread.Id].ToAttention() })];
+    }
 
     #endregion
 }

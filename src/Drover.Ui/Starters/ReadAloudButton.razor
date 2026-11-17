@@ -1,0 +1,13 @@
+@* Starter for #154. Hearing a reply. One reply plays at a time; the caller stops the others. *@
+<Button OnClick="() => OnToggle.InvokeAsync()" aria-pressed="@(Playing ? "true" : "false")">
+    <Icon Name="@(Playing ? IconName.Stop : IconName.Speaker)" />
+    <span>@(Playing ? "Stop reading" : "Read aloud")</span>
+</Button>
+
+@code {
+    [Parameter]
+    public bool Playing { get; set; }
+
+    [Parameter]
+    public EventCallback OnToggle { get; set; }
+}

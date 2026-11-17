@@ -19,18 +19,54 @@ public sealed class ChatComponentTests : BunitContext
 
     #endregion
 
-    #region Thread List
+    #region Crew And Side Chats
 
     [Fact]
-    public void Each_thread_is_a_link_and_the_open_one_is_marked_as_the_current_page()
+    public void Each_bot_is_a_link_to_its_main_conversation_under_the_bot_that_manages_it()
     {
-        var list = Render<ThreadList>(parameters => parameters
-            .Add(component => component.Threads, [new(first, "Sample thread one", "Sample bot", 2, false), new(second, "Sample thread two", "Sample bot", 2, true)])
+        var lead = new BotSummary(first, "Sample lead", "sample-lead", string.Empty, Guid.Empty, "sample-model", "active");
+        var helper = new BotSummary(second, "Sample helper", "sample-helper", string.Empty, Guid.Empty, "sample-model", "active", first);
+
+        var list = Render<CrewList>(parameters => parameters
+            .Add(component => component.Crew, CrewTree.From([helper, lead]))
+            .Add(component => component.SelectedId, second)
+            .Add(component => component.Working, ImmutableHashSet.Create(second)));
+
+        var links = list.FindAll("a");
+        links.Select(link => link.GetAttribute("href")).Should().Equal($"/talk/{first}", $"/talk/{second}");
+        links[0].HasAttribute("aria-current").Should().BeFalse();
+        links[1].GetAttribute("aria-current").Should().Be("page");
+        links[1].QuerySelector("[role=img]")!.GetAttribute("aria-label").Should().Be("Sample helper, thinking");
+        links[1].QuerySelector(".dv-crew-name")!.GetAttribute("aria-hidden").Should().Be("true", "the head already says the name");
+        list.Find("ul.dv-crew > li > ul.dv-crew-branch a").GetAttribute("href").Should().Be($"/talk/{second}");
+    }
+
+    [Fact]
+    public void A_bot_whose_parent_is_not_listed_or_points_back_at_it_is_still_in_the_crew()
+    {
+        var orphan = new BotSummary(first, "Sample orphan", "sample-orphan", string.Empty, Guid.Empty, "sample-model", "paused", Guid.Parse("0196f1a0-0000-7000-8000-00000000000c"));
+        var looped = new BotSummary(second, "Sample loop", "sample-loop", string.Empty, Guid.Empty, "sample-model", "active", second);
+
+        var crew = CrewTree.From([orphan, looped]);
+
+        crew.Select(node => node.Bot.Id).Should().Equal(first, second);
+        CrewTree.Lead([orphan, looped])!.Id.Should().Be(second, "the lead is the first bot at the top that can answer");
+    }
+
+    [Fact]
+    public void Each_side_chat_is_a_link_and_the_one_whose_bot_is_working_says_so()
+    {
+        var list = Render<SideChatList>(parameters => parameters
+            .Add(component => component.Chats,
+            [
+                new(first, "Sample side chat one", $"/talk/{second}/side/{first}", "Sample bot", 2, false),
+                new(second, "Sample side chat two", $"/talk/{second}/side/{second}", "Sample bot", 2, true),
+            ])
             .Add(component => component.SelectedId, second));
 
         var links = list.FindAll("a");
-        links.Select(link => link.GetAttribute("href")).Should().Equal($"/threads/{first}", $"/threads/{second}");
-        links.Select(link => link.QuerySelector(".dv-thread-title")!.TextContent).Should().Equal("Sample thread one", "Sample thread two");
+        links.Select(link => link.GetAttribute("href")).Should().Equal($"/talk/{second}/side/{first}", $"/talk/{second}/side/{second}");
+        links.Select(link => link.QuerySelector(".dv-side-chat-title")!.TextContent).Should().Equal("Sample side chat one", "Sample side chat two");
         links[0].HasAttribute("aria-current").Should().BeFalse();
         links[1].GetAttribute("aria-current").Should().Be("page");
         links[1].QuerySelector("[role=img]")!.GetAttribute("aria-label").Should().Be("Sample bot, thinking");
@@ -126,6 +162,22 @@ public sealed class ChatComponentTests : BunitContext
     }
 
     [Fact]
+    public void A_message_a_schedule_sent_says_so_in_words_and_is_named_for_it_not_for_the_person()
+    {
+        var list = RenderMessages(
+        [
+            new("1", true, "Brief me on what changed overnight.") { SentBy = "Sent by the schedule 'Every weekday at 09:30'" },
+            new("2", true, "Thanks"),
+        ]);
+
+        var articles = list.FindAll("article.dv-message-person");
+        articles[0].GetAttribute("aria-label").Should().Be("Sent by the schedule 'Every weekday at 09:30'");
+        articles[0].QuerySelector(".dv-message-sent-by")!.TextContent.Trim().Should().Be("Sent by the schedule 'Every weekday at 09:30'");
+        articles[1].GetAttribute("aria-label").Should().Be("You said");
+        articles[1].QuerySelector(".dv-message-sent-by").Should().BeNull();
+    }
+
+    [Fact]
     public void A_failed_reply_is_reported_in_an_alert()
     {
         var list = Render<MessageList>(parameters => parameters
@@ -147,7 +199,7 @@ public sealed class ChatComponentTests : BunitContext
 
         var field = composer.Find("textarea");
         field.GetAttribute("aria-label").Should().Be("Message to Sample bot");
-        var send = composer.Find("button");
+        var send = composer.Find("button[type=submit]");
         send.TextContent.Trim().Should().Be("Send");
         send.GetAttribute("type").Should().Be("submit");
         send.ClassList.Should().Contain("dv-button-primary");
@@ -155,7 +207,7 @@ public sealed class ChatComponentTests : BunitContext
 
         field.Input("Hello");
 
-        composer.Find("button").HasAttribute("disabled").Should().BeFalse();
+        composer.Find("button[type=submit]").HasAttribute("disabled").Should().BeFalse();
     }
 
     [Fact]
@@ -177,7 +229,7 @@ public sealed class ChatComponentTests : BunitContext
         var stopped = 0;
         var composer = RenderComposer(running: true, onCancel: () => stopped++);
 
-        var buttons = composer.FindAll("button");
+        var buttons = composer.FindAll("button.dv-button");
         buttons.Select(button => button.TextContent.Trim()).Should().Equal("Stop");
         buttons[0].GetAttribute("type").Should().Be("button");
 
@@ -194,12 +246,12 @@ public sealed class ChatComponentTests : BunitContext
 
         composer.Find("textarea").Input("Use the shorter name");
 
-        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop", "Send");
+        composer.FindAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Stop", "Send");
 
         composer.Find("form").Submit();
 
         sent.Should().Equal("Use the shorter name");
-        composer.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
+        composer.FindAll("button.dv-button").Select(button => button.TextContent.Trim()).Should().Equal("Stop");
     }
 
     #endregion

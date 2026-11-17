@@ -1,7 +1,7 @@
 namespace Drover.Engine.Status;
 
 /// <summary>What the server knows about itself: the run queue as counts, and which migration the database has.</summary>
-public sealed record ServerReadings(RunWorkload Workload, string? AppliedMigration, string? NewestKnownMigration);
+public sealed record ServerReadings(RunWorkload Workload, MigrationState Migrations);
 
 /// <summary>The space's own connections, as last checked. Nothing here calls a provider or a tool server.</summary>
 public sealed record SpaceReadings(IReadOnlyList<ModelConnection> Models, IReadOnlyList<ToolConnection> Tools);
@@ -31,7 +31,19 @@ public sealed class StatusService(
         var workload = await health.ReadWorkload(cancellationToken);
         var applied = await health.ReadAppliedMigration(cancellationToken);
         await work.Commit(cancellationToken);
-        return new ServerReadings(workload, applied, health.NewestKnownMigration);
+        return new ServerReadings(workload, new MigrationState(applied, health.NewestKnownMigration));
+    }
+
+    /// <summary>
+    /// Which migration the database has against the build. It needs no tenant and returns no tenant data, so
+    /// readiness and the start-up check use it as well as the status page.
+    /// </summary>
+    public async Task<MigrationState> ReadMigrations(CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var applied = await health.ReadAppliedMigration(cancellationToken);
+        await work.Commit(cancellationToken);
+        return new MigrationState(applied, health.NewestKnownMigration);
     }
 
     public async Task<SpaceReadings> ReadSpace(CancellationToken cancellationToken)

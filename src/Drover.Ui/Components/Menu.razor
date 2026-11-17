@@ -3,7 +3,16 @@
 @inject ILogger<Menu> Logger
 
 <div class="dv-menu">
-    <button @ref="trigger" type="button" id="@triggerId" class="dv-menu-trigger" popovertarget="@ListId" aria-haspopup="menu" aria-controls="@ListId">@Label</button>
+    <button @ref="trigger" type="button" id="@triggerId" class="dv-menu-trigger" popovertarget="@ListId" aria-haspopup="menu" aria-controls="@ListId" aria-label="@(AriaLabel ?? (ShowTriggerLabel ? null : Label))">
+        @if (TriggerIcon is { } icon)
+        {
+            <Icon Name="icon" Size="20" />
+        }
+        @if (ShowTriggerLabel)
+        {
+            @Label
+        }
+    </button>
     <div @ref="list" id="@ListId" class="dv-menu-list" role="menu" aria-labelledby="@triggerId" popover>
         <CascadingValue Value="this" IsFixed="true">@ChildContent</CascadingValue>
     </div>
@@ -30,6 +39,16 @@
 
     [Parameter, EditorRequired]
     public string Label { get; set; } = string.Empty;
+
+    /// <summary>A fuller name for the trigger when its label alone is ambiguous. It starts with the label.</summary>
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public IconName? TriggerIcon { get; set; }
+
+    [Parameter]
+    public bool ShowTriggerLabel { get; set; } = true;
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }

@@ -7,7 +7,15 @@ public sealed record RuleChange(InheritedRule? Rule, string? Problem)
 }
 
 /// <summary>What trying a sample found. With a problem, the sample or the draft could not be read.</summary>
-public sealed record RuleTrial(RuleOutcome? Outcome, string? Problem, bool BotMissing = false);
+public sealed record RuleTrial(RuleOutcome? Outcome, string? Problem, bool BotMissing = false)
+{
+    #region Properties
+
+    /// <summary>Whether a rule tried at this moment looks for something in text, whether or not any rule applied.</summary>
+    public bool TriedAPattern { get; init; }
+
+    #endregion
+}
 
 /// <summary>
 /// A bot's rules: reading the ones it follows, changing its own, and trying a sample against them. A rule is
@@ -17,6 +25,7 @@ public sealed class RuleService(
     BotRepository bots,
     BotRuleRepository rules,
     ToolRepository tools,
+    PolicyService policy,
     AuditLog audit,
     TimeProvider time,
     ILogger<RuleService> logger)
@@ -27,18 +36,36 @@ public sealed class RuleService(
     /// The rules a bot follows as the evaluator takes them: switched on, its ancestors' first. This is what a run
     /// loads and what "Try it" uses, so the two cannot differ.
     /// </summary>
-    public static IReadOnlyList<ActiveRule> Active(IEnumerable<InheritedRule> followed) =>
+    public static IReadOnlyList<ActiveRule> Active(IEnumerable<InheritedRule> followed, DeploymentPolicy deployment) =>
         [.. followed.Where(found => found.Rule.Enabled).Select(found => new ActiveRule(
             found.Rule.Id,
             found.Rule.Name,
             found.Rule.Checkpoint,
             found.Rule.Effect,
             found.Rule.Conditions,
-            found.Rule.BotId))];
+            found.Rule.BotId)
+        {
+            WrittenPatternsOff = !deployment.AllowWrittenRulePatterns,
+        })];
+
+    /// <summary>Whether a rule on this server may look for text with a pattern a person wrote.</summary>
+    public bool AllowsWrittenPatterns => policy.Deployment.AllowWrittenRulePatterns;
 
     /// <summary>Every rule the bot follows, inherited ones first, or null when there is no such bot.</summary>
     public async Task<List<InheritedRule>?> ListRules(Guid botId, CancellationToken cancellationToken) =>
         await FindBot(botId, cancellationToken) is null ? null : await rules.ListRulesAlongPath(botId, cancellationToken);
+
+    /// <summary>
+    /// The rules as the editor reads them back, each with what a person should know about it as things stand now:
+    /// a tool it names that no tool is called (so that condition never holds, and a typo does not pass in silence),
+    /// a list on a named input saved before such a rule had to say which tools it is about, and a written pattern
+    /// that this server does not run or that is refused now.
+    /// </summary>
+    public async Task<List<BotRuleResponse>> Describe(IReadOnlyList<InheritedRule> found, CancellationToken cancellationToken)
+    {
+        var known = (await tools.ListAllToolNames(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. found.Select(rule => rule.ToResponse() with { Notes = Notes(rule.Rule, known, AllowsWrittenPatterns) })];
+    }
 
     public async Task<RuleChange> Create(Guid botId, BotRuleBody body, Guid actorUserId, CancellationToken cancellationToken)
     {
@@ -159,7 +186,7 @@ public sealed class RuleService(
             return new RuleTrial(null, "Choose the moment to try: before_tool, after_tool, before_reply, or message_arrives.");
         }
 
-        var active = Active(await rules.ListRulesAlongPath(botId, cancellationToken)).ToList();
+        var active = Active(await rules.ListRulesAlongPath(botId, cancellationToken), policy.Deployment).ToList();
 
         if (request.Draft is { } draft)
         {
@@ -168,7 +195,7 @@ public sealed class RuleService(
                 return new RuleTrial(null, Read(draft).Problem);
             }
 
-            active.Add(new ActiveRule(Guid.Empty, read.Name, read.Checkpoint, read.Effect, read.Conditions, botId));
+            active.Add(new ActiveRule(Guid.Empty, read.Name, read.Checkpoint, read.Effect, read.Conditions, botId) { WrittenPatternsOff = !AllowsWrittenPatterns });
         }
 
         var atATool = checkpoint is RuleCheckpoint.BeforeTool or RuleCheckpoint.AfterTool;
@@ -189,12 +216,52 @@ public sealed class RuleService(
             Text = atATool ? null : request.Text ?? string.Empty,
             Now = time.GetUtcNow(),
         };
-        return new RuleTrial(RuleEvaluator.Evaluate(active, subject), null);
+        return new RuleTrial(RuleEvaluator.Evaluate(active, subject), null)
+        {
+            TriedAPattern = active.Any(rule => rule.Checkpoint == checkpoint && rule.Conditions.Any(condition => condition.IsPattern)),
+        };
     }
 
     #endregion
 
     #region Private Methods
+
+    private static List<string> Notes(BotRule rule, HashSet<string> knownTools, bool writtenPatterns)
+    {
+        List<string> notes =
+        [
+            .. rule.Conditions
+                .Where(condition => condition.Kind is RuleConditionKind.ToolIs)
+                .SelectMany(condition => condition.Tools)
+                .Where(tool => !knownTools.Contains(tool))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(tool => $"No tool has that name now: {tool}. The rule does not apply to it until one does. Check the spelling."),
+        ];
+
+        if (rule.Conditions.Any(condition => condition is { Kind: RuleConditionKind.NotInList, Argument: not null })
+            && !rule.Conditions.Any(condition => condition.Kind is RuleConditionKind.ToolIs))
+        {
+            notes.Add("This rule checks a named input and does not say for which tools, so it does not apply when the input is missing. Change it to add the tools it is about.");
+        }
+
+        foreach (var condition in rule.Conditions.Where(condition => condition.Kind is RuleConditionKind.TextMatches))
+        {
+            // A rule saved before patterns were turned off, or before a pattern like its own was refused, is not run
+            // as written: it takes its effect on everything it looks at. The person who reads it back is told.
+            if (!writtenPatterns)
+            {
+                notes.Add($"{WrittenPatternsOff} Until this rule is changed it applies to everything its other conditions allow.");
+                break;
+            }
+
+            if (RulePatterns.Compile(condition.Pattern).Problem is { } refused)
+            {
+                notes.Add($"{refused} Until the pattern is changed, this rule applies to everything its other conditions allow.");
+            }
+        }
+
+        return notes;
+    }
 
     private static JsonObject Snapshot(BotRule rule) =>
         AuditLog.Snapshot(new { rule.Name, rule.Enabled, rule.Position, rule.Checkpoint, rule.Effect, rule.Conditions });
@@ -219,7 +286,7 @@ public sealed class RuleService(
         }
     }
 
-    private static (ReadRule? Rule, string? Problem) Read(BotRuleBody body)
+    private (ReadRule? Rule, string? Problem) Read(BotRuleBody body)
     {
         if (Words.Read<RuleCheckpoint>(body.Checkpoint) is not { } checkpoint)
         {
@@ -232,6 +299,12 @@ public sealed class RuleService(
         }
 
         List<RuleCondition> conditions = [.. (body.Conditions ?? []).Select(condition => condition.ToCondition())];
+
+        if (!AllowsWrittenPatterns && conditions.Any(condition => condition.Kind is RuleConditionKind.TextMatches))
+        {
+            return (null, WrittenPatternsOff);
+        }
+
         return RuleValidator.FindProblem(body.Name, checkpoint, effect, conditions) is { } problem
             ? (null, problem)
             : (new ReadRule(body.Name!.Trim(), checkpoint, effect, conditions), null);
@@ -261,6 +334,10 @@ public sealed class RuleService(
 
     /// <summary>The longest sample "Try it" takes. A run's text has no such cap; the evaluator's time budget bounds both.</summary>
     public const int MaxSampleLength = 20_000;
+
+    /// <summary>What a person is told when a rule has a written pattern and the server does not run them.</summary>
+    public const string WrittenPatternsOff =
+        "Patterns a person writes are turned off on this server (deployment rule AllowWrittenRulePatterns). Look for text with \"contains\" or a built-in kind.";
 
     #endregion
 

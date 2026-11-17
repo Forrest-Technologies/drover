@@ -57,6 +57,10 @@ public sealed class ToolCatalog(ToolRepository tools, ToolConnectionRepository c
         return rows;
     }
 
+    /// <summary>Whether the tool is a built-in one of this server that waits for a person before every use, whatever its grant.</summary>
+    public bool AlwaysAsks(Tool tool) =>
+        tool.SourceKind is ToolSourceKind.Builtin && builtins.Any(builtin => builtin.AlwaysAsks && builtin.Name == tool.Name);
+
     /// <summary>
     /// Folds what a tool server listed into the connection's catalog rows.
     /// <list type="bullet">

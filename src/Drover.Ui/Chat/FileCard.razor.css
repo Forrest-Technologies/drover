@@ -1,0 +1,84 @@
+.dv-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+  max-width: var(--dv-image-width);
+  margin: 0;
+}
+
+.dv-file-picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-file-preview {
+  max-height: var(--dv-output-lines);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: var(--dv-border) solid var(--dv-line);
+  border-radius: var(--dv-radius-card);
+  background: var(--dv-bg-2);
+}
+
+.dv-file-preview-text {
+  margin: 0;
+  padding: var(--dv-space-3);
+  font-family: var(--dv-font-mono);
+  font-size: var(--dv-text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dv-file-card {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-fill: var(--dv-bg-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-2) var(--dv-space-3);
+}
+
+.dv-file-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dv-file-name {
+  font-weight: var(--dv-weight-label);
+  overflow-wrap: anywhere;
+}
+
+.dv-file-get {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-touch);
+  color: var(--dv-text);
+}
+
+.dv-file-caption {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-file-more {
+  align-self: flex-start;
+}
+
+.dv-file-note {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-file-native-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-1);
+}

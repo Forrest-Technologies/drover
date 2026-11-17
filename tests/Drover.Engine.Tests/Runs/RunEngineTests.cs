@@ -207,6 +207,36 @@ public sealed class RunEngineTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task An_approved_read_only_call_cut_off_by_a_kill_runs_again_without_asking_a_second_time()
+    {
+        var tools = new TestTools().AddPausingOnce("test.lookup", ToolSensitivity.Read, """{"answer":42}""");
+        var script = new ScriptedModel([new ToolCallOutput("c1", "test_lookup")], [new TextOutput("It is 42.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.GrantTo(world.BotId, "test.lookup", GrantEffect.Ask);
+        var first = world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Look it up");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed, RunStatus.Completed);
+        var call = (await world.ReadToolCalls(runId)).Single(found => found.Status == ToolCallStatus.PendingApproval);
+
+        await world.Decide(call.Id, approved: true);
+        await tools.Paused.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        var deadWorker = first.WorkerId;
+        await first.Kill();
+        world.StartHost();
+        await world.ExpireLeaseOf(deadWorker, runId);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed, RunStatus.Waiting);
+
+        run.Status.Should().Be(RunStatus.Completed, "the person's yes still holds for the call it was given to");
+        tools.Count("test.lookup").Should().Be(2, "the start the kill cut off, and the one run that finished");
+        script.Requests[1].Should().Contain(new SeenMessage("tool", """c1 = {"answer":42}"""));
+        (await world.ReadToolCalls(runId)).Should().ContainSingle(row => row.Status == ToolCallStatus.Completed);
+        var events = await world.ReadEvents(runId);
+        events.Count(stored => stored.Type == RunEventTypes.ToolApprovalRequested).Should().Be(1, "nobody is asked a second time");
+        events.Where(stored => stored.Type == RunEventTypes.ToolCompleted).Select(RunWorld.Data<ToolCompleted>)
+            .Should().ContainSingle().Which.Outcome.Should().Be("completed");
+    }
+
+    [Fact]
     public async Task A_run_taken_over_three_times_fails_with_lease_lost()
     {
         var script = new ScriptedModel([new PauseOutput()], [new PauseOutput()], [new PauseOutput()], [new TextOutput("Never said.")]);
@@ -429,7 +459,9 @@ public sealed class RunEngineTests(PostgresServer postgres)
         var runId = await world.Post(await world.NewThread(), "Write it anyway");
         await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
-        world.Model.ToolsOffered[0].Should().BeEquivalentTo(["test_lookup", "time_now"], "only the granted tools are sent to the model");
+        world.Model.ToolsOffered[0].Should().BeEquivalentTo(
+            ["test_lookup", "time_now", "crew_list", "crew_add", "crew_change", "crew_remove"],
+            "only the granted tools are sent to the model: the read-only test tool, and the tools a new bot at the top starts with");
         tools.Count("test.write").Should().Be(0, "a tool the model was never given does not run when the model names it anyway");
     }
 

@@ -1,0 +1,143 @@
+namespace Drover.Client;
+
+/// <summary>
+/// Files in a conversation: what the bot can take, uploading, removing, where to fetch one, its text, and the files a
+/// person and a bot exchanged.
+/// </summary>
+public sealed partial class DroverApi
+{
+    #region Files
+
+    /// <summary>Opens a conversation file as a stream; the caller disposes the response.</summary>
+    public async Task<HttpResponseMessage> OpenConversationFile(string address, CancellationToken cancellationToken = default)
+    {
+        if (http.BaseAddress is not { } origin || !Uri.TryCreate(origin, address, out var file)
+            || !origin.IsBaseOf(file)
+            || file.AbsolutePath.Split('/') is not ["", "api", "spaces", var space, "files", var id]
+            || !Guid.TryParse(space, out var spaceId) || !Guid.TryParse(id, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        var response = await http.GetAsync(FileAddress(spaceId, fileId, download: true),
+            HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        try
+        {
+            await response.ThrowIfRefused(cancellationToken);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>What the thread's bot can take and the server's file limits, so the composer can refuse before uploading.</summary>
+    public Task<AttachmentRules> GetAttachmentRules(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<AttachmentRules>($"{Space(spaceId)}/threads/{threadId}/attachment-rules", cancellationToken);
+
+    /// <summary>
+    /// Uploads a file for a message not sent yet. <paramref name="progress"/> hears how many bytes have been handed
+    /// on so far. A refused file throws <see cref="DroverApiException"/> with the server's sentence and its
+    /// <see cref="DroverApiException.Refusal"/> code.
+    /// </summary>
+    public async Task<FileResponse> UploadFile(
+        Guid spaceId,
+        Guid threadId,
+        string name,
+        Stream content,
+        long size,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
+        {
+            Content = new ProgressContent(content, size, progress),
+        };
+
+        if (AntiforgeryToken is { Length: > 0 } token)
+        {
+            request.Headers.Add(AntiforgeryHeader, token);
+        }
+
+        using var response = await http.SendAsync(request, cancellationToken);
+        return await Read<FileResponse>(response, cancellationToken);
+    }
+
+    /// <summary>Removes a file the caller attached and has not sent.</summary>
+    public Task RemoveFile(Guid spaceId, Guid fileId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/files/{fileId}", cancellationToken);
+
+    /// <summary>Where a file is read from, for a picture's source or a download link. The server checks who asks.</summary>
+    public string FileAddress(Guid spaceId, Guid fileId, bool download = false) =>
+        new Uri(http.BaseAddress!, $"{Space(spaceId)}/files/{fileId}{(download ? "?download=true" : string.Empty)}").ToString();
+
+    /// <summary>The files the caller and the bot exchanged in the caller's conversations with it, newest first.</summary>
+    public Task<IReadOnlyList<ExchangedFileResponse>> ListExchangedFiles(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<IReadOnlyList<ExchangedFileResponse>>($"{Space(spaceId)}/bots/{botId}/files", cancellationToken);
+
+    /// <summary>
+    /// A text file's content, up to <paramref name="maxCharacters"/>, and whether there is more past that. The server
+    /// serves text as plain text, so nothing in it is run.
+    /// </summary>
+    public async Task<FileText> ReadFileText(Guid spaceId, Guid fileId, int maxCharacters, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"{Space(spaceId)}/files/{fileId}", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(content, Encoding.UTF8);
+        // One character past the bound says whether there is more. A browser's response stream reads only
+        // asynchronously, so the reader cannot peek.
+        var buffer = new char[maxCharacters + 1];
+        var read = await reader.ReadBlockAsync(buffer, cancellationToken);
+        return new FileText(new string(buffer, 0, Math.Min(read, maxCharacters)), read > maxCharacters);
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    /// <summary>The file's bytes as a request body of known length, telling how far the send has read.</summary>
+    private sealed class ProgressContent(Stream content, long size, IProgress<long>? progress) : HttpContent
+    {
+        #region Private Fields
+
+        private const int ChunkSize = 64 * 1024;
+
+        #endregion
+
+        #region Overrides
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+        {
+            var buffer = new byte[ChunkSize];
+            long sent = 0;
+            int read;
+
+            while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await stream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                sent += read;
+                progress?.Report(sent);
+            }
+        }
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            SerializeToStreamAsync(stream, context, CancellationToken.None);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = size;
+            return true;
+        }
+
+        #endregion
+    }
+
+    #endregion
+}
+
+
+/// <summary>A text file's content as far as it was read, and whether it goes on past that.</summary>
+public sealed record FileText(string Text, bool Cut);

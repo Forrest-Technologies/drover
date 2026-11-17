@@ -41,6 +41,22 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void A_message_a_schedule_sent_names_the_schedule_by_its_time_or_says_it_was_removed()
+    {
+        var scheduled = Message("user", false, new PartView("text", "Brief me")) with { ScheduleId = Guid.CreateVersion7(), ScheduleCron = "30 9 * * 1-5" };
+        var orphaned = Message("user", false, new PartView("text", "Brief me")) with { ScheduleId = Guid.CreateVersion7() };
+        var typed = Message("user", false, new PartView("text", "Hello"));
+
+        var shown = new[] { scheduled, orphaned, typed }.ToChatMessages();
+
+        shown.Select(message => message.SentBy).Should().Equal(
+            "Sent by the routine 'Every weekday at 09:30'",
+            "Sent by a routine that has since been removed",
+            null);
+        shown.Should().OnlyContain(message => message.FromPerson, "a schedule sends on its owner's behalf, on the person's side of the conversation");
+    }
+
+    [Fact]
     public void A_bot_is_thinking_while_it_works_and_has_said_nothing()
     {
         var working = RunView.Start(Guid.CreateVersion7()) with { Status = "running" };
@@ -52,11 +68,51 @@ public sealed class ConversationsTests
     }
 
     [Fact]
-    public void A_failed_run_says_why_in_the_servers_words_and_what_to_do()
+    public void A_bot_is_not_thinking_while_its_tool_runs_or_while_it_waits_for_a_person()
+    {
+        var working = RunView.Start(Guid.CreateVersion7()) with { Status = "running" };
+        var call = new ToolCallView(Guid.CreateVersion7(), "sandbox.run", "Run a command", "{}", "ask", "running");
+
+        (working with { ToolCalls = [call] }).IsThinking().Should().BeFalse();
+        (working with { ToolCalls = [call with { State = "completed" }] }).IsThinking().Should().BeTrue("the tool is done and the bot goes on");
+        var waiting = working with { Status = "waiting", Reason = "awaiting_approval", ToolCalls = [call with { State = "awaiting_approval" }] };
+        waiting.IsThinking().Should().BeFalse();
+        waiting.Notice().Should().BeNull("the waiting call's own card asks the question");
+        (waiting with { Reason = "awaiting_input" }).Notice().Should().Contain("cannot ask for yet");
+    }
+
+    [Fact]
+    public void A_call_shows_after_the_words_of_the_reply_that_made_it_and_a_call_not_stored_yet_after_the_runs_newest_message()
+    {
+        var callId = Guid.CreateVersion7();
+        var later = Guid.CreateVersion7();
+        var reply = Message("assistant", false, new PartView("text", "Looking."), new PartView("tool_call", ToolCallId: callId, ToolName: "time_now", Arguments: "{}"));
+        var result = Message("tool", false, new PartView("tool_result", ToolCallId: callId, Result: """{"utc":"noon"}"""));
+        var streaming = Message("assistant", true);
+        var run = RunView.Start(Guid.CreateVersion7()) with
+        {
+            Status = "running",
+            Messages = [reply, streaming],
+            ToolCalls =
+            [
+                new(callId, "time.now", "Current time", "{}", "allow", "completed"),
+                new(later, "sandbox.run", "Run a command", """{"command":"ls"}""", "allow", "running"),
+            ],
+        };
+
+        var shown = new[] { Message("user", false, new PartView("text", "Time?")), reply, result, streaming }.ToChatMessages(run.ToolCalls.ToDictionary(tool => tool.ToolCallId), run);
+
+        shown.Select(message => (message.Text, string.Join(",", message.Tools.Select(tool => tool.Label))))
+            .Should().Equal(("Time?", ""), ("Looking.", "Checked the time"), ("", "Running a command"));
+        shown[1].Tools[0].Result.Should().Contain("noon", "the stored result is shown");
+        shown[2].Key.Should().Be(streaming.Id.ToString(), "the call joins the reply being written, which will make it");
+    }
+
+    [Fact]
+    public void A_failed_run_is_not_a_notice_because_the_conversation_ends_with_its_failure_line()
     {
         var failed = RunView.Start(Guid.CreateVersion7()) with { Status = "failed", Error = new("unauthorized", "The provider rejected the API key.") };
 
-        failed.Problem().Should().Be("The provider rejected the API key. Send your message again to retry.");
         failed.Notice().Should().BeNull();
     }
 
@@ -65,9 +121,83 @@ public sealed class ConversationsTests
     {
         var stopped = RunView.Start(Guid.CreateVersion7()) with { Status = "cancelled" };
 
-        stopped.Problem().Should().BeNull();
         stopped.Notice().Should().Be("You stopped this reply.");
         (stopped with { Status = "completed" }).Notice().Should().BeNull();
+    }
+
+    #endregion
+
+    #region Files
+
+    [Fact]
+    public void A_messages_files_are_shown_at_the_address_given_and_a_message_with_only_files_is_kept()
+    {
+        var file = new FileResponse(Guid.NewGuid(), "cat.png", "image/png", FileKinds.Image, 2048, 64, 48);
+        var withFile = new MessageView(Guid.NewGuid(), "user", [new PartView("image", File: file)], false, null);
+
+        var shown = new[] { withFile }.ToChatMessages(fileAddress: id => $"/files/{id}").Single();
+        var without = new[] { withFile }.ToChatMessages();
+
+        shown.Text.Should().BeEmpty();
+        shown.Files.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { file.Id, Name = "cat.png", Href = $"/files/{file.Id}", FromBot = false, Width = 64, Height = 48 });
+        without.Should().BeEmpty("without an address there is nothing to show");
+    }
+
+    #endregion
+
+    #region What a Reply Used
+
+    [Fact]
+    public void What_a_reply_used_is_offered_once_at_the_last_words_of_each_finished_run_and_not_while_it_works()
+    {
+        var first = Guid.CreateVersion7();
+        var second = Guid.CreateVersion7();
+        MessageView[] stored =
+        [
+            Message("user", false, new PartView("text", "Plan it")),
+            Message("assistant", false, new PartView("text", "Thinking aloud.")) with { RunId = first },
+            Message("assistant", false, new PartView("text", "Here is the plan.")) with { RunId = first },
+            Message("user", false, new PartView("text", "And now?")),
+        ];
+        var arriving = Message("assistant", true, new PartView("text", "Working on"));
+        var working = RunView.Start(second) with { Status = "running", Messages = [arriving] };
+
+        var reader = new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true);
+        var whileWorking = stored.Append(arriving).ToChatMessages(run: working, reader: reader);
+        var done = stored.Append(arriving with { IsStreaming = false }).ToChatMessages(run: working with { Status = "completed" }, reader: reader);
+
+        whileWorking.Select(message => (message.Text, message.RunId, message.EndsReply)).Should().Equal(
+            ("Plan it", null, false),
+            ("Thinking aloud.", first, false),
+            ("Here is the plan.", first, true),
+            ("And now?", null, false),
+            ("Working on", second, false));
+        done[^1].Should().Match<ChatMessage>(message => message.RunId == second && message.EndsReply);
+    }
+
+    [Fact]
+    public void In_a_shared_conversation_a_member_is_offered_what_their_own_replies_used_and_an_admin_every_reply()
+    {
+        var alice = Guid.CreateVersion7();
+        var bob = Guid.CreateVersion7();
+        var aliceRun = Guid.CreateVersion7();
+        var bobRun = Guid.CreateVersion7();
+        MessageView[] shared =
+        [
+            Message("user", false, new PartView("text", "Alice asks")),
+            Message("assistant", false, new PartView("text", "Answer for Alice.")) with { RunId = aliceRun, RunPrincipalUserId = alice },
+            Message("user", false, new PartView("text", "Bob asks")),
+            Message("assistant", false, new PartView("text", "Answer for Bob.")) with { RunId = bobRun, RunPrincipalUserId = bob },
+        ];
+
+        static IEnumerable<string> Offered(IReadOnlyList<ChatMessage> shown) => shown.Where(message => message.EndsReply).Select(message => message.Text);
+
+        Offered(shared.ToChatMessages(reader: new UsageReader(bob, IsSpaceAdmin: false))).Should().Equal(
+            ["Answer for Bob."], "the server answers a member only for the runs that act for them");
+        Offered(shared.ToChatMessages(reader: new UsageReader(alice, IsSpaceAdmin: false))).Should().Equal("Answer for Alice.");
+        Offered(shared.ToChatMessages(reader: new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true))).Should().Equal("Answer for Alice.", "Answer for Bob.");
+        Offered(shared.ToChatMessages()).Should().BeEmpty("without a reader nothing is offered");
     }
 
     #endregion

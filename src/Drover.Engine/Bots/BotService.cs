@@ -9,7 +9,12 @@ public sealed class BotService(
     ModelConnectionRepository connections,
     ToolRepository tools,
     ToolCatalog catalog,
+    AccountRepository accounts,
+    TenantContext tenant,
     AuditLog audit,
+    PolicyService policies,
+    SandboxRepository sandboxes,
+    TimeProvider time,
     ILogger<BotService> logger)
 {
     #region Private Fields
@@ -27,8 +32,6 @@ public sealed class BotService(
     private const int MaxSymbolLength = 16;
 
     private const int MaxAllowedHosts = 50;
-
-    private const int MaxIdleTimeoutMinutes = 1_440;
 
     private const int MaxBuildLimit = 1_000;
 
@@ -57,18 +60,23 @@ public sealed class BotService(
             ? new BotView(bot, await bots.ListSandboxShares(id, cancellationToken))
             : null;
 
-    /// <summary>Creates a bot with no parent and gives it the tools every new bot starts with.</summary>
-    public async Task<BotChange> Create(
-        string name,
-        string instructions,
-        Guid modelConnectionId,
-        string? model,
-        Guid createdByUserId,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Creates a bot, at the top of the tree or beneath a parent of this space, and gives it the tools every new bot
+    /// starts with. A bot beneath a parent gets each of those tools only as far as the parent holds it now. The maker
+    /// is a person, or a bot acting for one; the new bot records both.
+    /// </summary>
+    public async Task<BotChange> Create(NewBot request, AuditActor maker, CancellationToken cancellationToken)
     {
+        var (name, description, instructions) = (request.Name, request.DescriptionForBots, request.Instructions);
+
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > MaxNameLength)
         {
             return new BotChange(null, $"Give the bot a name of up to {MaxNameLength} characters.");
+        }
+
+        if (description.Length > MaxDescriptionLength)
+        {
+            return new BotChange(null, $"Keep what this bot is for under {MaxDescriptionLength} characters.");
         }
 
         if (instructions.Length > MaxInstructionsLength)
@@ -76,39 +84,65 @@ public sealed class BotService(
             return new BotChange(null, $"Keep the instructions under {MaxInstructionsLength} characters.");
         }
 
-        var connection = await connections.FindConnection(modelConnectionId, cancellationToken);
+        var connection = await connections.FindConnection(request.ModelConnectionId, cancellationToken);
 
         if (connection is null)
         {
             return new BotChange(null, "Choose a model connection of this space.");
         }
 
-        var chosen = string.IsNullOrWhiteSpace(model) ? connection.DefaultModel : model.Trim();
+        var chosen = string.IsNullOrWhiteSpace(request.Model) ? connection.DefaultModel : request.Model.Trim();
 
         if (string.IsNullOrWhiteSpace(chosen) || chosen.Length > MaxModelLength)
         {
             return new BotChange(null, "Choose a model for the bot.");
         }
 
+        if (await FindCountProblem(cancellationToken) is { } full)
+        {
+            return new BotChange(null, full);
+        }
+
+        Bot? parent = null;
+
+        if (request.ParentBotId is { } parentId)
+        {
+            parent = await bots.LockBot(parentId, cancellationToken);
+
+            if (parent is null)
+            {
+                return new BotChange(null, "Choose a parent bot of this space.");
+            }
+
+            if (await FindTreeProblem(parent, cancellationToken) is { } problem)
+            {
+                return new BotChange(null, problem);
+            }
+        }
+
         var bot = new Bot
         {
             Name = name.Trim(),
             Handle = await FindFreeHandle(name, cancellationToken),
+            DescriptionForBots = description,
             Instructions = instructions,
             ModelConnectionId = connection.Id,
             Model = chosen,
-            CreatedByUserId = createdByUserId,
+            ParentBotId = parent?.Id,
+            Depth = parent is null ? 0 : parent.Depth + 1,
+            CreatedByUserId = maker.UserId,
+            CreatedByBotId = maker.BotId,
         };
-        bots.AddRootBot(bot);
-        var granted = await GrantDefaultTools(bot, createdByUserId, cancellationToken);
-        audit.Record(createdByUserId, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted));
+        var granted = await AddToTree(bot, parent, maker, cancellationToken);
+        var about = parent is null ? null : new JsonObject { ["parent_bot_id"] = parent.Id };
+        audit.Record(maker, "bot.created", AuditTargets.Bot, bot.Id, null, Snapshot(bot, [], granted), about);
 
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
     }
 
     /// <summary>Replaces a bot's definition with the edit, when every part of the edit holds.</summary>
-    public async Task<BotChange> Update(Guid id, BotEdit edit, Guid actorUserId, CancellationToken cancellationToken)
+    public async Task<BotChange> Update(Guid id, BotEdit edit, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
@@ -123,6 +157,14 @@ public sealed class BotService(
         var before = Snapshot(bot, await bots.ListSandboxShares(id, cancellationToken));
         var sharedWith = edit.SandboxPolicy is SandboxPolicy.Named ? edit.SandboxSharedWith.Distinct().Order().ToList() : [];
 
+        // A screen is part of the machine a sandbox is made from, so a change to it takes the bot's sandbox out of use.
+        // Its next use makes one of the new kind and destroys this one; its files go with it, as the editor says.
+        if (bot.SandboxSettings.Desktop != edit.SandboxSettings!.Desktop
+            && await sandboxes.RetireLiveForOwner(bot.Id, time.GetUtcNow(), cancellationToken))
+        {
+            logger.LogInformation("Bot {BotId} changed its sandbox's screen; its sandbox is retired", bot.Id);
+        }
+
         bot.Name = edit.Name.Trim();
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
@@ -133,11 +175,15 @@ public sealed class BotService(
         bot.ModelSettings = edit.ModelSettings!;
         bot.MemorySettings = edit.MemorySettings!;
         bot.SandboxPolicy = edit.SandboxPolicy!.Value;
-        bot.SandboxSettings = edit.SandboxSettings! with { AllowedHosts = [.. edit.SandboxSettings.AllowedHosts.Select(host => host.Trim().ToLowerInvariant())] };
+        bot.SandboxSettings = edit.SandboxSettings! with
+        {
+            AllowedHosts = [.. edit.SandboxSettings.AllowedHosts.Select(host => host.Trim().ToLowerInvariant())],
+            ScreenReader = edit.SandboxSettings.ScreenReader is { } reader ? reader with { Model = reader.Model.Trim() } : null,
+        };
         bot.BuildLimits = edit.BuildLimits;
         await bots.ReplaceSandboxShares(id, sharedWith, cancellationToken);
 
-        if (audit.Record(actorUserId, "bot.updated", AuditTargets.Bot, bot.Id, before, Snapshot(bot, sharedWith)))
+        if (audit.Record(actor, "bot.updated", AuditTargets.Bot, bot.Id, before, Snapshot(bot, sharedWith)))
         {
             logger.LogInformation("Bot {BotId} updated", bot.Id);
         }
@@ -154,6 +200,11 @@ public sealed class BotService(
         if (await FindBot(id, cancellationToken) is not { } source)
         {
             return BotChange.NotFound;
+        }
+
+        if (await FindCountProblem(cancellationToken) is { } full)
+        {
+            return new BotChange(null, full);
         }
 
         var name = CopyName(source.Name);
@@ -186,25 +237,60 @@ public sealed class BotService(
     }
 
     /// <summary>Pauses a bot: it starts no run and uses no tool until it is resumed.</summary>
-    public Task<BotChange> Pause(Guid id, Guid actorUserId, CancellationToken cancellationToken) =>
-        SetStatus(id, BotStatus.Paused, "bot.paused", actorUserId, cancellationToken);
+    public Task<BotChange> Pause(Guid id, AuditActor actor, CancellationToken cancellationToken) =>
+        SetStatus(id, BotStatus.Paused, "bot.paused", actor, cancellationToken);
 
-    public Task<BotChange> Resume(Guid id, Guid actorUserId, CancellationToken cancellationToken) =>
-        SetStatus(id, BotStatus.Active, "bot.resumed", actorUserId, cancellationToken);
+    public Task<BotChange> Resume(Guid id, AuditActor actor, CancellationToken cancellationToken) =>
+        SetStatus(id, BotStatus.Active, "bot.resumed", actor, cancellationToken);
 
-    /// <summary>Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing.</summary>
-    public async Task<BotChange> Remove(Guid id, Guid actorUserId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Removes a bot. Its row, threads, and history stay; it is no longer listed and can do nothing. A bot with bots
+    /// beneath it needs a choice for them, and is refused in words without one, so no caller can skip the question:
+    /// <see cref="BotsBeneath.Remove"/> removes the whole branch, each bot as this one; <see cref="BotsBeneath.Keep"/>
+    /// moves the bots directly beneath it, with everything beneath them, up beneath its parent, or to the top. Either
+    /// happens whole or not at all, in the caller's scope.
+    /// </summary>
+    public async Task<BotChange> Remove(Guid id, BotsBeneath? beneath, AuditActor actor, CancellationToken cancellationToken)
     {
-        var change = await SetStatus(id, BotStatus.Removed, "bot.removed", actorUserId, cancellationToken);
+        await bots.LockTree(cancellationToken);
 
-        if (change.Bot is not null)
+        if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
-            // A share that outlived its bot would name a bot no edit can keep, and make the other bot unsaveable.
-            await bots.RemoveSandboxSharesOf(id, cancellationToken);
+            return BotChange.NotFound;
         }
 
-        return change;
+        var children = await bots.ListChildren(id, cancellationToken);
+
+        if (children.Count > 0 && beneath is null)
+        {
+            return new BotChange(null, HasBotsBeneath(bot, children.Count));
+        }
+
+        var branch = beneath is BotsBeneath.Remove ? await bots.ListDescendantsForUpdate(id, cancellationToken) : [];
+
+        if (beneath is BotsBeneath.Keep && children.Count > 0
+            && await MoveUp(bot, children, actor, cancellationToken) is { } problem)
+        {
+            return new BotChange(null, problem);
+        }
+
+        await RemoveOne(bot, actor, null, cancellationToken);
+        var with = new JsonObject { ["removed_with"] = bot.Id };
+
+        foreach (var below in branch)
+        {
+            await RemoveOne(below, actor, with, cancellationToken);
+        }
+
+        return new BotChange(bot, null)
+        {
+            Beneath = beneath is BotsBeneath.Remove ? [.. branch.Select(below => below.Id)] : [.. children.Select(child => child.Id)],
+        };
     }
+
+    /// <summary>The sentence a remove is refused with when the bot has bots beneath it and no choice was made for them.</summary>
+    public static string HasBotsBeneath(Bot bot, int children) =>
+        $"{bot.Name} has {Count(children, "bot")} directly beneath it. Choose whether they are removed with it or kept and moved up.";
 
     #endregion
 
@@ -243,13 +329,134 @@ public sealed class BotService(
             bot.Status,
         });
 
+    /// <summary>
+    /// Marks one bot removed, ends the sandbox shares it gives or was given, and retires its own sandbox. A share
+    /// that outlived its bot would name a bot no edit can keep. The sandbox is retired, not destroyed: kept, paused,
+    /// for the retention period so a person can still recover its files; the server's sweep destroys it after.
+    /// </summary>
+    private async Task RemoveOne(Bot bot, AuditActor actor, JsonObject? about, CancellationToken cancellationToken)
+    {
+        var before = new JsonObject { ["status"] = Words.Of(bot.Status) };
+        bot.Status = BotStatus.Removed;
+        audit.Record(actor, "bot.removed", AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(BotStatus.Removed) }, about);
+        await bots.RemoveSandboxSharesOf(bot.Id, cancellationToken);
+
+        if (await sandboxes.RetireLiveForOwner(bot.Id, time.GetUtcNow() + SandboxSweep.Retention, cancellationToken))
+        {
+            logger.LogInformation("Bot {BotId} was removed; its sandbox is retired", bot.Id);
+        }
+
+        logger.LogInformation("Bot {BotId} is now {Status}", bot.Id, BotStatus.Removed);
+    }
+
+    /// <summary>
+    /// Moves the bots directly beneath a bot being removed up beneath its parent, or to the top, each with everything
+    /// beneath it. The parent's own cap on bots directly beneath it, and the space's, are checked first, and the move
+    /// is refused whole when they would be exceeded. Moving up never makes a branch deeper. Each moved bot's own
+    /// grants are lowered to what the removed bot could do, and one it could not use at all is taken away, so no bot
+    /// of a moved branch can do more after the move than before it, and none holds more than its new parent.
+    /// </summary>
+    private async Task<string?> MoveUp(Bot removed, List<Bot> children, AuditActor actor, CancellationToken cancellationToken)
+    {
+        var newParent = removed.ParentBotId is { } parentId ? await bots.FindBot(parentId, cancellationToken) : null;
+
+        if (newParent is not null && await FindRoomProblem(removed, newParent, children.Count, cancellationToken) is { } problem)
+        {
+            return problem;
+        }
+
+        var ceilings = await tools.ListEffectiveGrants(removed.Id, cancellationToken);
+
+        foreach (var child in children)
+        {
+            await LowerGrants(child, ceilings, actor, cancellationToken);
+            await bots.MoveUp(child.Id, removed.Id, newParent?.Id, cancellationToken);
+            audit.Record(
+                actor,
+                "bot.moved",
+                AuditTargets.Bot,
+                child.Id,
+                new JsonObject { ["parent_bot_id"] = removed.Id },
+                new JsonObject { ["parent_bot_id"] = newParent?.Id },
+                new JsonObject { ["removed_bot_id"] = removed.Id });
+            logger.LogInformation("Bot {BotId} moved up from beneath {RemovedBotId}", child.Id, removed.Id);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Why the bots beneath a removed bot cannot move up beneath its parent, or null when they can. They take the
+    /// removed bot's place, so the parent's count grows by one less than the number moved; moving a single bot up
+    /// never changes it, and is never refused.
+    /// </summary>
+    private async Task<string?> FindRoomProblem(Bot removed, Bot newParent, int moving, CancellationToken cancellationToken)
+    {
+        var after = await bots.CountChildren(newParent.Id, cancellationToken) - 1 + moving;
+        var caps = await GetSpaceCaps(cancellationToken);
+        var most = new[] { caps.MaxChildrenPerBot, newParent.BuildLimits.MaxChildren }.Min();
+
+        return moving > 1 && most is { } cap && after > cap
+            ? $"{newParent.Name} may have at most {Count(cap, "bot")} directly beneath it, so the {moving} bots beneath {removed.Name} cannot move up to it. Remove them with {removed.Name}, or remove some of them first."
+            : null;
+    }
+
+    /// <summary>A moved bot's own grants, each lowered to the removed bot's effective grant, or taken away where it had none.</summary>
+    private async Task LowerGrants(Bot moved, Dictionary<Guid, GrantEffect> ceilings, AuditActor actor, CancellationToken cancellationToken)
+    {
+        var own = await tools.ListOwnGrants(moved.Id, cancellationToken);
+        var names = await tools.ListToolNames([.. own.Select(grant => grant.ToolId)], cancellationToken);
+
+        foreach (var grant in own)
+        {
+            var lowered = ceilings.TryGetValue(grant.ToolId, out var ceiling) ? GrantRules.Min(grant.Effect, ceiling) : (GrantEffect?)null;
+
+            if (lowered == grant.Effect)
+            {
+                continue;
+            }
+
+            var before = GrantService.Snapshot(grant);
+
+            if (lowered is { } effect)
+            {
+                grant.Effect = effect;
+            }
+            else
+            {
+                tools.Remove(grant);
+            }
+
+            var about = new JsonObject { ["tool_id"] = grant.ToolId, ["tool"] = names.GetValueOrDefault(grant.ToolId, grant.ToolId.ToString()) };
+            audit.Record(actor, "grant.changed", AuditTargets.Bot, moved.Id, before, GrantService.Snapshot(lowered is null ? null : grant), about);
+        }
+    }
+
+    private async Task<SpaceSettings> GetSpaceCaps(CancellationToken cancellationToken) =>
+        tenant.SpaceId is { } spaceId ? (await accounts.GetSpace(spaceId, cancellationToken))?.Settings ?? new() : new();
+
+    /// <summary>
+    /// Why the space cannot hold another bot, or null when it can: its bots that have not been removed, against the
+    /// deployment's cap narrowed by the space's own. Takes the tree lock first, so two additions count one after the other.
+    /// </summary>
+    private async Task<string?> FindCountProblem(CancellationToken cancellationToken)
+    {
+        await bots.LockTree(cancellationToken);
+        var most = policies.MaxBots(await GetSpaceCaps(cancellationToken));
+        var live = await bots.CountLiveBots(cancellationToken);
+
+        return live >= most
+            ? $"This space allows at most {Count(most, "bot")}, and already has {live}. Remove a bot to make room for another."
+            : null;
+    }
+
     private static string CopyName(string name)
     {
         const string Suffix = " copy";
         return $"{name[..Math.Min(name.Length, MaxNameLength - Suffix.Length)]}{Suffix}";
     }
 
-    private async Task<BotChange> SetStatus(Guid id, BotStatus status, string action, Guid actorUserId, CancellationToken cancellationToken)
+    private async Task<BotChange> SetStatus(Guid id, BotStatus status, string action, AuditActor actor, CancellationToken cancellationToken)
     {
         if (await bots.GetBotForUpdate(id, cancellationToken) is not { } bot)
         {
@@ -259,7 +466,7 @@ public sealed class BotService(
         var before = new JsonObject { ["status"] = Words.Of(bot.Status) };
         bot.Status = status;
 
-        if (audit.Record(actorUserId, action, AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(status) }))
+        if (audit.Record(actor, action, AuditTargets.Bot, bot.Id, before, new JsonObject { ["status"] = Words.Of(status) }))
         {
             logger.LogInformation("Bot {BotId} is now {Status}", bot.Id, status);
         }
@@ -273,7 +480,9 @@ public sealed class BotService(
         ?? await FindAvatarProblem(edit.Avatar, cancellationToken)
         ?? await FindModelProblem(edit, cancellationToken)
         ?? FindMemoryProblem(edit.MemorySettings)
+        ?? FindNoteProblem(edit.MemorySettings!)
         ?? await FindSandboxProblem(bot, edit, cancellationToken)
+        ?? await FindScreenReaderProblem(edit.SandboxSettings?.ScreenReader, cancellationToken)
         ?? FindBuildProblem(edit.BuildLimits);
 
     private static string? FindTextProblem(BotEdit edit)
@@ -386,6 +595,24 @@ public sealed class BotService(
             : null;
     }
 
+    /// <summary>
+    /// The limits on notes only narrow the server's: a note held to more than the server allows is refused, not
+    /// quietly lowered.
+    /// </summary>
+    private string? FindNoteProblem(MemorySettings memory)
+    {
+        var deployment = policies.Deployment;
+
+        if (memory.MaxNoteCharacters is { } note && (note <= 0 || note > deployment.MaxMemoryNoteCharacters))
+        {
+            return $"A note may hold at most {deployment.MaxMemoryNoteCharacters} characters on this server, and more than none.";
+        }
+
+        return memory.MaxNotesCharacters is { } notes && (notes <= 0 || notes > deployment.MaxMemoryCharactersPerPerson)
+            ? $"A bot's notes about one person may hold at most {deployment.MaxMemoryCharactersPerPerson} characters on this server, and more than none."
+            : null;
+    }
+
     private static string? FindMemoryProblem(MemorySettings? memory)
     {
         if (memory is null)
@@ -415,9 +642,24 @@ public sealed class BotService(
             return "Sandbox network access is off, allowlist, or open.";
         }
 
-        if (settings.IdleTimeoutMinutes is <= 0 or > MaxIdleTimeoutMinutes)
+        // The deployment caps both: a running sandbox costs the operator money, and open egress is the operator's
+        // liability on a shared server. Limits only narrow, so a setting past them is refused, not quietly lowered.
+        var mostIdleMinutes = policies.Deployment.MaxSandboxIdleMinutes;
+
+        if (settings.IdleTimeoutMinutes is <= 0 || settings.IdleTimeoutMinutes > mostIdleMinutes)
         {
-            return $"A sandbox stops after 1 to {MaxIdleTimeoutMinutes} idle minutes.";
+            return $"A sandbox stops after 1 to {mostIdleMinutes} idle minutes on this server.";
+        }
+
+        if (settings.Network is NetworkAccess.Open && !policies.Deployment.AllowOpenSandboxNetwork)
+        {
+            return "This server does not let a sandbox reach the open internet. Choose Off or Named hosts.";
+        }
+
+        // A sandbox with a screen is a far larger machine; where the operator has not allowed one, it is refused.
+        if (settings.Desktop && !policies.Deployment.AllowDesktopSandboxes)
+        {
+            return "This server does not offer sandboxes with a screen. Turn Desktop off.";
         }
 
         if (settings.AllowedHosts.Count > MaxAllowedHosts)
@@ -453,26 +695,145 @@ public sealed class BotService(
             : null;
     }
 
+    /// <summary>
+    /// A model that reads the screen for the bot must be one of this space's, and one the catalog says reads images:
+    /// a model that cannot would describe nothing, and one Drover knows nothing about is not trusted to.
+    /// </summary>
+    private async Task<string?> FindScreenReaderProblem(ScreenReader? reader, CancellationToken cancellationToken)
+    {
+        if (reader is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(reader.Model) || reader.Model.Trim().Length > MaxModelLength)
+        {
+            return "Choose a model to read the screen, or let the bot's own model do it.";
+        }
+
+        if (await connections.FindConnection(reader.ModelConnectionId, cancellationToken) is null)
+        {
+            return "The model chosen to read the screen is not on a model connection of this space. Choose another, or let the bot's own model do it.";
+        }
+
+        var model = reader.Model.Trim();
+        return await connections.FindCatalogEntry(reader.ModelConnectionId, model, cancellationToken) switch
+        {
+            null => $"Drover does not know whether {model} can read images, so it cannot read the screen. Choose a model its connection lists as reading images.",
+            { Capabilities.Vision: false } known => $"{known.DisplayName} cannot read images, so it cannot read the screen. Choose a model that can.",
+            _ => null,
+        };
+    }
+
     private static string? FindBuildProblem(BuildLimits limits) =>
         limits.MaxChildren is < 0 or > MaxBuildLimit || limits.MaxDepthBelow is < 0 or > MaxBuildLimit
             ? $"A build limit is a whole number from 0 to {MaxBuildLimit}."
             : null;
 
-    private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(Bot bot, Guid grantedByUserId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Why a bot cannot be added beneath this parent, or null when it can: the space's caps on depth and on bots
+    /// beneath one bot, the parent's own limit on its children, and each bot above's limit on how deep beneath it
+    /// the tree may go. A cap left empty does not limit.
+    /// </summary>
+    private async Task<string?> FindTreeProblem(Bot parent, CancellationToken cancellationToken)
+    {
+        var caps = await GetSpaceCaps(cancellationToken);
+        var depth = parent.Depth + 1;
+
+        if (caps.MaxBotDepth is { } maxDepth && depth > maxDepth)
+        {
+            return $"This space allows bots at most {Count(maxDepth, "level")} below the top, so {parent.Name} cannot have a bot beneath it.";
+        }
+
+        var children = await bots.CountChildren(parent.Id, cancellationToken);
+
+        if (caps.MaxChildrenPerBot is { } maxChildren && children >= maxChildren)
+        {
+            return $"This space allows at most {Count(maxChildren, "bot")} directly beneath one bot, and {parent.Name} already has {children}.";
+        }
+
+        if (parent.BuildLimits.MaxChildren is { } ownMax && children >= ownMax)
+        {
+            return $"{parent.Name} may have at most {Count(ownMax, "bot")} directly beneath it, and already has {children}.";
+        }
+
+        var limiting = (await bots.ListSelfAndAncestors(parent.Id, cancellationToken))
+            .FirstOrDefault(above => above.BuildLimits.MaxDepthBelow is { } below && depth - above.Depth > below);
+
+        return limiting is { BuildLimits.MaxDepthBelow: { } limit }
+            ? $"{limiting.Name} allows bots at most {Count(limit, "level")} beneath it."
+            : null;
+    }
+
+    private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    /// <summary>Places the bot in the tree and gives it the tools every new bot starts with, as far as its parent holds them.</summary>
+    private async Task<List<(string Tool, ToolGrant Grant)>> AddToTree(Bot bot, Bot? parent, AuditActor maker, CancellationToken cancellationToken)
+    {
+        if (parent is null)
+        {
+            bots.AddRootBot(bot);
+            return await GrantDefaultTools(bot, maker, null, cancellationToken);
+        }
+
+        await bots.AddChildBot(bot, cancellationToken);
+        var ceilings = await tools.ListEffectiveGrants(parent.Id, cancellationToken);
+        return await GrantDefaultTools(bot, maker, ceilings, cancellationToken);
+    }
+
+    /// <summary>
+    /// Grants the tools every new bot starts with. With <paramref name="ceilings"/>, the parent's effective grants, a
+    /// tool the parent lacks is left out and one it holds lower is lowered to match: a child never starts above its
+    /// parent. A bot at the top also gets the crew tools as ask, where this server allows bots to build bots.
+    /// </summary>
+    private async Task<List<(string Tool, ToolGrant Grant)>> GrantDefaultTools(
+        Bot bot,
+        AuditActor maker,
+        Dictionary<Guid, GrantEffect>? ceilings,
+        CancellationToken cancellationToken)
     {
         List<(string Tool, ToolGrant Grant)> granted = [];
 
         foreach (var tool in await catalog.EnsureBuiltins(cancellationToken))
         {
-            if (BuiltinTools.GrantedToNewBots.Contains(tool.Name, StringComparer.Ordinal))
+            if (StartingEffect(tool.Name, atTheTop: ceilings is null) is not { } standard)
             {
-                var grant = new ToolGrant { BotId = bot.Id, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = grantedByUserId };
-                tools.Add(grant);
-                granted.Add((tool.Name, grant));
+                continue;
             }
+
+            if (ceilings is not null && !ceilings.ContainsKey(tool.Id))
+            {
+                continue;
+            }
+
+            var grant = new ToolGrant
+            {
+                BotId = bot.Id,
+                ToolId = tool.Id,
+                Effect = ceilings is null ? standard : GrantRules.Min(standard, ceilings[tool.Id]),
+                GrantedByUserId = maker.UserId,
+                GrantedByBotId = maker.BotId,
+            };
+            tools.Add(grant);
+            granted.Add((tool.Name, grant));
         }
 
         return granted;
+    }
+
+    /// <summary>The effect a new bot starts with on a built-in tool, or null when it starts without the tool.</summary>
+    private GrantEffect? StartingEffect(string toolName, bool atTheTop)
+    {
+        if (BuiltinTools.GrantedToNewBots.Contains(toolName, StringComparer.Ordinal))
+        {
+            return GrantEffect.Allow;
+        }
+
+        return atTheTop
+            && policies.Deployment.AllowBotsBuildingBots
+            && BuiltinTools.AskedOfNewTopBots.Contains(toolName, StringComparer.Ordinal)
+                ? GrantEffect.Ask
+                : null;
     }
 
     /// <summary>

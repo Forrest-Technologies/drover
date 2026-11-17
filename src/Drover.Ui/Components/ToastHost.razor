@@ -21,12 +21,21 @@
     #region Properties
 
     private RenderFragment<ToastMessage> Toast => toast =>
-        @<div @key="toast.Id" class="dv-toast dv-toast-@toast.Kind.ToString().ToLowerInvariant()">
+        @<div @key="toast.Id" class="dv-toast dv-toast-@toast.Kind.ToString().ToLowerInvariant()" @onfocusin="() => Toasts.Hold(toast.Id)">
             <p class="dv-toast-message">
-                <span class="dv-toast-kind">@KindWord(toast.Kind)</span>
+                @if (KindWord(toast.Kind) is { } kind)
+                {
+                    <span class="dv-toast-kind">@kind</span>
+                }
                 @toast.Message
             </p>
-            <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
+            <div class="dv-toast-actions">
+                @if (toast.Action is { } action)
+                {
+                    <Button OnClick="() => Act(toast, action)" aria-label="@action.Name">@action.Label</Button>
+                }
+                <Button OnClick="() => Toasts.Dismiss(toast.Id)">Dismiss</Button>
+            </div>
         </div>;
 
     #endregion
@@ -41,15 +50,21 @@
 
     protected override void OnInitialized() => Toasts.Changed += Refresh;
 
-    private static string KindWord(ToastKind kind) => kind switch
+    private static string? KindWord(ToastKind kind) => kind switch
     {
-        ToastKind.Success => "Done",
         ToastKind.Warning => "Warning",
         ToastKind.Error => "Error",
-        _ => "Note",
+        _ => null,
     };
 
     private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    // Dismissed first, so the action cannot be chosen twice while it runs.
+    private Task Act(ToastMessage toast, ToastAction action)
+    {
+        Toasts.Dismiss(toast.Id);
+        return action.Run();
+    }
 
     #endregion
 }

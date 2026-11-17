@@ -80,6 +80,12 @@ public sealed class EngineHost : IAsyncDisposable
     {
         killed = true;
         await provider.DisposeAsync();
+
+        // A process that died claims nothing more. Disposing its services alone left the dispatcher polling, and it
+        // could claim the run the test had just freed, with services that no longer work: the run was then taken over
+        // twice, or held for a whole lease by a host that could not run it (#193). Its loop is stopped only after the
+        // services are gone, so it releases nothing on the way out; whatever it was doing is not waited for.
+        await stopping.CancelAsync();
     }
 
     #endregion

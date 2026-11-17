@@ -1,0 +1,36 @@
+.dv-screen-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-height: 0;
+  padding: var(--dv-space-4);
+  overflow-y: auto;
+}
+
+.dv-screen-panel-hint {
+  color: var(--dv-text-2);
+}
+
+.dv-screen-panel-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2);
+  margin: 0;
+}
+
+.dv-screen-panel-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-pointer);
+  margin-left: auto;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+}
+
+@media (pointer: coarse) {
+  .dv-screen-panel-more {
+    min-height: var(--dv-target-touch);
+  }
+}

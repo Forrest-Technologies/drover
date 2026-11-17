@@ -11,7 +11,9 @@ public sealed class RunRules(RunSession session, ILogger logger)
     /// <summary>The rules the run's bot follows right now: its own and those of every bot above it, switched on.</summary>
     public Task<IReadOnlyList<ActiveRule>> Load(CancellationToken cancellationToken) =>
         session.Tenant.Transact(
-            async services => RuleService.Active(await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(session.BotId, cancellationToken)),
+            async services => RuleService.Active(
+                await services.GetRequiredService<BotRuleRepository>().ListRulesAlongPath(session.BotId, cancellationToken),
+                services.GetRequiredService<PolicyService>().Deployment),
             cancellationToken);
 
     /// <summary>

@@ -164,8 +164,8 @@ public sealed class BaseComponentTests : BunitContext
     [Fact]
     public void Two_bots_with_different_names_get_different_seeds_and_one_bot_keeps_its_own()
     {
-        BotLook.SeedFrom("Atlas", 3).Should().Be(BotLook.SeedFrom("Atlas", 3));
-        BotLook.SeedFrom("Atlas", 3).Should().NotBe(BotLook.SeedFrom("Scout", 3));
+        BotLook.SeedFrom("Marshal", 3).Should().Be(BotLook.SeedFrom("Marshal", 3));
+        BotLook.SeedFrom("Marshal", 3).Should().NotBe(BotLook.SeedFrom("Scout", 3));
     }
 
     [Theory]

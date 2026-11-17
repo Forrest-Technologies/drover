@@ -9,7 +9,7 @@
 | [`/.editorconfig`](../../.editorconfig) | Written and tested, see below |
 | [`/BannedSymbols.txt`](../../BannedSymbols.txt) | Written and tested |
 | `.github/workflows/ci.yml`, `security.yml`, `.github/dependabot.yml` | Live since step 1. Linted clean with zizmor (pedantic) and actionlint before the first run. |
-| `.github/workflows/release.yml` | Live. Runs only for a `v*.*.*` tag, on a GitHub-hosted runner, behind the `release` environment's required reviewer. |
+| `.github/workflows/release.yml` | Live. Runs only for a stable `vMAJOR.MINOR.PATCH` tag, on a GitHub-hosted runner, behind the `release` environment's required reviewer. |
 | [`framework-canary.yml`](drafts/workflows/framework-canary.yml) | Draft. Goes live with the agent framework step. |
 
 ## Style enforcement
@@ -131,7 +131,7 @@ Notes:
 | Repository is public, job runs pull request code | GitHub-hosted | Free, and a stranger's code never touches the owner's machines |
 | Repository is public, trusted job (release from a protected tag) | GitHub-hosted | Never executes pull request code. Trusted because of the tag ruleset and the `release` environment's required reviewer, not because of where it runs |
 
-Every workflow uses `runs-on: ubuntu-latest`, `release.yml` included. The repository has no self-hosted runner. The release job needs Docker and the `gh` CLI, both present on the hosted runner. See [maintainers](../maintainers.md#what-the-release-job-needs).
+The workflows use GitHub-hosted Ubuntu runners. The repository has no self-hosted runner. The release job needs Docker and the `gh` CLI, both present on the hosted runner. See [maintainers](../maintainers.md#what-the-release-job-needs).
 
 The repository is public, so this repository setting must be in place **before the workflows go live in Phase 0 step 1**, because it is a control outside the workflow files:
 

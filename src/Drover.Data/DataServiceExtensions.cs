@@ -18,6 +18,10 @@ public static class DataServiceExtensions
         services.AddScoped<TenantGuardInterceptor>();
         services.AddScoped<SpaceStampInterceptor>();
         services.AddScoped<AccountRepository>();
+        services.AddScoped<SessionRepository>();
+        services.AddScoped<PushRepository>();
+        services.AddScoped<FileRepository>();
+        services.AddScoped<MemoryRepository>();
         services.AddScoped<ServerHealthRepository>();
         services.AddScoped<SecretRepository>();
         services.AddScoped<ModelConnectionRepository>();
@@ -26,6 +30,7 @@ public static class DataServiceExtensions
         services.AddScoped<ToolCallRepository>();
         services.AddScoped<WorkflowCheckpointRepository>();
         services.AddScoped<RunRepository>();
+        services.AddScoped<UsageRepository>();
         services.AddScoped<RunEventRepository>();
         services.AddScoped<ThreadRepository>();
         services.AddScoped<BotRepository>();
@@ -33,6 +38,7 @@ public static class DataServiceExtensions
         services.AddScoped<ToolConnectionRepository>();
         services.AddScoped<BotScheduleRepository>();
         services.AddScoped<BotRuleRepository>();
+        services.AddScoped<SandboxRepository>();
         services.AddScoped<AuditRepository>();
         services.AddSingleton(provider => new RunWakeListener(appConnectionString, provider.GetRequiredService<ILogger<RunWakeListener>>()));
         services.AddDbContext<DroverDbContext>((provider, options) => options

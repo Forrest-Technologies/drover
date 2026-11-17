@@ -15,5 +15,11 @@ public sealed record BotDefinition
 
     public required string Model { get; init; }
 
+    /// <summary>
+    /// How the bot keeps a long thread inside its model's context. Only <see cref="CompactionStrategy.Summarization"/>
+    /// changes what the model is given, and only on a main thread that has a summary.
+    /// </summary>
+    public CompactionStrategy Compaction { get; init; } = CompactionStrategy.None;
+
     #endregion
 }

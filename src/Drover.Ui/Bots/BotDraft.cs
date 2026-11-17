@@ -41,6 +41,11 @@ public sealed class BotDraft
 
     public string KeepRecentMessages { get; set; } = string.Empty;
 
+    /// <summary>The bot's limits on its notes. Not edited here; carried back unchanged so saving keeps them.</summary>
+    public int? MaxNoteCharacters { get; set; }
+
+    public int? MaxNotesCharacters { get; set; }
+
     public string SandboxPolicy { get; set; } = "none";
 
     public string Network { get; set; } = "off";
@@ -50,11 +55,23 @@ public sealed class BotDraft
 
     public string IdleTimeoutMinutes { get; set; } = string.Empty;
 
+    /// <summary>Whether the sandbox has a screen the bot sees and drives.</summary>
+    public bool Desktop { get; set; }
+
+    /// <summary>The model that reads the screen for the bot, or null for the bot's own model.</summary>
+    public ScreenReaderBody? ScreenReader { get; set; }
+
     public IReadOnlyList<Guid> SandboxSharedWith { get; set; } = [];
 
     public string MaxChildren { get; set; } = string.Empty;
 
     public string MaxDepthBelow { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tool grants a person chose in the Sandbox section, by tool, applied through the tools API when the bot is saved
+    /// and dropped when the changes are discarded.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, string> StagedGrants { get; set; } = new Dictionary<Guid, string>();
 
     #endregion
 
@@ -78,10 +95,14 @@ public sealed class BotDraft
         Compaction = bot.MemorySettings.Compaction,
         CompactAtTokens = Text(bot.MemorySettings.CompactAtTokens),
         KeepRecentMessages = Text(bot.MemorySettings.KeepRecentMessages),
+        MaxNoteCharacters = bot.MemorySettings.MaxNoteCharacters,
+        MaxNotesCharacters = bot.MemorySettings.MaxNotesCharacters,
         SandboxPolicy = bot.SandboxPolicy,
         Network = bot.SandboxSettings.Network,
         AllowedHosts = string.Join('\n', bot.SandboxSettings.AllowedHosts),
         IdleTimeoutMinutes = Text(bot.SandboxSettings.IdleTimeoutMinutes),
+        Desktop = bot.SandboxSettings.Desktop,
+        ScreenReader = bot.SandboxSettings.ScreenReader,
         SandboxSharedWith = bot.SandboxSharedWith,
         MaxChildren = Text(bot.BuildLimits.MaxChildren),
         MaxDepthBelow = Text(bot.BuildLimits.MaxDepthBelow),
@@ -117,7 +138,7 @@ public sealed class BotDraft
         (string Name, string Value)[] wholeNumbers =
         [
             ("The longest answer", MaxOutputTokens),
-            ("The size at which a thread is shortened", CompactAtTokens),
+            ("The size at which a conversation is shortened", CompactAtTokens),
             ("The number of recent messages to keep", KeepRecentMessages),
             ("The idle time", IdleTimeoutMinutes),
             ("The number of bots it may build", MaxChildren),
@@ -145,9 +166,9 @@ public sealed class BotDraft
             ModelConnectionId,
             Model.Trim(),
             new ModelSettingsBody(ReadDecimal(Temperature), ReadWhole(MaxOutputTokens), ReasoningEffort.Length == 0 ? null : ReasoningEffort, WebSearch, StructuredOutput),
-            new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages)),
+            new MemorySettingsBody(MemoryEnabled, Compaction, ReadWhole(CompactAtTokens), ReadWhole(KeepRecentMessages), MaxNoteCharacters, MaxNotesCharacters),
             SandboxPolicy,
-            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes)),
+            new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)));
 
@@ -180,7 +201,8 @@ public sealed class BotDraft
 
     /// <summary>Whether this draft would save anything different from the other.</summary>
     public bool DiffersFrom(BotDraft other) =>
-        !string.Equals(JsonSerializer.Serialize(ToRequest()), JsonSerializer.Serialize(other.ToRequest()), StringComparison.Ordinal);
+        !string.Equals(JsonSerializer.Serialize(ToRequest()), JsonSerializer.Serialize(other.ToRequest()), StringComparison.Ordinal)
+        || !StagedGrants.OrderBy(pair => pair.Key).SequenceEqual(other.StagedGrants.OrderBy(pair => pair.Key));
 
     #endregion
 

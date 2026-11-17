@@ -26,9 +26,15 @@ public static class SpaceEndpoints
         // Bots, threads, and runs choose their own filter too: posting a message and cancelling a run commit first
         // and then wake the workers.
         root.MapBotEndpoints();
+        root.MapBotNotifyEndpoints();
         root.MapThreadEndpoints();
+        root.MapFileEndpoints();
         root.MapRunEndpoints();
         root.MapRunStreamEndpoints();
+        root.MapUsageEndpoints();
+
+        // A bot's sandbox waits on the provider, so its controls open their own short scopes.
+        root.MapSandboxEndpoints();
         return api;
     }
 

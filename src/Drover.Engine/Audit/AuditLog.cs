@@ -1,6 +1,18 @@
 namespace Drover.Engine.Audit;
 
 /// <summary>
+/// Who made a change: a person, or a bot acting with the authority of the person its run is for. A bot never acts
+/// on its own authority, so <see cref="UserId"/> is always set.
+/// </summary>
+public sealed record AuditActor(Guid UserId, Guid? BotId = null)
+{
+    public static AuditActor Person(Guid userId) => new(userId);
+
+    public static AuditActor BotFor(Guid botId, Guid userId) => new(userId, botId);
+}
+
+
+/// <summary>
 /// Writes what a person changed to the audit log: who, what, and each changed value before and after. The entry is
 /// saved with the change itself, in the same tenant scope, so one cannot exist without the other.
 /// </summary>
@@ -26,7 +38,14 @@ public sealed class AuditLog(AuditRepository entries, TimeProvider time)
     /// nothing differs. <paramref name="about"/> holds facts that identify what changed beyond the target, such as
     /// the tool a grant is for.
     /// </summary>
-    public bool Record(Guid actorUserId, string action, string targetKind, Guid targetId, JsonObject? before, JsonObject? after, JsonObject? about = null)
+    public bool Record(Guid actorUserId, string action, string targetKind, Guid targetId, JsonObject? before, JsonObject? after, JsonObject? about = null) =>
+        Record(AuditActor.Person(actorUserId), action, targetKind, targetId, before, after, about);
+
+    /// <summary>
+    /// Records one change by a person, or by a bot acting for one. A bot is the entry's actor, and the person whose
+    /// authority it used is kept beside the change as <c>for_user_id</c>.
+    /// </summary>
+    public bool Record(AuditActor actor, string action, string targetKind, Guid targetId, JsonObject? before, JsonObject? after, JsonObject? about = null)
     {
         var changes = Changes(before ?? [], after ?? []);
 
@@ -37,10 +56,16 @@ public sealed class AuditLog(AuditRepository entries, TimeProvider time)
 
         var data = about?.DeepClone().AsObject() ?? [];
         data["changes"] = changes;
+
+        if (actor.BotId is not null)
+        {
+            data["for_user_id"] = actor.UserId;
+        }
+
         entries.Add(new AuditLogEntry
         {
-            ActorKind = ActorKind.User,
-            ActorId = actorUserId,
+            ActorKind = actor.BotId is null ? ActorKind.User : ActorKind.Bot,
+            ActorId = actor.BotId ?? actor.UserId,
             Action = action,
             TargetKind = targetKind,
             TargetId = targetId,

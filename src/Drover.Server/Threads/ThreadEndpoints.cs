@@ -15,10 +15,19 @@ public static class ThreadEndpoints
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
+        threads.MapGet("/{threadId:guid}/summary", GetConversationSummary)
+            .WithName("GetConversationSummary")
+            .WithSummary("The server's running summary of a main thread. Text is null until one is written, and always for a side chat.");
+        threads.MapGet("/{threadId:guid}/tool-events", ListToolEvents)
+            .WithName("ListToolEvents")
+            .WithSummary("The tool events of the thread's runs, as their logs hold them, already redacted, so a client can show past tool calls as it showed them live.");
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
             .WithSummary("Stores the message and returns the run that answers it. While a run is active the message is pending: it steers that run or waits for it to end, as whenBusy says.");
+        space.MapPut("/threads/{threadId:guid}/seen", MarkThreadSeen)
+            .WithName("MarkThreadSeen")
+            .WithSummary("Marks the thread seen by the caller as far as its newest message, on every screen of theirs.");
         return space;
     }
 
@@ -27,8 +36,21 @@ public static class ThreadEndpoints
     #region Endpoints
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>
-        await threads.FindThread(threadId, context.RequestAborted) is { } view
-            ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId))
+        await threads.FindThread(threadId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } view
+            ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId, view.Attention))
+            : TypedResults.NotFound();
+
+    private static async Task<Results<NoContent, NotFound>> MarkThreadSeen(Guid threadId, HttpContext context, ThreadService threads) =>
+        await threads.MarkSeen(threadId, context.GetSpaceAccess().UserId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ConversationSummary>, NotFound>> GetConversationSummary(
+        Guid threadId,
+        HttpContext context,
+        ThreadService threads) =>
+        await threads.GetSummary(threadId, context.RequestAborted) is { } summary
+            ? TypedResults.Ok(summary)
             : TypedResults.NotFound();
 
     private static async Task<Results<Ok<List<MessageResponse>>, NotFound>> ListMessages(
@@ -36,10 +58,29 @@ public static class ThreadEndpoints
         HttpContext context,
         ThreadService threads)
     {
-        var messages = await threads.ListMessages(threadId, context.RequestAborted);
-        return messages is null
+        if (await threads.ListMessages(threadId, context.RequestAborted) is not { } messages)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var crons = await threads.ListScheduleCrons(messages, context.RequestAborted);
+        var principals = await threads.ListRunPrincipals(messages, context.RequestAborted);
+        return TypedResults.Ok(messages
+            .Select(message => message.ToResponse(
+                message.ScheduleId is { } scheduleId ? crons.GetValueOrDefault(scheduleId) : null,
+                message.RunId is { } runId && principals.TryGetValue(runId, out var principal) ? principal : null))
+            .ToList());
+    }
+
+    private static async Task<Results<Ok<List<RunEventResponse>>, NotFound>> ListToolEvents(
+        Guid threadId,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var events = await threads.ListToolEvents(threadId, context.RequestAborted);
+        return events is null
             ? TypedResults.NotFound()
-            : TypedResults.Ok(messages.Select(message => message.ToResponse()).ToList());
+            : TypedResults.Ok(events.Select(stored => stored.ToResponse()).ToList());
     }
 
     private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ProblemHttpResult>> PostMessage(
@@ -55,7 +96,7 @@ public static class ThreadEndpoints
 
         var access = context.GetSpaceAccess();
         var steer = request.WhenBusy is not BusyModes.Queue;
-        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, steer, access.UserId, context.RequestAborted);
+        var post = await runs.PostMessage(threadId, request.Text ?? string.Empty, request.FileIds ?? [], steer, access.UserId, context.RequestAborted);
 
         return post.Problem switch
         {

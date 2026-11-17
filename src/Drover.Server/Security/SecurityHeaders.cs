@@ -2,18 +2,23 @@ namespace Drover.Server.Security;
 
 /// <summary>
 /// The headers every response carries. The content security policy allows no inline script and no remote origin;
-/// <c>wasm-unsafe-eval</c> is there because Blazor WebAssembly requires it.
+/// <c>wasm-unsafe-eval</c> is there because Blazor WebAssembly requires it. Inline styles and embedded fonts are
+/// allowed because browser extensions draw their own interface inside the page with them, and a policy that
+/// forbids them leaves that interface spilled over Drover's as unstyled text. Drover itself uses neither.
 /// </summary>
 public static class SecurityHeaders
 {
     #region Private Fields
 
+    // 180 days, no subdomains: the setting covers this name only.
+    private const string StrictTransportSecurity = "max-age=15552000";
+
     private const string ContentSecurityPolicy =
         "default-src 'self'; "
         + "script-src 'self' 'wasm-unsafe-eval'; "
-        + "style-src 'self'; "
+        + "style-src 'self' 'unsafe-inline'; "
         + "img-src 'self' data:; "
-        + "font-src 'self'; "
+        + "font-src 'self' data:; "
         + "connect-src 'self'; "
         + "object-src 'none'; "
         + "base-uri 'self'; "
@@ -30,10 +35,40 @@ public static class SecurityHeaders
             context.Response.OnStarting(() =>
             {
                 var headers = context.Response.Headers;
-                headers["Content-Security-Policy"] = ContentSecurityPolicy;
+
+                // A stored file sets a stricter policy of its own, which sandboxes it and lets it load nothing.
+                if (!headers.ContainsKey("Content-Security-Policy"))
+                {
+                    headers["Content-Security-Policy"] = ContentSecurityPolicy;
+                }
+
                 headers["X-Content-Type-Options"] = "nosniff";
                 headers["Referrer-Policy"] = "no-referrer";
                 headers["X-Frame-Options"] = "DENY";
+
+                // API answers are about one person and change with every action: no cache keeps them. A response
+                // that chose its own policy, such as the event stream, keeps it.
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    if (!headers.ContainsKey("Cache-Control"))
+                    {
+                        headers.CacheControl = "no-store";
+                    }
+                }
+                else if (!context.Request.Path.StartsWithSegments("/health"))
+                {
+                    // The web client's files and pages. The server states the policy for each, whatever the file
+                    // middleware chose, so nothing in front of it adds a longer one.
+                    headers.CacheControl = ClientFileCaching.For(context.Request.Path);
+                }
+
+                // Only over HTTPS: behind a trusted proxy the scheme is the one the person used. Plain HTTP on this
+                // machine never gets it, so http://localhost is not pinned to HTTPS.
+                if (context.Request.IsHttps)
+                {
+                    headers["Strict-Transport-Security"] = StrictTransportSecurity;
+                }
+
                 return Task.CompletedTask;
             });
             await next();

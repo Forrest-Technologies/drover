@@ -1,0 +1,126 @@
+@* The "When" part of writing a routine: one choice of rhythm, then only that rhythm's fields,
+   and under them the sentence the routine will be listed as. Nobody has to know cron to use it. *@
+<div class="dv-when">
+    <Select Label="When" Value="@When.Rhythm.ToString()" ValueChanged="ChooseRhythm">
+        <option value="@nameof(RoutineRhythm.EveryDay)">Every day</option>
+        <option value="@nameof(RoutineRhythm.Weekdays)">Every weekday</option>
+        <option value="@nameof(RoutineRhythm.ChosenDays)">On days I choose</option>
+        <option value="@nameof(RoutineRhythm.DayOfMonth)">Once a month</option>
+        <option value="@nameof(RoutineRhythm.EveryHours)">Every few hours</option>
+        <option value="@nameof(RoutineRhythm.Custom)">Custom</option>
+    </Select>
+
+    @switch (When.Rhythm)
+    {
+        case RoutineRhythm.ChosenDays:
+            <fieldset class="dv-when-days">
+                <legend>Days</legend>
+                @foreach (var day in RoutineWords.Week)
+                {
+                    <label class="dv-when-day">
+                        <input type="checkbox" checked="@When.Days.Contains(day)" @onchange="change => ToggleDay(day, change.Value is true)" />
+                        <span>@day</span>
+                    </label>
+                }
+            </fieldset>
+            break;
+        case RoutineRhythm.DayOfMonth:
+            <Field Label="Day of the month" Type="number" Value="@Number(When.DayOfMonth)" ValueChanged="SetDayOfMonth"
+                   Hint="@($"1 to {RoutineWords.LastDayEveryMonthHas}, so it runs every month. For the end of the month, use Custom.")"
+                   min="1" max="@RoutineWords.LastDayEveryMonthHas" />
+            break;
+        case RoutineRhythm.EveryHours:
+            <Select Label="Every how many hours" Value="@Number(When.Hours)" ValueChanged="SetHours">
+                @foreach (var hours in RoutineWords.EvenHours)
+                {
+                    <option value="@Number(hours)">@Words.Count(hours, "hour")</option>
+                }
+            </Select>
+            <Field Label="Minutes past the hour" Type="number" Value="@Number(When.Time.Minute)" ValueChanged="SetMinute" min="0" max="59" />
+            break;
+        case RoutineRhythm.Custom:
+            <Field Label="Cron expression" Value="@When.Cron" ValueChanged="SetCron" Hint="Five fields: minute, hour, day of month, month, day of week."
+                   autocapitalize="off" spellcheck="false" />
+            break;
+    }
+
+    @if (When.Rhythm is not (RoutineRhythm.EveryHours or RoutineRhythm.Custom))
+    {
+        <Field Label="At" Type="time" Value="@When.Time.ToString("HH:mm", CultureInfo.InvariantCulture)" ValueChanged="SetTime" />
+    }
+
+    <Field Label="Time zone" Value="@TimeZone" ValueChanged="TimeZoneChanged" Hint="A zone name, such as Europe/Berlin."
+           autocapitalize="off" spellcheck="false" />
+
+    @* Always present, so a change to it is announced. *@
+    <p class="dv-when-reads" role="status">@Reads</p>
+    <StatusNote Kind="NoteKind.Danger" Text="@ServerProblem" />
+</div>
+
+@code {
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public RoutineWhen When { get; set; } = RoutineWhen.Start;
+
+    [Parameter]
+    public EventCallback<RoutineWhen> WhenChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public string TimeZone { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> TimeZoneChanged { get; set; }
+
+    /// <summary>What the server said about the expression, when it refused it.</summary>
+    [Parameter]
+    public string? ServerProblem { get; set; }
+
+    /// <summary>The next times the server worked out for the expression, for one this cannot put in words.</summary>
+    [Parameter]
+    public IReadOnlyList<DateTimeOffset>? Next { get; set; }
+
+    private string Reads => (RoutineWords.Cron(When), ServerProblem) switch
+    {
+        (null, _) when When.Rhythm is RoutineRhythm.ChosenDays => "Choose at least one day.",
+        (null, _) when When.Rhythm is RoutineRhythm.Custom => "Write the expression. Drover checks it as you type.",
+        (null, _) => "That number is out of range.",
+        ({ } cron, { Length: > 0 }) when RoutineWords.Describe(cron) is null => $"The expression {cron} cannot be saved as it is.",
+        ({ } cron, _) when RoutineWords.Describe(cron) is null && Next is { Count: > 0 } next =>
+            $"Runs on the expression {cron}, {RoutineWords.Zone(TimeZone)}. Next: {string.Join("; ", next.Select(time => RoutineWords.Moment(time, TimeZone)))}.",
+        ({ } cron, _) when RoutineWords.Describe(cron) is null => $"Runs on the expression {cron}, {RoutineWords.Zone(TimeZone)}. Checking it.",
+        ({ } cron, _) => $"Reads as: {RoutineWords.Sentence(cron, TimeZone)}.",
+    };
+
+    #endregion
+
+    #region Private Methods
+
+    private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static int Whole(string text, int fallback) =>
+        int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) ? value : fallback;
+
+    private Task ChooseRhythm(string value) =>
+        WhenChanged.InvokeAsync(When with { Rhythm = Enum.Parse<RoutineRhythm>(value) });
+
+    private Task ToggleDay(DayOfWeek day, bool chosen) =>
+        WhenChanged.InvokeAsync(When with { Days = chosen ? When.Days.Add(day) : When.Days.Remove(day) });
+
+    private Task SetDayOfMonth(string text) => WhenChanged.InvokeAsync(When with { DayOfMonth = Whole(text, 0) });
+
+    private Task SetHours(string text) => WhenChanged.InvokeAsync(When with { Hours = Whole(text, 0) });
+
+    private Task SetMinute(string text) =>
+        WhenChanged.InvokeAsync(When with { Time = new TimeOnly(0, Math.Clamp(Whole(text, 0), 0, 59)) });
+
+    private Task SetCron(string text) => WhenChanged.InvokeAsync(When with { Cron = text });
+
+    // A time field gives hours and minutes, and seconds too in some browsers.
+    private Task SetTime(string text) =>
+        TimeOnly.TryParse(text, CultureInfo.InvariantCulture, out var time)
+            ? WhenChanged.InvokeAsync(When with { Time = new TimeOnly(time.Hour, time.Minute) })
+            : Task.CompletedTask;
+
+    #endregion
+}

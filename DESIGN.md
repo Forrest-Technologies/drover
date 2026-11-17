@@ -78,6 +78,7 @@ Three accent colors is the limit, and each has one meaning. No gradients as deco
 - Depth comes from a lighter surface and a 1 px line. Two levels. No soft drop shadows, no blur panels.
 - Light is not depth. Bloom belongs to the four live states and is never used to lift a surface.
 - The working area (the conversation, the setup screens, the two bold screens) sits on a faint dot grid, the yard. Lists and panels are plain.
+- Icons are cut the same way: Drover's own set, straight segments with mitered joins, a cut corner where a shape closes. No rounded strokes.
 - Touch targets 44 px, pointer targets 32 px.
 
 ## Bots are characters
@@ -87,7 +88,8 @@ Every bot is a head with a visor: one band of light where a face would be. The v
 - Built from parts stored as data: six heads, six visors, six tops, six marks, a tilt, and the hue. The same bot always gets the same character.
 - The visor is the state: dark at rest, a slow breath when thinking, steady when writing, a bright bar sweeping across when a tool runs, a pale red when failed. Each state is also said in words.
 - Below 24 px the top and the mark drop out; the head and visor remain.
-- In a conversation the bot speaks from its character: the head stands at 48 px on a faceted plate beside each reply and in the thread header, never as a small profile dot. The plate's edge takes the live color only while that bot is thinking or writing.
+- In a conversation the bot speaks from its character: the head stands at 48 px on a faceted plate beside each reply and in the conversation's header, never as a small profile dot. The plate's edge takes the live color only while that bot is thinking or writing.
+- The crew is how a person gets around. The first column is the bot hierarchy, each bot under the one that manages it, and choosing a bot opens its one main conversation. A person talks to a bot, not to a thread. A side chat with the same bot is the exception: it opens beside the main conversation and never replaces it. The conversation's running summary opens in that same place.
 - The Drover mark is the lead of the crew: the wedge head, cocked, with the visor cut out so it holds in one color.
 - Nothing is a soft blob with eye marks, and nothing resembles another product's avatars.
 
@@ -116,9 +118,9 @@ These are the habits that make an interface look generated. Each one is checked 
 
 **States that say nothing**
 
-- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens.
+- Empty, loading, and error states each say what is happening and the one thing to do next. "No data" is not a state. First run, filtered to nothing, and not permitted are three different screens. (test: filler such as "no data", "coming soon", or an apology in interface text)
 - When a feature needs setup, say what is missing in plain words and link to it.
-- A control that does nothing does not ship. No dead links, no menus with placeholder actions.
+- A control that does nothing does not ship. No dead links, no menus with placeholder actions. (test: a link with no address)
 
 **Decoration**
 

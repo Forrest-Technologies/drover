@@ -25,7 +25,8 @@ public sealed class UsageRecord : ISpaceOwned
 
     public long CachedTokens { get; set; }
 
-    public decimal Cost { get; set; }
+    /// <summary>What the call cost at the catalog's prices. Null when the catalog did not know the price: never a made-up zero.</summary>
+    public decimal? Cost { get; set; }
 
     public string Currency { get; set; } = "USD";
 

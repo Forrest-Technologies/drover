@@ -21,7 +21,7 @@ public sealed partial class BotEditor(
 
     private const string Memory = nameof(Memory);
 
-    private const string Schedule = nameof(Schedule);
+    private const string Routines = nameof(Routines);
 
     private const string Sandbox = nameof(Sandbox);
 
@@ -39,6 +39,8 @@ public sealed partial class BotEditor(
 
     private IReadOnlyList<ModelCatalogResponse>? models;
 
+    private IReadOnlyList<ScreenReaderChoice>? readers;
+
     private IReadOnlyList<BotToolEntry>? tools;
 
     private IReadOnlyList<ToolConnectionSummary> toolConnections = [];
@@ -46,6 +48,12 @@ public sealed partial class BotEditor(
     private IReadOnlyList<BotScheduleResponse>? schedules;
 
     private IReadOnlyList<BotRuleResponse>? rules;
+
+    private bool writtenPatterns = true;
+
+    private BotSandboxOptions sandboxOptions = new(Available: true, OpenNetwork: true, MaxIdleMinutes: 0, Desktop: true);
+
+    private BotSandboxStatus? sandboxStatus;
 
     private IReadOnlyList<BotSummary> otherBots = [];
 
@@ -79,8 +87,28 @@ public sealed partial class BotEditor(
 
     #region Properties
 
+    // Every bot under this one, however far down.
+    private IReadOnlyList<BotSummary> Beneath => CrewTree.Beneath(otherBots, BotId);
+
+    private string BeneathWords => Beneath switch
+    {
+        [var only] => $"{only.Name} works beneath it. Remove it too, or keep it? A kept bot moves up under {MovesUnder}.",
+        _ => $"{Beneath.Count} bots work beneath it. Remove them too, or keep them? Kept bots move up under {MovesUnder}.",
+    };
+
+    private string RemoveAllWords => Beneath.Count == 1 ? "Remove both" : $"Remove all {Beneath.Count + 1}";
+
+    private string MovesUnder =>
+        saved?.ParentBotId is { } parent && otherBots.FirstOrDefault(bot => bot.Id == parent) is { } above
+            ? above.Name
+            : "the top of the crew";
+
     [Parameter]
     public Guid BotId { get; set; }
+
+    /// <summary>A section to open with the editor, such as "memory", for a link from elsewhere that is about it.</summary>
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
@@ -94,6 +122,14 @@ public sealed partial class BotEditor(
 
     // Tools are hidden only when the catalog says the model cannot call them. An unknown model keeps them.
     private bool ModelCallsTools => models?.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.ToolCalling ?? true;
+
+    // Unknown while the catalog loads; a model the catalog does not list is treated as one that cannot see, as the server does.
+    private bool? ModelSeesImages => models is null ? null : models.FirstOrDefault(entry => entry.Model == draft!.Model)?.Capabilities.Vision ?? false;
+
+    private string? ScreenReaderName =>
+        draft?.ScreenReader is { } reader
+            ? readers?.FirstOrDefault(choice => choice.ConnectionId == reader.ModelConnectionId && choice.Model == reader.Model)?.DisplayName
+            : null;
 
     private string SaveWords => (Dirty, justSaved) switch
     {
@@ -111,6 +147,7 @@ public sealed partial class BotEditor(
         if (shownBotId != BotId && await session.Load() is not null)
         {
             shownBotId = BotId;
+            OpenNamedSection();
             await Load();
         }
     }
@@ -120,6 +157,14 @@ public sealed partial class BotEditor(
     #region Private Methods
 
     private bool IsOpen(string section) => open.Contains(section);
+
+    private void OpenNamedSection()
+    {
+        if (string.Equals(Section, Memory, StringComparison.OrdinalIgnoreCase))
+        {
+            open.Add(Memory);
+        }
+    }
 
     private void Toggle(string section, bool opened)
     {
@@ -143,7 +188,7 @@ public sealed partial class BotEditor(
 
     private async Task Load()
     {
-        (saved, draft, baseline, models, tools, schedules, rules) = (null, null, null, null, null, null, null);
+        (saved, draft, baseline, models, tools, schedules, rules, readers) = (null, null, null, null, null, null, null, null);
         (loadProblem, saveProblem, actionProblem, notPermitted, missing, justSaved, editingHandle) = (null, null, null, false, false, false, false);
         open.Clear();
 
@@ -157,7 +202,11 @@ public sealed partial class BotEditor(
             toolConnections = await api.ListToolConnections(SpaceId);
             tools = await api.ListBotTools(SpaceId, BotId);
             schedules = await api.ListBotSchedules(SpaceId, BotId);
+            writtenPatterns = (await api.GetBotRuleOptions(SpaceId, BotId)).WrittenPatterns;
+            sandboxOptions = await api.GetBotSandboxOptions(SpaceId, BotId);
             rules = await api.ListBotRules(SpaceId, BotId);
+            sandboxStatus = await ReadSandbox();
+            readers = await ListReaders();
         }
         catch (DroverApiException refused) when (refused.StatusCode is HttpStatusCode.Forbidden)
         {
@@ -173,6 +222,48 @@ public sealed partial class BotEditor(
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditor));
             loadProblem = Failures.Sentence(exception);
+        }
+    }
+
+    /// <summary>The sandbox's state for the Sandbox section. The editor works without it, so a failure only leaves it out.</summary>
+    private async Task<BotSandboxStatus?> ReadSandbox()
+    {
+        try
+        {
+            return await api.GetBotSandbox(SpaceId, BotId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The sandbox state is left out of the {Screen} screen", nameof(BotEditor));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The space's models that can read a bot's screen: those the catalog of each connection lists as reading images.
+    /// The editor works without them, so a failure only leaves the choice out.
+    /// </summary>
+    private async Task<IReadOnlyList<ScreenReaderChoice>?> ListReaders()
+    {
+        try
+        {
+            List<ScreenReaderChoice> found = [];
+
+            foreach (var connection in connections.OrderBy(connection => connection.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var listed = connection.Id == saved!.ModelConnectionId && models is not null ? models : await api.ListModels(SpaceId, connection.Id);
+                found.AddRange(listed
+                    .Where(entry => entry.State is "available" && entry.Capabilities.Vision)
+                    .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry => new ScreenReaderChoice(connection.Id, connection.Name, entry.Model, entry.DisplayName)));
+            }
+
+            return found;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogInformation(exception, "The models that read images are left out of the {Screen} screen", nameof(BotEditor));
+            return null;
         }
     }
 
@@ -218,13 +309,28 @@ public sealed partial class BotEditor(
         await Try(
             async () =>
             {
+                var staged = draft.StagedGrants;
                 Show(await api.UpdateBotDefinition(SpaceId, BotId, draft.ToRequest()));
+                await ApplyGrants(staged);
                 justSaved = true;
                 editingHandle = false;
-                toasts.Show($"{saved!.Name} is saved.");
+                toasts.Show($"Settings saved for {saved!.Name}.", ToastKind.Success);
             },
             problem => saveProblem = problem);
         saving = false;
+    }
+
+    /// <summary>
+    /// The grants staged in the Sandbox section, set one by one through the tools API as the Tools section sets them.
+    /// The server checks each against the parent's ceiling.
+    /// </summary>
+    private async Task ApplyGrants(IReadOnlyDictionary<Guid, string> staged)
+    {
+        foreach (var (toolId, grant) in staged)
+        {
+            var changed = await api.SetBotToolGrant(SpaceId, BotId, toolId, grant);
+            tools = [.. (tools ?? []).Select(tool => tool.ToolId == changed.ToolId ? changed : tool)];
+        }
     }
 
     private void Discard()
@@ -259,13 +365,14 @@ public sealed partial class BotEditor(
             },
             problem => actionProblem = problem);
 
-    private async Task Remove()
+    // With bots beneath, the person has said whether they go too. Without any there is nothing to ask.
+    private async Task Remove(bool? removeBeneath)
     {
         removing = false;
         await Try(
             async () =>
             {
-                await api.RemoveBot(SpaceId, BotId);
+                await api.RemoveBot(SpaceId, BotId, removeBeneath);
                 toasts.Show($"{saved!.Name} was removed.");
                 leaveConfirmed = true;
                 navigation.NavigateTo(Addresses.Bots);

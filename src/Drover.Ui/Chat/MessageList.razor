@@ -13,34 +13,9 @@
         }
         @foreach (var message in Messages)
         {
-            if (message.FromPerson)
-            {
-                <article @key="message.Key" class="dv-message dv-message-person" aria-label="You said">
-                    <p class="dv-message-bubble dv-facet">@message.Text</p>
-                    @if (message.Pending)
-                    {
-                        <p class="dv-message-pending">Sent. @BotName reads it at its next step.</p>
-                    }
-                </article>
-            }
-            else
-            {
-                <article @key="message.Key" class="dv-message dv-message-bot" aria-label="@BotName said">
-                    <div class="dv-message-head dv-facet @(message.Streaming ? "dv-message-head-live" : null)">
-                        <Avatar Name="@BotName" Hue="BotHue" Size="48" State="@(message.Streaming ? AvatarState.Writing : AvatarState.Rest)" />
-                    </div>
-                    <div class="dv-message-body">
-                        <header class="dv-message-from">
-                            <span class="dv-mono" aria-hidden="true">@BotName</span>
-                            @if (message.Streaming)
-                            {
-                                <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
-                            }
-                        </header>
-                        <MarkdownView Text="@message.Text" Streaming="message.Streaming" />
-                    </div>
-                </article>
-            }
+            <ChatEntry @key="message.Key" Message="message" BotName="@BotName" BotHue="BotHue" Asker="@Asker" Decide="Decide" Forget="Forget"
+                       Anchor="@Anchor(message)" TabIndex="@MomentTabIndex(message)" ReadWhole="ReadWhole"
+                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" LoadUsage="LoadUsage" Takeovers="Takeovers" />
         }
         @if (Thinking)
         {
@@ -56,6 +31,11 @@
                 </div>
             </div>
         }
+        @if (Failure is { } failure)
+        {
+            <FailureLine @key="failure.RunId" Cause="AttentionWords.CauseOf(failure.Cause)" BotName="@BotName"
+                         Reported="@failure.Reported" Retrying="Retrying" OnRetry="OnRetry" />
+        }
         <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
         <StatusNote Text="@Notice" />
     </div>
@@ -69,11 +49,17 @@
 
     private readonly SentenceAnnouncer announcer = new();
 
+    private readonly ToolAnnouncer tools = new();
+
     private ElementReference scroller;
 
     private Task<IJSObjectReference>? module;
 
     private string? spoken;
+
+    private Guid? announcedFailure;
+
+    private Guid? shownMoment;
 
     #endregion
 
@@ -88,6 +74,10 @@
     [Parameter]
     public int BotHue { get; set; }
 
+    /// <summary>The bot that wrote the messages a person would have, on a bot's side of work handed to it.</summary>
+    [Parameter]
+    public string? Asker { get; set; }
+
     /// <summary>True while the bot is working and has not started to answer.</summary>
     [Parameter]
     public bool Thinking { get; set; }
@@ -96,9 +86,53 @@
     [Parameter]
     public string? Problem { get; set; }
 
+    /// <summary>The run the conversation ends with, when it failed and nothing came after it.</summary>
+    [Parameter]
+    public RunFailure? Failure { get; set; }
+
+    /// <summary>True while trying the failed run again is being asked for.</summary>
+    [Parameter]
+    public bool Retrying { get; set; }
+
+    /// <summary>Starts a new run from the message the failed run answered.</summary>
+    [Parameter]
+    public EventCallback OnRetry { get; set; }
+
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     [Parameter]
     public string? Notice { get; set; }
+
+    /// <summary>Reads what a finished reply's run used. Without it, replies show no usage.</summary>
+    [Parameter]
+    public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
+
+    /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
+    [Parameter]
+    public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Removes a note the bot saved, from its card, while it still says the given text.</summary>
+    [Parameter]
+    public Func<Guid, string, Task<ForgetOutcome>>? Forget { get; set; }
+
+    /// <summary>The notes forgotten from their cards, which then say so.</summary>
+    [Parameter]
+    public IReadOnlySet<Guid> ForgottenNotes { get; set; } = new HashSet<Guid>();
+
+    /// <summary>The bot's memory beside the conversation, where a note that changed since its card can be seen.</summary>
+    [Parameter]
+    public string? MemoryHref { get; set; }
+
+    /// <summary>Reads a text file's whole content for "Show all".</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    /// <summary>What a request for a person at the bot's screen needs here. Without it such a request is a plain tool card.</summary>
+    [Parameter]
+    public ScreenTakeovers? Takeovers { get; set; }
+
+    /// <summary>The message the address points at, brought into view and focused once it is on the page.</summary>
+    [Parameter]
+    public Guid? Moment { get; set; }
 
     #endregion
 
@@ -123,6 +157,9 @@
         }
     }
 
+    /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
+    public static string Anchor(Guid messageId) => $"message-{messageId}";
+
     public async ValueTask DisposeAsync()
     {
         if (module is not null)
@@ -136,12 +173,57 @@
 
     #region Private Methods
 
-    // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page.
+    private static string Anchor(ChatMessage message) => $"message-{message.Key}";
+
+    // The message a moment link names can take focus, so the person lands on it; no other message is a stop.
+    private string? MomentTabIndex(ChatMessage message) => Moment is { } moment && message.Key == moment.ToString() ? "-1" : null;
+
+    // A moment is shown once, when its message has arrived on the page.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // A link followed again, after the person went elsewhere, lands again.
+        if (Moment is null)
+        {
+            shownMoment = null;
+        }
+
+        if (Moment is not { } moment || moment == shownMoment || !Messages.Any(message => message.Key == moment.ToString()))
+        {
+            return;
+        }
+
+        shownMoment = moment;
+
+        try
+        {
+            module ??= JS.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            var loaded = await module;
+            await loaded.InvokeVoidAsync("showMoment", Anchor(moment));
+        }
+        catch (JSException exception)
+        {
+            Logger.LogError(exception, "The message list script failed to show a moment");
+            throw;
+        }
+    }
+
+    // Only a bot's newest message is read out, sentence by sentence. Older ones are already on the page. A tool call
+    // is read out once each time its state changes, and a failure once, when it appears.
     protected override void OnParametersSet()
     {
-        if (Messages is [.., { FromPerson: false } newest])
+        var sentences = Messages is [.., { FromPerson: false } newest] ? announcer.Next(newest.Key, newest.Text, newest.Streaming) : null;
+        var changes = tools.Next(Messages.AllTools(BotName));
+        spoken = (sentences, changes) switch
         {
-            spoken = announcer.Next(newest.Key, newest.Text, newest.Streaming) ?? spoken;
+            (null, null) => spoken,
+            ({ } said, { } done) => $"{said} {done}",
+            _ => sentences ?? changes,
+        };
+
+        if (Failure is { } failure && failure.RunId != announcedFailure)
+        {
+            announcedFailure = failure.RunId;
+            spoken = AttentionWords.Failure(AttentionWords.CauseOf(failure.Cause), BotName);
         }
     }
 

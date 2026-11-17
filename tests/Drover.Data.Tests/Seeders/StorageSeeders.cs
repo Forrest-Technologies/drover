@@ -19,6 +19,8 @@ public sealed class StoredFileSeeder : PlainSeeder<StoredFile>
     {
         ["id"] = Guid.CreateVersion7(),
         ["storage_key"] = seed.Unique("key"),
+        ["thread_id"] = seed.Parent("threads"),
+        ["message_id"] = Guid.CreateVersion7(),
         ["name"] = "notes.txt",
         ["content_type"] = "text/plain",
         ["size"] = 1L,
@@ -47,5 +49,18 @@ public sealed class AuditLogEntrySeeder : PlainSeeder<AuditLogEntry>
         ["actor_kind"] = "user",
         ["actor_id"] = seed.Placement.User,
         ["action"] = "example.action",
+    };
+}
+
+public sealed class MemoryNoteSeeder : PlainSeeder<MemoryNote>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["bot_id"] = seed.Parent("bots"),
+        ["text"] = "Prefers short answers.",
+        ["written_by_bot_id"] = seed.Parent("bots"),
+        ["source_thread_id"] = Guid.CreateVersion7(),
+        ["source_message_id"] = Guid.CreateVersion7(),
     };
 }

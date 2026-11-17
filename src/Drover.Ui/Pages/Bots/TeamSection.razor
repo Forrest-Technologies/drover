@@ -1,5 +1,5 @@
 @* The Team section of the bot editor: how far this bot may go when it builds bots of its own. *@
-<StatusNote Text="Bots cannot build bots in this version of Drover. These caps are saved for when they can." />
+<StatusNote Text="A bot builds bots with its crew tools, which are set in the Tools section. These caps say how far it may go." />
 
 <div class="dv-editor-pair">
     <Field Label="Bots it may build" @bind-Value="Draft.MaxChildren" @bind-Value:after="Changed" inputmode="numeric" autocomplete="off"

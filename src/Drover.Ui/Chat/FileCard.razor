@@ -1,0 +1,171 @@
+@* One file in a conversation. A picture is shown with its dimensions set; a text
+   file shows its first lines, and all of it on "Show all"; anything else is a card. Every form has the same way to
+   download it. Content a bot wrote is never rendered as a page here: it is shown as text or downloaded. *@
+@inject IServiceProvider Services
+
+<figure class="dv-file">
+    @switch (FileWords.Kind(File))
+    {
+        case FileKind.Image:
+            <a class="dv-file-picture" href="@File.Href">
+                <img src="@File.Href" width="@File.Width" height="@File.Height" alt="@(File.Caption ?? File.Name)" loading="lazy" />
+            </a>
+            break;
+        case FileKind.Text:
+            <div @ref="preview" class="dv-file-preview" tabindex="0" role="group" aria-label="@PreviewName">
+                <pre class="dv-file-preview-text">@(whole?.Text ?? File.Preview)</pre>
+            </div>
+            @if (whole is { Cut: true })
+            {
+                <p class="dv-file-note">@FileWords.Cut(File.Name)</p>
+            }
+            else if (CanShowAll)
+            {
+                <div class="dv-file-more">
+                    <Button aria-disabled="@(reading ? "true" : null)" aria-label="@(reading ? $"Loading all of {File.Name}" : $"Show all of {File.Name}")" OnClick="ShowAll">@(reading ? "Loading" : "Show all")</Button>
+                </div>
+            }
+            <StatusNote Kind="NoteKind.Danger" Text="@problem" />
+            break;
+    }
+    <figcaption class="dv-file-card dv-facet">
+        <span class="dv-file-words">
+            <span class="dv-file-name">@File.Name</span>
+            <span class="dv-file-facts dv-mono">@FileWords.Facts(File)</span>
+        </span>
+        @if (Delivery is { } delivery)
+        {
+            <div class="dv-file-native-actions">
+                <Button Kind="ButtonKind.Quiet" Disabled="exporting" OnClick="() => Export(delivery, save: true)"
+                        aria-label="@($"Save {File.Name}")">Save</Button>
+                <Button Kind="ButtonKind.Quiet" Disabled="exporting" OnClick="() => Export(delivery, save: false)"
+                        aria-label="@($"Share {File.Name}")">Share</Button>
+            </div>
+        }
+        else
+        {
+            <a class="dv-file-get" href="@File.Href" download="@File.Name" aria-label="@($"Download {File.Name}")">
+                <Icon Name="IconName.Download" />
+                <span>Download</span>
+            </a>
+        }
+    </figcaption>
+    <StatusNote Kind="@(exportFailed ? NoteKind.Danger : NoteKind.Ok)" Text="@exportStatus" />
+    @if (!string.IsNullOrWhiteSpace(File.Caption))
+    {
+        <p class="dv-file-caption">@File.Caption</p>
+    }
+</figure>
+
+@code {
+    #region Private Fields
+
+    private ElementReference preview;
+
+    private FileText? whole;
+
+    private bool reading;
+
+    private bool focusWhole;
+
+    private string? problem;
+
+    private string? exportStatus;
+
+    private bool exporting;
+
+    private bool exportFailed;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter, EditorRequired]
+    public SharedFile File { get; set; } = null!;
+
+    /// <summary>Reads a text file's whole content, up to <see cref="FileWords.MaxShownCharacters"/>. Without it there is no "Show all".</summary>
+    [Parameter]
+    public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    private IFileDelivery? Delivery => Services.GetService<IFileDelivery>();
+
+    private bool CanShowAll => ReadWhole is not null && whole is null && FileWords.HasMore(File);
+
+    private string PreviewName => whole is null ? $"The first lines of {File.Name}" : $"All of {File.Name}";
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task Export(IFileDelivery delivery, bool save)
+    {
+        // A second press before the buttons are redrawn as disabled would start a second export.
+        if (exporting)
+        {
+            return;
+        }
+
+        exporting = true;
+        exportFailed = false;
+        exportStatus = null;
+
+        try
+        {
+            if (!save)
+            {
+                await delivery.Share(File);
+            }
+            else if (await delivery.Save(File))
+            {
+                exportStatus = $"Saved {File.Name}.";
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is IOException or InvalidOperationException or ArgumentException)
+        {
+            exportFailed = true;
+            exportStatus = save ? $"Could not save {File.Name}." : $"Could not share {File.Name}.";
+        }
+        finally
+        {
+            exporting = false;
+        }
+    }
+
+    // The button goes away once the text is in, so focus moves to the text it brought.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusWhole)
+        {
+            focusWhole = false;
+            await preview.FocusAsync();
+        }
+    }
+
+    // The button stays focusable while it reads, so focus is not lost; a second press meanwhile does nothing.
+    private async Task ShowAll()
+    {
+        if (reading)
+        {
+            return;
+        }
+
+        reading = true;
+        problem = null;
+
+        try
+        {
+            whole = await ReadWhole!(File);
+            focusWhole = true;
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            problem = $"Drover could not load the rest of {File.Name}. {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            reading = false;
+        }
+    }
+
+    #endregion
+}

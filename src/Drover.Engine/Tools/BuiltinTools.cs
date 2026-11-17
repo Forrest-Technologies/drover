@@ -12,12 +12,24 @@ public static class BuiltinTools
     /// </summary>
     public static IReadOnlyList<string> GrantedToNewBots { get; } = ["time.now"];
 
+    /// <summary>
+    /// The built-in tools a bot a person creates at the top of the tree is granted as well, as ask, so a person
+    /// approves each use. The first bot of a space leads its crew: told which bots are needed, it makes them beneath
+    /// itself. A bot beneath a parent, made by a person or by a bot, is not granted these; a person grants them where
+    /// they are wanted. Adding a name here is a product decision too.
+    /// </summary>
+    public static IReadOnlyList<string> AskedOfNewTopBots { get; } = CrewTools.Names;
+
     #endregion
 
     #region Public Methods
 
     public static IServiceCollection AddBuiltinTools(this IServiceCollection services) =>
-        services.AddSingleton(provider => TimeNow(provider.GetRequiredService<TimeProvider>()));
+        services
+            .AddSingleton(provider => TimeNow(provider.GetRequiredService<TimeProvider>()))
+            .AddCrewTools()
+            .AddDelegateTool()
+            .AddMemoryTools();
 
     /// <summary><c>time.now</c>: the current time, in UTC and in a time zone the model may name. Reads nothing else.</summary>
     public static BuiltinTool TimeNow(TimeProvider time) =>
@@ -35,7 +47,7 @@ public static class BuiltinTools
                 }
                 """),
             ToolSensitivity.Read,
-            (arguments, _) => Task.FromResult(ReadTime(time, arguments)));
+            (call, _) => Task.FromResult(ReadTime(time, call.Arguments)));
 
     #endregion
 

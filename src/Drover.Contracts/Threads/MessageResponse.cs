@@ -4,6 +4,9 @@ namespace Drover.Contracts.Threads;
 /// One stored message of a thread. <see cref="Role"/> is user, assistant, tool, or system. <see cref="Position"/> is
 /// null while the message is pending: sent while the bot was working and not yet part of the conversation.
 /// <see cref="Steers"/> says a pending message joins at the working run's next step, not after it.
+/// <see cref="ScheduleId"/> is set on a message a schedule sent for its author, who did not type it, and
+/// <see cref="ScheduleCron"/> is that schedule's time while the schedule still exists.
+/// <see cref="RunPrincipalUserId"/> is the person the run that wrote the message acts for, when a run wrote it.
 /// </summary>
 public sealed record MessageResponse(
     Guid Id,
@@ -14,7 +17,10 @@ public sealed record MessageResponse(
     IReadOnlyList<MessagePartResponse> Parts,
     DateTimeOffset CreatedAt,
     bool Steers = false,
-    bool Withheld = false);
+    bool Withheld = false,
+    Guid? ScheduleId = null,
+    string? ScheduleCron = null,
+    Guid? RunPrincipalUserId = null);
 
 /// <summary>
 /// One part of a message. <see cref="Kind"/> names it (text, reasoning, tool_call, tool_result, image, file) and
@@ -40,6 +46,9 @@ public sealed record MessagePartResponse(string Kind)
     public Guid? FileId { get; init; }
 
     public string? MediaType { get; init; }
+
+    /// <summary>An image or file part's file: its name, kind, size, and how it is shown.</summary>
+    public FileResponse? File { get; init; }
 
     #endregion
 }

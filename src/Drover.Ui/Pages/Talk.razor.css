@@ -1,0 +1,315 @@
+/* The workspace: the crew, the main conversation with the chosen bot, and its side chats.
+   A phone shows one at a time; a wide window shows the crew beside the conversation; a wider one
+   shows a side chat beside the main conversation. */
+.dv-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100dvh;
+}
+
+.dv-shell-list,
+.dv-shell-main,
+.dv-shell-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dv-shell-list,
+.dv-shell-rail {
+  background: var(--dv-bg-1);
+}
+
+.dv-shell-main {
+  container: conversation / inline-size;
+}
+
+.dv-shell-at-crew .dv-shell-main,
+.dv-shell-at-main .dv-shell-list,
+.dv-shell-at-side .dv-shell-list,
+.dv-shell-at-side .dv-shell-main {
+  display: none;
+}
+
+.dv-shell-list-header,
+.dv-shell-main-header,
+.dv-shell-rail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  /* One height for all three, set by the bot's head in the conversation's header, so their lines meet. */
+  min-height: calc(var(--dv-avatar-48) + var(--dv-space-2) * 2 + var(--dv-border));
+  padding: var(--dv-space-2) var(--dv-space-4);
+  border-bottom: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dv-space-2);
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  letter-spacing: var(--dv-tracking);
+}
+
+.dv-shell-main-header {
+  background: var(--dv-bg-0);
+}
+
+/* The bot's name in machine text, then a slash, then what of it is shown. */
+.dv-shell-bot {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-shell-bot::after {
+  content: "/";
+  margin-left: var(--dv-space-2);
+  color: var(--dv-line);
+}
+
+.dv-shell-crew,
+.dv-shell-rail-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--dv-space-2);
+  overflow-y: auto;
+}
+
+.dv-shell-rail-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-3);
+}
+
+.dv-shell-rail-body ::deep .dv-side-chats {
+  align-self: stretch;
+}
+
+.dv-shell-hint {
+  padding: var(--dv-space-2) var(--dv-space-3);
+  color: var(--dv-text-2);
+}
+
+.dv-shell-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+  padding: var(--dv-space-3) var(--dv-space-4) max(var(--dv-space-3), env(safe-area-inset-bottom));
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+.dv-shell-bots {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  padding: 0 var(--dv-space-2);
+  border-radius: var(--dv-radius-control);
+  color: var(--dv-text-2);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+}
+
+.dv-shell-bots:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+/* Links that act as the shell's navigation controls. */
+.dv-shell-new,
+.dv-shell-side,
+.dv-shell-back,
+.dv-shell-up {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-pointer);
+  color: var(--dv-text);
+  font-weight: var(--dv-weight-label);
+  text-decoration: none;
+}
+
+.dv-shell-new,
+.dv-shell-side {
+  --dv-facet-cut: var(--dv-cut-s);
+  --dv-facet-edge: var(--dv-text-3);
+  --dv-facet-fill: var(--dv-bg-2);
+  flex: none;
+  padding: 0 var(--dv-space-3);
+  white-space: nowrap;
+}
+
+.dv-shell-new {
+  margin-left: var(--dv-space-3);
+}
+
+/* What opens beside the conversation sits at the far end of the header, apart from the bot it belongs to. */
+.dv-shell-beside {
+  flex: none;
+  display: flex;
+  gap: var(--dv-space-2);
+  margin-left: auto;
+}
+
+.dv-shell-side[aria-current="true"] {
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-2);
+}
+
+.dv-shell-back,
+.dv-shell-up {
+  flex: none;
+  min-width: var(--dv-target-pointer);
+  border-radius: var(--dv-radius-control);
+  color: var(--dv-text-2);
+}
+
+.dv-shell-new:hover,
+.dv-shell-side:hover {
+  --dv-facet-fill: var(--dv-bg-3);
+  --dv-facet-edge: var(--dv-text-2);
+}
+
+.dv-shell-back:hover,
+.dv-shell-up:hover {
+  background: var(--dv-bg-3);
+  color: var(--dv-text);
+}
+
+.dv-shell-narrow-only {
+  padding: var(--dv-space-2);
+}
+
+/* Keep the bot's name visible until the conversation column can fit all its links beside it. */
+@container conversation (max-width: 640px) {
+  .dv-shell-main-header {
+    flex-wrap: wrap;
+  }
+
+  .dv-shell-main-header .dv-shell-title {
+    flex: 1;
+  }
+
+  /* The ways beside the conversation wrap rather than push the page sideways. */
+  .dv-shell-beside {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: var(--dv-space-1);
+    margin-left: 0;
+  }
+
+  .dv-shell-beside .dv-shell-side {
+    flex: 1 0 auto;
+    padding-inline: var(--dv-space-1);
+  }
+}
+
+.dv-shell-dock {
+  display: none;
+}
+
+@media (max-width: 559px) {
+  .dv-shell-list-footer,
+  .dv-shell-beside {
+    display: none;
+  }
+
+  .dv-shell-dock {
+    display: block;
+  }
+
+  .dv-shell-main-header {
+    flex-wrap: nowrap;
+    padding-inline: var(--dv-space-2);
+  }
+
+  .dv-shell-more ::deep .dv-menu-trigger {
+    justify-content: center;
+    min-width: var(--dv-target-touch);
+    padding-inline: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .dv-shell-new,
+  .dv-shell-side,
+  .dv-shell-back,
+  .dv-shell-up {
+    min-height: var(--dv-target-touch);
+  }
+
+  .dv-shell-back,
+  .dv-shell-up,
+  .dv-shell-side {
+    min-width: var(--dv-target-touch);
+  }
+}
+
+.dv-shell-center {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  padding: var(--dv-space-4);
+}
+
+.dv-shell-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-shell-rail-header .dv-shell-title {
+  font-size: var(--dv-text-14);
+  font-weight: var(--dv-weight-label);
+}
+
+@media (min-width: 900px) {
+  .dv-shell {
+    grid-template-columns: var(--dv-list-width) minmax(0, 1fr);
+  }
+
+  .dv-shell-at-crew .dv-shell-main,
+  .dv-shell-at-main .dv-shell-list,
+  .dv-shell-at-side .dv-shell-list {
+    display: flex;
+  }
+
+  .dv-shell-list {
+    border-right: var(--dv-border) solid var(--dv-line);
+  }
+
+  .dv-shell-back,
+  .dv-shell-narrow-only {
+    display: none;
+  }
+}
+
+/* Wide enough for both: the side chat takes a rail and the main conversation stays where it was. */
+@media (min-width: 1200px) {
+  .dv-shell-with-rail {
+    grid-template-columns: var(--dv-list-width) minmax(0, 1fr) var(--dv-rail-width);
+  }
+
+  .dv-shell-at-side .dv-shell-main {
+    display: flex;
+  }
+
+  /* A screen needs room to be read: it shares the width evenly with the conversation. */
+  .dv-shell-with-screen {
+    grid-template-columns: var(--dv-list-width) minmax(0, 1fr) minmax(var(--dv-rail-width), 1fr);
+  }
+
+  .dv-shell-rail {
+    border-left: var(--dv-border) solid var(--dv-line);
+  }
+}

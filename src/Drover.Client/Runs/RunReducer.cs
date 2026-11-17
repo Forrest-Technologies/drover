@@ -19,8 +19,9 @@ public static class RunReducer
 
         var seen = view with { LastSeq = stored.Seq };
 
-        // A stream carries a whole run tree. Events of other runs in it move the cursor and nothing else here.
-        return stored.RunId == view.RunId ? ApplyOwn(seen, stored) : seen;
+        // A stream carries a whole run tree. An event of a run this one handed work to goes to that work's view, under
+        // the call that handed it over; any other run's event moves the cursor and nothing else here.
+        return stored.RunId == view.RunId ? ApplyOwn(seen, stored) : PassDown(seen, stored);
     }
 
     public static RunView Apply(RunView view, IEnumerable<RunEventResponse> events) => events.Aggregate(view, Apply);
@@ -43,13 +44,17 @@ public static class RunReducer
         RunEventTypes.ToolApproved => ChangeTool(view, RunEventTypes.Read<ToolDecided>(stored).ToolCallId, tool => tool with { State = "approved" }),
         RunEventTypes.ToolDenied => ChangeTool(view, RunEventTypes.Read<ToolDecided>(stored).ToolCallId, tool => tool with { State = "denied" }),
         RunEventTypes.ToolStarted => ChangeTool(view, RunEventTypes.Read<ToolStarted>(stored).ToolCallId, tool => tool with { State = "running" }),
+        RunEventTypes.ToolOutput => AppendOutput(view, RunEventTypes.Read<ToolOutput>(stored)),
         RunEventTypes.ToolCompleted => CompleteTool(view, RunEventTypes.Read<ToolCompleted>(stored)),
         RunEventTypes.UsageRecorded => AddUsage(view, RunEventTypes.Read<UsageRecorded>(stored)),
+        RunEventTypes.DelegationStarted => StartDelegation(view, RunEventTypes.Read<DelegationStarted>(stored)),
+        RunEventTypes.DelegationCompleted => CompleteDelegation(view, RunEventTypes.Read<DelegationCompleted>(stored)),
 
         // A type this client does not know yet is skipped, so an older client keeps working against a newer server.
         _ => view,
     };
 
+    // A run that is over has no call left open: one that still waited for an answer was stopped with it.
     private static RunView ChangeStatus(RunView view, RunStatusChanged changed) =>
         view with
         {
@@ -58,6 +63,9 @@ public static class RunReducer
             Error = changed.Error,
             Attempt = changed.Attempt,
             Usage = changed.Usage ?? view.Usage,
+            ToolCalls = changed.Status is "completed" or "failed" or "cancelled" && view.ToolCalls.Any(tool => tool.IsOpen)
+                ? [.. view.ToolCalls.Select(tool => tool.Settled())]
+                : view.ToolCalls,
         };
 
     private static RunView StartMessage(RunView view, StepChanged step) =>
@@ -113,7 +121,19 @@ public static class RunReducer
             };
 
     private static RunView AwaitApproval(RunView view, ToolApprovalRequested approval) =>
-        ChangeTool(view, approval.ToolCallId, tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId });
+        ChangeTool(
+            view,
+            approval.ToolCallId,
+            tool => tool with { State = "awaiting_approval", RequestId = approval.RequestId, Details = approval.Details ?? tool.Details });
+
+    private static RunView AppendOutput(RunView view, ToolOutput output) =>
+        ChangeTool(view, output.ToolCallId, tool => tool with { Pieces = Append(tool.Pieces, output) });
+
+    // A piece on the stream the last one was on joins it, so a screen marks each change of stream once.
+    private static ImmutableList<ToolOutputPiece> Append(ImmutableList<ToolOutputPiece> pieces, ToolOutput output) =>
+        pieces is [.., var last] && last.Stream == output.Stream
+            ? pieces.SetItem(pieces.Count - 1, last with { Text = $"{last.Text}{output.Text}" })
+            : pieces.Add(new ToolOutputPiece(output.Stream, output.Text));
 
     private static RunView CompleteTool(RunView view, ToolCompleted completed) =>
         ChangeTool(
@@ -133,6 +153,37 @@ public static class RunReducer
         return index < 0 ? view : view with { ToolCalls = view.ToolCalls.SetItem(index, change(view.ToolCalls[index])) };
     }
 
+    private static RunView PassDown(RunView view, RunEventResponse stored)
+    {
+        var index = view.ToolCalls.FindIndex(tool => tool.Delegation?.Child.Holds(stored.RunId) is true);
+
+        if (index < 0)
+        {
+            return view;
+        }
+
+        var tool = view.ToolCalls[index];
+        var work = tool.Delegation!;
+        return view with { ToolCalls = view.ToolCalls.SetItem(index, tool with { Delegation = work with { Child = Apply(work.Child, stored) } }) };
+    }
+
+    private static RunView StartDelegation(RunView view, DelegationStarted started) =>
+        ChangeTool(
+            view,
+            started.ToolCallId,
+            tool => tool.Delegation is not null
+                ? tool
+                : tool with
+                {
+                    Delegation = new DelegationView(started.ChildRunId, started.ChildBotId, started.ChildThreadId, RunView.Start(started.ChildRunId)),
+                });
+
+    private static RunView CompleteDelegation(RunView view, DelegationCompleted completed) =>
+        ChangeTool(
+            view,
+            completed.ToolCallId,
+            tool => tool.Delegation is { } work ? tool with { Delegation = work with { Outcome = completed.Outcome, Answer = completed.Summary } } : tool);
+
     private static RunView AddUsage(RunView view, UsageRecorded used) =>
         view with
         {
@@ -140,7 +191,7 @@ public static class RunReducer
                 view.Usage.Input + used.Input,
                 view.Usage.Output + used.Output,
                 view.Usage.Cached + used.Cached,
-                view.Usage.Cost + used.Cost),
+                view.Usage.Cost + (used.Cost ?? 0)),
         };
 
     #endregion

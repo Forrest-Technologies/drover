@@ -55,6 +55,24 @@ public sealed class MessageRepository(DroverDbContext db)
     public Task MarkWithheld(Guid id, CancellationToken cancellationToken) =>
         db.Messages.Where(message => message.Id == id).ExecuteUpdateAsync(set => set.SetProperty(message => message.Withheld, true), cancellationToken);
 
+    /// <summary>
+    /// The run's reply in the thread that asked for the tool call, or null when it is not the run's latest stored reply.
+    /// A tool runs before the next model call is stored, so the reply that asked for it is the latest one; only that
+    /// one row is read.
+    /// </summary>
+    public Task<Message?> FindReplyWithCall(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
+        FindReply(db.Messages.AsNoTracking(), threadId, runId, toolCallId, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="FindReplyWithCall"/>, locked until the scope ends and tracked, so a part added to it is saved
+    /// when the scope commits. Its parts are read under the lock, so two calls that add to one reply at once each see
+    /// the other's part.
+    /// </summary>
+    public async Task<Message?> GetReplyWithCallForUpdate(Guid threadId, Guid runId, Guid toolCallId, CancellationToken cancellationToken) =>
+        await FindReply(db.Messages.AsNoTracking(), threadId, runId, toolCallId, cancellationToken) is { } reply
+            ? (await db.Messages.FromSql($"SELECT * FROM messages WHERE id = {reply.Id} FOR UPDATE").ToListAsync(cancellationToken)).SingleOrDefault()
+            : null;
+
     public Task<Message?> FindMessage(Guid id, CancellationToken cancellationToken) =>
         db.Messages.AsNoTracking().SingleOrDefaultAsync(message => message.Id == id, cancellationToken);
 
@@ -94,6 +112,24 @@ public sealed class MessageRepository(DroverDbContext db)
         message.Position = null;
         db.Messages.Add(message);
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static async Task<Message?> FindReply(
+        IQueryable<Message> messages,
+        Guid threadId,
+        Guid runId,
+        Guid toolCallId,
+        CancellationToken cancellationToken) =>
+        await messages
+            .Where(message => message.ThreadId == threadId && message.RunId == runId && message.Role == MessageRole.Assistant && message.Position != null)
+            .OrderByDescending(message => message.Position)
+            .FirstOrDefaultAsync(cancellationToken) is { } latest
+            && latest.Parts.OfType<ToolCallPart>().Any(call => call.ToolCallId == toolCallId)
+            ? latest
+            : null;
 
     #endregion
 }

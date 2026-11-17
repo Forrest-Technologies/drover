@@ -40,7 +40,7 @@ else
                 <option value="a">Sample model A</option>
                 <option value="b">Sample model B</option>
             </Select>
-            <Switch Label="Remember threads" @bind-Value="remember" />
+            <Switch Label="Remember conversations" @bind-Value="remember" />
             <SegmentedControl TValue="string" Label="Tool access" Options="access" @bind-Value="chosenAccess" />
         </GallerySection>
 
@@ -85,17 +85,36 @@ else
             <StatusNote Text="A sample note with nothing to act on." />
         </GallerySection>
 
+        <GallerySection Title="Notifications on this device" Note="Each state says what is so. A state fixed outside Drover has no button. The account menu opens this in a dialog.">
+            @foreach (var state in Enum.GetValues<PushState>())
+            {
+                <PushControl State="state" />
+            }
+            <PushControl State="PushState.Off" Working="true" />
+            <PushControl State="PushState.On" Problem="Sample: notifications did not change. The server did not answer. Try again." />
+        </GallerySection>
+
         <GallerySection Title="Setup steps">
             <SetupSteps Current="2" />
         </GallerySection>
 
-        <GallerySection Title="Thread list" Note="The open thread is marked. A ring breathes on a thread whose bot is working.">
-            <ThreadList Threads="threads" SelectedId="threads[0].Id" />
+        <GallerySection Title="Crew" Note="Each bot sits under the one that manages it. The bot being talked to is marked, and a visor breathes on a bot that is working.">
+            <CrewList Crew="crew" SelectedId="crew[0].Bot.Id" Working="working" />
         </GallerySection>
 
-        <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
+        <GallerySection Title="Side chats" Note="The other conversations a person has with one bot. A visor breathes on a chat whose bot is working in it.">
+            <SideChatList Chats="sideChats" />
+        </GallerySection>
+
+        <GallerySection Title="Conversation" Note="A person's messages sit right in a bubble, and one a schedule sent for them says so under it. A bot's run full width, like a document. The last one here is held in the thinking state as a sample.">
             <div class="dv-gallery-conversation">
                 <MessageList Messages="messages" BotName="Sample bot" BotHue="6" Thinking="true" />
+            </div>
+        </GallerySection>
+
+        <GallerySection Title="Work passing between bots" Note="A violet edge while the work is out, then the result's color. Inside: the other bot's own words and calls, and a call waiting for an answer. Past two levels a card links instead of nesting. Every name and text is a sample.">
+            <div class="dv-gallery-conversation">
+                <MessageList Messages="handoffs" BotName="Sample lead bot" BotHue="BotIdentity.Hue(sampleLead)" />
             </div>
         </GallerySection>
 
@@ -152,21 +171,82 @@ else
 
     private const string command = "docker compose up --build";
 
-    private static readonly ThreadListItem[] threads =
+    private static readonly Guid sampleLead = Guid.Parse("00000000-0000-7000-8000-000000000001");
+
+    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
+
+    private static readonly IReadOnlyList<CrewNode> crew = CrewTree.From(
     [
-        new(Guid.Parse("00000000-0000-7000-8000-000000000001"), "Sample thread, open", "Sample bot", 6, false),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000002"), "Sample thread with a bot at work", "Sample bot", 6, true),
-        new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample thread with a title long enough to be cut short", "Other sample bot", 2, false),
+        new(sampleLead, "Sample lead bot", "sample-lead", string.Empty, Guid.Empty, "sample-model", "active"),
+        new(sampleHelper, "Sample bot at work", "sample-helper", string.Empty, Guid.Empty, "sample-model", "active", sampleLead),
+        new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample bot with a name long enough to be cut short", "sample-long", string.Empty, Guid.Empty, "sample-model", "paused", sampleHelper),
+    ]);
+
+    private static readonly IReadOnlySet<Guid> working = ImmutableHashSet.Create(sampleHelper);
+
+    private static readonly SideChatItem[] sideChats =
+    [
+        Chat("00000000-0000-7000-8000-000000000004", "Sample side chat", false),
+        Chat("00000000-0000-7000-8000-000000000005", "Sample side chat with a bot at work", true),
+        Chat("00000000-0000-7000-8000-000000000006", "Sample side chat with a title long enough to be cut short", false),
     ];
 
     private static readonly ChatMessage[] messages =
     [
+        new("sample-0", true, "A sample prompt a routine sent.") { SentBy = "Sent by the routine 'Every weekday at 09:30'" },
         new("sample-1", true, "A sample question from a person."),
         new("sample-2", false, "A sample answer with **bold** text and `code`.\n\n- A sample point\n- Another sample point"),
         new("sample-3", true, "A sample follow-up."),
     ];
 
+    private static readonly string[] sampleLine = ["Sample lead bot", "Sample helper", "Sample scout", "Sample runner"];
+
+    private static readonly ChatMessage[] handoffs =
+    [
+        Said("sample-handoff-1", "A sample reply that hands work over.",
+            Handed("00000000-0000-7000-8000-000000000211", DelegationPhase.WaitingForYou, 0, work:
+                Said("sample-handoff-2", "A sample line of the helper's work.",
+                    Call("00000000-0000-7000-8000-000000000212", "awaiting_approval")))),
+        Said("sample-handoff-3", "A sample reply with finished, failed, and refused work.",
+            Handed("00000000-0000-7000-8000-000000000213", DelegationPhase.Done, 0, answer: "A sample answer with **bold** text."),
+            Handed("00000000-0000-7000-8000-000000000214", DelegationPhase.Failed, 0),
+            Handed("00000000-0000-7000-8000-000000000215", DelegationPhase.Refused, 0, refusal: DelegationRefusal.Loop)),
+        Said("sample-handoff-4", "A sample reply with work handed down three levels.",
+            Handed("00000000-0000-7000-8000-000000000216", DelegationPhase.Working, 0, work:
+                Said("sample-handoff-5", "A sample line of the helper's work.",
+                    Handed("00000000-0000-7000-8000-000000000217", DelegationPhase.Working, 1, work:
+                        Said("sample-handoff-6", "A sample line one level further down.",
+                            Handed("00000000-0000-7000-8000-000000000218", DelegationPhase.Working, 2)))))),
+    ];
+
     private string address = string.Empty;
+
+    private static ChatMessage Said(string key, string text, params ToolCard[] tools) => new(key, false, text) { Tools = tools };
+
+    private static ToolCard Call(string id, string state) =>
+        new ToolCallView(Guid.Parse(id), "sandbox_run", "sandbox_run", """{"command":"sample command"}""", "write", state).ToCard();
+
+    // A sample card for handed work: each level down is handed to the next sample bot in the line.
+    private static ToolCard Handed(
+        string id,
+        DelegationPhase phase,
+        int depth,
+        ChatMessage? work = null,
+        string? answer = null,
+        DelegationRefusal refusal = DelegationRefusal.None) =>
+        Call(id, "running") with
+        {
+            Delegation = new DelegationItem(
+                Guid.Parse(id), sampleLine[depth], depth == 0 ? sampleHelper : Guid.Parse(id), sampleLine[depth + 1],
+                "Sample task: find three sample sources.\nA second sample line.", phase, answer, refusal, "/", depth)
+            {
+                Work = work is null ? [] : [work],
+            },
+        };
+
+    // A sample row opens the workspace, which says that the sample bot is not there.
+    private static SideChatItem Chat(string id, string title, bool working) =>
+        new(Guid.Parse(id), title, Addresses.SideChat(sampleLead, Guid.Parse(id)), "Sample bot", 6, working);
 
     private string model = "a";
 

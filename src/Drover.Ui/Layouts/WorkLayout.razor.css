@@ -66,3 +66,28 @@
   margin: 0 auto;
   padding: var(--dv-space-5) var(--dv-space-4) var(--dv-space-7);
 }
+
+.dv-work-dock {
+  display: none;
+}
+
+@media (max-width: 559px) {
+  .dv-work {
+    height: 100dvh;
+  }
+
+  .dv-work-nav,
+  .dv-work-account {
+    display: none;
+  }
+
+  .dv-work-main {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .dv-work-dock {
+    display: block;
+  }
+}

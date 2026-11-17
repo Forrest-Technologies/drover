@@ -1,0 +1,124 @@
+namespace Drover.Ui.Bots;
+
+/// <summary>
+/// A bot's sandbox in words: its state, when it was last used, and how long the sandbox screen waits between two
+/// pictures. The state is always said in words, so a color is never the only signal.
+/// </summary>
+public static class SandboxWords
+{
+    #region Private Fields
+
+    private static readonly TimeSpan refresh = TimeSpan.FromSeconds(2);
+
+    private static readonly TimeSpan longestWait = TimeSpan.FromSeconds(30);
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// How long after a person's input the picture is fetched again: long enough for the sandbox to draw what the
+    /// input did, short enough that it looks immediate.
+    /// </summary>
+    public static TimeSpan PictureAfterInput { get; } = TimeSpan.FromMilliseconds(300);
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>The state for the badge. A bot whose last start did not finish has no sandbox, but not "yet".</summary>
+    public static string State(BotSandboxStatus status) => status is { State: "none", StartFailed: true } ? "Start did not finish" : State(status.State);
+
+    public static string State(string state) => state switch
+    {
+        "starting" => "Starting",
+        "running" => "Running",
+        "paused" => "Paused",
+        "replacing" => "Being replaced",
+        _ => "No sandbox yet",
+    };
+
+    /// <summary>What the badge adds to the words: running is fine, a change under way asks for attention.</summary>
+    public static BadgeKind Badge(string state) => state switch
+    {
+        "running" => BadgeKind.Ok,
+        "starting" or "replacing" => BadgeKind.Warn,
+        _ => BadgeKind.Neutral,
+    };
+
+    /// <summary>Who holds the screen at a bot's request, since when, and what that means for the bots. No name: only "you" or not.</summary>
+    public static string Hold(SandboxHold hold)
+    {
+        var who = hold.ForYou ? "you" : "another member of this space";
+        var when = hold.Since is { } at ? $" on {at.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)}" : string.Empty;
+        var next = hold.ForYou ? " Do it on the screen below, then answer in the conversation." : string.Empty;
+        return $"A bot asked {who} to take over this screen{when}. The bots that share this sandbox wait until it is handed back.{next}";
+    }
+
+    public static string LastUsed(DateTimeOffset? at, DateTimeOffset now)
+    {
+        if (at is not { } used)
+        {
+            return "Not used yet";
+        }
+
+        var ago = now - used;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "Used just now",
+            { TotalMinutes: < 2 } => "Used a minute ago",
+            { TotalHours: < 1 } => $"Used {(int)ago.TotalMinutes} minutes ago",
+            { TotalHours: < 2 } => "Used an hour ago",
+            { TotalDays: < 1 } => $"Used {(int)ago.TotalHours} hours ago",
+            _ => $"Used {used.ToLocalTime().ToString("d MMM, HH:mm", CultureInfo.CurrentCulture)}",
+        };
+    }
+
+    /// <summary>
+    /// Why a sandbox has no screen, in words: the server offers none, or the bot's Desktop setting is off. Null when it
+    /// has one.
+    /// </summary>
+    public static string? NoScreen(BotSandboxStatus status) => status switch
+    {
+        { Desktop: true } => null,
+        { DesktopOffered: false } => "This server does not offer sandboxes with a screen. Its operator decides that.",
+        _ => "This sandbox has no screen. Turn on Desktop in the Sandbox section of the bot's settings to give it one.",
+    };
+
+    /// <summary>The line the bot editor's Sandbox section shows: the state and the last use.</summary>
+    public static string Summary(BotSandboxStatus status, DateTimeOffset now) =>
+        status.State is "none" ? State(status) : $"{State(status.State)} · {LastUsed(status.LastUsedAt, now).ToLowerInvariant()}";
+
+    /// <summary>How a command ended, in one line: its exit code, or that it was stopped, and what else is worth saying.</summary>
+    public static string Outcome(SandboxCommandResponse result)
+    {
+        List<string> parts =
+        [
+            result.TimedOut || result.ExitStatus is null ? "Stopped: it ran past the time limit." : $"Exit code {result.ExitStatus}.",
+        ];
+
+        if (result.Truncated)
+        {
+            parts.Add("Some output was left out.");
+        }
+
+        if (result.NewSandbox)
+        {
+            parts.Add("This is a new sandbox; the old one and its files are gone.");
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>
+    /// How long to wait before the next picture: two seconds, doubled after each failure in a row, at most thirty,
+    /// so a sandbox that does not answer is not asked again and again.
+    /// </summary>
+    public static TimeSpan NextPictureAfter(int failuresInARow)
+    {
+        var wait = refresh * Math.Pow(2, Math.Clamp(failuresInARow, 0, 8));
+        return wait < longestWait ? wait : longestWait;
+    }
+
+    #endregion
+}

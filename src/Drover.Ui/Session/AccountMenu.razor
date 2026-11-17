@@ -2,9 +2,13 @@
 @inject ThemeService Theme
 @inject ToastService Toasts
 @inject NavigationManager Navigation
+@inject IPushRegistration Push
+@inject DroverApi Api
 @inject ILogger<AccountMenu> Logger
 
-<Menu Label="@(Session.Current?.DisplayName ?? "Account")">
+<Menu @ref="menu" Label="@(Compact ? "Account" : Session.Current?.DisplayName ?? "Account")"
+      AriaLabel="@(Compact && Session.Current is { } person ? $"Account for {person.DisplayName}" : null)"
+      TriggerIcon="@(Compact ? IconName.Account : null)">
     @foreach (var (choice, name) in themes)
     {
         <MenuItem OnSelect="() => Theme.Choose(choice)">
@@ -16,12 +20,18 @@
             }
         </MenuItem>
     }
+    <MenuItem OnSelect="() => notificationsOpen = true">Notifications</MenuItem>
+    @* Everyone reads usage: a member reads their own runs, an owner or admin the whole space. *@
+    <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Usage)">Usage</MenuItem>
     @if (Session.Space?.Role is "owner" or "admin")
     {
         <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Status)">Status</MenuItem>
     }
     <MenuItem OnSelect="SignOut">Sign out</MenuItem>
 </Menu>
+<Dialog Title="Notifications on this device" Open="notificationsOpen" OpenChanged="NotificationsOpenChanged">
+    <DevicePush TitleHidden="true" />
+</Dialog>
 
 @code {
     #region Private Fields
@@ -32,6 +42,17 @@
         (ThemeChoice.Light, "Light theme"),
         (ThemeChoice.System, "Match this device"),
     ];
+
+    private bool notificationsOpen;
+
+    private Menu? menu;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter]
+    public bool Compact { get; set; }
 
     #endregion
 
@@ -46,10 +67,22 @@
         }
     }
 
+    /// <summary>The item that opened the dialog is in a closed menu, so focus goes back to the menu's own button.</summary>
+    private async Task NotificationsOpenChanged(bool open)
+    {
+        notificationsOpen = open;
+
+        if (!open && menu is not null)
+        {
+            await menu.ReturnFocusToTrigger();
+        }
+    }
+
     private async Task SignOut()
     {
         try
         {
+            await TurnOffThisDevice();
             await Session.End();
             Navigation.NavigateTo(Addresses.SignIn);
         }
@@ -57,6 +90,31 @@
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AccountMenu));
             Toasts.Show($"You are still signed in. {Failures.Sentence(exception)}", ToastKind.Error);
+        }
+    }
+
+    /// <summary>
+    /// A device signed out of stops being woken for its person: the next person on this browser must never be shown
+    /// that someone else's bot needs them. Best effort and bounded: a browser or server that does not answer in time
+    /// never keeps the person signed in.
+    /// </summary>
+    private async Task TurnOffThisDevice()
+    {
+        using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            var endpoint = Push is IDeviceNotificationSettings
+                ? await Push.Unsubscribe(patience.Token)
+                : (await Push.Check(patience.Token)).Endpoint;
+            if (endpoint is not null)
+            {
+                await Api.TurnOffPush(endpoint, patience.Token);
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is JSException or OperationCanceledException)
+        {
+            Logger.LogWarning(exception, "This device's notifications could not be turned off at sign-out");
         }
     }
 

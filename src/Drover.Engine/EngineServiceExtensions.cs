@@ -25,6 +25,9 @@ public static class EngineServiceExtensions
             })
             .AddDroverStores();
         services.AddScoped<AccountService>();
+        services.AddScoped<SessionService>();
+        services.AddSingleton<SessionRevocations>();
+        services.AddScoped<PasswordService>();
         services.AddScoped<SpaceService>();
         services.AddScoped<StatusService>();
         return services;
@@ -39,11 +42,15 @@ public static class EngineServiceExtensions
     {
         services.AddOptions<RunOptions>().Configure(options => configure?.Invoke(options));
         services.AddBuiltinTools();
+        services.AddSingleton<SandboxAvailability>();
+        services.AddSingleton<SandboxControlService>();
         services.AddSingleton<RunScopes>();
         services.AddSingleton<RunSignal>();
         services.AddSingleton<RunEventHub>();
         services.AddSingleton<UserSignalHub>();
+        services.AddSingleton<PushNotifier>();
         services.AddSingleton<RunEventFeed>();
+        services.AddSingleton<ConversationSummarizer>();
         services.AddSingleton<RunExecutor>();
         services.AddSingleton<RunDispatcher>();
         services.AddScoped<ToolCatalog>();
@@ -54,11 +61,17 @@ public static class EngineServiceExtensions
         services.AddScoped<BotService>();
         services.AddScoped<GrantService>();
         services.AddScoped<ScheduleService>();
+        services.AddScoped<ScheduleFiring>();
+        services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
         services.AddScoped<ThreadService>();
+        services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
+        services.AddScoped<UsageService>();
         services.AddScoped<ApprovalService>();
+        services.AddScoped<FileAbilityReader>();
+        services.AddScoped<FileService>();
         return services;
     }
 

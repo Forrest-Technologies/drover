@@ -10,9 +10,24 @@ public interface IRunGovernor
 
     Task<ToolOutcome> InvokeTool(ToolCallRequest toolCall, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Begins a child run for the request, after checking the grant, the target, the run's ancestors for a loop, and
+    /// the tree's budget, in one transaction. Asked again for the same tool call it returns the same child run.
+    /// </summary>
     Task<ChildRun> BeginChildRun(DelegationRequest request, CancellationToken cancellationToken);
 
-    Task CompleteChildRun(ChildRun child, ChildRunOutcome outcome, CancellationToken cancellationToken);
+    /// <summary>
+    /// Executes a child run this governor began, as its own run with its own grants, history, and events, until it
+    /// ends or waits for a person. A child that ended already reports how it ended and does not run again.
+    /// </summary>
+    Task<ChildRunReport> RunChildRun(ChildRun child, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes a child run's report into its parent and returns the parent's tool result. When the parent must stop
+    /// here (the child waits for a person and the tree pauses, or the parent itself was cancelled) it throws
+    /// <see cref="OperationCanceledException"/>.
+    /// </summary>
+    Task<ToolOutcome> CompleteChildRun(ChildRun child, ChildRunReport report, CancellationToken cancellationToken);
 
     Task RecordUsage(ModelUsage usage, CancellationToken cancellationToken);
 
@@ -46,4 +61,12 @@ public interface IRunGovernor
     /// let one through, the run ends and this throws <see cref="OperationCanceledException"/>.
     /// </summary>
     Task RuleOnArrivals(IReadOnlyList<Message> messages, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>
+    /// What the model is given for each of these attached files, by file id, read as the run's person. A picture the
+    /// model reads is read each time; anything copied into the sandbox is copied once a run. A file left out of the
+    /// answer is given to the model as a line saying it could not be opened.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyDictionary<Guid, FileForModel>>(new Dictionary<Guid, FileForModel>());
 }

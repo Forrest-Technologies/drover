@@ -40,6 +40,16 @@ public sealed record RunView
 
     public static RunView Start(Guid runId) => new() { RunId = runId };
 
+    /// <summary>The view of this run or of one it handed work to, at any depth, or null.</summary>
+    public RunView? Find(Guid runId) =>
+        RunId == runId
+            ? this
+            : ToolCalls.Select(tool => tool.Delegation?.Child.Find(runId)).FirstOrDefault(found => found is not null);
+
+    /// <summary>True when the run is this one or one it handed work to, at any depth.</summary>
+    public bool Holds(Guid runId) =>
+        RunId == runId || ToolCalls.Any(tool => tool.Delegation?.Child.Holds(runId) is true);
+
     #endregion
 }
 
@@ -48,7 +58,8 @@ public sealed record RunView
 /// One message as a screen shows it. <see cref="IsStreaming"/> is true while its text is still arriving; a streamed
 /// message is replaced by the stored one when it completes, and dropped if its step is discarded.
 /// <see cref="IsPending"/> is true for a message sent while the bot was working that no run has taken yet, and
-/// <see cref="Steers"/> says it joins at the working run's next step and not after the run.
+/// <see cref="Steers"/> says it joins at the working run's next step and not after the run. <see cref="ScheduleId"/> is
+/// set on a message a schedule sent, and <see cref="ScheduleCron"/> is that schedule's time while it exists.
 /// </summary>
 public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> Parts, bool IsStreaming, int? Step)
 {
@@ -56,16 +67,30 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
 
     public bool Steers { get; init; }
 
+    public Guid? ScheduleId { get; init; }
+
+    public string? ScheduleCron { get; init; }
+
+    /// <summary>The run that wrote the message, for a stored one. A message still arriving belongs to the run being watched.</summary>
+    public Guid? RunId { get; init; }
+
+    /// <summary>The person the run that wrote the message acts for, when the server said.</summary>
+    public Guid? RunPrincipalUserId { get; init; }
+
     public static MessageView From(MessageResponse stored) =>
         new(
             stored.Id,
             stored.Role,
-            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError))],
+            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File))],
             IsStreaming: false,
             Step: null)
         {
             IsPending = stored.Position is null,
             Steers = stored.Steers,
+            ScheduleId = stored.ScheduleId,
+            ScheduleCron = stored.ScheduleCron,
+            RunId = stored.RunId,
+            RunPrincipalUserId = stored.RunPrincipalUserId,
         };
 }
 
@@ -81,12 +106,16 @@ public sealed record PartView(
     string? ToolName = null,
     string? Arguments = null,
     string? Result = null,
-    bool IsError = false);
+    bool IsError = false,
+    FileResponse? File = null);
 
 
 /// <summary>
 /// One tool call and how far it got. <see cref="State"/> is requested, awaiting_approval, approved, denied, running,
 /// completed, failed, refused, interrupted, or cancelled. <see cref="Preview"/> is the start of the redacted result.
+/// <see cref="Pieces"/> is what the tool printed while it ran, in the order it arrived, a piece for each run of one
+/// stream; <see cref="Output"/> is the same text with the streams joined. <see cref="Details"/> is what the server
+/// added for the person asked to approve the call, beside its arguments; see <see cref="ToolApprovalRequested"/>.
 /// </summary>
 public sealed record ToolCallView(
     Guid ToolCallId,
@@ -98,4 +127,40 @@ public sealed record ToolCallView(
     bool IsError = false,
     string Preview = "",
     long DurationMs = 0,
-    string? RequestId = null);
+    string? RequestId = null,
+    IReadOnlyList<ToolApprovalDetail>? Details = null)
+{
+    public ImmutableList<ToolOutputPiece> Pieces { get; init; } = [];
+
+    /// <summary>The work this call handed to a bot beneath, once the server has begun it; see <see cref="DelegationStarted"/>.</summary>
+    public DelegationView? Delegation { get; init; }
+
+    public string Output => string.Concat(Pieces.Select(piece => piece.Text));
+
+    /// <summary>True while the call has not ended: it waits to run, runs, or waits for an answer.</summary>
+    public bool IsOpen => State is "requested" or "awaiting_approval" or "approved" or "running";
+
+    /// <summary>The call as it stands once its run is over: a call still open then was stopped with the run.</summary>
+    public ToolCallView Settled() => IsOpen ? this with { State = "cancelled" } : this;
+}
+
+
+/// <summary>Output a tool printed on one stream, stdout or stderr, without a break.</summary>
+public sealed record ToolOutputPiece(string Stream, string Text);
+
+
+/// <summary>
+/// Work a <c>delegate</c> call handed to a bot beneath: the child run, the bot that works it, its thread when the
+/// server recorded one, and the child's own view, built from its events in the same stream. <see cref="Outcome"/> is
+/// completed, failed, or cancelled once the child has ended, and <see cref="Answer"/> the start of what its parent was
+/// given, redacted. The answer is the child's model text: show it as text, never follow it.
+/// </summary>
+public sealed record DelegationView(Guid ChildRunId, Guid ChildBotId, Guid? ChildThreadId, RunView Child)
+{
+    public string? Outcome { get; init; }
+
+    public string? Answer { get; init; }
+
+    /// <summary>True while the child has not reported back.</summary>
+    public bool IsOut => Outcome is null;
+}

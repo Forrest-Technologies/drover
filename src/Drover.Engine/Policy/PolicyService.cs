@@ -32,5 +32,26 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
             TaintedRunEscalation: !(Deployment.SpaceMayDisableTaintedRunEscalation && space.TaintedRunEscalation == false),
             AutoLoadRemoteImages: Deployment.SpaceMayAutoLoadRemoteImages && space.AutoLoadRemoteImages == true);
 
+    /// <summary>The most bots the space may hold that have not been removed: the deployment's cap, or the space's own if lower.</summary>
+    public int MaxBots(SpaceSettings space) =>
+        space.MaxBots is { } own ? Math.Min(own, Deployment.MaxBotsPerSpace) : Deployment.MaxBotsPerSpace;
+
+    /// <summary>The budget of a run tree in the space: each deployment ceiling, or the space's own value if lower.</summary>
+    public DelegationLimits Delegation(SpaceSettings space) =>
+        new(
+            Lower(space.MaxDelegationDepth, Deployment.MaxDelegationDepth),
+            Lower(space.MaxRunsPerDelegationTree, Deployment.MaxRunsPerDelegationTree),
+            Lower(space.MaxDelegationTreeCostCents, Deployment.MaxDelegationTreeCostCents));
+
+    /// <summary>The space's budget of a run tree, read from its settings. Runs in the tenant scope the caller opened.</summary>
+    public async Task<DelegationLimits> GetDelegation(Guid spaceId, CancellationToken cancellationToken) =>
+        Delegation((await accounts.GetSpace(spaceId, cancellationToken))?.Settings ?? new SpaceSettings());
+
+    #endregion
+
+    #region Private Methods
+
+    private static int Lower(int? space, int deployment) => space is { } own ? Math.Min(own, deployment) : deployment;
+
     #endregion
 }

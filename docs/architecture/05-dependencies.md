@@ -37,7 +37,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | ASP.NET Core, Minimal APIs, Identity, Data Protection, OpenAPI | MIT | Microsoft, part of .NET 11 | Server, sign-in, key ring, API description | Direct. The platform. Data Protection sits behind `ISecretVault` only for secret storage. |
 | Entity Framework Core 10 | MIT | Microsoft | Data access, migrations | Direct. The platform. |
 | `Npgsql`, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.x | PostgreSQL License (permissive) | Npgsql team, the standard .NET driver | PostgreSQL driver and provider | Direct. PostgreSQL is a settled decision. |
-| `Microsoft.AspNetCore.OpenApi` | MIT | Microsoft | The OpenAPI description of the endpoints, served at `/openapi/v1.json` | Direct. The platform. |
+| `Microsoft.AspNetCore.OpenApi` | MIT | Microsoft | The OpenAPI description of the endpoints, served at `/openapi/v1.json` in Development only | Direct. The platform. |
 | `Microsoft.AspNetCore.Identity.EntityFrameworkCore` | MIT | Microsoft | The Identity stores on EF Core: the `users` table and its children | Direct. The platform. |
 | `EFCore.NamingConventions` | Apache-2.0 | Maintained by an EF Core team member | `snake_case` names | Direct. One line of configuration. |
 | Microsoft Agent Framework: `Microsoft.Agents.AI` 1.28.0 and `.Workflows` 1.28.0 in use; `.Harness` and preview packages as adopted | MIT | Microsoft. GA since April 2026; weekly releases with breaking changes | The agent runtime, in full: agents, sessions, history, compaction, context providers, skills, workflows, orchestration, approval, telemetry, evaluation | **Built on, inside one project.** `Drover.Agents` holds every framework type. Latest release tracked weekly, previews allowed, conformance suite as the gate. The adoption map is in [14-agent-framework.md](14-agent-framework.md); the experimental APIs in use are listed below. |
@@ -47,17 +47,18 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
 | Markdig 1.6.0 | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownDocument`, which `MarkdownView` renders from. |
 | HtmlSanitizer 11.0.26, with AngleSharp and AngleSharp.Css | MIT, MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
-| `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency | Web Push and VAPID | **Wrapped** by `IPushChannel` |
-| Cronos 0.13.0 | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct, in `Drover.Engine`. One call site today, `ScheduleService`, which checks an expression and stores the next time it is due; the scheduler will be the second. |
+| `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency on .NET (its one dependency there is the same author's `Lib.Net.Http.EncryptedContentEncoding`, MIT) | Web Push and VAPID | **Wrapped** by `IPushChannel`, referenced only by `Drover.Adapters.WebPush` |
+| Cronos 0.13.0 | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct, in `Drover.Engine`. `ScheduleService` checks an expression, refuses one whose times are closer together than the deployment allows, and computes the next time it is due; the scheduler (`ScheduleFiring`) uses the same calculation each time a schedule comes due. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
-| `Microsoft.Extensions.Http` | MIT | Microsoft | The client factory, referenced directly by `Drover.Ui.Tests` so its fake server hands out a client the way every client in Drover is made. Already present everywhere else through the resilience package. | Direct. Test project only. |
+| `Microsoft.Extensions.Http` | MIT | Microsoft | The client factory, used by `Drover.Ui.Tests` so its fake server hands out a client the way every client in Drover is made. Part of the ASP.NET Core shared framework, which that project references for the service worker test's small server; present everywhere else through the resilience package. | Direct, no package reference of its own. Test project only. |
+| `Microsoft.Extensions.TimeProvider.Testing` | MIT | Microsoft | A clock a test moves by hand, so a screen that reads the server every ten seconds is tested without waiting. | Direct. Test project only (`Drover.Ui.Tests`). |
+| `Microsoft.Playwright` 1.63.0 | MIT | Microsoft | Drives a real Chromium against the published service worker, the one piece of the client a component test cannot reach. | Direct. Test project only (`Drover.Ui.Tests`). Uses an installed Chromium or Chrome (`DROVER_TEST_CHROMIUM`, or a usual path), so no browser download. The package bundles the Playwright driver and a Node runtime (Apache-2.0 and MIT), about 135 MB in the test output. |
 | YamlDotNet 16.3.0 | MIT | Antoine Aubry and contributors; the standard .NET YAML library, active | `ComposeFileTests` reads `compose.yaml` and `compose.proxy.yaml` as data to check the hardening rules | Direct. Test project only. |
 | OpenTelemetry .NET | Apache-2.0 | CNCF project | Traces and metrics, exported only if the operator configures an endpoint | Direct. Standard instrumentation. |
 | `Microsoft.Extensions.Logging` | MIT | Microsoft | Logging, as the guide requires | Direct. No third-party logger. |
-| .NET MAUI, `BlazorWebView` | MIT | Microsoft | Native shell | Direct for the shell. Native features sit behind the small platform interfaces in `Drover.Ui`. |
+| `Microsoft.Maui.Controls`, `Microsoft.AspNetCore.Components.WebView.Maui` | MIT | Microsoft | Android shell | Direct in `Drover.App`; renders the shared Drover UI. |
 | Aspire hosting packages | MIT | Microsoft | Local development only | Direct. Not referenced by anything that ships. |
 | Inter 4.1 (variable), JetBrains Mono 2.304 (regular, medium) | SIL OFL 1.1, the one license outside the code list, accepted for fonts only | Their respective projects | UI and monospace type, bundled as WOFF2 in `Drover.Ui/wwwroot/fonts` with each license file beside them. Nothing loads from another host. | Assets |
-| Lucide icons 0.468.0, twenty shapes copied into `Drover.Ui/Icons` | ISC | Lucide contributors, active | The one icon set, drawn inline by the `Icon` component. The license file sits beside the shapes. | Assets. No package reference. |
 
 ### Experimental APIs in use
 
@@ -83,6 +84,8 @@ Phase 1 and 2 additions, already checked:
 | OpenIddict | Apache-2.0 | Kévin Chalet, active | Only if Drover must act as an OAuth server for third-party clients | Direct if adopted |
 
 No library is used for E2B or for Apple's push service. Neither has an official or well-adopted .NET client, and both are small HTTP APIs. Drover owns those clients inside their adapter projects. See [07-sandbox.md](07-sandbox.md) and [13-deployment-and-push.md](13-deployment-and-push.md).
+
+`Drover.Adapters.E2B` adds no package. It uses `System.Net.Http`, `System.Text.Json`, and `Microsoft.Extensions.Http.Resilience`, which is already central, and it is the only project that talks to E2B: its control plane, its in-sandbox daemon, and their JSON shapes are internal to it.
 
 ## Test and build dependencies
 

@@ -9,12 +9,39 @@ public static class MessageParts
 {
     #region Public Methods
 
-    public static ChatMessage ToChatMessage(this Message message) =>
-        new(ToChatRole(message.Role), [.. message.Parts.Select(ToContent).OfType<AIContent>()])
+    /// <summary>
+    /// The message as the model reads it. A file part a person sent becomes what <paramref name="files"/> holds for
+    /// it, and a line saying it could not be opened when it holds nothing. A file part in a bot's reply is a file the
+    /// bot shared: the call that shared it and its result already say so, and its content is not given back.
+    /// </summary>
+    public static ChatMessage ToChatMessage(this Message message, IReadOnlyDictionary<Guid, FileForModel>? files = null) =>
+        new(
+            ToChatRole(message.Role),
+            [
+                .. message.Parts
+                    .Where(part => message.Role is not MessageRole.Assistant || !IsFile(part))
+                    .SelectMany(part => ToContents(part, files)),
+            ])
         {
             MessageId = message.Id.ToString("N"),
             CreatedAt = message.CreatedAt,
         };
+
+    /// <summary>The ids of the files people sent in the messages, each once. A file a bot shared is not given to a model.</summary>
+    public static IReadOnlyCollection<Guid> FileIds(this IEnumerable<Message> messages) =>
+    [
+        .. messages
+            .Where(message => message.Role is not MessageRole.Assistant)
+            .SelectMany(message => message.Parts)
+            .Select(part => part switch
+            {
+                ImagePart image => image.FileId,
+                FilePart file => file.FileId,
+                _ => Guid.Empty,
+            })
+            .Where(id => id != Guid.Empty)
+            .Distinct(),
+    ];
 
     /// <summary>
     /// Null when the message holds nothing Drover stores. A model's reply keeps the id its model call gave it
@@ -50,6 +77,31 @@ public static class MessageParts
     #endregion
 
     #region Private Methods
+
+    private static bool IsFile(MessagePart part) => part is ImagePart or FilePart;
+
+    private static IEnumerable<AIContent> ToContents(MessagePart part, IReadOnlyDictionary<Guid, FileForModel>? files) => part switch
+    {
+        ImagePart image => ToContents(image.FileId, image.Name ?? "a picture", files),
+        FilePart file => ToContents(file.FileId, file.Name, files),
+        _ => ToContent(part) is { } content ? [content] : [],
+    };
+
+    private static IEnumerable<AIContent> ToContents(Guid fileId, string name, IReadOnlyDictionary<Guid, FileForModel>? files)
+    {
+        if (files is null || !files.TryGetValue(fileId, out var given))
+        {
+            yield return new TextContent($"[The person attached {name} here. It could not be opened.]");
+            yield break;
+        }
+
+        yield return new TextContent(given.Text);
+
+        if (given is { Image: { } image, MediaType: { } mediaType })
+        {
+            yield return new DataContent(image, mediaType);
+        }
+    }
 
     private static AIContent? ToContent(MessagePart part) => part switch
     {

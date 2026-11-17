@@ -1,0 +1,132 @@
+@* Starter for #167. The crew as a top-down tree on the yard: each bot a node with its head, its name, the
+   first line of what it is for, and what it is doing in words. Connectors are thin lines; one carries the
+   violet pulse while work passes along it, out and back, and is still otherwise. The canvas scrolls inside
+   itself, so the page never scrolls sideways. It is a tree view to assistive technology, written in reading
+   order: arrow keys move as in any tree view, Enter opens the chosen bot. The list view with the same data is the caller's toggle. *@
+<div class="dv-canvas dv-yard">
+<ArrowKeyZone Label="@Label" Role="tree">
+    <div class="dv-canvas-grid" style="--dv-canvas-columns: @plan.Columns; --dv-canvas-rows: @plan.Rows">
+        <svg class="dv-canvas-lines" viewBox="0 0 @plan.Columns @plan.Rows" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+            @foreach (var edge in plan.Edges)
+            {
+                <path @key="edge.ChildId" class="dv-canvas-line @(edge.Pulsing ? "dv-canvas-passing dv-state-delegation" : null)" d="@edge.Path" />
+            }
+        </svg>
+        @foreach (var place in plan.Places)
+        {
+            <div @key="place.Bot.Id" class="dv-canvas-cell" style="grid-column: @(place.Column + 1) / span 2; grid-row: @(place.Depth + 1)">
+                <button @ref="buttons[place.Bot.Id]" type="button" role="treeitem" data-arrow-item
+                        class="dv-canvas-node dv-facet @(place.Bot.Id == SelectedId ? "dv-canvas-selected" : null)"
+                        aria-level="@place.Level" aria-posinset="@place.Position" aria-setsize="@place.Siblings"
+                        aria-expanded="@(TreeLayout.HasBeneath(plan, place) ? "true" : null)"
+                        aria-selected="@(place.Bot.Id == SelectedId ? "true" : "false")" aria-label="@TreeLayout.Announce(place.Bot)"
+                        tabindex="@(place.Bot.Id == Focused ? 0 : -1)" @onclick="() => Choose(place.Bot.Id)"
+                        @onkeydown="key => OnKey(place.Bot.Id, key)">
+                    <Avatar Name="@place.Bot.Name" Hue="BotIdentity.Hue(place.Bot.Id)" Size="48" State="place.Bot.State" />
+                    <span class="dv-canvas-name">@place.Bot.Name</span>
+                    @if (place.Bot.Role.Length > 0)
+                    {
+                        <span class="dv-canvas-role">@place.Bot.Role</span>
+                    }
+                    <span class="dv-canvas-facts">
+                        @if (place.Bot.StateWords is { Length: > 0 } state)
+                        {
+                            <Badge Kind="@(place.Bot.State is AvatarState.Failed ? BadgeKind.Danger : place.Bot.State is AvatarState.Rest ? BadgeKind.Neutral : BadgeKind.Live)">@state</Badge>
+                        }
+                        <AttentionNote Attention="place.Bot.Attention" />
+                        @if (place.Bot.Cap is { } cap)
+                        {
+                            <span class="dv-mono">@TreeLayout.Cap(cap)</span>
+                        }
+                    </span>
+                    @if (place.Bot.MadeBy is { Length: > 0 } maker)
+                    {
+                        <span class="dv-canvas-maker dv-mono">Made by @maker</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+</ArrowKeyZone>
+</div>
+
+@code {
+    #region Private Fields
+
+    private readonly Dictionary<Guid, ElementReference> buttons = [];
+
+    private TreePlan plan = TreePlan.Empty;
+
+    private Guid? focused;
+
+    private bool moveFocus;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>The bots at the top of the crew, each with the bots beneath it.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CrewBot> Crew { get; set; } = [];
+
+    /// <summary>What the tree is, such as "The crew".</summary>
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>The bot whose side sheet is open.</summary>
+    [Parameter]
+    public Guid? SelectedId { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> OnSelect { get; set; }
+
+    // The one node in the tab order: the last one moved to, else the selected one, else the first. A bot that
+    // has left the crew never holds it, so the tree can always be reached with Tab.
+    private Guid? Focused => Candidates.FirstOrDefault(id => id is { } bot && plan.Places.Any(place => place.Bot.Id == bot))
+        ?? TreeLayout.Move(plan, null, "Home");
+
+    private IEnumerable<Guid?> Candidates => [focused, SelectedId];
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnParametersSet()
+    {
+        plan = TreeLayout.Plan(Crew);
+
+        // An @ref is captured once, when its element is made, so a kept button's reference is kept too. Only a
+        // bot that left the crew is forgotten.
+        foreach (var gone in buttons.Keys.Where(id => plan.Places.All(place => place.Bot.Id != id)).ToList())
+        {
+            buttons.Remove(gone);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (moveFocus && Focused is { } id && buttons.TryGetValue(id, out var button))
+        {
+            moveFocus = false;
+            await button.FocusAsync();
+        }
+    }
+
+    // Enter and Space reach the button as a click, which opens the bot; only movement is handled here.
+    private void OnKey(Guid id, KeyboardEventArgs key)
+    {
+        var next = TreeLayout.Move(plan, id, key.Key);
+        if (next != id)
+        {
+            (focused, moveFocus) = (next, true);
+        }
+    }
+
+    private Task Choose(Guid id)
+    {
+        focused = id;
+        return OnSelect.InvokeAsync(id);
+    }
+
+    #endregion
+}

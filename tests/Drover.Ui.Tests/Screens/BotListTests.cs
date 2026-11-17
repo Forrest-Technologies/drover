@@ -18,7 +18,7 @@ public sealed class BotListTests : ScreenTest
     private static ModelConnectionSummary Connection { get; } =
         new(connectionId, "Sample connection", "venice", null, true, "connected", "sample-default", [], null, null);
 
-    private static BotSummary Atlas { get; } = new(botId, "Atlas", "atlas", "Sample instructions", connectionId, "sample-default", "paused");
+    private static BotSummary Marshal { get; } = new(botId, "Marshal", "marshal", "Sample instructions", connectionId, "sample-default", "paused");
 
     #endregion
 
@@ -27,22 +27,22 @@ public sealed class BotListTests : ScreenTest
     [Fact]
     public void Each_bot_is_a_link_to_its_editor_with_its_handle_model_and_state_in_words()
     {
-        Space(bots: [Atlas]);
+        Space(bots: [Marshal]);
 
         var page = Render<BotList>();
 
-        page.WaitForAssertion(() => page.Find("a.dv-bot-name").TextContent.Should().Be("Atlas"));
+        page.WaitForAssertion(() => page.Find("a.dv-bot-name").TextContent.Should().Be("Marshal"));
         page.Find("h1").TextContent.Should().Be("Bots");
         page.Find("a.dv-bot-name").GetAttribute("href").Should().Be(Addresses.Bot(botId));
-        page.Find(".dv-bot-facts").TextContent.Should().Be("@atlas · sample-default");
+        page.Find(".dv-bot-facts").TextContent.Should().Be("@marshal · sample-default");
         page.Find(".dv-bot .dv-badge").TextContent.Should().Be("Paused");
     }
 
     [Fact]
     public async Task New_bot_makes_one_on_the_connection_and_opens_its_editor()
     {
-        Space(bots: [Atlas]);
-        Server.Answer("POST", $"{space}/bots", Atlas with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
+        Space(bots: [Marshal]);
+        Server.Answer("POST", $"{space}/bots", Marshal with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
         var page = Render<BotList>();
         page.WaitForElement(".dv-bots-header .dv-button");
 
@@ -50,6 +50,27 @@ public sealed class BotListTests : ScreenTest
 
         page.WaitForAssertion(() => Address.Should().Be("bots/0196f1a0-0000-7000-8000-000000000007"));
         Server.Sent("POST", $"{space}/bots").Should().ContainSingle().Which.Should().Contain("\"name\":\"New bot\"").And.Contain("\"model\":\"sample-default\"");
+    }
+
+    [Fact]
+    public async Task A_bot_can_be_made_under_another_and_the_list_sets_it_in_beneath()
+    {
+        var helperId = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
+        var helper = Marshal with { Id = helperId, Name = "Sample helper", Handle = "sample-helper", Status = "active", ParentBotId = botId, MadeByBotId = botId };
+        Space(bots: [Marshal, helper]);
+        Server.Answer("POST", $"{space}/bots", Marshal with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000007"), Name = "New bot" }, HttpStatusCode.Created);
+        var page = Render<BotList>();
+        page.WaitForElement(".dv-bot-add");
+
+        page.Find($"ul.dv-bots > li > ul[aria-label='Bots under Marshal'] a.dv-bot-name").TextContent.Should().Be("Sample helper");
+        page.FindAll(".dv-bot-facts")[1].TextContent.Should().Be("@sample-helper · sample-default · made by Marshal");
+        var add = page.FindAll("button.dv-bot-add");
+        add.Select(button => button.GetAttribute("aria-label")).Should().Equal("New bot under Marshal", "New bot under Sample helper");
+
+        await add[1].ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Address.Should().Be("bots/0196f1a0-0000-7000-8000-000000000007"));
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle().Which.Should().Contain($"\"parentBotId\":\"{helperId}\"");
     }
 
     [Fact]
@@ -81,11 +102,11 @@ public sealed class BotListTests : ScreenTest
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
         Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Atlas });
+        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
 
         var page = Render<BotList>();
 
-        page.WaitForAssertion(() => page.Find(".dv-bot-name").TextContent.Should().Be("Atlas"));
+        page.WaitForAssertion(() => page.Find(".dv-bot-name").TextContent.Should().Be("Marshal"));
         page.FindAll("a.dv-bot-name").Should().BeEmpty("a member cannot open the editor");
         page.FindAll(".dv-bots-header .dv-button").Should().BeEmpty();
         page.Find(".dv-bots-hint").TextContent.Should().Contain("Owners and admins");

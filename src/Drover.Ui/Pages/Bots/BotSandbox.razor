@@ -1,0 +1,185 @@
+@page "/bots/{BotId:guid}/sandbox"
+@layout WorkLayout
+@implements IAsyncDisposable
+
+<PageTitle>@(bot is null ? "Sandbox · Drover" : $"{bot.Name}'s sandbox · Drover")</PageTitle>
+
+<SessionGate>
+    <a class="dv-sandbox-back" href="@Addresses.Bot(BotId)"><Icon Name="IconName.ArrowLeft" />@(bot?.Name ?? "Bot")</a>
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load this sandbox" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (notPermitted)
+    {
+        <EmptyState Title="You cannot use this sandbox" Cause="Owners and admins of this space use its bots' sandboxes. You can still talk to the bot."
+                    ActionLabel="Back to the crew" ActionHref="@Addresses.Home" />
+    }
+    else if (missing)
+    {
+        <EmptyState Title="This bot is not here" Cause="It was removed, or it belongs to another space." ActionLabel="See the bots" ActionHref="@Addresses.Bots" />
+    }
+    else if (status is null || bot is null)
+    {
+        <p class="dv-sandbox-hint" role="status">Loading the sandbox.</p>
+    }
+    else if (!status.Available)
+    {
+        <EmptyState Title="No sandbox provider is set up"
+                    Cause="This server has no sandbox provider, so no bot has a sandbox yet. The server's operator adds a provider key; the status page says whether one is set."
+                    ActionLabel="Open the status page" ActionHref="@Addresses.Status" />
+    }
+    else if (!status.HasSandbox)
+    {
+        <EmptyState Title="@($"{bot.Name} has no sandbox")" Cause="Give it one in the Sandbox section of its settings."
+                    ActionLabel="Open its settings" ActionHref="@Addresses.Bot(BotId)" />
+    }
+    else
+    {
+        <section class="dv-sandbox" aria-labelledby="dv-sandbox-title">
+            <header class="dv-sandbox-head">
+                <h1 @ref="heading" id="dv-sandbox-title" class="dv-sandbox-title" tabindex="-1">@bot.Name's sandbox</h1>
+                <p class="dv-sandbox-state">
+                    <Badge Kind="SandboxWords.Badge(status.State)">@SandboxWords.State(status)</Badge>
+                    @if (status.BotWorking)
+                    {
+                        <Badge Kind="BadgeKind.Live">Bot working</Badge>
+                    }
+                    <span class="dv-sandbox-used">@SandboxWords.LastUsed(status.LastUsedAt, time.GetUtcNow())</span>
+                </p>
+                <div class="dv-sandbox-power" role="group" aria-label="Power">
+                    @if (status.State is "paused")
+                    {
+                        <Button Kind="ButtonKind.Primary" OnClick="Resume" Disabled="busy">Resume</Button>
+                    }
+                    else
+                    {
+                        <Button OnClick="Pause" Disabled="@(busy || status.State is not "running")">Pause</Button>
+                    }
+                    <Button OnClick="() => rebuilding = true" Disabled="@(busy || !HasOne)">Rebuild</Button>
+                    <Button Kind="ButtonKind.Danger" OnClick="() => turningOff = true" Disabled="@(busy || !HasOne)">Turn off</Button>
+                </div>
+                @if (PowerHint is { } hint)
+                {
+                    <p class="dv-sandbox-hint">@hint</p>
+                }
+                @if (status.Hold is { } hold)
+                {
+                    <div class="dv-sandbox-hold">
+                        <p class="dv-sandbox-hint">@SandboxWords.Hold(hold)</p>
+                        @if (hold.RunId == stopAsked)
+                        {
+                            <p class="dv-sandbox-hint" role="status">Stopping the run. The screen frees once it stops.</p>
+                        }
+                        else
+                        {
+                            <Button OnClick="() => stoppingHold = true" Disabled="busy">Stop the run that holds it</Button>
+                        }
+                    </div>
+                }
+            </header>
+
+            <StatusNote Kind="NoteKind.Danger" Text="@actionProblem" />
+
+            @if (SandboxWords.NoScreen(status) is { } noScreen)
+            {
+                <p class="dv-sandbox-hint">
+                    @noScreen
+                    @if (status.DesktopOffered)
+                    {
+                        @(" ")<a href="@Addresses.Bot(BotId)">Open its settings</a>
+                    }
+                </p>
+            }
+
+            <Tabs Label="Sandbox" Items="Views" Active="@view" ActiveChanged="SelectView">
+                @if (context.Id is ScreenView)
+                {
+                    <SandboxScreen BotId="BotId" BotName="@bot.Name" Status="status" OnSandboxChanged="() => RefreshStatus(disposal.Token)" />
+                }
+                else
+                {
+                    <div class="dv-sandbox-terminal">
+                        @if (status.Desktop && HasOne)
+                        {
+                            <div class="dv-sandbox-power">
+                                <Button OnClick="OpenTerminal" Disabled="busy">Open interactive terminal</Button>
+                            </div>
+                        }
+                        @if (entries.Count == 0)
+                        {
+                            <p class="dv-sandbox-hint">@TerminalHint</p>
+                        }
+                        else
+                        {
+                            <ol class="dv-sandbox-history" aria-label="Commands run on this visit">
+                                @foreach (var entry in entries)
+                                {
+                                    <li class="dv-sandbox-entry" @key="entry">
+                                        <p class="dv-sandbox-command dv-mono">@entry.Command</p>
+                                        @if (entry.Problem is not null)
+                                        {
+                                            <StatusNote Kind="NoteKind.Danger" Text="@entry.Problem" />
+                                        }
+                                        else if (entry.Result is not { } result)
+                                        {
+                                            <p class="dv-sandbox-hint" role="status">Running</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="dv-sandbox-exit">@SandboxWords.Outcome(result)</p>
+                                            @if (result.Stdout.Length > 0)
+                                            {
+                                                <CodeBlock Code="@result.Stdout" Language="Output" />
+                                            }
+                                            @if (result.Stderr.Length > 0)
+                                            {
+                                                <CodeBlock Code="@result.Stderr" Language="Errors" />
+                                            }
+                                        }
+                                    </li>
+                                }
+                            </ol>
+                        }
+                        <form class="dv-sandbox-run" @onsubmit="RunCommand">
+                            <Field Label="Shell command" @bind-Value="command" autocomplete="off" autocapitalize="off"
+                                   spellcheck="false" maxlength="4000" enterkeyhint="go" class="dv-field-input dv-facet dv-mono" />
+                            <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(running || string.IsNullOrWhiteSpace(command))">@(running ? "Running" : "Run")</Button>
+                        </form>
+                    </div>
+                }
+            </Tabs>
+        </section>
+
+        <Dialog Title="Rebuild the sandbox" @bind-Open="rebuilding">
+            <ChildContent>
+                <p>@bot.Name gets a fresh sandbox now. Everything in this one is lost: its files, open windows, and anything installed.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => rebuilding = false">Keep this sandbox</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="Rebuild">Rebuild</Button>
+            </Actions>
+        </Dialog>
+
+        <Dialog Title="Stop the run that holds the screen" @bind-Open="stoppingHold">
+            <ChildContent>
+                <p>The run that asked a person to take over this screen stops, with everything it was doing, and the bots that share this sandbox can use it again.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => stoppingHold = false">Keep it waiting</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="StopHold">Stop the run</Button>
+            </Actions>
+        </Dialog>
+
+        <Dialog Title="Turn off the sandbox" @bind-Open="turningOff">
+            <ChildContent>
+                <p>The sandbox is removed now, and everything in it is lost: its files, open windows, and anything installed. A new, empty one starts the next time @bot.Name or you use it.</p>
+            </ChildContent>
+            <Actions>
+                <Button OnClick="() => turningOff = false">Keep it</Button>
+                <Button Kind="ButtonKind.Danger" OnClick="TurnOff">Turn off</Button>
+            </Actions>
+        </Dialog>
+    }
+</SessionGate>

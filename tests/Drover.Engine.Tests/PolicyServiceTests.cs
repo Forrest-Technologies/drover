@@ -93,6 +93,34 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         effective.AutoLoadRemoteImages.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_space_can_lower_the_cap_on_its_bots_and_cannot_raise_it_past_the_deployment()
+    {
+        await using var provider = Build(DeploymentPolicy.Hosted);
+        await using var scope = provider.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+
+        policies.MaxBots(new SpaceSettings()).Should().Be(DeploymentPolicy.HostedMaxBotsPerSpace);
+        policies.MaxBots(new SpaceSettings { MaxBots = 3 }).Should().Be(3);
+        policies.MaxBots(new SpaceSettings { MaxBots = 100_000 }).Should().Be(DeploymentPolicy.HostedMaxBotsPerSpace);
+    }
+
+    [Fact]
+    public async Task A_space_can_lower_each_delegation_budget_and_cannot_raise_one_past_the_deployment()
+    {
+        await using var provider = Build(DeploymentPolicy.Hosted);
+        await using var scope = provider.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var ceilings = new DelegationLimits(DeploymentPolicy.DelegationDepth, DeploymentPolicy.RunsPerDelegationTree, DeploymentPolicy.HostedMaxDelegationTreeCostCents);
+
+        policies.Delegation(new SpaceSettings()).Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings { MaxDelegationDepth = 2, MaxRunsPerDelegationTree = 7, MaxDelegationTreeCostCents = 99 })
+            .Should().Be(new DelegationLimits(2, 7, 99));
+        policies.Delegation(new SpaceSettings { MaxDelegationDepth = 50, MaxRunsPerDelegationTree = 5000, MaxDelegationTreeCostCents = 1_000_000 })
+            .Should().Be(ceilings);
+        policies.Delegation(new SpaceSettings { MaxDelegationTreeCostCents = 250 }).MaxCost.Should().Be(2.50m);
+    }
+
     #endregion
 
     #region Private Methods

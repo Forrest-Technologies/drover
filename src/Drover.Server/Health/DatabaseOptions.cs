@@ -21,5 +21,11 @@ public sealed class DatabaseOptions
 
     public int TimeoutSeconds { get; set; } = 3;
 
+    /// <summary>
+    /// TLS to PostgreSQL. <c>Prefer</c> uses it when the server offers it and does not check the certificate;
+    /// <c>Require</c> refuses a plain connection; <c>VerifyFull</c> also checks the certificate and the host name.
+    /// </summary>
+    public SslMode SslMode { get; set; } = SslMode.Prefer;
+
     #endregion
 }

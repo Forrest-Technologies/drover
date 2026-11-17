@@ -59,27 +59,38 @@ public static class BotSummaries
     public static string Memory(BotDraft draft) =>
         $"{(draft.MemoryEnabled ? "Remembers" : "Does not remember")} · {Compaction(draft.Compaction).ToLowerInvariant()}";
 
-    public static string Schedules(IReadOnlyList<BotScheduleResponse>? schedules)
+    public static string Routines(IReadOnlyList<BotScheduleResponse>? schedules, string botName) =>
+        schedules is null ? "Loading" : RoutineWords.Summary([.. schedules.Select(schedule => RoutineWords.Item(schedule, botName))]);
+
+    /// <summary>
+    /// The sandbox's settings, which model reads its screen when another one does, and what the bot may do in it when
+    /// its tools are known.
+    /// </summary>
+    public static string Sandbox(BotDraft draft, IReadOnlyList<BotToolEntry>? tools = null, string? screenReaderName = null)
     {
-        if (schedules is null)
+        if (draft.SandboxPolicy is "none")
         {
-            return "Loading";
+            return "No sandbox";
         }
 
-        if (schedules.Count == 0)
+        var screen = (draft.Desktop, draft.ScreenReader) switch
         {
-            return "None";
-        }
-
-        var next = schedules.Where(schedule => schedule.NextRunAt is not null).Min(schedule => schedule.NextRunAt);
-        var count = schedules.Count == 1 ? ScheduleWords.Describe(schedules[0].Cron) : $"{schedules.Count} schedules";
-        return next is { } moment ? $"{count} · next {ScheduleWords.Moment(moment)}" : $"{count} · off";
+            (true, { } reader) => $" · desktop · screen read by {screenReaderName ?? reader.Model}",
+            (true, null) => " · desktop",
+            _ => string.Empty,
+        };
+        var settings = $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}{screen}";
+        var may = SandboxGrants.Standing(tools, SandboxGrants.SandboxTools, draft.StagedGrants) switch
+        {
+            ToolStanding.Allowed => " · may run commands",
+            ToolStanding.AllowedOnSave => " · allowed when saved",
+            ToolStanding.Partial => " · some tools allowed",
+            ToolStanding.NotAllowed => " · not allowed yet",
+            ToolStanding.ParentForbids => " · not allowed by its parent",
+            _ => string.Empty,
+        };
+        return $"{settings}{may}";
     }
-
-    public static string Sandbox(BotDraft draft) =>
-        draft.SandboxPolicy is "none"
-            ? "No sandbox"
-            : $"{SandboxPolicy(draft.SandboxPolicy)} · network {Network(draft.Network).ToLowerInvariant()}";
 
     public static string Team(BotDraft draft) =>
         (draft.MaxChildren.Trim(), draft.MaxDepthBelow.Trim()) switch

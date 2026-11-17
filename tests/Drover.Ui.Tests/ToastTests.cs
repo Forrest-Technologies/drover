@@ -4,6 +4,8 @@ public sealed class ToastTests : BunitContext
 {
     #region Private Fields
 
+    private readonly FakeTimeProvider time = new();
+
     private readonly ToastService toasts;
 
     #endregion
@@ -13,6 +15,7 @@ public sealed class ToastTests : BunitContext
     public ToastTests()
     {
         Services.AddDroverUi();
+        Services.AddSingleton<TimeProvider>(time);
         toasts = Services.GetRequiredService<ToastService>();
     }
 
@@ -70,17 +73,17 @@ public sealed class ToastTests : BunitContext
     }
 
     [Theory]
-    [InlineData(ToastKind.Info, "Note")]
-    [InlineData(ToastKind.Success, "Done")]
+    [InlineData(ToastKind.Info, null)]
+    [InlineData(ToastKind.Success, null)]
     [InlineData(ToastKind.Warning, "Warning")]
-    public async Task A_toast_that_is_not_an_error_is_announced_politely_with_its_kind_in_words(ToastKind kind, string word)
+    public async Task A_toast_that_is_not_an_error_is_announced_politely(ToastKind kind, string? word)
     {
         var host = Render<ToastHost>();
 
         await host.InvokeAsync(() => toasts.Show("Sample message", kind));
 
         var toast = host.Find("[role=status] .dv-toast");
-        toast.QuerySelector(".dv-toast-kind")?.TextContent.Should().Be(word);
+        (toast.QuerySelector(".dv-toast-kind")?.TextContent).Should().Be(word);
         toast.QuerySelector("p")?.TextContent.Should().Contain("Sample message");
         host.FindAll("[role=alert] .dv-toast").Should().BeEmpty();
     }
@@ -112,6 +115,63 @@ public sealed class ToastTests : BunitContext
 
         host.FindAll(".dv-toast p").Select(message => message.TextContent).Should().ContainSingle()
             .Which.Should().Contain("Second");
+    }
+
+    [Fact]
+    public async Task Routine_toasts_clear_after_six_seconds_and_warnings_errors_and_actions_stay()
+    {
+        var host = Render<ToastHost>();
+        await host.InvokeAsync(() =>
+        {
+            toasts.Show("Settings saved");
+            toasts.Show("Bot paused", ToastKind.Success);
+            toasts.Show("The earlier edit was replaced", ToastKind.Warning);
+            toasts.Show("The connection failed", ToastKind.Error);
+            toasts.Show("Note removed", action: new ToastAction("Undo", () => Task.CompletedTask, Until: time.GetUtcNow().AddMinutes(10)));
+            time.Advance(TimeSpan.FromSeconds(5));
+        });
+        host.FindAll(".dv-toast").Should().HaveCount(5);
+
+        await host.InvokeAsync(() => time.Advance(TimeSpan.FromSeconds(1)));
+
+        host.WaitForAssertion(() => host.FindAll(".dv-toast").Should().HaveCount(3));
+        toasts.Toasts.Select(toast => toast.Message).Should().Equal("The earlier edit was replaced", "The connection failed", "Note removed");
+        host.FindAll(".dv-toast-actions button").Should().Contain(button => button.TextContent.Trim() == "Undo");
+    }
+
+    [Fact]
+    public async Task A_toast_stays_visible_after_its_controls_take_focus()
+    {
+        var host = Render<ToastHost>();
+        await host.InvokeAsync(() =>
+        {
+            toasts.Show("Reading this");
+            toasts.Show("Can clear");
+        });
+        await host.Find(".dv-toast").TriggerEventAsync("onfocusin", new FocusEventArgs());
+        await host.InvokeAsync(() => time.Advance(TimeSpan.FromSeconds(6)));
+
+        host.WaitForAssertion(() => host.FindAll(".dv-toast-message").Select(message => message.TextContent.Trim())
+            .Should().Equal("Reading this"));
+        await host.Find(".dv-toast button").ClickAsync(new MouseEventArgs());
+        host.FindAll(".dv-toast").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_expired_action_leaves_a_short_lived_confirmation()
+    {
+        var host = Render<ToastHost>();
+        await host.InvokeAsync(() =>
+        {
+            toasts.Show("Note removed", action: new ToastAction("Undo", () => Task.CompletedTask, Until: time.GetUtcNow().AddMinutes(10)));
+            time.Advance(TimeSpan.FromMinutes(10));
+        });
+
+        host.WaitForAssertion(() => host.FindAll(".dv-toast-actions button").Select(button => button.TextContent.Trim())
+            .Should().Equal("Dismiss"));
+        await host.InvokeAsync(() => time.Advance(TimeSpan.FromSeconds(6)));
+
+        host.WaitForAssertion(() => host.FindAll(".dv-toast").Should().BeEmpty());
     }
 
     [Fact]

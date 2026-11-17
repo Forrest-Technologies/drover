@@ -1,0 +1,212 @@
+[
+  {
+    "seq": 1,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "run.queued",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"queued\", \"attempt\": 0}",
+    "createdAt": "2026-11-14T19:26:24.873969+00:00"
+  },
+  {
+    "seq": 2,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-14T19:26:25.06196+00:00"
+  },
+  {
+    "seq": 3,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "step.started",
+    "data": "{\"step\": 1, \"messageId\": \"01a1db86-77fa-7e12-87f8-c88d26939eb2\"}",
+    "createdAt": "2026-11-14T19:26:25.278067+00:00"
+  },
+  {
+    "seq": 4,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"Let me check the tim\", \"messageId\": \"01a1db86-77fa-7e12-87f8-c88d26939eb2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:25.550655+00:00"
+  },
+  {
+    "seq": 5,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"e first.\\n\\n\", \"messageId\": \"01a1db86-77fa-7e12-87f8-c88d26939eb2\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:25.676594+00:00"
+  },
+  {
+    "seq": 6,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 1, \"input\": 10, \"cached\": 0, \"output\": 20, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-14T19:26:25.92535+00:00"
+  },
+  {
+    "seq": 7,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Current time\", \"effect\": \"allow\", \"toolName\": \"time.now\", \"arguments\": \"{}\", \"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.011006+00:00"
+  },
+  {
+    "seq": 8,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1db86-77fa-7e12-87f8-c88d26939eb2\", \"role\": \"assistant\", \"parts\": [{\"kind\": \"text\", \"text\": \"Let me check the time first.\\n\\n\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"time_now\", \"arguments\": \"{}\", \"mediaType\": null, \"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}], \"runId\": \"01a1db86-75dc-7955-880b-f3e56aa47b32\", \"steers\": false, \"position\": 2, \"threadId\": \"01a1db86-7516-77d4-a3e8-8b2d166321a2\", \"withheld\": false, \"createdAt\": \"2026-11-14T19:26:25.985044+00:00\"}}",
+    "createdAt": "2026-11-14T19:26:26.052824+00:00"
+  },
+  {
+    "seq": 9,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.132297+00:00"
+  },
+  {
+    "seq": 10,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.completed",
+    "data": "{\"isError\": false, \"outcome\": \"completed\", \"preview\": \"{\\\"utc\\\":\\\"2026-11-14T19:26:26.1359621\\\\u002B00:00\\\"}\", \"durationMs\": 16, \"toolCallId\": \"4dbed7c1-3904-886e-bb9a-ca15acb1ca66\"}",
+    "createdAt": "2026-11-14T19:26:26.148374+00:00"
+  },
+  {
+    "seq": 11,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "step.started",
+    "data": "{\"step\": 2, \"messageId\": \"01a1db86-7b87-7839-93f8-686d698c00e9\"}",
+    "createdAt": "2026-11-14T19:26:26.186826+00:00"
+  },
+  {
+    "seq": 12,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"I have the time. Nex\", \"messageId\": \"01a1db86-7b87-7839-93f8-686d698c00e9\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:26.304949+00:00"
+  },
+  {
+    "seq": 13,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"t I will list the fi\", \"messageId\": \"01a1db86-7b87-7839-93f8-686d698c00e9\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:26.46987+00:00"
+  },
+  {
+    "seq": 14,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"les in the sandbox.\\n\", \"messageId\": \"01a1db86-7b87-7839-93f8-686d698c00e9\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:26.629886+00:00"
+  },
+  {
+    "seq": 15,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"\\n\", \"messageId\": \"01a1db86-7b87-7839-93f8-686d698c00e9\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:26.790833+00:00"
+  },
+  {
+    "seq": 16,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 2, \"input\": 10, \"cached\": 0, \"output\": 20, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-14T19:26:26.93457+00:00"
+  },
+  {
+    "seq": 17,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.requested",
+    "data": "{\"title\": \"Run a command\", \"effect\": \"ask\", \"toolName\": \"sandbox.run\", \"arguments\": \"{\\\"command\\\":\\\"ls -la /home/user \\\\u0026\\\\u0026 echo done\\\"}\", \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:27.046275+00:00"
+  },
+  {
+    "seq": 18,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.approval_requested",
+    "data": "{\"callId\": \"call_1794684386202\", \"requestId\": \"ficc_call_1794684386202\", \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:27.054349+00:00"
+  },
+  {
+    "seq": 19,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1db86-7b87-7839-93f8-686d698c00e9\", \"role\": \"assistant\", \"parts\": [{\"kind\": \"text\", \"text\": \"I have the time. Next I will list the files in the sandbox.\\n\\n\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}, {\"kind\": \"tool_call\", \"text\": null, \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": \"sandbox_run\", \"arguments\": \"{\\\"command\\\": \\\"ls -la /home/user && echo done\\\"}\", \"mediaType\": null, \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}], \"runId\": \"01a1db86-75dc-7955-880b-f3e56aa47b32\", \"steers\": false, \"position\": 4, \"threadId\": \"01a1db86-7516-77d4-a3e8-8b2d166321a2\", \"withheld\": false, \"createdAt\": \"2026-11-14T19:26:27.064173+00:00\"}}",
+    "createdAt": "2026-11-14T19:26:27.186009+00:00"
+  },
+  {
+    "seq": 20,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "run.waiting",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 20, \"cached\": 0, \"output\": 40}, \"reason\": \"awaiting_approval\", \"status\": \"waiting\", \"attempt\": 0}",
+    "createdAt": "2026-11-14T19:26:27.204712+00:00"
+  },
+  {
+    "seq": 21,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.approved",
+    "data": "{\"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\", \"decidedByUserId\": \"01a1db82-b0c5-72e1-9916-a60ef96adf3e\"}",
+    "createdAt": "2026-11-14T19:26:29.410136+00:00"
+  },
+  {
+    "seq": 22,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "run.started",
+    "data": "{\"error\": null, \"usage\": null, \"reason\": null, \"status\": \"running\", \"attempt\": 0}",
+    "createdAt": "2026-11-14T19:26:29.452813+00:00"
+  },
+  {
+    "seq": 23,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.started",
+    "data": "{\"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:29.496533+00:00"
+  },
+  {
+    "seq": 24,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "tool.completed",
+    "data": "{\"isError\": true, \"outcome\": \"failed\", \"preview\": \"{\\\"error\\\":\\\"The server\\\\u0027s sandbox provider key does not work. Tell the server\\\\u0027s operator.\\\"}\", \"durationMs\": 507, \"toolCallId\": \"6d2f7ac0-f024-858b-955e-0a65121e05b5\"}",
+    "createdAt": "2026-11-14T19:26:30.004368+00:00"
+  },
+  {
+    "seq": 25,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "step.started",
+    "data": "{\"step\": 3, \"messageId\": \"01a1db86-8a85-792a-8a38-b987c69b7035\"}",
+    "createdAt": "2026-11-14T19:26:30.023427+00:00"
+  },
+  {
+    "seq": 26,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"That is what the too\", \"messageId\": \"01a1db86-8a85-792a-8a38-b987c69b7035\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:30.133522+00:00"
+  },
+  {
+    "seq": 27,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.delta",
+    "data": "{\"kind\": \"text\", \"text\": \"ls gave back.\", \"messageId\": \"01a1db86-8a85-792a-8a38-b987c69b7035\", \"partIndex\": 0}",
+    "createdAt": "2026-11-14T19:26:30.292201+00:00"
+  },
+  {
+    "seq": 28,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "usage.recorded",
+    "data": "{\"cost\": 0, \"step\": 3, \"input\": 10, \"cached\": 0, \"output\": 20, \"currency\": \"USD\"}",
+    "createdAt": "2026-11-14T19:26:30.436612+00:00"
+  },
+  {
+    "seq": 29,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "message.completed",
+    "data": "{\"message\": {\"id\": \"01a1db86-8a85-792a-8a38-b987c69b7035\", \"role\": \"assistant\", \"parts\": [{\"kind\": \"text\", \"text\": \"That is what the tools gave back.\", \"fileId\": null, \"result\": null, \"isError\": false, \"toolName\": null, \"arguments\": null, \"mediaType\": null, \"toolCallId\": null}], \"runId\": \"01a1db86-75dc-7955-880b-f3e56aa47b32\", \"steers\": false, \"position\": 6, \"threadId\": \"01a1db86-7516-77d4-a3e8-8b2d166321a2\", \"withheld\": false, \"createdAt\": \"2026-11-14T19:26:30.515896+00:00\"}}",
+    "createdAt": "2026-11-14T19:26:30.545502+00:00"
+  },
+  {
+    "seq": 30,
+    "runId": "01a1db86-75dc-7955-880b-f3e56aa47b32",
+    "type": "run.completed",
+    "data": "{\"error\": null, \"usage\": {\"cost\": 0, \"input\": 30, \"cached\": 0, \"output\": 60}, \"reason\": null, \"status\": \"completed\", \"attempt\": 0}",
+    "createdAt": "2026-11-14T19:26:30.552554+00:00"
+  }
+]

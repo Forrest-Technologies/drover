@@ -28,5 +28,11 @@ public sealed class Sandbox : ISpaceOwned
 
     public DateTimeOffset? RetireAfter { get; set; }
 
+    /// <summary>
+    /// A file a person attached was copied in. What a bot reads from the sandbox can then be that file's text, so
+    /// every read taints the run, in any conversation, until the sandbox is gone.
+    /// </summary>
+    public bool Tainted { get; set; }
+
     #endregion
 }

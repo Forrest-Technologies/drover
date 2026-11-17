@@ -36,8 +36,11 @@ public sealed class GovernedToolFunction(ToolDefinition definition, RunContext r
             Arguments = MessageParts.ToJson(arguments),
         };
 
-        // The outcome travels back through the gate, which records whether it was an error.
-        return await run.Governor.InvokeTool(request, cancellationToken);
+        // The outcome travels back through the gate, which records whether it was an error. A delegation runs the
+        // bot beneath as a child run; every other tool is the engine's to run.
+        return definition.IsDelegation
+            ? await Delegation.Hand(run, request, cancellationToken)
+            : await run.Governor.InvokeTool(request, cancellationToken);
     }
 
     #endregion

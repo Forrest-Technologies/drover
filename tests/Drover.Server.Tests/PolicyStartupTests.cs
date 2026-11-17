@@ -173,6 +173,50 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer));
     }
 
+    [Theory]
+    [InlineData("Database:Password")]
+    [InlineData("Database:PasswordFile")]
+    [InlineData("Database:OwnerPassword")]
+    [InlineData("Database:OwnerPasswordFile")]
+    public async Task Hosted_given_an_initialization_password_in_the_server_does_not_start_and_names_the_setting(string setting)
+    {
+        var settings = Hosted(withCertificate: true);
+        settings[setting] = "given-to-the-wrong-process";
+
+        var message = await StartupFailure(settings);
+
+        message.Should().Contain(nameof(DeploymentPolicy.AllowMigrationCredentialInServer)).And.Contain(setting)
+            .And.NotContain("given-to-the-wrong-process");
+    }
+
+    [Theory]
+    [InlineData("Database:Password")]
+    [InlineData("Database:OwnerPasswordFile")]
+    public async Task Self_hosted_given_an_initialization_password_starts_but_logs_an_error_naming_the_setting(string setting)
+    {
+        var settings = SelfHosted();
+        settings[setting] = "given-to-the-wrong-process";
+        var logs = new LogCapture();
+
+        await using var server = await Boot(settings, logs: logs);
+
+        var errors = logs.Entries.Where(entry => entry.Level == LogLevel.Error).ToList();
+        errors.Should().Contain(entry => entry.Text.Contains(setting, StringComparison.Ordinal)
+            && entry.Text.Contains(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), StringComparison.Ordinal));
+        logs.Entries.Should().NotContain(entry => entry.Text.Contains("given-to-the-wrong-process", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Self_hosted_without_an_initialization_password_logs_no_error_about_one()
+    {
+        var logs = new LogCapture();
+
+        await using var server = await Boot(SelfHosted(), logs: logs);
+
+        logs.Entries.Should().NotContain(entry => entry.Level >= LogLevel.Error
+            && entry.Text.Contains(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Self_hosted_may_hold_the_migration_credential_in_the_server()
     {
@@ -194,6 +238,42 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var message = await StartupFailure(settings);
 
         message.Should().Contain(nameof(DeploymentPolicy.RequireTermsAcceptance)).And.Contain("TermsVersion");
+    }
+
+    public static TheoryData<int> RefusedCombinations => [.. Enumerable.Range(0, PolicyMatrix.Refusals.Count)];
+
+    [Theory]
+    [MemberData(nameof(RefusedCombinations))]
+    public async Task A_refused_combination_of_settings_does_not_start_and_names_what_to_change(int row)
+    {
+        var refusal = PolicyMatrix.Refusals[row];
+        var settings = new Dictionary<string, string?> { ["DROVER_POLICY"] = refusal.Preset };
+
+        foreach (var (rule, setting) in refusal.Rules)
+        {
+            settings[$"Drover:Policy:Rules:{rule}"] = setting;
+        }
+
+        var message = await StartupFailure(settings);
+
+        foreach (var name in refusal.Names)
+        {
+            message.Should().Contain(name);
+        }
+    }
+
+    [Fact]
+    public async Task Self_hosted_with_open_registration_starts_once_private_addresses_are_forbidden()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:OpenRegistration"] = "true";
+        settings["Drover:Policy:Rules:AllowPrivateAddresses"] = "false";
+
+        await using var server = await Boot(settings);
+
+        var rules = server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+        rules.OpenRegistration.Should().BeTrue();
+        rules.AllowPrivateAddresses.Should().BeFalse();
     }
 
     [Fact]
