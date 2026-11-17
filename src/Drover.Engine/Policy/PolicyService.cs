@@ -47,6 +47,20 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
     public async Task<DelegationLimits> GetDelegation(Guid spaceId, CancellationToken cancellationToken) =>
         Delegation((await accounts.GetSpace(spaceId, cancellationToken))?.Settings ?? new SpaceSettings());
 
+    /// <summary>
+    /// What one run in the space may use: each deployment ceiling, or the space's own value if lower. A run hands
+    /// work over at most as often as its tree may hold runs beside its root.
+    /// </summary>
+    public RunCeilings Runs(SpaceSettings space) =>
+        new(
+            Lower(space.MaxStepsPerRun, Deployment.MaxStepsPerRun),
+            Lower(space.MaxTokensPerRun, Deployment.MaxTokensPerRun),
+            Delegation(space).MaxRuns - 1);
+
+    /// <summary>The space's limits on one run, read from its settings. Runs in the tenant scope the caller opened.</summary>
+    public async Task<RunCeilings> GetRuns(Guid spaceId, CancellationToken cancellationToken) =>
+        Runs((await accounts.GetSpace(spaceId, cancellationToken))?.Settings ?? new SpaceSettings());
+
     #endregion
 
     #region Private Methods

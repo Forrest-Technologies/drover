@@ -279,6 +279,24 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public async Task The_limits_on_one_run_are_each_a_ceiling_a_space_and_then_a_bot_may_only_lower()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var policies = scope.ServiceProvider.GetRequiredService<PolicyService>();
+        var ceilings = new RunCeilings(
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxStepsPerRun)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxTokensPerRun)), CultureInfo.InvariantCulture),
+            int.Parse(Setting(nameof(DeploymentPolicy.MaxRunsPerDelegationTree)), CultureInfo.InvariantCulture) - 1);
+
+        policies.Runs(new SpaceSettings()).Should().Be(ceilings);
+        policies.Runs(new SpaceSettings { MaxStepsPerRun = ceilings.MaxSteps + 1, MaxTokensPerRun = ceilings.MaxTokens + 1 }).Should().Be(ceilings);
+        var space = policies.Runs(new SpaceSettings { MaxStepsPerRun = 10, MaxTokensPerRun = 1000, MaxRunsPerDelegationTree = 4 });
+        space.Should().Be(new RunCeilings(10, 1000, 3));
+        space.NarrowedBy(new RunLimits { MaxSteps = 11, MaxTokens = 1001, MaxDelegations = 4 }).Should().Be(space, "a bot cannot raise what its space allows");
+        space.NarrowedBy(new RunLimits { MaxSteps = 2, MaxTokens = 500, MaxDelegations = 0 }).Should().Be(new RunCeilings(2, 500, 0));
+    }
+
+    [Fact]
     public async Task AllowBotsBuildingBots_decides_whether_a_new_bot_at_the_top_is_given_the_crew_tools()
     {
         var (email, password, _, spaceId) = await SeedPerson("crewlead");

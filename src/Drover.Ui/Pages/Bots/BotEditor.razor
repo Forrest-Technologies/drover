@@ -101,6 +101,9 @@
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />
                 </Disclosure>
+                <Disclosure Title="Limits" Summary="@BotSummaries.Limits(draft, runLimitOptions)" Open="@IsOpen(Limits)" OpenChanged="open => Toggle(Limits, open)">
+                    <LimitsSection Draft="draft" Options="runLimitOptions" OnChanged="Changed" />
+                </Disclosure>
             </div>
 
             @* The words are always in the page, so a change of state is read out; the bar shows when there is something to act on. *@

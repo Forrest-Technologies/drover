@@ -218,7 +218,9 @@ public sealed partial class RunExecutor(
         var connection = bot is null ? null : await connections.FindConnection(bot.ModelConnectionId, cancellationToken);
         var entry = bot is null ? null : await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
         var key = await RevealKey(services, connection, cancellationToken);
-        var policy = await services.GetRequiredService<PolicyService>().GetEffective(run.SpaceId, cancellationToken);
+        var policies = services.GetRequiredService<PolicyService>();
+        var policy = await policies.GetEffective(run.SpaceId, cancellationToken);
+        var limits = (await policies.GetRuns(run.SpaceId, cancellationToken)).NarrowedBy(bot?.RunLimits ?? new RunLimits());
         var granted = bot is null ? [] : await services.GetRequiredService<ToolRepository>().ListGrantedTools(bot.Id, cancellationToken);
         var toolConnectionRows = services.GetRequiredService<ToolConnectionRepository>();
         var toolConnections = await toolConnectionRows
@@ -261,7 +263,7 @@ public sealed partial class RunExecutor(
         var carriesFiles = thread is not null
             && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -401,6 +403,7 @@ public sealed partial class RunExecutor(
             new Redactor([loaded.Key]),
             options.Value,
             time,
+            loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
             loaded.Policy.TaintedRunEscalation,
@@ -1171,6 +1174,7 @@ public sealed partial class RunExecutor(
         string? Key,
         bool KeyReadable,
         EffectivePolicy Policy,
+        RunCeilings Limits,
         ModelPricing Pricing,
         IReadOnlyList<GrantedTool> Granted,
         StepState Steps,

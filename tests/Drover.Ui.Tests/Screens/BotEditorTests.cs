@@ -39,6 +39,7 @@ public sealed class BotEditorTests : ScreenTest
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
         Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
         Server.Answer("GET", $"{bot}/sandbox/options", new BotSandboxOptions(Available: true, OpenNetwork: true, MaxIdleMinutes: 60, Desktop: true));
+        Server.Answer("GET", $"{bot}/limits/options", new BotRunLimitOptions(MaxSteps: 50, MaxTokens: 5_000_000, MaxDelegations: 49));
     }
 
     #endregion
@@ -69,6 +70,7 @@ public sealed class BotEditorTests : ScreenTest
         null,
         0,
         new BuildLimitsBody(null, null),
+        new RunLimitsBody(null, null, null),
         Person.UserId,
         null);
 
@@ -105,7 +107,7 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
-    public void The_editor_shows_who_the_bot_is_and_seven_closed_sections_each_with_its_summary_in_its_name()
+    public void The_editor_shows_who_the_bot_is_and_eight_closed_sections_each_with_its_summary_in_its_name()
     {
         var page = RenderEditor();
 
@@ -121,7 +123,8 @@ public sealed class BotEditorTests : ScreenTest
             "Memory, Does not remember · keeps every message",
             "Routines, No routines",
             "Sandbox, No sandbox",
-            "Team, The space's caps");
+            "Team, The space's caps",
+            "Limits, 50 model calls · 5,000,000 tokens · 49 handoffs");
         page.FindAll(".dv-disclosure-body").Should().OnlyContain(body => body.HasAttribute("hidden") && body.ChildElementCount == 0, "a closed section shows no settings");
         page.FindAll(".dv-editor-save").Should().BeEmpty("there is nothing to save yet");
     }
@@ -268,6 +271,52 @@ public sealed class BotEditorTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find(".dv-disclosure-open [role=alert]").TextContent.Should().Contain("Raise it on Sample parent first."));
         page.FindAll(".dv-segment-input")[2].HasAttribute("checked").Should().BeTrue("the grant that still holds is shown");
+    }
+
+    #endregion
+
+    #region Limits
+
+    [Fact]
+    public async Task The_limits_section_names_each_limit_says_what_the_space_allows_and_saves_the_bots_own()
+    {
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { RunLimits = new RunLimitsBody(12, null, 0) });
+        var page = RenderEditor();
+        await Open(page, 7);
+
+        Labels(page).Should().Equal("Model calls", "Tokens", "Handoffs");
+        var fields = page.FindAll(".dv-disclosure-open input");
+        fields.Select(field => field.GetAttribute("placeholder")).Should().Equal("50", "5,000,000", "49");
+        fields.Should().OnlyContain(field => field.GetAttribute("inputmode") == "numeric");
+        page.Find(".dv-disclosure-open [role=status]").TextContent.Should().Contain("before it spends your model credit").And.Contain("Leave a limit empty to use the space's.");
+        page.Find(".dv-disclosure-open").TextContent.Should().Contain("This space allows up to 50.").And.Contain("This space allows up to 5,000,000.").And.Contain("0 keeps all work with this bot. This space allows up to 49.");
+
+        await fields[0].InputAsync(new ChangeEventArgs { Value = "12" });
+        await page.FindAll(".dv-disclosure-open input")[2].InputAsync(new ChangeEventArgs { Value = "0" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which.Should().Contain("\"runLimits\":{\"maxSteps\":12,\"maxTokens\":null,\"maxDelegations\":0}"));
+        page.WaitForAssertion(() => Words(page.FindAll(".dv-disclosure-toggle")[7].TextContent).Should().BeOneOf("Limits", "Limits, 12 model calls · 5,000,000 tokens · 0 handoffs"));
+    }
+
+    [Fact]
+    public async Task A_limit_that_is_not_a_whole_number_is_said_before_anything_is_sent_and_the_servers_refusal_is_shown()
+    {
+        Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "The limit on model calls is a whole number from 1 to 50, the most this space allows.");
+        var page = RenderEditor();
+        await Open(page, 7);
+
+        await page.FindAll(".dv-disclosure-open input")[1].InputAsync(new ChangeEventArgs { Value = "lots" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-editor-save").TextContent.Should().Contain("The limit on tokens is a whole number."));
+        Server.Sent("PUT", $"{bot}/definition").Should().BeEmpty();
+
+        await page.FindAll(".dv-disclosure-open input")[1].InputAsync(new ChangeEventArgs { Value = string.Empty });
+        await page.FindAll(".dv-disclosure-open input")[0].InputAsync(new ChangeEventArgs { Value = "500" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-editor-save").TextContent.Should().Contain("from 1 to 50, the most this space allows"));
     }
 
     #endregion

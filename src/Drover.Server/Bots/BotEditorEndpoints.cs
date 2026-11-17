@@ -35,6 +35,8 @@ public static class BotEditorEndpoints
         bot.MapPost("/rules/try", TryRules).WithName("TryBotRules");
         bot.MapGet("/rules/options", GetRuleOptions).WithName("GetBotRuleOptions");
         bot.MapGet("/sandbox/options", GetSandboxOptions).WithName("GetBotSandboxOptions");
+        bot.MapGet("/limits/options", GetRunLimitOptions).WithName("GetBotRunLimitOptions")
+            .WithSummary("The space's limits on one run, which a bot's own limits may only lower.");
         return bots;
     }
 
@@ -244,6 +246,18 @@ public static class BotEditorEndpoints
             policies.Deployment.AllowOpenSandboxNetwork,
             policies.Deployment.MaxSandboxIdleMinutes,
             policies.Deployment.AllowDesktopSandboxes));
+
+    #endregion
+
+    #region Limits
+
+    // What the bot's space lets one run use. The same for every bot of the space; it sits here so the editor asks with
+    // the access it already has.
+    private static async Task<Ok<BotRunLimitOptions>> GetRunLimitOptions(HttpContext context, PolicyService policies)
+    {
+        var limits = await policies.GetRuns(context.GetSpaceAccess().SpaceId, context.RequestAborted);
+        return TypedResults.Ok(new BotRunLimitOptions(limits.MaxSteps, limits.MaxTokens, limits.MaxDelegations));
+    }
 
     #endregion
 

@@ -263,7 +263,8 @@ public sealed class ScreenReaderTests(PostgresServer postgres)
     {
         var bot = new ScriptedModel([new ToolCallOutput("c1", "computer_screenshot")], [new TextOutput("Never reached.")]);
         await using var setup = await ReaderWorld(bot, new ScriptedModel([new TextOutput("A desktop.")]), vision: false);
-        setup.World.StartHost(options => options.StepLimit = 2);
+        await setup.World.SetSpaceSettings(new SpaceSettings { MaxStepsPerRun = 2 });
+        setup.World.StartHost();
 
         var runId = await setup.World.Post(await setup.World.NewThread(), "Look");
         var run = await setup.World.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);

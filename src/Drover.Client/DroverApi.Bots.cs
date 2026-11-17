@@ -84,6 +84,10 @@ public sealed partial class DroverApi
     public Task<BotSandboxOptions> GetBotSandboxOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<BotSandboxOptions>($"{Space(spaceId)}/bots/{botId}/sandbox/options", cancellationToken);
 
+    /// <summary>The space's limits on one piece of a bot's work, which the bot's own limits may only lower.</summary>
+    public Task<BotRunLimitOptions> GetBotRunLimitOptions(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<BotRunLimitOptions>($"{Space(spaceId)}/bots/{botId}/limits/options", cancellationToken);
+
     /// <summary>The bot's own sandbox: whether it exists, its state, whether it has a screen, whether the bot is working.</summary>
     public Task<BotSandboxStatus> GetBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox", cancellationToken);

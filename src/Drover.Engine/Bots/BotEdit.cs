@@ -17,7 +17,8 @@ public sealed record BotEdit(
     SandboxPolicy? SandboxPolicy,
     SandboxSettings? SandboxSettings,
     IReadOnlyList<Guid> SandboxSharedWith,
-    BuildLimits BuildLimits);
+    BuildLimits BuildLimits,
+    RunLimits RunLimits);
 
 /// <summary>
 /// A bot to create: its name, what it is for as other bots read it, its instructions, and the model it talks to. It

@@ -17,6 +17,7 @@ public sealed class BotMapping : IEntityTypeConfiguration<Bot>
         builder.Property(bot => bot.MemorySettings).HasJsonRecord();
         builder.Property(bot => bot.SandboxSettings).HasJsonRecord();
         builder.Property(bot => bot.BuildLimits).HasJsonRecord();
+        builder.Property(bot => bot.RunLimits).HasJsonRecord();
         builder.HasEnumColumn(bot => bot.SandboxPolicy);
         builder.HasEnumColumn(bot => bot.Status);
         builder.ToTable(table => table.HasCheckConstraint("ck_bots_depth", "depth >= 0"));
