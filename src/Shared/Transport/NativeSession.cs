@@ -1,4 +1,4 @@
-namespace Drover.App;
+namespace Drover.Transport;
 
 public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILogger<NativeSession> logger) : IDisposable
 {

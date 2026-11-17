@@ -1,10 +1,11 @@
-namespace Drover.Web;
+namespace Drover.Transport;
 
 /// <summary>
 /// Sends the antiforgery token the server expects on every request that changes something. The server keeps
-/// the token in a cookie the page can read; this copies it into the header.
+/// the token in a cookie the page can read; this copies it into the header. How a cookie of the page is read
+/// differs between the browser clients, so each hands its own reader in.
 /// </summary>
-public sealed class AntiforgeryHandler(IJSRuntime js, ILogger<AntiforgeryHandler> logger) : DelegatingHandler
+public sealed class AntiforgeryHandler(Func<string, CancellationToken, ValueTask<string?>> readCookie) : DelegatingHandler
 {
     #region Private Fields
 
@@ -56,22 +57,7 @@ public sealed class AntiforgeryHandler(IJSRuntime js, ILogger<AntiforgeryHandler
     private static bool StartsSession(HttpRequestMessage request) =>
         sessionStarts.Contains(request.RequestUri?.AbsolutePath.TrimEnd('/'), StringComparer.OrdinalIgnoreCase);
 
-    private async Task<string?> ReadCookie(CancellationToken cancellationToken)
-    {
-        try
-        {
-            var module = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./cookies.js");
-            await using (module)
-            {
-                return await module.InvokeAsync<string?>("read", cancellationToken, CookieName);
-            }
-        }
-        catch (JSException exception)
-        {
-            logger.LogError(exception, "The cookie script failed to read the antiforgery token");
-            throw;
-        }
-    }
+    private ValueTask<string?> ReadCookie(CancellationToken cancellationToken) => readCookie(CookieName, cancellationToken);
 
     #endregion
 }

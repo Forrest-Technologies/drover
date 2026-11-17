@@ -12,6 +12,11 @@
     <ProjectReference Include="..\Drover.Ui\Drover.Ui.csproj" />
   </ItemGroup>
 
+  <!-- The antiforgery handler is shared with the native client's browser build. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Transport\AntiforgeryHandler.cs" Link="Transport\AntiforgeryHandler.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
   </ItemGroup>

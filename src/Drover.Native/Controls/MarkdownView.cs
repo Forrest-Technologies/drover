@@ -1,0 +1,422 @@
+namespace Drover.Native.Controls;
+
+/// <summary>
+/// Message text, drawn from the nodes <see cref="MarkdownDocument"/> makes of it. Only those node kinds reach the
+/// screen, and each is drawn as text and native controls: nothing in a message is ever treated as markup here, so
+/// there is nothing for a message to inject. A remote image is not fetched until a person asks for it.
+/// </summary>
+public sealed class MarkdownView : StackPanel
+{
+    #region Private Fields
+
+    private static readonly HashSet<string> blocks = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "hr", "table"];
+
+    private readonly HashSet<Uri> loadedImages = [];
+
+    private string? parsedText;
+
+    private IReadOnlyList<MarkdownNode> nodes = [];
+
+    #endregion
+
+    #region Constructors
+
+    public MarkdownView()
+    {
+        Spacing = Tokens.Number("DvSpace3");
+        this.WhenShownOrRethemed(Draw);
+    }
+
+    #endregion
+
+    #region Properties
+
+    public static readonly DependencyProperty TextProperty = Dp.Register<MarkdownView, string>(nameof(Text), string.Empty, view => view.Parse());
+
+    public static readonly DependencyProperty StreamingProperty = Dp.Register<MarkdownView, bool>(nameof(Streaming), false, view => view.Draw());
+
+    public string Text
+    {
+        get => (string)GetValue(TextProperty);
+        set => SetValue(TextProperty, value);
+    }
+
+    /// <summary>True while the text is still arriving. What arrives fades in, and assistive technology is told to wait.</summary>
+    public bool Streaming
+    {
+        get => (bool)GetValue(StreamingProperty);
+        set => SetValue(StreamingProperty, value);
+    }
+
+    #endregion
+
+    #region Parsing
+
+    private void Parse()
+    {
+        if (string.Equals(Text, parsedText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        nodes = MarkdownDocument.Parse(Text);
+        parsedText = Text;
+        Draw();
+    }
+
+    #endregion
+
+    #region Blocks
+
+    private void Draw()
+    {
+        var before = Children.Count;
+        Children.Clear();
+        AddBlocks(this, nodes, "DvText");
+        AutomationProperties.SetItemStatus(this, Streaming ? "Busy" : string.Empty);
+
+        // Text is streaming: the block that just arrived fades in.
+        if (Streaming && Children.Count > before && Children.Count > 0)
+        {
+            Motion.Arrive(Children[^1]);
+        }
+    }
+
+    // Inline nodes between blocks are gathered into one paragraph, as loose text in a list item is.
+    private void AddBlocks(Panel target, IReadOnlyList<MarkdownNode> children, string ink)
+    {
+        List<MarkdownNode> loose = [];
+
+        foreach (var node in children)
+        {
+            if (node is CodeNode || (node is ElementNode element && blocks.Contains(element.Name)))
+            {
+                Flush();
+                foreach (var block in Block(node, ink))
+                {
+                    target.Children.Add(block);
+                }
+            }
+            else
+            {
+                loose.Add(node);
+            }
+        }
+
+        Flush();
+
+        void Flush()
+        {
+            foreach (var block in Prose(loose, ink))
+            {
+                target.Children.Add(block);
+            }
+
+            loose.Clear();
+        }
+    }
+
+    private IEnumerable<FrameworkElement> Block(MarkdownNode node, string ink) => node switch
+    {
+        CodeNode code => [new CodeBlock { Code = code.Code, CodeLanguage = code.Language }],
+        ElementNode { Name: "h1" } heading => [Paragraph(heading.Children, ink, "DvText20", heading: true)],
+        ElementNode { Name: "h2" } heading => [Paragraph(heading.Children, ink, "DvText16", heading: true)],
+        ElementNode { Name: "h3" or "h4" or "h5" or "h6" } heading => [Paragraph(heading.Children, ink, "DvText14", heading: true)],
+        ElementNode { Name: "ul" or "ol" } list => [List(list, ink)],
+        ElementNode { Name: "blockquote" } quote => [Quote(quote)],
+        ElementNode { Name: "hr" } => [new Border { Height = Tokens.Number("DvBorder"), Background = Tokens.Brush(this, "DvLine") }],
+        ElementNode { Name: "table" } table => [Table(table, ink)],
+        ElementNode element => Prose(element.Children, ink),
+        _ => Prose([node], ink),
+    };
+
+    // A run of text is one paragraph. A picture cannot sit inside a line of text here, so each stands on its own
+    // under the words it came with.
+    private IEnumerable<FrameworkElement> Prose(IReadOnlyList<MarkdownNode> children, string ink)
+    {
+        if (children.Any(node => node is not ImageNode && (node is not TextNode { Text: var text } || !string.IsNullOrWhiteSpace(text))))
+        {
+            yield return Paragraph(children, ink, "DvText14", heading: false);
+        }
+
+        foreach (var image in children.OfType<ImageNode>())
+        {
+            yield return Picture(image);
+        }
+    }
+
+    private StackPanel List(ElementNode list, string ink)
+    {
+        var rows = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
+        var number = list.Start ?? 1;
+
+        foreach (var item in list.Children.OfType<ElementNode>().Where(child => child.Name == "li"))
+        {
+            var task = item.Children.OfType<TaskNode>().FirstOrDefault();
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new() { Width = new(Tokens.Number("DvSpace5")) });
+            row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+            row.Children.Add(task is null ? Marker(list.Name == "ol" ? $"{number++}." : "•", ink) : TaskMark(task));
+
+            var content = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
+            AddBlocks(content, [.. item.Children.Where(child => child is not TaskNode)], ink);
+            Grid.SetColumn(content, 1);
+            row.Children.Add(content);
+            rows.Children.Add(row);
+        }
+
+        return rows;
+    }
+
+    private TextBlock Marker(string text, string ink)
+    {
+        var marker = Styles.Text(text);
+        marker.Foreground = Tokens.Brush(this, ink);
+        marker.HorizontalAlignment = HorizontalAlignment.Center;
+        AutomationProperties.SetAccessibilityView(marker, AccessibilityView.Raw);
+        return marker;
+    }
+
+    // The checkbox of a task list item: a small box, ticked when done, named in words. It cannot be changed.
+    private Border TaskMark(TaskNode task)
+    {
+        var size = Tokens.Number("DvIcon16");
+        var box = new Border
+        {
+            Width = size,
+            Height = size,
+            BorderThickness = new(Tokens.Number("DvBorder")),
+            BorderBrush = Tokens.Brush(this, "DvText2"),
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new(0, ((Tokens.Number("DvText14") * Tokens.Number("DvLeadingText")) - size) / 2, 0, 0),
+            Child = task.Done ? new Icon { NameOfIcon = IconName.Check, Foreground = Tokens.Brush(this, "DvText2") } : null,
+        };
+        AutomationProperties.SetName(box, task.Done ? "Done" : "Not done");
+        return box;
+    }
+
+    private Border Quote(ElementNode quote)
+    {
+        var inside = new StackPanel { Spacing = Tokens.Number("DvSpace3") };
+        AddBlocks(inside, quote.Children, "DvText2");
+
+        return new()
+        {
+            Child = inside,
+            Padding = new(Tokens.Number("DvSpace3"), 0, 0, 0),
+            BorderThickness = new(Tokens.Number("DvFocusWidth"), 0, 0, 0),
+            BorderBrush = Tokens.Brush(this, "DvLine"),
+        };
+    }
+
+    // A wide table scrolls sideways inside its own box, which takes the focus so the keyboard can scroll it.
+    private ScrollViewer Table(ElementNode table, string ink)
+    {
+        var grid = new Grid();
+        var rows = table.Children.OfType<ElementNode>()
+            .SelectMany(section => section.Name == "tr" ? [section] : section.Children.OfType<ElementNode>().Where(row => row.Name == "tr"))
+            .ToList();
+
+        foreach (var (row, rowIndex) in rows.Select((row, index) => (row, index)))
+        {
+            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            var cells = row.Children.OfType<ElementNode>().Where(cell => cell.Name is "th" or "td").ToList();
+
+            foreach (var (cell, columnIndex) in cells.Select((cell, index) => (cell, index)))
+            {
+                while (grid.ColumnDefinitions.Count <= columnIndex)
+                {
+                    grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+                }
+
+                var isHeader = cell.Name == "th";
+                var words = Paragraph(cell.Children, isHeader ? "DvText2" : ink, "DvText14", heading: false);
+                words.TextWrapping = TextWrapping.NoWrap;
+                if (isHeader)
+                {
+                    words.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
+                }
+
+                var box = new Border
+                {
+                    Child = words,
+                    Padding = Tokens.Space("DvSpace3", "DvSpace2"),
+                    BorderThickness = new(0, 0, 0, Tokens.Number("DvBorder")),
+                    BorderBrush = Tokens.Brush(this, "DvLine"),
+                };
+                Grid.SetRow(box, rowIndex);
+                Grid.SetColumn(box, columnIndex);
+                grid.Children.Add(box);
+            }
+        }
+
+        var scroll = new ScrollViewer
+        {
+            Content = grid,
+            HorizontalScrollMode = ScrollMode.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            IsTabStop = true,
+        };
+        AutomationProperties.SetName(scroll, "Table");
+        return scroll;
+    }
+
+    #endregion
+
+    #region Inlines
+
+    private TextBlock Paragraph(IReadOnlyList<MarkdownNode> children, string ink, string size, bool heading)
+    {
+        var paragraph = Styles.Text(null);
+        paragraph.IsTextSelectionEnabled = true;
+        paragraph.FontSize = Tokens.Number(size);
+        paragraph.Foreground = Tokens.Brush(this, ink);
+
+        if (heading)
+        {
+            paragraph.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"];
+            paragraph.LineHeight = Tokens.Number(size) * Tokens.Number("DvLeadingHeading");
+            AutomationProperties.SetHeadingLevel(paragraph, AutomationHeadingLevel.Level3);
+        }
+
+        AddInlines(paragraph.Inlines, children, new(false, false, false, false));
+        return paragraph;
+    }
+
+    private void AddInlines(Microsoft.UI.Xaml.Documents.InlineCollection target, IReadOnlyList<MarkdownNode> children, InlineStyle style)
+    {
+        foreach (var node in children)
+        {
+            switch (node)
+            {
+                case TextNode text:
+                    target.Add(Run(text.Text, style));
+                    break;
+                case ElementNode { Name: "br" }:
+                    target.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
+                    break;
+                case ElementNode { Name: "strong" } strong:
+                    AddInlines(target, strong.Children, style with { Strong = true });
+                    break;
+                case ElementNode { Name: "em" } emphasis:
+                    AddInlines(target, emphasis.Children, style with { Emphasis = true });
+                    break;
+                case ElementNode { Name: "del" } removed:
+                    AddInlines(target, removed.Children, style with { Struck = true });
+                    break;
+                case ElementNode { Name: "code" } code:
+                    AddInlines(target, code.Children, style with { Machine = true });
+                    break;
+                case ElementNode element:
+                    AddInlines(target, element.Children, style);
+                    break;
+                case LinkNode link:
+                    target.Add(Hyperlink(link, style));
+                    break;
+                case ImageNode:
+                    break;
+                case TaskNode task:
+                    target.Add(Run(task.Done ? "Done: " : "Not done: ", style));
+                    break;
+            }
+        }
+    }
+
+    private Microsoft.UI.Xaml.Documents.Run Run(string text, InlineStyle style)
+    {
+        var run = new Microsoft.UI.Xaml.Documents.Run { Text = text };
+
+        if (style.Strong)
+        {
+            run.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"];
+        }
+
+        if (style.Emphasis)
+        {
+            run.FontStyle = Windows.UI.Text.FontStyle.Italic;
+        }
+
+        if (style.Struck)
+        {
+            run.TextDecorations = Windows.UI.Text.TextDecorations.Strikethrough;
+        }
+
+        if (style.Machine)
+        {
+            run.FontFamily = Tokens.FontMono;
+            run.FontSize = Tokens.Number("DvText13");
+        }
+
+        return run;
+    }
+
+    // A link opens outside the app, as a link in a message opens in a new tab on the web. Only absolute http,
+    // https, and mailto addresses become links at all; the parser leaves the rest as text.
+    private Microsoft.UI.Xaml.Documents.Hyperlink Hyperlink(LinkNode link, InlineStyle style)
+    {
+        var hyperlink = new Microsoft.UI.Xaml.Documents.Hyperlink
+        {
+            NavigateUri = new Uri(link.Address),
+            Foreground = Tokens.Brush(this, "DvEmber"),
+        };
+        AddInlines(hyperlink.Inlines, link.Children, style);
+        return hyperlink;
+    }
+
+    #endregion
+
+    #region Remote Images
+
+    private FrameworkElement Picture(ImageNode image)
+    {
+        if (!loadedImages.Contains(image.Source))
+        {
+            var load = new PlainButton
+            {
+                Content = PlaceholderLabel(image),
+                Fill = "DvBg2",
+                Line = "DvText3",
+                Padding = Tokens.Space("DvSpace3", "DvSpace1"),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"],
+            };
+            load.HorizontalAlignment = HorizontalAlignment.Left;
+            load.Click += (_, _) =>
+            {
+                loadedImages.Add(image.Source);
+                Draw();
+            };
+            return load;
+        }
+
+        // The frame keeps one shape whatever the picture's own size is, so nothing below it moves when it arrives.
+        var width = Tokens.Number("DvImageWidth");
+        var picture = new Image
+        {
+            Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(image.Source),
+            Stretch = Stretch.Uniform,
+        };
+        AutomationProperties.SetName(picture, image.Alt);
+
+        return new Border
+        {
+            Child = picture,
+            MaxWidth = width,
+            Height = width / Tokens.Number("DvImageRatio"),
+            CornerRadius = new(Tokens.Number("DvRadiusControl")),
+            Background = Tokens.Brush(this, "DvBg2"),
+        };
+    }
+
+    private static string PlaceholderLabel(ImageNode image) =>
+        string.IsNullOrWhiteSpace(image.Alt)
+            ? $"Load image from {image.Source.Host}"
+            : $"Load image from {image.Source.Host}: {image.Alt}";
+
+    private sealed record InlineStyle(bool Strong, bool Emphasis, bool Struck, bool Machine);
+
+    #endregion
+}

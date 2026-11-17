@@ -1,0 +1,33 @@
+<shell:Screen x:Class="Drover.Native.Pages.SignInPage"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:dv="using:Drover.Native.Controls"
+              xmlns:layouts="using:Drover.Native.Layouts"
+              xmlns:session="using:Drover.Native.Session"
+              xmlns:shell="using:Drover.Native.Shell">
+
+  <layouts:EntryLayout>
+    <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Sign in" />
+    <TextBlock Style="{StaticResource DvTextSecondary}" Text="Use the account you made on this server." />
+    <StackPanel Spacing="{StaticResource DvSpace4}">
+      <dv:Field x:Name="Email"
+                Label="Email"
+                Type="email"
+                Value="{x:Bind Model.Email, Mode=TwoWay}"
+                Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                Submitted="Submit" />
+      <dv:Field Label="Password"
+                Type="password"
+                Value="{x:Bind Model.Password, Mode=TwoWay}"
+                Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                Submitted="Submit" />
+      <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
+      <dv:Button Kind="Primary"
+                 HorizontalAlignment="Left"
+                 Content="{x:Bind Model.SubmitLabel, Mode=OneWay}"
+                 Command="{x:Bind Model.SubmitCommand}" />
+    </StackPanel>
+    <session:ServerChoice />
+  </layouts:EntryLayout>
+
+</shell:Screen>

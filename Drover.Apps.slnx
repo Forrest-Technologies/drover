@@ -1,4 +1,3 @@
 <Solution>
   <Project Path="src/Drover.App/Drover.App.csproj" />
-  <Project Path="src/Drover.Native/Drover.Native.csproj" />
 </Solution>

@@ -1,4 +1,4 @@
-namespace Drover.App;
+namespace Drover.Transport;
 
 internal sealed record NativeSessionTokens(string AccessToken, string RefreshToken, long ExpiresIn)
 {

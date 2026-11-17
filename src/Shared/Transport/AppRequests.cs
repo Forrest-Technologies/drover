@@ -1,4 +1,4 @@
-namespace Drover.App;
+namespace Drover.Transport;
 
 public sealed class AppRequests(ServerAddress server, NativeSession session) : DelegatingHandler(new HttpClientHandler
 {
