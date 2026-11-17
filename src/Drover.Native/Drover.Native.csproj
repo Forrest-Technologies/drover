@@ -86,4 +86,15 @@
     <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
+  <!-- The SDK adds two packages to every app that are not open source: its packaging helper, under an end-user
+       agreement that forbids passing it on, and its account settings tool, which states no license. Neither is
+       needed to build, run, or publish Drover, and Drover's license rule admits neither, so both are taken out
+       of the package list before it is read. -->
+  <Target Name="DropPackagesThatAreNotOpenSource" AfterTargets="UnoImplicitPackages">
+    <ItemGroup>
+      <PackageReference Remove="Uno.Sdk.Extras" />
+      <PackageReference Remove="Uno.Settings.DevServer" />
+    </ItemGroup>
+  </Target>
+
 </Project>

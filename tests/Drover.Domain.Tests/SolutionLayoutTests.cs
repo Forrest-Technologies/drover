@@ -23,9 +23,11 @@ public sealed class SolutionLayoutTests
         ["Drover.Adapters.E2B"] = ["Drover.Domain"],
         ["Drover.Adapters.WebPush"] = ["Drover.Domain"],
         ["Drover.Client"] = ["Drover.Contracts"],
-        ["Drover.Ui"] = ["Drover.Client", "Drover.Contracts"],
+        ["Drover.Presentation"] = ["Drover.Client", "Drover.Contracts"],
+        ["Drover.Ui"] = ["Drover.Presentation", "Drover.Client", "Drover.Contracts"],
         ["Drover.Web"] = ["Drover.Ui"],
         ["Drover.App"] = ["Drover.Ui"],
+        ["Drover.Native"] = ["Drover.Presentation", "Drover.Client", "Drover.Contracts"],
         ["Drover.Server"] =
         [
             "Drover.Engine",
@@ -41,7 +43,8 @@ public sealed class SolutionLayoutTests
         ],
     };
 
-    private static readonly string[] clientProjects = ["Drover.Client", "Drover.Ui", "Drover.Web", "Drover.App"];
+    private static readonly string[] clientProjects =
+        ["Drover.Client", "Drover.Presentation", "Drover.Ui", "Drover.Web", "Drover.App", "Drover.Native"];
 
     private static readonly string[] serverOnlyProjects = ["Drover.Domain", "Drover.Data", "Drover.Engine"];
 
