@@ -10,7 +10,7 @@
 {
     <p class="dv-editor-hint" role="status">Loading the models of this connection.</p>
 }
-else if (Choices.Count > 0)
+else if (Choices.Count > 0 && !enterModelId)
 {
     <Select Label="Model" Value="@Draft.Model" ValueChanged="ChooseModel">
         @if (!Choices.Any(entry => entry.Model == Draft.Model))
@@ -26,7 +26,14 @@ else if (Choices.Count > 0)
 else
 {
     <Field Label="Model name" Value="@Draft.Model" ValueChanged="ChooseModel" autocomplete="off" spellcheck="false"
-           Hint="This connection does not list its models. Type the name it expects." />
+           Hint="@(enterModelId ? "Enter the model ID your provider expects." : "This connection does not list its models. Type the name it expects.")" />
+}
+
+@if (Models is not null && Choices.Count > 0)
+{
+    <div>
+        <Button OnClick="ToggleModelEntry">@(enterModelId ? "Choose from the catalog" : "Enter a model ID")</Button>
+    </div>
 }
 
 <p class="dv-editor-hint"><a href="@Addresses.Models">Manage model connections</a></p>
@@ -114,6 +121,8 @@ else
 @code {
     private static readonly SegmentOption<string>[] webSearch = [new("off", "Off"), new("automatic", "When needed"), new("on", "Always")];
 
+    private bool enterModelId;
+
     [Parameter, EditorRequired]
     public BotDraft Draft { get; set; } = new();
 
@@ -181,10 +190,13 @@ else
 
     private Task Changed() => OnChanged.InvokeAsync();
 
+    private void ToggleModelEntry() => enterModelId = !enterModelId;
+
     private async Task ChooseConnection(string id)
     {
         if (Guid.TryParse(id, out var connectionId) && connectionId != Draft.ModelConnectionId)
         {
+            enterModelId = false;
             Draft.ModelConnectionId = connectionId;
             await OnConnectionChosen.InvokeAsync(connectionId);
         }
