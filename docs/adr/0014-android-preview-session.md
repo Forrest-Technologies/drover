@@ -1,6 +1,6 @@
 # 0014. Use the existing server session in the Android preview
 
-- Status: Accepted for the Android sideload preview
+- Status: Accepted for the initial Android sideload preview and retained for older servers
 - Date: 2026-11-16
 
 ## Decision

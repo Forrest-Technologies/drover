@@ -143,7 +143,8 @@ public static class AccountEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult>> ChangePassword(
         ChangePasswordRequest request,
         HttpContext context,
-        PasswordService passwords)
+        PasswordService passwords,
+        IAntiforgery antiforgery)
     {
         var principal = context.User;
 
@@ -174,16 +175,17 @@ public static class AccountEndpoints
 
         // The stamp changed with the password, so this session's cookie is issued again with the new one.
         var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
-        await context.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            SessionStamp.BuildPrincipal(
-                principal.GetUserId(),
-                principal.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
-                principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
-                result.SecurityStamp,
-                sessionId,
-                now));
+        var renewed = SessionStamp.BuildPrincipal(
+            principal.GetUserId(),
+            principal.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
+            principal.FindFirstValue(ClaimTypes.Name) ?? string.Empty,
+            result.SecurityStamp,
+            sessionId,
+            now);
+        await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, renewed);
         KnownBrowser.Remember(context, principal.GetUserId(), result.SecurityStamp);
+        context.User = renewed;
+        AntiforgeryTokens.Issue(context, antiforgery);
         return TypedResults.NoContent();
     }
 

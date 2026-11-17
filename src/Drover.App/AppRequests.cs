@@ -1,6 +1,6 @@
 namespace Drover.App;
 
-public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new HttpClientHandler
+public sealed class AppRequests(ServerAddress server, NativeSession session) : DelegatingHandler(new HttpClientHandler
 {
     AllowAutoRedirect = false,
     CookieContainer = new(),
@@ -10,7 +10,9 @@ public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new Ht
 
     private const string AntiforgeryCookie = "XSRF-TOKEN";
 
-    private const string AntiforgeryHeader = "X-XSRF-TOKEN";
+    private const string SessionCookie = "__Host-Drover.Session";
+
+    internal const string AntiforgeryHeader = "X-XSRF-TOKEN";
 
     #endregion
 
@@ -42,18 +44,64 @@ public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new Ht
         }
 
         request.RequestUri = new(origin, address.PathAndQuery);
-        if (request.Method != HttpMethod.Get && request.Method != HttpMethod.Head)
+        var path = address.AbsolutePath.TrimEnd('/');
+        var opening = request.Method == HttpMethod.Post && path is "/api/sign-in" or "/api/setup" or "/api/register";
+        var access = opening || path == "/api/password-reset"
+            ? null
+            : await session.GetAccess(origin, base.SendAsync, cancellationToken);
+
+        if (access is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", access);
+        }
+        else if (request.Method != HttpMethod.Get && request.Method != HttpMethod.Head)
         {
             request.Headers.Remove(AntiforgeryHeader);
             request.Headers.Add(AntiforgeryHeader, await ReadToken(origin, address, cancellationToken));
         }
 
-        return await base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+        try
+        {
+            await UpdateSession(origin, path, opening, access, response, cancellationToken);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
     }
 
     #endregion
 
     #region Private Methods
+
+    private async Task UpdateSession(
+        Uri origin, string path, bool opening, string? access, HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if ((path == "/api/sign-out" && response.IsSuccessStatusCode)
+            || (path == "/api/account/password" && response.StatusCode == HttpStatusCode.Unauthorized))
+        {
+            await session.Clear(origin, access);
+            return;
+        }
+
+        if (path == "/api/session" && access is not null && response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await session.Clear(origin, access);
+            return;
+        }
+
+        if (response.IsSuccessStatusCode && (opening || path == "/api/account/password"))
+        {
+            var token = ReadCookie(origin);
+            if (token is not null && await session.Exchange(origin, base.SendAsync, token, cancellationToken))
+            {
+                Cookies.Add(origin, new Cookie(SessionCookie, string.Empty, "/") { Expired = true, Secure = true });
+            }
+        }
+    }
 
     private async Task<string> ReadToken(Uri origin, Uri address, CancellationToken cancellationToken)
     {
@@ -67,8 +115,9 @@ public sealed class AppRequests(ServerAddress server) : DelegatingHandler(new Ht
         return token ?? throw new HttpRequestException("Drover did not issue a request token.");
     }
 
-    private string? ReadCookie(Uri origin) =>
-        ((HttpClientHandler)InnerHandler!).CookieContainer.GetCookies(origin)[AntiforgeryCookie]?.Value;
+    private CookieContainer Cookies => ((HttpClientHandler)InnerHandler!).CookieContainer;
+
+    private string? ReadCookie(Uri origin) => Cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
 
     private async Task IssueToken(Uri origin, CancellationToken cancellationToken)
     {

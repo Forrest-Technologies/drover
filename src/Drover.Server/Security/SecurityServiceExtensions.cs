@@ -20,7 +20,7 @@ public static class SecurityServiceExtensions
     public static IServiceCollection AddDroverSecurity(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<SignInRateLimitOptions>(configuration.GetSection("Drover:SignInRateLimit"));
-        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(ConfigureSessionCookie);
+        services.AddAuthentication(NativeBearer.SelectForApi).AddCookie(ConfigureSessionCookie).AddNativeBearer();
         services.AddAuthorization();
         services.TryAddSingleton(TimeProvider.System);
         services.AddAntiforgery(ConfigureAntiforgery);
