@@ -5,13 +5,16 @@ namespace Drover.Ui.Icons;
 /// </summary>
 public enum IconName
 {
+    Account,
     ArrowLeft,
     Attach,
     Check,
     ChevronDown,
     ChevronRight,
     Close,
+    Conversation,
     Copy,
+    Crew,
     Download,
     Edit,
     ExternalLink,

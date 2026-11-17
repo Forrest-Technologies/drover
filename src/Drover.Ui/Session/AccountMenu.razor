@@ -6,7 +6,9 @@
 @inject DroverApi Api
 @inject ILogger<AccountMenu> Logger
 
-<Menu @ref="menu" Label="@(Session.Current?.DisplayName ?? "Account")">
+<Menu @ref="menu" Label="@(Compact ? "Account" : Session.Current?.DisplayName ?? "Account")"
+      AriaLabel="@(Compact && Session.Current is { } person ? $"Account for {person.DisplayName}" : null)"
+      TriggerIcon="@(Compact ? IconName.Account : null)">
     @foreach (var (choice, name) in themes)
     {
         <MenuItem OnSelect="() => Theme.Choose(choice)">
@@ -44,6 +46,13 @@
     private bool notificationsOpen;
 
     private Menu? menu;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter]
+    public bool Compact { get; set; }
 
     #endregion
 

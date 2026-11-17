@@ -563,6 +563,19 @@ public sealed class TalkTests : ScreenTest
     #region Summary
 
     [Fact]
+    public void The_conversation_menu_opens_the_same_summary_as_the_wide_layout_link()
+    {
+        var page = Render<Talk>(parameters => parameters.Add(component => component.BotId, botId));
+
+        page.WaitForAssertion(() => page.Find("button[aria-label='More about Marshal']").Should().NotBeNull());
+        var summary = page.FindAll(".dv-shell-more [role='menuitem']")
+            .Single(item => item.TextContent.Trim() == "Summary");
+        summary.Click();
+
+        Address.Should().Be($"talk/{botId}/summary");
+    }
+
+    [Fact]
     public void The_summary_opens_beside_the_main_conversation_and_says_what_it_covers_and_when_it_was_written()
     {
         Server.Answer("GET", $"{space}/threads/{threadId}/summary",

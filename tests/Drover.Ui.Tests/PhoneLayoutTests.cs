@@ -18,13 +18,15 @@ public sealed class PhoneLayoutTests
     #region Public Methods
 
     [Fact]
-    public void The_work_bar_keeps_one_row_on_a_phone_and_the_account_name_gives_way_with_an_ellipsis()
+    public void A_phone_keeps_workspace_navigation_at_the_bottom_without_squeezing_the_header()
     {
-        var styles = After(Source("Layouts", "WorkLayout.razor.css"), PhoneQuery);
+        var styles = Source("Layouts", "WorkLayout.razor.css");
+        var phone = After(styles, PhoneQuery);
 
-        styles.Should().Contain("flex-wrap: nowrap;");
-        styles.Should().Contain("text-overflow: ellipsis;");
-        Before(Source("Layouts", "WorkLayout.razor.css"), PhoneQuery).Should().Contain("flex-wrap: wrap;", "wider screens keep the wrapping bar");
+        phone.Should().Contain(".dv-work-nav,\n  .dv-work-account {\n    display: none;");
+        phone.Should().Contain(".dv-work-dock {\n    display: block;");
+        phone.Should().Contain("overflow-y: auto;");
+        Before(styles, PhoneQuery).Should().Contain(".dv-work-dock {\n  display: none;");
     }
 
     [Fact]
