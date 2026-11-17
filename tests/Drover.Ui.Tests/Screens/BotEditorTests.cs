@@ -160,6 +160,23 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
+    public async Task An_unlisted_model_id_can_be_saved_when_the_connection_has_a_catalog()
+    {
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Model = "sample-custom" });
+        var page = RenderEditor();
+        await Open(page, 0);
+
+        await page.FindAll(".dv-disclosure-open button")
+            .Single(button => button.TextContent.Trim() == "Enter a model ID").ClickAsync(new MouseEventArgs());
+        var label = page.FindAll(".dv-disclosure-open label").Single(element => element.TextContent == "Model name");
+        await page.Find($"#{label.GetAttribute("for")}").InputAsync(new ChangeEventArgs { Value = "sample-custom" });
+        await page.Find("form").SubmitAsync();
+
+        page.WaitForAssertion(() => Server.Sent("PUT", $"{bot}/definition")
+            .Should().ContainSingle().Which.Should().Contain("\"model\":\"sample-custom\""));
+    }
+
+    [Fact]
     public async Task A_model_without_tool_calling_hides_the_tool_controls_and_says_why()
     {
         var page = RenderEditor();
@@ -1088,7 +1105,7 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
-    public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_connecting_one()
+    public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_model_connections()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         var page = RenderEditor();
@@ -1097,8 +1114,8 @@ public sealed class BotEditorTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
             .Should().Contain("This model cannot see images, and no model of this space is listed as reading them, so no other model can read the screen for this bot."));
         Labels(page).Should().NotContain("Reads the screen for this bot");
-        var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Connect a model");
-        link.GetAttribute("href").Should().Be(Addresses.SetupModel);
+        var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Manage model connections");
+        link.GetAttribute("href").Should().Be(Addresses.Models);
         await Open(page, 5);
         page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent))
             .Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. In the Model section, choose a model to read the screen for it, or a model that can see.");
