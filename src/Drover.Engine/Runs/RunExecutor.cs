@@ -778,7 +778,7 @@ public sealed partial class RunExecutor(
         if (loaded.Steps.Open is { } open)
         {
             yield return loaded.OpenStepMessage is { } stored
-                ? RunEventWriter.Event(run.Id, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse()))
+                ? RunEventWriter.Event(run.Id, RunEventTypes.MessageCompleted, new MessageCompleted(stored.ToResponse(runPrincipalUserId: run.PrincipalUserId)))
                 : RunEventWriter.Event(run.Id, RunEventTypes.StepDiscarded, open);
         }
 

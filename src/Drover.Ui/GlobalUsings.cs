@@ -34,6 +34,7 @@ global using Drover.Ui.Markdown;
 global using Drover.Ui.Session;
 global using Drover.Ui.Theme;
 global using Drover.Ui.Tools;
+global using Drover.Ui.Usage;
 global using Ganss.Xss;
 global using Markdig;
 global using Markdig.Extensions.EmphasisExtras;

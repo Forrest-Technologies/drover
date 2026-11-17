@@ -46,6 +46,11 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Android app">
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="11.0.0" />
+    <PackageVersion Include="Microsoft.Maui.Controls" Version="11.0.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Interface">
     <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />
     <PackageVersion Include="Markdig" Version="1.6.0" />

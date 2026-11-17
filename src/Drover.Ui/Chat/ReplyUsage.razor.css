@@ -1,0 +1,50 @@
+/* Quiet under a reply: a small text control, and when open one or two lines in the secondary text color. */
+.dv-reply-usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  margin-top: var(--dv-space-2);
+}
+
+.dv-reply-usage-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--dv-space-1);
+  min-height: var(--dv-target-pointer);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dv-text-3);
+  font: inherit;
+  font-size: var(--dv-text-12);
+  cursor: pointer;
+}
+
+.dv-reply-usage-toggle:hover {
+  color: var(--dv-text-2);
+}
+
+.dv-reply-usage-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dv-space-1);
+}
+
+.dv-reply-usage-body[hidden] {
+  display: none;
+}
+
+.dv-reply-usage-line {
+  margin: 0;
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-12);
+  overflow-wrap: anywhere;
+}
+
+@media (pointer: coarse) {
+  .dv-reply-usage-toggle {
+    min-height: var(--dv-target-touch);
+  }
+}

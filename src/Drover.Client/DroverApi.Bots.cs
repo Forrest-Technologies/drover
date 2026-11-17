@@ -102,10 +102,15 @@ public sealed partial class DroverApi
     public Task<BotSandboxStatus> TurnOffBotSandbox(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Post<BotSandboxStatus>($"{Space(spaceId)}/bots/{botId}/sandbox/turn-off", null, cancellationToken);
 
-    /// <summary>The sandbox's screen as PNG bytes. Asking resumes a paused sandbox and makes a missing one.</summary>
-    public async Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, CancellationToken cancellationToken = default)
+    /// <summary>The sandbox's screen as PNG bytes, starting or resuming the sandbox if needed.</summary>
+    public Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        GetBotSandboxScreen(spaceId, botId, wake: true, cancellationToken);
+
+    /// <summary>The sandbox's screen as PNG bytes. Pass wake=false for an automatic refresh.</summary>
+    public async Task<byte[]> GetBotSandboxScreen(Guid spaceId, Guid botId, bool wake, CancellationToken cancellationToken)
     {
-        using var response = await Send(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/screen", null, cancellationToken);
+        var options = wake ? string.Empty : "?wake=false";
+        using var response = await Send(HttpMethod.Post, $"{Space(spaceId)}/bots/{botId}/sandbox/screen{options}", null, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {

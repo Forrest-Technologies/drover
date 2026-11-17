@@ -364,7 +364,7 @@ public sealed partial class SandboxScreen(
 
         try
         {
-            var png = await api.GetBotSandboxScreen(SpaceId, BotId, stop);
+            var png = await api.GetBotSandboxScreen(SpaceId, BotId, wake: woke, stop);
             if (!woke && Status.State is not "running")
             {
                 return;

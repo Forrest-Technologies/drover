@@ -58,14 +58,15 @@ public sealed partial class DelegationActivityTests : ScreenTest
         await events.End();
         page.WaitForAssertion(() => page.Find(".dv-composer button.dv-button").TextContent.Trim().Should().Be("Send"));
         page.Find($"a[href='/talk/{scout}']").ParentElement!.QuerySelector(".dv-crew-wire")!.ClassList.Should().Contain("dv-crew-wire-back");
-        var live = OpenEveryCard(page);
+        var live = await page.InvokeAsync(() => OpenEveryCard(page));
 
         Server.Answer("PUT", $"{space}/bots/{botId}/main-thread", Thread(null));
         Server.Answer("GET", $"{space}/threads/{threadId}/tool-events", Load<List<RunEventResponse>>($"{TwoLevels}.tool-events.json"));
         var reopened = RenderThread();
         reopened.WaitForAssertion(() => reopened.FindAll(".dv-handoff").Should().ContainSingle("the inner card is inside the closed outer one"));
 
-        Comparable(OpenEveryCard(reopened)).Should().Be(Comparable(live));
+        var saved = await reopened.InvokeAsync(() => OpenEveryCard(reopened));
+        Comparable(saved).Should().Be(Comparable(live));
         reopened.FindAll(".dv-crew-wire").Should().BeEmpty("nothing moves for work that ended before the page opened");
 
         var outer = reopened.FindAll(".dv-handoff")[0];

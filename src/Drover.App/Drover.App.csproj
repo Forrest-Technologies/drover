@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net11.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ApplicationTitle>Drover Preview</ApplicationTitle>
+    <ApplicationId>com.forresttechnologies.drover.preview</ApplicationId>
+    <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
+    <SupportedOSPlatformVersion>24</SupportedOSPlatformVersion>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <MauiIcon Include="Resources/AppIcon/drover.svg" Color="#05070A" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" />
+    <PackageReference Include="Microsoft.Maui.Controls" />
+    <ProjectReference Include="../Drover.Ui/Drover.Ui.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Blazor Hybrid creates the head outlet and routes by type after Android links the app. -->
+    <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components.Web" />
+    <TrimmerRootAssembly Include="Drover.Ui" />
+    <TrimmerRootAssembly Include="Drover.Contracts" />
+  </ItemGroup>
+</Project>

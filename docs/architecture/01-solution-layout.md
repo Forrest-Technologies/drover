@@ -112,6 +112,8 @@ Cost: a larger first download than server-side rendering. The shell is cached by
 
 ## Apple switch
 
+The first app implements only Android. Windows and Apple targets below describe the intended layout once their entry points exist.
+
 One MSBuild property, `DroverEnableApple`, default `false`, defined in `Directory.Build.props`:
 
 ```xml

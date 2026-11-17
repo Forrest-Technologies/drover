@@ -44,7 +44,9 @@ After step 1, steps 1b, 2, 3, and 11a can be worked at the same time. Steps 7 an
 
 **Goal:** a crew of bots that delegate to each other, run code, and reach you with push, on phone and desktop.
 
-Bot hierarchy and delegation, teams, cost roll-up, sandboxes, Android and Windows apps, push, attachments, memory, schedules, web search, ChatGPT plan sign-in for self-hosted servers.
+Bot hierarchy and delegation, teams, cost roll-up, sandboxes, push, attachments, memory, schedules, web search, ChatGPT plan sign-in for self-hosted servers.
+
+The Android app starts with a [sideload preview](https://github.com/Forrest-Technologies/drover/issues/218). Phase 1 also covers native sign-in, Android push, and a Windows shell.
 
 ### Phase 2: full product · [tracking issue #19](https://github.com/Forrest-Technologies/drover/issues/19)
 

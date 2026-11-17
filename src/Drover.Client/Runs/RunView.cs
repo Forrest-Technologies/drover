@@ -71,6 +71,12 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
 
     public string? ScheduleCron { get; init; }
 
+    /// <summary>The run that wrote the message, for a stored one. A message still arriving belongs to the run being watched.</summary>
+    public Guid? RunId { get; init; }
+
+    /// <summary>The person the run that wrote the message acts for, when the server said.</summary>
+    public Guid? RunPrincipalUserId { get; init; }
+
     public static MessageView From(MessageResponse stored) =>
         new(
             stored.Id,
@@ -83,6 +89,8 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
             Steers = stored.Steers,
             ScheduleId = stored.ScheduleId,
             ScheduleCron = stored.ScheduleCron,
+            RunId = stored.RunId,
+            RunPrincipalUserId = stored.RunPrincipalUserId,
         };
 }
 

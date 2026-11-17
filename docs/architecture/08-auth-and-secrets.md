@@ -8,6 +8,7 @@ ASP.NET Core Identity, used directly. It is the platform, it is maintained by Mi
 | --- | --- | --- |
 | Web | Identity application cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, with antiforgery tokens on state-changing requests | Browser cookie jar |
 | MAUI app | Identity's built-in bearer tokens: short-lived access token, long-lived refresh token, both opaque | Platform secure storage through `ISecureStore` |
+| Android sideload preview | Existing Identity session cookie and antiforgery check | Native HTTP cookie jar, in memory only. See [ADR 0014](../adr/0014-android-preview-session.md). |
 | Scripts and integrations (Phase 2) | Personal access tokens: random value shown once, stored as a hash, scoped to one space | The caller's choice |
 
 Decisions:
