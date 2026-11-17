@@ -586,6 +586,74 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Extensions.ExtensionInstall", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTimeOffset>("InstalledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("installed_at");
+
+                    b.Property<Guid>("InstalledByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installed_by_user_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<JsonElement>("Package")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("package")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<string>("PackageId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("package_id");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_extension_installs");
+
+                    b.HasIndex("InstalledByUserId")
+                        .HasDatabaseName("ix_extension_installs_installed_by_user_id");
+
+                    b.HasIndex("SpaceId", "BotId")
+                        .HasDatabaseName("ix_extension_installs_space_id_bot_id");
+
+                    b.HasIndex("SpaceId", "PackageId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_extension_installs_space_id_package_id");
+
+                    b.ToTable("extension_installs", (string)null);
+                });
+
             modelBuilder.Entity("Drover.Domain.Files.StoredFile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2403,6 +2471,23 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_bot_schedules_bots_space_id_bot_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Extensions.ExtensionInstall", b =>
+                {
+                    b.HasOne("Drover.Data.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("InstalledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_extension_installs_asp_net_users_installed_by_user_id");
+
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_extension_installs_bots_space_id_bot_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Files.StoredFile", b =>
