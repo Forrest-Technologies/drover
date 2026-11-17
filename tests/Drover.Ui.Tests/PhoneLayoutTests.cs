@@ -25,7 +25,8 @@ public sealed class PhoneLayoutTests
 
         phone.Should().Contain(".dv-work-nav,\n  .dv-work-account {\n    display: none;");
         phone.Should().Contain(".dv-work-dock {\n    display: block;");
-        phone.Should().Contain("overflow-y: auto;");
+        phone.Should().Contain("grid-template-rows: auto minmax(0, 1fr) auto;");
+        phone.Should().Contain("overflow-y: auto;").And.Contain("overscroll-behavior-y: contain;");
         Before(styles, PhoneQuery).Should().Contain(".dv-work-dock {\n  display: none;");
     }
 

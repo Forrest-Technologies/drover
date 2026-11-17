@@ -73,7 +73,10 @@
 
 @media (max-width: 559px) {
   .dv-work {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     height: 100dvh;
+    overflow: clip;
   }
 
   .dv-work-nav,
@@ -82,9 +85,9 @@
   }
 
   .dv-work-main {
-    flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
   }
 
   .dv-work-dock {

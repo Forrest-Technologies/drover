@@ -162,6 +162,13 @@ h1[tabindex="-1"]:focus {
   );
 }
 
+@media (max-width: 559px) {
+  html:has(.dv-work) {
+    overflow: hidden;
+    overscroll-behavior-y: none;
+  }
+}
+
 /* A clipped element cannot show an outline, so the focus ring is drawn inside the frame. */
 .dv-facet:focus-visible {
   outline: none;
