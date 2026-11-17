@@ -44,10 +44,19 @@ public sealed partial class DroverApi
     /// <summary>
     /// Accepts a tool's changed definition (admin only), after the person has compared
     /// <see cref="ConnectionToolSummary.Reviewed"/> with the tool as it is now. Until this is called the tool is
-    /// offered to no bot.
+    /// offered to no bot. <paramref name="definitionHash"/> is the hash of the definition the person was shown; the
+    /// server answers 409 when the tool has changed again since.
     /// </summary>
-    public Task<ConnectionToolSummary> ConfirmToolReview(Guid spaceId, Guid connectionId, Guid toolId, CancellationToken cancellationToken = default) =>
-        Post<ConnectionToolSummary>($"{Space(spaceId)}/tool-connections/{connectionId}/tools/{toolId}/review", null, cancellationToken);
+    public Task<ConnectionToolSummary> ConfirmToolReview(
+        Guid spaceId,
+        Guid connectionId,
+        Guid toolId,
+        string definitionHash,
+        CancellationToken cancellationToken = default) =>
+        Post<ConnectionToolSummary>(
+            $"{Space(spaceId)}/tool-connections/{connectionId}/tools/{toolId}/review",
+            new ConfirmToolReviewRequest(definitionHash),
+            cancellationToken);
 
     /// <summary>
     /// Starts the caller's sign-in to a connection that needs one (an admin's, where one sign-in serves the space).

@@ -274,6 +274,23 @@ public sealed class ToolConnectionsTests : ScreenTest
     }
 
     [Fact]
+    public async Task Accepting_a_tool_that_changed_again_meanwhile_accepts_nothing_and_shows_what_it_says_now()
+    {
+        var read = Tool() with { Description = "Sample new words", NeedsReview = true, DefinitionHash = "sample-hash-read", Reviewed = new ToolDefinitionSnapshot("Look up", "Sample old words", "{}") };
+        Listed([Connection("ready")], read);
+        Server.Refuse("POST", $"{root}/{connectionId}/tools/{toolId}/review", HttpStatusCode.Conflict, "This tool changed again while you were reading it. Read what it says now, then accept it.");
+        var page = Render<ToolConnections>();
+        page.WaitForElement(".dv-connection-review");
+        Server.Answer("GET", $"{root}/{connectionId}/tools", new[] { read with { Description = "Sample newest words", DefinitionHash = "sample-hash-newest" } });
+
+        await page.Find(".dv-connection-review .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-connection-compare dd").Select(words => words.TextContent).Should().Equal("Look upSample old words", "Look upSample newest words"));
+        Server.Sent("POST", $"{root}/{connectionId}/tools/{toolId}/review").Should().ContainSingle().Which.Should().Contain("sample-hash-read", "the yes names the definition that was on the screen");
+        page.FindAll("[role=alert]").Select(alert => alert.TextContent.Trim()).Should().Contain("This tool changed again while you were reading it. Read what it says now, then accept it.");
+    }
+
+    [Fact]
     public async Task Removing_a_server_asks_first_and_says_what_goes_with_it()
     {
         Listed([Connection("ready")], Tool());

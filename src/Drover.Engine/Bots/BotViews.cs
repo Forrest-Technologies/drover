@@ -90,6 +90,7 @@ public static class BotViews
             view.AlwaysAsks)
         {
             NeedsReview = view.NeedsReview,
+            DefinitionHash = view.Tool.DefinitionHash,
             Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
         };
     }

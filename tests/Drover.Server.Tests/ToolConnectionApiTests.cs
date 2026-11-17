@@ -170,13 +170,14 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
 
         var relisted = await PostFor<ToolConnectionRefresh>(client, $"{space}/tool-connections/{id}/refresh", new { });
         var waiting = relisted.Tools.Single(tool => tool.Name == "echo");
-        var byMember = await asMember.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
-        var byOutsider = await asOutsider.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
-        var fromOwnSpace = await asOutsider.Post($"/api/spaces/{outsider.SpaceId}/tool-connections/{id}/tools/{echo.Id}/review", new { });
+        var byMember = await asMember.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new ConfirmToolReviewRequest(waiting.DefinitionHash));
+        var byOutsider = await asOutsider.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new ConfirmToolReviewRequest(waiting.DefinitionHash));
+        var fromOwnSpace = await asOutsider.Post($"/api/spaces/{outsider.SpaceId}/tool-connections/{id}/tools/{echo.Id}/review", new ConfirmToolReviewRequest(waiting.DefinitionHash));
         var stillWaiting = (await (await client.Get($"{space}/tool-connections/{id}/tools")).Content.ReadFromJsonAsync<List<ConnectionToolSummary>>(Token))!
             .Single(tool => tool.Name == "echo");
-        var confirmed = await PostFor<ConnectionToolSummary>(client, $"{space}/tool-connections/{id}/tools/{echo.Id}/review", new { });
-        var unknownTool = await client.Post($"{space}/tool-connections/{id}/tools/{Guid.CreateVersion7()}/review", new { });
+        var ofAnEarlierText = await client.Post($"{space}/tool-connections/{id}/tools/{echo.Id}/review", new ConfirmToolReviewRequest($"{echo.DefinitionHash}0"));
+        var confirmed = await PostFor<ConnectionToolSummary>(client, $"{space}/tool-connections/{id}/tools/{echo.Id}/review", new ConfirmToolReviewRequest(waiting.DefinitionHash));
+        var unknownTool = await client.Post($"{space}/tool-connections/{id}/tools/{Guid.CreateVersion7()}/review", new ConfirmToolReviewRequest(waiting.DefinitionHash));
 
         relisted.Changed.Should().Be(1);
         relisted.GrantsForReview.Should().Be(1);
@@ -190,6 +191,7 @@ public sealed class ToolConnectionApiTests(PostgresServer postgres) : ToolServer
         byOutsider.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Forbidden);
         fromOwnSpace.StatusCode.Should().Be(HttpStatusCode.NotFound);
         stillWaiting.NeedsReview.Should().BeTrue("nobody who may confirm has confirmed");
+        ofAnEarlierText.StatusCode.Should().Be(HttpStatusCode.Conflict, "a yes to a definition the tool no longer has accepts nothing");
         confirmed.NeedsReview.Should().BeFalse();
         confirmed.Reviewed.Should().BeNull();
         unknownTool.StatusCode.Should().Be(HttpStatusCode.NotFound);

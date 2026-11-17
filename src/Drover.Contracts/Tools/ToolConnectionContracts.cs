@@ -59,12 +59,21 @@ public sealed record ConnectionToolSummary(
 
     public string InputSchema { get; init; } = "{}";
 
+    /// <summary>Names this version of the definition. Sent back when a person accepts a change, so they accept what they read.</summary>
+    public string DefinitionHash { get; init; } = string.Empty;
+
     public bool NeedsReview { get; init; }
 
     public ToolDefinitionSnapshot? Reviewed { get; init; }
 
     #endregion
 }
+
+/// <summary>
+/// Accepts a tool's changed definition. <see cref="DefinitionHash"/> is the one the person was shown: when the tool
+/// has changed again since, nothing is accepted and the answer is 409.
+/// </summary>
+public sealed record ConfirmToolReviewRequest(string DefinitionHash);
 
 /// <summary>A tool's title, description, and input schema (JSON text) as they were when a person last reviewed them.</summary>
 public sealed record ToolDefinitionSnapshot(string? Title, string Description, string InputSchema);
