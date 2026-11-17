@@ -25,7 +25,7 @@ public sealed class NativeSessionTests(PostgresServer postgres) : ServerTestBase
         (await native.PostWithoutToken("/api/sign-out")).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await preview.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await NewClient().PostWithoutToken("/api/native/refresh", new NativeSessionRefresh(tokens.RefreshToken)))
+        (await NewClient().PostWithoutToken("/api/native/refresh", new { tokens.RefreshToken }))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -43,12 +43,12 @@ public sealed class NativeSessionTests(PostgresServer postgres) : ServerTestBase
         (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         var renewed = await ReadTokens(await NewClient()
-            .PostWithoutToken("/api/native/refresh", new NativeSessionRefresh(tokens.RefreshToken)));
+            .PostWithoutToken("/api/native/refresh", new { tokens.RefreshToken }));
         native.ForwardedHeaders["Authorization"] = $"Bearer {renewed.AccessToken}";
         (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
 
         Time.Advance(TimeSpan.FromDays(15));
-        (await NewClient().PostWithoutToken("/api/native/refresh", new NativeSessionRefresh(renewed.RefreshToken)))
+        (await NewClient().PostWithoutToken("/api/native/refresh", new { renewed.RefreshToken }))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -66,7 +66,7 @@ public sealed class NativeSessionTests(PostgresServer postgres) : ServerTestBase
         (await native.PostWithoutToken("/api/account/password", new ChangePasswordRequest(person.Password, nextPassword)))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await NewClient().PostWithoutToken("/api/native/refresh", new NativeSessionRefresh(original.RefreshToken)))
+        (await NewClient().PostWithoutToken("/api/native/refresh", new { original.RefreshToken }))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         native.ForwardedHeaders.Clear();
