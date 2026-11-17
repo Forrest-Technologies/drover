@@ -7,7 +7,7 @@ public static class BotIdentity
 {
     #region Public Methods
 
-    /// <summary>The bot's identity hue. <see cref="Avatar"/> folds any number into its twelve steps.</summary>
+    /// <summary>The bot's identity hue. <c>Avatar</c> folds any number into its twelve steps.</summary>
     public static int Hue(Guid botId) => botId.ToByteArray().Aggregate(0, (sum, part) => sum + part);
 
     #endregion

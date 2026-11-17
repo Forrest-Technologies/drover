@@ -13,6 +13,7 @@
     <Project Path="src/Drover.Data/Drover.Data.csproj" />
     <Project Path="src/Drover.Domain/Drover.Domain.csproj" />
     <Project Path="src/Drover.Engine/Drover.Engine.csproj" />
+    <Project Path="src/Drover.Presentation/Drover.Presentation.csproj" />
     <Project Path="src/Drover.Server/Drover.Server.csproj" />
     <Project Path="src/Drover.Ui/Drover.Ui.csproj" />
     <Project Path="src/Drover.Web/Drover.Web.csproj" />

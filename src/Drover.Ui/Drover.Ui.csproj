@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
+    <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
 </Project>

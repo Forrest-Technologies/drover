@@ -68,7 +68,7 @@ public static class Addresses
 
     /// <summary>The moment a message was said, in the main conversation or in a side chat.</summary>
     public static string Moment(Guid botId, Guid threadId, Guid messageId, bool inMainConversation) =>
-        $"{(inMainConversation ? Talk(botId) : SideChat(botId, threadId))}#{MessageList.Anchor(messageId)}";
+        $"{(inMainConversation ? Talk(botId) : SideChat(botId, threadId))}#{MessageAnchors.Anchor(messageId)}";
 
     /// <summary>The side chats a person has with a bot.</summary>
     public static string SideChats(Guid botId) => $"/talk/{botId}/side";
