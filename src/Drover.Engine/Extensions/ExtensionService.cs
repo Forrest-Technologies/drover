@@ -4,6 +4,9 @@ namespace Drover.Engine.Extensions;
 public sealed record ExtensionChange<T>(T? Value, string? Problem)
     where T : class;
 
+/// <summary>An installed extension as the screen shows it: the row, its bot, and how far its tool server's setup has come.</summary>
+public sealed record ExtensionState(InstalledExtension Installed, ExtensionConnectionSummary? Connection);
+
 /// <summary>The model an imported bot thinks with, and the connection it is on.</summary>
 public sealed record ModelChoice(ModelConnection Connection, string Model);
 
@@ -15,6 +18,9 @@ public sealed record ModelChoice(ModelConnection Connection, string Model);
 public sealed class ExtensionService(
     ExtensionRepository extensions,
     ModelConnectionRepository connections,
+    ToolConnectionRepository toolConnections,
+    ToolRepository tools,
+    PolicyService policy,
     BotService bots,
     AuditLog audit,
     TimeProvider time,
@@ -45,6 +51,7 @@ public sealed class ExtensionService(
             new ExtensionPreview(package.Id, package.Name.Trim(), package.Description)
             {
                 Bot = bot?.ToPreview(await ChooseModel(bot, cancellationToken)),
+                Connection = package.Contents.OfType<ConnectionRecipe>().SingleOrDefault()?.ToPreview(policy.Deployment.AllowToolConnections),
                 AlreadyInstalled = await extensions.IsInstalled(package.Id, cancellationToken),
             },
             null);
@@ -54,7 +61,7 @@ public sealed class ExtensionService(
     /// Adds what the file holds. Its bot is made the way a person makes one, on the model the preview named, and is
     /// paused until they turn it on: its instructions came from somebody else.
     /// </summary>
-    public async Task<ExtensionChange<InstalledExtension>> Import(string? text, Guid actorUserId, CancellationToken cancellationToken)
+    public async Task<ExtensionChange<ExtensionState>> Import(string? text, Guid actorUserId, CancellationToken cancellationToken)
     {
         var reading = ExtensionPackages.Read(text);
 
@@ -105,7 +112,7 @@ public sealed class ExtensionService(
         audit.Record(actorUserId, "extension.imported", AuditTargets.Extension, install.Id, null, Snapshot(install));
 
         logger.LogInformation("Extension {PackageId} imported as {InstallId}", install.PackageId, install.Id);
-        return new(new InstalledExtension(install, bot?.Name, bot?.Status), null);
+        return new(new ExtensionState(new InstalledExtension(install, bot?.Name, bot?.Status), await DescribeConnection(install, cancellationToken)), null);
     }
 
     /// <summary>
@@ -128,12 +135,65 @@ public sealed class ExtensionService(
         return new(reading.Package, reading.Problem);
     }
 
-    public Task<List<InstalledExtension>> ListInstalled(CancellationToken cancellationToken) =>
-        extensions.ListInstalled(cancellationToken);
+    public async Task<List<ExtensionState>> ListInstalled(CancellationToken cancellationToken)
+    {
+        List<ExtensionState> states = [];
+
+        foreach (var installed in await extensions.ListInstalled(cancellationToken))
+        {
+            states.Add(new(installed, await DescribeConnection(installed.Install, cancellationToken)));
+        }
+
+        return states;
+    }
+
+    /// <summary>One installed extension as the screen shows it, or null when this space has none by that id.</summary>
+    public async Task<ExtensionState?> Find(Guid installId, CancellationToken cancellationToken) =>
+        await extensions.FindInstalled(installId, cancellationToken) is { } installed
+            ? new(installed, await DescribeConnection(installed.Install, cancellationToken))
+            : null;
+
+    /// <summary>The tool server the installed file names, or null when it names none.</summary>
+    public static ConnectionRecipe? RecipeOf(ExtensionInstall install) =>
+        ExtensionPackages.Read(install.Package.GetRawText()).Package?.Contents.OfType<ConnectionRecipe>().SingleOrDefault();
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// How far the extension's tool server has come: whether it is connected, what its last listing said, and for
+    /// each suggested tool whether the server lists it and what the extension's bot holds for it.
+    /// </summary>
+    private async Task<ExtensionConnectionSummary?> DescribeConnection(ExtensionInstall install, CancellationToken cancellationToken)
+    {
+        if (RecipeOf(install) is not { } recipe)
+        {
+            return null;
+        }
+
+        var connection = install.ToolConnectionId is { } id ? await toolConnections.FindConnection(id, cancellationToken) : null;
+        var listed = connection is null ? [] : await toolConnections.ListTools(connection.Id, cancellationToken);
+        var grants = install.BotId is { } botId
+            ? (await tools.ListOwnGrants(botId, cancellationToken)).ToDictionary(grant => grant.ToolId, grant => grant.Effect)
+            : [];
+
+        return recipe.ToPreview(policy.Deployment.AllowToolConnections).ToSummary() with
+        {
+            ConnectionId = connection?.Id,
+            Status = connection is null ? null : Words.Of(connection.Status),
+            Problem = connection?.LastError,
+            Tools =
+            [
+                .. recipe.SuggestedTools.Select(suggested =>
+                {
+                    var tool = listed.FirstOrDefault(found => found.Name == suggested.Name && found.State is AvailabilityState.Available);
+                    GrantEffect? grant = tool is not null && grants.TryGetValue(tool.Id, out var held) ? held : null;
+                    return new SuggestedToolState(suggested.Name, suggested.Why, tool?.Id, GrantService.Word(grant));
+                }),
+            ],
+        };
+    }
 
     /// <summary>
     /// The model the bot would think with, or null when the space has none it could use. The connection is the one

@@ -28,6 +28,10 @@ public static class ExtensionEndpoints
         extensions.MapGet("/from-bot/{botId:guid}", ExportBot).RequireSpaceRole(MembershipRole.Admin).WithName("ExportBotAsExtension");
         extensions.MapPost("/", ImportExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ImportExtension")
             .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
+
+        // Connecting waits on the tool server, so it owns its tenant scopes and holds none across the wait.
+        space.MapPost("/extensions/{extensionId:guid}/connection", ConnectExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ConnectExtension")
+            .WithSummary("Connects the tool server an installed extension names. A header value goes to the vault and is never returned.");
         return space;
     }
 
@@ -47,6 +51,21 @@ public static class ExtensionEndpoints
         return read.Value is { } preview
             ? TypedResults.Ok(preview)
             : TypedResults.Problem(title: read.Problem, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static async Task<Results<Ok<ExtensionSummary>, NotFound, ProblemHttpResult>> ConnectExtension(
+        Guid extensionId,
+        ConnectExtensionRequest request,
+        HttpContext context,
+        ExtensionConnector connector)
+    {
+        var connected = await connector.Connect(extensionId, request.AcceptLocalAddress, request.HeaderValue, context.GetSpaceAccess().UserId, context.RequestAborted);
+        return connected switch
+        {
+            { State: { } state } => TypedResults.Ok(state.ToSummary()),
+            { Problem: { } problem } => TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest),
+            _ => TypedResults.NotFound(),
+        };
     }
 
     private static Results<Ok<ExtensionPackage>, ProblemHttpResult> ReadExtension(ExtensionText request)
@@ -70,7 +89,7 @@ public static class ExtensionEndpoints
         var access = context.GetSpaceAccess();
         var imported = await extensions.Import(request.Package, access.UserId, context.RequestAborted);
         return imported.Value is { } installed
-            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/extensions/{installed.Install.Id}", installed.ToSummary())
+            ? TypedResults.Created($"/api/spaces/{access.SpaceId}/extensions/{installed.Installed.Install.Id}", installed.ToSummary())
             : TypedResults.Problem(title: imported.Problem, statusCode: StatusCodes.Status400BadRequest);
     }
 

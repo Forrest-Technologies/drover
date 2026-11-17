@@ -37,7 +37,7 @@ public sealed class ExtensionsPageTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find(".dv-empty-title").TextContent.Should().Be("No extension yet"));
         page.Find("h1").TextContent.Should().Be("Extensions");
-        page.Find(".dv-empty-cause").TextContent.Should().Contain("the file can give it no tools");
+        page.Find(".dv-empty-cause").TextContent.Should().Contain("the file can give the bot no tools");
         page.Find(".dv-empty .dv-button").TextContent.Trim().Should().Be("Import an extension");
         page.Find(".dv-extensions-make").Should().Match<AngleSharp.Dom.IElement>(link => link.TextContent == "Make an extension" && link.GetAttribute("href") == "/extensions/edit");
     }
@@ -248,7 +248,180 @@ public sealed class ExtensionsPageTests : ScreenTest
 
     #endregion
 
+    #region Tool Server
+
+    [Fact]
+    public async Task The_review_shows_where_a_tool_server_is_how_it_is_called_and_the_tools_it_suggests()
+    {
+        Listed();
+        Server.Answer("POST", $"{root}/preview", Preview with { Connection = ServerPreview with { IsLocal = true } });
+        var page = Render<ExtensionsPage>();
+        await ReadSample(page);
+
+        page.WaitForAssertion(() => page.Find(".dv-import-host").TextContent.Should().Be("tools.example.test"));
+        page.Find(".dv-import-server h3").TextContent.Should().Be("Names a tool server");
+        page.FindAll(".dv-import-server dt").Select(name => name.TextContent).Should().Equal(
+            "Called", "Full address", "How Drover proves who is calling", "Tools it suggests for the bot");
+        page.FindAll(".dv-import-server dd").Take(3).Select(value => value.TextContent).Should().Equal(
+            "Helpdesk", "https://tools.example.test/mcp", "A header named X-Api-Key. You type its value when you connect, and it is kept secret.");
+        page.FindAll(".dv-import-tools li").Select(tool => tool.TextContent).Should().Equal("lookup: Finds a ticket.", "reply");
+        page.Find(".dv-import-server .dv-import-hint").TextContent.Should().Be("Importing contacts nothing. You connect the server afterwards, and then choose which tools the bot gets.");
+        page.Find(".dv-import-server [role=status]").TextContent.Should().Contain("This address is on this server's own network, or is not https. You are asked again before it is connected.");
+        page.FindAll(".dv-import input[type=password]").Should().BeEmpty("no key is asked for before anything is imported");
+    }
+
+    [Fact]
+    public async Task Where_tool_connections_are_off_the_review_says_only_the_rest_is_added()
+    {
+        Listed();
+        Server.Answer("POST", $"{root}/preview", Preview with { Connection = ServerPreview with { Available = false } });
+        var page = Render<ExtensionsPage>();
+        await ReadSample(page);
+
+        page.WaitForAssertion(() => page.Find(".dv-import-server [role=status]").TextContent.Should().Contain(
+            "Tool connections are turned off on this server, so the tool server is not connected. Everything else in the file is added."));
+        page.Find(".dv-import [type=submit]").TextContent.Trim().Should().Be("Import, paused");
+    }
+
+    [Fact]
+    public async Task A_tool_server_is_connected_from_its_row_with_the_header_value_and_a_yes_to_a_local_address()
+    {
+        Listed(Installed with { Connection = ServerState with { IsLocal = true } });
+        Server.Answer("POST", $"{root}/{extensionId}/connection", Installed with { Connection = Connected });
+        var page = Render<ExtensionsPage>();
+        page.WaitForElement(".dv-extension-server");
+
+        page.Find(".dv-extension-server-title").TextContent.Should().Be("Tool server: Helpdesk");
+        page.Find(".dv-extension-server").GetAttribute("aria-labelledby").Should().Be(page.Find(".dv-extension-server-title").Id);
+        page.Find(".dv-extension-server-host").TextContent.Should().Be("tools.example.test");
+        page.Find(".dv-extension-server label.dv-field-label").TextContent.Should().Be("Value of X-Api-Key");
+        page.Find(".dv-extension-server [role=switch]").HasAttribute("checked").Should().BeFalse("the yes to a local address is the person's to give");
+        page.Find(".dv-extension-server .dv-switch-label").TextContent.Should().Be("Yes, connect to tools.example.test. It is on this server's own network, or is not https.");
+        await page.Find(".dv-extension-server input[type=password]").InputAsync(new ChangeEventArgs { Value = "sample-value" });
+        await page.Find(".dv-extension-server [role=switch]").ChangeAsync(new ChangeEventArgs { Value = true });
+        await page.Find(".dv-extension-server form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-server .dv-badge").TextContent.Should().Be("Connected"));
+        var sent = JsonSerializer.Deserialize<ConnectExtensionRequest>(Server.Sent("POST", $"{root}/{extensionId}/connection").Single(), JsonSerializerOptions.Web)!;
+        sent.Should().Be(new ConnectExtensionRequest(AcceptLocalAddress: true, HeaderValue: "sample-value"));
+        page.FindAll(".dv-extension-server input[type=password]").Should().BeEmpty("the value is gone from the screen once it is sent");
+        page.Find(".dv-extension-tools-legend").TextContent.Should().Be("Tools suggested for Sample scribe");
+        page.FindAll(".dv-extension-tool input").Select(box => (box.HasAttribute("checked"), box.HasAttribute("disabled"))).Should().Equal(
+            [(false, false), (false, true)],
+            "no tool is ticked for the person, and one the server does not list cannot be");
+        page.FindAll(".dv-extension-tool-text").Select(tool => Words(tool.TextContent)).Should().Equal(
+            "lookupFinds a ticket.", "replyThe server does not list this tool.");
+    }
+
+    [Fact]
+    public async Task A_connection_the_server_refuses_says_why_and_keeps_the_form()
+    {
+        Listed(Installed with { Connection = ServerState with { IsLocal = true } });
+        Server.Refuse("POST", $"{root}/{extensionId}/connection", HttpStatusCode.BadRequest, "This address is on this server's own network, or is not https. Tick the box to say you mean to connect to it.");
+        var page = Render<ExtensionsPage>();
+        page.WaitForElement(".dv-extension-server form");
+
+        await page.Find(".dv-extension-server form").SubmitAsync();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-server [role=alert]").TextContent.Should().Contain("Tick the box to say you mean to connect to it."));
+        page.FindAll(".dv-extension-server form").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task The_bot_gets_only_the_tools_the_person_ticks_and_each_asks_first()
+    {
+        var granted = Connected with { Tools = [new SuggestedToolState("lookup", "Finds a ticket.", toolId, "ask"), new SuggestedToolState("reply", string.Empty, null, "off")] };
+        Listed(Installed with { Connection = Connected });
+        Server.Answer("PUT", $"/api/spaces/{SpaceId}/bots/{botId}/tools/{toolId}", new BotToolEntry(toolId, "lookup", "Look up", "Sample description", "connection", null, "Helpdesk", "write", "ask", "allow", null, "available"));
+        var page = Render<ExtensionsPage>();
+        page.WaitForElement(".dv-extension-tools");
+        var give = page.Find(".dv-extension-server-actions .dv-button");
+
+        give.TextContent.Trim().Should().Be("Give Sample scribe the ticked tools, asking first");
+        give.HasAttribute("disabled").Should().BeTrue("there is nothing to give until a tool is ticked");
+        await page.FindAll(".dv-extension-tool input")[0].ChangeAsync(new ChangeEventArgs { Value = true });
+        Server.Answer("GET", root, new[] { Installed with { Connection = granted } });
+        await page.Find(".dv-extension-server-actions .dv-button").ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => page.FindAll(".dv-extension-tool-text").Select(tool => Words(tool.TextContent)).Should().Contain("lookupFinds a ticket.The bot has it, and asks first."));
+        Server.Sent("PUT", $"/api/spaces/{SpaceId}/bots/{botId}/tools/{toolId}").Should().ContainSingle().Which.Should().Contain("ask");
+        page.FindAll(".dv-extension-server-actions .dv-button").Should().BeEmpty("nothing is left that could be given");
+        page.Find(".dv-extension .dv-badge").TextContent.Should().Be("Paused", "giving tools does not turn the bot on");
+    }
+
+    [Fact]
+    public void A_member_sees_how_far_a_tool_server_has_come_and_is_given_nothing_to_press()
+    {
+        Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
+        Server.Answer("GET", root, new[] { Installed with { Connection = ServerState } });
+
+        var page = Render<ExtensionsPage>();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-server-hint").TextContent.Should().Be("Not connected yet. An owner or admin of the space can connect it."));
+        page.FindAll(".dv-extension-server form, .dv-extension-server .dv-button").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Where_tool_connections_are_off_the_row_says_so_and_offers_no_connect()
+    {
+        Listed(Installed with { Connection = ServerState with { Available = false } });
+
+        var page = Render<ExtensionsPage>();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-server-hint").TextContent.Should().Be("Tool connections are turned off on this server, so this tool server is not connected."));
+        page.FindAll(".dv-extension-server form").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_server_that_is_connected_and_not_answering_says_what_went_wrong()
+    {
+        Listed(Installed with { Connection = Connected with { Status = "failed", Problem = "Sample failure.", Auth = "oauth", HeaderName = null } });
+
+        var page = Render<ExtensionsPage>();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-server .dv-badge").TextContent.Should().Be("Not answering"));
+        page.FindAll(".dv-extension-server-hint").Select(hint => hint.TextContent).Should().Contain("Sample failure.");
+        page.Find(".dv-extension-server-link").Should().Match<AngleSharp.Dom.IElement>(link => link.TextContent == "Sign in on the Tools screen" && link.GetAttribute("href") == "/tools");
+    }
+
+    [Fact]
+    public void An_extension_that_only_names_a_tool_server_says_so_and_has_no_bot_to_turn_on()
+    {
+        Listed(Installed with { AddsBot = false, BotId = null, BotName = null, BotStatus = null, Connection = Connected });
+
+        var page = Render<ExtensionsPage>();
+
+        page.WaitForAssertion(() => page.Find(".dv-extension-adds").TextContent.Should().Be("Names the tool server Helpdesk."));
+        page.FindAll(".dv-extension-tools, .dv-extension-head .dv-button").Should().BeEmpty("there is no bot to give tools to or to turn on");
+    }
+
+    #endregion
+
     #region Helpers
+
+    private static readonly Guid toolId = Guid.Parse("0196f1a0-0000-7000-8000-000000000024");
+
+    private static ExtensionConnectionPreview ServerPreview { get; } =
+        new("Helpdesk", "https://tools.example.test/mcp", "tools.example.test", "header", "X-Api-Key", IsLocal: false, Available: true)
+        {
+            SuggestedTools = [new SuggestedTool("lookup", "Finds a ticket."), new SuggestedTool("reply")],
+        };
+
+    private static ExtensionConnectionSummary ServerState { get; } =
+        new("Helpdesk", "https://tools.example.test/mcp", "tools.example.test", "header", "X-Api-Key", IsLocal: false, Available: true)
+        {
+            Tools = [new SuggestedToolState("lookup", "Finds a ticket.", null, "off"), new SuggestedToolState("reply", string.Empty, null, "off")],
+        };
+
+    private static ExtensionConnectionSummary Connected { get; } = ServerState with
+    {
+        ConnectionId = Guid.Parse("0196f1a0-0000-7000-8000-000000000025"),
+        Status = "ready",
+        Tools = [new SuggestedToolState("lookup", "Finds a ticket.", toolId, "off"), new SuggestedToolState("reply", string.Empty, null, "off")],
+    };
+
+    private static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
 
     private void Listed(params ExtensionSummary[] extensions)
     {

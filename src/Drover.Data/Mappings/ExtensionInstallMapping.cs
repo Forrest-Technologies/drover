@@ -16,6 +16,7 @@ public sealed class ExtensionInstallMapping : IEntityTypeConfiguration<Extension
         builder.Property(install => install.Package).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
         builder.HasIndex(install => new { install.SpaceId, install.PackageId }).IsUnique();
         builder.WithinSpace<ExtensionInstall, Bot>(nameof(ExtensionInstall.BotId));
+        builder.WithinSpace<ExtensionInstall, ToolConnection>(nameof(ExtensionInstall.ToolConnectionId));
         builder.ReferencesUser(nameof(ExtensionInstall.InstalledByUserId));
     }
 

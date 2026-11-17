@@ -80,10 +80,58 @@
                 }
             }
 
+            @if (Preview is { AlreadyInstalled: false, Connection: { } connection })
+            {
+                <div class="dv-import-server">
+                    <h3 class="dv-import-label">Names a tool server</h3>
+                    <p class="dv-import-host dv-mono">@connection.Host</p>
+                    <dl class="dv-import-facts">
+                        <div>
+                            <dt>Called</dt>
+                            <dd>@connection.Name</dd>
+                        </div>
+                        <div>
+                            <dt>Full address</dt>
+                            <dd class="dv-mono">@connection.Url</dd>
+                        </div>
+                        <div>
+                            <dt>How Drover proves who is calling</dt>
+                            <dd>@ExtensionWords.Auth(connection.Auth, connection.HeaderName)</dd>
+                        </div>
+                        @if (connection.SuggestedTools.Count > 0)
+                        {
+                            <div>
+                                <dt>Tools it suggests for the bot</dt>
+                                <dd>
+                                    <ul class="dv-import-tools">
+                                        @foreach (var tool in connection.SuggestedTools)
+                                        {
+                                            <li @key="tool.Name"><span class="dv-mono">@tool.Name</span>@(string.IsNullOrWhiteSpace(tool.Why) ? null : $": {tool.Why}")</li>
+                                        }
+                                    </ul>
+                                </dd>
+                            </div>
+                        }
+                    </dl>
+                    @if (!connection.Available)
+                    {
+                        <StatusNote Kind="NoteKind.Info" Text="Tool connections are turned off on this server, so the tool server is not connected. Everything else in the file is added." />
+                    }
+                    else
+                    {
+                        <p class="dv-import-hint">Importing contacts nothing. You connect the server afterwards, and then choose which tools the bot gets.</p>
+                        @if (connection.IsLocal)
+                        {
+                            <StatusNote Kind="NoteKind.Info" Text="This address is on this server's own network, or is not https. You are asked again before it is connected." />
+                        }
+                    }
+                </div>
+            }
+
             <StatusNote Kind="NoteKind.Danger" Text="@Problem" />
             <div class="dv-import-actions">
                 <Button OnClick="() => OnCancel.InvokeAsync()" Disabled="Busy">Cancel</Button>
-                @if (Preview is { AlreadyInstalled: false, Bot.Model: not null })
+                @if (Preview is { AlreadyInstalled: false } && Preview.Bot is null or { Model: not null })
                 {
                     <Button Kind="ButtonKind.Primary" Type="submit" Disabled="Busy">@(Busy ? "Importing" : "Import, paused")</Button>
                 }

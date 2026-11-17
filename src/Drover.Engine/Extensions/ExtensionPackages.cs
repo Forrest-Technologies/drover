@@ -19,7 +19,17 @@ public static partial class ExtensionPackages
     /// <summary>The most bytes of an extension file. A bot's instructions are the largest thing in one.</summary>
     public const int MaxPackageBytes = 256 * 1024;
 
-    private static readonly string[] knownKinds = [BotTemplate.Kind];
+    private const int MaxSuggestedTools = 50;
+
+    private const int MaxToolNameLength = 200;
+
+    private const int MaxReasonLength = 500;
+
+    private static readonly string[] knownKinds = [BotTemplate.Kind, ConnectionRecipe.Kind];
+
+    private static readonly string[] privateSuffixes = [".local", ".localhost", ".internal", ".lan", ".home.arpa"];
+
+    private static readonly string[] knownAuth = ["none", "header", "oauth"];
 
     private static readonly JsonSerializerOptions strict = new(JsonSerializerDefaults.Web)
     {
@@ -99,6 +109,18 @@ public static partial class ExtensionPackages
         return (shown.ToString(), hidden);
     }
 
+    /// <summary>
+    /// True when the address is on the server's own machine or network, or is not https: a loopback or private
+    /// address, a name with no dot in it, or a name under a suffix kept for private use. Connecting to one from a
+    /// file needs a person's explicit yes, because a file must not quietly aim a server at its own network.
+    /// </summary>
+    public static bool IsLocal(Uri address) =>
+        address.Scheme is not "https"
+        || address.IsLoopback
+        || !address.Host.Contains('.', StringComparison.Ordinal)
+        || privateSuffixes.Any(suffix => address.Host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+        || (IPAddress.TryParse(address.Host.Trim('[', ']'), out var literal) && PrivateAddresses.Contains(literal));
+
     #endregion
 
     #region Validation
@@ -168,12 +190,42 @@ public static partial class ExtensionPackages
         }
 
         var bots = package.Contents.OfType<BotTemplate>().ToList();
+        var connections = package.Contents.OfType<ConnectionRecipe>().ToList();
 
         return package.Contents.Count == 0 ? "This extension adds nothing: it has no contents."
             : bots.Count > 1 ? "An extension adds one bot at most. This one holds more."
-            : bots.Count == 1 ? FindProblem(bots[0])
-            : null;
+            : connections.Count > 1 ? "An extension names one tool server at most. This one names more."
+            : bots.Select(FindProblem).Concat(connections.Select(FindProblem)).FirstOrDefault(problem => problem is not null);
     }
+
+    private static string? FindProblem(ConnectionRecipe connection)
+    {
+        if (ToolConnectionService.FindAddressProblem(connection.Name, connection.Url) is not null)
+        {
+            return $"The tool server in this extension needs a name of up to {ToolConnectionService.MaxNameLength} characters and a web address that starts with https:// or http://, with no user name, password, \"?\" or \"#\" in it.";
+        }
+
+        if (!knownAuth.Contains(connection.Auth, StringComparer.Ordinal))
+        {
+            return "The tool server in this extension must say how Drover proves who is calling: none, header, or oauth.";
+        }
+
+        if (connection.Auth is "header" != connection.HeaderName is not null
+            || (connection.HeaderName is not null && ToolConnectionService.FindHeaderNameProblem(connection.HeaderName) is not null))
+        {
+            return "The tool server in this extension must name its header, such as Authorization or X-Api-Key, when it uses one, and only then.";
+        }
+
+        return FindProblem(connection.SuggestedTools);
+    }
+
+    private static string? FindProblem(IReadOnlyList<SuggestedTool> tools) =>
+        tools.Count > MaxSuggestedTools ? $"An extension suggests {MaxSuggestedTools} tools at most."
+        : tools.Any(tool => string.IsNullOrWhiteSpace(tool.Name) || tool.Name.Length > MaxToolNameLength || tool.Name.Any(char.IsControl))
+            ? $"Each suggested tool needs the tool's name, up to {MaxToolNameLength} characters."
+        : tools.Any(tool => tool.Why.Length > MaxReasonLength) ? $"The reason for a suggested tool must be under {MaxReasonLength} characters."
+        : tools.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count() != tools.Count ? "An extension suggests each tool once."
+        : null;
 
     private static string? FindProblem(BotTemplate bot) =>
         string.IsNullOrWhiteSpace(bot.Name) || bot.Name.Trim().Length > BotService.MaxNameLength ? $"The bot in this extension needs a name of up to {BotService.MaxNameLength} characters."

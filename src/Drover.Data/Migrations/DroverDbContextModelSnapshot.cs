@@ -638,6 +638,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
 
+                    b.Property<Guid?>("ToolConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tool_connection_id");
+
                     b.HasKey("Id")
                         .HasName("pk_extension_installs");
 
@@ -650,6 +654,9 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "PackageId")
                         .IsUnique()
                         .HasDatabaseName("ix_extension_installs_space_id_package_id");
+
+                    b.HasIndex("SpaceId", "ToolConnectionId")
+                        .HasDatabaseName("ix_extension_installs_space_id_tool_connection_id");
 
                     b.ToTable("extension_installs", (string)null);
                 });
@@ -2488,6 +2495,13 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_extension_installs_bots_space_id_bot_id");
+
+                    b.HasOne("Drover.Domain.Tools.ToolConnection", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "ToolConnectionId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_extension_installs_tool_connections_space_id_tool_connectio");
                 });
 
             modelBuilder.Entity("Drover.Domain.Files.StoredFile", b =>

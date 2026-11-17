@@ -64,3 +64,15 @@
   outline: var(--dv-focus-width) solid var(--dv-ember);
   outline-offset: var(--dv-focus-offset);
 }
+
+.dv-extension-editor-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+}
+
+.dv-extension-editor-label {
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}

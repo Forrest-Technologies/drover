@@ -36,8 +36,9 @@ public sealed class ExtensionEditorTests : ScreenTest
         page.Find("[role=tablist]").GetAttribute("aria-label").Should().Be("How the extension is shown");
         page.Find("[role=tab][aria-selected=true]").TextContent.Trim().Should().Be("Form");
         page.FindAll(".dv-extension-editor label").Select(label => label.TextContent.Trim()).Should().Equal(
-            "Extension name", "Id", "What the extension is for", "Bot name", "What the bot is for", "Instructions", "Suggested model");
-        page.Find(".dv-extension-editor-part").TextContent.Should().Be("The bot it adds");
+            "Extension name", "Id", "What the extension is for", "Adds a bot", "Bot name", "What the bot is for", "Instructions", "Suggested model", "Names a tool server");
+        page.FindAll(".dv-extension-editor-part").Select(part => part.TextContent).Should().Equal("The bot it adds", "The tool server it names");
+        page.FindAll("[role=switch]").Select(toggle => toggle.HasAttribute("checked")).Should().Equal([true, false], "an extension adds a bot and names no tool server until the person says so");
         page.FindAll(".dv-extension-editor-actions .dv-button").Select(button => button.TextContent.Trim()).Should().Equal(
             "Check the file", "Copy its text", "Import into this space");
         page.Find(".dv-extension-editor-download").Should().Match<AngleSharp.Dom.IElement>(
@@ -166,6 +167,90 @@ public sealed class ExtensionEditorTests : ScreenTest
         page.WaitForAssertion(() => page.Find(".dv-extension-editor [role=alert]").TextContent.Should().Contain("The trouble is at $.grants."));
         page.Find("[role=tab][aria-selected=true]").TextContent.Trim().Should().Be("JSON");
         Value(page, "The file as text").Should().Be("sample broken text");
+    }
+
+    #endregion
+
+    #region Tool Server
+
+    [Fact]
+    public async Task Naming_a_tool_server_adds_its_fields_and_writes_it_into_the_file_with_no_field_for_a_key()
+    {
+        SignedIn();
+        var page = Render<ExtensionEditor>();
+        page.WaitForElement(".dv-extension-editor");
+        await Type(page, "Extension name", "Sample helpdesk");
+        await Type(page, "Bot name", "Sample scribe");
+
+        await page.FindAll("[role=switch]")[1].ChangeAsync(new ChangeEventArgs { Value = true });
+        await Type(page, "Server name", "Helpdesk");
+        await Type(page, "Server address", "https://tools.example.test/mcp");
+        var beforeHeader = page.FindAll(".dv-extension-editor label").Select(label => label.TextContent.Trim()).ToList();
+        await page.FindAll(".dv-segment-input")[1].ChangeAsync(new ChangeEventArgs { Value = "on" });
+        await Type(page, "Header name", "X-Api-Key");
+        await Type(page, "Tools to suggest for the bot", "lookup: Finds a ticket.\n\nreply\n");
+        await page.FindAll("[role=tab]")[1].ClickAsync(new MouseEventArgs());
+
+        var server = JsonSerializer.Deserialize<JsonElement>(Value(page, "The file as text")!).GetProperty("contents")[1];
+        beforeHeader.Should().NotContain("Header name", "a header's name is asked for only when the server uses a header");
+        server.EnumerateObject().Select(field => field.Name).Should().Equal("kind", "name", "url", "auth", "headerName", "suggestedTools");
+        server.GetProperty("kind").GetString().Should().Be("mcp_connection");
+        server.GetProperty("url").GetString().Should().Be("https://tools.example.test/mcp");
+        server.GetProperty("auth").GetString().Should().Be("header");
+        server.GetProperty("headerName").GetString().Should().Be("X-Api-Key");
+        server.GetProperty("suggestedTools").EnumerateArray().Select(tool => (tool.GetProperty("name").GetString(), tool.GetProperty("why").GetString()))
+            .Should().Equal(("lookup", "Finds a ticket."), ("reply", string.Empty));
+    }
+
+    [Fact]
+    public async Task An_extension_that_only_names_a_tool_server_leaves_the_bot_out_of_the_file()
+    {
+        SignedIn();
+        var page = Render<ExtensionEditor>();
+        page.WaitForElement(".dv-extension-editor");
+        await Type(page, "Extension name", "Sample helpdesk");
+
+        await page.FindAll("[role=switch]")[0].ChangeAsync(new ChangeEventArgs { Value = false });
+        await page.FindAll("[role=switch]")[1].ChangeAsync(new ChangeEventArgs { Value = true });
+        await Type(page, "Server name", "Helpdesk");
+        await Type(page, "Server address", "https://tools.example.test/mcp");
+        var labels = page.FindAll(".dv-extension-editor label").Select(label => label.TextContent.Trim()).ToList();
+        await page.FindAll("[role=tab]")[1].ClickAsync(new MouseEventArgs());
+
+        var contents = JsonSerializer.Deserialize<JsonElement>(Value(page, "The file as text")!).GetProperty("contents");
+        labels.Should().NotContain("Bot name");
+        contents.GetArrayLength().Should().Be(1);
+        contents[0].GetProperty("kind").GetString().Should().Be("mcp_connection");
+        contents[0].TryGetProperty("headerName", out _).Should().BeFalse("a server that uses no header names none");
+    }
+
+    [Fact]
+    public async Task Text_that_names_a_tool_server_fills_its_fields_in_the_form()
+    {
+        SignedIn();
+        Server.Answer("POST", $"{root}/read", Package with
+        {
+            Contents =
+            [
+                new ConnectionRecipe("Helpdesk", "https://tools.example.test/mcp")
+                {
+                    Auth = "oauth",
+                    SuggestedTools = [new SuggestedTool("lookup", "Finds a ticket."), new SuggestedTool("reply")],
+                },
+            ],
+        });
+        var page = Render<ExtensionEditor>();
+        page.WaitForElement(".dv-extension-editor");
+        await page.FindAll("[role=tab]")[1].ClickAsync(new MouseEventArgs());
+        await Type(page, "The file as text", "sample edited text");
+
+        await page.FindAll("[role=tab]")[0].ClickAsync(new MouseEventArgs());
+
+        page.WaitForAssertion(() => Value(page, "Server name").Should().Be("Helpdesk"));
+        page.FindAll("[role=switch]").Select(toggle => toggle.HasAttribute("checked")).Should().Equal([false, true]);
+        Value(page, "Server address").Should().Be("https://tools.example.test/mcp");
+        page.FindAll(".dv-segment-input")[2].HasAttribute("checked").Should().BeTrue("a sign-in is the way this server is called");
+        Value(page, "Tools to suggest for the bot").Should().Be("lookup: Finds a ticket.\nreply");
     }
 
     #endregion
