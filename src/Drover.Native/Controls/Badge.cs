@@ -19,10 +19,11 @@ public sealed class Badge : Grid
     public Badge()
     {
         HorizontalAlignment = HorizontalAlignment.Left;
+        VerticalAlignment = VerticalAlignment.Center;
         pill.Child = words;
         pill.Padding = new(Tokens.Number("DvSpace2"), 0, Tokens.Number("DvSpace2"), 0);
         pill.BorderThickness = new(Tokens.Number("DvBorder"));
-        pill.CornerRadius = new(Tokens.Number("DvRadiusFull"));
+        Pill.Round(pill);
         Children.Add(pill);
         this.WhenShownOrRethemed(Paint);
     }

@@ -105,7 +105,7 @@ public sealed class SegmentedControl : Grid
                 Ink = chosen ? "DvText" : "DvText2",
                 HoverInk = chosen ? "DvText" : "DvText2",
                 RingInside = true,
-                Radius = "DvBorder",
+                Radius = null,
                 IsEnabled = !Disabled && !option.Disabled,
                 IsTabStop = option == tabStop,
                 FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[chosen ? "DvWeightHeading" : "DvWeightLabel"],

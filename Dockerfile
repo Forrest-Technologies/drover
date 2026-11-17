@@ -28,6 +28,7 @@ COPY src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.cspro
 COPY src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj src/Drover.Adapters.Venice/
 COPY src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj src/Drover.Adapters.WebPush/
 COPY src/Drover.Client/Drover.Client.csproj src/Drover.Client/
+COPY src/Drover.Presentation/Drover.Presentation.csproj src/Drover.Presentation/
 COPY src/Drover.Ui/Drover.Ui.csproj src/Drover.Ui/
 COPY src/Drover.Web/Drover.Web.csproj src/Drover.Web/
 COPY src/Drover.Server/Drover.Server.csproj src/Drover.Server/

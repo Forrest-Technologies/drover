@@ -43,7 +43,7 @@ internal sealed class NavLink : PlainButton
             cell.Children.Add(column);
             cell.Children.Add(mark);
             Content = cell;
-            (HoverFill, Radius, RingInside) = (null, "DvBorder", true);
+            (HoverFill, Radius, RingInside) = (null, null, true);
             MinHeight = Tokens.Number("DvTargetTouch") + Tokens.Number("DvSpace3");
             Padding = new(0);
             FontSize = Tokens.Number("DvText12");

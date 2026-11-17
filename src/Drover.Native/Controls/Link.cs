@@ -10,7 +10,7 @@ public sealed class Link : PlainButton
 
     public Link()
     {
-        (Ink, HoverInk, HoverFill, Radius) = ("DvEmber", "DvEmber", null, "DvBorder");
+        (Ink, HoverInk, HoverFill, Radius) = ("DvEmber", "DvEmber", null, null);
         MinHeight = 0;
         Padding = new(0);
         HorizontalAlignment = HorizontalAlignment.Left;

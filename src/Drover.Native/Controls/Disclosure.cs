@@ -11,7 +11,7 @@ public sealed class Disclosure : Grid
 
     private readonly Facet frame = new();
 
-    private readonly PlainButton toggle = new() { HoverFill = "DvBg2", RingInside = true, Radius = "DvBorder" };
+    private readonly PlainButton toggle = new() { HoverFill = "DvBg2", RingInside = true, Radius = null };
 
     private readonly TextBlock title = Styles.Text(null);
 
@@ -23,6 +23,8 @@ public sealed class Disclosure : Grid
 
     private readonly ContentPresenter body = new();
 
+    private readonly TravelLine travel = new();
+
     #endregion
 
     #region Constructors
@@ -32,9 +34,10 @@ public sealed class Disclosure : Grid
         title.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"];
         AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level2);
 
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+        var titleRow = new FlowPanel { Gap = Tokens.Number("DvSpace2") };
         titleRow.Children.Add(title);
         titleRow.Children.Add(status);
+        summary.TextWrapping = TextWrapping.Wrap;
         var words = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
         words.Children.Add(titleRow);
         words.Children.Add(summary);
@@ -59,6 +62,7 @@ public sealed class Disclosure : Grid
         SetRow(body, 1);
         frame.Children.Add(toggle);
         frame.Children.Add(body);
+        frame.Children.Add(travel);
         Children.Add(frame);
         Show();
         this.WhenShownOrRethemed(Show);
@@ -75,6 +79,9 @@ public sealed class Disclosure : Grid
     public static readonly DependencyProperty StatusProperty = Dp.Register<Disclosure, object?>(nameof(Status), null, section => section.Show());
 
     public static readonly DependencyProperty EdgeProperty = Dp.Register<Disclosure, string?>(nameof(Edge), null, section => section.Show());
+
+    public static readonly DependencyProperty RunningProperty =
+        Dp.Register<Disclosure, bool>(nameof(Running), false, section => section.travel.IsRunning = section.Running);
 
     public static readonly DependencyProperty OpenProperty = Dp.Register<Disclosure, bool>(nameof(Open), false, section => section.Show());
 
@@ -106,6 +113,13 @@ public sealed class Disclosure : Grid
     {
         get => (string?)GetValue(EdgeProperty);
         set => SetValue(EdgeProperty, value);
+    }
+
+    /// <summary>True while a tool the section is about runs: the line of a running tool travels its top edge.</summary>
+    public bool Running
+    {
+        get => (bool)GetValue(RunningProperty);
+        set => SetValue(RunningProperty, value);
     }
 
     /// <summary>Whether the section is open. It can be bound both ways.</summary>

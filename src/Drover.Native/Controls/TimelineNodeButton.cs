@@ -60,13 +60,13 @@ internal sealed class TimelineNodeButton : Pressable
         }
         else if (happening is { State: TimelineState.Live, Kind: TimelineKind.Step, Writing: false })
         {
-            var breath = new Border { Height = Tokens.Number("DvFocusWidth"), VerticalAlignment = VerticalAlignment.Top, Margin = lift };
-            breath.Loaded += (_, _) =>
+            var breath = new LiveLight
             {
-                breath.Background = Tokens.Brush(this, "DvIon");
-                Motion.Breathe(breath);
+                State = LiveState.Thinking,
+                Height = Tokens.Number("DvFocusWidth"),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = lift,
             };
-            breath.Unloaded += (_, _) => Motion.Rest(breath);
             layers.Children.Add(breath);
         }
     }

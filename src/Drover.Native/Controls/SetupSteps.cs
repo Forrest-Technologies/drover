@@ -25,7 +25,8 @@ public sealed class SetupSteps : StackPanel
         foreach (var _ in names)
         {
             bars.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-            var bar = new Border { Height = Tokens.Number("DvFocusWidth"), CornerRadius = new(Tokens.Number("DvRadiusFull")) };
+            var bar = new Border { Height = Tokens.Number("DvFocusWidth") };
+            Pill.Round(bar);
             Grid.SetColumn(bar, bars.Children.Count);
             bars.Children.Add(bar);
         }

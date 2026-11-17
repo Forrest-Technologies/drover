@@ -35,12 +35,12 @@ public sealed class Switch : ToggleButton
 
         track.Width = Tokens.Number("DvSwitchWidth");
         track.Height = Tokens.Number("DvSwitchHeight");
-        track.CornerRadius = new(Tokens.Number("DvRadiusFull"));
+        Pill.Round(track);
         track.BorderThickness = new(Tokens.Number("DvBorder"));
         track.Padding = new(Tokens.Number("DvFocusWidth"), 0, Tokens.Number("DvFocusWidth"), 0);
         track.VerticalAlignment = VerticalAlignment.Center;
         thumb.Width = thumb.Height = Tokens.Number("DvSwitchThumb");
-        thumb.CornerRadius = new(Tokens.Number("DvRadiusFull"));
+        Pill.Round(thumb);
         thumb.RenderTransform = slide;
         track.Child = thumb;
         words.VerticalAlignment = VerticalAlignment.Center;
@@ -127,7 +127,7 @@ public sealed class Switch : ToggleButton
         // The ring goes around the drawn switch, two wide with a gap of two, and only for the keyboard.
         var ringed = (Border)((StackPanel)Content).Children[0];
         ringed.BorderThickness = new(0);
-        ringed.CornerRadius = new(Tokens.Number("DvRadiusFull"));
+        ringed.CornerRadius = new(ringed.ActualHeight / 2);
         ringed.Padding = new(Tokens.Number("DvFocusOffset"));
         ringed.BorderBrush = Tokens.Brush(this, "DvEmber");
         ringed.BorderThickness = new(hasKeyboardFocus ? Tokens.Number("DvFocusWidth") : 0);

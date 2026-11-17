@@ -177,20 +177,23 @@ public sealed class MarkdownView : StackPanel
         return marker;
     }
 
-    // The checkbox of a task list item: a small box, ticked when done, named in words. It cannot be changed.
+    // The checkbox of a task list item: a small box, filled and ticked when done, named in words. It cannot be
+    // changed, so it is not a control.
     private Border TaskMark(TaskNode task)
     {
-        var size = Tokens.Number("DvIcon16");
+        var size = Tokens.Number("DvText13");
         var box = new Border
         {
             Width = size,
             Height = size,
-            BorderThickness = new(Tokens.Number("DvBorder")),
-            BorderBrush = Tokens.Brush(this, "DvText2"),
+            CornerRadius = new(Tokens.Number("DvFocusWidth")),
+            BorderThickness = new(task.Done ? 0 : Tokens.Number("DvBorder")),
+            BorderBrush = Tokens.Brush(this, "DvText3"),
+            Background = Tokens.Brush(this, task.Done ? "DvText2" : "DvBg3"),
             VerticalAlignment = VerticalAlignment.Top,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new(0, ((Tokens.Number("DvText14") * Tokens.Number("DvLeadingText")) - size) / 2, 0, 0),
-            Child = task.Done ? new Icon { NameOfIcon = IconName.Check, Foreground = Tokens.Brush(this, "DvText2") } : null,
+            Child = task.Done ? new Icon { NameOfIcon = IconName.Check, Width = size, Height = size, Foreground = Tokens.Brush(this, "DvBg0") } : null,
         };
         AutomationProperties.SetName(box, task.Done ? "Done" : "Not done");
         return box;
@@ -283,7 +286,45 @@ public sealed class MarkdownView : StackPanel
         }
 
         AddInlines(paragraph.Inlines, children, new(false, false, false, false));
+        MarkMachineText(paragraph);
         return paragraph;
+    }
+
+    // Inline code sits on the card surface, so what the machine said looks different from what was said.
+    private void MarkMachineText(TextBlock paragraph)
+    {
+        var surface = new Microsoft.UI.Xaml.Documents.TextHighlighter { Background = Tokens.Brush(this, "DvBg2") };
+        var position = 0;
+        Walk(paragraph.Inlines);
+
+        if (surface.Ranges.Count > 0)
+        {
+            paragraph.TextHighlighters.Add(surface);
+        }
+
+        void Walk(Microsoft.UI.Xaml.Documents.InlineCollection inlines)
+        {
+            foreach (var inline in inlines)
+            {
+                switch (inline)
+                {
+                    case Microsoft.UI.Xaml.Documents.Run run:
+                        if (ReferenceEquals(run.FontFamily, Tokens.FontMono))
+                        {
+                            surface.Ranges.Add(new() { StartIndex = position, Length = run.Text.Length });
+                        }
+
+                        position += run.Text.Length;
+                        break;
+                    case Microsoft.UI.Xaml.Documents.LineBreak:
+                        position++;
+                        break;
+                    case Microsoft.UI.Xaml.Documents.Span span:
+                        Walk(span.Inlines);
+                        break;
+                }
+            }
+        }
     }
 
     private void AddInlines(Microsoft.UI.Xaml.Documents.InlineCollection target, IReadOnlyList<MarkdownNode> children, InlineStyle style)

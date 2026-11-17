@@ -32,8 +32,8 @@ public class PlainButton : Pressable
 
     public string DisabledInk { get; set; } = "DvText3";
 
-    /// <summary>The corner radius, as a token name.</summary>
-    public string Radius { get; set; } = "DvRadiusControl";
+    /// <summary>The corner radius, as a token name. Square corners when null.</summary>
+    public string? Radius { get; set; } = "DvRadiusControl";
 
     /// <summary>A line two wide under the control, as a token name: the mark of the showing tab. None when null.</summary>
     public string? Underline { get; set; }
@@ -58,7 +58,7 @@ public class PlainButton : Pressable
         frame.Background = fill is null ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : Tokens.Brush(this, fill);
         frame.BorderBrush = Line is null ? null : Tokens.Brush(this, Line);
         frame.BorderThickness = new(Line is null ? 0 : Tokens.Number("DvBorder"));
-        frame.CornerRadius = new(Tokens.Number(Radius));
+        frame.CornerRadius = new(Radius is null ? 0 : Tokens.Number(Radius));
 
         if (Line is null)
         {
@@ -68,6 +68,7 @@ public class PlainButton : Pressable
         }
 
         Foreground = CurrentInk;
+        InkParts(Content);
 
         // The platform draws the ring only when the keyboard moved the focus, which is the rule.
         UseSystemFocusVisuals = true;
@@ -75,7 +76,32 @@ public class PlainButton : Pressable
         FocusVisualPrimaryThickness = new(focus);
         FocusVisualSecondaryThickness = new(0);
         FocusVisualMargin = new(-offset);
+
+        // The ring follows the control's corners, as an outline does on the web.
+        CornerRadius = new(Radius is null ? 0 : Tokens.Number(Radius) + offset);
         Painted();
+    }
+
+    // Words and icons put in the control as elements take its color. A line of text that brings its own style
+    // keeps it.
+    private void InkParts(object? content)
+    {
+        switch (content)
+        {
+            case TextBlock { Style: null } words:
+                words.Foreground = CurrentInk;
+                break;
+            case Icon icon:
+                icon.Foreground = CurrentInk;
+                break;
+            case Panel panel:
+                foreach (var child in panel.Children)
+                {
+                    InkParts(child);
+                }
+
+                break;
+        }
     }
 
     /// <summary>For a control with parts of its own to recolor, such as an icon.</summary>

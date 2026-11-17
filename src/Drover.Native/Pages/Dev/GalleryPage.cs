@@ -117,8 +117,8 @@ public sealed class GalleryPage : Screen
         ]),
         new("Field", null, () =>
         [
-            new Field { Label = "Base address", Placeholder = "https://", Hint = "Where the model answers.", MinWidth = Tokens.Number("DvMenuWidth") },
-            new Field { Label = "Key", Type = "password", Value = "sample", Error = "The key was rejected. Check it and try again." },
+            new Field { Label = "Base address", Placeholder = "https://", Hint = "Where the model answers.", MinWidth = Tokens.Number("DvTooltipWidth") },
+            new Field { Label = "Key", Type = "password", Value = "sample", Error = "The key was rejected. Check it and try again.", MinWidth = Tokens.Number("DvTooltipWidth") },
             new TextArea { Label = "Instructions", Placeholder = "What this sample bot is for.", Hint = "A sample hint.", MinWidth = Tokens.Number("DvTooltipWidth") },
         ]),
         new("Select, switch, segmented control", null, () =>
@@ -216,17 +216,12 @@ public sealed class GalleryPage : Screen
 
     private static IEnumerable<UIElement> LiveStates()
     {
-        var dot = new Border { Width = Tokens.Number("DvSpace3"), Height = Tokens.Number("DvSpace3"), CornerRadius = new(Tokens.Number("DvRadiusFull")) };
-        dot.WhenShownOrRethemed(() =>
-        {
-            dot.Background = Tokens.Brush(dot, "DvIon");
-            Motion.Breathe(dot);
-        });
+        var dot = new LiveLight { State = LiveState.Thinking, Round = true, Width = Tokens.Number("DvSpace3"), Height = Tokens.Number("DvSpace3") };
 
         var arriving = Styles.Text("Text arrives");
         arriving.Loaded += (_, _) => Motion.Arrive(arriving);
 
-        var card = new Grid { MinWidth = Tokens.Number("DvMenuWidth") };
+        var card = new Grid();
         var cardText = new StackPanel { Spacing = Tokens.Number("DvSpace1"), Padding = new(Tokens.Number("DvSpace3")) };
         cardText.Children.Add(Styles.Text("sample_tool", "DvTextCode"));
         cardText.Children.Add(Styles.Text("Running a tool"));
@@ -239,12 +234,7 @@ public sealed class GalleryPage : Screen
         card.Children.Add(cardBox);
         card.Children.Add(new TravelLine { IsRunning = true });
 
-        var line = new Border { Width = Tokens.Number("DvSpace7"), Height = Tokens.Number("DvFocusWidth"), VerticalAlignment = VerticalAlignment.Center };
-        line.WhenShownOrRethemed(() =>
-        {
-            line.Background = Tokens.Brush(line, "DvViolet");
-            Motion.Pulse(line);
-        });
+        var line = new LiveLight { State = LiveState.Passing, Width = Tokens.Number("DvSpace7"), Height = Tokens.Number("DvFocusWidth") };
 
         return [Row(dot, "Thinking"), arriving, card, Row(line, "Work passes between bots")];
     }

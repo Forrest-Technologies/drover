@@ -11,6 +11,8 @@ internal static class ShapePainter
 
     public static Rgb ToRgb(this Color color) => new(color.R, color.G, color.B);
 
+    public static Color ToColor(this Rgb color) => Color.FromArgb(byte.MaxValue, color.Red, color.Green, color.Blue);
+
     /// <summary>The outline of one shape, as a path that can be filled, stroked, or clipped to.</summary>
     public static SKPath Outline(SvgShape shape) => SKPath.ParseSvgPathData(shape.PathData);
 

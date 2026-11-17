@@ -54,7 +54,7 @@
       <Color x:Key="DvVisorLit">#67E8F9</Color>
       <Color x:Key="DvVisorFailed">#FFB3B3</Color>
       <!-- The dot of the yard: the line color at 70 percent. -->
-      <Color x:Key="DvYardDot">#B2263042</Color>
+      <Color x:Key="DvYardDot">#B3263042</Color>
       <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
       <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
       <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />
@@ -148,7 +148,7 @@
       <Color x:Key="DvVisorLit">#67E8F9</Color>
       <Color x:Key="DvVisorFailed">#FFB3B3</Color>
       <!-- The dot of the yard: the line color at 70 percent. -->
-      <Color x:Key="DvYardDot">#B2263042</Color>
+      <Color x:Key="DvYardDot">#B3263042</Color>
       <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
       <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
       <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />
@@ -241,7 +241,7 @@
       <Color x:Key="DvVisorLit">#67E8F9</Color>
       <Color x:Key="DvVisorFailed">#FFB3B3</Color>
       <!-- The dot of the yard: the line color at 70 percent. -->
-      <Color x:Key="DvYardDot">#B2D5DAE3</Color>
+      <Color x:Key="DvYardDot">#B3D5DAE3</Color>
       <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
       <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
       <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />

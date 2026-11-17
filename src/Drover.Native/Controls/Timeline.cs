@@ -156,7 +156,7 @@ public sealed class Timeline : StackPanel
             {
                 Title = Timelines.Sentence(Model, node),
                 Summary = node.Event.Summary,
-                Edge = EdgeOf(node, isOpen: false),
+                Running = node.Event is { State: TimelineState.Live, Kind: TimelineKind.Tool },
                 Open = opened == node.Event.Id,
             };
             section.Body = section.Open ? Detail?.Invoke(node) : null;
@@ -198,7 +198,7 @@ public sealed class Timeline : StackPanel
             if (node.BranchLane is { } branch)
             {
                 var (from, to) = (Math.Min(node.Lane, branch), Math.Max(node.Lane, branch));
-                Place(grid, Branch(node), from, row, columnSpan: to - from + 1);
+                Place(grid, Branch(node), from, row, columnSpan: Math.Max(1, to - from));
             }
 
             var button = Node(node, isTabStop: node.Event.Id == selectedId);
@@ -264,28 +264,30 @@ public sealed class Timeline : StackPanel
             Width = Tokens.Number("DvBorder"),
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new(Tokens.Number("DvSpace3"), 0, 0, 0),
-            Background = new SolidColorBrush(Color.FromArgb(255, mixed.Red, mixed.Green, mixed.Blue)),
+            Background = new SolidColorBrush(mixed.ToColor()),
         };
     }
 
     // Work handed across: a violet line from the node that asked to the rail of the lane that got the work. Work
     // that is still out pulses once along it, when it is handed over.
-    private Border Branch(TimelineNode node)
+    private FrameworkElement Branch(TimelineNode node)
     {
-        var line = new Border
-        {
-            Height = Tokens.Number("DvBorder"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new(Tokens.Number("DvSpace3"), 0, 0, 0),
-            Background = Tokens.Brush(this, "DvViolet"),
-        };
+        // It spans the columns up to the lane that got the work, then reaches over the gap and the rail's inset.
+        var reach = new Thickness(Tokens.Number("DvSpace3"), 0, -2 * Tokens.Number("DvSpace3"), 0);
+        var height = Tokens.Number("DvBorder");
 
         if (node.Event is { Kind: TimelineKind.Delegation, State: TimelineState.Live })
         {
-            line.Loaded += (_, _) => Motion.Pulse(line);
+            return new LiveLight { State = LiveState.Passing, Height = height, VerticalAlignment = VerticalAlignment.Center, Margin = reach };
         }
 
-        return line;
+        return new Border
+        {
+            Height = height,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = reach,
+            Background = Tokens.Brush(this, "DvViolet"),
+        };
     }
 
     private TimelineNodeButton Node(TimelineNode node, bool isTabStop)

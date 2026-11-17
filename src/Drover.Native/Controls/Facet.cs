@@ -15,6 +15,8 @@ public sealed class Facet : Grid
 
     private readonly Polygon ring = new() { IsHitTestVisible = false, Visibility = Visibility.Collapsed };
 
+    private readonly Canvas backdrop = new();
+
     #endregion
 
     #region Constructors
@@ -23,7 +25,6 @@ public sealed class Facet : Grid
     {
         // The shapes sit on a canvas, which asks for no room of its own: the frame takes its size from what is
         // put in it, and the shapes follow that size, never the other way round.
-        var backdrop = new Canvas();
         backdrop.Children.Add(surface);
         backdrop.Children.Add(ring);
         SetRowSpan(backdrop, EveryCell);
@@ -82,6 +83,9 @@ public sealed class Facet : Grid
     {
         var border = Tokens.Number("DvBorder");
         var focus = Tokens.Number("DvFocusWidth");
+
+        // The frame's padding is for what is put in it. The surface reaches the frame's own edge.
+        backdrop.Margin = new(-Padding.Left, -Padding.Top, -Padding.Right, -Padding.Bottom);
 
         surface.Fill = Fill ?? Tokens.Brush(this, "DvBg1");
         surface.Stroke = Edge ?? Tokens.Brush(this, "DvLine");

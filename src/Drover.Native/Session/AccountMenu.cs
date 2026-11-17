@@ -89,7 +89,7 @@ public sealed class AccountMenu : Grid
     {
         var trigger = menu.Trigger;
         (trigger.Fill, trigger.HoverFill, trigger.Line, trigger.Ink, trigger.Radius, trigger.RingInside) =
-            (null, null, null, "DvText2", "DvBorder", true);
+            (null, null, null, "DvText2", null, true);
         trigger.MinHeight = Tokens.Number("DvTargetTouch") + Tokens.Number("DvSpace3");
         trigger.FontSize = Tokens.Number("DvText12");
         trigger.HorizontalAlignment = HorizontalAlignment.Stretch;

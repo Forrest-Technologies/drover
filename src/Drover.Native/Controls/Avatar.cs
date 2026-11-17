@@ -100,11 +100,12 @@ public sealed class Avatar : ContentControl
 
         if (ImageUrl is { } address)
         {
-            Content = new Border
+            var picture = new Border
             {
-                CornerRadius = new(Tokens.Number("DvRadiusFull")),
                 Background = new ImageBrush { ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(address)), Stretch = Stretch.UniformToFill },
             };
+            Pill.Round(picture);
+            Content = picture;
             canvas.StopMoving();
             return;
         }

@@ -12,6 +12,13 @@ public partial class App : Application
 
     public App()
     {
+        // Until the services exist, a failure to start still has somewhere to be written.
+        Log.Factory = LoggerFactory.Create(logging => logging.AddPlatformLog());
+        Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Log.Factory;
+        Uno.UI.Adapter.Microsoft.Extensions.Logging.LoggingAdapter.Initialize();
+        UnhandledException += (_, failure) =>
+            Log.For<App>().LogError(failure.Exception, "Something in the interface failed and was not handled");
+
         InitializeComponent();
         Resources.MergedDictionaries.Add(Tokens.Dictionary);
         Resources.MergedDictionaries.Add(Styles.Dictionary);
@@ -45,11 +52,9 @@ public partial class App : Application
 
         var window = MainWindow ?? throw new InvalidOperationException("The app has no window yet.");
         var navigator = services.GetRequiredService<Navigator>();
+        // From here the platform's own warnings and errors go to the same log as the app's.
         Log.Factory = services.GetRequiredService<ILoggerFactory>();
-
-        // The platform's own warnings and errors go to the same log as the app's.
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Log.Factory;
-        Uno.UI.Adapter.Microsoft.Extensions.Logging.LoggingAdapter.Initialize();
         Link.Opener = address => navigator.NavigateTo(address);
         PlatformShell.Start(navigator);
 
@@ -64,11 +69,6 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // Until the services exist, a failure to start still has somewhere to be written.
-        Log.Factory = LoggerFactory.Create(logging => logging.AddPlatformLog());
-        UnhandledException += (_, failure) =>
-            Log.For<App>().LogError(failure.Exception, "Something in the interface failed and was not handled");
-
         try
         {
             PlatformShell.ReadDevice();

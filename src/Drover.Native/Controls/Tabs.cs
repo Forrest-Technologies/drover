@@ -104,7 +104,7 @@ public sealed class Tabs : StackPanel
                 Ink = showing ? "DvText" : "DvText2",
                 Underline = showing ? "DvText" : null,
                 RingInside = true,
-                Radius = "DvBorder",
+                Radius = null,
                 IsTabStop = showing,
                 FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[showing ? "DvWeightHeading" : "DvWeightLabel"],
             };

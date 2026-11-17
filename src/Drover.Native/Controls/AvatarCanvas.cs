@@ -13,6 +13,12 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
     private const double Dim = 0.35;
 
+    // One lighter face, at 8 percent, so the head reads as cut, not flat.
+    private const byte FacetAlpha = 20;
+
+    // The visor's light at 45 percent while a tool runs, so the bar crossing it stands out.
+    private const byte DimmedAlpha = 115;
+
     private const float SweepWidth = 16;
 
     // The bar crosses from a quarter of the grid before the visor to a tenth past it, and rests at two fifths.
@@ -104,7 +110,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
 
         canvas.Save();
         canvas.ClipPath(headOutline, SKClipOperation.Intersect, antialias: true);
-        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha(20) })
+        using (var facet = new SKPaint { Color = onHead.ToSkia().WithAlpha(FacetAlpha) })
         {
             canvas.DrawRect(0, 0, Grid / 2, Grid, facet);
         }
@@ -159,7 +165,7 @@ internal sealed class AvatarCanvas : SKCanvasElement
                 canvas.DrawColor(lit, SKBlendMode.SrcOver);
                 break;
             case AvatarState.Tool:
-                canvas.DrawColor(lit.WithAlpha(115), SKBlendMode.SrcOver);
+                canvas.DrawColor(lit.WithAlpha(DimmedAlpha), SKBlendMode.SrcOver);
                 using (var bar = new SKPaint { Color = Tokens.Color(this, "DvOnHead").ToSkia() })
                 {
                     canvas.DrawRect(Sweep(), 0, SweepWidth, Grid, bar);

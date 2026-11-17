@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<resources>
+  <style name="AppTheme" parent="Theme.MaterialComponents.NoActionBar">
+    <item name="android:windowBackground">@color/uno_splash_color</item>
+  </style>
+
+  <!-- uno_splash_color and uno_splash_image are generated from Assets/Splash at build time. -->
+  <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+    <item name="android:windowSplashScreenBackground">@color/uno_splash_color</item>
+    <item name="android:windowBackground">@drawable/uno_splash_image</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/uno_splash_image</item>
+    <item name="postSplashScreenTheme">@style/AppTheme</item>
+  </style>
+</resources>
