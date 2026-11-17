@@ -29,7 +29,11 @@ public sealed record NewBot(
     string Instructions,
     Guid ModelConnectionId,
     string? Model,
-    Guid? ParentBotId);
+    Guid? ParentBotId)
+{
+    /// <summary>The bot starts paused: it does nothing until a person turns it on. For a bot whose instructions came from a file.</summary>
+    public bool Paused { get; init; }
+}
 
 /// <summary>The result of a change to a bot. With neither a bot nor a problem, there is no such bot.</summary>
 public sealed record BotChange(Bot? Bot, string? Problem)

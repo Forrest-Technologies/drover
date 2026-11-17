@@ -1,0 +1,27 @@
+namespace Drover.Client;
+
+/// <summary>Extensions: what the extensions screen calls.</summary>
+public sealed partial class DroverApi
+{
+    #region Extensions
+
+    /// <summary>The extensions installed in the space, the newest first. Any member may read them.</summary>
+    public Task<List<ExtensionSummary>> ListExtensions(Guid spaceId, CancellationToken cancellationToken = default) =>
+        Get<List<ExtensionSummary>>($"{Space(spaceId)}/extensions", cancellationToken);
+
+    /// <summary>
+    /// What an extension file would add (admin only), for a person to read before importing it. The server reads
+    /// the file strictly and contacts nothing. A file it cannot read is refused with a sentence that says why.
+    /// </summary>
+    public Task<ExtensionPreview> PreviewExtension(Guid spaceId, string package, CancellationToken cancellationToken = default) =>
+        Post<ExtensionPreview>($"{Space(spaceId)}/extensions/preview", new ExtensionText(package), cancellationToken);
+
+    /// <summary>
+    /// Imports an extension file (admin only): the same text that was read for review. Its bot thinks with the model
+    /// the preview named and starts paused; turn it on with <see cref="ResumeBot"/>.
+    /// </summary>
+    public Task<ExtensionSummary> ImportExtension(Guid spaceId, string package, CancellationToken cancellationToken = default) =>
+        Post<ExtensionSummary>($"{Space(spaceId)}/extensions", new ExtensionText(package), cancellationToken);
+
+    #endregion
+}

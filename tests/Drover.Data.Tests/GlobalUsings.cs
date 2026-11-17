@@ -20,6 +20,7 @@ global using Drover.Data.Tests.Isolation;
 global using Drover.Data.Tests.Seeders;
 global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Extensions;
 global using Drover.Domain.Files;
 global using Drover.Domain.Memory;
 global using Drover.Domain.Models;
