@@ -23,6 +23,8 @@ public sealed partial class ExtensionEditor(
 
     private static readonly TabItem[] tabs = [new(FormTab, "Form"), new(JsonTab, "JSON")];
 
+    private static readonly SegmentOption<string>[] authKinds = [new("none", "Nothing"), new("header", "A header"), new("oauth", "A sign-in")];
+
     private IJSObjectReference? clipboard;
 
     private ExtensionDraft? draft;
