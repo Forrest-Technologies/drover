@@ -108,6 +108,26 @@ public sealed class ExtensionService(
         return new(new InstalledExtension(install, bot?.Name, bot?.Status), null);
     }
 
+    /// <summary>
+    /// The bot written down as an extension, for the editor to open: its name, what it is for, its instructions, and
+    /// its model as a suggestion. Nothing else of the bot is ever put in a file: not its grants, sandbox, limits,
+    /// schedules, or notes. Null when the bot is not in this space.
+    /// </summary>
+    public async Task<ExtensionPackage?> Export(Guid botId, CancellationToken cancellationToken) =>
+        await bots.FindBot(botId, cancellationToken) is { } bot
+            ? new ExtensionPackage(ExtensionPackage.CurrentVersion, ExtensionFile.IdFrom(bot.Handle), bot.Name)
+            {
+                Contents = [new BotTemplate(bot.Name, bot.Instructions) { Description = bot.DescriptionForBots, SuggestedModel = bot.Model }],
+            }
+            : null;
+
+    /// <summary>The file as its package, read as strictly as an import reads it, or the sentence that says why not.</summary>
+    public static ExtensionChange<ExtensionPackage> Read(string? text)
+    {
+        var reading = ExtensionPackages.Read(text);
+        return new(reading.Package, reading.Problem);
+    }
+
     public Task<List<InstalledExtension>> ListInstalled(CancellationToken cancellationToken) =>
         extensions.ListInstalled(cancellationToken);
 

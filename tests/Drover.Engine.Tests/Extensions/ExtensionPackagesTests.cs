@@ -52,7 +52,7 @@ public sealed class ExtensionPackagesTests
     {
         var package = ExtensionPackages.Read(Sample).Package!;
 
-        ExtensionPackages.Read(ExtensionPackages.Write(package)).Package.Should().BeEquivalentTo(package);
+        ExtensionPackages.Read(ExtensionFile.Write(package)).Package.Should().BeEquivalentTo(package);
     }
 
     #endregion
@@ -124,7 +124,7 @@ public sealed class ExtensionPackagesTests
     [Fact]
     public void Instructions_longer_than_a_bot_may_have_are_refused()
     {
-        var text = ExtensionPackages.Write(new ExtensionPackage(1, "sample.one", "Sample")
+        var text = ExtensionFile.Write(new ExtensionPackage(1, "sample.one", "Sample")
         {
             Contents = [new BotTemplate("Sample bot", new string('a', BotService.MaxInstructionsLength + 1))],
         });
@@ -146,6 +146,38 @@ public sealed class ExtensionPackagesTests
         var text = $"{new string('[', 64)}{new string(']', 64)}";
 
         ExtensionPackages.Read(text).Problem.Should().StartWith("This is not an extension file Drover can read.");
+    }
+
+    #endregion
+
+    #region Ids
+
+    [Theory]
+    [InlineData("Sample note taker", "sample-note-taker")]
+    [InlineData("  Sample -- Scribe!  ", "sample-scribe")]
+    [InlineData("sample.scribe", "sample-scribe")]
+    [InlineData("Ünïcode Bot 2", "n-code-bot-2")]
+    [InlineData("Go", "extension-go")]
+    [InlineData("日本語", "extension")]
+    [InlineData("", "extension")]
+    public void An_id_made_from_a_name_is_one_the_reader_accepts(string name, string id)
+    {
+        var made = ExtensionFile.IdFrom(name);
+        var text = ExtensionFile.Write(new ExtensionPackage(1, made, "Sample") { Contents = [new BotTemplate("Sample bot", string.Empty)] });
+
+        made.Should().Be(id);
+        ExtensionPackages.Read(text).Problem.Should().BeNull();
+    }
+
+    [Fact]
+    public void An_id_made_from_a_very_long_name_is_cut_to_the_longest_an_id_may_be()
+    {
+        var made = ExtensionFile.IdFrom(string.Join(' ', Enumerable.Repeat("sample", 40)));
+        var text = ExtensionFile.Write(new ExtensionPackage(1, made, "Sample") { Contents = [new BotTemplate("Sample bot", string.Empty)] });
+
+        made.Length.Should().BeLessThanOrEqualTo(ExtensionFile.MaxIdLength);
+        made.Should().NotEndWith("-");
+        ExtensionPackages.Read(text).Problem.Should().BeNull();
     }
 
     #endregion

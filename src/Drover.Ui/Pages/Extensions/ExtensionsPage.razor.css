@@ -66,6 +66,7 @@
   overflow-wrap: anywhere;
 }
 
+.dv-extensions-actions,
 .dv-extension-actions,
 ::deep .dv-import-actions {
   display: flex;
@@ -78,6 +79,7 @@
   justify-content: flex-end;
 }
 
+.dv-extensions-make,
 .dv-extension-link,
 ::deep .dv-import-hint a {
   display: inline-flex;
@@ -88,6 +90,7 @@
   overflow-wrap: anywhere;
 }
 
+.dv-extensions-make:focus-visible,
 .dv-extension-link:focus-visible,
 ::deep .dv-import-hint a:focus-visible,
 ::deep .dv-import-text:focus-visible,

@@ -23,6 +23,9 @@ public static class ExtensionEndpoints
         extensions.MapGet("/", ListExtensions).WithName("ListExtensions");
         extensions.MapPost("/preview", PreviewExtension).RequireSpaceRole(MembershipRole.Admin).WithName("PreviewExtension")
             .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
+        extensions.MapPost("/read", ReadExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ReadExtension")
+            .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
+        extensions.MapGet("/from-bot/{botId:guid}", ExportBot).RequireSpaceRole(MembershipRole.Admin).WithName("ExportBotAsExtension");
         extensions.MapPost("/", ImportExtension).RequireSpaceRole(MembershipRole.Admin).WithName("ImportExtension")
             .WithBodyLimit(MaxRequestBytes, _ => tooLarge);
         return space;
@@ -45,6 +48,19 @@ public static class ExtensionEndpoints
             ? TypedResults.Ok(preview)
             : TypedResults.Problem(title: read.Problem, statusCode: StatusCodes.Status400BadRequest);
     }
+
+    private static Results<Ok<ExtensionPackage>, ProblemHttpResult> ReadExtension(ExtensionText request)
+    {
+        var read = ExtensionService.Read(request.Package);
+        return read.Value is { } package
+            ? TypedResults.Ok(package)
+            : TypedResults.Problem(title: read.Problem, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static async Task<Results<Ok<ExtensionPackage>, NotFound>> ExportBot(Guid botId, HttpContext context, ExtensionService extensions) =>
+        await extensions.Export(botId, context.RequestAborted) is { } package
+            ? TypedResults.Ok(package)
+            : TypedResults.NotFound();
 
     private static async Task<Results<Created<ExtensionSummary>, ProblemHttpResult>> ImportExtension(
         ExtensionText request,

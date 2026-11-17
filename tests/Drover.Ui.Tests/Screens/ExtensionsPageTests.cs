@@ -39,6 +39,7 @@ public sealed class ExtensionsPageTests : ScreenTest
         page.Find("h1").TextContent.Should().Be("Extensions");
         page.Find(".dv-empty-cause").TextContent.Should().Contain("the file can give it no tools");
         page.Find(".dv-empty .dv-button").TextContent.Trim().Should().Be("Import an extension");
+        page.Find(".dv-extensions-make").Should().Match<AngleSharp.Dom.IElement>(link => link.TextContent == "Make an extension" && link.GetAttribute("href") == "/extensions/edit");
     }
 
     [Fact]
@@ -91,7 +92,7 @@ public sealed class ExtensionsPageTests : ScreenTest
         var page = Render<ExtensionsPage>();
 
         page.WaitForAssertion(() => page.Find(".dv-extension-name").TextContent.Should().Be("Sample note taker"));
-        page.FindAll(".dv-button").Should().BeEmpty();
+        page.FindAll(".dv-button, .dv-extensions-make").Should().BeEmpty();
     }
 
     [Fact]

@@ -105,6 +105,12 @@
 
     private string? fileProblem;
 
+    /// <summary>Text to start with, when a file was handed over from the editor.</summary>
+    [Parameter]
+    public string? InitialText { get; set; }
+
+    protected override void OnInitialized() => text = InitialText ?? string.Empty;
+
     /// <summary>What the server read from the file. Null until a file has been read.</summary>
     [Parameter]
     public ExtensionPreview? Preview { get; set; }

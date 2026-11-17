@@ -23,5 +23,19 @@ public sealed partial class DroverApi
     public Task<ExtensionSummary> ImportExtension(Guid spaceId, string package, CancellationToken cancellationToken = default) =>
         Post<ExtensionSummary>($"{Space(spaceId)}/extensions", new ExtensionText(package), cancellationToken);
 
+    /// <summary>
+    /// The file as its package (admin only), read by the server as strictly as an import reads it. The editor calls
+    /// this to turn text back into its form, and to check a file. Text it cannot read is refused with a sentence.
+    /// </summary>
+    public Task<ExtensionPackage> ReadExtension(Guid spaceId, string package, CancellationToken cancellationToken = default) =>
+        Post<ExtensionPackage>($"{Space(spaceId)}/extensions/read", new ExtensionText(package), cancellationToken);
+
+    /// <summary>
+    /// A bot written down as an extension (admin only), for the editor to open: its name, what it is for, its
+    /// instructions, and its model as a suggestion. Nothing else of the bot is in it.
+    /// </summary>
+    public Task<ExtensionPackage> ExportBotAsExtension(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
+        Get<ExtensionPackage>($"{Space(spaceId)}/extensions/from-bot/{botId}", cancellationToken);
+
     #endregion
 }

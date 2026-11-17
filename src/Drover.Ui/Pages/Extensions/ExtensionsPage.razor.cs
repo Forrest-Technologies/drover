@@ -4,7 +4,7 @@ namespace Drover.Ui.Pages.Extensions;
 /// The extensions of the space. Its job: bring in a bot someone shared, after reading exactly what it will be told,
 /// and turn it on.
 /// </summary>
-public sealed partial class ExtensionsPage(DroverApi api, SessionState session, ILogger<ExtensionsPage> logger)
+public sealed partial class ExtensionsPage(DroverApi api, SessionState session, ExtensionHandoff handoff, ILogger<ExtensionsPage> logger)
 {
     #region Private Fields
 
@@ -46,6 +46,14 @@ public sealed partial class ExtensionsPage(DroverApi api, SessionState session, 
         if (await session.Load() is not null)
         {
             await Load();
+
+            // A file handed over by the editor is reviewed here like any other, before anything is added.
+            if (CanEdit && loadProblem is null && handoff.Take() is { } handed)
+            {
+                StartImporting();
+                packageText = handed;
+                await Read(handed);
+            }
         }
     }
 
@@ -84,8 +92,8 @@ public sealed partial class ExtensionsPage(DroverApi api, SessionState session, 
         WhileImporting(async () =>
         {
             preview = null;
-            preview = await api.PreviewExtension(SpaceId, text);
             packageText = text;
+            preview = await api.PreviewExtension(SpaceId, text);
         });
 
     private Task Import() =>

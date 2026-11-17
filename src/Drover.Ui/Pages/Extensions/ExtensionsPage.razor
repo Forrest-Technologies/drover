@@ -6,12 +6,18 @@
 <SessionGate>
     <header class="dv-extensions-header">
         <h1 class="dv-extensions-title">Extensions</h1>
-        @if (CanEdit && extensions is { Count: > 0 } && !importing)
+        @if (CanEdit && extensions is not null)
         {
-            <Button Kind="ButtonKind.Primary" OnClick="StartImporting">
-                <Icon Name="IconName.Plus" />
-                Import an extension
-            </Button>
+            <div class="dv-extensions-actions">
+                <a class="dv-extensions-make" href="@Addresses.ExtensionEditor">Make an extension</a>
+                @if (extensions.Count > 0 && !importing)
+                {
+                    <Button Kind="ButtonKind.Primary" OnClick="StartImporting">
+                        <Icon Name="IconName.Plus" />
+                        Import an extension
+                    </Button>
+                }
+            </div>
         }
     </header>
 
@@ -20,7 +26,7 @@
     @if (importing)
     {
         <div class="dv-extensions-import">
-            <ImportExtensionForm Preview="preview" Problem="@importProblem" Busy="importBusy"
+            <ImportExtensionForm InitialText="@packageText" Preview="preview" Problem="@importProblem" Busy="importBusy"
                                  OnRead="Read" OnImport="Import" OnCancel="StopImporting" />
         </div>
     }
