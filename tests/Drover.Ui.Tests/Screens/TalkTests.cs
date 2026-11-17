@@ -959,6 +959,38 @@ public sealed class TalkTests : ScreenTest
     }
 
     [Fact]
+    public void What_another_app_shared_becomes_the_chosen_bots_draft_and_nothing_is_sent()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), HttpStatusCode.Created);
+        var inbox = Services.GetRequiredService<ShareInbox>();
+        inbox.Offer(new SharedDraft("Sample words from another app", [new SampleSharedFile("notes.txt", "one")]));
+        inbox.SendTo(botId);
+
+        var page = RenderMain();
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("3 bytes"));
+        page.Find("textarea.dv-composer-field").GetAttribute("value").Should().Be("Sample words from another app");
+        Server.Sent("POST", $"{space}/threads/{threadId}/messages").Should().BeEmpty("sending is the person's own act");
+        inbox.Waiting.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_share_meant_for_another_bot_stays_out_of_this_conversation()
+    {
+        var inbox = Services.GetRequiredService<ShareInbox>();
+        inbox.Offer(new SharedDraft("Sample words from another app", []));
+        inbox.SendTo(Guid.NewGuid());
+
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        (page.Find("textarea.dv-composer-field").GetAttribute("value") ?? string.Empty).Should().BeEmpty();
+        inbox.Waiting.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task A_file_the_server_refuses_says_why_before_anything_is_sent_and_holds_the_message()
     {
         AttachmentsAllowed();

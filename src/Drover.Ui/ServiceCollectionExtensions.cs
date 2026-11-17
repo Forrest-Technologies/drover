@@ -11,5 +11,6 @@ public static class ServiceCollectionExtensions
             .AddScoped<ToastService>()
             .AddScoped<SessionState>()
             .AddScoped<ThemeService>()
+            .AddSingleton<ShareInbox>()
             .AddSingleton(TimeProvider.System);
 }

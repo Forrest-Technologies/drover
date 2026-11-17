@@ -11,6 +11,7 @@ namespace Drover.App.Platforms.Android;
     Categories = [Intent.CategoryDefault, Intent.CategoryBrowsable],
     DataScheme = SignInReturnScheme,
     DataHost = SignInReturnHost)]
+[IntentFilter([Intent.ActionSend, Intent.ActionSendMultiple], Categories = [Intent.CategoryDefault], DataMimeType = "*/*")]
 public sealed class MainActivity : MauiAppCompatActivity
 {
     #region Private Fields
@@ -40,6 +41,7 @@ public sealed class MainActivity : MauiAppCompatActivity
         {
             OpenConversation(Intent);
             ReturnFromSignIn(Intent);
+            TakeShare(Intent);
         }
     }
 
@@ -48,6 +50,7 @@ public sealed class MainActivity : MauiAppCompatActivity
         base.OnNewIntent(intent);
         OpenConversation(intent);
         ReturnFromSignIn(intent);
+        TakeShare(intent);
     }
 
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
@@ -62,6 +65,14 @@ public sealed class MainActivity : MauiAppCompatActivity
         {
             var address = intent.GetBooleanExtra("main", true) ? Addresses.Talk(bot) : Addresses.SideChat(bot, thread);
             IPlatformApplication.Current?.Services.GetService<IncomingNavigation>()?.Open(address);
+        }
+    }
+
+    private static void TakeShare(Intent? intent)
+    {
+        if (AndroidShares.IsShare(intent) && IPlatformApplication.Current?.Services.GetService<AndroidShares>() is { } shares)
+        {
+            _ = shares.Receive(intent!);
         }
     }
 

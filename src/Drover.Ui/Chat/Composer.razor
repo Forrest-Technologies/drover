@@ -117,6 +117,14 @@
 
     #region Public Methods
 
+    /// <summary>Puts words in the message field for the person to read and change. Nothing is sent.</summary>
+    public async Task Write(string words)
+    {
+        text = words;
+        StateHasChanged();
+        await Focus();
+    }
+
     /// <summary>Puts the cursor back in the message field.</summary>
     public ValueTask Focus() => field.FocusAsync();
 
