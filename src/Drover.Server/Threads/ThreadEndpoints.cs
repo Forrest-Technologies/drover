@@ -64,8 +64,11 @@ public static class ThreadEndpoints
         }
 
         var crons = await threads.ListScheduleCrons(messages, context.RequestAborted);
+        var principals = await threads.ListRunPrincipals(messages, context.RequestAborted);
         return TypedResults.Ok(messages
-            .Select(message => message.ToResponse(message.ScheduleId is { } scheduleId ? crons.GetValueOrDefault(scheduleId) : null))
+            .Select(message => message.ToResponse(
+                message.ScheduleId is { } scheduleId ? crons.GetValueOrDefault(scheduleId) : null,
+                message.RunId is { } runId && principals.TryGetValue(runId, out var principal) ? principal : null))
             .ToList());
     }
 

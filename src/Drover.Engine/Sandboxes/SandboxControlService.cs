@@ -49,7 +49,7 @@ public sealed class SandboxControlService(
     private readonly SandboxBroker? broker = brokers.SingleOrDefault();
 
     /// <summary>The screenshot being taken of each bot's sandbox, so requests that meet share one provider call.</summary>
-    private readonly ConcurrentDictionary<(Guid SpaceId, Guid BotId), Lazy<Task<SandboxScreenshot>>> screens = new();
+    private readonly ConcurrentDictionary<(Guid SpaceId, Guid BotId, bool Wake), Lazy<Task<SandboxScreenshot>>> screens = new();
 
     #endregion
 
@@ -90,17 +90,20 @@ public sealed class SandboxControlService(
     public Task<SandboxControlResult<BotSandboxStatus>> TurnOff(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
         Power(spaceId, userId, botId, "sandbox.turned_off", (sandbox, person) => sandbox.TurnOff(person, cancellationToken), cancellationToken);
 
-    /// <summary>
-    /// The sandbox's screen as a PNG. A paused sandbox is resumed and one not made yet is made, as on a bot's first use.
-    /// Requests for the same sandbox that meet share one screenshot. Looking is not written to the audit log.
-    /// </summary>
     public Task<SandboxControlResult<SandboxScreenshot>> Screen(Guid spaceId, Guid userId, Guid botId, CancellationToken cancellationToken) =>
+        Screen(spaceId, userId, botId, wake: true, cancellationToken);
+
+    /// <summary>
+    /// The sandbox's screen as a PNG. With wake off, taking a picture leaves the sandbox's lifecycle alone.
+    /// Requests for the same sandbox and wake setting share one screenshot. Looking does not write an audit entry.
+    /// </summary>
+    public Task<SandboxControlResult<SandboxScreenshot>> Screen(Guid spaceId, Guid userId, Guid botId, bool wake, CancellationToken cancellationToken) =>
         Control(
             spaceId,
             userId,
             botId,
             null,
-            (sandbox, person) => SharedScreenshot(sandbox, person, spaceId, botId, cancellationToken),
+            (sandbox, person) => SharedScreenshot(sandbox, person, (spaceId, botId, wake), cancellationToken),
             cancellationToken);
 
     /// <summary>
@@ -240,11 +243,9 @@ public sealed class SandboxControlService(
     private async Task<SandboxScreenshot> SharedScreenshot(
         SandboxBroker sandbox,
         SandboxCaller person,
-        Guid spaceId,
-        Guid botId,
+        (Guid SpaceId, Guid BotId, bool Wake) key,
         CancellationToken cancellationToken)
     {
-        var key = (spaceId, botId);
         var shot = screens.GetOrAdd(key, _ => new Lazy<Task<SandboxScreenshot>>(() => TakeScreenshot(sandbox, person, key)));
         return await shot.Value.WaitAsync(cancellationToken);
     }
@@ -253,11 +254,11 @@ public sealed class SandboxControlService(
     /// One screenshot, not cancelled by the request that started it, since others may be waiting on it. The provider
     /// calls under it have their own time limits.
     /// </summary>
-    private async Task<SandboxScreenshot> TakeScreenshot(SandboxBroker sandbox, SandboxCaller person, (Guid SpaceId, Guid BotId) key)
+    private async Task<SandboxScreenshot> TakeScreenshot(SandboxBroker sandbox, SandboxCaller person, (Guid SpaceId, Guid BotId, bool Wake) key)
     {
         try
         {
-            return await sandbox.Screenshot(person, CancellationToken.None);
+            return await sandbox.Screenshot(person, key.Wake, CancellationToken.None);
         }
         finally
         {

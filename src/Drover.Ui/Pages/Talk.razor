@@ -33,6 +33,7 @@
                 <a class="dv-shell-bots" href="@Addresses.Tools">Tools</a>
                 <AccountMenu />
             </footer>
+            <footer class="dv-shell-dock"><PhoneNav /></footer>
         </div>
         <main class="dv-shell-main dv-yard">
             @if (NotReady is not null)
@@ -73,7 +74,18 @@
                     {
                         <Badge Kind="BadgeKind.Warn">Paused</Badge>
                     }
-                    <BotNotifyMenu @key="Shown.Id" Bot="Shown" />
+                    <div class="dv-shell-more">
+                        <BotNotifyMenu @key="Shown.Id" Bot="Shown">
+                            <MenuItem OnSelect="() => OpenSide(Addresses.Summary(Shown.Id))">Summary</MenuItem>
+                            <MenuItem OnSelect="() => OpenSide(Addresses.Memory(Shown.Id))">Memory</MenuItem>
+                            @if (hasScreenLink || Side is SideView.Screen)
+                            {
+                                <MenuItem OnSelect="() => OpenSide(Addresses.Screen(Shown.Id))">Screen</MenuItem>
+                            }
+                            <MenuItem OnSelect="() => OpenSide(Addresses.Files(Shown.Id))">Files</MenuItem>
+                            <MenuItem OnSelect="() => OpenSide(Addresses.SideChats(Shown.Id))">@SideChatsLabel</MenuItem>
+                        </BotNotifyMenu>
+                    </div>
                     <nav class="dv-shell-beside" aria-label="Beside the conversation">
                         <a class="dv-shell-side dv-facet" href="@Addresses.Activity(Shown.Id)"
                            aria-current="@(Side is SideView.Activity ? "true" : null)">Activity</a>

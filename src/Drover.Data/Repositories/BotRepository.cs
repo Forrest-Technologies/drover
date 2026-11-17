@@ -23,6 +23,10 @@ public sealed class BotRepository(DroverDbContext db)
             .ThenBy(bot => bot.Id)
             .ToListAsync(cancellationToken);
 
+    /// <summary>Every bot of the space, removed ones too, for figures that outlive the bot they were made by.</summary>
+    public Task<List<Bot>> ListBotsWithRemoved(CancellationToken cancellationToken) =>
+        db.Bots.AsNoTracking().ToListAsync(cancellationToken);
+
     /// <summary>The bot, tracked, so that a change to it is saved when the scope commits.</summary>
     public Task<Bot?> GetBotForUpdate(Guid id, CancellationToken cancellationToken) =>
         db.Bots.SingleOrDefaultAsync(bot => bot.Id == id && bot.Status != BotStatus.Removed, cancellationToken);

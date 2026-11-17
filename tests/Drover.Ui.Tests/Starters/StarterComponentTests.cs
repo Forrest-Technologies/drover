@@ -120,29 +120,6 @@ public sealed class StarterComponentTests : BunitContext
         saved.Should().Be(new SkillDraft("Export", "When exporting.", "1. A step the person rewrote."));
     }
 
-    [Fact]
-    public void Usage_is_a_real_table_that_leads_with_cost_and_an_empty_period_says_so()
-    {
-        UsageNode[] crew = [new(lead, "Lead", "sample-model", new(1.24m, 100, 10), new(3m, 300, 30), [new(helper, "Helper", "sample-model", new(null, 200, 20), null, [])])];
-        var table = Render<UsageTable>(set => set
-            .Add(view => view.Crew, crew)
-            .Add(view => view.Currency, "USD")
-            .Add(view => view.Caption, "What each bot used in the last 7 days")
-            .Add(view => view.BotHref, id => $"/usage/{id}"));
-
-        table.Find("caption").TextContent.Should().Be("What each bot used in the last 7 days");
-        table.FindAll("thead th").Select(header => (header.GetAttribute("scope"), header.TextContent)).Should().Equal(
-            ("col", "Bot"), ("col", "Cost"), ("col", "Tokens in"), ("col", "Tokens out"), ("col", "Model"));
-        table.FindAll("tbody th[scope=row]").Select(header => header.TextContent.Trim()).Should().Equal("Lead", "Helper");
-        table.FindAll("tbody tr")[0].QuerySelector("td")!.TextContent.Should().Contain("USD 1.24").And.Contain("USD 3.00 with the bots beneath it");
-        table.FindAll("tbody tr")[1].QuerySelector("td")!.TextContent.Should().Contain("price not known");
-
-        table.Render(set => set.Add(view => view.Crew, []));
-
-        table.Find(".dv-usage-hint").TextContent.Should().Be("No bot ran in this period.");
-        table.FindAll("table").Should().BeEmpty();
-    }
-
     #endregion
 
     #region The Bold Screens

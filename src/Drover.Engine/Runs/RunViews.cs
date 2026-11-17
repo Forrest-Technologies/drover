@@ -51,8 +51,11 @@ public static class RunViews
             thread.IsMain,
             attention);
 
-    /// <summary>The message as the API returns it. <paramref name="scheduleCron"/> is the time of the schedule that sent it, while that schedule exists.</summary>
-    public static MessageResponse ToResponse(this Message message, string? scheduleCron = null) =>
+    /// <summary>
+    /// The message as the API returns it. <paramref name="scheduleCron"/> is the time of the schedule that sent it, while
+    /// that schedule exists. <paramref name="runPrincipalUserId"/> is the person the run that wrote it acts for.
+    /// </summary>
+    public static MessageResponse ToResponse(this Message message, string? scheduleCron = null, Guid? runPrincipalUserId = null) =>
         new(
             message.Id,
             message.ThreadId,
@@ -64,7 +67,8 @@ public static class RunViews
             message.Steers,
             message.Withheld,
             message.ScheduleId,
-            message.ScheduleId is null ? null : scheduleCron);
+            message.ScheduleId is null ? null : scheduleCron,
+            message.RunId is null ? null : runPrincipalUserId);
 
     /// <summary>A stored file as the API shows it.</summary>
     public static FileResponse ToResponse(this StoredFile file) =>

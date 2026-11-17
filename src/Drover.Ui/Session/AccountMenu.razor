@@ -6,7 +6,9 @@
 @inject DroverApi Api
 @inject ILogger<AccountMenu> Logger
 
-<Menu @ref="menu" Label="@(Session.Current?.DisplayName ?? "Account")">
+<Menu @ref="menu" Label="@(Compact ? "Account" : Session.Current?.DisplayName ?? "Account")"
+      AriaLabel="@(Compact && Session.Current is { } person ? $"Account for {person.DisplayName}" : null)"
+      TriggerIcon="@(Compact ? IconName.Account : null)">
     @foreach (var (choice, name) in themes)
     {
         <MenuItem OnSelect="() => Theme.Choose(choice)">
@@ -19,6 +21,8 @@
         </MenuItem>
     }
     <MenuItem OnSelect="() => notificationsOpen = true">Notifications</MenuItem>
+    @* Everyone reads usage: a member reads their own runs, an owner or admin the whole space. *@
+    <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Usage)">Usage</MenuItem>
     @if (Session.Space?.Role is "owner" or "admin")
     {
         <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Status)">Status</MenuItem>
@@ -42,6 +46,13 @@
     private bool notificationsOpen;
 
     private Menu? menu;
+
+    #endregion
+
+    #region Properties
+
+    [Parameter]
+    public bool Compact { get; set; }
 
     #endregion
 
@@ -93,7 +104,10 @@
 
         try
         {
-            if ((await Push.Check(patience.Token)).Endpoint is { } endpoint)
+            var endpoint = Push is IDeviceNotificationSettings
+                ? await Push.Unsubscribe(patience.Token)
+                : (await Push.Check(patience.Token)).Endpoint;
+            if (endpoint is not null)
             {
                 await Api.TurnOffPush(endpoint, patience.Token);
             }

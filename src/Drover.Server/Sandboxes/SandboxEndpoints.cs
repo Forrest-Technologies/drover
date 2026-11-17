@@ -25,7 +25,7 @@ public static class SandboxEndpoints
         sandbox.MapPost("/turn-off", TurnOff).WithName("TurnOffBotSandbox")
             .WithSummary("Destroys the sandbox now. Its files are gone; the next use makes a new one.");
         sandbox.MapPost("/screen", Screen).WithName("GetBotSandboxScreen")
-            .WithSummary("The sandbox's screen as a PNG, never stored. A paused sandbox is resumed and a missing one made.");
+            .WithSummary("The sandbox's screen as a PNG, never stored. Use wake=false to capture only a running sandbox.");
         sandbox.MapPost("/input", Input).WithName("SendBotSandboxInput");
         sandbox.MapPost("/commands", RunCommand).WithName("RunBotSandboxCommand");
         return space;
@@ -68,10 +68,10 @@ public static class SandboxEndpoints
         return Answer(await sandboxes.TurnOff(access.SpaceId, access.UserId, botId, context.RequestAborted), TypedResults.Ok);
     }
 
-    private static async Task<Results<FileContentHttpResult, NotFound, ProblemHttpResult>> Screen(Guid botId, HttpContext context, SandboxControlService sandboxes)
+    private static async Task<Results<FileContentHttpResult, NotFound, ProblemHttpResult>> Screen(Guid botId, bool? wake, HttpContext context, SandboxControlService sandboxes)
     {
         var access = context.GetSpaceAccess();
-        var shot = await sandboxes.Screen(access.SpaceId, access.UserId, botId, context.RequestAborted);
+        var shot = await sandboxes.Screen(access.SpaceId, access.UserId, botId, wake ?? true, context.RequestAborted);
 
         // A picture of somebody's screen: no cache anywhere keeps it.
         context.Response.Headers.CacheControl = "no-store";

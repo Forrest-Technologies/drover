@@ -298,10 +298,14 @@ public sealed class TalkTests : ScreenTest
         await events.Send(Event(3, RunEventTypes.ToolApprovalRequested, new ToolApprovalRequested(callId, "r1", "c1")));
         await events.Send(Event(4, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_takeover", null, 1, null)));
 
-        page.WaitForAssertion(() => page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen"));
-        page.FindAll(".dv-message-state").Should().BeEmpty("nothing thinks while the bot waits for the person");
-        page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
-        await page.FindAll("main .dv-takeover button").Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs());
+        page.WaitForAssertion(() =>
+        {
+            page.Find("main .dv-takeover h3").TextContent.Should().Be("Marshal needs you at its screen");
+            page.FindAll(".dv-message-state").Should().BeEmpty("nothing thinks while the bot waits for the person");
+            page.FindAll("main .dv-notice, main [role=status].dv-message-notice").Should().BeEmpty();
+        });
+        await page.InvokeAsync(() => page.FindAll("main .dv-takeover button")
+            .Single(button => button.TextContent.Trim() == "Open the screen").ClickAsync(new MouseEventArgs()));
 
         page.WaitForAssertion(() => Address.Should().Be($"talk/{botId}/screen?held={callId}"));
         Server.Sent("POST", $"{space}/tool-calls/{callId}/takeover").Should().ContainSingle();
@@ -557,6 +561,19 @@ public sealed class TalkTests : ScreenTest
     #endregion
 
     #region Summary
+
+    [Fact]
+    public void The_conversation_menu_opens_the_same_summary_as_the_wide_layout_link()
+    {
+        var page = Render<Talk>(parameters => parameters.Add(component => component.BotId, botId));
+
+        page.WaitForAssertion(() => page.Find("button[aria-label='More about Marshal']").Should().NotBeNull());
+        var summary = page.FindAll(".dv-shell-more [role='menuitem']")
+            .Single(item => item.TextContent.Trim() == "Summary");
+        summary.Click();
+
+        Address.Should().Be($"talk/{botId}/summary");
+    }
 
     [Fact]
     public void The_summary_opens_beside_the_main_conversation_and_says_what_it_covers_and_when_it_was_written()
@@ -939,6 +956,38 @@ public sealed class TalkTests : ScreenTest
         page.WaitForAssertion(() => Server.Sent("POST", $"{space}/threads/{threadId}/messages").Should().ContainSingle()
             .Which.Should().Contain($"\"fileIds\":[\"{fileId}\"]"));
         page.WaitForAssertion(() => page.FindAll(".dv-attached-file").Should().BeEmpty("the files went with the message"));
+    }
+
+    [Fact]
+    public void What_another_app_shared_becomes_the_chosen_bots_draft_and_nothing_is_sent()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{space}/threads/{threadId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3, Preview: "one"), HttpStatusCode.Created);
+        var inbox = Services.GetRequiredService<ShareInbox>();
+        inbox.Offer(new SharedDraft("Sample words from another app", [new SampleSharedFile("notes.txt", "one")]));
+        inbox.SendTo(botId);
+
+        var page = RenderMain();
+
+        page.WaitForAssertion(() => page.Find(".dv-attached-status").TextContent.Should().Be("3 bytes"));
+        page.Find("textarea.dv-composer-field").GetAttribute("value").Should().Be("Sample words from another app");
+        Server.Sent("POST", $"{space}/threads/{threadId}/messages").Should().BeEmpty("sending is the person's own act");
+        inbox.Waiting.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_share_meant_for_another_bot_stays_out_of_this_conversation()
+    {
+        var inbox = Services.GetRequiredService<ShareInbox>();
+        inbox.Offer(new SharedDraft("Sample words from another app", []));
+        inbox.SendTo(Guid.NewGuid());
+
+        var page = RenderMain();
+        page.WaitForElement("article");
+
+        (page.Find("textarea.dv-composer-field").GetAttribute("value") ?? string.Empty).Should().BeEmpty();
+        inbox.Waiting.Should().NotBeNull();
     }
 
     [Fact]

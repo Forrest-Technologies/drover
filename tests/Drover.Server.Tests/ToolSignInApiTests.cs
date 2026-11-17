@@ -307,9 +307,82 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         described.Should().Contain("https://drover.example.test/oauth/client.json").And.Contain("https://drover.example.test/oauth/mcp/callback").And.Contain("\"none\"");
     }
 
+    [Fact]
+    public async Task A_sign_in_started_in_the_app_comes_back_through_a_browser_that_is_signed_in_as_nobody()
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"));
+        var id = created.Connection.Id;
+        var unknownApp = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{id}/sign-in", new BeginToolSignInRequest("app.example.test"));
+        var start = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{id}/sign-in", new BeginToolSignInRequest(AppScheme));
+        var answer = await server.Approve(new Uri(start.AuthorizationUrl!));
+
+        var page = await NewClient().Get(CallbackPath(answer));
+        var words = await page.Content.ReadAsStringAsync(Token);
+        var ticket = TicketIn(words);
+        var whileWaiting = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn;
+        var secondArrival = await NewClient().Get(CallbackPath(answer));
+        var signedOut = await NewClient().Post("/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
+        var finished = await PostFor<ToolSignInFinish>(admin, "/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
+        var again = await PostFor<ToolSignInFinish>(admin, "/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
+        var after = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn;
+
+        unknownApp.Step.Should().Be("failed", "a browser is sent only into Drover's own apps");
+        page.StatusCode.Should().Be(HttpStatusCode.OK);
+        page.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
+        words.Should().Contain($"{AppScheme}://tool-sign-in?ticket=").And.NotContain(answer.Code, "nothing the tool server sent goes into the app's address");
+        words.Should().NotContain(answer.State!);
+        whileWaiting.Should().Be("needs_sign_in", "the browser alone completes nothing");
+        secondArrival.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the code is taken once");
+        signedOut.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        finished.Should().Be(new ToolSignInFinish(true, alice.SpaceId, id));
+        again.Should().Be(new ToolSignInFinish(false, null, null), "a ticket works once");
+        after.Should().Be("signed_in");
+    }
+
+    [Fact]
+    public async Task A_ticket_ends_only_the_sign_in_of_the_person_who_started_it()
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var admin = await SignIn(alice.Email, alice.Password);
+        var asMember = await SignIn(member.Email, member.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"));
+        var id = created.Connection.Id;
+        var start = await PostFor<ToolSignInStart>(asMember, $"{space}/tool-connections/{id}/sign-in", new BeginToolSignInRequest(AppScheme));
+        var page = await NewClient().Get(CallbackPath(await server.Approve(new Uri(start.AuthorizationUrl!))));
+        var ticket = TicketIn(await page.Content.ReadAsStringAsync(Token));
+
+        var byAnother = await PostFor<ToolSignInFinish>(admin, "/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
+        var byThePerson = await PostFor<ToolSignInFinish>(asMember, "/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
+        var forMember = Summary(await (await asMember.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn;
+        var forAdmin = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn;
+
+        byAnother.Should().Be(new ToolSignInFinish(false, null, null), "another person learns nothing, not even which connection it was");
+        byThePerson.Should().Be(new ToolSignInFinish(false, null, null), "a ticket somebody else presented is spent");
+        forMember.Should().Be("needs_sign_in");
+        forAdmin.Should().Be("needs_sign_in");
+    }
+
     #endregion
 
     #region Helpers
+
+    private const string AppScheme = "com.forresttechnologies.drover.preview";
+
+    private static string TicketIn(string page)
+    {
+        var marker = $"{AppScheme}://tool-sign-in?ticket=";
+        var from = page.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        return page[from..page.IndexOf('"', from)];
+    }
 
     private static ToolServerSignIn ShortLived => new() { TokenLifetime = TimeSpan.FromMinutes(10) };
 

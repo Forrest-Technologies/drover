@@ -1,0 +1,69 @@
+/* Usage: the period, then the crew's table, then the chosen bot's most expensive runs. No chart and no totals card. */
+.dv-usage-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+}
+
+.dv-usage-page-title {
+  font-size: var(--dv-text-20);
+}
+
+.dv-usage-page-hint {
+  margin: 0;
+  color: var(--dv-text-2);
+}
+
+.dv-usage-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+}
+
+.dv-usage-runs-title {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+}
+
+.dv-usage-run-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One run: its cost first, then the link to its conversation, then its tokens. They wrap on a phone. */
+.dv-usage-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--dv-space-1) var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-2) 0;
+  border-top: var(--dv-border) solid var(--dv-line);
+  font-size: var(--dv-text-13);
+}
+
+.dv-usage-run a {
+  min-width: 0;
+  color: var(--dv-text);
+  overflow-wrap: anywhere;
+}
+
+.dv-usage-run-cost {
+  font-weight: var(--dv-weight-label);
+  white-space: nowrap;
+}
+
+.dv-usage-run-tokens {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-12);
+}
+
+.dv-usage-run-note {
+  flex-basis: 100%;
+  color: var(--dv-text-2);
+}

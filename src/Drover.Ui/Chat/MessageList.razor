@@ -15,7 +15,7 @@
         {
             <ChatEntry @key="message.Key" Message="message" BotName="@BotName" BotHue="BotHue" Asker="@Asker" Decide="Decide" Forget="Forget"
                        Anchor="@Anchor(message)" TabIndex="@MomentTabIndex(message)" ReadWhole="ReadWhole"
-                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" RunAddress="RunAddress" Takeovers="Takeovers" />
+                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" RunAddress="RunAddress" LoadUsage="LoadUsage" Takeovers="Takeovers" />
         }
         @if (Thinking)
         {
@@ -101,6 +101,10 @@
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     [Parameter]
     public string? Notice { get; set; }
+
+    /// <summary>Reads what a finished reply's run used. Without it, replies show no usage.</summary>
+    [Parameter]
+    public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
 
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     [Parameter]

@@ -12,7 +12,8 @@ public sealed class PushService(
     TenantContext tenant,
     AccountRepository accounts,
     RunScopes scopes,
-    TimeProvider time)
+    TimeProvider time,
+    IEnumerable<IPushChannel> channels)
 {
     #region Private Fields
 
@@ -62,6 +63,35 @@ public sealed class PushService(
         await using var work = await scope.Begin(cancellationToken);
         await push.RemoveSubscription(endpoint, cancellationToken);
         await work.Commit(cancellationToken);
+    }
+
+    public async Task<PushOutcome?> Test(Guid userId, string endpoint, CancellationToken cancellationToken)
+    {
+        if (channels.FirstOrDefault() is not { } channel)
+        {
+            return PushOutcome.RetryLater;
+        }
+
+        tenant.SetUser(userId);
+        PushSubscription? subscription;
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            subscription = await push.FindSubscription(endpoint, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        if (subscription is null)
+        {
+            return null;
+        }
+
+        var outcome = await channel.Send(subscription, new PushWakeUp(PushKinds.DeviceTest, Guid.Empty), cancellationToken);
+        if (outcome is PushOutcome.SubscriptionGone)
+        {
+            await TurnOff(userId, endpoint, cancellationToken);
+        }
+
+        return outcome;
     }
 
     public async Task<bool> IsOn(Guid userId, string endpoint, CancellationToken cancellationToken)
@@ -136,7 +166,7 @@ public sealed class PushService(
 
             if (found is var (thread, bot))
             {
-                return new PushWakeText(PushWords.Sentence(kind, bot.Name)!, bot.Id, thread.Id, thread.IsMain);
+                return new PushWakeText(PushWords.Sentence(kind, bot.Name)!, bot.Id, thread.Id, thread.IsMain, space.SpaceId);
             }
         }
 

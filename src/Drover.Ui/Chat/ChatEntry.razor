@@ -53,9 +53,9 @@ else
                 {
                     <span class="dv-message-writing dv-mono" aria-hidden="true">Writing</span>
                 }
-                @if (RunAddress is not null && Message.RunId is { } runId)
+                @if (RunAddress is not null && Message.ActivityRunId is { } activityRunId)
                 {
-                    <a class="dv-message-run" href="@RunAddress(runId)">See what happened</a>
+                    <a class="dv-message-run" href="@RunAddress(activityRunId)">See what happened</a>
                 }
             </header>
             <MarkdownView Text="@Message.Text" Streaming="Message.Streaming" />
@@ -64,6 +64,10 @@ else
                 @Tool(tool)
             }
             @Files
+            @if (Message is { EndsReply: true, RunId: { } runId } && LoadUsage is not null)
+            {
+                <ReplyUsage @key="runId" RunId="runId" Load="LoadUsage" />
+            }
         </div>
     </article>
 }
@@ -127,6 +131,10 @@ else
     /// <summary>Reads a text file whole, for a file card that shows only its first lines.</summary>
     [Parameter]
     public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    /// <summary>Reads what a finished reply's run used. Without it, the reply shows no usage.</summary>
+    [Parameter]
+    public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; set; }
 
     #endregion
 

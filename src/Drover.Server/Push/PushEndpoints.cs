@@ -20,6 +20,10 @@ public static class PushEndpoints
             .WithSummary("Whether this device is woken for the signed-in person.");
         push.MapPost("/device/off", TurnOff).WithName("TurnOffPush")
             .WithSummary("Stops waking this device for the signed-in person.");
+        push.MapPost("/device/test", TestDevice)
+            .RequireRateLimiting(SecurityServiceExtensions.PushTestRateLimit)
+            .WithBodyLimit(RequestLimits.Account)
+            .WithName("TestPushDevice");
         push.MapGet("/wake", GetWakeText).WithName("GetPushWakeText")
             .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see.");
         return api;
@@ -57,6 +61,22 @@ public static class PushEndpoints
         await push.TurnOff(context.User.GetUserId(), device.Endpoint, context.RequestAborted);
         return TypedResults.NoContent();
     }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> TestDevice(
+        PushDeviceQuery device,
+        HttpContext context,
+        PushService push) =>
+        (await push.Test(context.User.GetUserId(), device.Endpoint, context.RequestAborted)) switch
+        {
+            PushOutcome.Delivered => TypedResults.NoContent(),
+            null => TypedResults.NotFound(),
+            PushOutcome.SubscriptionGone => TypedResults.Problem(
+                title: "This device’s subscription expired. Turn notifications off and on to reconnect.",
+                statusCode: StatusCodes.Status410Gone),
+            _ => TypedResults.Problem(
+                title: "The notification distributor could not accept the test.",
+                statusCode: StatusCodes.Status503ServiceUnavailable),
+        };
 
     private static async Task<Results<Ok<PushWakeText>, NotFound>> GetWakeText(string kind, Guid thread, HttpContext context, PushService push) =>
         await push.Describe(context.User.GetUserId(), kind, thread, context.RequestAborted) is { } text

@@ -57,43 +57,6 @@ public sealed class StarterWordsTests
 
     #endregion
 
-    #region Usage
-
-    [Fact]
-    public void An_unknown_price_is_said_and_never_shown_as_zero()
-    {
-        UsageWords.Money(null, "USD").Should().Be("price not known");
-        UsageWords.Money(0, "USD").Should().Be("USD 0.00");
-        UsageWords.Money(0.004m, "USD").Should().Be("under USD 0.01");
-        UsageWords.Money(1234.5m, "USD").Should().Be("USD 1,234.50");
-        UsageWords.Money(-1.24m, "USD").Should().Be("a credit of USD 1.24");
-        UsageWords.Money(-0.004m, "USD").Should().Be("a credit under USD 0.01");
-        UsageWords.LeftOut(new(3.02m, 1, 1, true)).Should().Be("Not counting models whose price is not known");
-        UsageWords.LeftOut(new(3.02m, 1, 1)).Should().BeNull();
-        UsageWords.LeftOut(new(null, 1, 1, true)).Should().BeNull("a figure with no cost at all already says its price is not known");
-        UsageWords.Tokens(120_400).Should().Be("120,400");
-    }
-
-    [Fact]
-    public void Usage_rows_keep_the_hierarchy_and_put_the_biggest_spender_first_at_each_level()
-    {
-        UsageNode Bot(string name, decimal? cost, long tokens, params UsageNode[] beneath) =>
-            new(Guid.NewGuid(), name, "sample-model", new(cost, tokens, 0), null, beneath);
-
-        var rows = UsageWords.Rows(
-        [
-            Bot("Cheap", 0.10m, 10),
-            Bot("Lead", 5m, 10, Bot("Unpriced small", null, 5), Bot("Helper", 2m, 10), Bot("Unpriced big", null, 500)),
-        ]);
-
-        rows.Select(row => (row.Bot.BotName, row.Depth)).Should().Equal(
-            ("Lead", 0), ("Helper", 1), ("Unpriced big", 1), ("Unpriced small", 1), ("Cheap", 0));
-        UsageWords.IsEmpty([Bot("Idle", null, 0)]).Should().BeTrue();
-        UsageWords.IsEmpty([Bot("Busy", null, 1)]).Should().BeFalse();
-    }
-
-    #endregion
-
     #region Crew Tree
 
     [Fact]

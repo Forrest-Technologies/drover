@@ -76,3 +76,9 @@
   margin: 0;
   color: var(--dv-text-2);
 }
+
+.dv-file-native-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dv-space-1);
+}

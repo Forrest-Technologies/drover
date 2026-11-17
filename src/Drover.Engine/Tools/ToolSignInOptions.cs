@@ -15,6 +15,15 @@ public sealed class ToolSignInOptions
 
     public const string ClientDocumentPath = "/oauth/client.json";
 
+    /// <summary>The host of the address that brings a browser back into a native app after a sign-in.</summary>
+    public const string AppReturnHost = "tool-sign-in";
+
+    /// <summary>
+    /// The address schemes of Drover's own native apps. A browser is sent into an app only through one of these,
+    /// never through a scheme a request names freely.
+    /// </summary>
+    public static readonly FrozenSet<string> AppSchemes = FrozenSet.ToFrozenSet(["com.forresttechnologies.drover.preview"], StringComparer.Ordinal);
+
     #endregion
 
     #region Properties

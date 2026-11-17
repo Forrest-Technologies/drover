@@ -7,8 +7,11 @@ ASP.NET Core Identity, used directly. It is the platform, it is maintained by Mi
 | Client | Mechanism | Storage on the client |
 | --- | --- | --- |
 | Web | Identity application cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, with antiforgery tokens on state-changing requests | Browser cookie jar |
-| MAUI app | Identity's built-in bearer tokens: short-lived access token, long-lived refresh token, both opaque | Platform secure storage through `ISecureStore` |
+| MAUI app | ASP.NET Core opaque bearer tokens tied to a Drover session. The access token lasts 10 minutes and the refresh token uses the 14-day session idle limit. | Refresh token in platform secure storage, scoped to the server origin. Access token in memory. |
+| Android preview against older servers | Existing Identity session cookie and antiforgery check | Native HTTP cookie jar, in memory only. See [ADR 0014](../adr/0014-android-preview-session.md). |
 | Scripts and integrations (Phase 2) | Personal access tokens: random value shown once, stored as a hash, scoped to one space | The caller's choice |
+
+The native app uses the existing sign-in, setup, or registration endpoint first. It exchanges the resulting cookie and antiforgery token at `POST /api/native/session`. If the server supports native sessions, the app discards its session cookie after exchange. A cold start uses `POST /api/native/refresh` with the saved credential. Access and refresh both require the original server session and the current security stamp. Cookie clients still need antiforgery on state-changing requests. The refresh request uses its explicit credential and does not use cookies.
 
 Decisions:
 

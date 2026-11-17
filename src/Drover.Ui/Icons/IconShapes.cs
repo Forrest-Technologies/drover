@@ -11,6 +11,8 @@ public static class IconShapes
 
     private static readonly Dictionary<IconName, string> shapes = new()
     {
+        [IconName.Account] =
+            """<path d="M9 3h6l2 2v4l-2 2H9L7 9V5z"/><path d="M4 21v-4l3-3h10l3 3v4z"/>""",
         [IconName.ArrowLeft] =
             """<path d="M11 5 4 12l7 7"/><path d="M5 12h15"/>""",
         [IconName.Attach] =
@@ -23,8 +25,12 @@ public static class IconShapes
             """<path d="m9 6 6 6-6 6"/>""",
         [IconName.Close] =
             """<path d="m6 6 12 12"/><path d="M18 6 6 18"/>""",
+        [IconName.Conversation] =
+            """<path d="M6 4h14v12l-3 3h-6l-5 3v-3H3V7z"/><path d="M7 9h9m-9 4h7"/>""",
         [IconName.Copy] =
             """<path d="M11 8h10v10l-3 3H8V11z"/><path d="M5 16H3V6l3-3h10v2"/>""",
+        [IconName.Crew] =
+            """<path d="M7 5h10l3 4v8l-3 3H7l-3-3V9z"/><path d="M7 10h10v4H7zM12 5V2"/>""",
         [IconName.Download] =
             """<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>""",
         [IconName.Edit] =

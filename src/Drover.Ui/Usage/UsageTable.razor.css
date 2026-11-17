@@ -15,11 +15,12 @@
 .dv-usage thead th {
   color: var(--dv-text-2);
   font-weight: var(--dv-weight-label);
+  white-space: nowrap;
 }
 
 /* The bot's column gets the room: a name is never broken inside a word to make space for a figure. */
 .dv-usage-who {
-  width: 34%;
+  width: 28%;
 }
 
 /* A bot beneath another is set in by its depth, so the crew reads as the hierarchy it is. */
@@ -35,6 +36,18 @@
   min-width: 0;
   color: var(--dv-text);
   overflow-wrap: break-word;
+}
+
+/* The bot whose runs are listed below: marked by weight and a thicker underline, not by color alone. */
+.dv-usage-bot a.dv-usage-chosen {
+  font-weight: var(--dv-weight-heading);
+  text-decoration-thickness: calc(var(--dv-border) * 2);
+}
+
+.dv-usage-removed {
+  color: var(--dv-text-3);
+  font-size: var(--dv-text-12);
+  font-weight: var(--dv-weight-body);
 }
 
 .dv-usage-own,
@@ -55,6 +68,16 @@
 .dv-usage-model {
   font-family: var(--dv-font-mono);
   font-size: var(--dv-text-12);
+}
+
+/* Which token figure is which: read out beside the table's columns, shown on a phone where the columns are gone. */
+.dv-usage-figure-label {
+  position: absolute;
+  width: var(--dv-border);
+  height: var(--dv-border);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .dv-usage-hint {
@@ -93,6 +116,21 @@
   .dv-usage-who {
     display: block;
     width: auto;
+  }
+
+  .dv-usage-figure-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    font-family: var(--dv-font-ui);
+    white-space: normal;
+  }
+
+  /* The own figure stays on its label's line, as the model does. */
+  .dv-usage-number .dv-usage-own {
+    display: inline;
   }
 
   .dv-usage td::before {

@@ -15,11 +15,6 @@
     <SkillProposalCard BotName="Sample bot" Offered="offer" />
 </GallerySection>
 
-<GallerySection Title="What each bot used (#163)" Note="Cost first, the crew as its hierarchy, the biggest spender first at each level. An unknown price is said, never shown as zero. Sample figures.">
-    <div class="dv-sample-wide"><UsageTable Crew="usage" Currency="USD" Caption="Sample: what each bot used in the last 7 days" BotHref="@(_ => "/")" /></div>
-    <div class="dv-sample-wide"><UsageTable Crew="[]" Currency="USD" Caption="Sample: an empty period" BotHref="@(_ => "/")" /></div>
-</GallerySection>
-
 @code {
     private const string before = "Sample line one.\nSample line two.\nSample line three.";
 
@@ -44,19 +39,6 @@
         "Sample bot", "you", sampleDay);
 
     private static readonly SkillDraft offer = new("Sample skill", "Sample: when exporting the sample table.", "1. A sample step.\n2. Another sample step.");
-
-    private static readonly Guid sampleLead = Guid.Parse("00000000-0000-7000-8000-000000000001");
-
-    private static readonly Guid sampleHelper = Guid.Parse("00000000-0000-7000-8000-000000000002");
-
-    private static readonly UsageNode[] usage =
-    [
-        new(sampleLead, "Sample lead", "sample-model-a", new(1.24m, 120_400, 18_300), new(3.02m, 410_900, 51_200, true),
-        [
-            new(sampleHelper, "Sample helper", "sample-model-b", new(1.78m, 250_000, 30_100), null, []),
-            new(Guid.Parse("00000000-0000-7000-8000-000000000003"), "Sample bot on a model with no known price", "sample-model-c", new(null, 40_500, 2_800), null, []),
-        ]),
-    ];
 
     private SkillDraft draft = SkillDraft.Empty;
 }

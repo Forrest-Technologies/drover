@@ -47,7 +47,7 @@ public sealed class ShellPieceTests : ScreenTest
     #region Account Menu
 
     [Fact]
-    public void The_account_menu_is_named_for_the_person_and_offers_the_themes_the_status_page_and_sign_out()
+    public void The_account_menu_is_named_for_the_person_and_offers_the_themes_usage_the_status_page_and_sign_out()
     {
         Services.GetRequiredService<SessionState>().Begin(Person);
 
@@ -55,19 +55,19 @@ public sealed class ShellPieceTests : ScreenTest
 
         menu.Find("button.dv-menu-trigger").TextContent.Should().Be("Sam Sample");
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Status", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Usage", "Status", "Sign out"));
         menu.FindAll("[role=menuitem]")[0].TextContent.Should().Contain(", in use");
     }
 
     [Fact]
-    public void A_member_who_is_not_an_admin_is_not_offered_the_status_page()
+    public void A_member_who_is_not_an_admin_is_offered_usage_and_not_the_status_page()
     {
         Services.GetRequiredService<SessionState>().Begin(Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
 
         var menu = Render<AccountMenu>();
 
         menu.WaitForAssertion(() => menu.FindAll("[role=menuitem]").Select(item => item.TextContent.Trim().Split('\n')[0].Trim())
-            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Sign out"));
+            .Should().Equal("Dark theme", "Light theme", "Match this device", "Notifications", "Usage", "Sign out"));
     }
 
     [Fact]
@@ -79,6 +79,17 @@ public sealed class ShellPieceTests : ScreenTest
         menu.FindAll("[role=menuitem]").Single(item => item.TextContent.Trim() == "Status").Click();
 
         menu.WaitForAssertion(() => Address.Should().Be("status"));
+    }
+
+    [Fact]
+    public void Choosing_usage_opens_the_usage_page()
+    {
+        Services.GetRequiredService<SessionState>().Begin(Person);
+        var menu = Render<AccountMenu>();
+
+        menu.FindAll("[role=menuitem]").Single(item => item.TextContent.Trim() == "Usage").Click();
+
+        menu.WaitForAssertion(() => Address.Should().Be("usage"));
     }
 
     [Fact]

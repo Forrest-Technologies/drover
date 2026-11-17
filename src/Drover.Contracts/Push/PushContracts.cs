@@ -33,4 +33,4 @@ public sealed record BotNotifySetting(bool Notifies);
 /// What a woken device shows, fetched by the device from the person's own server: a sentence that names the bot and
 /// says what happened, and the conversation to open. <see cref="IsMain"/> is false for a side chat.
 /// </summary>
-public sealed record PushWakeText(string Body, Guid BotId, Guid ThreadId, bool IsMain);
+public sealed record PushWakeText(string Body, Guid BotId, Guid ThreadId, bool IsMain, Guid? SpaceId = null);

@@ -558,7 +558,7 @@ public sealed class RunGovernor(
     private async Task Record(ToolModelUsage usage)
     {
         var cost = Cost(usage);
-        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost);
+        session.AddUsage(usage.InputTokens, usage.OutputTokens, cost ?? 0);
         var recorded = new UsageRecorded(session.CurrentStep, usage.InputTokens, usage.OutputTokens, 0, cost, usage.Pricing.Currency);
         await session.Writer.Write(
             async services =>
@@ -585,9 +585,15 @@ public sealed class RunGovernor(
             [RunEventWriter.Event(session.RunId, RunEventTypes.UsageRecorded, recorded)]);
     }
 
-    /// <summary>What a model call cost at the prices the catalog lists for its model.</summary>
-    internal static decimal Cost(ToolModelUsage usage) =>
-        ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m;
+    /// <summary>
+    /// What a model call cost at the prices the catalog lists for its model, or null when the catalog does not know
+    /// the price of tokens the call used: an unknown price is never counted as free.
+    /// </summary>
+    internal static decimal? Cost(ToolModelUsage usage) => usage switch
+    {
+        { InputTokens: > 0, Pricing.InputPerMillion: null } or { OutputTokens: > 0, Pricing.OutputPerMillion: null } => null,
+        _ => ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m,
+    };
 
     #endregion
 }
