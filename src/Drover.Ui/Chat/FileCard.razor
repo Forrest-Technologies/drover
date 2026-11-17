@@ -99,6 +99,12 @@
 
     private async Task Export(IFileDelivery delivery, bool save)
     {
+        // A second press before the buttons are redrawn as disabled would start a second export.
+        if (exporting)
+        {
+            return;
+        }
+
         exporting = true;
         exportFailed = false;
         exportStatus = null;

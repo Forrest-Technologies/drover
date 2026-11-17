@@ -31,6 +31,10 @@ public sealed class DocumentDestination
                 activity.StartActivityForResult(intent, CreateDocument);
                 return await result.Task.WaitAsync(cancellationToken);
             }
+            catch (ActivityNotFoundException missing)
+            {
+                throw new IOException("This device has no file picker.", missing);
+            }
             finally
             {
                 waiting = null;
