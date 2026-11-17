@@ -1,0 +1,9 @@
+@inject IServiceProvider Services
+
+@if (Services.GetService<IServerChoice>() is { } choice)
+{
+    <p class="dv-server-choice">
+        <span>This app is connected to <span class="dv-mono">@choice.Host</span>.</span>
+        <Button OnClick="choice.Change">Use another server</Button>
+    </p>
+}
