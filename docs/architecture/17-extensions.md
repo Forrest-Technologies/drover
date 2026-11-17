@@ -2,9 +2,9 @@
 
 An extension is one file that adds something to a space. Today that is a bot. A person reads what the file holds before anything is added, and the file can grant nothing.
 
-Built and tested: the file format and its strict reader; the preview; the import of a bot, paused; the list of what is installed; the screen at `/extensions`.
+Built and tested: the file format and its strict reader; the preview; the import of a bot, paused; the list of what is installed; the screen at `/extensions`; writing a bot down as an extension; the editor at `/extensions/edit`, a form with the file's JSON one tab away.
 
-Not built yet, tracked in the extensions issue: a tool connection as a second kind of content, with its address, sign-in service, and scopes pinned; turning an extension off, removing it, and updating it; exporting a bot as a file; an editor for a file.
+Not built yet, tracked in the extensions issue: a tool connection as a second kind of content, with its address, sign-in service, and scopes pinned; turning an extension off, removing it, and updating it; saving the file from the native app (there the editor copies the text or imports it).
 
 ## The one rule
 
@@ -65,6 +65,17 @@ Imported instructions become what a bot is told, so the review shows every chara
 ### The model
 
 The server chooses the model, the same way for the preview and the import, so the review names what the bot will get. The connection is the space's connection that last answered. The model is the file's `suggestedModel` when that connection lists it, then the connection's own default, then the first model it lists. A suggestion is advice: it never puts a bot on a model the space does not have. The person changes the model in the bot's settings, like any bot's, before or after turning it on. A space with no usable model imports nothing and is told to connect one.
+
+## Making one
+
+The editor at `/extensions/edit` writes a file. Its job is to write a bot down so someone else can import it, and hand over the file.
+
+- **The form comes first**: the extension's name, id, and what it is for, then the bot's name, what it is for, its instructions, and a suggested model. The id follows the name (`ExtensionFile.IdFrom`) until the person types one.
+- **The JSON tab shows the same file as text** and lets a person edit it. `ExtensionFile.Write`, in `Drover.Contracts`, writes the text, so the editor and the server write the same thing. Going back to the form sends the text to `POST /api/spaces/{spaceId}/extensions/read`, which reads it with the reader an import uses and answers with the package. Text it cannot read stays on the JSON tab with the sentence that says why. The editor therefore cannot produce a file the importer would refuse without saying so, and there is one reader, on the server.
+- **Starting from a bot**: a bot's settings open the editor on `GET /api/spaces/{spaceId}/extensions/from-bot/{botId}`, which answers with the bot as a package: its name, what it is for, its instructions, and its model as a suggestion. Nothing else of a bot has a field to be in, so its grants, sandbox, limits, schedules, and notes cannot leave with it.
+- **What is done with the file**: checked (the server reads it and says whether it would import), copied as text, downloaded in a browser, or imported into this space, which hands the text to the import above so it is reviewed like any other file.
+
+Both routes are for an owner or admin. The editor is one shared component, so it is the same on web, desktop, and phone. A browser saves the file through a link; the native app has no such link yet and offers Copy and Import.
 
 ## What is kept
 
