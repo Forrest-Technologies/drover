@@ -1,6 +1,6 @@
 namespace Drover.App;
 
-public sealed class DroverApplication : Application
+public sealed class DroverApplication : Microsoft.Maui.Controls.Application
 {
     protected override Window CreateWindow(IActivationState? activationState)
     {

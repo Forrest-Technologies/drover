@@ -5,6 +5,9 @@
 @inject ServerAddress Server
 @inject AppRequests Requests
 @inject ILogger<PreviewRoot> Logger
+@inject NavigationManager Navigation
+@inject IncomingNavigation Incoming
+@implements IDisposable
 
 @if (Server.Current is not null)
 {
@@ -40,7 +43,27 @@ else
 
     #endregion
 
+    #region Interface Implementations
+
+    public void Dispose() => Incoming.Changed -= QueueIncomingNavigation;
+
+    #endregion
+
     #region Private Methods
+
+    protected override void OnInitialized() => Incoming.Changed += QueueIncomingNavigation;
+
+    protected override void OnAfterRender(bool firstRender) => OpenIncoming();
+
+    private void QueueIncomingNavigation() => _ = InvokeAsync(OpenIncoming);
+
+    private void OpenIncoming()
+    {
+        if (Server.Current is not null && Incoming.Take() is { } address)
+        {
+            Navigation.NavigateTo(address);
+        }
+    }
 
     private async Task Connect()
     {

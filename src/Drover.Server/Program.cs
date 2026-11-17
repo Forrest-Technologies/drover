@@ -91,10 +91,12 @@ app.UseMiddleware<SpaceMembershipMiddleware>();
 
 var api = app.MapGroup("/api").AddEndpointFilter<AntiforgeryFilter>();
 api.MapAccountEndpoints();
+api.MapNativeSessionEndpoints(app);
 api.MapRegistrationEndpoints();
 api.MapPolicyEndpoints();
 api.MapSpaceEndpoints();
 api.MapPushEndpoints();
+api.MapToolSignInFinish();
 api.MapFallback(() => Results.NotFound());
 app.MapToolSignInCallback();
 

@@ -29,6 +29,10 @@ public sealed record SignInFinish(bool Connected, Guid? SpaceId, Guid? Connectio
 /// <list type="bullet">
 /// <item>A sign-in is found again by the hash of its <c>state</c>, stored in <c>oauth_flows</c> with the person and
 /// connection. The callback completes it only for the signed-in person who started it, once, within ten minutes.</item>
+/// <item>A sign-in started from a native app comes back to a browser that is not signed in to Drover. Its callback
+/// completes nothing: it keeps what the browser brought and sends the browser into the app with a one-time ticket.
+/// The app then finishes the sign-in as the signed-in person who started it. The ticket is this server's own and
+/// carries nothing the tool server sent.</item>
 /// <item>The waiting half lives in this process. If the server restarts, or the callback reaches another instance,
 /// the sign-in is gone and the person starts again; nothing is left half-done, because tokens are stored only after
 /// the exchange.</item>
@@ -50,9 +54,13 @@ public sealed class ToolSignIns(
     /// <summary>How long the callback waits for the exchange and the first listing before it answers.</summary>
     private static readonly TimeSpan finishPatience = TimeSpan.FromSeconds(45);
 
+    private const string NotWaiting = "This sign-in is not waiting any more. Start it again from the connection.";
+
     private readonly ConcurrentDictionary<string, Pending> byState = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<(Guid UserId, Guid ConnectionId), Pending> byPerson = new();
+
+    private readonly ConcurrentDictionary<string, Pending> byTicket = new(StringComparer.Ordinal);
 
     #endregion
 
@@ -61,10 +69,16 @@ public sealed class ToolSignIns(
     /// <summary>
     /// Starts a sign-in for the person, to their own credential or, where one sign-in serves the space, to the
     /// space's. Returns when the tool server has said where the person must go, or when it turned out that no
-    /// sign-in is needed, or that none is possible.
+    /// sign-in is needed, or that none is possible. <paramref name="appScheme"/> is the address scheme of the native
+    /// app the browser must come back into, one of <see cref="ToolSignInOptions.AppSchemes"/>, or null for the web.
     /// </summary>
-    public async Task<SignInStart> Begin(Guid spaceId, Guid userId, Guid connectionId, CancellationToken cancellationToken)
+    public async Task<SignInStart> Begin(Guid spaceId, Guid userId, Guid connectionId, string? appScheme, CancellationToken cancellationToken)
     {
+        if (appScheme is not null && !ToolSignInOptions.AppSchemes.Contains(appScheme))
+        {
+            return new SignInStart(SignInStep.Failed, Problem: "This server does not know the app the sign-in should return to.");
+        }
+
         if (sources.FirstOrDefault(found => found.Kind is ToolSourceKind.Mcp) is not { } source)
         {
             return new SignInStart(SignInStep.Failed, Problem: "This server has no adapter for tool connections.");
@@ -78,7 +92,7 @@ public sealed class ToolSignIns(
             return new SignInStart(prepared.Problem is null ? SignInStep.NotFound : SignInStep.Failed, Problem: prepared.Problem);
         }
 
-        var pending = new Pending(tenant, connectionId);
+        var pending = new Pending(tenant, connectionId, appScheme);
 
         if (byPerson.TryRemove((userId, connectionId), out var earlier))
         {
@@ -106,8 +120,6 @@ public sealed class ToolSignIns(
     /// </summary>
     public async Task<SignInFinish> Complete(Guid userId, string? state, string? code, string? issuer, bool refused, CancellationToken cancellationToken)
     {
-        const string NotWaiting = "This sign-in is not waiting any more. Start it again from the connection.";
-
         if (string.IsNullOrEmpty(state))
         {
             return new SignInFinish(false, null, null, NotWaiting);
@@ -131,26 +143,54 @@ public sealed class ToolSignIns(
             return new SignInFinish(false, flow.SpaceId, flow.ToolConnectionId, NotWaiting);
         }
 
-        if (refused || string.IsNullOrEmpty(code))
+        return await Conclude(pending, new Arrival(state, code, issuer, refused), cancellationToken);
+    }
+
+    /// <summary>
+    /// Takes what a browser brought back for a sign-in that a native app started, without completing it: the
+    /// browser need not be signed in, so it proves nothing about who is holding it. Returns the address that sends
+    /// the browser into the app, or null when the <c>state</c> names no such sign-in still waiting.
+    /// </summary>
+    public string? Arrive(string? state, string? code, string? issuer, bool refused)
+    {
+        if (string.IsNullOrEmpty(state))
         {
-            pending.Refused = true;
-            pending.Answered.TrySetException(new OperationCanceledException("The sign-in was not approved."));
-        }
-        else
-        {
-            pending.Answered.TrySetResult(new SignInAnswer(code, state, string.IsNullOrEmpty(issuer) ? null : issuer));
+            return null;
         }
 
-        try
+        var hash = Hash(state);
+
+        if (!byState.TryGetValue(hash, out var pending) || pending.AppScheme is not { } scheme
+            || !byState.TryRemove(new KeyValuePair<string, Pending>(hash, pending)))
         {
-            var problem = await pending.Finished.WaitAsync(finishPatience, time, cancellationToken);
-            return new SignInFinish(problem is null, flow.SpaceId, flow.ToolConnectionId, problem);
+            return null;
         }
-        catch (TimeoutException slow)
+
+        var ticket = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
+        pending.Arrived = new Arrival(state, code, issuer, refused);
+        pending.TicketHash = Hash(ticket);
+        byTicket[pending.TicketHash] = pending;
+        return $"{scheme}://{ToolSignInOptions.AppReturnHost}?ticket={ticket}";
+    }
+
+    /// <summary>
+    /// Finishes a sign-in whose browser came back into a native app. The ticket works once, and only for the
+    /// signed-in person who started the sign-in: anybody else who presents it ends the sign-in with nothing stored.
+    /// </summary>
+    public async Task<SignInFinish> Finish(Guid userId, string? ticket, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(ticket) || !byTicket.TryRemove(Hash(ticket), out var pending) || pending.Arrived is not { } arrived)
         {
-            logger.LogInformation("The sign-in to tool connection {ConnectionId} had not finished when its callback answered: {Failure}", flow.ToolConnectionId, slow.GetType().Name);
-            return new SignInFinish(false, flow.SpaceId, flow.ToolConnectionId, "The tool server is taking a long time to finish the sign-in. Check the connection in a moment.");
+            return new SignInFinish(false, null, null, NotWaiting);
         }
+
+        if (pending.Tenant.UserId != userId)
+        {
+            await pending.Cancel.CancelAsync();
+            return new SignInFinish(false, null, null, NotWaiting);
+        }
+
+        return await Conclude(pending, arrived, cancellationToken);
     }
 
     #endregion
@@ -168,6 +208,31 @@ public sealed class ToolSignIns(
     #endregion
 
     #region Private Methods
+
+    /// <summary>Hands the waiting sign-in what the browser brought, and waits for the exchange and the first listing.</summary>
+    private async Task<SignInFinish> Conclude(Pending pending, Arrival arrived, CancellationToken cancellationToken)
+    {
+        if (arrived.Refused || string.IsNullOrEmpty(arrived.Code))
+        {
+            pending.Refused = true;
+            pending.Answered.TrySetException(new OperationCanceledException("The sign-in was not approved."));
+        }
+        else
+        {
+            pending.Answered.TrySetResult(new SignInAnswer(arrived.Code, arrived.State, string.IsNullOrEmpty(arrived.Issuer) ? null : arrived.Issuer));
+        }
+
+        try
+        {
+            var problem = await pending.Finished.WaitAsync(finishPatience, time, cancellationToken);
+            return new SignInFinish(problem is null, pending.Tenant.SpaceId, pending.ConnectionId, problem);
+        }
+        catch (TimeoutException slow)
+        {
+            logger.LogInformation("The sign-in to tool connection {ConnectionId} had not finished when its callback answered: {Failure}", pending.ConnectionId, slow.GetType().Name);
+            return new SignInFinish(false, pending.Tenant.SpaceId, pending.ConnectionId, "The tool server is taking a long time to finish the sign-in. Check the connection in a moment.");
+        }
+    }
 
     /// <summary>Reads, as the person, what the sign-in needs. A connection that is not theirs to sign in to yields a problem or nothing.</summary>
     private static async Task<(ToolEndpoint? Endpoint, EffectivePolicy? Policy, string? Problem)> Prepare(
@@ -290,6 +355,11 @@ public sealed class ToolSignIns(
         byPerson.TryRemove(new KeyValuePair<(Guid, Guid), Pending>((pending.Tenant.UserId, pending.ConnectionId), pending));
         pending.Asked.TrySetCanceled();
 
+        if (pending.TicketHash is { } ticket)
+        {
+            byTicket.TryRemove(new KeyValuePair<string, Pending>(ticket, pending));
+        }
+
         if (pending.StateHash is not { } hash)
         {
             return;
@@ -334,13 +404,25 @@ public sealed class ToolSignIns(
 
     #region Nested Types
 
-    private sealed class Pending(RunTenant tenant, Guid connectionId)
+    /// <summary>What a browser brought back from the sign-in page. Never logged: it holds the one-time code.</summary>
+    private sealed record Arrival(string State, string? Code, string? Issuer, bool Refused)
+    {
+        public override string ToString() => nameof(Arrival);
+    }
+
+    private sealed class Pending(RunTenant tenant, Guid connectionId, string? appScheme)
     {
         #region Properties
 
         public RunTenant Tenant => tenant;
 
         public Guid ConnectionId => connectionId;
+
+        public string? AppScheme => appScheme;
+
+        public Arrival? Arrived { get; set; }
+
+        public string? TicketHash { get; set; }
 
         public CancellationTokenSource Cancel { get; } = new(FlowLifetime);
 

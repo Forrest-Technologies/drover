@@ -9,6 +9,7 @@ public sealed partial class ConversationPane(
     DroverApi api,
     SessionState session,
     ToastService toasts,
+    ShareInbox inbox,
     ILogger<ConversationPane> logger) : IDisposable
 {
     #region Private Fields
@@ -305,6 +306,30 @@ public sealed partial class ConversationPane(
             await Task.Yield();
             await composer.Focus();
         }
+
+        await TakeWhatWasShared();
+    }
+
+    // What another app shared, once the person has chosen this bot for it, becomes this conversation's draft: the
+    // words in the field, the files uploaded as any chosen file is. Sending stays the person's own act.
+    private async Task TakeWhatWasShared()
+    {
+        if (!Main || ReadOnly || loading || composer is null || inbox.TakeFor(Bot.Id) is not { } shared)
+        {
+            return;
+        }
+
+        if (shared.Text.Length > 0)
+        {
+            await composer.Write(shared.Text);
+        }
+
+        if (shared.Files.Count > 0)
+        {
+            await Attach(shared.Files);
+        }
+
+        StateHasChanged();
     }
 
     private async Task Send(string text)

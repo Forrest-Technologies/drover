@@ -50,6 +50,33 @@ public sealed class SessionGateTests : ScreenTest
         gate.WaitForAssertion(() => gate.Find("p.guarded").TextContent.Should().Be("Guarded"));
     }
 
+    [Fact]
+    public void A_native_app_whose_server_does_not_answer_can_be_pointed_at_another()
+    {
+        var choice = new FakeServerChoice();
+        Services.AddSingleton<IServerChoice>(choice);
+        Server.Unreachable = true;
+        var gate = RenderGate();
+        gate.WaitForAssertion(() => gate.Find("h2").TextContent.Should().Be("The server did not answer"));
+
+        gate.Find(".dv-server-choice span").TextContent.Should().Be("This app is connected to drover.example.test.");
+        gate.Find(".dv-server-choice button").TextContent.Trim().Should().Be("Use another server");
+        gate.Find(".dv-server-choice button").Click();
+
+        choice.Changes.Should().Be(1);
+    }
+
+    [Fact]
+    public void The_web_app_offers_no_other_server()
+    {
+        Server.Unreachable = true;
+
+        var gate = RenderGate();
+
+        gate.WaitForAssertion(() => gate.Find("h2").TextContent.Should().Be("The server did not answer"));
+        gate.FindAll(".dv-server-choice").Should().BeEmpty();
+    }
+
     #endregion
 
     #region Private Methods

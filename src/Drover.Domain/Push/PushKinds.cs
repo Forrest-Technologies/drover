@@ -5,6 +5,8 @@ public static class PushKinds
 {
     #region Kinds
 
+    public const string DeviceTest = "device.test";
+
     public const string RunFinished = "run.finished";
 
     public const string RunFailed = "run.failed";

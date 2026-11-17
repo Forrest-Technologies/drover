@@ -43,6 +43,9 @@ public sealed class PushRepository(DroverDbContext db)
     public async Task<IReadOnlyList<PushSubscription>> ListSubscriptions(CancellationToken cancellationToken) =>
         await db.PushSubscriptions.AsNoTracking().OrderBy(row => row.CreatedAt).ToListAsync(cancellationToken);
 
+    public Task<PushSubscription?> FindSubscription(string endpoint, CancellationToken cancellationToken) =>
+        db.PushSubscriptions.AsNoTracking().SingleOrDefaultAsync(row => row.Endpoint == endpoint, cancellationToken);
+
     public async Task<bool> HasSubscription(string endpoint, CancellationToken cancellationToken) =>
         await db.PushSubscriptions.AnyAsync(row => row.Endpoint == endpoint, cancellationToken);
 

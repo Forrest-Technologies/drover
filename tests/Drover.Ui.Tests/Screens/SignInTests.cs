@@ -23,6 +23,22 @@ public sealed class SignInTests : ScreenTest
     }
 
     [Fact]
+    public void A_native_app_names_its_server_and_offers_another_below_the_form()
+    {
+        var choice = new FakeServerChoice();
+        Services.AddSingleton<IServerChoice>(choice);
+        SignedOut(setupOpen: false);
+        var page = Render<SignIn>();
+
+        page.Find(".dv-server-choice span").TextContent.Should().Be("This app is connected to drover.example.test.");
+        page.Find(".dv-server-choice button").GetAttribute("type").Should().Be("button", "it must not submit the form");
+        page.Find(".dv-server-choice button").Click();
+
+        choice.Changes.Should().Be(1);
+        page.FindAll("button[type=submit]").Should().ContainSingle("signing in stays the one primary action");
+    }
+
+    [Fact]
     public void Signing_in_opens_the_workspace()
     {
         SignedOut(setupOpen: false);

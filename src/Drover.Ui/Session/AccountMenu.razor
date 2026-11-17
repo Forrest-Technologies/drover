@@ -105,7 +105,10 @@
 
         try
         {
-            if ((await Push.Check(patience.Token)).Endpoint is { } endpoint)
+            var endpoint = Push is IDeviceNotificationSettings
+                ? await Push.Unsubscribe(patience.Token)
+                : (await Push.Check(patience.Token)).Endpoint;
+            if (endpoint is not null)
             {
                 await Api.TurnOffPush(endpoint, patience.Token);
             }

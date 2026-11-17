@@ -18,6 +18,7 @@
     <StatusNote Kind="NoteKind.Danger" Text="@problem" />
     <Button Kind="ButtonKind.Primary" Type="submit" Disabled="busy">@(busy ? "Signing in" : "Sign in")</Button>
 </form>
+<ServerChoice />
 
 @code {
     #region Private Fields

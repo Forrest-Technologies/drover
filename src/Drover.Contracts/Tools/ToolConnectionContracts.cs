@@ -97,6 +97,28 @@ public sealed record CreateToolConnectionRequest(
 /// </summary>
 public sealed record ToolSignInStart(string Step, string? AuthorizationUrl, string? Problem);
 
+/// <summary>
+/// Input only: how a sign-in to a tool server should come back. <see cref="ReturnTo"/> is the address scheme of the
+/// native app that asks, so the browser is sent into that app when the tool server is done; null returns to the web
+/// app. The server accepts only the schemes of Drover's own apps.
+/// </summary>
+public sealed record BeginToolSignInRequest(string? ReturnTo);
+
+/// <summary>
+/// Input only: the one-time ticket a browser carried into a native app after a tool server's sign-in page. It is
+/// this server's own word for the waiting sign-in and holds nothing the tool server sent.
+/// </summary>
+public sealed record FinishToolSignInRequest(string Ticket)
+{
+    public override string ToString() => nameof(FinishToolSignInRequest);
+}
+
+/// <summary>
+/// How a sign-in that returned to a native app ended. The ids are set once the sign-in was found to be the
+/// caller's own, so the app can show the connection it was for.
+/// </summary>
+public sealed record ToolSignInFinish(bool Connected, Guid? SpaceId, Guid? ConnectionId);
+
 /// <summary>Input only: a new header for a header connection. Never part of a response.</summary>
 public sealed record ReplaceToolHeaderRequest(string? HeaderName, string? HeaderValue)
 {

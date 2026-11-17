@@ -7,6 +7,12 @@ namespace Drover.Server.Tests;
 /// </summary>
 public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postgres)
 {
+    #region Private Fields
+
+    private readonly TestPushChannel channel = new();
+
+    #endregion
+
     #region Properties
 
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
@@ -18,8 +24,12 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
         services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+        services.RemoveAll<IEnumerable<IPushChannel>>();
+        services.AddSingleton<IEnumerable<IPushChannel>>([channel]);
+    }
 
     #endregion
 
@@ -83,6 +93,20 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task A_test_wake_goes_only_to_the_signed_in_persons_device()
+    {
+        var alice = await SignIn(await SeedPerson("alice"));
+        var bob = await SignIn(await SeedPerson("bob"));
+        var device = Device("https://push.example/sample-phone");
+        (await alice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+
+        (await bob.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        channel.Wakes.Should().BeEmpty();
+        (await alice.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        channel.Wakes.Should().ContainSingle().Which.Should().Be(new PushWakeUp(PushKinds.DeviceTest, Guid.Empty));
+    }
+
+    [Fact]
     public async Task Something_that_is_not_a_push_subscription_is_refused_with_a_sentence()
     {
         var alice = await SignIn(await SeedPerson("alice"));
@@ -111,7 +135,7 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         var members = await asMember.Get($"/api/push/wake?kind=run.failed&thread={thread.Id}");
         var unknownKind = await asAlice.Get($"/api/push/wake?kind=anything&thread={thread.Id}");
 
-        text.Should().Be(new PushWakeText("Atlas could not finish. Open the conversation to see why.", bot.Id, thread.Id, true));
+        text.Should().Be(new PushWakeText("Atlas could not finish. Open the conversation to see why.", bot.Id, thread.Id, true, alice.SpaceId));
         members.StatusCode.Should().Be(HttpStatusCode.NotFound, "alice's main thread is hers alone");
         unknownKind.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -147,6 +171,27 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     #endregion
 
     #region Private Methods
+
+    private sealed class TestPushChannel : IPushChannel
+    {
+        #region Properties
+
+        public string Kind => "test";
+
+        public List<PushWakeUp> Wakes { get; } = [];
+
+        #endregion
+
+        #region Interface Implementations
+
+        public Task<PushOutcome> Send(PushSubscription subscription, PushWakeUp wakeUp, CancellationToken cancellationToken)
+        {
+            Wakes.Add(wakeUp);
+            return Task.FromResult(PushOutcome.Delivered);
+        }
+
+        #endregion
+    }
 
     private static PushDeviceRequest Device(string endpoint)
     {

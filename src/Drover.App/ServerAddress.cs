@@ -22,6 +22,12 @@ public sealed class ServerAddress
         Current = origin;
     }
 
+    public void Forget()
+    {
+        Preferences.Default.Remove(Preference);
+        Current = null;
+    }
+
     public static Uri? Parse(string address) =>
         Uri.TryCreate(address.Trim(), UriKind.Absolute, out var uri)
             && uri.Scheme == Uri.UriSchemeHttps

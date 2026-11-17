@@ -42,7 +42,7 @@ The proxy obtains a certificate for that name and forwards requests to Drover. D
 
 Open **Account → Models** to add a provider, refresh its model list, or replace a key. Set the model a bot uses in the bot’s **Model** section.
 
-The app remembers the server address. Sign in again if Android stops the app. Native push isn’t included in the preview. See the [Android build and release guide](docs/android-preview.md).
+The app remembers the server address. With an updated server, it also keeps you signed in when Android stops the process. With a UnifiedPush distributor installed, open **Account → Notifications** to turn on alerts and send a test. See the [Android build and release guide](docs/android-preview.md).
 
 ## What building it costs
 

@@ -48,6 +48,8 @@ public static class SessionStamp
     public static Guid? GetSessionId(this ClaimsPrincipal principal) =>
         Guid.TryParse(principal.FindFirstValue(SessionClaim), out var sessionId) ? sessionId : null;
 
+    public static bool HasStamp(ClaimsPrincipal principal, string stamp) => principal.FindFirstValue(StampClaim) == stamp;
+
     public static async Task Validate(CookieValidatePrincipalContext context)
     {
         var services = context.HttpContext.RequestServices;
@@ -77,7 +79,7 @@ public static class SessionStamp
 
         var current = await services.GetRequiredService<AccountService>().GetSecurityStamp(userId, cancellationToken);
 
-        if (current is null || current != principal.FindFirstValue(StampClaim)
+        if (current is null || !HasStamp(principal, current)
             || !await sessions.Renew(userId, sessionId, cancellationToken))
         {
             await Reject(context);

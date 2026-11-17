@@ -13,6 +13,9 @@ public static class Addresses
 
     public const string Setup = "/setup";
 
+    /// <summary>Where a person chooses which bot gets what another app shared.</summary>
+    public const string Share = "/share";
+
     public const string SetupModel = "/setup/model";
 
     public const string SetupBot = "/setup/bot";
@@ -85,6 +88,9 @@ public static class Addresses
     /// <summary>The tool connections screen, saying how a sign-in at a provider ended.</summary>
     public static string ToolSignIn(string outcome, string? connectionId) =>
         connectionId is null ? $"/tools?sign-in={outcome}" : $"/tools?sign-in={outcome}&connection={connectionId}";
+
+    /// <summary>The tool connections screen, ending a sign-in whose browser came back into a native app.</summary>
+    public static string ToolSignInReturn(string ticket) => $"/tools?ticket={Uri.EscapeDataString(ticket)}";
 
     #endregion
 }

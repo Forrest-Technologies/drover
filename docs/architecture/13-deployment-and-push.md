@@ -186,6 +186,9 @@ The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","
 
 ### Android client
 
+The Android client receives encrypted wake-ups from an installed UnifiedPush distributor. It uses the signed-in account for wake text and inline replies, and only offers replies to finished runs. The test action sends a wake-up to the current account’s registered endpoint through the same outbound policy as a run notification. The app opens Android settings for troubleshooting and leaves the battery setting to the user.
+
+
 UnifiedPush stays. Alternatives were checked (the app holding its own connection in a foreground service, publishing to a notification app's topics, Google's push service directly, web push inside the app's web view) and none is a better open option: each either costs battery and a permanent notification, does not wake the Drover app, needs the publisher's credentials and a relay, or is not supported by the Android web view (verified).
 
 What changes is how the app speaks it. There is no .NET or MAUI binding for the official connector, and the connector pulls in a Kotlin runtime and a crypto library. The protocol itself is small, so Drover implements it directly in the Android platform project:
