@@ -185,6 +185,61 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
         ownStream.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_root_runs_one_stream_carries_the_whole_delegation_tree_to_the_threads_audience_and_to_no_one_else(bool shared)
+    {
+        Person = await SeedPerson("alice");
+        var client = NewClient();
+        (await client.SignIn(Person.Email, Person.Password)).EnsureSuccessStatusCode();
+        var space = $"/api/spaces/{Person.SpaceId}";
+        var connection = await PostFor<ModelConnectionSummary>(client, $"{space}/model-connections", new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
+        var lead = await PostFor<BotSummary>(client, $"{space}/bots", new CreateBotRequest("Lead", "Hand work down.", connection.Id, null));
+        var helper = await PostFor<BotSummary>(client, $"{space}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null, lead.Id));
+        await Grant(lead.Id, DelegateTool.Name);
+        var thread = await PostFor<ThreadSummary>(client, $"{space}/bots/{lead.Id}/threads", new CreateThreadRequest(null));
+        if (shared)
+        {
+            await ShareWithTheSpace(thread.Id);
+        }
+
+        script.Then(
+            [new ToolCallOutput("d1", DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = helper.Id, task = "Say what you found." }))],
+            [new TextOutput("The helper's answer.")],
+            [new TextOutput("Done.")]);
+        var sent = await PostFor<SendMessageResponse>(client, $"{space}/threads/{thread.Id}/messages", new SendMessageRequest("Ask the helper."));
+        await WaitForRun(client, Person.SpaceId, sent.Run.Id, "completed");
+        var member = await SeedMember(Person.SpaceId, "member", MembershipRole.Member);
+        var asMember = NewClient();
+        (await asMember.SignIn(member.Email, member.Password)).EnsureSuccessStatusCode();
+
+        var owners = await ReadToEnd(client, Events(Person.SpaceId, sent.Run.Id));
+        using var membersStream = await asMember.Open(Events(Person.SpaceId, sent.Run.Id));
+
+        var child = RunEventTypes.Read<DelegationStarted>(owners.Single(stored => stored.Type == RunEventTypes.DelegationStarted)).ChildRunId;
+        owners.Select(stored => stored.RunId).Distinct().Should().Equal([sent.Run.Id, child], "one stream carries the root run and the run it started");
+        owners.Should().Contain(stored => stored.RunId == child && stored.Type == RunEventTypes.MessageCompleted, "the child's own words are in the root's stream");
+        owners.Select(stored => stored.Seq).Should().Equal(Enumerable.Range(1, owners.Count).Select(seq => (long)seq), "the tree has one gapless sequence");
+        if (shared)
+        {
+            membersStream.StatusCode.Should().Be(HttpStatusCode.OK);
+            var members = new List<RunEventResponse>();
+            await foreach (var frame in Frames(membersStream))
+            {
+                members.Add(frame.Event);
+            }
+
+            members.Select(stored => (stored.Seq, stored.RunId, stored.Type)).Should().Equal(
+                owners.Select(stored => (stored.Seq, stored.RunId, stored.Type)),
+                "a member a thread is shared with sees the same tree its owner does");
+        }
+        else
+        {
+            membersStream.StatusCode.Should().Be(HttpStatusCode.NotFound, "the tree of a private thread is its owner's alone, the child's work included");
+        }
+    }
+
     #endregion
 
     #region Long Streams
@@ -318,6 +373,30 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
         var gateTool = await db.Tools.SingleAsync(tool => tool.Name == "test.gate", Token);
         db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = gateTool.Id, Effect = GrantEffect.Allow, GrantedByUserId = Person.UserId });
         await db.SaveChangesAsync(Token);
+        await work.Commit(Token);
+    }
+
+    private async Task Grant(Guid botId, string toolName)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(Person.SpaceId, Person.UserId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
+        db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = Person.UserId });
+        await db.SaveChangesAsync(Token);
+        await work.Commit(Token);
+    }
+
+    /// <summary>Shares the thread with every member of the space, as its owner would.</summary>
+    private async Task ShareWithTheSpace(Guid threadId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(Person.SpaceId, Person.UserId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        await db.Threads.Where(found => found.Id == threadId)
+            .ExecuteUpdateAsync(set => set.SetProperty(found => found.AudienceUserId, Audience.Everyone), Token);
         await work.Commit(Token);
     }
 

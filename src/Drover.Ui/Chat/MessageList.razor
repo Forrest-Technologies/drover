@@ -15,7 +15,7 @@
         {
             <ChatEntry @key="message.Key" Message="message" BotName="@BotName" BotHue="BotHue" Asker="@Asker" Decide="Decide" Forget="Forget"
                        Anchor="@Anchor(message)" TabIndex="@MomentTabIndex(message)" ReadWhole="ReadWhole"
-                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" LoadUsage="LoadUsage" Takeovers="Takeovers" />
+                       ForgottenNotes="ForgottenNotes" MemoryHref="@MemoryHref" RunAddress="RunAddress" LoadUsage="LoadUsage" Takeovers="Takeovers" />
         }
         @if (Thinking)
         {
@@ -109,6 +109,10 @@
     /// <summary>Sends a person's answer to a tool call that waits for one. Returns why it failed, or nothing.</summary>
     [Parameter]
     public Func<Guid, bool, Task<string?>>? Decide { get; set; }
+
+    /// <summary>Where a reply leads to the run that wrote it, as a timeline. Without it, replies lead nowhere.</summary>
+    [Parameter]
+    public Func<Guid, string>? RunAddress { get; set; }
 
     /// <summary>Removes a note the bot saved, from its card, while it still says the given text.</summary>
     [Parameter]

@@ -2,7 +2,7 @@
 @inject IJSRuntime JS
 @inject ILogger<ArrowKeyZone> Logger
 
-@* Starter for #164 and #167. A region whose items move focus among themselves with the arrow keys. Each item
+@* A region whose items move focus among themselves with the arrow keys. Each item
    marks itself with data-arrow-item and handles its own keydown; this stops the page behind from scrolling on
    the same press, and only for those items, so a field or a scrolling box inside the region keeps its keys. *@
 <div @ref="zone" class="@Class" role="@Role" aria-label="@Label">
@@ -12,7 +12,7 @@
 @code {
     #region Private Fields
 
-    private const string ModulePath = "./_content/Drover.Ui/Starters/ArrowKeyZone.razor.js";
+    private const string ModulePath = "./_content/Drover.Ui/Components/ArrowKeyZone.razor.js";
 
     private ElementReference zone;
 

@@ -124,6 +124,7 @@
   --dv-entry-width: 400px;
   --dv-work-width: 720px;
   --dv-column-min: 224px;
+  --dv-lane-min: 96px;
   --dv-list-width: 288px;
   --dv-rail-width: 400px;
   --dv-composer-lines: 8lh;
