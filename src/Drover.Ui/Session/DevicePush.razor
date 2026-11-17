@@ -6,6 +6,31 @@
 @if (state is { } known)
 {
     <PushControl State="known" Working="working" Problem="@problem" OnToggle="Toggle" TitleHidden="TitleHidden" />
+    @if (Registration is IDeviceNotificationSettings settings)
+    {
+        <div class="dv-device-push-next">
+            @if (known is PushState.DeviceBlocked)
+            {
+                <Button Kind="ButtonKind.Quiet" OnClick="settings.OpenNotificationSettings">Open notification settings</Button>
+                <Button Kind="ButtonKind.Quiet" Disabled="working" OnClick="Check">Check again</Button>
+            }
+            else if (known is PushState.NeedsDistributor)
+            {
+                <a href="https://unifiedpush.org/users/distributors/" target="_blank" rel="noopener noreferrer">Find a UnifiedPush distributor</a>
+                <Button Kind="ButtonKind.Quiet" Disabled="working" OnClick="Check">Check again</Button>
+            }
+            else if (known is PushState.On)
+            {
+                <Button Kind="ButtonKind.Quiet" Disabled="working" OnClick="SendTest">Send a test notification</Button>
+                <StatusNote Kind="NoteKind.Ok" Text="@testNotice" />
+                <details>
+                    <summary>Notifications arriving late?</summary>
+                    <p>Check whether Android restricts your notification distributor in the background.</p>
+                    <Button Kind="ButtonKind.Quiet" OnClick="settings.OpenBatterySettings">Open battery settings</Button>
+                </details>
+            }
+        </div>
+    }
     @if (known is PushState.ServerNotReady && Session.Space?.Role is "owner" or "admin")
     {
         <p class="dv-device-push-next"><a href="@Addresses.Status">Open the status page</a> to see what the server needs.</p>
@@ -33,6 +58,8 @@ else
     private bool working;
 
     private string? problem;
+
+    private string? testNotice;
 
     #endregion
 
@@ -81,7 +108,9 @@ else
         {
             return device.Support switch
             {
+                DevicePushSupport.Blocked when Registration is IDeviceNotificationSettings => PushState.DeviceBlocked,
                 DevicePushSupport.Blocked => PushState.Blocked,
+                DevicePushSupport.NeedsDistributor => PushState.NeedsDistributor,
                 DevicePushSupport.NeedsHomeScreen => PushState.NeedsHomeScreen,
                 _ => PushState.NotSupported,
             };
@@ -97,6 +126,30 @@ else
         return device.Endpoint is { } endpoint && (await Api.GetPushDeviceState(endpoint)).On ? PushState.On : PushState.Off;
     }
 
+    private async Task SendTest()
+    {
+        working = true;
+        problem = null;
+        testNotice = null;
+
+        try
+        {
+            if ((await Registration.Check()).Endpoint is { } endpoint)
+            {
+                await Api.TestPush(endpoint);
+                testNotice = "The distributor accepted the test. Look for a Drover notification on this device.";
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            problem = $"Could not send the test. {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+
     private async Task Toggle()
     {
         working = true;
@@ -104,6 +157,7 @@ else
 
         try
         {
+            testNotice = null;
             state = state is PushState.On ? await TurnOff() : await TurnOn();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -142,10 +196,12 @@ else
 
         if ((await Registration.Check()).Support is DevicePushSupport.Blocked)
         {
-            return PushState.Blocked;
+            return Registration is IDeviceNotificationSettings ? PushState.DeviceBlocked : PushState.Blocked;
         }
 
-        problem = "The browser did not give permission. Choose the button again and allow notifications when the browser asks.";
+        problem = Registration is IDeviceNotificationSettings
+            ? "The notification distributor did not finish setup. Check that it is running, then try again."
+            : "The browser did not give permission. Choose the button again and allow notifications when the browser asks.";
         return PushState.Off;
     }
 

@@ -7,6 +7,7 @@ public enum DevicePushSupport
     Blocked,
     NotSupported,
     NeedsHomeScreen,
+    NeedsDistributor,
 }
 
 
@@ -28,4 +29,13 @@ public interface IPushRegistration
 
     /// <summary>Ends the device's subscription. Returns the address it had, or null when it had none.</summary>
     Task<string?> Unsubscribe(CancellationToken cancellationToken = default);
+}
+
+
+/// <summary>Opens settings that a native shell can show for notification delivery.</summary>
+public interface IDeviceNotificationSettings
+{
+    void OpenNotificationSettings();
+
+    Task OpenBatterySettings();
 }
