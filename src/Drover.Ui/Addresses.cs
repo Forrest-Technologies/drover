@@ -84,5 +84,8 @@ public static class Addresses
     public static string ToolSignIn(string outcome, string? connectionId) =>
         connectionId is null ? $"/tools?sign-in={outcome}" : $"/tools?sign-in={outcome}&connection={connectionId}";
 
+    /// <summary>The tool connections screen, ending a sign-in whose browser came back into a native app.</summary>
+    public static string ToolSignInReturn(string ticket) => $"/tools?ticket={Uri.EscapeDataString(ticket)}";
+
     #endregion
 }

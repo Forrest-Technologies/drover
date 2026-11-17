@@ -25,6 +25,7 @@ global using Drover.Contracts.Push;
 global using Drover.Contracts.Threads;
 global using Drover.Ui;
 global using Drover.Ui.Chat;
+global using Drover.Ui.Pages.Tools;
 global using Drover.Ui.Session;
 global using Microsoft.AspNetCore.Components.Web;
 global using Microsoft.AspNetCore.Components.WebView.Maui;
