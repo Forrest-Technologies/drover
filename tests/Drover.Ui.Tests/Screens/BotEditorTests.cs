@@ -1088,7 +1088,7 @@ public sealed class BotEditorTests : ScreenTest
     }
 
     [Fact]
-    public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_connecting_one()
+    public async Task A_space_with_no_model_that_reads_images_says_so_and_links_to_model_connections()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
         var page = RenderEditor();
@@ -1097,8 +1097,8 @@ public sealed class BotEditorTests : ScreenTest
         page.WaitForAssertion(() => page.FindAll(".dv-disclosure-open .dv-editor-hint").Select(found => Words(found.TextContent))
             .Should().Contain("This model cannot see images, and no model of this space is listed as reading them, so no other model can read the screen for this bot."));
         Labels(page).Should().NotContain("Reads the screen for this bot");
-        var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Connect a model");
-        link.GetAttribute("href").Should().Be(Addresses.SetupModel);
+        var link = page.FindAll(".dv-disclosure-open a").Single(anchor => anchor.TextContent.Trim() == "Manage model connections");
+        link.GetAttribute("href").Should().Be(Addresses.Models);
         await Open(page, 5);
         page.FindAll(".dv-disclosure-open [role=status]").Select(found => Words(found.TextContent))
             .Should().Contain("The model this bot uses cannot see images, so the bot cannot use the screen. In the Model section, choose a model to read the screen for it, or a model that can see.");

@@ -29,6 +29,8 @@ else
            Hint="This connection does not list its models. Type the name it expects." />
 }
 
+<p class="dv-editor-hint"><a href="@Addresses.Models">Manage model connections</a></p>
+
 @if (Known is null && Models is not null)
 {
     <p class="dv-editor-hint">Drover does not know what this model can do, so only the settings every model has are shown.</p>
@@ -44,7 +46,6 @@ else
     else if (Readers.Count == 0 && Draft.ScreenReader is null)
     {
         <p class="dv-editor-hint">This model cannot see images, and no model of this space is listed as reading them, so no other model can read the screen for this bot.</p>
-        <p class="dv-editor-hint"><a href="@Addresses.SetupModel">Connect a model</a></p>
     }
     else
     {

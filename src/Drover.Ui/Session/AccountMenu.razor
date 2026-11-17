@@ -20,6 +20,7 @@
             }
         </MenuItem>
     }
+    <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Models)">Models</MenuItem>
     <MenuItem OnSelect="() => notificationsOpen = true">Notifications</MenuItem>
     @* Everyone reads usage: a member reads their own runs, an owner or admin the whole space. *@
     <MenuItem OnSelect="() => Navigation.NavigateTo(Addresses.Usage)">Usage</MenuItem>

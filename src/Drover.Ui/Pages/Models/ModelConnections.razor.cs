@@ -26,6 +26,13 @@ public sealed partial class ModelConnections(
 
     private string kind = VeniceKind;
 
+    private string name = string.Empty;
+
+    private Guid? shownCatalog;
+
+    private IReadOnlyList<ModelCatalogResponse>? catalog;
+
+
     private string baseUrl = string.Empty;
 
     private string apiKey = string.Empty;
@@ -53,6 +60,8 @@ public sealed partial class ModelConnections(
     #region Properties
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
+
+    private bool ChangePending => busy is not null || addingBusy;
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     private bool CanEdit => session.Space?.Role is "owner" or "admin";
@@ -116,11 +125,18 @@ public sealed partial class ModelConnections(
         notice = null;
         apiKey = string.Empty;
         baseUrl = string.Empty;
+        name = string.Empty;
     }
 
     private void StartReplacing(ModelConnectionSummary connection)
     {
         replacing = connection.Id;
+        newKey = string.Empty;
+    }
+
+    private void CancelReplacing()
+    {
+        replacing = null;
         newKey = string.Empty;
     }
 
@@ -133,7 +149,7 @@ public sealed partial class ModelConnections(
         {
             var address = kind == CompatibleKind ? baseUrl.Trim() : null;
             var key = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim();
-            var added = await api.CreateModelConnection(SpaceId, new(kind, NameFor(address), address, key, null));
+            var added = await api.CreateModelConnection(SpaceId, new(kind, string.IsNullOrWhiteSpace(name) ? NameFor(address) : name.Trim(), address, key, null));
             connections!.Add(added);
             adding = false;
             apiKey = string.Empty;
@@ -150,12 +166,28 @@ public sealed partial class ModelConnections(
         }
     }
 
+    private Task ShowCatalog(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            shownCatalog = connection.Id;
+            catalog = null;
+            catalog = await api.ListModels(SpaceId, connection.Id);
+        });
+
+    private Task RefreshCatalog(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            var result = await api.RefreshModels(SpaceId, connection.Id);
+            catalog = result.Models;
+            Say(!result.Succeeded, result.Message ?? (result.Succeeded ? "Model list refreshed." : "The provider could not refresh the model list."));
+        });
+
     private Task Test(ModelConnectionSummary connection) =>
         Change(connection, async () =>
         {
             var result = await api.TestModelConnection(SpaceId, connection.Id);
             Replace(result.Connection);
-            Say(result.Succeeded ? null : result.Message, result.Message);
+            Say(!result.Succeeded, result.Message);
         });
 
     private Task ReplaceKey(ModelConnectionSummary connection) =>
@@ -164,12 +196,13 @@ public sealed partial class ModelConnections(
             Replace(await api.ReplaceModelKey(SpaceId, connection.Id, new(newKey.Trim())));
             newKey = string.Empty;
             replacing = null;
-            Say(null, $"The key for {connection.Name} is replaced. Test the connection to check it.");
+            Say(false, $"The key for {connection.Name} is replaced. Test the connection to check it.");
         });
 
     private async Task Change(ModelConnectionSummary connection, Func<Task> action)
     {
         busy = connection.Id;
+        notice = null;
         problems.Remove(connection.Id);
 
         try
@@ -197,9 +230,9 @@ public sealed partial class ModelConnections(
         }
     }
 
-    private void Say(string? problem, string words)
+    private void Say(bool isProblem, string words)
     {
-        noticeIsProblem = problem is not null;
+        noticeIsProblem = isProblem;
         notice = words;
     }
 

@@ -8,7 +8,7 @@
         <h1 class="dv-models-title">Model connections</h1>
         @if (CanEdit && connections is { Count: > 0 } && !adding)
         {
-            <Button Kind="ButtonKind.Primary" OnClick="StartAdding">
+            <Button Kind="ButtonKind.Primary" OnClick="StartAdding" Disabled="@ChangePending">
                 <Icon Name="IconName.Plus" />
                 Add a model connection
             </Button>
@@ -19,9 +19,10 @@
 
     @if (adding)
     {
-        <form class="dv-model-add dv-facet" @onsubmit="Add" aria-labelledby="dv-model-add-title">
+        <form class="dv-model-add dv-facet" @onsubmit="Add" @onsubmit:preventDefault aria-labelledby="dv-model-add-title">
             <h2 class="dv-model-name" id="dv-model-add-title">Add a model connection</h2>
             <SegmentedControl TValue="string" Label="Provider" Options="providers" Value="@kind" ValueChanged="ChooseProvider" Disabled="addingBusy" />
+            <Field Label="Connection name" @bind-Value="name" Disabled="addingBusy" />
             @if (kind == CompatibleKind)
             {
                 <Field Label="Base address" Type="url" @bind-Value="baseUrl" name="base-address" autocomplete="off" required="true"
@@ -81,22 +82,50 @@
                     {
                         <StatusNote Kind="NoteKind.Danger" Text="@problem" />
                     }
+                    <div class="dv-model-actions">
+                        <Button OnClick="() => ShowCatalog(connection)" Disabled="@ChangePending">View models</Button>
+                        @if (CanEdit && shownCatalog == connection.Id)
+                        {
+                            <Button OnClick="() => RefreshCatalog(connection)" Disabled="@ChangePending">Refresh models</Button>
+                        }
+                    </div>
+                    @if (shownCatalog == connection.Id && catalog is not null)
+                    {
+                        @if (catalog.Count == 0)
+                        {
+                            <p class="dv-models-hint">This connection has no listed models. You can enter a model ID in the bot’s Model section.</p>
+                        }
+                        else
+                        {
+                            <ul class="dv-model-catalog" aria-label="Models from @connection.Name">
+                                @foreach (var entry in catalog)
+                                {
+                                    <li>@entry.DisplayName <span class="dv-mono">@entry.Model</span>
+                                        @if (entry.State is not "available")
+                                        {
+                                            <span> (@entry.State)</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    }
                     @if (CanEdit)
                     {
                         <div class="dv-model-actions">
-                            <Button OnClick="() => Test(connection)" Disabled="@(busy == connection.Id)">Test connection</Button>
+                            <Button OnClick="() => Test(connection)" Disabled="@ChangePending">Test connection</Button>
                             @if (replacing == connection.Id)
                             {
-                                <form class="dv-model-key" @onsubmit="() => ReplaceKey(connection)">
-                                    <Field Label="New key" Type="password" @bind-Value="newKey" autocomplete="new-password" Disabled="@(busy == connection.Id)"
+                                <form class="dv-model-key" @onsubmit="() => ReplaceKey(connection)" @onsubmit:preventDefault>
+                                    <Field Label="New key" Type="password" @bind-Value="newKey" required="true" autocomplete="new-password" Disabled="@ChangePending"
                                            Hint="Stored encrypted. It is not shown again." />
-                                    <Button OnClick="() => replacing = null" Disabled="@(busy == connection.Id)">Cancel</Button>
-                                    <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@(busy == connection.Id)">Save key</Button>
+                                    <Button OnClick="CancelReplacing" Disabled="@ChangePending">Cancel</Button>
+                                    <Button Kind="ButtonKind.Primary" Type="submit" Disabled="@ChangePending">Save key</Button>
                                 </form>
                             }
                             else
                             {
-                                <Button OnClick="() => StartReplacing(connection)" Disabled="@(busy == connection.Id)">Replace key</Button>
+                                <Button OnClick="() => StartReplacing(connection)" Disabled="@ChangePending">Replace key</Button>
                             }
                         </div>
                     }
