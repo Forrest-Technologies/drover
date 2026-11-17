@@ -10,6 +10,7 @@ public sealed class ToolCallMapping : IEntityTypeConfiguration<ToolCall>
         builder.HasKey(call => call.Id);
         builder.Property(call => call.Id).ValueGeneratedNever();
         builder.Property(call => call.ToolName).HasMaxLength(200);
+        builder.Property(call => call.ToolDefinitionHash).HasMaxLength(128);
         builder.Property(call => call.Arguments).HasColumnType("jsonb").HasDefaultValueSql("'{}'::jsonb");
         builder.Property(call => call.Result).HasColumnType("jsonb");
         builder.HasEnumColumn(call => call.Status);

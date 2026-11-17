@@ -213,9 +213,18 @@ public sealed partial class ToolConnections(
         var connection = connections!.First(candidate => candidate.Id == tool.ConnectionId);
         return Change(connection, async () =>
         {
-            var accepted = await api.ConfirmToolReview(SpaceId, connection.Id, tool.Id);
-            tools[connection.Id] = [.. tools[connection.Id].Select(listed => listed.Id == accepted.Id ? accepted : listed)];
-            Say(connection, null, $"The change to {accepted.Title ?? accepted.Name} is accepted.");
+            try
+            {
+                var accepted = await api.ConfirmToolReview(SpaceId, connection.Id, tool.Id, tool.DefinitionHash);
+                tools[connection.Id] = [.. tools[connection.Id].Select(listed => listed.Id == accepted.Id ? accepted : listed)];
+                Say(connection, null, $"The change to {accepted.Title ?? accepted.Name} is accepted.");
+            }
+            catch (DroverApiException changedAgain) when (changedAgain.StatusCode is HttpStatusCode.Conflict)
+            {
+                // The tool changed while it was being read: show what it says now, so the next yes is to that.
+                tools[connection.Id] = await api.ListConnectionTools(SpaceId, connection.Id);
+                throw;
+            }
         });
     }
 

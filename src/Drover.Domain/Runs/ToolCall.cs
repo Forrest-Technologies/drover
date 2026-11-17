@@ -22,6 +22,9 @@ public sealed class ToolCall : ISpaceOwned, IAudienceScoped
 
     public required string ToolName { get; set; }
 
+    /// <summary>The tool's definition hash when the call was asked for. Null on rows from before it was kept.</summary>
+    public string? ToolDefinitionHash { get; set; }
+
     public JsonElement Arguments { get; set; }
 
     public ToolCallStatus Status { get; set; } = ToolCallStatus.Running;

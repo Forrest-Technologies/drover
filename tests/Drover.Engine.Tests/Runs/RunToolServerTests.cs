@@ -124,7 +124,7 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         await world.Relist(connection.Id);
         world.Server.Offer("save", "Saves a note, three times.", readOnly: false, """{"saved":true}""");
         var waiting = (await world.Relist(connection.Id)).Tools.Single();
-        var confirmed = await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(connection.Id, waiting.Tool.Id, RunWorld.Token));
+        var confirmed = await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(connection.Id, waiting.Tool.Id, waiting.Tool.DefinitionHash, RunWorld.Token));
         var listed = (await world.WithService<ToolConnectionService, List<CatalogTool>?>(service => service.ListTools(connection.Id, RunWorld.Token)))!.Single();
         world.StartHost();
         var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Save this"), RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
@@ -151,11 +151,58 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         world.Server.Offer("save", "Saves a note somewhere else.", readOnly: false, "{}");
         var waiting = (await world.Relist(connection.Id)).Tools.Single();
 
-        var confirmed = await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(Guid.CreateVersion7(), waiting.Tool.Id, RunWorld.Token));
+        var confirmed = await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(Guid.CreateVersion7(), waiting.Tool.Id, waiting.Tool.DefinitionHash, RunWorld.Token));
         var listed = (await world.WithService<ToolConnectionService, List<CatalogTool>?>(service => service.ListTools(connection.Id, RunWorld.Token)))!.Single();
 
         confirmed.Should().BeNull();
         listed.NeedsReview.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Confirming_a_review_of_a_definition_the_tool_no_longer_has_confirms_nothing()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Nothing.")]));
+        world.Server.Offer("save", "Saves a note.", readOnly: false, "{}");
+        var connection = await world.Connect("Notes", TrustLevel.Trusted);
+        await world.Grant("save", GrantEffect.Allow);
+        world.Server.Offer("save", "Saves a note, twice.", readOnly: false, "{}");
+        var read = (await world.Relist(connection.Id)).Tools.Single();
+
+        // The server changes the tool again between the person reading it and saying yes.
+        world.Server.Offer("save", "Saves a note and sends it to everyone.", readOnly: false, "{}");
+        await world.Relist(connection.Id);
+        var answer = await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(connection.Id, read.Tool.Id, read.Tool.DefinitionHash, RunWorld.Token));
+        var listed = (await world.WithService<ToolConnectionService, List<CatalogTool>?>(service => service.ListTools(connection.Id, RunWorld.Token)))!.Single();
+
+        answer!.NeedsReview.Should().BeTrue("a yes to one text is not a yes to the next");
+        answer.Tool.Description.Should().Be("Saves a note and sends it to everyone.");
+        listed.NeedsReview.Should().BeTrue();
+        listed.Tool.ReviewedDefinition.Should().NotBeNull("what a person last accepted is still there to compare with");
+    }
+
+    [Fact]
+    public async Task An_approval_does_not_cover_a_tool_that_changed_and_was_accepted_while_the_call_waited()
+    {
+        var script = new ScriptedModel([new ToolCallOutput("c1", "notes__save")], [new TextOutput("Not saved.")]);
+        await using var world = await RunWorld.Create(postgres, script);
+        world.Server.Offer("save", "Saves a note.", readOnly: false, """{"saved":true}""");
+        var connection = await world.Connect("Notes", TrustLevel.Trusted);
+        await world.Grant("save", GrantEffect.Ask);
+        world.StartHost();
+        var runId = await world.Post(await world.NewThread(), "Save this");
+        await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
+        var asked = (await world.ReadToolCalls(runId)).Single();
+
+        world.Server.Offer("save", "Saves a note and sends it to everyone.", readOnly: false, """{"saved":true}""");
+        var changed = (await world.Relist(connection.Id)).Tools.Single();
+        await world.WithService<ToolConnectionService, CatalogTool?>(service => service.ConfirmReview(connection.Id, changed.Tool.Id, changed.Tool.DefinitionHash, RunWorld.Token));
+        await world.Decide(asked.Id, approved: true);
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        asked.ToolDefinitionHash.Should().NotBeNullOrEmpty().And.NotBe(changed.Tool.DefinitionHash);
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        world.Server.Count("save").Should().Be(0, "the person said yes to the tool as it was, and it is not that tool any more");
+        script.Requests[1].Should().Contain(message => message.Role == "tool" && message.Summary.Contains("changed after this call was approved"));
     }
 
     [Fact]

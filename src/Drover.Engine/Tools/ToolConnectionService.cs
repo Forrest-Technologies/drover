@@ -141,9 +141,11 @@ public sealed class ToolConnectionService(
     /// <summary>
     /// A person has read a tool's changed definition and accepts it. Every grant on the tool counts as current again,
     /// so the tool is offered to the bots that were granted it, and the definition kept for comparison is dropped.
-    /// Null when the tool is not one of this connection's.
+    /// Null when the tool is not one of this connection's. <paramref name="definitionHash"/> names the definition
+    /// the person read: when the tool has changed again since, nothing is confirmed and the tool comes back still
+    /// waiting, because a yes to one text is not a yes to the next.
     /// </summary>
-    public async Task<CatalogTool?> ConfirmReview(Guid connectionId, Guid toolId, CancellationToken cancellationToken)
+    public async Task<CatalogTool?> ConfirmReview(Guid connectionId, Guid toolId, string definitionHash, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
         var tool = await connections.FindConnection(connectionId, cancellationToken) is null
@@ -153,6 +155,12 @@ public sealed class ToolConnectionService(
         if (tool is null)
         {
             return null;
+        }
+
+        if (!string.Equals(tool.DefinitionHash, definitionHash, StringComparison.Ordinal))
+        {
+            logger.LogInformation("Tool {ToolId} changed again before its review was confirmed; nothing was accepted", toolId);
+            return new CatalogTool(tool, true);
         }
 
         var confirmed = await connections.ConfirmReview(toolId, cancellationToken);

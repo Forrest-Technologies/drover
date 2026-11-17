@@ -1416,6 +1416,11 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("thread_id");
 
+                    b.Property<string>("ToolDefinitionHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tool_definition_hash");
+
                     b.Property<Guid>("ToolId")
                         .HasColumnType("uuid")
                         .HasColumnName("tool_id");

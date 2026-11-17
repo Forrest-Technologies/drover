@@ -209,8 +209,14 @@ else
 
         try
         {
-            await Api.ConfirmToolReview(SpaceId, connectionId, tool.ToolId);
+            await Api.ConfirmToolReview(SpaceId, connectionId, tool.ToolId, tool.DefinitionHash);
             announcement = $"The change to {tool.Title} is accepted.";
+            await OnToolsChanged.InvokeAsync(await Api.ListBotTools(SpaceId, BotId));
+        }
+        catch (DroverApiException changedAgain) when (changedAgain.StatusCode is HttpStatusCode.Conflict)
+        {
+            // The tool changed while it was being read: show what it says now, so the next yes is to that.
+            problem = Failures.Sentence(changedAgain);
             await OnToolsChanged.InvokeAsync(await Api.ListBotTools(SpaceId, BotId));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

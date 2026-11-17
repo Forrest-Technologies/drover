@@ -256,18 +256,24 @@ public sealed class RunGovernor(
             return ToolGateDecision.Refuse($"The tool {toolCall.ToolName} is not one this bot was given.");
         }
 
-        var (status, effect) = await session.Tenant.Transact(
+        var (status, effect, changedSinceAsked) = await session.Tenant.Transact(
             async services =>
             {
                 var current = await services.GetRequiredService<BotRepository>().FindBot(bot.Id, cancellationToken);
                 var grant = await services.GetRequiredService<ToolRepository>().FindEffectiveGrant(bot.Id, toolId, cancellationToken);
-                return (current?.Status, grant);
+                return (current?.Status, grant, toolCall.Approved && await ChangedSinceAsked(services, toolCall, toolId, cancellationToken));
             },
             cancellationToken);
 
         if (status is not BotStatus.Active)
         {
             return ToolGateDecision.Refuse("This bot is paused, so it may not use tools right now.");
+        }
+
+        // A yes covers the tool the person was shown. A tool that changed since then is another tool.
+        if (changedSinceAsked)
+        {
+            return ToolGateDecision.Refuse($"The tool {toolCall.ToolName} changed after this call was approved, so the approval no longer covers it. Ask again.");
         }
 
         // The grant as it stands now, and then the run's own state: a tainted run asks before it changes anything.
@@ -280,6 +286,14 @@ public sealed class RunGovernor(
 
         // Rules come after the grant and only narrow: what the grant refuses, no rule is asked about.
         return granting.Verdict is ToolGateVerdict.Refuse ? granting : await RuleOnCall(toolCall, tool, granting, cancellationToken);
+    }
+
+    /// <summary>True when the call's row kept a definition hash and the catalog's hash for the tool now differs.</summary>
+    private async Task<bool> ChangedSinceAsked(IServiceProvider services, ToolCallRequest toolCall, Guid toolId, CancellationToken cancellationToken)
+    {
+        var row = await services.GetRequiredService<ToolCallRepository>().GetToolCall(ToolCallIds.For(session.RunId, toolCall.CallId), cancellationToken);
+        return row?.ToolDefinitionHash is { } asked
+            && await services.GetRequiredService<ToolRepository>().FindDefinitionHash(toolId, cancellationToken) != asked;
     }
 
     private async Task<ToolGateDecision> RuleOnCall(ToolCallRequest toolCall, RunTool tool, ToolGateDecision granting, CancellationToken cancellationToken)

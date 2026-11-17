@@ -65,6 +65,10 @@ public sealed class ToolRepository(DroverDbContext db)
             .FirstOrDefaultAsync(cancellationToken);
 
     /// <summary>The names of these tools, by id, for records that must name a tool a person can recognize.</summary>
+    /// <summary>The hash of the tool's definition as the catalog holds it now. Null when the tool is gone.</summary>
+    public Task<string?> FindDefinitionHash(Guid toolId, CancellationToken cancellationToken) =>
+        db.Tools.AsNoTracking().Where(tool => tool.Id == toolId).Select(tool => (string?)tool.DefinitionHash).SingleOrDefaultAsync(cancellationToken);
+
     public Task<Dictionary<Guid, string>> ListToolNames(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
         db.Tools.AsNoTracking().Where(tool => ids.Contains(tool.Id)).ToDictionaryAsync(tool => tool.Id, tool => tool.Name, cancellationToken);
 
