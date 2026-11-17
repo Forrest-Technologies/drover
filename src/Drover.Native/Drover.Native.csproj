@@ -1,0 +1,57 @@
+<Project Sdk="Uno.Sdk">
+
+  <PropertyGroup>
+    <!-- Directory.Build.props names one framework for every project. This project has several, so the single
+         name is cleared and the list below takes its place. -->
+    <TargetFramework />
+    <TargetFrameworks>net11.0-desktop;net11.0-browserwasm;net11.0-android</TargetFrameworks>
+    <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <RootNamespace>Drover.Native</RootNamespace>
+
+    <ApplicationTitle>Drover</ApplicationTitle>
+    <ApplicationId>com.forresttechnologies.drover.native</ApplicationId>
+    <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
+    <!-- The development server's targets switch the version attribute off in Debug so hot reload sees a stable
+         assembly. CA1016 asks for one, so it stays on. -->
+    <GenerateAssemblyVersionAttribute>true</GenerateAssemblyVersionAttribute>
+    <ApplicationPublisher>Drover</ApplicationPublisher>
+    <Description>Drover, a self-hosted platform for running your own crew of bots.</Description>
+
+    <!-- Only the open source parts of the platform. The design tools and the app inspection server are
+         development-time products with their own terms, so neither is referenced, in any configuration. -->
+    <UnoDisableHotDesign>true</UnoDisableHotDesign>
+    <UnoDisableMCPSupport>true</UnoDisableMCPSupport>
+
+    <!-- Skia draws every target. It is implied, and named so SkiaSharp is referenced for the controls that draw
+         with it (the icons, the bot characters). -->
+    <UnoFeatures>Skia</UnoFeatures>
+
+    <!-- The API contracts are read and written as JSON by reflection, as the web client does, so a published app
+         keeps those assemblies whole (Platforms/WebAssembly/LinkerConfig.xml and the roots below). The trimmer's
+         warnings about that reflection are the same ones the web client's SDK switches off by default. -->
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+
+    <!-- Every Drover client formats the same way everywhere, so globalization stays invariant. The platform
+         still asks for the device's culture by name at startup; this lets it have one, with invariant data. -->
+    <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
+
+    <!-- Dark until a person chooses otherwise, from the first frame. -->
+    <UnoSplashScreenBackgroundColor>#05070A</UnoSplashScreenBackgroundColor>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Drover.Contracts" />
+    <TrimmerRootAssembly Include="Drover.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
+    <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
+    <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
+  </ItemGroup>
+
+</Project>

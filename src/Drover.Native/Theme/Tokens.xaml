@@ -1,0 +1,385 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Drover design tokens for the native client. The only XAML file that holds raw values.
+       It carries every token of src/Drover.Ui/wwwroot/tokens.css under a predictable name:
+       "dv-bg-0" is DvBg0, and a color also has a brush, DvBg0Brush. A test compares the two files.
+       Lengths are device-independent pixels, durations are milliseconds, and a rem is 16.
+       Dark is primary: it is the Default dictionary, so it holds wherever a theme is not named. -->
+
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Default">
+      <Color x:Key="DvBg0">#05070A</Color>
+      <Color x:Key="DvBg1">#0B0E14</Color>
+      <Color x:Key="DvBg2">#121722</Color>
+      <Color x:Key="DvBg3">#1B2230</Color>
+      <Color x:Key="DvLine">#263042</Color>
+      <Color x:Key="DvText">#E9EDF5</Color>
+      <Color x:Key="DvText2">#AEB7C7</Color>
+      <Color x:Key="DvText3">#8791A5</Color>
+      <Color x:Key="DvScrim">#B805070A</Color>
+      <Color x:Key="DvEmber">#FFB454</Color>
+      <Color x:Key="DvIon">#67E8F9</Color>
+      <Color x:Key="DvViolet">#B4A0FF</Color>
+      <Color x:Key="DvOk">#4ADE80</Color>
+      <Color x:Key="DvWarn">#FACC15</Color>
+      <Color x:Key="DvDanger">#FF7A7A</Color>
+      <Color x:Key="DvOnAccent">#0A0C10</Color>
+      <Color x:Key="DvHue0">#F696B4</Color>
+      <Color x:Key="DvHue1">#FB9989</Color>
+      <Color x:Key="DvHue2">#EFA464</Color>
+      <Color x:Key="DvHue3">#D5B455</Color>
+      <Color x:Key="DvHue4">#ADC367</Color>
+      <Color x:Key="DvHue5">#7CCD8E</Color>
+      <Color x:Key="DvHue6">#4AD0BA</Color>
+      <Color x:Key="DvHue7">#3ECCE2</Color>
+      <Color x:Key="DvHue8">#69C1FC</Color>
+      <Color x:Key="DvHue9">#99B3FF</Color>
+      <Color x:Key="DvHue10">#C3A5F9</Color>
+      <Color x:Key="DvHue11">#E39BDC</Color>
+      <Color x:Key="DvHead0">#904961</Color>
+      <Color x:Key="DvHead1">#944B40</Color>
+      <Color x:Key="DvHead2">#8C541F</Color>
+      <Color x:Key="DvHead3">#796006</Color>
+      <Color x:Key="DvHead4">#5C6B21</Color>
+      <Color x:Key="DvHead5">#337344</Color>
+      <Color x:Key="DvHead6">#007565</Color>
+      <Color x:Key="DvHead7">#007283</Color>
+      <Color x:Key="DvHead8">#1F6A96</Color>
+      <Color x:Key="DvHead9">#4D5F9C</Color>
+      <Color x:Key="DvHead10">#6C5594</Color>
+      <Color x:Key="DvHead11">#834D7E</Color>
+      <Color x:Key="DvOnHead">#F4F6FA</Color>
+      <Color x:Key="DvVisor">#05070A</Color>
+      <Color x:Key="DvVisorLit">#67E8F9</Color>
+      <Color x:Key="DvVisorFailed">#FFB3B3</Color>
+      <!-- The dot of the yard: the line color at 70 percent. -->
+      <Color x:Key="DvYardDot">#B2263042</Color>
+      <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
+      <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
+      <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />
+      <SolidColorBrush x:Key="DvBg3Brush" Color="{StaticResource DvBg3}" />
+      <SolidColorBrush x:Key="DvLineBrush" Color="{StaticResource DvLine}" />
+      <SolidColorBrush x:Key="DvTextBrush" Color="{StaticResource DvText}" />
+      <SolidColorBrush x:Key="DvText2Brush" Color="{StaticResource DvText2}" />
+      <SolidColorBrush x:Key="DvText3Brush" Color="{StaticResource DvText3}" />
+      <SolidColorBrush x:Key="DvScrimBrush" Color="{StaticResource DvScrim}" />
+      <SolidColorBrush x:Key="DvEmberBrush" Color="{StaticResource DvEmber}" />
+      <SolidColorBrush x:Key="DvIonBrush" Color="{StaticResource DvIon}" />
+      <SolidColorBrush x:Key="DvVioletBrush" Color="{StaticResource DvViolet}" />
+      <SolidColorBrush x:Key="DvOkBrush" Color="{StaticResource DvOk}" />
+      <SolidColorBrush x:Key="DvWarnBrush" Color="{StaticResource DvWarn}" />
+      <SolidColorBrush x:Key="DvDangerBrush" Color="{StaticResource DvDanger}" />
+      <SolidColorBrush x:Key="DvOnAccentBrush" Color="{StaticResource DvOnAccent}" />
+      <SolidColorBrush x:Key="DvHue0Brush" Color="{StaticResource DvHue0}" />
+      <SolidColorBrush x:Key="DvHue1Brush" Color="{StaticResource DvHue1}" />
+      <SolidColorBrush x:Key="DvHue2Brush" Color="{StaticResource DvHue2}" />
+      <SolidColorBrush x:Key="DvHue3Brush" Color="{StaticResource DvHue3}" />
+      <SolidColorBrush x:Key="DvHue4Brush" Color="{StaticResource DvHue4}" />
+      <SolidColorBrush x:Key="DvHue5Brush" Color="{StaticResource DvHue5}" />
+      <SolidColorBrush x:Key="DvHue6Brush" Color="{StaticResource DvHue6}" />
+      <SolidColorBrush x:Key="DvHue7Brush" Color="{StaticResource DvHue7}" />
+      <SolidColorBrush x:Key="DvHue8Brush" Color="{StaticResource DvHue8}" />
+      <SolidColorBrush x:Key="DvHue9Brush" Color="{StaticResource DvHue9}" />
+      <SolidColorBrush x:Key="DvHue10Brush" Color="{StaticResource DvHue10}" />
+      <SolidColorBrush x:Key="DvHue11Brush" Color="{StaticResource DvHue11}" />
+      <SolidColorBrush x:Key="DvHead0Brush" Color="{StaticResource DvHead0}" />
+      <SolidColorBrush x:Key="DvHead1Brush" Color="{StaticResource DvHead1}" />
+      <SolidColorBrush x:Key="DvHead2Brush" Color="{StaticResource DvHead2}" />
+      <SolidColorBrush x:Key="DvHead3Brush" Color="{StaticResource DvHead3}" />
+      <SolidColorBrush x:Key="DvHead4Brush" Color="{StaticResource DvHead4}" />
+      <SolidColorBrush x:Key="DvHead5Brush" Color="{StaticResource DvHead5}" />
+      <SolidColorBrush x:Key="DvHead6Brush" Color="{StaticResource DvHead6}" />
+      <SolidColorBrush x:Key="DvHead7Brush" Color="{StaticResource DvHead7}" />
+      <SolidColorBrush x:Key="DvHead8Brush" Color="{StaticResource DvHead8}" />
+      <SolidColorBrush x:Key="DvHead9Brush" Color="{StaticResource DvHead9}" />
+      <SolidColorBrush x:Key="DvHead10Brush" Color="{StaticResource DvHead10}" />
+      <SolidColorBrush x:Key="DvHead11Brush" Color="{StaticResource DvHead11}" />
+      <SolidColorBrush x:Key="DvOnHeadBrush" Color="{StaticResource DvOnHead}" />
+      <SolidColorBrush x:Key="DvVisorBrush" Color="{StaticResource DvVisor}" />
+      <SolidColorBrush x:Key="DvVisorLitBrush" Color="{StaticResource DvVisorLit}" />
+      <SolidColorBrush x:Key="DvVisorFailedBrush" Color="{StaticResource DvVisorFailed}" />
+      <SolidColorBrush x:Key="DvYardDotBrush" Color="{StaticResource DvYardDot}" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <!-- The same values as Default, so a subtree can be shown dark inside a light app. -->
+      <Color x:Key="DvBg0">#05070A</Color>
+      <Color x:Key="DvBg1">#0B0E14</Color>
+      <Color x:Key="DvBg2">#121722</Color>
+      <Color x:Key="DvBg3">#1B2230</Color>
+      <Color x:Key="DvLine">#263042</Color>
+      <Color x:Key="DvText">#E9EDF5</Color>
+      <Color x:Key="DvText2">#AEB7C7</Color>
+      <Color x:Key="DvText3">#8791A5</Color>
+      <Color x:Key="DvScrim">#B805070A</Color>
+      <Color x:Key="DvEmber">#FFB454</Color>
+      <Color x:Key="DvIon">#67E8F9</Color>
+      <Color x:Key="DvViolet">#B4A0FF</Color>
+      <Color x:Key="DvOk">#4ADE80</Color>
+      <Color x:Key="DvWarn">#FACC15</Color>
+      <Color x:Key="DvDanger">#FF7A7A</Color>
+      <Color x:Key="DvOnAccent">#0A0C10</Color>
+      <Color x:Key="DvHue0">#F696B4</Color>
+      <Color x:Key="DvHue1">#FB9989</Color>
+      <Color x:Key="DvHue2">#EFA464</Color>
+      <Color x:Key="DvHue3">#D5B455</Color>
+      <Color x:Key="DvHue4">#ADC367</Color>
+      <Color x:Key="DvHue5">#7CCD8E</Color>
+      <Color x:Key="DvHue6">#4AD0BA</Color>
+      <Color x:Key="DvHue7">#3ECCE2</Color>
+      <Color x:Key="DvHue8">#69C1FC</Color>
+      <Color x:Key="DvHue9">#99B3FF</Color>
+      <Color x:Key="DvHue10">#C3A5F9</Color>
+      <Color x:Key="DvHue11">#E39BDC</Color>
+      <Color x:Key="DvHead0">#904961</Color>
+      <Color x:Key="DvHead1">#944B40</Color>
+      <Color x:Key="DvHead2">#8C541F</Color>
+      <Color x:Key="DvHead3">#796006</Color>
+      <Color x:Key="DvHead4">#5C6B21</Color>
+      <Color x:Key="DvHead5">#337344</Color>
+      <Color x:Key="DvHead6">#007565</Color>
+      <Color x:Key="DvHead7">#007283</Color>
+      <Color x:Key="DvHead8">#1F6A96</Color>
+      <Color x:Key="DvHead9">#4D5F9C</Color>
+      <Color x:Key="DvHead10">#6C5594</Color>
+      <Color x:Key="DvHead11">#834D7E</Color>
+      <Color x:Key="DvOnHead">#F4F6FA</Color>
+      <Color x:Key="DvVisor">#05070A</Color>
+      <Color x:Key="DvVisorLit">#67E8F9</Color>
+      <Color x:Key="DvVisorFailed">#FFB3B3</Color>
+      <!-- The dot of the yard: the line color at 70 percent. -->
+      <Color x:Key="DvYardDot">#B2263042</Color>
+      <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
+      <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
+      <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />
+      <SolidColorBrush x:Key="DvBg3Brush" Color="{StaticResource DvBg3}" />
+      <SolidColorBrush x:Key="DvLineBrush" Color="{StaticResource DvLine}" />
+      <SolidColorBrush x:Key="DvTextBrush" Color="{StaticResource DvText}" />
+      <SolidColorBrush x:Key="DvText2Brush" Color="{StaticResource DvText2}" />
+      <SolidColorBrush x:Key="DvText3Brush" Color="{StaticResource DvText3}" />
+      <SolidColorBrush x:Key="DvScrimBrush" Color="{StaticResource DvScrim}" />
+      <SolidColorBrush x:Key="DvEmberBrush" Color="{StaticResource DvEmber}" />
+      <SolidColorBrush x:Key="DvIonBrush" Color="{StaticResource DvIon}" />
+      <SolidColorBrush x:Key="DvVioletBrush" Color="{StaticResource DvViolet}" />
+      <SolidColorBrush x:Key="DvOkBrush" Color="{StaticResource DvOk}" />
+      <SolidColorBrush x:Key="DvWarnBrush" Color="{StaticResource DvWarn}" />
+      <SolidColorBrush x:Key="DvDangerBrush" Color="{StaticResource DvDanger}" />
+      <SolidColorBrush x:Key="DvOnAccentBrush" Color="{StaticResource DvOnAccent}" />
+      <SolidColorBrush x:Key="DvHue0Brush" Color="{StaticResource DvHue0}" />
+      <SolidColorBrush x:Key="DvHue1Brush" Color="{StaticResource DvHue1}" />
+      <SolidColorBrush x:Key="DvHue2Brush" Color="{StaticResource DvHue2}" />
+      <SolidColorBrush x:Key="DvHue3Brush" Color="{StaticResource DvHue3}" />
+      <SolidColorBrush x:Key="DvHue4Brush" Color="{StaticResource DvHue4}" />
+      <SolidColorBrush x:Key="DvHue5Brush" Color="{StaticResource DvHue5}" />
+      <SolidColorBrush x:Key="DvHue6Brush" Color="{StaticResource DvHue6}" />
+      <SolidColorBrush x:Key="DvHue7Brush" Color="{StaticResource DvHue7}" />
+      <SolidColorBrush x:Key="DvHue8Brush" Color="{StaticResource DvHue8}" />
+      <SolidColorBrush x:Key="DvHue9Brush" Color="{StaticResource DvHue9}" />
+      <SolidColorBrush x:Key="DvHue10Brush" Color="{StaticResource DvHue10}" />
+      <SolidColorBrush x:Key="DvHue11Brush" Color="{StaticResource DvHue11}" />
+      <SolidColorBrush x:Key="DvHead0Brush" Color="{StaticResource DvHead0}" />
+      <SolidColorBrush x:Key="DvHead1Brush" Color="{StaticResource DvHead1}" />
+      <SolidColorBrush x:Key="DvHead2Brush" Color="{StaticResource DvHead2}" />
+      <SolidColorBrush x:Key="DvHead3Brush" Color="{StaticResource DvHead3}" />
+      <SolidColorBrush x:Key="DvHead4Brush" Color="{StaticResource DvHead4}" />
+      <SolidColorBrush x:Key="DvHead5Brush" Color="{StaticResource DvHead5}" />
+      <SolidColorBrush x:Key="DvHead6Brush" Color="{StaticResource DvHead6}" />
+      <SolidColorBrush x:Key="DvHead7Brush" Color="{StaticResource DvHead7}" />
+      <SolidColorBrush x:Key="DvHead8Brush" Color="{StaticResource DvHead8}" />
+      <SolidColorBrush x:Key="DvHead9Brush" Color="{StaticResource DvHead9}" />
+      <SolidColorBrush x:Key="DvHead10Brush" Color="{StaticResource DvHead10}" />
+      <SolidColorBrush x:Key="DvHead11Brush" Color="{StaticResource DvHead11}" />
+      <SolidColorBrush x:Key="DvOnHeadBrush" Color="{StaticResource DvOnHead}" />
+      <SolidColorBrush x:Key="DvVisorBrush" Color="{StaticResource DvVisor}" />
+      <SolidColorBrush x:Key="DvVisorLitBrush" Color="{StaticResource DvVisorLit}" />
+      <SolidColorBrush x:Key="DvVisorFailedBrush" Color="{StaticResource DvVisorFailed}" />
+      <SolidColorBrush x:Key="DvYardDotBrush" Color="{StaticResource DvYardDot}" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <Color x:Key="DvBg0">#F6F7FA</Color>
+      <Color x:Key="DvBg1">#FFFFFF</Color>
+      <Color x:Key="DvBg2">#EEF0F5</Color>
+      <Color x:Key="DvBg3">#E2E6EE</Color>
+      <Color x:Key="DvLine">#D5DAE3</Color>
+      <Color x:Key="DvText">#12151C</Color>
+      <Color x:Key="DvText2">#414B5E</Color>
+      <Color x:Key="DvText3">#5D6779</Color>
+      <Color x:Key="DvScrim">#B8F6F7FA</Color>
+      <Color x:Key="DvEmber">#8F5400</Color>
+      <Color x:Key="DvIon">#0B6E82</Color>
+      <Color x:Key="DvViolet">#5B3FD6</Color>
+      <Color x:Key="DvOk">#15703A</Color>
+      <Color x:Key="DvWarn">#7A5A00</Color>
+      <Color x:Key="DvDanger">#B3261E</Color>
+      <Color x:Key="DvOnAccent">#FFFFFF</Color>
+      <Color x:Key="DvHue0">#95385B</Color>
+      <Color x:Key="DvHue1">#993A2E</Color>
+      <Color x:Key="DvHue2">#904700</Color>
+      <Color x:Key="DvHue3">#7A5800</Color>
+      <Color x:Key="DvHue4">#556700</Color>
+      <Color x:Key="DvHue5">#067132</Color>
+      <Color x:Key="DvHue6">#007460</Color>
+      <Color x:Key="DvHue7">#006F86</Color>
+      <Color x:Key="DvHue8">#00649E</Color>
+      <Color x:Key="DvHue9">#4256A6</Color>
+      <Color x:Key="DvHue10">#6A499B</Color>
+      <Color x:Key="DvHue11">#853E80</Color>
+      <Color x:Key="DvHead0">#904961</Color>
+      <Color x:Key="DvHead1">#944B40</Color>
+      <Color x:Key="DvHead2">#8C541F</Color>
+      <Color x:Key="DvHead3">#796006</Color>
+      <Color x:Key="DvHead4">#5C6B21</Color>
+      <Color x:Key="DvHead5">#337344</Color>
+      <Color x:Key="DvHead6">#007565</Color>
+      <Color x:Key="DvHead7">#007283</Color>
+      <Color x:Key="DvHead8">#1F6A96</Color>
+      <Color x:Key="DvHead9">#4D5F9C</Color>
+      <Color x:Key="DvHead10">#6C5594</Color>
+      <Color x:Key="DvHead11">#834D7E</Color>
+      <Color x:Key="DvOnHead">#F4F6FA</Color>
+      <Color x:Key="DvVisor">#05070A</Color>
+      <Color x:Key="DvVisorLit">#67E8F9</Color>
+      <Color x:Key="DvVisorFailed">#FFB3B3</Color>
+      <!-- The dot of the yard: the line color at 70 percent. -->
+      <Color x:Key="DvYardDot">#B2D5DAE3</Color>
+      <SolidColorBrush x:Key="DvBg0Brush" Color="{StaticResource DvBg0}" />
+      <SolidColorBrush x:Key="DvBg1Brush" Color="{StaticResource DvBg1}" />
+      <SolidColorBrush x:Key="DvBg2Brush" Color="{StaticResource DvBg2}" />
+      <SolidColorBrush x:Key="DvBg3Brush" Color="{StaticResource DvBg3}" />
+      <SolidColorBrush x:Key="DvLineBrush" Color="{StaticResource DvLine}" />
+      <SolidColorBrush x:Key="DvTextBrush" Color="{StaticResource DvText}" />
+      <SolidColorBrush x:Key="DvText2Brush" Color="{StaticResource DvText2}" />
+      <SolidColorBrush x:Key="DvText3Brush" Color="{StaticResource DvText3}" />
+      <SolidColorBrush x:Key="DvScrimBrush" Color="{StaticResource DvScrim}" />
+      <SolidColorBrush x:Key="DvEmberBrush" Color="{StaticResource DvEmber}" />
+      <SolidColorBrush x:Key="DvIonBrush" Color="{StaticResource DvIon}" />
+      <SolidColorBrush x:Key="DvVioletBrush" Color="{StaticResource DvViolet}" />
+      <SolidColorBrush x:Key="DvOkBrush" Color="{StaticResource DvOk}" />
+      <SolidColorBrush x:Key="DvWarnBrush" Color="{StaticResource DvWarn}" />
+      <SolidColorBrush x:Key="DvDangerBrush" Color="{StaticResource DvDanger}" />
+      <SolidColorBrush x:Key="DvOnAccentBrush" Color="{StaticResource DvOnAccent}" />
+      <SolidColorBrush x:Key="DvHue0Brush" Color="{StaticResource DvHue0}" />
+      <SolidColorBrush x:Key="DvHue1Brush" Color="{StaticResource DvHue1}" />
+      <SolidColorBrush x:Key="DvHue2Brush" Color="{StaticResource DvHue2}" />
+      <SolidColorBrush x:Key="DvHue3Brush" Color="{StaticResource DvHue3}" />
+      <SolidColorBrush x:Key="DvHue4Brush" Color="{StaticResource DvHue4}" />
+      <SolidColorBrush x:Key="DvHue5Brush" Color="{StaticResource DvHue5}" />
+      <SolidColorBrush x:Key="DvHue6Brush" Color="{StaticResource DvHue6}" />
+      <SolidColorBrush x:Key="DvHue7Brush" Color="{StaticResource DvHue7}" />
+      <SolidColorBrush x:Key="DvHue8Brush" Color="{StaticResource DvHue8}" />
+      <SolidColorBrush x:Key="DvHue9Brush" Color="{StaticResource DvHue9}" />
+      <SolidColorBrush x:Key="DvHue10Brush" Color="{StaticResource DvHue10}" />
+      <SolidColorBrush x:Key="DvHue11Brush" Color="{StaticResource DvHue11}" />
+      <SolidColorBrush x:Key="DvHead0Brush" Color="{StaticResource DvHead0}" />
+      <SolidColorBrush x:Key="DvHead1Brush" Color="{StaticResource DvHead1}" />
+      <SolidColorBrush x:Key="DvHead2Brush" Color="{StaticResource DvHead2}" />
+      <SolidColorBrush x:Key="DvHead3Brush" Color="{StaticResource DvHead3}" />
+      <SolidColorBrush x:Key="DvHead4Brush" Color="{StaticResource DvHead4}" />
+      <SolidColorBrush x:Key="DvHead5Brush" Color="{StaticResource DvHead5}" />
+      <SolidColorBrush x:Key="DvHead6Brush" Color="{StaticResource DvHead6}" />
+      <SolidColorBrush x:Key="DvHead7Brush" Color="{StaticResource DvHead7}" />
+      <SolidColorBrush x:Key="DvHead8Brush" Color="{StaticResource DvHead8}" />
+      <SolidColorBrush x:Key="DvHead9Brush" Color="{StaticResource DvHead9}" />
+      <SolidColorBrush x:Key="DvHead10Brush" Color="{StaticResource DvHead10}" />
+      <SolidColorBrush x:Key="DvHead11Brush" Color="{StaticResource DvHead11}" />
+      <SolidColorBrush x:Key="DvOnHeadBrush" Color="{StaticResource DvOnHead}" />
+      <SolidColorBrush x:Key="DvVisorBrush" Color="{StaticResource DvVisor}" />
+      <SolidColorBrush x:Key="DvVisorLitBrush" Color="{StaticResource DvVisorLit}" />
+      <SolidColorBrush x:Key="DvVisorFailedBrush" Color="{StaticResource DvVisorFailed}" />
+      <SolidColorBrush x:Key="DvYardDotBrush" Color="{StaticResource DvYardDot}" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+
+  <!-- Type -->
+  <FontFamily x:Key="DvFontUi">ms-appx:///Assets/Fonts/Inter.ttf#Inter</FontFamily>
+  <FontFamily x:Key="DvFontMono">ms-appx:///Assets/Fonts/JetBrainsMono.ttf#JetBrains Mono</FontFamily>
+  <x:Double x:Key="DvText12">12</x:Double>
+  <x:Double x:Key="DvText13">13</x:Double>
+  <x:Double x:Key="DvText14">14</x:Double>
+  <x:Double x:Key="DvText16">16</x:Double>
+  <x:Double x:Key="DvText20">20</x:Double>
+  <x:Double x:Key="DvText28">28</x:Double>
+  <x:Double x:Key="DvLeadingText">1.5</x:Double>
+  <x:Double x:Key="DvLeadingHeading">1.25</x:Double>
+  <FontWeight x:Key="DvWeightBody">Normal</FontWeight>
+  <FontWeight x:Key="DvWeightLabel">Medium</FontWeight>
+  <FontWeight x:Key="DvWeightHeading">SemiBold</FontWeight>
+  <!-- 65ch: sixty-five zeros of the interface face at the base size. -->
+  <x:Double x:Key="DvMeasure">572</x:Double>
+  <!-- 0.01em, in the thousandths of an em that CharacterSpacing takes. -->
+  <x:Int32 x:Key="DvTracking">10</x:Int32>
+
+  <!-- Space, on a 4 px base -->
+  <x:Double x:Key="DvSpace1">4</x:Double>
+  <x:Double x:Key="DvSpace2">8</x:Double>
+  <x:Double x:Key="DvSpace3">12</x:Double>
+  <x:Double x:Key="DvSpace4">16</x:Double>
+  <x:Double x:Key="DvSpace5">24</x:Double>
+  <x:Double x:Key="DvSpace6">32</x:Double>
+  <x:Double x:Key="DvSpace7">48</x:Double>
+
+  <!-- Shape -->
+  <x:Double x:Key="DvRadiusControl">6</x:Double>
+  <x:Double x:Key="DvRadiusCard">10</x:Double>
+  <x:Double x:Key="DvRadiusSheet">16</x:Double>
+  <x:Double x:Key="DvRadiusFull">999</x:Double>
+  <x:Double x:Key="DvBorder">1</x:Double>
+  <x:Double x:Key="DvFocusWidth">2</x:Double>
+  <x:Double x:Key="DvFocusOffset">2</x:Double>
+  <x:Double x:Key="DvCut">10</x:Double>
+  <x:Double x:Key="DvCutS">6</x:Double>
+
+  <!-- Sizes -->
+  <x:Double x:Key="DvTargetTouch">44</x:Double>
+  <x:Double x:Key="DvTargetPointer">32</x:Double>
+  <x:Double x:Key="DvIcon16">16</x:Double>
+  <x:Double x:Key="DvIcon20">20</x:Double>
+  <x:Double x:Key="DvAvatar20">20</x:Double>
+  <x:Double x:Key="DvAvatar24">24</x:Double>
+  <x:Double x:Key="DvAvatar32">32</x:Double>
+  <x:Double x:Key="DvAvatar48">48</x:Double>
+  <x:Double x:Key="DvAvatar96">96</x:Double>
+  <x:Double x:Key="DvMark">22</x:Double>
+  <x:Double x:Key="DvSwitchWidth">36</x:Double>
+  <x:Double x:Key="DvSwitchHeight">20</x:Double>
+  <x:Double x:Key="DvSwitchThumb">14</x:Double>
+  <x:Double x:Key="DvDialogWidth">480</x:Double>
+  <x:Double x:Key="DvSheetWidth">400</x:Double>
+  <x:Double x:Key="DvMenuWidth">200</x:Double>
+  <x:Double x:Key="DvToastWidth">360</x:Double>
+  <x:Double x:Key="DvImageWidth">480</x:Double>
+  <x:Double x:Key="DvImageRatio">1.7777777777777777</x:Double>
+  <x:Double x:Key="DvTooltipWidth">240</x:Double>
+  <x:Double x:Key="DvEntryWidth">400</x:Double>
+  <x:Double x:Key="DvWorkWidth">720</x:Double>
+  <x:Double x:Key="DvColumnMin">224</x:Double>
+  <x:Double x:Key="DvLaneMin">96</x:Double>
+  <x:Double x:Key="DvListWidth">288</x:Double>
+  <x:Double x:Key="DvRailWidth">400</x:Double>
+  <!-- Lines of text, not pixels. -->
+  <x:Double x:Key="DvComposerLines">8</x:Double>
+  <x:Double x:Key="DvOutputLines">12</x:Double>
+  <x:Double x:Key="DvGridStep">16</x:Double>
+  <!-- A share of the width. -->
+  <x:Double x:Key="DvTravelWidth">0.25</x:Double>
+
+  <!-- Motion -->
+  <x:Double x:Key="DvDur1">120</x:Double>
+  <x:Double x:Key="DvDur2">220</x:Double>
+  <x:Double x:Key="DvDur3">420</x:Double>
+  <x:Double x:Key="DvDurBreath">2600</x:Double>
+  <x:Double x:Key="DvDurTravel">1300</x:Double>
+  <!-- cubic-bezier(0.2, 0.8, 0.2, 1), as the key spline of a keyframe. -->
+  <x:String x:Key="DvEase">0.2,0.8 0.2,1</x:String>
+
+  <!-- Light for live things only. Never applied to anything at rest. -->
+  <!-- The blur of the light around a live thing. Its color is DvIon. -->
+  <x:Double x:Key="DvBloomIon">8</x:Double>
+  <x:Double x:Key="DvBloomViolet">8</x:Double>
+
+  <!-- Layers -->
+  <x:Int32 x:Key="DvLayerMenu">10</x:Int32>
+  <x:Int32 x:Key="DvLayerToast">20</x:Int32>
+
+</ResourceDictionary>
