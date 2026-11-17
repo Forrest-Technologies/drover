@@ -67,6 +67,22 @@ public sealed class FileComponentTests : BunitContext
         card.Find(".dv-file-facts").TextContent.Should().Be("PNG image, 8.8 KB");
     }
 
+    [Fact]
+    public void The_native_card_saves_or_shares_the_selected_file()
+    {
+        var delivery = new SampleDelivery();
+        Services.AddSingleton<IFileDelivery>(delivery);
+        var report = new SharedFile(Guid.NewGuid(), "report.txt", "text/plain", 100, "/files/1", true, start);
+        var card = Render<FileCard>(set => set.Add(view => view.File, report));
+
+        card.Find("button[aria-label='Save report.txt']").Click();
+        card.Find("[role=status]").TextContent.Should().Contain("Saved report.txt.");
+        card.Find("button[aria-label='Share report.txt']").Click();
+
+        delivery.Saved.Should().Be(report);
+        delivery.Shared.Should().Be(report);
+    }
+
     #endregion
 
     #region Composer
@@ -351,6 +367,37 @@ public sealed class FileComponentTests : BunitContext
             .Add(view => view.OnSend, onSend ?? (_ => { }))
             .Add(view => view.OnFiles, onFiles ?? (_ => { }))
             .Add(view => view.OnRemoveFile, onRemove ?? (_ => { })));
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class SampleDelivery : IFileDelivery
+    {
+        #region Properties
+
+        public SharedFile? Saved { get; private set; }
+
+        public SharedFile? Shared { get; private set; }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public Task<bool> Save(SharedFile file, CancellationToken cancellationToken = default)
+        {
+            Saved = file;
+            return Task.FromResult(true);
+        }
+
+        public Task Share(SharedFile file, CancellationToken cancellationToken = default)
+        {
+            Shared = file;
+            return Task.CompletedTask;
+        }
+
+        #endregion
+    }
 
     #endregion
 }

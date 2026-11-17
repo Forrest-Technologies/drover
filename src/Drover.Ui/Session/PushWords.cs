@@ -9,6 +9,8 @@ public enum PushState
     NotSupported,
     NeedsHomeScreen,
     ServerNotReady,
+    NeedsDistributor,
+    DeviceBlocked,
 }
 
 /// <summary>Notifications on one device, in words. Every state says what is so and what to do about it.</summary>
@@ -29,6 +31,8 @@ public static class PushWords
         PushState.Off => "This device is not told when a bot finishes or needs you.",
         PushState.Blocked => "This browser blocks notifications from Drover. Allow them in the browser's settings for this site, then turn them on here.",
         PushState.NeedsHomeScreen => "On this device, notifications work once Drover is added to the Home Screen. Add it from the browser's share menu, then open it from there.",
+        PushState.DeviceBlocked => "Your device is blocking Drover notifications. Allow them in system settings, then check again.",
+        PushState.NeedsDistributor => "Install and set up a UnifiedPush distributor to receive notifications on this device.",
         PushState.ServerNotReady => "This server cannot send notifications yet. Its operator needs to set the public https address people use to open Drover.",
         _ => "This browser has no support for web notifications. Open Drover in a browser that does.",
     };

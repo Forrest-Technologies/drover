@@ -40,7 +40,7 @@ The proxy obtains a certificate for that name and forwards requests to Drover. D
 
 [Download the APK from GitHub Releases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter your Drover server’s HTTPS address and sign in with your existing account.
 
-The app remembers the server address. With an updated server, it also keeps you signed in when Android stops the process. Native push isn’t included in the preview. See the [Android build and release guide](docs/android-preview.md).
+The app remembers the server address. With an updated server, it also keeps you signed in when Android stops the process. With a UnifiedPush distributor installed, open **Account → Notifications** to turn on alerts and send a test. See the [Android build and release guide](docs/android-preview.md).
 
 ## What building it costs
 
