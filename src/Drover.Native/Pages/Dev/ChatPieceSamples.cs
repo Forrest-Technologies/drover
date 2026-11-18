@@ -202,13 +202,13 @@ public static class ChatPieceSamples
 
     private static IEnumerable<UIElement> Files() =>
     [
-        PanelSamples.Picture(),
-        new FileCard
+        Wide(PanelSamples.Picture()),
+        Wide(new FileCard
         {
             File = Text("00000000-0000-7000-8000-000000000502", fromBot: true),
             ReadWhole = _ => Task.FromResult(new FileText("A sample first line.\nA sample second line.\nA sample third line, shown on Show all.", Cut: false)),
-        },
-        new FileCard { File = Report("00000000-0000-7000-8000-000000000503", fromBot: true) with { Caption = "A sample caption." } },
+        }),
+        Wide(new FileCard { File = Report("00000000-0000-7000-8000-000000000503", fromBot: true) with { Caption = "A sample caption." } }),
     ];
 
     private static IEnumerable<UIElement> FilesPanels()

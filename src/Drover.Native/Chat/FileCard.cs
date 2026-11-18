@@ -5,7 +5,7 @@ namespace Drover.Native.Chat;
 /// of it on "Show all"; anything else is a card. Every form has the same way to get the file. Content a bot wrote is
 /// never rendered as a page here: it is shown as text or downloaded.
 /// </summary>
-public sealed class FileCard : StackPanel
+public sealed class FileCard : Grid
 {
     #region Private Fields
 
@@ -15,7 +15,9 @@ public sealed class FileCard : StackPanel
 
     private readonly DroverApi api;
 
-    private readonly OpensFile picture = new() { HoverFill = null, Radius = null, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly StackPanel column = new() { Spacing = Tokens.Number("DvSpace2"), HorizontalAlignment = HorizontalAlignment.Left };
+
+    private readonly OpensFile picture = new() { HoverFill = null, Radius = null, HorizontalAlignment = HorizontalAlignment.Left, HorizontalContentAlignment = HorizontalAlignment.Left };
 
     private readonly Border pictureFrame = new();
 
@@ -64,13 +66,13 @@ public sealed class FileCard : StackPanel
         this.model = model;
         api = reads ?? ((App)Application.Current).Services.GetRequiredService<DroverApi>();
         batch = new(this, Apply, Draw);
-        Spacing = Tokens.Number("DvSpace2");
-        MaxWidth = Tokens.Number("DvImageWidth");
-        HorizontalAlignment = HorizontalAlignment.Left;
+
+        // A file takes the width it is given, up to the width of a picture, and no more.
+        SizeChanged += (_, _) => Fit();
 
         pictureFrame.Child = image;
         pictureFrame.BorderThickness = new(Tokens.Number("DvBorder"));
-        pictureFrame.SizeChanged += (_, _) => KeepPictureShape();
+        pictureFrame.HorizontalAlignment = HorizontalAlignment.Left;
         picture.Content = pictureFrame;
         picture.Padding = new(0);
         picture.Click += (_, _) => OpenFile(toKeep: false);
@@ -104,14 +106,15 @@ public sealed class FileCard : StackPanel
         card.Children.Add(deviceActions);
         card.Children.Add(download);
 
-        Children.Add(picture);
-        Children.Add(preview);
-        Children.Add(cut);
-        Children.Add(showAll);
-        Children.Add(problem);
-        Children.Add(card);
-        Children.Add(exported);
-        Children.Add(caption);
+        column.Children.Add(picture);
+        column.Children.Add(preview);
+        column.Children.Add(cut);
+        column.Children.Add(showAll);
+        column.Children.Add(problem);
+        column.Children.Add(card);
+        column.Children.Add(exported);
+        column.Children.Add(caption);
+        Children.Add(column);
 
         model.PropertyChanged += (_, _) => batch.Draw();
         this.WhenShownOrRethemed(batch.Draw);
@@ -191,7 +194,6 @@ public sealed class FileCard : StackPanel
 
         pictureFrame.BorderBrush = Tokens.Brush(this, "DvLine");
         pictureFrame.Background = Tokens.Brush(this, "DvBg2");
-        pictureFrame.MaxWidth = model.File.Width ?? Tokens.Number("DvImageWidth");
         AutomationProperties.SetName(picture, model.PictureName);
         AutomationProperties.SetName(image, model.PictureName);
         KeepPictureShape();
@@ -203,18 +205,30 @@ public sealed class FileCard : StackPanel
         }
     }
 
+    private void Fit()
+    {
+        var width = Math.Min(ActualWidth, Tokens.Number("DvImageWidth"));
+        if (width > 0 && (double.IsNaN(column.Width) || Math.Abs(column.Width - width) >= 1))
+        {
+            column.Width = width;
+        }
+
+        KeepPictureShape();
+    }
+
     // The frame has the picture's own shape from the start, so nothing below it moves when the picture arrives.
     private void KeepPictureShape()
     {
-        if (model.File is not { Width: > 0 and var width, Height: > 0 and var height } || pictureFrame.ActualWidth <= 0)
+        if (model.File is not { Width: > 0 and var wide, Height: > 0 and var high } || double.IsNaN(column.Width))
         {
             return;
         }
 
-        var wanted = Math.Round(Math.Min(pictureFrame.ActualWidth, width) * height / width);
-        if (Math.Abs(pictureFrame.Height - wanted) >= 1 || double.IsNaN(pictureFrame.Height))
+        var width = Math.Min(column.Width, wide);
+        var height = Math.Round(width * high / wide);
+        if (double.IsNaN(pictureFrame.Width) || Math.Abs(pictureFrame.Width - width) >= 1 || Math.Abs(pictureFrame.Height - height) >= 1)
         {
-            pictureFrame.Height = wanted;
+            (pictureFrame.Width, pictureFrame.Height) = (width, height);
         }
     }
 

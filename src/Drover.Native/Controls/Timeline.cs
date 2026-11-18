@@ -104,6 +104,8 @@ public sealed class Timeline : StackPanel
 
     private void Draw()
     {
+        // A run that is still going is drawn again as its events arrive: the node the keyboard is on keeps the focus.
+        moveFocus |= buttons.Values.Any(button => button.FocusState is not FocusState.Unfocused);
         Children.Clear();
         buttons.Clear();
 
@@ -212,7 +214,7 @@ public sealed class Timeline : StackPanel
         }
 
         var zone = new ArrowKeyZone { Label = Label, Items = grid };
-        return new()
+        ScrollViewer lanes = new()
         {
             Content = zone,
             HorizontalScrollMode = ScrollMode.Auto,
@@ -221,6 +223,19 @@ public sealed class Timeline : StackPanel
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             IsTabStop = false,
         };
+
+        // The lanes share the width there is. Only when every lane is at its smallest and they still do not fit does
+        // the timeline scroll sideways.
+        var smallest = (Model.Lanes.Count * Tokens.Number("DvLaneMin")) + ((Model.Lanes.Count - 1) * grid.ColumnSpacing);
+        lanes.SizeChanged += (_, _) =>
+        {
+            var width = Math.Max(lanes.ActualWidth, smallest);
+            if (Math.Abs(grid.Width - width) >= 1 || double.IsNaN(grid.Width))
+            {
+                grid.Width = width;
+            }
+        };
+        return lanes;
     }
 
     private static void Place(Grid grid, FrameworkElement element, int column, int row, int columnSpan = 1, int rowSpan = 1)
