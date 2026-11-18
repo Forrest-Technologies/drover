@@ -57,6 +57,8 @@ public sealed class Composer : Grid
 
     private bool? stacked;
 
+    private bool focusWanted;
+
     #endregion
 
     #region Constructors
@@ -134,7 +136,11 @@ public sealed class Composer : Grid
     #region Public Methods
 
     /// <summary>Puts the cursor in the message field. It waits its turn, so it comes after whatever moved the focus just now.</summary>
-    public void TakeFocus() => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => field.Focus(FocusState.Programmatic));
+    public void TakeFocus()
+    {
+        focusWanted = true;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusField);
+    }
 
     #endregion
 
@@ -156,6 +162,7 @@ public sealed class Composer : Grid
         field.TextChanged += (_, _) => Typed();
         field.PreviewKeyDown += Pressed;
         field.Paste += async (_, pasted) => await Pasted(pasted);
+        field.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusField);
         field.GotFocus += (_, _) => SetFieldFocused(true);
         field.LostFocus += (_, _) => SetFieldFocused(false);
 
@@ -287,6 +294,15 @@ public sealed class Composer : Grid
     {
         focusWithin = value;
         Paint();
+    }
+
+    // The field may be between two pages when the cursor is asked for: then it takes the cursor once it is shown.
+    private void FocusField()
+    {
+        if (focusWanted && field.IsLoaded && field.Focus(FocusState.Programmatic))
+        {
+            focusWanted = false;
+        }
     }
 
     // Opening the row by keyboard puts focus on its first option, since the row comes before the plus button.

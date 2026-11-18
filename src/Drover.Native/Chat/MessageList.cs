@@ -78,7 +78,11 @@ public sealed class MessageList : Grid
         // The column sits at the foot of the view while it is shorter than the view, and grows upward from there.
         floor.Children.Add(column);
         scroller.Content = floor;
-        scroller.SizeChanged += (_, _) => floor.MinHeight = scroller.ActualHeight;
+        scroller.SizeChanged += (_, _) =>
+        {
+            floor.MinHeight = scroller.ActualHeight;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, KeepFoot);
+        };
         scroller.ViewChanged += (_, _) => atFoot = scroller.VerticalOffset >= scroller.ScrollableHeight - Tokens.Number("DvFocusWidth");
         column.SizeChanged += (_, _) => KeepFoot();
 

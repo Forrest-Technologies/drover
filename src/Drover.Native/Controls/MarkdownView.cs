@@ -293,7 +293,7 @@ public sealed class MarkdownView : StackPanel
     // Inline code sits on the card surface, so what the machine said looks different from what was said.
     private void MarkMachineText(TextBlock paragraph)
     {
-        var surface = new Microsoft.UI.Xaml.Documents.TextHighlighter { Background = Tokens.Brush(this, "DvBg2") };
+        var surface = new Microsoft.UI.Xaml.Documents.TextHighlighter { Background = Tokens.Brush(this, "DvBg2"), Foreground = paragraph.Foreground };
         var position = 0;
         Walk(paragraph.Inlines);
 
