@@ -80,6 +80,11 @@ text with Android's input connection. The native-client workflow exercises the a
 with a test keyboard that composes, commits, and deletes text and with hardware key events. Run the same check with
 `bash scripts/check-native-android-text-editing.sh` on a fresh emulator with the Drover development APK installed.
 
+On Android, the edge-to-edge window draws its background behind the system bars. The shell and custom popup
+panels use Uno's visible bounds to keep controls clear of the bars and display cutouts. The emulator check
+compares the first and last rows of the connection screen's yard with Android's system-bar bounds at 360 dp
+and captures the screen in both themes.
+
 Taking a screenshot of the browser build: serve the published `wwwroot` under `/native/` with any static host that falls back to `index.html`, open it in Playwright, wait until the element with class `uno-loader` is gone, then capture. The app is one canvas, so Playwright's full-page capture gives one viewport: use a tall viewport, or send wheel events of about 1300 pixels and capture again. A development build takes about fifteen seconds to start in headless Chromium; a published build about three.
 
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`.

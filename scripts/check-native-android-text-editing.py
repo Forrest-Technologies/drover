@@ -2,9 +2,12 @@
 """Check the development APK on a fresh Android emulator with the test keyboard installed."""
 
 import re
+import shlex
+import struct
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 PACKAGE = "com.forresttechnologies.drover.client"
@@ -17,13 +20,24 @@ def shell(*args):
     return subprocess.check_output(["adb", "shell", *args], text=True).strip()
 
 
+def start_app():
+    shell("am", "force-stop", PACKAGE)
+    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+    shell("am", "start", "-W", "-n", activity)
+
+
 def find_address():
+    shell("rm", "-f", DUMP)
     shell("uiautomator", "dump", DUMP)
     for node in ET.fromstring(shell("cat", DUMP)).iter("node"):
         if (node.get("package") == PACKAGE and node.get("class") == "android.widget.EditText"
                 and node.get("content-desc") == "Server address"):
             return node
     raise AssertionError("Could not find the Server address editor on the connection screen.")
+
+
+def address_bounds():
+    return tuple(map(int, re.findall(r"\d+", find_address().attrib["bounds"])))
 
 
 def expect(text):
@@ -52,11 +66,8 @@ def ime_edit(*args):
 
 
 def check_edits():
-    shell("am", "force-stop", PACKAGE)
-    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
-    shell("am", "start", "-W", "-n", activity)
-    address = find_address()
-    left, top, right, bottom = map(int, re.findall(r"\d+", address.attrib["bounds"]))
+    start_app()
+    left, top, right, bottom = address_bounds()
     shell("input", "tap", str((left + right) // 2), str((top + bottom) // 2))
     expect_visible_keyboard()
 
@@ -98,6 +109,84 @@ def check_edits():
     print("Android server-address editing passed with hardware keys, composing text, and committed text.")
 
 
+def screenshot(name):
+    folder = Path("artifacts/android-layout")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.png").write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
+
+
+def system_bar_edge(displays, bar, edge):
+    frame = re.search(
+        rf"(?:mType|type)={bar} (?:mFrame|frame)=\[\d+,(\d+)\]\[\d+,(\d+)\][^\r\n}}]*"
+        r"\b(?:mVisible|visible)=true\b",
+        displays,
+    )
+    if frame is None:
+        raise AssertionError(f"Could not read the visible {bar} frame from Android.")
+    return int(frame.group(edge))
+
+
+def check_yard_edges(theme):
+    displays = shell("dumpsys", "window", "displays")
+    status_bottom = system_bar_edge(displays, "statusBars", 2)
+    navigation_top = system_bar_edge(displays, "navigationBars", 1)
+    pixels = subprocess.check_output(["adb", "exec-out", "screencap"])
+    width, height, format_id, _ = struct.unpack_from("<4I", pixels)
+    if (width, height, format_id) != (720, 1600, 1):
+        raise AssertionError(f"Expected a 720 × 1600 RGBA emulator image, got {width} × {height} format {format_id}.")
+
+    # The yard dots sit on a 16 dp grid. Sample the center of the display away from the status icons
+    # and look for the dot colors in the two themes.
+    dots = bytes((28, 36, 49, 255)) if theme == "dark" else bytes((223, 227, 234, 255))
+    pitch = 32
+
+    def has_dots(y):
+        offset = 16 + y * width * 4
+        strip = pixels[offset + width * 4 // 3:offset + width * 8 // 3]
+        return strip.count(dots) >= 3
+
+    top_rows = [y for y in range(status_bottom + pitch) if has_dots(y)]
+    bottom_rows = [y for y in range(navigation_top - pitch, height) if has_dots(y)]
+    if not top_rows or min(top_rows) < status_bottom or not bottom_rows or max(bottom_rows) >= navigation_top:
+        raise AssertionError(
+            f"The {theme} yard must start below y={status_bottom} and end above y={navigation_top}. "
+            f"Found dot rows {top_rows} at the top and {bottom_rows} at the bottom."
+        )
+    print(f"Android {theme} safe area passed with yard rows {min(top_rows)} and {max(bottom_rows)} "
+          f"between system bars at {status_bottom} and {navigation_top}.")
+
+
+def check_safe_area():
+    # Use a 360 dp viewport for both themes.
+    shell("wm", "size", "720x1600")
+    shell("wm", "density", "320")
+    try:
+        start_app()
+        normal_top = address_bounds()[1]
+        screenshot("360-dark")
+        check_yard_edges("dark")
+
+        # The fresh emulator uses a debuggable system image. Seed the app's saved light choice before it launches.
+        subprocess.run(["adb", "root"], check=True)
+        subprocess.run(["adb", "wait-for-device"], check=True, timeout=30)
+        shell("am", "force-stop", PACKAGE)
+        data = f"/data/user/0/{PACKAGE}"
+        preferences = f"{data}/shared_prefs"
+        path = f"{preferences}/{PACKAGE}_preferences.xml"
+        fixture = '<map><string name="drover.theme">System.String:light</string></map>'
+        shell(f"mkdir -p {preferences} && printf '%s' {shlex.quote(fixture)} > {path} "
+              f"&& chown -R $(stat -c %u:%g {data}) {preferences} && restorecon -RF {preferences}")
+        start_app()
+        light_top = address_bounds()[1]
+        screenshot("360-light")
+        check_yard_edges("light")
+        if abs(light_top - normal_top) > 2:
+            raise AssertionError("Changing the theme moved the server address relative to the safe area.")
+    finally:
+        shell("wm", "size", "reset")
+        shell("wm", "density", "reset")
+
+
 def main():
     previous = shell("settings", "get", "secure", "default_input_method")
     show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
@@ -114,6 +203,7 @@ def main():
             shell("settings", "delete", "secure", "show_ime_with_hard_keyboard")
         else:
             shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
+    check_safe_area()
 
 
 if __name__ == "__main__":

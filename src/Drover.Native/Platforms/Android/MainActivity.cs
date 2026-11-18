@@ -52,6 +52,23 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
         return handled;
     }
 
+    internal void UpdateSystemBars(ShellView shell)
+    {
+        var light = shell.ActualTheme is ElementTheme.Light;
+        var status = Windows.UI.ViewManagement.StatusBar.GetForCurrentView();
+        // Uno returns the system's black or white foreground after mapping our theme color.
+        if (status.ForegroundColor is not { } current || (current.R == 0) != light)
+        {
+            status.ForegroundColor = Tokens.Color(shell, "DvText");
+        }
+
+        if (Window is { } window)
+        {
+            using var controller = AndroidX.Core.View.WindowCompat.GetInsetsController(window, window.DecorView);
+            controller?.AppearanceLightNavigationBars = light;
+        }
+    }
+
     #endregion
 
     #region Private Methods
@@ -78,6 +95,15 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
         if (bundle is null && Intent?.Flags.HasFlag(ActivityFlags.LaunchedFromHistory) != true)
         {
             IncomingIntents.Take(Intent, SignInReturnScheme);
+        }
+    }
+
+    protected override void OnStart()
+    {
+        base.OnStart();
+        if (Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content: ShellView shell })
+        {
+            UpdateSystemBars(shell);
         }
     }
 
