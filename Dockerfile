@@ -6,8 +6,8 @@ WORKDIR /src
 
 # The native client's browser build is served beside the web client under /native/ (docs/adr/0015). Building it
 # needs the WebAssembly workload and Python for its native linker, in this stage only, and adds time and memory.
-# Leave it out with: docker build --build-arg DROVER_NATIVE_CLIENT=false .
-ARG DROVER_NATIVE_CLIENT=true
+# Leave it out with: docker build --build-arg DROVER_BUILD_NATIVE=false .
+ARG DROVER_BUILD_NATIVE=true
 
 # Keep peak memory low on a small machine, at the cost of some build time (docs/architecture/13-deployment-and-push.md).
 ENV DOTNET_NOLOGO=1 \
@@ -43,12 +43,12 @@ RUN dotnet restore src/Drover.Server/Drover.Server.csproj
 COPY src/Drover.Native/Drover.Native.csproj src/Drover.Native/
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # hadolint ignore=DL3008
-RUN if [[ "$DROVER_NATIVE_CLIENT" == true ]]; then \
+RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
         apt-get update \
         && apt-get install -y --no-install-recommends python3 \
         && rm -rf /var/lib/apt/lists/* \
         && dotnet workload install wasm-tools \
-        && dotnet restore src/Drover.Native/Drover.Native.csproj -p:DroverNativeTargets=net11.0-browserwasm; \
+        && dotnet restore src/Drover.Native/Drover.Native.csproj -p:DroverNativeTargetFrameworks=net11.0-browserwasm; \
     fi
 
 # Publishing the server brings the web client with it. Only the server's project graph is built:
@@ -60,12 +60,14 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
     --no-restore -c Release -o /app/publish \
     -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
 
-# The server serves the native client from the folder "native" beside it (NativeClient:Path).
-RUN if [[ "$DROVER_NATIVE_CLIENT" == true ]]; then \
+# The server serves the native client from wwwroot/native beside it (NativeClient:Path names another folder).
+RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
         dotnet publish src/Drover.Native/Drover.Native.csproj \
-            --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -p:DroverNativeTargets=net11.0-browserwasm \
+            --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
+            -p:DroverNativeTargetFrameworks=net11.0-browserwasm \
             -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \
-        && cp -r /src/native-publish/wwwroot /app/publish/native; \
+        && mkdir -p /app/publish/wwwroot/native \
+        && cp -a /src/native-publish/wwwroot/. /app/publish/wwwroot/native/; \
     fi
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:bc0d6653979efba491ab3d6f589d691f96c309c3c3ef81325efa6978e7b7f242 AS runtime

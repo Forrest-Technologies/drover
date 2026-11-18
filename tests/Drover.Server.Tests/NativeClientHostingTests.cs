@@ -217,3 +217,56 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
 
     #endregion
 }
+
+
+/// <summary>
+/// A native publish copied into the server's web root, as the image does, is found there with no setting, and the
+/// web client keeps the root.
+/// </summary>
+public sealed class NativeClientInWebRootTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings
+    {
+        get
+        {
+            var root = Path.Combine(KeyRingPath, "client");
+            var native = Path.Combine(root, "native");
+            Directory.CreateDirectory(native);
+            File.WriteAllText(Path.Combine(native, "index.html"), "<!DOCTYPE html><title>Sample native client</title>");
+            File.WriteAllText(Path.Combine(native, "app.manifest"), "{\"name\":\"Sample native client\"}");
+            return new Dictionary<string, string?> { ["webroot"] = root };
+        }
+    }
+
+    #endregion
+
+    #region Public Methods
+
+    [Theory]
+    [InlineData("/native/")]
+    [InlineData("/native/extensions/edit")]
+    [InlineData("/native/setup/model")]
+    public async Task Native_deep_links_receive_the_native_shell_under_the_existing_CSP(string path)
+    {
+        var response = await NewClient().Get(path);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(Token)).Should().Contain("Sample native client");
+        response.Headers.GetValues("Content-Security-Policy").Single().Should().Contain("script-src 'self' 'wasm-unsafe-eval'").And.NotContain("'unsafe-eval'");
+        response.Headers.GetValues("Cache-Control").Single().Should().Be("no-store, no-cache");
+    }
+
+    [Fact]
+    public async Task The_existing_client_still_owns_the_root()
+    {
+        var response = await NewClient().Get("/");
+
+        // The referenced web project's static assets own this route even with the native publish installed.
+        (await response.Content.ReadAsStringAsync(Token)).Should().Contain("<title>Drover</title>")
+            .And.Contain("_framework/blazor.webassembly.js").And.NotContain("Sample native client");
+    }
+
+    #endregion
+}

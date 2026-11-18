@@ -22,7 +22,8 @@ public abstract class Screen : Page
     /// Makes a view model, filling its constructor from the app's services. This is the screen's one use of the
     /// service provider, in place of the injection a control made by the platform cannot have.
     /// </summary>
-    protected static T Make<T>() => ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
+    protected static T Make<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() =>
+        ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
 
     /// <summary>Runs when the screen is shown at an address: the place to read parameters and load what it shows.</summary>
     protected virtual void Opened(RouteMatch<Type> route)

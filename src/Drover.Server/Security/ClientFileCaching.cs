@@ -18,7 +18,10 @@ public static partial class ClientFileCaching
     /// the folder is named after a hash of the build, so a new build is a new folder.
     /// </summary>
     public static string For(PathString path) =>
-        IsNamedByContent(path) ? KeepForGood : AskEveryTime;
+        ((path.StartsWithSegments(FrameworkFiles) || path.StartsWithSegments("/native/_framework")) && NamedByContent().IsMatch(path.Value!))
+            || NativePackage().IsMatch(path.Value ?? string.Empty)
+            ? KeepForGood
+            : AskEveryTime;
 
     #endregion
 
@@ -30,26 +33,19 @@ public static partial class ClientFileCaching
 
     private const string FrameworkFiles = "/_framework";
 
-    private const string NativeFrameworkFiles = "/native/_framework";
-
     #endregion
 
     #region Private Methods
-
-    private static bool IsNamedByContent(PathString path) =>
-        ((path.StartsWithSegments(FrameworkFiles) || path.StartsWithSegments(NativeFrameworkFiles)) && NamedByContent().IsMatch(path.Value!))
-        || NativePackage().IsMatch(path.Value ?? string.Empty);
-
-    // The native build puts its own assemblies and assets in a folder named after a hash of the build:
-    // /native/package_0a1b2c.../Drover.Native.dll. The folder itself is never a file, so something must follow it.
-    [GeneratedRegex(@"^/native/package_[0-9a-f]{8,}/[^/]", RegexOptions.CultureInvariant)]
-    private static partial Regex NativePackage();
 
     // The build names a framework file after ten characters of a hash of its content: System.Linq.4jr7wme4t4.wasm.
     // A digit is required, so a plain ten-letter word in a name is not taken for a hash; a hash that happens to have
     // no digit is asked for every time, which costs a request and nothing else.
     [GeneratedRegex(@"\.(?=[a-z0-9]{10}\.)[a-z]*[0-9][a-z0-9]*\.[A-Za-z0-9]+(\.(br|gz))?$", RegexOptions.CultureInvariant)]
     private static partial Regex NamedByContent();
+
+    // Uno places content in a directory named by the package hash. The loader and index stay revalidated.
+    [GeneratedRegex(@"^/native/package_[a-fA-F0-9]{40}/[^/].*$", RegexOptions.CultureInvariant)]
+    private static partial Regex NativePackage();
 
     #endregion
 }

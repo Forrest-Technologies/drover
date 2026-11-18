@@ -1,0 +1,113 @@
+name: Native clients
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'platforms;android-37.0 platforms;android-37.2 build-tools;37.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android workload
+        run: dotnet workload install android --version 11.0.100
+      - name: Build Android, warnings are errors
+        run: dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-android-development
+          path: src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Build desktop, warnings are errors
+        run: dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
+      - name: Check desktop dependency licenses
+        env:
+          DroverNativeTargetFrameworks: net11.0-desktop
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          dotnet tool restore
+          dotnet tool run nuget-license -- -i Drover.Native.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -override licenses/allowed-exceptions.json -err
+
+  browser:
+    env:
+      DroverNativeTargetFrameworks: net11.0-browserwasm
+    name: Publish browser client
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Install browser workload
+        run: dotnet workload install wasm-tools
+      - name: Publish browser, warnings are errors
+        run: dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -warnaserror -o artifacts/native
+      - name: Check native dependency licenses
+        env:
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          dotnet tool restore
+          dotnet tool run nuget-license -- -i Drover.Native.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -override licenses/allowed-exceptions.json -err
+      - name: Prepare the existing browser-test runtime
+        run: |
+          dotnet build tests/Drover.Ui.Tests -c Release -warnaserror
+          pwsh tests/Drover.Ui.Tests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
+      - name: Exercise the trimmed publish under the server CSP
+        run: node scripts/check-native-browser.mjs artifacts/native/wwwroot
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-browser
+          path: artifacts/native/wwwroot
+          if-no-files-found: error

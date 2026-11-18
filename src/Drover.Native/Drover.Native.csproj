@@ -5,17 +5,18 @@
          name is cleared and the list below takes its place. -->
     <TargetFramework />
     <TargetFrameworks>net11.0-desktop;net11.0-browserwasm;net11.0-android</TargetFrameworks>
-    <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
-    <!-- A build that needs one target only names it, so it needs no other target's workload: the server's image
-         builds the browser target alone. -->
-    <TargetFrameworks Condition="'$(DroverNativeTargets)' != ''">$(DroverNativeTargets)</TargetFrameworks>
+    <!-- macOS uses the desktop head. Uno 7 no longer supports a Mac Catalyst head. -->
+    <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios</TargetFrameworks>
+    <!-- Build a single head on a machine with only that head's workloads. Unlike a global TargetFrameworks
+         override, this does not change the frameworks of the ordinary libraries this project references. -->
+    <TargetFrameworks Condition="'$(DroverNativeTargetFrameworks)' != ''">$(DroverNativeTargetFrameworks)</TargetFrameworks>
 
     <OutputType>Exe</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
     <RootNamespace>Drover.Native</RootNamespace>
 
     <ApplicationTitle>Drover</ApplicationTitle>
-    <ApplicationId>com.forresttechnologies.drover</ApplicationId>
+    <ApplicationId>com.forresttechnologies.drover.client</ApplicationId>
     <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
     <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
     <!-- The development server's targets switch the version attribute off in Debug so hot reload sees a stable
@@ -68,6 +69,8 @@
     <Compile Remove="Device/**" />
     <!-- Loaded by the page before the app starts. It keeps the platform's runtime within the content security policy. -->
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/NoEval.js" />
+    <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Files.js" />
+    <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Accessibility.js" />
     <Compile Include="../Shared/Transport/AntiforgeryHandler.cs" Link="Transport/AntiforgeryHandler.cs" />
   </ItemGroup>
 

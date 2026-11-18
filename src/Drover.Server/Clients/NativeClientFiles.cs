@@ -3,8 +3,8 @@ namespace Drover.Server.Clients;
 /// <summary>
 /// The native client's browser build, served beside the web client under <c>/native/</c> while screens move to it
 /// (docs/adr/0015-one-native-client.md). Its files come from a folder the deployment fills with the published
-/// <c>wwwroot</c>, named by <c>NativeClient:Path</c>, or <c>native</c> beside the server. A server without that
-/// folder answers nothing under <c>/native/</c>. The files are served under the same security headers as every
+/// <c>wwwroot</c>: the one <c>NativeClient:Path</c> names, or <c>native</c> in the server's web root. A server without
+/// that folder answers nothing under <c>/native/</c>. The files are served under the same security headers as every
 /// other response: nothing here widens the content security policy.
 /// </summary>
 public static class NativeClientFiles
@@ -28,7 +28,7 @@ public static class NativeClientFiles
     /// <summary>Serves the native client's files. Call it where the web client's files are served.</summary>
     public static StaticFileOptions UseNativeClientFiles(this WebApplication app)
     {
-        var folder = app.Configuration[PathSetting] ?? Path.Combine(app.Environment.ContentRootPath, DefaultFolder);
+        var folder = app.Configuration[PathSetting] ?? Path.Combine(app.Environment.WebRootPath ?? app.Environment.ContentRootPath, DefaultFolder);
         var options = new StaticFileOptions
         {
             RequestPath = BasePath,
