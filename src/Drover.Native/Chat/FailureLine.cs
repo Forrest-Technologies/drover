@@ -27,6 +27,7 @@ public sealed class FailureLine : Grid
     public FailureLine()
     {
         title.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
+        title.LineHeight = Tokens.Number("DvText14") * Tokens.Number("DvLeadingHeading");
         AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level3);
         AutomationProperties.SetLandmarkType(this, AutomationLandmarkType.Custom);
 

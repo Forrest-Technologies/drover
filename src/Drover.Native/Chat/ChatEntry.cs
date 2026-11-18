@@ -140,8 +140,7 @@ public sealed class ChatEntry : ContentControl
     /// <summary>Shows a message, or what changed of the one already shown: text that arrived, a call that moved on.</summary>
     public void Show(ChatMessage message, ChatEntryParameters parameters, bool isMoment = false)
     {
-        var unchanged = ReferenceEquals(message, shown) || message == shown;
-        if (unchanged && parameters == with && isMoment == moment)
+        if (Same(message, shown) && parameters == with && isMoment == moment)
         {
             return;
         }
@@ -161,6 +160,15 @@ public sealed class ChatEntry : ContentControl
         Fit();
         Paint();
     }
+
+    // A conversation is worked out anew each time it changes, so a message that did not change comes as a new
+    // object that says the same. Its calls and files are compared one by one; a call under way differs each time.
+    private static bool Same(ChatMessage message, ChatMessage? before) =>
+        before is not null
+        && (ReferenceEquals(message, before)
+            || (message with { Tools = before.Tools, Files = before.Files } == before
+                && message.Tools.SequenceEqual(before.Tools)
+                && message.Files.SequenceEqual(before.Files)));
 
     /// <summary>Puts the focus on the message a link named, so a keyboard or a screen reader lands there too.</summary>
     public void Land() => Focus(FocusState.Programmatic);
