@@ -137,6 +137,15 @@ public sealed class Field : StackPanel
             box.PasswordChanged += (_, _) => Take(box.Password);
             input = box;
         }
+#if ANDROID
+        else if (Type is "url")
+        {
+            var box = new AndroidAddressEditor { Text = Value };
+            box.TextChanged += (_, _) => Take(box.Text);
+            box.Submitted += (_, _) => Submit();
+            input = box;
+        }
+#endif
         else
         {
             var box = new TextBox
@@ -163,15 +172,32 @@ public sealed class Field : StackPanel
         {
             if (key.Key is VirtualKey.Enter)
             {
-                // The change event for the last letters can still be on its way when Enter arrives, as it is in a
-                // browser right after fast typing; the form must send what the field holds now.
-                Take(input is PasswordBox hidden ? hidden.Password : ((TextBox)input).Text);
-                Submitted?.Invoke(this, EventArgs.Empty);
+#if ANDROID
+                if (input is AndroidAddressEditor)
+                {
+                    key.Handled = true;
+                }
+#endif
+                Submit();
             }
         };
         frame.Children.Add(input);
         frame.Children.Add(placeholder);
         Describe();
+    }
+
+    private void Submit()
+    {
+        // The change event for the last letters can still be on its way when Enter arrives, as it is in a browser.
+        Take(input switch
+        {
+            PasswordBox box => box.Password,
+#if ANDROID
+            AndroidAddressEditor box => box.Text,
+#endif
+            _ => ((TextBox)input).Text,
+        });
+        Submitted?.Invoke(this, EventArgs.Empty);
     }
 
     private InputScope Scope() => new()
@@ -207,6 +233,11 @@ public sealed class Field : StackPanel
             case TextBox box when box.Text != Value:
                 box.Text = Value;
                 break;
+#if ANDROID
+            case AndroidAddressEditor box when box.Text != Value:
+                box.Text = Value;
+                break;
+#endif
         }
 
         placeholder.Visibility = Value.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -241,7 +272,14 @@ public sealed class Field : StackPanel
         frame.Fill = Tokens.Brush(this, "DvBg0");
         frame.Edge = Tokens.Brush(this, focused ? "DvEmber" : Error is null ? "DvText3" : "DvDanger");
         frame.Ring = focused ? Tokens.Brush(this, "DvEmber") : null;
-        input.Foreground = Tokens.Brush(this, Disabled ? "DvText3" : "DvText");
+        var foreground = Disabled ? "DvText3" : "DvText";
+        input.Foreground = Tokens.Brush(this, foreground);
+#if ANDROID
+        if (input is AndroidAddressEditor box)
+        {
+            box.Describe(Label, !Disabled, Tokens.Color(this, foreground));
+        }
+#endif
         placeholder.Foreground = Tokens.Brush(this, "DvText3");
         error.Foreground = Tokens.Brush(this, "DvDanger");
     }
