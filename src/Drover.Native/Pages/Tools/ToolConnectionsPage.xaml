@@ -1,0 +1,291 @@
+<shell:Screen x:Class="Drover.Native.Pages.ToolConnectionsPage"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:dv="using:Drover.Native.Controls"
+              xmlns:layouts="using:Drover.Native.Layouts"
+              xmlns:local="using:Drover.Native.Pages"
+              xmlns:shell="using:Drover.Native.Shell"
+              xmlns:vm="using:Drover.Presentation.ViewModels">
+
+  <shell:Screen.Resources>
+    <!-- A hint under a name: smaller than the text, and quieter. -->
+    <Style x:Key="ToolHint" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+      <Setter Property="FontSize" Value="{StaticResource DvText13}" />
+      <Setter Property="LineHeight" Value="{StaticResource DvLine13}" />
+      <Setter Property="Foreground" Value="{ThemeResource DvText2Brush}" />
+    </Style>
+
+    <!-- What is wrong with a tool: in the warning color, and in words. -->
+    <Style x:Key="ToolWarn" TargetType="TextBlock" BasedOn="{StaticResource ToolHint}">
+      <Setter Property="Foreground" Value="{ThemeResource DvWarnBrush}" />
+    </Style>
+
+    <!-- The name of what is chosen, over a segmented control or a group of fields. -->
+    <Style x:Key="ToolLegend" TargetType="TextBlock" BasedOn="{StaticResource DvTextLabel}" />
+  </shell:Screen.Resources>
+
+  <layouts:WorkLayout>
+    <local:SpreadPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace3}" Align="Center">
+      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="{x:Bind vm:ToolConnectionsViewModel.Title}" />
+      <dv:Button Kind="Primary"
+                 Command="{x:Bind Model.StartAddingCommand}"
+                 Visibility="{x:Bind Model.ShowAddButton, Mode=OneWay}">
+        <StackPanel Orientation="Horizontal" Spacing="{StaticResource DvSpace2}">
+          <dv:Icon NameOfIcon="Plus" Foreground="{ThemeResource DvOnAccentBrush}" VerticalAlignment="Center" />
+          <TextBlock Text="{x:Bind vm:ToolConnectionsViewModel.AddLabel}" VerticalAlignment="Center" />
+        </StackPanel>
+      </dv:Button>
+    </local:SpreadPanel>
+
+    <dv:StatusNote Kind="{x:Bind Model.NoticeKind, Mode=OneWay}" Text="{x:Bind Model.Notice, Mode=OneWay}" />
+
+    <!-- The form that adds a tool server. Secrets typed here are sent once and never shown again. -->
+    <local:ConnectionFrame Strong="True" Visibility="{x:Bind Model.Adding, Mode=OneWay}">
+      <TextBlock Style="{StaticResource DvTextH3}" AutomationProperties.HeadingLevel="Level2" Text="{x:Bind vm:AddConnectionFormViewModel.Heading}" />
+      <dv:Field Label="Name"
+                Hint="What you call it, such as Calendar."
+                Value="{x:Bind Model.Form.Name, Mode=TwoWay}"
+                Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                Submitted="SubmitAdd" />
+      <dv:Field Label="Address"
+                Type="url"
+                Placeholder="https://"
+                Hint="The address of the server's MCP endpoint."
+                Value="{x:Bind Model.Form.Url, Mode=TwoWay}"
+                Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                Submitted="SubmitAdd" />
+
+      <StackPanel Spacing="{StaticResource DvSpace1}">
+        <TextBlock Style="{StaticResource ToolLegend}" AutomationProperties.AccessibilityView="Raw" Text="{x:Bind vm:AddConnectionFormViewModel.ProofLabel}" />
+        <dv:SegmentedControl Label="{x:Bind vm:AddConnectionFormViewModel.ProofLabel}"
+                             Options="{x:Bind vm:AddConnectionFormViewModel.Kinds}"
+                             Value="{x:Bind Model.Form.AuthKind, Mode=TwoWay}"
+                             Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}" />
+      </StackPanel>
+
+      <local:PairPanel Gap="{StaticResource DvSpace4}" Visibility="{x:Bind Model.Form.ShowHeader, Mode=OneWay}">
+        <dv:Field Label="Header name"
+                  Value="{x:Bind Model.Form.HeaderName, Mode=TwoWay}"
+                  Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                  Submitted="SubmitAdd" />
+        <dv:Field Label="Header value"
+                  Type="password"
+                  Hint="Stored encrypted. It is not shown again."
+                  Value="{x:Bind Model.Form.HeaderValue, Mode=TwoWay}"
+                  Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                  Submitted="SubmitAdd" />
+      </local:PairPanel>
+
+      <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.Form.ShowSignIn, Mode=OneWay}">
+        <dv:Select Label="Whose sign-in"
+                   Options="{x:Bind local:ToolConnectionsPage.OptionsOf(vm:AddConnectionFormViewModel.SignInScopes)}"
+                   Value="{x:Bind Model.Form.SignInScope, Mode=TwoWay}"
+                   Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}" />
+        <TextBlock Style="{StaticResource ToolHint}" Text="{x:Bind Model.Form.ScopeMeaning, Mode=OneWay}" />
+        <dv:Switch Label="Use a client I registered with the server"
+                   Value="{x:Bind Model.Form.OwnClient, Mode=TwoWay}"
+                   IsEnabled="{x:Bind Model.Form.Enabled, Mode=OneWay}" />
+        <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.Form.ShowOwnClient, Mode=OneWay}">
+          <local:PairPanel Gap="{StaticResource DvSpace4}">
+            <dv:Field Label="Client id"
+                      Value="{x:Bind Model.Form.ClientId, Mode=TwoWay}"
+                      Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                      Submitted="SubmitAdd" />
+            <dv:Field Label="Client secret"
+                      Type="password"
+                      Hint="Leave empty for a public client. It is not shown again."
+                      Value="{x:Bind Model.Form.ClientSecret, Mode=TwoWay}"
+                      Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                      Submitted="SubmitAdd" />
+          </local:PairPanel>
+          <dv:Field Label="Sign-in service address"
+                    Type="url"
+                    Placeholder="https://"
+                    Hint="The service that gave out the client id. The id is sent nowhere else."
+                    Value="{x:Bind Model.Form.Issuer, Mode=TwoWay}"
+                    Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}"
+                    Submitted="SubmitAdd" />
+        </StackPanel>
+        <TextBlock Style="{StaticResource ToolHint}"
+                   Text="Without one, Drover introduces itself to the server when someone first signs in."
+                   Visibility="{x:Bind Model.Form.ShowNoOwnClient, Mode=OneWay}" />
+      </StackPanel>
+
+      <local:DetailsSection Title="More choices">
+        <StackPanel Spacing="{StaticResource DvSpace3}">
+          <dv:Switch Label="Trust what this server's tools return"
+                     Value="{x:Bind Model.Form.Trusted, Mode=TwoWay}"
+                     IsEnabled="{x:Bind Model.Form.Enabled, Mode=OneWay}" />
+          <TextBlock Style="{StaticResource ToolHint}"
+                     Text="Leave this off unless you run the server. A run that has read an untrusted result asks before it changes anything." />
+          <dv:Select Label="Protocol"
+                     Options="{x:Bind local:ToolConnectionsPage.OptionsOf(vm:AddConnectionFormViewModel.ProtocolModes)}"
+                     Value="{x:Bind Model.Form.ProtocolMode, Mode=TwoWay}"
+                     Disabled="{x:Bind Model.Form.Busy, Mode=OneWay}" />
+        </StackPanel>
+      </local:DetailsSection>
+
+      <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Form.Problem, Mode=OneWay}" />
+      <dv:FlowPanel Gap="{StaticResource DvSpace2}" HorizontalAlignment="Right">
+        <dv:Button Content="Cancel" Command="{x:Bind Model.Form.CancelCommand}" IsEnabled="{x:Bind Model.Form.Enabled, Mode=OneWay}" />
+        <dv:Button Kind="Primary" Content="{x:Bind Model.Form.SubmitLabel, Mode=OneWay}" Command="{x:Bind Model.Form.AddCommand}" />
+      </dv:FlowPanel>
+    </local:ConnectionFrame>
+
+    <dv:EmptyState x:Name="LoadFailed"
+                   x:Load="{x:Bind Model.ShowFailed, Mode=OneWay}"
+                   Title="{x:Bind vm:ToolConnectionsViewModel.LoadFailedTitle}"
+                   Cause="{x:Bind Model.LoadProblem, Mode=OneWay}"
+                   ActionLabel="Try again"
+                   ActionCommand="{x:Bind Model.LoadCommand}" />
+
+    <TextBlock Style="{StaticResource DvTextSecondary}"
+               AutomationProperties.LiveSetting="Polite"
+               Text="{x:Bind vm:ToolConnectionsViewModel.LoadingNote}"
+               Visibility="{x:Bind Model.ShowLoading, Mode=OneWay}" />
+
+    <dv:EmptyState Title="{x:Bind vm:ToolConnectionsViewModel.EmptyTitle}"
+                   Cause="{x:Bind vm:ToolConnectionsViewModel.EmptyCause}"
+                   ActionLabel="{x:Bind vm:ToolConnectionsViewModel.AddLabel}"
+                   ActionCommand="{x:Bind Model.StartAddingCommand}"
+                   Visibility="{x:Bind Model.ShowEmptyToAdd, Mode=OneWay}" />
+
+    <TextBlock Style="{StaticResource DvTextSecondary}"
+               Text="{x:Bind vm:ToolConnectionsViewModel.EmptyReadOnlyNote}"
+               Visibility="{x:Bind Model.ShowEmptyReadOnly, Mode=OneWay}" />
+
+    <ItemsControl ItemsSource="{x:Bind Model.Cards}"
+                  AutomationProperties.Name="{x:Bind vm:ToolConnectionsViewModel.Title}"
+                  IsTabStop="False"
+                  Visibility="{x:Bind Model.ShowList, Mode=OneWay}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Spacing="{StaticResource DvSpace3}" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ToolConnectionCardModel">
+          <!-- One tool server: whether it answers, what it needs from the reader, its tools, and what can be done with it. -->
+          <local:ConnectionFrame>
+            <local:SpreadPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace2}">
+              <StackPanel Spacing="{StaticResource DvSpace1}" local:SpreadPanel.Grows="True">
+                <TextBlock Style="{StaticResource DvTextH3}" AutomationProperties.HeadingLevel="Level2" Text="{x:Bind Name, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource DvTextMono}" Text="{x:Bind Url, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource DvTextMono}" Text="{x:Bind Facts, Mode=OneWay}" />
+              </StackPanel>
+              <dv:Badge Kind="{x:Bind StatusKind, Mode=OneWay}" Text="{x:Bind StatusWords, Mode=OneWay}" VerticalAlignment="Top" />
+            </local:SpreadPanel>
+
+            <dv:StatusNote Kind="Danger" Text="{x:Bind ShownError, Mode=OneWay}" />
+            <dv:StatusNote Kind="Danger" Text="{x:Bind ShownProblem, Mode=OneWay}" />
+
+            <local:SpreadPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace2}" Align="Center" Visibility="{x:Bind ShowSignInAsk, Mode=OneWay}">
+              <TextBlock Style="{StaticResource DvTextBody}" local:SpreadPanel.Grows="True" Text="{x:Bind SignInNeed, Mode=OneWay}" />
+              <dv:Button Kind="Primary"
+                         Content="{x:Bind SignInLabel, Mode=OneWay}"
+                         Command="{x:Bind SignInCommand}"
+                         IsEnabled="{x:Bind NotBusy, Mode=OneWay}"
+                         Visibility="{x:Bind ShowSignInButton, Mode=OneWay}" />
+              <TextBlock Style="{StaticResource ToolHint}"
+                         Text="{x:Bind vm:ToolConnectionCardModel.SignInHint}"
+                         Visibility="{x:Bind ShowSignInHint, Mode=OneWay}" />
+            </local:SpreadPanel>
+
+            <local:DetailsSection Title="{x:Bind vm:ToolConnectionCardModel.ToolsHeading}"
+                                  Open="{x:Bind ToolsOpen, Mode=OneWay}"
+                                  Visibility="{x:Bind HasTools, Mode=OneWay}">
+              <ItemsControl ItemsSource="{x:Bind ToolRows, Mode=OneWay}" IsTabStop="False">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ConnectionToolRow">
+                    <local:RuleBox>
+                      <StackPanel Spacing="{StaticResource DvSpace1}">
+                        <TextBlock Style="{StaticResource DvTextLabel}"
+                                   Foreground="{ThemeResource DvTextBrush}"
+                                   FontSize="{StaticResource DvText14}"
+                                   LineHeight="{StaticResource DvLine14}"
+                                   Text="{x:Bind Title}" />
+                        <TextBlock Style="{StaticResource DvTextMono}" Text="{x:Bind Name}" />
+                        <TextBlock Style="{StaticResource ToolHint}" Text="{x:Bind Description}" Visibility="{x:Bind HasDescription}" />
+                        <TextBlock Style="{StaticResource ToolWarn}" Text="{x:Bind vm:ConnectionToolRow.MissingNote}" Visibility="{x:Bind Missing}" />
+                        <StackPanel Spacing="{StaticResource DvSpace2}" HorizontalAlignment="Left" Visibility="{x:Bind NeedsReview}">
+                          <dv:Badge Kind="Warn" Text="{x:Bind vm:ConnectionToolRow.ReviewBadge}" />
+                          <TextBlock Style="{StaticResource ToolHint}" Text="{x:Bind vm:ConnectionToolRow.ReviewNote}" />
+                          <Grid ColumnSpacing="{StaticResource DvSpace3}" RowSpacing="{StaticResource DvSpace2}" Visibility="{x:Bind ShowCompare}">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                              <RowDefinition Height="Auto" />
+                              <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource DvTextCaption}" FontSize="{StaticResource DvText13}" LineHeight="{StaticResource DvLine13}" Text="Reviewed" />
+                            <TextBlock Grid.Column="1" Style="{StaticResource ToolHint}" Text="{x:Bind ReviewedWords}" />
+                            <TextBlock Grid.Row="1" Style="{StaticResource DvTextCaption}" FontSize="{StaticResource DvText13}" LineHeight="{StaticResource DvLine13}" Text="Now" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource ToolHint}" Text="{x:Bind NowWords}" />
+                          </Grid>
+                          <TextBlock Style="{StaticResource ToolHint}" Text="{x:Bind vm:ConnectionToolRow.SameWordsNote}" Visibility="{x:Bind ShowSameWords}" />
+                          <dv:Button Content="{x:Bind AcceptLabel}" Command="{x:Bind AcceptCommand}" Visibility="{x:Bind ShowAccept}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </local:RuleBox>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </local:DetailsSection>
+            <TextBlock Style="{StaticResource ToolHint}"
+                       Text="{x:Bind vm:ToolConnectionCardModel.NoToolsNote}"
+                       Visibility="{x:Bind ShowNoTools, Mode=OneWay}" />
+
+            <StackPanel Spacing="{StaticResource DvSpace3}" Visibility="{x:Bind ReplacingHeader, Mode=OneWay}">
+              <TextBlock Style="{StaticResource ToolLegend}" Text="{x:Bind vm:ToolConnectionCardModel.ReplaceHeaderHeading}" />
+              <dv:Field Label="Header name"
+                        Value="{x:Bind HeaderName, Mode=TwoWay}"
+                        Disabled="{x:Bind Busy, Mode=OneWay}" />
+              <dv:Field Label="Header value"
+                        Type="password"
+                        Hint="{x:Bind vm:ToolConnectionCardModel.HeaderHint}"
+                        Value="{x:Bind HeaderValue, Mode=TwoWay}"
+                        Disabled="{x:Bind Busy, Mode=OneWay}" />
+              <dv:FlowPanel Gap="{StaticResource DvSpace2}">
+                <dv:Button Content="Cancel" Command="{x:Bind StopReplacingCommand}" IsEnabled="{x:Bind NotBusy, Mode=OneWay}" />
+                <dv:Button Kind="Primary" Content="Save header" Command="{x:Bind SaveHeaderCommand}" IsEnabled="{x:Bind NotBusy, Mode=OneWay}" />
+              </dv:FlowPanel>
+            </StackPanel>
+
+            <dv:FlowPanel Gap="{StaticResource DvSpace2}">
+              <dv:Button Content="{x:Bind CheckLabel, Mode=OneWay}"
+                         Command="{x:Bind RefreshCommand}"
+                         IsEnabled="{x:Bind NotBusy, Mode=OneWay}"
+                         Visibility="{x:Bind CanEdit, Mode=OneWay}" />
+              <dv:Button Content="Replace header"
+                         Command="{x:Bind StartReplacingHeaderCommand}"
+                         IsEnabled="{x:Bind NotBusy, Mode=OneWay}"
+                         Visibility="{x:Bind ShowReplaceHeaderButton, Mode=OneWay}" />
+              <dv:Button Content="{x:Bind SignOutLabel, Mode=OneWay}"
+                         Command="{x:Bind SignOutCommand}"
+                         IsEnabled="{x:Bind NotBusy, Mode=OneWay}"
+                         Visibility="{x:Bind ShowSignOut, Mode=OneWay}" />
+              <dv:Button Kind="Danger"
+                         Content="{x:Bind RemoveLabel, Mode=OneWay}"
+                         Command="{x:Bind RemoveCommand}"
+                         IsEnabled="{x:Bind NotBusy, Mode=OneWay}"
+                         Visibility="{x:Bind CanEdit, Mode=OneWay}" />
+            </dv:FlowPanel>
+          </local:ConnectionFrame>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <dv:Dialog Open="{x:Bind Model.RemoveOpen, Mode=TwoWay}" Title="{x:Bind Model.RemoveTitle, Mode=OneWay}">
+      <TextBlock Style="{StaticResource DvTextBody}" Text="{x:Bind vm:ToolConnectionsViewModel.RemoveBody}" />
+      <dv:Dialog.Actions>
+        <StackPanel Orientation="Horizontal" Spacing="{StaticResource DvSpace2}">
+          <dv:Button Content="Keep server" Command="{x:Bind Model.KeepServerCommand}" />
+          <dv:Button Kind="Danger" Content="Remove server" Command="{x:Bind Model.RemoveCommand}" />
+        </StackPanel>
+      </dv:Dialog.Actions>
+    </dv:Dialog>
+  </layouts:WorkLayout>
+
+</shell:Screen>

@@ -1,0 +1,166 @@
+<shell:Screen x:Class="Drover.Native.Pages.ModelConnectionsPage"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:dv="using:Drover.Native.Controls"
+              xmlns:layouts="using:Drover.Native.Layouts"
+              xmlns:local="using:Drover.Native.Pages"
+              xmlns:shell="using:Drover.Native.Shell"
+              xmlns:vm="using:Drover.Presentation.ViewModels">
+
+  <layouts:WorkLayout>
+    <local:SpreadPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace3}" Align="Center">
+      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="{x:Bind vm:ModelConnectionsViewModel.Title}" />
+      <dv:Button Kind="Primary"
+                 Command="{x:Bind Model.StartAddingCommand}"
+                 IsEnabled="{x:Bind Model.AddButtonEnabled, Mode=OneWay}"
+                 Visibility="{x:Bind Model.ShowAddButton, Mode=OneWay}">
+        <StackPanel Orientation="Horizontal" Spacing="{StaticResource DvSpace2}">
+          <dv:Icon NameOfIcon="Plus" Foreground="{ThemeResource DvOnAccentBrush}" VerticalAlignment="Center" />
+          <TextBlock Text="{x:Bind vm:ModelConnectionsViewModel.AddLabel}" VerticalAlignment="Center" />
+        </StackPanel>
+      </dv:Button>
+    </local:SpreadPanel>
+
+    <dv:StatusNote Kind="{x:Bind Model.NoticeKind, Mode=OneWay}" Text="{x:Bind Model.Notice, Mode=OneWay}" />
+
+    <local:ConnectionFrame Strong="True" Visibility="{x:Bind Model.Adding, Mode=OneWay}">
+      <TextBlock Style="{StaticResource DvTextH3}" AutomationProperties.HeadingLevel="Level2" Text="{x:Bind vm:ModelConnectionsViewModel.AddLabel}" />
+      <dv:SegmentedControl Label="Provider"
+                           Options="{x:Bind vm:ModelConnectionsViewModel.Providers}"
+                           Value="{x:Bind Model.Kind, Mode=TwoWay}"
+                           Disabled="{x:Bind Model.AddingBusy, Mode=OneWay}" />
+      <dv:Field Label="Connection name"
+                Value="{x:Bind Model.Name, Mode=TwoWay}"
+                Disabled="{x:Bind Model.AddingBusy, Mode=OneWay}"
+                Submitted="SubmitAdd" />
+      <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.ShowCompatible, Mode=OneWay}">
+        <dv:Field Label="Base address"
+                  Type="url"
+                  Placeholder="https://"
+                  Hint="Any server that speaks the chat completions API."
+                  Value="{x:Bind Model.BaseUrl, Mode=TwoWay}"
+                  Disabled="{x:Bind Model.AddingBusy, Mode=OneWay}"
+                  Submitted="SubmitAdd" />
+        <dv:Field Label="Key"
+                  Type="password"
+                  Hint="Leave this empty if the server needs no key."
+                  Value="{x:Bind Model.ApiKey, Mode=TwoWay}"
+                  Disabled="{x:Bind Model.AddingBusy, Mode=OneWay}"
+                  Submitted="SubmitAdd" />
+      </StackPanel>
+      <dv:Field Label="Key"
+                Type="password"
+                Hint="Made in your Venice account, under API keys."
+                Value="{x:Bind Model.ApiKey, Mode=TwoWay}"
+                Disabled="{x:Bind Model.AddingBusy, Mode=OneWay}"
+                Visibility="{x:Bind Model.ShowVenice, Mode=OneWay}"
+                Submitted="SubmitAdd" />
+      <dv:StatusNote Kind="Danger" Text="{x:Bind Model.AddProblem, Mode=OneWay}" />
+      <dv:FlowPanel Gap="{StaticResource DvSpace2}">
+        <dv:Button Content="Cancel" Command="{x:Bind Model.CancelAddingCommand}" IsEnabled="{x:Bind Model.AddFormEnabled, Mode=OneWay}" />
+        <dv:Button Kind="Primary" Content="{x:Bind Model.AddSubmitLabel, Mode=OneWay}" Command="{x:Bind Model.AddCommand}" />
+      </dv:FlowPanel>
+    </local:ConnectionFrame>
+
+    <dv:EmptyState x:Name="LoadFailed"
+                   x:Load="{x:Bind Model.ShowFailed, Mode=OneWay}"
+                   Title="{x:Bind vm:ModelConnectionsViewModel.LoadFailedTitle}"
+                   Cause="{x:Bind Model.LoadProblem, Mode=OneWay}"
+                   ActionLabel="Try again"
+                   ActionCommand="{x:Bind Model.LoadCommand}" />
+
+    <TextBlock Style="{StaticResource DvTextSecondary}"
+               AutomationProperties.LiveSetting="Polite"
+               Text="{x:Bind vm:ModelConnectionsViewModel.LoadingNote}"
+               Visibility="{x:Bind Model.ShowLoading, Mode=OneWay}" />
+
+    <dv:EmptyState Title="{x:Bind vm:ModelConnectionsViewModel.EmptyTitle}"
+                   Cause="{x:Bind vm:ModelConnectionsViewModel.EmptyCause}"
+                   ActionLabel="{x:Bind vm:ModelConnectionsViewModel.AddLabel}"
+                   ActionCommand="{x:Bind Model.StartAddingCommand}"
+                   Visibility="{x:Bind Model.ShowEmptyToAdd, Mode=OneWay}" />
+
+    <TextBlock Style="{StaticResource DvTextSecondary}"
+               Text="{x:Bind vm:ModelConnectionsViewModel.EmptyReadOnlyNote}"
+               Visibility="{x:Bind Model.ShowEmptyReadOnly, Mode=OneWay}" />
+
+    <ItemsControl ItemsSource="{x:Bind Model.Cards}"
+                  AutomationProperties.Name="{x:Bind vm:ModelConnectionsViewModel.Title}"
+                  IsTabStop="False"
+                  Visibility="{x:Bind Model.ShowList, Mode=OneWay}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Spacing="{StaticResource DvSpace3}" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ModelConnectionCard">
+          <local:ConnectionFrame>
+            <local:SpreadPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace2}">
+              <StackPanel Spacing="{StaticResource DvSpace1}" local:SpreadPanel.Grows="True">
+                <TextBlock Style="{StaticResource DvTextH3}" AutomationProperties.HeadingLevel="Level2" Text="{x:Bind Name, Mode=OneWay}" />
+                <TextBlock Style="{StaticResource DvTextMono}" Text="{x:Bind Facts, Mode=OneWay}" />
+              </StackPanel>
+              <dv:Badge Kind="{x:Bind StatusKind, Mode=OneWay}" Text="{x:Bind StatusWords, Mode=OneWay}" VerticalAlignment="Top" />
+            </local:SpreadPanel>
+
+            <dv:StatusNote Kind="Danger" Text="{x:Bind Problem, Mode=OneWay}" />
+
+            <dv:FlowPanel Gap="{StaticResource DvSpace2}">
+              <dv:Button Content="View models" Command="{x:Bind ViewCatalogCommand}" IsEnabled="{x:Bind NotChangePending, Mode=OneWay}" />
+              <dv:Button Content="Refresh models"
+                         Command="{x:Bind RefreshModelsCommand}"
+                         IsEnabled="{x:Bind NotChangePending, Mode=OneWay}"
+                         Visibility="{x:Bind ShowRefresh, Mode=OneWay}" />
+            </dv:FlowPanel>
+
+            <ItemsControl ItemsSource="{x:Bind Catalog, Mode=OneWay}"
+                          AutomationProperties.Name="{x:Bind CatalogLabel, Mode=OneWay}"
+                          IsTabStop="False"
+                          Visibility="{x:Bind ShowCatalog, Mode=OneWay}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CatalogLine">
+                  <Grid ColumnSpacing="{StaticResource DvSpace2}">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource DvTextBody}" Text="•" AutomationProperties.AccessibilityView="Raw" />
+                    <dv:FlowPanel Grid.Column="1" Gap="{StaticResource DvSpace2}">
+                      <TextBlock Style="{StaticResource DvTextBody}" Text="{x:Bind DisplayName}" />
+                      <TextBlock Style="{StaticResource DvTextMono}" Text="{x:Bind Model}" />
+                      <TextBlock Style="{StaticResource DvTextBody}" Text="{x:Bind StateNote}" Visibility="{x:Bind HasStateNote}" />
+                    </dv:FlowPanel>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Style="{StaticResource DvTextSecondary}"
+                       Text="{x:Bind vm:ModelConnectionCard.NoModelsNote}"
+                       Visibility="{x:Bind ShowNoModels, Mode=OneWay}" />
+
+            <dv:FlowPanel Gap="{StaticResource DvSpace2}" Visibility="{x:Bind CanEdit, Mode=OneWay}">
+              <dv:Button Content="Test connection" Command="{x:Bind TestCommand}" IsEnabled="{x:Bind NotChangePending, Mode=OneWay}" />
+              <dv:Button Content="Replace key"
+                         Command="{x:Bind StartReplacingCommand}"
+                         IsEnabled="{x:Bind NotChangePending, Mode=OneWay}"
+                         Visibility="{x:Bind NotReplacing, Mode=OneWay}" />
+              <StackPanel Spacing="{StaticResource DvSpace2}" Visibility="{x:Bind Replacing, Mode=OneWay}">
+                <dv:Field Label="New key"
+                          Type="password"
+                          Hint="Stored encrypted. It is not shown again."
+                          Value="{x:Bind NewKey, Mode=TwoWay}"
+                          Disabled="{x:Bind ChangePending, Mode=OneWay}" />
+                <dv:FlowPanel Gap="{StaticResource DvSpace2}">
+                  <dv:Button Content="Cancel" Command="{x:Bind CancelReplacingCommand}" IsEnabled="{x:Bind NotChangePending, Mode=OneWay}" />
+                  <dv:Button Kind="Primary" Content="Save key" Command="{x:Bind SaveKeyCommand}" IsEnabled="{x:Bind NotChangePending, Mode=OneWay}" />
+                </dv:FlowPanel>
+              </StackPanel>
+            </dv:FlowPanel>
+          </local:ConnectionFrame>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </layouts:WorkLayout>
+
+</shell:Screen>
