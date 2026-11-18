@@ -639,7 +639,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
         try
         {
-            await using var content = file.OpenRead(maxBytes, left);
+            await using var content = await file.OpenRead(maxBytes, left);
             var uploaded = await api.UploadFile(
                 SpaceId, threadId, file.Name, content, file.Size, progress, left);
 

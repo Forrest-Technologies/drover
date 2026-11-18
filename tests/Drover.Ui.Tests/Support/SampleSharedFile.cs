@@ -21,7 +21,7 @@ public sealed class SampleSharedFile(string name, string words) : IBrowserFile, 
 
     public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) => new MemoryStream(content);
 
-    public Stream OpenRead(long maxBytes, CancellationToken cancellationToken) => new MemoryStream(content);
+    public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(new MemoryStream(content));
 
     #endregion
 }

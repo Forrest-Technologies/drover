@@ -18,7 +18,7 @@ public sealed class SamplePickedFile(string name, byte[] content) : IPickedFile
 
     public long Size => content.Length;
 
-    public Stream OpenRead(long maxBytes, CancellationToken cancellationToken) => new MemoryStream(content);
+    public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(new MemoryStream(content));
 
     #endregion
 }

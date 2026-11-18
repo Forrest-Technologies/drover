@@ -112,7 +112,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
         public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) => file.OpenRead();
 
-        public Stream OpenRead(long maxBytes, CancellationToken cancellationToken) => file.OpenRead();
+        public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(file.OpenRead());
 
         #endregion
     }

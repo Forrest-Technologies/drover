@@ -14,5 +14,5 @@ public interface IPickedFile
     long Size { get; }
 
     /// <summary>Opens the file to be read once, from its start. A file larger than <paramref name="maxBytes"/> may refuse.</summary>
-    Stream OpenRead(long maxBytes, CancellationToken cancellationToken);
+    Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken);
 }
