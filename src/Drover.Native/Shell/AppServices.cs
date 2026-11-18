@@ -16,6 +16,7 @@ public static class AppServices
             .AddSingleton<SessionState>()
             .AddSingleton<ToastService>()
             .AddSingleton<ThemeModel>()
+            .AddSingleton<ShareInbox>()
             .AddPlatform()
             .BuildServiceProvider();
 }
