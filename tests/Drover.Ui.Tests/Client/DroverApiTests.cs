@@ -133,7 +133,7 @@ public sealed class DroverApiTests : IDisposable
         var detail = new BotDetail(
             botId, "Sample", "sample", new BotAvatarBody(null, null), string.Empty, string.Empty, Guid.NewGuid(), "sample-plain",
             new ModelSettingsBody(null, null, null, "off", false), new MemorySettingsBody(false, "none", null, null), "private",
-            settings, [], "active", null, 0, new BuildLimitsBody(null, null), null, null);
+            settings, [], "active", null, 0, new BuildLimitsBody(null, null), new RunLimitsBody(null, null, null), null, null);
         server.Answer("PUT", at, detail);
         var request = new UpdateBotRequest(null, null, null, null, null, null, null, null, null, null, settings, null, null);
 

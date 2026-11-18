@@ -525,15 +525,65 @@ public sealed class RunEngineTests(PostgresServer postgres)
             [new ToolCallOutput("c2", "test_lookup")],
             [new ToolCallOutput("c3", "test_lookup")]);
         await using var world = await RunWorld.Create(postgres, script, tools);
-        world.StartHost(options => options.StepLimit = 2);
+        await world.SetSpaceSettings(new SpaceSettings { MaxStepsPerRun = 2 });
+        world.StartHost();
 
         var runId = await world.Post(await world.NewThread(), "Loop");
         var run = await world.WaitForStatus(runId, RunStatus.Failed, RunStatus.Completed);
 
         run.Status.Should().Be(RunStatus.Failed);
         run.StatusReason.Should().Be(RunReasons.StepLimit);
+        run.Error!.Message.Should().Contain("2 model calls");
         script.Requests.Should().HaveCount(2, "the third model call is never made");
         (await world.ReadEvents(runId))[^1].Type.Should().Be(RunEventTypes.RunFailed);
+    }
+
+    [Fact]
+    public async Task A_run_that_has_used_its_tokens_fails_with_token_limit_before_the_next_model_call()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new TextOutput("Never reached.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+
+        // One scripted model call reads 10 tokens and writes 5. The first call leaves the run under 20, the second takes it past.
+        await world.SetSpaceSettings(new SpaceSettings { MaxTokensPerRun = 20 });
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Loop");
+        var run = await world.WaitForStatus(runId, RunStatus.Failed, RunStatus.Completed);
+
+        run.Status.Should().Be(RunStatus.Failed);
+        run.StatusReason.Should().Be(RunReasons.TokenLimit);
+        run.Error.Should().Match<RunError>(error => error.Code == RunReasons.TokenLimit && error.Message.Contains("30 tokens") && error.Message.Contains("may use 20"));
+        run.Usage.Should().Be(new RunUsage { InputTokens = 20, OutputTokens = 10, Cost = 80m }, "the call that took it past the limit is paid for and recorded");
+        script.Requests.Should().HaveCount(2, "the third model call is never made");
+    }
+
+    [Fact]
+    public async Task A_bots_own_limit_lowers_its_spaces_and_one_above_the_spaces_changes_nothing()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new ToolCallOutput("c2", "test_lookup")],
+            [new ToolCallOutput("c3", "test_lookup")],
+            [new ToolCallOutput("c4", "test_lookup")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await world.SetSpaceSettings(new SpaceSettings { MaxStepsPerRun = 3 });
+        await world.SetRunLimits(new RunLimits { MaxSteps = 1 });
+        world.StartHost();
+
+        var lowered = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop"), RunStatus.Failed, RunStatus.Completed);
+        lowered.StatusReason.Should().Be(RunReasons.StepLimit);
+        script.Requests.Should().HaveCount(1, "the bot's own limit is one model call");
+
+        await world.SetRunLimits(new RunLimits { MaxSteps = 100 });
+        var capped = await world.WaitForStatus(await world.Post(await world.NewThread(), "Loop again"), RunStatus.Failed, RunStatus.Completed);
+        capped.StatusReason.Should().Be(RunReasons.StepLimit);
+        script.Requests.Should().HaveCount(4, "the space allows three model calls, whatever the bot asks for");
     }
 
     [Fact]

@@ -44,6 +44,7 @@ public static class BotViews
             bot.ParentBotId,
             bot.Depth,
             new BuildLimitsBody(bot.BuildLimits.MaxChildren, bot.BuildLimits.MaxDepthBelow),
+            new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations),
             bot.CreatedByUserId,
             bot.CreatedByBotId);
     }
@@ -68,7 +69,8 @@ public static class BotViews
             request.SandboxPolicy is { } policy ? Words.Read<SandboxPolicy>(policy) : bot.SandboxPolicy,
             request.SandboxSettings is { } sandbox ? Read(sandbox) : bot.SandboxSettings,
             request.SandboxSharedWith ?? current.SandboxSharedWith,
-            request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits);
+            request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits,
+            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits);
     }
 
     public static BotToolEntry ToEntry(this BotToolView view)
@@ -90,6 +92,7 @@ public static class BotViews
             view.AlwaysAsks)
         {
             NeedsReview = view.NeedsReview,
+            DefinitionHash = view.Tool.DefinitionHash,
             Reviewed = reviewed is null ? null : new ToolDefinitionSnapshot(reviewed.Title, reviewed.Description, reviewed.InputSchema),
         };
     }

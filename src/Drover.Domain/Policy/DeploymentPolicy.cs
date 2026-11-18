@@ -148,6 +148,12 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxDelegationTreeCostCents = 1_000;
 
+    public const int StepsPerRun = 50;
+
+    public const int SelfHostedMaxTokensPerRun = 5_000_000;
+
+    public const int HostedMaxTokensPerRun = 2_000_000;
+
     public const int SelfHostedMaxMemoryNoteCharacters = 1000;
 
     public const int HostedMaxMemoryNoteCharacters = 500;
@@ -257,6 +263,18 @@ public sealed record DeploymentPolicy
     /// without a person seeing each step.
     /// </summary>
     public int MaxDelegationTreeCostCents { get; init; } = SelfHostedMaxDelegationTreeCostCents;
+
+    /// <summary>
+    /// The most model calls one run makes before it is stopped with <c>step_limit</c>. A space may only lower it, and
+    /// a bot may lower it again. A model that keeps calling tools without finishing is stopped here.
+    /// </summary>
+    public int MaxStepsPerRun { get; init; } = StepsPerRun;
+
+    /// <summary>
+    /// The most tokens, read and written together, one run uses before it is stopped with <c>token_limit</c>. A space
+    /// may only lower it, and a bot may lower it again. It bounds what one run spends whatever its model costs.
+    /// </summary>
+    public int MaxTokensPerRun { get; init; } = SelfHostedMaxTokensPerRun;
 
     /// <summary>Local-process (stdio) MCP servers on the host itself. Never allowed, in any preset.</summary>
     public bool AllowHostStdioMcp { get; init; }
@@ -504,6 +522,16 @@ public sealed record DeploymentPolicy
             policy => policy.MaxDelegationTreeCostCents,
             HostedMaxDelegationTreeCostCents,
             Enforcement.Now("RunGovernor, when a bot delegates")),
+        PolicyRule.Limit(
+            nameof(MaxStepsPerRun),
+            policy => policy.MaxStepsPerRun,
+            StepsPerRun,
+            Enforcement.Now("RunSession, before every model call of a run")),
+        PolicyRule.Limit(
+            nameof(MaxTokensPerRun),
+            policy => policy.MaxTokensPerRun,
+            HostedMaxTokensPerRun,
+            Enforcement.Now("RunSession, before every model call of a run")),
         PolicyRule.Permission(
             nameof(AllowHostStdioMcp),
             policy => policy.AllowHostStdioMcp,

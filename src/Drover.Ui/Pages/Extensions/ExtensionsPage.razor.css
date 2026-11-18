@@ -1,0 +1,269 @@
+/* Extensions: one frame for each installed extension, and the two steps of importing one. */
+.dv-extensions-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+}
+
+.dv-extensions-title {
+  font-size: var(--dv-text-20);
+}
+
+.dv-extensions-hint {
+  color: var(--dv-text-2);
+}
+
+.dv-extensions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dv-extension,
+::deep .dv-import {
+  --dv-facet-cut: var(--dv-cut);
+  --dv-facet-edge: var(--dv-line);
+  --dv-facet-fill: var(--dv-bg-1);
+  display: flex;
+  gap: var(--dv-space-3);
+  min-width: 0;
+  padding: var(--dv-space-4);
+}
+
+.dv-extension {
+  flex-direction: column;
+}
+
+.dv-extension-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+.dv-extension-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  flex: 1 1 var(--dv-column-min);
+  min-width: 0;
+}
+
+.dv-extension-name,
+::deep .dv-import-title {
+  font-size: var(--dv-text-16);
+  font-weight: var(--dv-weight-heading);
+  overflow-wrap: anywhere;
+}
+
+.dv-extension-about,
+.dv-extension-adds,
+::deep .dv-import-about,
+::deep .dv-import-id,
+::deep .dv-import-hint {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+.dv-extensions-actions,
+.dv-extension-actions,
+::deep .dv-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-import-actions {
+  justify-content: flex-end;
+}
+
+.dv-extensions-make,
+.dv-extension-link,
+::deep .dv-import-hint a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  color: var(--dv-text);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.dv-extensions-make:focus-visible,
+.dv-extension-link:focus-visible,
+::deep .dv-import-hint a:focus-visible,
+::deep .dv-import-text:focus-visible,
+::deep .dv-import-picker:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+::deep .dv-import {
+  --dv-facet-edge: var(--dv-text-3);
+  flex-direction: column;
+  gap: var(--dv-space-4);
+}
+
+::deep .dv-import-step,
+::deep .dv-import-file,
+::deep .dv-import-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+::deep .dv-import-file,
+::deep .dv-import-instructions {
+  gap: var(--dv-space-2);
+}
+
+::deep .dv-import-label,
+::deep .dv-import-facts dt {
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-import-picker {
+  max-width: 100%;
+  min-height: var(--dv-target-touch);
+  color: var(--dv-text-2);
+  font: inherit;
+}
+
+::deep .dv-import-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  margin: 0;
+}
+
+::deep .dv-import-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The instructions are shown whole: the frame grows with them and long lines wrap, so nothing is off the screen. */
+::deep .dv-import-text {
+  margin: 0;
+  padding: var(--dv-space-3);
+  border: var(--dv-border) solid var(--dv-line);
+  background: var(--dv-bg-0);
+  color: var(--dv-text);
+  font-size: var(--dv-text-13);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A tool server: named on the review, then connected and granted from its extension's row. */
+::deep .dv-import-server,
+::deep .dv-extension-server,
+::deep .dv-extension-server-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-3);
+  min-width: 0;
+}
+
+::deep .dv-import-server,
+::deep .dv-extension-server {
+  padding-top: var(--dv-space-3);
+  border-top: var(--dv-border) solid var(--dv-line);
+}
+
+/* Where calls would go is the thing to read before saying yes, so it is the largest text in its block. */
+::deep .dv-import-host,
+::deep .dv-extension-server-host {
+  color: var(--dv-text);
+  font-size: var(--dv-text-20);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-extension-server-title {
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-extension-server-hint {
+  color: var(--dv-text-2);
+  font-size: var(--dv-text-13);
+  overflow-wrap: anywhere;
+}
+
+::deep .dv-import-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::deep .dv-extension-server-state,
+::deep .dv-extension-server-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dv-space-2) var(--dv-space-3);
+}
+
+::deep .dv-extension-server-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dv-target-touch);
+  color: var(--dv-text);
+  text-decoration: underline;
+}
+
+::deep .dv-extension-server-link:focus-visible {
+  outline: var(--dv-focus-width) solid var(--dv-ember);
+  outline-offset: var(--dv-focus-offset);
+}
+
+::deep .dv-extension-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+::deep .dv-extension-tools-legend {
+  padding: 0;
+  font-size: var(--dv-text-13);
+  font-weight: var(--dv-weight-label);
+}
+
+::deep .dv-extension-tool {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dv-space-2);
+  min-height: var(--dv-target-touch);
+  cursor: pointer;
+}
+
+::deep .dv-extension-tool input {
+  flex: none;
+  width: var(--dv-space-4);
+  height: var(--dv-space-4);
+  margin-top: var(--dv-space-1);
+  accent-color: var(--dv-ember);
+}
+
+::deep .dv-extension-tool-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dv-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

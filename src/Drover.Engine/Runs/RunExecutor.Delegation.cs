@@ -113,6 +113,12 @@ public sealed partial class RunExecutor
             return OverBudget(request, "runs", $"This chain of tasks has as many runs as it may have: {nameof(DeploymentPolicy.MaxRunsPerDelegationTree)} is {limits.MaxRuns}.");
         }
 
+        // The tree's own budget is asked first, so a tree that is full says so; this is the bot's own count within it.
+        if (await runs.CountChildren(parent.RunId, cancellationToken) + 1 > parent.Limits.MaxDelegations)
+        {
+            return OverBudget(request, "handoffs", $"This bot has handed work over as often as it may in one run: its limit is {parent.Limits.MaxDelegations}. Finish with what has come back.");
+        }
+
         var cost = await runs.SumTreeCost(parent.RootRunId, cancellationToken);
 
         return cost >= limits.MaxCost

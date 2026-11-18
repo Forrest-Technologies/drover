@@ -21,6 +21,7 @@ public sealed record BotDetail(
     Guid? ParentBotId,
     int Depth,
     BuildLimitsBody BuildLimits,
+    RunLimitsBody RunLimits,
     Guid? CreatedByUserId,
     Guid? CreatedByBotId);
 
@@ -58,6 +59,18 @@ public sealed record ScreenReaderBody(Guid ModelConnectionId, string Model);
 
 /// <summary>How many bots this bot may build, and how deep beneath itself. A null leaves the space's cap.</summary>
 public sealed record BuildLimitsBody(int? MaxChildren, int? MaxDepthBelow);
+
+/// <summary>
+/// What one piece of the bot's work may use before it is stopped: model calls, tokens read and written together, and
+/// times it hands work to a bot beneath it. A null leaves the space's limit.
+/// </summary>
+public sealed record RunLimitsBody(int? MaxSteps, int? MaxTokens, int? MaxDelegations);
+
+/// <summary>
+/// The limits of the bot's space on one piece of work, so the editor says what leaving a limit empty means and the
+/// most a bot's own limit may be. A bot's limit only lowers these.
+/// </summary>
+public sealed record BotRunLimitOptions(int MaxSteps, int MaxTokens, int MaxDelegations);
 
 /// <summary>
 /// What a sandbox on this server may be, so the editor offers only that: whether the server has a sandbox provider at

@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
             .AddScoped<ToastService>()
             .AddScoped<SessionState>()
             .AddScoped<ThemeService>()
+            .AddScoped<ExtensionHandoff>()
             .AddSingleton<ShareInbox>()
             .AddSingleton(TimeProvider.System);
 }

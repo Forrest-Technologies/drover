@@ -1,0 +1,92 @@
+@page "/extensions"
+@layout WorkLayout
+
+<PageTitle>Extensions · Drover</PageTitle>
+
+<SessionGate>
+    <header class="dv-extensions-header">
+        <h1 class="dv-extensions-title">Extensions</h1>
+        @if (CanEdit && extensions is not null)
+        {
+            <div class="dv-extensions-actions">
+                <a class="dv-extensions-make" href="@Addresses.ExtensionEditor">Make an extension</a>
+                @if (extensions.Count > 0 && !importing)
+                {
+                    <Button Kind="ButtonKind.Primary" OnClick="StartImporting">
+                        <Icon Name="IconName.Plus" />
+                        Import an extension
+                    </Button>
+                }
+            </div>
+        }
+    </header>
+
+    <StatusNote Kind="@(noticeIsProblem ? NoteKind.Danger : NoteKind.Ok)" Text="@notice" />
+
+    @if (importing)
+    {
+        <div class="dv-extensions-import">
+            <ImportExtensionForm InitialText="@packageText" Preview="preview" Problem="@importProblem" Busy="importBusy"
+                                 OnRead="Read" OnImport="Import" OnCancel="StopImporting" />
+        </div>
+    }
+
+    @if (loadProblem is not null)
+    {
+        <EmptyState Title="Drover could not load the extensions" Cause="@loadProblem" ActionLabel="Try again" OnAction="Load" />
+    }
+    else if (extensions is null)
+    {
+        <p class="dv-extensions-hint" role="status">Loading the extensions.</p>
+    }
+    else if (extensions.Count == 0 && importing)
+    {
+    }
+    else if (extensions.Count == 0 && CanEdit)
+    {
+        <EmptyState Title="No extension yet"
+                    Cause="An extension is a file someone shares that adds a bot to this space, and can name a tool server for it. You read what it holds before anything is added, and the file can give the bot no tools."
+                    ActionLabel="Import an extension" OnAction="StartImporting" />
+    }
+    else if (extensions.Count == 0)
+    {
+        <p class="dv-extensions-hint">This space has no extensions yet. An owner or admin of the space can import one.</p>
+    }
+    else
+    {
+        <ul class="dv-extensions" aria-label="Extensions">
+            @foreach (var extension in extensions)
+            {
+                <li class="dv-extension dv-facet" @key="extension.Id">
+                    <div class="dv-extension-head">
+                        <div class="dv-extension-text">
+                            <h2 class="dv-extension-name">@extension.Name</h2>
+                            @if (!string.IsNullOrWhiteSpace(extension.Description))
+                            {
+                                <p class="dv-extension-about">@extension.Description</p>
+                            }
+                            <p class="dv-extension-adds">@ExtensionWords.Adds(extension)</p>
+                        </div>
+                        <div class="dv-extension-actions">
+                            @if (extension.BotId is { } botId)
+                            {
+                                <Badge Kind="@(extension.BotStatus is "active" ? BadgeKind.Ok : BadgeKind.Neutral)">@ExtensionWords.Status(extension)</Badge>
+                                <a class="dv-extension-link" href="@Addresses.Bot(botId)">Set up @extension.BotName</a>
+                                @if (CanEdit && extension.BotStatus is "paused")
+                                {
+                                    <Button Kind="ButtonKind.Primary" OnClick="() => TurnOn(extension)" Disabled="@(busy == extension.Id)">
+                                        @(busy == extension.Id ? "Turning on" : $"Turn on {extension.BotName}")
+                                    </Button>
+                                }
+                            }
+                        </div>
+                    </div>
+                    @if (extension.Connection is not null)
+                    {
+                        <ExtensionServerSteps SpaceId="SpaceId" Extension="extension" CanEdit="CanEdit" OnChanged="Replace" />
+                    }
+                </li>
+            }
+        </ul>
+    }
+</SessionGate>

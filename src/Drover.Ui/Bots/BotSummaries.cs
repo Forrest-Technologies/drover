@@ -101,6 +101,29 @@ public static class BotSummaries
             (var children, var depth) => $"Up to {children} bots · {depth} levels deep",
         };
 
+    /// <summary>
+    /// What one piece of the bot's work may use, each limit the bot's own or else its space's. Before the server has
+    /// said what the space allows, only the bot's own limits are named.
+    /// </summary>
+    public static string Limits(BotDraft draft, BotRunLimitOptions? space)
+    {
+        (string Own, int? Space, string One, string Many)[] limits =
+        [
+            (draft.MaxSteps, space?.MaxSteps, "model call", "model calls"),
+            (draft.MaxTokens, space?.MaxTokens, "token", "tokens"),
+            (draft.MaxDelegations, space?.MaxDelegations, "handoff", "handoffs"),
+        ];
+        var said = limits
+            .Select(limit => (Most: int.TryParse(limit.Own.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var own) ? own : limit.Space, limit.One, limit.Many))
+            .Where(limit => limit.Most is not null)
+            .Select(limit => $"{Count(limit.Most)} {(limit.Most is 1 ? limit.One : limit.Many)}")
+            .ToList();
+        return said.Count == 0 ? "The space's limits" : string.Join(" · ", said);
+    }
+
+    /// <summary>A count as a person reads it: 5,000,000. Empty for none.</summary>
+    public static string Count(int? count) => count?.ToString("N0", CultureInfo.InvariantCulture) ?? string.Empty;
+
     public static string Compaction(string strategy) => strategy switch
     {
         "sliding_window" => "Keeps recent messages only",

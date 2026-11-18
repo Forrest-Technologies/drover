@@ -19,15 +19,15 @@ public sealed class BotService(
 {
     #region Private Fields
 
-    private const int MaxNameLength = 200;
+    public const int MaxNameLength = 200;
 
     private const int MaxHandleLength = 100;
 
-    private const int MaxDescriptionLength = 2_000;
+    public const int MaxDescriptionLength = 2_000;
 
-    private const int MaxInstructionsLength = 32_000;
+    public const int MaxInstructionsLength = 32_000;
 
-    private const int MaxModelLength = 200;
+    public const int MaxModelLength = 200;
 
     private const int MaxSymbolLength = 16;
 
@@ -130,6 +130,7 @@ public sealed class BotService(
             Model = chosen,
             ParentBotId = parent?.Id,
             Depth = parent is null ? 0 : parent.Depth + 1,
+            Status = request.Paused ? BotStatus.Paused : BotStatus.Active,
             CreatedByUserId = maker.UserId,
             CreatedByBotId = maker.BotId,
         };
@@ -181,6 +182,7 @@ public sealed class BotService(
             ScreenReader = edit.SandboxSettings.ScreenReader is { } reader ? reader with { Model = reader.Model.Trim() } : null,
         };
         bot.BuildLimits = edit.BuildLimits;
+        bot.RunLimits = edit.RunLimits;
         await bots.ReplaceSandboxShares(id, sharedWith, cancellationToken);
 
         if (audit.Record(actor, "bot.updated", AuditTargets.Bot, bot.Id, before, Snapshot(bot, sharedWith)))
@@ -222,6 +224,7 @@ public sealed class BotService(
             SandboxPolicy = source.SandboxPolicy,
             SandboxSettings = source.SandboxSettings,
             BuildLimits = source.BuildLimits,
+            RunLimits = source.RunLimits,
             CreatedByUserId = actorUserId,
         };
         var sharedWith = await bots.ListSandboxShares(id, cancellationToken);
@@ -326,6 +329,7 @@ public sealed class BotService(
             bot.SandboxSettings,
             SandboxSharedWith = sharedWith,
             bot.BuildLimits,
+            bot.RunLimits,
             bot.Status,
         });
 
@@ -483,7 +487,8 @@ public sealed class BotService(
         ?? FindNoteProblem(edit.MemorySettings!)
         ?? await FindSandboxProblem(bot, edit, cancellationToken)
         ?? await FindScreenReaderProblem(edit.SandboxSettings?.ScreenReader, cancellationToken)
-        ?? FindBuildProblem(edit.BuildLimits);
+        ?? FindBuildProblem(edit.BuildLimits)
+        ?? FindRunLimitProblem(edit.RunLimits, policies.Runs(await GetSpaceCaps(cancellationToken)));
 
     private static string? FindTextProblem(BotEdit edit)
     {
@@ -729,6 +734,22 @@ public sealed class BotService(
         limits.MaxChildren is < 0 or > MaxBuildLimit || limits.MaxDepthBelow is < 0 or > MaxBuildLimit
             ? $"A build limit is a whole number from 0 to {MaxBuildLimit}."
             : null;
+
+    /// <summary>
+    /// A bot's own limit only lowers its space's, so one above the space's is refused in words, not stored and
+    /// silently ignored. A run makes at least one model call; a bot may be kept from handing work over at all.
+    /// </summary>
+    private static string? FindRunLimitProblem(RunLimits limits, RunCeilings space) =>
+        limits switch
+        {
+            { MaxSteps: { } steps } when steps < 1 || steps > space.MaxSteps =>
+                $"The limit on model calls is a whole number from 1 to {space.MaxSteps}, the most this space allows.",
+            { MaxTokens: { } tokens } when tokens < 1 || tokens > space.MaxTokens =>
+                $"The limit on tokens is a whole number from 1 to {space.MaxTokens:N0}, the most this space allows.",
+            { MaxDelegations: { } delegations } when delegations < 0 || delegations > space.MaxDelegations =>
+                $"The limit on handoffs is a whole number from 0 to {space.MaxDelegations}, the most this space allows.",
+            _ => null,
+        };
 
     /// <summary>
     /// Why a bot cannot be added beneath this parent, or null when it can: the space's caps on depth and on bots

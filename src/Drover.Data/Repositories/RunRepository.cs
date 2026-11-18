@@ -138,6 +138,10 @@ public sealed class RunRepository(DroverDbContext db)
     public Task<int> CountRunsInTree(Guid rootRunId, CancellationToken cancellationToken) =>
         db.Runs.CountAsync(run => run.RootRunId == rootRunId, cancellationToken);
 
+    /// <summary>How many runs one run has begun beneath itself by handing work over, ended ones included.</summary>
+    public Task<int> CountChildren(Guid parentRunId, CancellationToken cancellationToken) =>
+        db.Runs.CountAsync(run => run.ParentRunId == parentRunId, cancellationToken);
+
     /// <summary>What every model call of a tree has cost so far, finished runs and working ones alike.</summary>
     public async Task<decimal> SumTreeCost(Guid rootRunId, CancellationToken cancellationToken) =>
         await db.UsageRecords.Where(usage => usage.RootRunId == rootRunId).SumAsync(usage => (decimal?)usage.Cost, cancellationToken) ?? 0m;

@@ -46,6 +46,7 @@ public sealed class DelegationCardTests : BunitContext
     [InlineData("""{"error":"x","reason":"loop_detected"}""", DelegationRefusal.Loop)]
     [InlineData("""{"error":"x","reason":"budget_exceeded","detail":"depth"}""", DelegationRefusal.TooDeep)]
     [InlineData("""{"error":"x","reason":"budget_exceeded","detail":"runs"}""", DelegationRefusal.TooManyRuns)]
+    [InlineData("""{"error":"x","reason":"budget_exceeded","detail":"handoffs"}""", DelegationRefusal.TooManyHandoffs)]
     [InlineData("""{"error":"x","reason":"budget_exceeded","detail":"cost"}""", DelegationRefusal.OverBudget)]
     [InlineData("""{"error":"x","reason":"target_unavailable","detail":"paused"}""", DelegationRefusal.TargetPaused)]
     [InlineData("""{"error":"x","reason":"target_unavailable","detail":"removed"}""", DelegationRefusal.TargetRemoved)]

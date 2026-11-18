@@ -56,6 +56,7 @@
                 </div>
                 <Menu Label="More">
                     <MenuItem OnSelect="Duplicate">Duplicate</MenuItem>
+                    <MenuItem OnSelect="() => navigation.NavigateTo(Addresses.ExtensionFromBot(BotId))">Make an extension</MenuItem>
                     @if (saved.Status is "paused")
                     {
                         <MenuItem OnSelect="Resume">Resume</MenuItem>
@@ -100,6 +101,9 @@
                 </Disclosure>
                 <Disclosure Title="Team" Summary="@BotSummaries.Team(draft)" Open="@IsOpen(Team)" OpenChanged="open => Toggle(Team, open)">
                     <TeamSection Draft="draft" OnChanged="Changed" />
+                </Disclosure>
+                <Disclosure Title="Limits" Summary="@BotSummaries.Limits(draft, runLimitOptions)" Open="@IsOpen(Limits)" OpenChanged="open => Toggle(Limits, open)">
+                    <LimitsSection Draft="draft" Options="runLimitOptions" OnChanged="Changed" />
                 </Disclosure>
             </div>
 

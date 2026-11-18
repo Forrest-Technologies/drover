@@ -64,6 +64,7 @@ public sealed record ResolvedToolEndpoint(ToolEndpoint? Endpoint, string? Proble
 /// </summary>
 public sealed class ToolConnectionService(
     ToolConnectionRepository connections,
+    ExtensionRepository extensions,
     ToolCatalog catalog,
     ISecretVault vault,
     IEnumerable<IToolSource> sources,
@@ -141,9 +142,11 @@ public sealed class ToolConnectionService(
     /// <summary>
     /// A person has read a tool's changed definition and accepts it. Every grant on the tool counts as current again,
     /// so the tool is offered to the bots that were granted it, and the definition kept for comparison is dropped.
-    /// Null when the tool is not one of this connection's.
+    /// Null when the tool is not one of this connection's. <paramref name="definitionHash"/> names the definition
+    /// the person read: when the tool has changed again since, nothing is confirmed and the tool comes back still
+    /// waiting, because a yes to one text is not a yes to the next.
     /// </summary>
-    public async Task<CatalogTool?> ConfirmReview(Guid connectionId, Guid toolId, CancellationToken cancellationToken)
+    public async Task<CatalogTool?> ConfirmReview(Guid connectionId, Guid toolId, string definitionHash, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
         var tool = await connections.FindConnection(connectionId, cancellationToken) is null
@@ -153,6 +156,12 @@ public sealed class ToolConnectionService(
         if (tool is null)
         {
             return null;
+        }
+
+        if (!string.Equals(tool.DefinitionHash, definitionHash, StringComparison.Ordinal))
+        {
+            logger.LogInformation("Tool {ToolId} changed again before its review was confirmed; nothing was accepted", toolId);
+            return new CatalogTool(tool, true);
         }
 
         var confirmed = await connections.ConfirmReview(toolId, cancellationToken);
@@ -327,6 +336,9 @@ public sealed class ToolConnectionService(
         // are invisible to anybody else, so a function in schema sys deletes them and their secrets, in this space
         // alone. It runs before the rows are read again, so nothing is deleted twice.
         var forgotten = await connections.ForgetCredentials(connectionId, cancellationToken);
+
+        // An extension that made this connection keeps its row and offers to connect again.
+        await extensions.ForgetConnection(connectionId, cancellationToken);
         await connections.Remove(connection, cancellationToken);
 
         if (connection.Oauth?.ClientSecretId is { } clientSecretId)
@@ -637,15 +649,19 @@ public sealed class ToolConnectionService(
         connections.Add(new ToolConnectionCredential { ToolConnectionId = connection.Id, SecretId = secretId, AudienceUserId = Audience.Everyone });
     }
 
-    private static string? Validate(NewToolConnection request)
+    /// <summary>
+    /// What is wrong with a connection's name or address, or null. Also what an extension file's connection is held
+    /// to when it is read, so a file cannot name an address a person could not add by hand.
+    /// </summary>
+    public static string? FindAddressProblem(string? name, string? address)
     {
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > MaxNameLength)
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > MaxNameLength)
         {
             return $"Give the connection a name of up to {MaxNameLength} characters.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.Url) || request.Url.Length > MaxUrlLength
-            || !Uri.TryCreate(request.Url.Trim(), UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https")
+        if (string.IsNullOrWhiteSpace(address) || address.Length > MaxUrlLength
+            || !Uri.TryCreate(address.Trim(), UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https")
             || !string.IsNullOrEmpty(url.UserInfo))
         {
             return "Enter the server's web address, starting with https:// or http://, with no user name or password in it.";
@@ -653,10 +669,27 @@ public sealed class ToolConnectionService(
 
         // An address is stored as it is and shown to every member. A key in it ("?api_key=...") would be too, so
         // nothing after the path is taken. The message does not repeat the address.
-        if (!string.IsNullOrEmpty(url.Query) || !string.IsNullOrEmpty(url.Fragment) || request.Url.Contains('?', StringComparison.Ordinal) || request.Url.Contains('#', StringComparison.Ordinal))
+        return !string.IsNullOrEmpty(url.Query) || !string.IsNullOrEmpty(url.Fragment) || address.Contains('?', StringComparison.Ordinal) || address.Contains('#', StringComparison.Ordinal)
+            ? "Enter the server's address with nothing after the path: no \"?\" and no \"#\". If the server wants a key, add it as a header, which is kept secret."
+            : null;
+    }
+
+    /// <summary>What is wrong with a header's name, or null.</summary>
+    public static string? FindHeaderNameProblem(string? name) =>
+        string.IsNullOrWhiteSpace(name) || name.Length > MaxHeaderNameLength || !name.All(IsHeaderNameCharacter)
+            || reservedHeaders.Contains(name, StringComparer.OrdinalIgnoreCase)
+            || name.StartsWith(ForwardedPrefix, StringComparison.OrdinalIgnoreCase)
+            ? "Enter a header name such as Authorization or X-Api-Key."
+            : null;
+
+    private static string? Validate(NewToolConnection request)
+    {
+        if (FindAddressProblem(request.Name, request.Url) is { } problem)
         {
-            return "Enter the server's address with nothing after the path: no \"?\" and no \"#\". If the server wants a key, add it as a header, which is kept secret.";
+            return problem;
         }
+
+        var url = new Uri(request.Url!.Trim());
 
         return request.AuthKind switch
         {
@@ -705,11 +738,9 @@ public sealed class ToolConnectionService(
 
     private static string? ValidateHeader(string? name, string? value)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Length > MaxHeaderNameLength || !name.All(IsHeaderNameCharacter)
-            || reservedHeaders.Contains(name, StringComparer.OrdinalIgnoreCase)
-            || name.StartsWith(ForwardedPrefix, StringComparison.OrdinalIgnoreCase))
+        if (FindHeaderNameProblem(name) is { } problem)
         {
-            return "Enter a header name such as Authorization or X-Api-Key.";
+            return problem;
         }
 
         return string.IsNullOrEmpty(value) || value.Length > MaxHeaderValueLength || value.Any(char.IsControl)

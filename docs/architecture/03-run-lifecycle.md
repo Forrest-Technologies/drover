@@ -20,7 +20,7 @@ A run is one bot working on one request. It is a database row that a worker exec
 | `waiting` | The run ended with a request that has no answer yet: an approval, or a workflow's question. No worker holds it. |
 | `completed`, `failed`, `cancelled` | Terminal |
 
-`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_takeover` (a call asked a person to take over the bot's screen; see [07-sandbox.md](07-sandbox.md#a-person-takes-over)), `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
+`status_reason` explains the current status in a short code: `awaiting_approval`, `awaiting_takeover` (a call asked a person to take over the bot's screen; see [07-sandbox.md](07-sandbox.md#a-person-takes-over)), `awaiting_input`, `budget_exceeded`, `loop_detected`, `step_limit`, `token_limit`, `cancelled_by_user`, `cancelled_by_parent`, `lease_lost`.
 
 ## From message to run
 
@@ -91,7 +91,17 @@ The model and tool loop is the agent framework's. Drover supplies storage and go
 
 6. **Finish or wait.** If the run ended with a pending request, the session is saved and the run becomes `waiting`. Otherwise it is `completed`. The status change and the event that reports it commit in one transaction.
 
-A **step** is one model call. The engine hands the runtime a model client of its own (`RunExecution.Model`) that wraps the provider's: every call through it is counted against the step limit (default 50 per run, `Runs:StepLimit`; the run fails with `step_limit`), announced as `step.started`, and refused outright if a tenant transaction is open in the calling flow. The step's message id is chosen before the call. The deltas carry it, and the runtime stores the reply under it, so `message.completed` names the row the deltas were building.
+A **step** is one model call. The engine hands the runtime a model client of its own (`RunExecution.Model`) that wraps the provider's: every call through it is counted against the run's limits (below), announced as `step.started`, and refused outright if a tenant transaction is open in the calling flow. The step's message id is chosen before the call. The deltas carry it, and the runtime stores the reply under it, so `message.completed` names the row the deltas were building.
+
+**Run limits.** Three limits stop a run that runs away before it spends a person's model credit. Each is a deployment ceiling ([16-deployment-policies.md](16-deployment-policies.md)) that the space may lower in its settings and the bot may lower again in its own `run_limits` (the editor's Limits section); no level raises the one above (`PolicyService.Runs`, then `RunCeilings.NarrowedBy`). They are read when a run is loaded and held by its `RunSession`.
+
+| Limit | Deployment rule | Space | Bot | When it is reached |
+| --- | --- | --- | --- | --- |
+| Model calls | `MaxStepsPerRun` (50) | `max_steps_per_run` | `max_steps` | Checked before every model call, a tool's own included (the screen reader). The run fails with `step_limit`. |
+| Tokens | `MaxTokensPerRun` (5,000,000; hosted 2,000,000) | `max_tokens_per_run` | `max_tokens` | Input and output tokens of every model call the run has recorded, earlier executions included, checked before every model call. The run fails with `token_limit`. The call that takes the run past the limit finishes and is recorded, so a run can end above it by one call. |
+| Handoffs | `MaxRunsPerDelegationTree` less the root | (through the tree's limit) | `max_delegations` | Counted from the run's child runs when it calls `delegate`. The call is refused with `budget_exceeded`, detail `handoffs`; the run goes on with what it has. `0` keeps a bot from handing work over at all. |
+
+A child run has limits of its own, from its own bot. The tree as a whole is bounded by the delegation budget in [Delegation](#delegation). A run stopped by `step_limit` or `token_limit` shows in its thread as `budget_reached`, and its error names the limit, the value, and where to change it.
 
 Read-only tools requested together run in parallel. Everything else runs in order: a call that is not read-only waits for the calls that are not read-only listed before it in the same model response.
 
@@ -230,7 +240,7 @@ Why Server-Sent Events and not a socket library: resume from a cursor is the bui
 2. The principal gets a signal on the space's stream and, if they are away, a push (push arrives with notifications).
 3. They approve or deny through `POST /api/spaces/{spaceId}/tool-calls/{id}/decision`, with `approved` and an optional `reason`. The route carries the space, like every tenant route. The caller must be able to see the call, and of those who can, must be the run's principal or a space admin. So an admin answers a call in a shared thread, and cannot answer one in a private thread that is not theirs: nobody approves a call whose arguments they cannot read. A member who is not the principal cannot approve what a bot does with another member's authority. A call is answered once; a second answer gets 409.
 4. The answer is stored on the `tool_calls` row (`approved`, or `denied` with the reason as the call's result, plus who decided and when) and appended to the log as `tool.approved` or `tool.denied`, in one transaction.
-5. The run becomes claimable once every call it waits on is answered. The worker that takes it reads which requests the run last went to wait on from the log, reads their answers from the rows, and runs the agent again with them. Approved: the framework invokes the tool, through the gate. Denied: the model is told the person declined, with their reason.
+5. The run becomes claimable once every call it waits on is answered. The worker that takes it reads which requests the run last went to wait on from the log, reads their answers from the rows, and runs the agent again with them. Approved: the framework invokes the tool, through the gate, which checks the grant as it stands now and that the tool still has the definition the call was asked for ([06-mcp.md](06-mcp.md)); a tool that changed meanwhile is refused and the model is told to ask again. Denied: the model is told the person declined, with their reason.
 
 The server can restart any number of times between steps 1 and 5. The session that holds the requests is saved again only when the run next stops, so an execution that takes over after a crash hands the same answers over again; the `tool_calls` row then decides what happens, and a call that had started is reported as interrupted, never run a second time.
 
@@ -313,7 +323,7 @@ The call passes the tool gate like any other. Then the child bot is exposed to i
 4. Creates a thread for the child (origin `delegation`, the root thread's owner and audience, so exactly the people who can see the root thread can see it), a user-role message holding the task (authored by the calling bot, redacted of the run's secrets like any stored tool argument), and a child run with `trigger` `delegation`, `parent_run_id`, `root_run_id`, `parent_tool_call_id`, `depth + 1`, the same `principal_user_id`, and the parent's taint.
 5. Saves the parent's tool call with `child_run_id`, and appends `delegation.started` to the parent's events.
 
-A refusal is the call's result, as `{"error": ..., "reason": ...}` with `reason` one of `no_grant`, `not_beneath`, `target_unavailable`, `loop_detected`, `budget_exceeded`, and for the last two of those a `detail`: `paused` or `removed` for the target, `depth`, `runs`, or `cost` for the limit, so a screen can say which in its own words. No child run is begun.
+A refusal is the call's result, as `{"error": ..., "reason": ...}` with `reason` one of `no_grant`, `not_beneath`, `target_unavailable`, `loop_detected`, `budget_exceeded`, and for the last two of those a `detail`: `paused` or `removed` for the target, `depth`, `runs`, `handoffs` (the calling bot's own limit on one run, checked after the tree's `runs`), or `cost` for the limit, so a screen can say which in its own words. No child run is begun.
 
 The child then runs as its own agent with **its own** grants, history, session, and events, inside the parent's tool call. The wrapper's inner agent (`ChildRunAgent`) asks the governor to execute the child run, and the engine executes it the way it executes any run: loaded as its person, its framework agent built from its own bot, its events written to the tree's log with its own run id, its status ended in one transaction with its usage. When it ends, the governor turns what it came to into the parent's tool result: its last reply when it completed, what went wrong when it failed, and a "cancelled" result when it was cancelled while the parent went on. The result passes the parent's `after_tool` rules like any tool's, and the parent's log gets `delegation.completed` and then `tool.completed`.
 

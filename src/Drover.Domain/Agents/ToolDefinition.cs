@@ -13,6 +13,12 @@ public sealed record ToolDefinition
 
     public required JsonElement InputSchema { get; init; }
 
+    /// <summary>
+    /// The hash of the definition this run was given. A call's row keeps it, so an approval covers the tool as it
+    /// was when the call was asked for and no later version of it.
+    /// </summary>
+    public string? DefinitionHash { get; init; }
+
     public ToolSensitivity Sensitivity { get; init; } = ToolSensitivity.Write;
 
     /// <summary>The effective grant is <c>ask</c>: the run stops for a human before the tool runs.</summary>

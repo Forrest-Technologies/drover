@@ -16,4 +16,5 @@ public sealed record UpdateBotRequest(
     string? SandboxPolicy,
     SandboxSettingsBody? SandboxSettings,
     IReadOnlyList<Guid>? SandboxSharedWith,
-    BuildLimitsBody? BuildLimits);
+    BuildLimitsBody? BuildLimits,
+    RunLimitsBody? RunLimits = null);

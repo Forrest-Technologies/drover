@@ -15,6 +15,8 @@ public static class ToolConnectionEndpoints
 
     private static readonly string[] clientResponseTypes = ["code"];
 
+    private const string ChangedAgain = "This tool changed again while you were reading it. Read what it says now, then accept it.";
+
     #endregion
 
     #region Public Methods
@@ -286,15 +288,21 @@ public static class ToolConnectionEndpoints
             ? TypedResults.Ok(listed.ToResponse(SignInOf(await connections.ListSignIns([listed.Connection], context.RequestAborted), listed.Connection)))
             : TypedResults.NotFound();
 
-    private static async Task<Results<Ok<ConnectionToolSummary>, NotFound>> ConfirmReview(
+    private static async Task<Results<Ok<ConnectionToolSummary>, NotFound, ProblemHttpResult>> ConfirmReview(
         Guid connectionId,
         Guid toolId,
+        ConfirmToolReviewRequest request,
         HttpContext context,
         ToolConnectionService connections)
     {
         var connection = await connections.FindConnection(connectionId, context.RequestAborted);
-        var tool = connection is null ? null : await connections.ConfirmReview(connectionId, toolId, context.RequestAborted);
-        return tool is null ? TypedResults.NotFound() : TypedResults.Ok(tool.ToSummary(connection!));
+        var tool = connection is null ? null : await connections.ConfirmReview(connectionId, toolId, request.DefinitionHash, context.RequestAborted);
+        return tool switch
+        {
+            null => TypedResults.NotFound(),
+            { NeedsReview: true } => TypedResults.Problem(title: ChangedAgain, statusCode: StatusCodes.Status409Conflict),
+            _ => TypedResults.Ok(tool.ToSummary(connection!)),
+        };
     }
 
     private static async Task<Results<NoContent, NotFound>> RemoveConnection(Guid connectionId, HttpContext context, ToolConnectionService connections) =>

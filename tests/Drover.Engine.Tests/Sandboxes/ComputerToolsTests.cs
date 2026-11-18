@@ -352,7 +352,8 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
                 bot.SandboxPolicy,
                 bot.SandboxSettings with { Desktop = desktop },
                 [],
-                bot.BuildLimits);
+                bot.BuildLimits,
+                bot.RunLimits);
             return await services.GetRequiredService<BotService>().Update(world.BotId, edit, AuditActor.Person(world.UserId), RunWorld.Token);
         });
 

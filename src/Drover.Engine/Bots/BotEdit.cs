@@ -17,7 +17,8 @@ public sealed record BotEdit(
     SandboxPolicy? SandboxPolicy,
     SandboxSettings? SandboxSettings,
     IReadOnlyList<Guid> SandboxSharedWith,
-    BuildLimits BuildLimits);
+    BuildLimits BuildLimits,
+    RunLimits RunLimits);
 
 /// <summary>
 /// A bot to create: its name, what it is for as other bots read it, its instructions, and the model it talks to. It
@@ -29,7 +30,11 @@ public sealed record NewBot(
     string Instructions,
     Guid ModelConnectionId,
     string? Model,
-    Guid? ParentBotId);
+    Guid? ParentBotId)
+{
+    /// <summary>The bot starts paused: it does nothing until a person turns it on. For a bot whose instructions came from a file.</summary>
+    public bool Paused { get; init; }
+}
 
 /// <summary>The result of a change to a bot. With neither a bot nor a problem, there is no such bot.</summary>
 public sealed record BotChange(Bot? Bot, string? Problem)
