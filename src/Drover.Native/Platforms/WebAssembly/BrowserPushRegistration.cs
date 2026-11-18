@@ -3,7 +3,8 @@ namespace Drover.Native.Platform;
 /// <summary>
 /// Notifications in a browser or an installed web app, through the service worker and the Push API. The script that
 /// speaks to the browser is the web client's own <c>push.js</c>, shared; this class only carries its answers. A
-/// browser that fails a call throws <see cref="JSException"/>, which the notifications control turns into a sentence.
+/// browser that fails a call is reported as <see cref="DeviceCallFailedException"/>, which the notifications control
+/// turns into a sentence.
 /// </summary>
 internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistration> logger) : IPushRegistration
 {
@@ -62,7 +63,7 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
         catch (JSException exception)
         {
             logger.LogWarning(exception, "The browser failed the notification call {Function}", function);
-            throw;
+            throw new DeviceCallFailedException("The browser could not change notifications for this device.", exception);
         }
     }
 
