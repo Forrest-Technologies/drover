@@ -157,6 +157,9 @@ public sealed class Field : StackPanel
         {
             if (key.Key is VirtualKey.Enter)
             {
+                // The change event for the last letters can still be on its way when Enter arrives, as it is in a
+                // browser right after fast typing; the form must send what the field holds now.
+                Take(input is PasswordBox hidden ? hidden.Password : ((TextBox)input).Text);
                 Submitted?.Invoke(this, EventArgs.Empty);
             }
         };

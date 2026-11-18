@@ -334,7 +334,9 @@ public sealed class Composer : Grid
             return;
         }
 
+        // The change event for the last letters can still be on its way when Enter arrives; send what the field holds.
         key.Handled = true;
+        Typed();
         await Send();
     }
 

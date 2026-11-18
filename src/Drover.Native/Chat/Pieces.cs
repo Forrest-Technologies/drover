@@ -12,7 +12,8 @@ internal static class Pieces
     /// Makes a view model, filling its constructor from the app's services, as a screen's <c>Make</c> does. A panel
     /// is made by the conversation that shows it, not by the service provider, so this is its one use of it.
     /// </summary>
-    public static T Make<T>() => ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
+    public static T Make<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() =>
+        ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
 
     /// <summary>The small heading of one part of a card: "Arguments", "What the bot was asked".</summary>
     public static TextBlock PartTitle(string text)

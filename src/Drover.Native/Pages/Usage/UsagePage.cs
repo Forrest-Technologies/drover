@@ -41,7 +41,8 @@ public sealed class UsagePage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        body.Add(PageParts.Title("Usage"));
+        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
+        header.Children.Add(PageParts.Title("Usage"));
         var period = new SegmentedControl { Label = "Period", Options = UsagePageViewModel.Periods, Value = model.Period };
         period.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
         {
@@ -50,7 +51,8 @@ public sealed class UsagePage : Screen
                 model.ChoosePeriod(chosen);
             }
         });
-        body.Add(period);
+        header.Children.Add(period);
+        body.Add(header);
         if (!model.IsAdmin)
         {
             body.Add(Styles.Text("Only the runs that acted for you. An owner or admin sees the whole space.", "DvTextSecondary"));

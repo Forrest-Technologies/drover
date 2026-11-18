@@ -1,0 +1,2546 @@
+{
+  "web/setup-account-1280-dark": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "native/setup-account-1280-dark": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "web/setup-account-360-dark": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "native/setup-account-360-dark": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "web/setup-account-1280-light": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "native/setup-account-1280-light": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "web/setup-account-360-light": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "native/setup-account-360-light": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": []
+  },
+  "web/sign-in-setup-open-1280-dark": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-setup-open-1280-dark": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-setup-open-360-dark": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-setup-open-360-dark": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-setup-open-1280-light": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-setup-open-1280-light": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-setup-open-360-light": {
+    "url": "http://127.0.0.1:8080/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-setup-open-360-light": {
+    "url": "http://127.0.0.1:8080/native/setup",
+    "title": "Set up Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-1280-dark": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "native/sign-in-1280-dark": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "web/sign-in-360-dark": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "native/sign-in-360-dark": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "web/sign-in-1280-light": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "native/sign-in-1280-light": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "web/sign-in-360-light": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "native/sign-in-360-light": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ]
+  },
+  "web/sign-in-failed-1280-dark": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-failed-1280-dark": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-failed-360-dark": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-failed-360-dark": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-failed-1280-light": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-failed-1280-light": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/sign-in-failed-360-light": {
+    "url": "http://localhost:8080/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "native/sign-in-failed-360-light": {
+    "url": "http://localhost:8080/native/sign-in",
+    "title": "Sign in to Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  "web/setup-model-empty-1280-dark": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-empty-1280-dark": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-empty-360-dark": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-empty-360-dark": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-empty-1280-light": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-empty-1280-light": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-empty-360-light": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-empty-360-light": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-bot-no-model-1280-dark": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-no-model-1280-dark": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-no-model-360-dark": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-no-model-360-dark": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-no-model-1280-light": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-no-model-1280-light": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-no-model-360-light": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-no-model-360-light": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/talk-first-run-1280-dark": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-first-run-1280-dark": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-first-run-360-dark": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-first-run-360-dark": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-first-run-1280-light": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-first-run-1280-light": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-first-run-360-light": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-first-run-360-light": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/bots-empty-1280-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-empty-1280-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-empty-360-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-empty-360-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-empty-1280-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-empty-1280-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-empty-360-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-empty-360-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/models-empty-1280-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-empty-1280-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-empty-360-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-empty-360-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-empty-1280-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-empty-1280-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-empty-360-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-empty-360-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/tools-empty-1280-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-empty-1280-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-empty-360-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-empty-360-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-empty-1280-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-empty-1280-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-empty-360-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-empty-360-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/extensions-empty-1280-dark": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "native/extensions-empty-1280-dark": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "web/extensions-empty-360-dark": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "native/extensions-empty-360-dark": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "web/extensions-empty-1280-light": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "native/extensions-empty-1280-light": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "web/extensions-empty-360-light": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "native/extensions-empty-360-light": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": []
+  },
+  "web/usage-empty-1280-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-empty-1280-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-empty-360-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-empty-360-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-empty-1280-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-empty-1280-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-empty-360-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-empty-360-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/status-1280-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-1280-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-360-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-360-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-1280-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-1280-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-360-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-360-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/share-empty-1280-dark": {
+    "url": "http://localhost:8080/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "native/share-empty-1280-dark": {
+    "url": "http://localhost:8080/native/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "web/share-empty-360-dark": {
+    "url": "http://localhost:8080/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "native/share-empty-360-dark": {
+    "url": "http://localhost:8080/native/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "web/share-empty-1280-light": {
+    "url": "http://localhost:8080/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "native/share-empty-1280-light": {
+    "url": "http://localhost:8080/native/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "web/share-empty-360-light": {
+    "url": "http://localhost:8080/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "native/share-empty-360-light": {
+    "url": "http://localhost:8080/native/share",
+    "title": "Share to Drover · Drover",
+    "errors": []
+  },
+  "web/not-found-1280-dark": {
+    "url": "http://localhost:8080/no-such-page",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/not-found-1280-dark": {
+    "url": "http://localhost:8080/native/no-such-page",
+    "title": "Not found - Drover",
+    "errors": []
+  },
+  "web/not-found-360-dark": {
+    "url": "http://localhost:8080/no-such-page",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/not-found-360-dark": {
+    "url": "http://localhost:8080/native/no-such-page",
+    "title": "Not found - Drover",
+    "errors": []
+  },
+  "web/not-found-1280-light": {
+    "url": "http://localhost:8080/no-such-page",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/not-found-1280-light": {
+    "url": "http://localhost:8080/native/no-such-page",
+    "title": "Not found - Drover",
+    "errors": []
+  },
+  "web/not-found-360-light": {
+    "url": "http://localhost:8080/no-such-page",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/not-found-360-light": {
+    "url": "http://localhost:8080/native/no-such-page",
+    "title": "Not found - Drover",
+    "errors": []
+  },
+  "web/setup-bot-1280-dark": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-1280-dark": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-360-dark": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-360-dark": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-1280-light": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-1280-light": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-bot-360-light": {
+    "url": "http://localhost:8080/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "native/setup-bot-360-light": {
+    "url": "http://localhost:8080/native/setup/bot",
+    "title": "Meet your first bot",
+    "errors": []
+  },
+  "web/setup-model-connected-1280-dark": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-connected-1280-dark": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-connected-360-dark": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-connected-360-dark": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-connected-1280-light": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-connected-1280-light": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/setup-model-connected-360-light": {
+    "url": "http://localhost:8080/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "native/setup-model-connected-360-light": {
+    "url": "http://localhost:8080/native/setup/model",
+    "title": "Connect a model",
+    "errors": []
+  },
+  "web/talk-no-bot-1280-dark": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-no-bot-1280-dark": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-no-bot-360-dark": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-no-bot-360-dark": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-no-bot-1280-light": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-no-bot-1280-light": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/talk-no-bot-360-light": {
+    "url": "http://localhost:8080/",
+    "title": "Drover",
+    "errors": []
+  },
+  "native/talk-no-bot-360-light": {
+    "url": "http://localhost:8080/native/",
+    "title": "Drover",
+    "errors": []
+  },
+  "web/bots-no-bot-1280-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-no-bot-1280-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-no-bot-360-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-no-bot-360-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-no-bot-1280-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-no-bot-1280-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-no-bot-360-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-no-bot-360-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/models-1280-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-1280-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-360-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-360-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-1280-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-1280-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-360-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-360-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-add-1280-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-add-1280-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-add-360-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-add-360-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-add-1280-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-add-1280-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/models-add-360-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-add-360-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "web/tools-add-1280-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-add-1280-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-add-360-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-add-360-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-add-1280-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-add-1280-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/tools-add-360-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "native/tools-add-360-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": []
+  },
+  "web/talk-content-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-earlier-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-earlier-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-earlier-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-earlier-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-earlier-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-earlier-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-content-earlier-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-content-earlier-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-approval-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "native/talk-approval-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "web/talk-approval-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "native/talk-approval-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "web/talk-approval-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "native/talk-approval-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "web/talk-approval-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "native/talk-approval-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a2c-7cfb-ad90-6bf0c787354b",
+    "title": "(1) Sample helper · Drover",
+    "errors": []
+  },
+  "web/talk-failed-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "native/talk-failed-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "web/talk-failed-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "native/talk-failed-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "web/talk-failed-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "native/talk-failed-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "web/talk-failed-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "native/talk-failed-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2a18-7752-9bfa-eff2d47e7116",
+    "title": "(1) Sample note taker · Drover",
+    "errors": []
+  },
+  "web/talk-side-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/01a1ee77-2e3a-7b40-b609-a71e94fa3e84",
+    "title": "(1) Sample side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-new-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-new-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-new-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-new-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-new-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-new-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-side-new-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-side-new-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/side/new",
+    "title": "(1) New side chat · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-run-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-run-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-run-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-run-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-run-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-run-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-activity-run-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-activity-run-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/activity/01a1ee76-e77f-7d85-9690-4b01adf3688f",
+    "title": "(1) Activity · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-summary-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-summary-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-summary-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-summary-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-summary-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-summary-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-summary-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-summary-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/summary",
+    "title": "(1) Summary · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-memory-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-memory-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-memory-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-memory-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-memory-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-memory-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-memory-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-memory-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/memory",
+    "title": "(1) Memory · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-files-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-files-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-files-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-files-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-files-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-files-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-files-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-files-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/files",
+    "title": "(1) Files · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-screen-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-screen-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-screen-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-screen-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-screen-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-screen-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-screen-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-screen-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/screen",
+    "title": "(1) Screen · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-work-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-work-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-work-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-work-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-work-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-work-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-rail-work-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-rail-work-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/work/01a1ee76-29e5-796e-b5a9-4ce19acbf239/01a1ee76-e83e-7cf6-8e5a-63735f44da0d",
+    "title": "(1) Sample researcher's side · Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-loading-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-loading-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/talk-loading-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-loading-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/talk-loading-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-loading-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/talk-loading-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-loading-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/talk-load-failed-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/talk-load-failed-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/talk-load-failed-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/talk-load-failed-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/talk-load-failed-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/talk-load-failed-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/talk-load-failed-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/talk-load-failed-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/threads-legacy-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/threads-legacy-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/threads-legacy-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/threads-legacy-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/threads-legacy-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/threads-legacy-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/threads-legacy-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "native/threads-legacy-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(1) Sample lead · Drover",
+    "errors": []
+  },
+  "web/bots-1280-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-1280-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-360-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-360-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-1280-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-1280-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-360-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-360-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "web/bots-loading-1280-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-loading-1280-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/bots-loading-360-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-loading-360-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/bots-loading-1280-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-loading-1280-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/bots-loading-360-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": []
+  },
+  "native/bots-loading-360-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/bots-failed-1280-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bots-failed-1280-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bots-failed-360-dark": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bots-failed-360-dark": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bots-failed-1280-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bots-failed-1280-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bots-failed-360-light": {
+    "url": "http://localhost:8080/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bots-failed-360-light": {
+    "url": "http://localhost:8080/native/bots",
+    "title": "Bots · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bot-editor-1280-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-1280-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-360-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-360-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-1280-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-1280-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-360-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-360-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-lower-1280-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-lower-1280-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-lower-360-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-lower-360-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-lower-1280-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-lower-1280-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-lower-360-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "native/bot-editor-lower-360-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Sample lead · Drover",
+    "errors": []
+  },
+  "web/bot-editor-failed-1280-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bot-editor-failed-1280-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bot-editor-failed-360-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bot-editor-failed-360-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bot-editor-failed-1280-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bot-editor-failed-1280-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bot-editor-failed-360-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/bot-editor-failed-360-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Bot · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/bot-sandbox-1280-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "native/bot-sandbox-1280-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "web/bot-sandbox-360-dark": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "native/bot-sandbox-360-dark": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "web/bot-sandbox-1280-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "native/bot-sandbox-1280-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "web/bot-sandbox-360-light": {
+    "url": "http://localhost:8080/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "native/bot-sandbox-360-light": {
+    "url": "http://localhost:8080/native/bots/01a1ee76-2881-7b1a-92eb-f5b06e0be99b/sandbox",
+    "title": "Sample lead's sandbox · Drover",
+    "errors": []
+  },
+  "web/models-loading-1280-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-loading-1280-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/models-loading-360-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-loading-360-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/models-loading-1280-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-loading-1280-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/models-loading-360-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": []
+  },
+  "native/models-loading-360-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/models-failed-1280-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/models-failed-1280-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/models-failed-360-dark": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/models-failed-360-dark": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/models-failed-1280-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/models-failed-1280-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/models-failed-360-light": {
+    "url": "http://localhost:8080/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/models-failed-360-light": {
+    "url": "http://localhost:8080/native/models",
+    "title": "Model connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/tools-failed-1280-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/tools-failed-1280-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/tools-failed-360-dark": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/tools-failed-360-dark": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/tools-failed-1280-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/tools-failed-1280-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/tools-failed-360-light": {
+    "url": "http://localhost:8080/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/tools-failed-360-light": {
+    "url": "http://localhost:8080/native/tools",
+    "title": "Tool connections · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/extensions-failed-1280-dark": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/extensions-failed-1280-dark": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/extensions-failed-360-dark": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/extensions-failed-360-dark": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/extensions-failed-1280-light": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/extensions-failed-1280-light": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/extensions-failed-360-light": {
+    "url": "http://localhost:8080/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/extensions-failed-360-light": {
+    "url": "http://localhost:8080/native/extensions",
+    "title": "Extensions · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/extension-editor-1280-dark": {
+    "url": "http://localhost:8080/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "native/extension-editor-1280-dark": {
+    "url": "http://localhost:8080/native/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "web/extension-editor-360-dark": {
+    "url": "http://localhost:8080/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "native/extension-editor-360-dark": {
+    "url": "http://localhost:8080/native/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "web/extension-editor-1280-light": {
+    "url": "http://localhost:8080/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "native/extension-editor-1280-light": {
+    "url": "http://localhost:8080/native/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "web/extension-editor-360-light": {
+    "url": "http://localhost:8080/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "native/extension-editor-360-light": {
+    "url": "http://localhost:8080/native/extensions/edit?bot=01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "Make an extension · Drover",
+    "errors": []
+  },
+  "web/usage-1280-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-1280-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-360-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-360-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-1280-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-1280-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-360-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "native/usage-360-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": []
+  },
+  "web/usage-failed-1280-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/usage-failed-1280-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/usage-failed-360-dark": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/usage-failed-360-dark": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/usage-failed-1280-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/usage-failed-1280-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/usage-failed-360-light": {
+    "url": "http://localhost:8080/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/usage-failed-360-light": {
+    "url": "http://localhost:8080/native/usage",
+    "title": "Usage · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/status-space-1280-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-space-1280-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-space-360-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-space-360-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-space-1280-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-space-1280-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-space-360-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-space-360-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "web/status-loading-1280-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-loading-1280-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/status-loading-360-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-loading-360-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/status-loading-1280-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-loading-1280-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/status-loading-360-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": []
+  },
+  "native/status-loading-360-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS"
+    ]
+  },
+  "web/status-failed-1280-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/status-failed-1280-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/status-failed-360-dark": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/status-failed-360-dark": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/status-failed-1280-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/status-failed-1280-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/status-failed-360-light": {
+    "url": "http://localhost:8080/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "native/status-failed-360-light": {
+    "url": "http://localhost:8080/native/status",
+    "title": "Status · Drover",
+    "errors": [
+      "Failed to load resource: net::ERR_CACHE_MISS",
+      "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+    ]
+  },
+  "web/talk-streaming-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(1) Sample researcher · Drover",
+    "errors": []
+  },
+  "native/talk-streaming-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(1) Sample researcher · Drover",
+    "errors": []
+  },
+  "web/talk-streaming-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(1) Sample researcher · Drover",
+    "errors": []
+  },
+  "native/talk-streaming-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(1) Sample researcher · Drover",
+    "errors": []
+  },
+  "web/talk-delegation-running-1280-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-delegation-running-1280-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-delegation-running-1280-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-delegation-running-1280-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-streaming-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(2) Sample researcher · Drover",
+    "errors": []
+  },
+  "native/talk-streaming-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(2) Sample researcher · Drover",
+    "errors": []
+  },
+  "web/talk-streaming-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(2) Sample researcher · Drover",
+    "errors": []
+  },
+  "native/talk-streaming-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-29e5-796e-b5a9-4ce19acbf239",
+    "title": "(2) Sample researcher · Drover",
+    "errors": []
+  },
+  "web/talk-delegation-running-360-dark": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-delegation-running-360-dark": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "web/talk-delegation-running-360-light": {
+    "url": "http://localhost:8080/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  },
+  "native/talk-delegation-running-360-light": {
+    "url": "http://localhost:8080/native/talk/01a1ee76-2881-7b1a-92eb-f5b06e0be99b",
+    "title": "(2) Sample lead · Drover",
+    "errors": []
+  }
+}

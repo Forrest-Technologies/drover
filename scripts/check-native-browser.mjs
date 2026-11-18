@@ -1,4 +1,10 @@
-// Smoke-test the trimmed publish under the server's exact CSP. Build Drover.Ui.Tests first for its Playwright runtime.
+// Smoke-test the trimmed publish under the server's exact CSP. Build Drover.Ui.Tests first for its Playwright runtime,
+// or name another copy of the same Playwright version in DROVER_PLAYWRIGHT.
+//
+// With DROVER_LIVE_ORIGIN set to a running Drover server that serves the native publish under /native/, it instead
+// captures each scene of the JSON file DROVER_LIVE_SCENES in both clients against that server's real data, signed in
+// as DROVER_LIVE_EMAIL / DROVER_LIVE_PASSWORD when given: web/<scene>-<width>-<theme>.png and
+// native/<scene>-<width>-<theme>.png under the folder in argv[2]. See captureLive at the end of this file.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -12,7 +18,11 @@ const referenceOrigin = process.env.DROVER_REFERENCE_ORIGIN;
 const referenceRoot = process.env.DROVER_REFERENCE_ROOT;
 const reference = Boolean(referenceOrigin || referenceRoot);
 const webRoot = referenceRoot ? path.resolve(referenceRoot) : published;
-const { chromium } = await import(path.join(repository, 'tests/Drover.Ui.Tests/bin/Release/net11.0/.playwright/package/index.mjs'));
+const { chromium } = await import(process.env.DROVER_PLAYWRIGHT ?? path.join(repository, 'tests/Drover.Ui.Tests/bin/Release/net11.0/.playwright/package/index.mjs'));
+if (process.env.DROVER_LIVE_ORIGIN) {
+    await captureLive(process.env.DROVER_LIVE_ORIGIN, published);
+    process.exit(0);
+}
 const headersSource = await fs.readFile(path.join(repository, 'src/Drover.Server/Security/SecurityHeaders.cs'), 'utf8');
 const policyDefinition = headersSource.match(/private const string ContentSecurityPolicy =([\s\S]*?);\r?\n/)[1];
 const policy = [...policyDefinition.matchAll(/"([^"\n]*)"/g)].map(match => match[1]).join('');
@@ -247,4 +257,112 @@ try {
 } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+}
+
+/**
+ * Captures each scene in both clients against a running server. A scene is
+ * { name, path, title?, signedOut?, clients?, height?, hold?, fail?, steps?, webSteps?, nativeSteps?, settle? }, where
+ * hold and fail name the end of an API path whose requests are left unanswered (loading) or answered 503 (failed);
+ * a step is one of
+ * { click: { role, name } }, { focus: { role, name } }, { type: text }, { key: name }, { wheel: pixels },
+ * { seen: { role, name } }, { wait: ms }. The native app is a canvas, so its controls are found in the tree the
+ * platform builds for assistive technology and pressed with a dispatched click, as above. Console errors are
+ * recorded per picture in captures.json beside the pictures, not treated as failures: a live server answers some
+ * requests with 401 or 404 on purpose.
+ */
+async function captureLive(origin, folder) {
+    const scenes = JSON.parse(await fs.readFile(process.env.DROVER_LIVE_SCENES, 'utf8'));
+    const only = process.env.DROVER_LIVE_ONLY?.split(',');
+    const themes = process.env.DROVER_LIVE_THEMES?.split(',') ?? ['dark', 'light'];
+    const widths = (process.env.DROVER_LIVE_WIDTHS?.split(',') ?? ['1280', '360']).map(Number);
+    const clients = process.env.DROVER_LIVE_CLIENTS?.split(',');
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    const record = JSON.parse(await fs.readFile(path.join(folder, 'captures.json'), 'utf8').catch(() => '{}'));
+    let signedIn;
+    try {
+        if (process.env.DROVER_LIVE_EMAIL) {
+            const context = await browser.newContext();
+            await context.request.get(`${origin}/api/antiforgery`);
+            const token = (await context.cookies()).find(cookie => cookie.name === 'XSRF-TOKEN')?.value;
+            const answer = await context.request.post(`${origin}/api/sign-in`, {
+                headers: { 'X-XSRF-TOKEN': decodeURIComponent(token ?? '') },
+                data: { email: process.env.DROVER_LIVE_EMAIL, password: process.env.DROVER_LIVE_PASSWORD },
+            });
+            assert(answer.ok(), `Signing in answered ${answer.status()} ${await answer.text()}`);
+            signedIn = await context.storageState();
+            await context.close();
+        }
+        for (const scene of scenes.filter(scene => !only || only.includes(scene.name))) {
+            for (const theme of themes) {
+                for (const width of widths) {
+                    for (const client of (scene.clients ?? ['web', 'native']).filter(client => !clients || clients.includes(client))) {
+                        const native = client === 'native';
+                        const context = await browser.newContext({
+                            viewport: { width, height: scene.height ?? 1000 },
+                            reducedMotion: 'reduce',
+                            serviceWorkers: 'block',
+                            ...(scene.signedOut || !signedIn ? {} : { storageState: signedIn }),
+                        });
+                        await context.addInitScript(theme => localStorage.setItem('drover.theme', theme), theme);
+                        const page = await context.newPage();
+                        const errors = [];
+                        page.on('pageerror', error => errors.push(String(error)));
+                        page.on('console', message => message.type() === 'error' && errors.push(message.text()));
+                        const name = `${scene.name}-${width}-${theme}`;
+                        // A loading state is an API request held unanswered; a failed state is one answered 503.
+                        if (scene.hold || scene.fail) {
+                            await page.route(url => url.pathname.startsWith('/api/') && url.pathname.endsWith(scene.hold ?? scene.fail), async route => {
+                                if (scene.fail) {
+                                    await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                                }
+                            });
+                        }
+                        try {
+                            await page.goto(`${origin}${native ? '/native' : ''}${scene.path}`);
+                            await page.locator(native ? '.uno-loader' : '.dv-boot').waitFor({ state: 'hidden', timeout: 60000 });
+                            if (scene.title) {
+                                await page.waitForFunction(title => document.title.startsWith(title), scene.title, { timeout: 15000 });
+                            }
+                            // The native build starts later and reads its data more slowly; give it longer before acting.
+                            await page.waitForTimeout(native ? scene.nativeWait ?? Number(process.env.DROVER_LIVE_NATIVE_WAIT ?? 1500) : 800);
+                            for (const step of (native ? scene.nativeSteps : scene.webSteps) ?? scene.steps ?? []) {
+                                await perform(page, step, native);
+                            }
+                            await page.waitForTimeout(scene.settle ?? 600);
+                            await fs.mkdir(path.join(folder, client), { recursive: true });
+                            await page.screenshot({ path: path.join(folder, client, `${name}.png`) });
+                            record[`${client}/${name}`] = { url: page.url(), title: await page.title(), errors };
+                            process.stdout.write(`${client} ${name}: captured\n`);
+                        } catch (failure) {
+                            record[`${client}/${name}`] = { url: page.url(), failed: String(failure).split('\n')[0], errors };
+                            process.stdout.write(`${client} ${name}: FAILED ${String(failure).split('\n')[0]}\n`);
+                        }
+                        await context.close();
+                    }
+                }
+            }
+        }
+    } finally {
+        await fs.writeFile(path.join(folder, 'captures.json'), `${JSON.stringify(record, null, 2)}\n`);
+        await browser.close();
+    }
+}
+
+async function perform(page, step, native) {
+    const find = target => page.getByRole(target.role, { name: target.name, exact: target.exact ?? true }).first();
+    if (step.click) {
+        await (native ? find(step.click).dispatchEvent('click') : find(step.click).click());
+    } else if (step.focus) {
+        await find(step.focus).focus();
+    } else if (step.type !== undefined) {
+        await page.keyboard.type(step.type);
+    } else if (step.key) {
+        await page.keyboard.press(step.key);
+    } else if (step.wheel) {
+        await page.mouse.move(page.viewportSize().width / 2, 500);
+        await page.mouse.wheel(0, step.wheel);
+    } else if (step.seen) {
+        await find(step.seen).waitFor({ state: 'attached', timeout: 15000 });
+    }
+    await page.waitForTimeout(step.wait ?? 300);
 }

@@ -51,6 +51,8 @@ public sealed class FileCard : Grid
 
     private Guid? loadedPicture;
 
+    private double room = double.NaN;
+
     #endregion
 
     #region Constructors
@@ -67,8 +69,9 @@ public sealed class FileCard : Grid
         api = reads ?? ((App)Application.Current).Services.GetRequiredService<DroverApi>();
         batch = new(this, Apply, Draw);
 
-        // A file takes the width it is given, up to the width of a picture, and no more.
-        SizeChanged += (_, _) => Fit();
+        // A file takes the width its content needs, up to the width of a picture and the room it is given, as the
+        // web client's file does; it never takes its width from where it happens to sit.
+        column.MaxWidth = Tokens.Number("DvImageWidth");
 
         pictureFrame.Child = image;
         pictureFrame.BorderThickness = new(Tokens.Number("DvBorder"));
@@ -116,6 +119,8 @@ public sealed class FileCard : Grid
         column.Children.Add(caption);
         Children.Add(column);
 
+        // Nothing shows until the file is drawn, so a card never appears empty with its buttons over each other.
+        Visibility = Visibility.Collapsed;
         model.PropertyChanged += (_, _) => batch.Draw();
         this.WhenShownOrRethemed(batch.Draw);
     }
@@ -205,26 +210,22 @@ public sealed class FileCard : Grid
         }
     }
 
-    private void Fit()
+    protected override Size MeasureOverride(Size availableSize)
     {
-        var width = Math.Min(ActualWidth, Tokens.Number("DvImageWidth"));
-        if (width > 0 && (double.IsNaN(column.Width) || Math.Abs(column.Width - width) >= 1))
-        {
-            column.Width = width;
-        }
-
+        room = Math.Min(availableSize.Width, Tokens.Number("DvImageWidth"));
         KeepPictureShape();
+        return base.MeasureOverride(availableSize);
     }
 
     // The frame has the picture's own shape from the start, so nothing below it moves when the picture arrives.
     private void KeepPictureShape()
     {
-        if (model.File is not { Width: > 0 and var wide, Height: > 0 and var high } || double.IsNaN(column.Width))
+        if (model.File is not { Width: > 0 and var wide, Height: > 0 and var high } || double.IsNaN(room) || room <= 0)
         {
             return;
         }
 
-        var width = Math.Min(column.Width, wide);
+        var width = Math.Min(room, wide);
         var height = Math.Round(width * high / wide);
         if (double.IsNaN(pictureFrame.Width) || Math.Abs(pictureFrame.Width - width) >= 1 || Math.Abs(pictureFrame.Height - height) >= 1)
         {
