@@ -1,13 +1,22 @@
 namespace Drover.Presentation.ViewModels;
 
-/// <summary>One bot a share can go to: its name and its look.</summary>
-public sealed record ShareBotChoice(BotSummary Bot)
+/// <summary>One bot a share can go to: its name, its look, and what choosing it does.</summary>
+public sealed partial class ShareBotChoice(BotSummary bot, Action<ShareBotChoice> choose) : ObservableObject
 {
     #region Properties
 
-    public string Name => Bot.Name;
+    public BotSummary Bot => bot;
 
-    public int Hue => BotIdentity.Hue(Bot.Id);
+    public string Name => bot.Name;
+
+    public int Hue => BotIdentity.Hue(bot.Id);
+
+    #endregion
+
+    #region Public Methods
+
+    [RelayCommand]
+    public void Choose() => choose(this);
 
     #endregion
 }
@@ -81,7 +90,7 @@ public sealed partial class ShareToViewModel(
     /// <summary>Each file as one line: its name and its size.</summary>
     public IReadOnlyList<ShareFile> Files => shared?.Files ?? [];
 
-    public IReadOnlyList<ShareBotChoice> Choices => [.. (bots ?? []).Select(bot => new ShareBotChoice(bot))];
+    public IReadOnlyList<ShareBotChoice> Choices => [.. (bots ?? []).Select(bot => new ShareBotChoice(bot, Choose))];
 
     #endregion
 

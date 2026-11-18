@@ -15,7 +15,7 @@ public sealed partial class MeetBotViewModel(
     private const string DefaultTrait = "default";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowModelList), nameof(ShowModelName))]
+    [NotifyPropertyChangedFor(nameof(ShowModelList), nameof(ShowModelName), nameof(ModelChoices))]
     private IReadOnlyList<ModelCatalogResponse> models = [];
 
     [ObservableProperty]
@@ -84,6 +84,9 @@ public sealed partial class MeetBotViewModel(
     public bool ShowModelList => Models.Count > 0;
 
     public bool ShowModelName => Models.Count == 0;
+
+    /// <summary>The models the provider offers, as the choices of the list.</summary>
+    public IReadOnlyList<Choice> ModelChoices => [.. Models.Select(entry => new Choice(entry.Model, entry.DisplayName))];
 
     public string BotName => Bot?.Name ?? string.Empty;
 

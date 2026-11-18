@@ -9,7 +9,14 @@ public enum UsageFocus
 }
 
 /// <summary>One run of a bot's most expensive runs: its cost, the link to its conversation, its tokens.</summary>
-public sealed record UsageRunLine(Guid RunId, string Cost, string Address, string Place, string Tokens, string? LeftOut);
+public sealed record UsageRunLine(Guid RunId, string Cost, string Address, string Place, string Tokens, string? LeftOut)
+{
+    #region Properties
+
+    public bool HasLeftOut => LeftOut is not null;
+
+    #endregion
+}
 
 /// <summary>
 /// The usage page. Its job: find which bot is spending the most, to decide what to change. The crew is a table that

@@ -12,12 +12,14 @@ public sealed partial class ToolConnectionCardModel(ToolConnectionsViewModel own
     [
         nameof(Connection), nameof(Name), nameof(Url), nameof(Facts), nameof(StatusKind), nameof(StatusWords), nameof(ShownError),
         nameof(ShownProblem), nameof(SignInNeed), nameof(ShowSignInAsk), nameof(ShowSignInButton), nameof(ShowSignInHint),
-        nameof(SignInLabel), nameof(ToolRows), nameof(HasTools), nameof(ToolsOpen), nameof(ShowNoTools), nameof(CheckLabel),
+        nameof(SignInLabel), nameof(ToolRows), nameof(HasTools), nameof(ShowNoTools), nameof(CheckLabel),
         nameof(ShowReplaceHeaderButton), nameof(ShowSignOut), nameof(SignOutLabel), nameof(RemoveLabel), nameof(Busy),
         nameof(NotBusy), nameof(CanEdit),
     ];
 
     private ToolConnectionSummary current = connection;
+
+    private bool lastToolsOpen;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowReplaceHeaderButton))]
@@ -118,6 +120,13 @@ public sealed partial class ToolConnectionCardModel(ToolConnectionsViewModel own
         foreach (var name in everything)
         {
             OnPropertyChanged(name);
+        }
+
+        // A person can open or close the tools; the screen takes that back only when what it says about them changes.
+        if (ToolsOpen != lastToolsOpen)
+        {
+            lastToolsOpen = ToolsOpen;
+            OnPropertyChanged(nameof(ToolsOpen));
         }
     }
 

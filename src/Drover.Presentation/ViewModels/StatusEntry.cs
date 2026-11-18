@@ -3,6 +3,12 @@ namespace Drover.Presentation.ViewModels;
 /// <summary>One row of the report. The word in the badge carries the state; the color only adds to it.</summary>
 public sealed record StatusEntry(string Name, string Summary, BadgeKind Kind, string Word, string? Checked)
 {
+    #region Properties
+
+    public bool HasChecked => Checked is not null;
+
+    #endregion
+
     #region Public Methods
 
     public static StatusEntry From(StatusRow row) => new(

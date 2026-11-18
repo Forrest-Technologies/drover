@@ -66,7 +66,7 @@ public sealed class ShareToViewModelTests : ServerScreenTest
         ShareToViewModel.Note.Should().Contain("Nothing is sent until you send it.");
         screen.Choices.Select(choice => choice.Name).Should().Equal("Marshal");
         screen.Choices[0].Hue.Should().Be(BotIdentity.Hue(botId));
-        screen.Choose(screen.Choices[0]);
+        screen.Choices[0].ChooseCommand.Execute(null);
 
         Navigator.Current.Should().Be($"/talk/{botId}");
         tray.TakeFor(Guid.NewGuid()).Should().BeNull("no other conversation gets it");

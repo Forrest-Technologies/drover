@@ -1,7 +1,14 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>One model of a connection's catalog, as a line of its list: the name, the id, and the state when it is not available.</summary>
-public sealed record CatalogLine(string DisplayName, string Model, string? StateNote);
+public sealed record CatalogLine(string DisplayName, string Model, string? StateNote)
+{
+    #region Properties
+
+    public bool HasStateNote => StateNote is not null;
+
+    #endregion
+}
 
 /// <summary>
 /// One model connection of the screen: whether it works, what can be done with it, and its model list while that is
@@ -14,7 +21,7 @@ public sealed partial class ModelConnectionCard(ModelConnectionsViewModel owner,
     private static readonly string[] everything =
     [
         nameof(Connection), nameof(Name), nameof(Facts), nameof(StatusKind), nameof(StatusWords), nameof(Problem), nameof(HasProblem),
-        nameof(ChangePending), nameof(CanEdit), nameof(ShowRefresh), nameof(Replacing), nameof(NotReplacing), nameof(Catalog),
+        nameof(ChangePending), nameof(NotChangePending), nameof(CanEdit), nameof(ShowRefresh), nameof(Replacing), nameof(NotReplacing), nameof(Catalog),
         nameof(ShowCatalog), nameof(ShowNoModels), nameof(CatalogLabel),
     ];
 
@@ -44,6 +51,8 @@ public sealed partial class ModelConnectionCard(ModelConnectionsViewModel owner,
     public bool HasProblem => Problem is not null;
 
     public bool ChangePending { get; private set; }
+
+    public bool NotChangePending => !ChangePending;
 
     public bool CanEdit { get; private set; }
 
