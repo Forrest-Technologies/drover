@@ -172,10 +172,12 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     /// <summary>In place of the field to write in, on a bot's side of work handed to it.</summary>
     public string ReadHint => Working ? $"{Bot.Name} is doing this for {Asker}." : $"{Bot.Name} did this for {Asker}. It is here to read.";
 
-    /// <summary>The way on from a side chat that is not there.</summary>
-    public string BackLabel => $"Back to {Bot.Name}";
+    /// <summary>What is said in place of a side chat that is not there, with the way on.</summary>
+    public EmptyNotice MissingNotice =>
+        new("This side chat is not here", "It was removed, or it belongs to someone else.", $"Back to {Bot.Name}", Addresses.Talk(Bot.Id));
 
-    public string BackHref => Addresses.Talk(Bot.Id);
+    /// <summary>Said, politely, while the conversation is read.</summary>
+    public static string LoadingHint => "Loading the conversation.";
 
     /// <summary>A new side chat got its thread from its first message.</summary>
     public Func<ThreadSummary, Task>? OnThreadStarted { get; set; }

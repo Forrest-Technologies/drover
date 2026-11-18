@@ -24,6 +24,9 @@
     <Compile Include="..\Drover.Ui.Tests\Support\LiveEvents.cs" Link="Support\LiveEvents.cs" />
     <Compile Include="..\Drover.Ui.Tests\Support\FakeServerChoice.cs" Link="Support\FakeServerChoice.cs" />
     <Compile Include="..\Drover.Ui.Tests\Rules\Contrast.cs" Link="Rules\Contrast.cs" />
+    <!-- What a conversation is made of, and what is read out of it, is tested once and runs in both suites. -->
+    <Compile Include="..\Drover.Ui.Tests\Chat\ConversationsTests.cs" Link="ViewModels\Chat\ConversationsTests.cs" />
+    <Compile Include="..\Drover.Ui.Tests\Chat\SentenceAnnouncerTests.cs" Link="ViewModels\Chat\SentenceAnnouncerTests.cs" />
   </ItemGroup>
 
 </Project>
