@@ -68,7 +68,24 @@ def check_edits():
     expect("")
     ime_edit("--es", "text", "d")
     expect("d")
-    print("Android server-address editing passed with hardware and soft-keyboard input.")
+    ime_edit("--ei", "delete", "1")
+
+    ime_edit("--es", "compose", "http")
+    expect("http")
+    ime_edit("--es", "compose", "htt")
+    expect("htt")
+    ime_edit("--es", "compose", "https")
+    expect("https")
+    ime_edit("--ez", "finish", "true")
+    ime_edit("--es", "text", "://drover.example.org")
+    expect("https://drover.example.org")
+
+    ime_edit("--ei", "select", "14")
+    shell("input", "keyevent", "KEYCODE_DEL")
+    expect("https://drove.example.org")
+    ime_edit("--es", "text", "r")
+    expect("https://drover.example.org")
+    print("Android server-address editing passed with hardware keys, composing text, and committed text.")
 
 
 def main():

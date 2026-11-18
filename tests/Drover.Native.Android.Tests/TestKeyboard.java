@@ -21,6 +21,13 @@ public final class TestKeyboard extends InputMethodService {
             connection.beginBatchEdit();
             if (intent.hasExtra("delete")) {
                 connection.deleteSurroundingText(intent.getIntExtra("delete", 1), 0);
+            } else if (intent.hasExtra("compose")) {
+                connection.setComposingText(intent.getStringExtra("compose"), 1);
+            } else if (intent.hasExtra("finish")) {
+                connection.finishComposingText();
+            } else if (intent.hasExtra("select")) {
+                var position = intent.getIntExtra("select", 0);
+                connection.setSelection(position, position);
             } else {
                 connection.commitText(intent.getStringExtra("text"), 1);
             }
