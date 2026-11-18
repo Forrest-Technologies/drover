@@ -30,8 +30,6 @@ internal sealed class SandboxPicture : UserControl
 
     private (double X, double Y) pressedAt;
 
-    private bool hasKeyboardFocus;
-
     #endregion
 
     #region Constructors
@@ -48,8 +46,6 @@ internal sealed class SandboxPicture : UserControl
         HorizontalAlignment = HorizontalAlignment.Stretch;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
-        UseSystemFocusVisuals = false;
-
         box.SizeChanged += (_, _) => Fit();
         PointerPressed += Pressed;
         PointerMoved += Moved;
@@ -57,8 +53,6 @@ internal sealed class SandboxPicture : UserControl
         PointerCanceled += (_, pointer) => Lifted(pointer, cancelled: true);
         PointerCaptureLost += (_, pointer) => Lifted(pointer, cancelled: true);
         KeyDown += Typed;
-        GotFocus += (_, _) => SetKeyboardFocus(FocusState is FocusState.Keyboard);
-        LostFocus += (_, _) => SetKeyboardFocus(false);
         this.WhenShownOrRethemed(Show);
     }
 
@@ -266,19 +260,14 @@ internal sealed class SandboxPicture : UserControl
         }
     }
 
-    private void SetKeyboardFocus(bool value)
-    {
-        hasKeyboardFocus = value;
-        ShowRing();
-    }
-
     // The ember ring, outside the frame with a gap, only when the keyboard moved the focus here.
     private void ShowRing()
     {
         var width = Tokens.Number("DvFocusWidth");
         var offset = Tokens.Number("DvFocusOffset") + width;
 
-        UseSystemFocusVisuals = hasKeyboardFocus;
+        // The platform draws the ring only when the keyboard moved the focus, which is the rule.
+        UseSystemFocusVisuals = true;
         FocusVisualPrimaryBrush = Tokens.Brush(this, "DvEmber");
         FocusVisualPrimaryThickness = new(width);
         FocusVisualSecondaryThickness = new(0);
