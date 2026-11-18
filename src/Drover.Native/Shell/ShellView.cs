@@ -36,6 +36,7 @@ public sealed class ShellView : Grid
         theme.PropertyChanged += (_, _) => ApplyTheme();
         navigator.Navigated += Show;
         ActualThemeChanged += (_, _) => Paint();
+        Loaded += (_, _) => DispatcherQueue.TryEnqueue(PlatformShell.Shown);
         ApplyTheme();
         Paint();
     }

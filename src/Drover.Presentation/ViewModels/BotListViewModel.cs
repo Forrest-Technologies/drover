@@ -36,7 +36,7 @@ public sealed partial class BotListViewModel(
 
     #region Properties
 
-    public static string Title => "Bots - Drover";
+    public static string Title => "Bots · Drover";
 
     public static string Heading => "Bots";
 

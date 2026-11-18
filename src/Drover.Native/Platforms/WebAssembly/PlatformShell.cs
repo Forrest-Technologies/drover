@@ -39,7 +39,28 @@ internal static class PlatformShell
     /// <summary>One step back, through the browser's own history so the two never disagree.</summary>
     public static void GoBack(Navigator navigator) => Browser.GoBack();
 
+    public static Task OpenOutside(string address)
+    {
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            throw new DeviceCallFailedException("The sign-in address must use HTTP or HTTPS.");
+        }
+
+        try
+        {
+            Browser.OpenOutside(uri.AbsoluteUri);
+            return Task.CompletedTask;
+        }
+        catch (JSException exception)
+        {
+            throw new DeviceCallFailedException("The sign-in page could not be opened.", exception);
+        }
+    }
+
     public static void SetTitle(Window window, string title) => Browser.SetTitle(title);
+
+    /// <summary>Rebuilds the semantic tree once the shell is attached, after the platform's early activation.</summary>
+    public static void Shown() => Browser.RefreshAccessibility();
 
     /// <summary>The address of a screen in the web app, which is served from the root of the same origin.</summary>
     public static string? WebAddress(IServiceProvider services, string address) => $"{Browser.Origin}{address}";

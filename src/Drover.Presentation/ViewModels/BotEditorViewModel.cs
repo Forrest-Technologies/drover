@@ -142,7 +142,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
         _ => BotEditorState.Shown,
     };
 
-    public string Title => Saved is null ? "Bot - Drover" : $"{Saved.Name} - Drover";
+    public string Title => Saved is null ? "Bot · Drover" : $"{Saved.Name} · Drover";
 
     public static string Back => "Bots";
 

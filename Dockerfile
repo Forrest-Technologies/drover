@@ -43,6 +43,18 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
     --no-restore -c Release -o /app/publish \
     -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
 
+# Opt in to deploying the native browser client beside the existing client during parity testing.
+ARG DROVER_BUILD_NATIVE=false
+RUN if [ "$DROVER_BUILD_NATIVE" = "true" ]; then \
+      dotnet workload install wasm-tools \
+      && dotnet publish src/Drover.Native/Drover.Native.csproj \
+         -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm \
+         -c Release -o /app/native -warnaserror \
+         -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \
+      && mkdir -p /app/publish/wwwroot/native \
+      && cp -a /app/native/wwwroot/. /app/publish/wwwroot/native/; \
+    fi
+
 FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:bc0d6653979efba491ab3d6f589d691f96c309c3c3ef81325efa6978e7b7f242 AS runtime
 WORKDIR /app
 

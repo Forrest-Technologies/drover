@@ -17,6 +17,7 @@ public sealed class TextArea : StackPanel
         Template = Styles.Template("DvTextBoxTemplate"),
         AcceptsReturn = true,
         TextWrapping = TextWrapping.Wrap,
+        VerticalContentAlignment = VerticalAlignment.Top,
         UseSystemFocusVisuals = false,
     };
 
