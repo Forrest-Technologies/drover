@@ -22,7 +22,7 @@ The web client (`Drover.Ui`, `Drover.Web`) and the Android shell (`Drover.App`) 
 | `src/Shared/Chat` | Source file, linked | `ShareInbox`, compiled into `Drover.Ui` (with Blazor's `IBrowserFile`) and the native app (with `Shell/IBrowserFile.cs`, the same shape) |
 | `tests/Drover.Presentation.Tests` | xunit, in `Drover.slnx` | Router, view models, token parity and contrast, the interface rules for native source |
 
-`Drover.Native` has its own solution file because it needs workloads the main solution's build does not have (`wasm-tools`, Android), and because the Android preview workflow formats and license-checks everything in `Drover.Apps.slnx` without restoring it.
+`Drover.Native` has its own solution file because it needs workloads the main solution's build does not have (`wasm-tools`, Android). The [Android preview workflow](../android-preview.md) builds and signs the Uno Android head on protected preview tags.
 
 ```
 src/Drover.Native/
