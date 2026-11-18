@@ -1,7 +1,7 @@
 namespace Drover.Ui.Tests.Support;
 
 /// <summary>A file another app shared, as a native shell hands it over.</summary>
-public sealed class SampleSharedFile(string name, string words) : IBrowserFile
+public sealed class SampleSharedFile(string name, string words) : IBrowserFile, IPickedFile
 {
     #region Private Fields
 
@@ -20,6 +20,8 @@ public sealed class SampleSharedFile(string name, string words) : IBrowserFile
     public string ContentType => "text/plain";
 
     public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) => new MemoryStream(content);
+
+    public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(new MemoryStream(content));
 
     #endregion
 }

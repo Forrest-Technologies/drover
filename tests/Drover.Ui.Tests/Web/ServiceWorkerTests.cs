@@ -6,9 +6,11 @@ namespace Drover.Ui.Tests.Web;
 /// callbacks, and anything that is not a GET go to the network without the worker; a request it cannot answer leaves
 /// no unhandled rejection; a page load the server cannot answer gets the stored shell. A push wakes the worker, which
 /// asks this server with the person's own cookie what to show, and tapping it opens that conversation. The browser is
-/// DROVER_TEST_CHROMIUM, or the first Chromium or Chrome at a usual path.
+/// DROVER_TEST_CHROMIUM, or the first Chromium or Chrome at a usual path. The same worker serves the web client at the
+/// root and the native client's browser build under /native/, so every case runs for both (<see cref="ServiceWorkerTests"/>,
+/// <see cref="NativeServiceWorkerTests"/>).
 /// </summary>
-public sealed class ServiceWorkerTests : IAsyncLifetime
+public abstract class ServiceWorkerScenarios : IAsyncLifetime
 {
     #region Private Fields
 
@@ -24,6 +26,25 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     private const string OpenRecorder =
         "self.addEventListener('message', e => { if (e.data && e.data.open) { openConversation({ url: e.data.open }); } });\n";
 
+    // A synthetic PushEvent has no browser-managed lifetime. Keep the worker alive through the message event and
+    // report whether the production push handler completed the work it registered.
+    private const string PushDispatcher = """
+        self.addEventListener('message', message => {
+            if (typeof message.data?.testPush !== 'string') return;
+            const reply = message.ports[0];
+            const event = new PushEvent('push', { data: message.data.testPush });
+            const work = [];
+            event.waitUntil = promise => work.push(promise);
+            self.dispatchEvent(event);
+            if (work.length === 0) {
+                reply.postMessage('The push handler registered no work.');
+                return;
+            }
+            message.waitUntil(Promise.all(work).then(
+                () => reply.postMessage(null), error => reply.postMessage(String(error))));
+        });
+        """ + "\n";
+
     /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
     private const string SignInCookie = "drover-test-session=signed-in";
 
@@ -32,7 +53,7 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     private static readonly Guid threadId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
 
     /// <summary>The shell the worker stores at install, as Drover's index.html is, and serves when a page cannot load.</summary>
-    private const string Shell = "<!DOCTYPE html><title>Worker test shell</title><script src=\"/register.js\"></script>";
+    private string Shell => $"<!DOCTYPE html><title>Worker test shell</title><script src=\"{Home}register.js\"></script>";
 
     private static readonly string[] browserPaths = ["/opt/pw-browsers/chromium", "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
 
@@ -48,8 +69,6 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
 
     private IPage page = null!;
 
-    private ICDPSession devTools = null!;
-
     private readonly List<string> wakeQueries = [];
 
     #endregion
@@ -58,7 +77,14 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
 
     private string Other => other!.Urls.Single();
 
-    private string Origin => shell!.Urls.Single();
+    protected string Origin => shell!.Urls.Single();
+
+    /// <summary>The folder the client is served from, and the worker's scope: "/" or "/native/".</summary>
+    protected abstract string Home { get; }
+
+    protected IPage Page => page;
+
+    protected List<IResponse> Responses => responses;
 
     #endregion
 
@@ -69,10 +95,15 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     [InlineData("/api/data", "GET", false)]
     [InlineData("/api/data", "POST", false)]
     [InlineData("/oauth/client.json", "GET", false)]
-    [InlineData("/register.js", "GET", true)]
+    [InlineData("register.js", "GET", true)]
     public async Task Only_drovers_own_files_and_pages_are_answered_by_the_worker(string address, string method, bool byWorker)
     {
-        var url = address == "another host" ? $"{Other}/data" : $"{Origin}{address}";
+        var url = address switch
+        {
+            "another host" => $"{Other}/data",
+            ['/', ..] => $"{Origin}{address}",
+            _ => $"{Origin}{Home}{address}",
+        };
 
         (await Fetch(url, method)).Should().Be("200", "the request reaches its server, with or without the worker");
 
@@ -82,7 +113,7 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     [Fact]
     public async Task A_request_the_worker_cannot_answer_fails_without_an_unhandled_rejection()
     {
-        (await Fetch($"{Origin}/broken.js", "GET")).Should().StartWith("failed");
+        (await Fetch($"{Origin}{Home}broken.js", "GET")).Should().StartWith("failed");
 
         await Task.Delay(TimeSpan.FromMilliseconds(300), Xunit.TestContext.Current.CancellationToken);
         var rejections = await page.EvaluateAsync<string[]>(
@@ -95,10 +126,10 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     {
         var asked = await page.EvaluateAsync<string>(
             "async url => { const answer = await fetch(url, { headers: { Accept: 'text/html' } }); return `${answer.status} ${await answer.text()}`; }",
-            $"{Origin}/bots/unreachable");
+            $"{Origin}{Home}bots/unreachable");
         asked.Should().Be($"200 {Shell}", "a GET for a page address that is not a navigation is still a page load");
 
-        await page.GotoAsync($"{Origin}/bots/unreachable");
+        await page.GotoAsync($"{Origin}{Home}bots/unreachable");
         (await page.TitleAsync()).Should().Be("Worker test shell");
     }
 
@@ -109,7 +140,7 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
 
         var shown = await WaitForNotifications();
 
-        shown.Should().Equal($"Drover|Sample bot finished.|/talk/{botId}");
+        shown.Should().Equal($"Drover|Sample bot finished.|{Home}talk/{botId}");
         wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}");
     }
 
@@ -120,7 +151,8 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
 
         var shown = await WaitForNotifications();
 
-        shown.Should().Equal("Drover|Something changed. Open Drover to see it.|/");
+        shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}");
     }
 
     [Fact]
@@ -129,17 +161,17 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         await page.EvaluateAsync(
             "() => new Promise(done => { navigator.serviceWorker.addEventListener('message', done, { once: true }); navigator.serviceWorker.controller.postMessage('ready?'); })");
 
-        await page.EvaluateAsync("url => navigator.serviceWorker.controller.postMessage({ open: url })", $"/talk/{botId}");
+        await page.EvaluateAsync("url => navigator.serviceWorker.controller.postMessage({ open: url })", $"{Home}talk/{botId}");
 
         // The worker moves the window itself, so the page sees no navigation of its own to wait for: watch the address.
         var started = TimeProvider.System.GetTimestamp();
 
-        while (page.Url != $"{Origin}/talk/{botId}" && TimeProvider.System.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        while (page.Url != $"{Origin}{Home}talk/{botId}" && TimeProvider.System.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
         {
             await Task.Delay(TimeSpan.FromMilliseconds(50), Xunit.TestContext.Current.CancellationToken);
         }
 
-        page.Url.Should().Be($"{Origin}/talk/{botId}");
+        page.Url.Should().Be($"{Origin}{Home}talk/{botId}");
     }
 
     #endregion
@@ -157,21 +189,10 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         {
             app.Use(async (http, next) =>
             {
-                http.Response.Headers.ContentSecurityPolicy = http.Request.Path == "/" ? $"{WorkerPolicy} {Other}" : WorkerPolicy;
+                http.Response.Headers.ContentSecurityPolicy = http.Request.Path == Home ? $"{WorkerPolicy} {Other}" : WorkerPolicy;
                 await next();
             });
-            app.MapGet("/", (HttpContext http) =>
-            {
-                http.Response.Headers.SetCookie = $"{SignInCookie}; Path=/; SameSite=Strict";
-                return Results.Content(Shell, "text/html");
-            });
-            app.MapGet("/index.html", () => Results.Content(Shell, "text/html"));
-            app.MapGet("/talk/{bot}", () => Results.Content(Shell, "text/html"));
-            app.MapGet("/register.js", () => Results.Content("navigator.serviceWorker.register('/service-worker.js');", "text/javascript"));
-            app.MapGet("/service-worker.js", async () => Results.Content(
-                $"{RejectionRecorder}{OpenRecorder}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
-                "text/javascript"));
-            app.MapGet("/push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
+            MapClient(app, Home, Shell);
             app.MapGet("/api/push/wake", (HttpContext http) =>
             {
                 wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}");
@@ -179,11 +200,11 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
                     ? Results.Json(new { body = "Sample bot finished.", botId, threadId, isMain = true })
                     : Results.NotFound();
             });
-            app.MapGet("/service-worker-assets.js", () => Results.Content(AssetsManifest(), "text/javascript"));
             app.MapMethods("/api/data", ["GET", "POST"], () => Results.Json(new { from = "api" }));
             app.MapGet("/oauth/client.json", () => Results.Json(new { from = "oauth" }));
-            app.MapGet("/broken.js", (HttpContext http) => http.Abort());
-            app.MapGet("/bots/unreachable", (HttpContext http) => http.Abort());
+            app.MapGet($"{Home}broken.js", (HttpContext http) => http.Abort());
+            app.MapGet($"{Home}bots/unreachable", (HttpContext http) => http.Abort());
+            Routes(app);
         });
 
         playwright = await Playwright.CreateAsync();
@@ -191,9 +212,8 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         var context = await browser.NewContextAsync(new() { Permissions = ["notifications"] });
         page = await context.NewPageAsync();
         page.Response += (_, response) => responses.Add(response);
-        await page.GotoAsync($"{Origin}/");
+        await page.GotoAsync($"{Origin}{Home}");
         await page.WaitForFunctionAsync("() => navigator.serviceWorker.controller !== null");
-        devTools = await context.NewCDPSessionAsync(page);
     }
 
     // Each part is let go if it was made, so a start that failed half way leaves no server running.
@@ -215,38 +235,63 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
         {
             await other.DisposeAsync();
         }
+
+        GC.SuppressFinalize(this);
     }
 
     #endregion
 
     #region Private Methods
 
-    private async Task<string> Fetch(string url, string method) =>
+    /// <summary>More routes for the server under test, for the cases of one client only.</summary>
+    protected virtual void Routes(WebApplication app)
+    {
+    }
+
+    /// <summary>
+    /// A client at <paramref name="home"/>: its page (which signs the person in), its pages, its start script, the
+    /// published worker and the notification script, and the list of files the worker stores.
+    /// </summary>
+    protected static void MapClient(WebApplication app, string home, string shellPage)
+    {
+        app.MapGet(home, (HttpContext http) =>
+        {
+            http.Response.Headers.SetCookie = $"{SignInCookie}; Path=/; SameSite=Strict";
+            return Results.Content(shellPage, "text/html");
+        });
+        app.MapGet($"{home}index.html", () => Results.Content(shellPage, "text/html"));
+        app.MapGet($"{home}talk/{{bot}}", () => Results.Content(shellPage, "text/html"));
+        app.MapGet($"{home}register.js", () => Results.Content($"navigator.serviceWorker.register('{home}service-worker.js');", "text/javascript"));
+        app.MapGet($"{home}service-worker.js", async () => Results.Content(
+            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
+            "text/javascript"));
+        app.MapGet($"{home}push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
+        app.MapGet($"{home}service-worker-assets.js", () => Results.Content(AssetsManifest(shellPage), "text/javascript"));
+        app.MapGet($"{home}icon-192.png", () => Results.File(WebFile("icon-192.png"), "image/png"));
+    }
+
+    protected async Task<string> Fetch(string url, string method) =>
         await page.EvaluateAsync<string>(
             "async ([url, method]) => { try { return String((await fetch(url, { method })).status); } catch (e) { return 'failed: ' + e; } }",
             new[] { url, method });
 
-    private static string WebFile(string name) => Path.Combine(RepositoryFiles.Root, "src", "Drover.Web", "wwwroot", name);
+    private static string WebFile(string name) => Path.Combine(RepositoryFiles.Root, "src", "Shared", "Web", name);
 
-    /// <summary>A real push, as a push service delivers it, through the browser's developer protocol.</summary>
+    /// <summary>Dispatch a push in the active browser worker and await the work registered by its handler.</summary>
     private async Task DeliverPush(string payload)
     {
-        var registered = new TaskCompletionSource<string>();
-        devTools.Event("ServiceWorker.workerRegistrationUpdated").OnEvent += (_, update) =>
-        {
-            if (update?.GetProperty("registrations").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Object } registration)
-            {
-                registered.TrySetResult(registration.GetProperty("registrationId").GetString()!);
-            }
-        };
-        await devTools.SendAsync("ServiceWorker.enable");
-        var registrationId = await registered.Task.WaitAsync(TimeSpan.FromSeconds(10), Xunit.TestContext.Current.CancellationToken);
-        await devTools.SendAsync("ServiceWorker.deliverPushMessage", new()
-        {
-            ["origin"] = Origin,
-            ["registrationId"] = registrationId,
-            ["data"] = payload,
-        });
+        // DevTools reports that it accepted a push request without reporting whether delivery completed.
+        await page.EvaluateAsync("""
+            payload => new Promise((done, reject) => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = ({ data }) => {
+                    channel.port1.close();
+                    if (data === null) done();
+                    else reject(new Error(data));
+                };
+                navigator.serviceWorker.controller.postMessage({ testPush: payload }, [channel.port2]);
+            })
+            """, payload).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
     }
 
     /// <summary>The notifications the worker shows, as title, body, and the address a tap opens.</summary>
@@ -269,8 +314,8 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
     }
 
     /// <summary>The list the worker stores at install: the shell alone, with its hash, as the build writes it.</summary>
-    private static string AssetsManifest() =>
-        $"self.assetsManifest = {{ version: 'test', assets: [{{ url: 'index.html', hash: 'sha256-{Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(Shell)))}' }}] }};";
+    private static string AssetsManifest(string shellPage) =>
+        $"self.assetsManifest = {{ version: 'test', assets: [{{ url: 'index.html', hash: 'sha256-{Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(shellPage)))}' }}] }};";
 
     private static async Task<WebApplication> Serve(Action<WebApplication> routes)
     {
@@ -288,6 +333,67 @@ public sealed class ServiceWorkerTests : IAsyncLifetime
             ? chosen
             : browserPaths.FirstOrDefault(File.Exists)
                 ?? throw new InvalidOperationException($"No Chromium found. Set DROVER_TEST_CHROMIUM to one, or install Chrome or Chromium at one of: {string.Join(", ", browserPaths)}.");
+
+    #endregion
+}
+
+
+/// <summary>The worker serving the web client, at the root.</summary>
+public sealed class ServiceWorkerTests : ServiceWorkerScenarios
+{
+    #region Properties
+
+    protected override string Home => "/";
+
+    #endregion
+}
+
+
+/// <summary>
+/// The same worker serving the native client's browser build under /native/, beside the web client's at the root. Each
+/// keeps to its own client: the web client's worker answers nothing under /native/ and leaves its stored shell alone.
+/// </summary>
+public sealed class NativeServiceWorkerTests : ServiceWorkerScenarios
+{
+    #region Private Fields
+
+    private const string WebShell = "<!DOCTYPE html><title>Web client shell</title><script src=\"/register.js\"></script>";
+
+    #endregion
+
+    #region Properties
+
+    protected override string Home => "/native/";
+
+    #endregion
+
+    #region Public Methods
+
+    [Fact]
+    public async Task The_web_clients_worker_leaves_the_native_clients_files_and_stored_shell_alone()
+    {
+        // The web client is opened in the same browser, and its worker takes control of its page.
+        await Page.GotoAsync($"{Origin}/");
+        await Page.WaitForFunctionAsync("() => navigator.serviceWorker.controller !== null");
+
+        var seen = Responses.Count;
+
+        (await Fetch($"{Origin}/native/register.js", "GET")).Should().Be("200");
+        (await Fetch($"{Origin}/register.js", "GET")).Should().Be("200");
+
+        var answers = Responses.Skip(seen).ToList();
+        answers.Should().Contain(response => response.Url == $"{Origin}/native/register.js" && !response.FromServiceWorker,
+            "the native client's files are not the web client's worker's to answer");
+        answers.Should().Contain(response => response.Url == $"{Origin}/register.js" && response.FromServiceWorker);
+        var shells = await Page.EvaluateAsync<string[]>("async () => (await caches.keys()).sort()");
+        shells.Should().Equal("drover-shell-native-test", "drover-shell-test");
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void Routes(WebApplication app) => MapClient(app, "/", WebShell);
 
     #endregion
 }

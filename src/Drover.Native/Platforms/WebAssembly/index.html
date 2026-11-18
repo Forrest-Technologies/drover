@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#05070A" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F6F7FA" media="(prefers-color-scheme: light)" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Drover</title>
+    <!-- The folder the app is served from, written at build time (DroverIndexHtml in Drover.Native.csproj). The
+         files below are named relative to it, so a deep address still finds them. -->
+    <base href="DROVER_BASE_PATH" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <!-- The web client's start script, shared: the stored theme before the first paint, and the service worker. -->
+    <script src="boot.js"></script>
+
+    <script type="text/javascript" src="./require.js"></script>
+    <script type="module" src="./uno-bootstrap.js"></script>
+    $(ADDITIONAL_CSS)
+    $(ADDITIONAL_HEAD)
+    <!-- After the platform's own styles, so the loader takes the stored theme. -->
+    <link rel="stylesheet" href="boot.css" />
+</head>
+<body>
+    <div id="uno-body" class="container-fluid uno-body">
+        <div class="uno-loader"
+             loading-position="bottom"
+             loading-alert="none">
+            <img class="logo" src="" alt="" />
+            <progress aria-label="Loading Drover"></progress>
+            <span class="alert"></span>
+        </div>
+    </div>
+    <noscript>
+        <p>Drover needs JavaScript and WebAssembly.</p>
+    </noscript>
+</body>
+</html>

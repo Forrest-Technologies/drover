@@ -12,8 +12,16 @@
     <ProjectReference Include="..\Drover.Ui\Drover.Ui.csproj" />
   </ItemGroup>
 
+  <!-- The antiforgery handler is shared with the native client's browser build. -->
   <ItemGroup>
-    <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
+    <Compile Include="..\Shared\Transport\AntiforgeryHandler.cs" Link="Transport\AntiforgeryHandler.cs" />
+  </ItemGroup>
+
+  <!-- The page's start script, the cookie reader, notifications, the published service worker, and the icons are
+       shared with the native client's browser build, which is served beside this one under /native/. -->
+  <ItemGroup>
+    <Content Include="..\Shared\Web\*.js;..\Shared\Web\*.png;..\Shared\Web\*.svg" Exclude="..\Shared\Web\service-worker.published.js" Link="wwwroot\%(Filename)%(Extension)" />
+    <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="..\Shared\Web\service-worker.published.js" />
   </ItemGroup>
 
 </Project>

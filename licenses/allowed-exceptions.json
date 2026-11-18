@@ -1,0 +1,37 @@
+[
+  {
+    "Id": "Uno.Diagnostics.Eventing",
+    "Version": "2.0.1",
+    "License": "Apache-2.0",
+    "LicenseUrl": "https://github.com/unoplatform/Uno.Diagnostics.Eventing/blob/539aa40014657576f2e938043b7f8f6e336df1b8/License.md",
+    "Description": "Missing NuGet license metadata. Reviewed repository license, unchanged from initial commit through the release history; bundled notice in Assets/Licenses."
+  },
+  {
+    "Id": "Uno.icu-wasm",
+    "Version": "77.4.1",
+    "License": "Apache-2.0",
+    "LicenseUrl": "https://github.com/unoplatform/uno.icu/blob/f887e003ee077a7a113190ed644aedad0b010f11/LICENSE.md",
+    "Description": "Missing NuGet license metadata. Reviewed Apache-2.0 packaging license at exact 77.4.1 tag. Bundled ICU 77.1 retains its separate Unicode License V3 and third-party notices in Assets/Licenses/ICU-77.1.Unicode.txt; Unicode data is admitted by docs/architecture/05-dependencies.md."
+  },
+  {
+    "Id": "Uno.icu-macos",
+    "Version": "77.4.1",
+    "License": "Apache-2.0",
+    "LicenseUrl": "https://github.com/unoplatform/uno.icu/blob/f887e003ee077a7a113190ed644aedad0b010f11/LICENSE.md",
+    "Description": "Missing NuGet license metadata. Reviewed Apache-2.0 packaging license at exact 77.4.1 tag. Bundled ICU 77.1 retains its separate Unicode License V3 and third-party notices in Assets/Licenses/ICU-77.1.Unicode.txt; Unicode data is admitted by docs/architecture/05-dependencies.md."
+  },
+  {
+    "Id": "Uno.icu-win",
+    "Version": "77.4.1",
+    "License": "Apache-2.0",
+    "LicenseUrl": "https://github.com/unoplatform/uno.icu/blob/f887e003ee077a7a113190ed644aedad0b010f11/LICENSE.md",
+    "Description": "Missing NuGet license metadata. Reviewed Apache-2.0 packaging license at exact 77.4.1 tag. Bundled ICU 77.1 retains its separate Unicode License V3 and third-party notices in Assets/Licenses/ICU-77.1.Unicode.txt; Unicode data is admitted by docs/architecture/05-dependencies.md."
+  },
+  {
+    "Id": "Tmds.DBus.Generator",
+    "Version": "0.92.0",
+    "License": "MIT",
+    "LicenseUrl": "https://github.com/tmds/Tmds.DBus/blob/282acebca8d4e4e3ba211646ac650911ee94edfd/COPYING",
+    "Description": "Missing NuGet license metadata. Reviewed license at the exact repository commit recorded by the package; bundled notice in Assets/Licenses."
+  }
+]

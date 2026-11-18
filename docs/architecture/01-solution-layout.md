@@ -1,11 +1,12 @@
 # 1. Solution and project layout
 
-## Two solutions
+## Three solutions
 
 | File | Contains | Why separate |
 | --- | --- | --- |
 | `Drover.slnx` | Server, web client, shared libraries, adapters, analyzers, all tests | Builds with the plain .NET SDK. This is what `docker compose build` and pull request CI touch. |
 | `Drover.Apps.slnx` | The MAUI shell, plus references to the shared libraries | Needs MAUI workloads and platform SDKs. Keeping it out of the main solution keeps the image build small and CI fast. |
+| `Drover.Native.slnx` | The native client, plus references to the shared libraries | Needs the `wasm-tools` workload and platform SDKs. It is apart from `Drover.Apps.slnx` because the Android preview workflow formats and license-checks that whole solution without restoring it. See [18-native-client.md](18-native-client.md). |
 
 Both use `.slnx`. Never keep a `.sln` beside a `.slnx`; the SDK treats that as an error.
 
@@ -27,6 +28,7 @@ Drover.slnx
     Drover.Adapters.LocalFiles       IFileStore on a volume
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model
+    Drover.Presentation           the interface without a UI framework: words, drafts, models, view models, the router
     Drover.Ui                     Razor class library: every screen and component
     Drover.Web                    Blazor WebAssembly host for Drover.Ui
     Drover.Server                 ASP.NET Core host: API, SSE, auth, workers, composition root
@@ -42,6 +44,7 @@ Drover.slnx
     Drover.Adapters.Tests         each adapter run through its suite
     Drover.Server.Tests           API tests through WebApplicationFactory
     Drover.Client.Tests           the reducer against event logs recorded from the engine
+    Drover.Presentation.Tests     the router, view models, native token parity and contrast, native interface rules
     Drover.Ui.Tests               component tests
     Drover.Analyzers.Tests
 
@@ -50,6 +53,15 @@ Drover.Apps.slnx
     Drover.App                    MAUI Blazor Hybrid shell: Android, Windows, [iOS, Mac Catalyst]
     (references Drover.Ui, Drover.Client, Drover.Contracts)
 ```
+
+```
+Drover.Native.slnx
+  src/
+    Drover.Native                 Uno Platform app: web (WebAssembly), desktop, Android, [iOS, Mac Catalyst]
+    (references Drover.Presentation, Drover.Client, Drover.Contracts)
+```
+
+`src/Shared/Transport` holds how a client reaches the server, as source files linked into the projects that need them: `AntiforgeryHandler` into `Drover.Web` and the native browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into `Drover.App` and the native device builds. One source, so the two clients cannot drift apart on security.
 
 Later adapters get their own projects in the same pattern: `Drover.Adapters.Docker`, `Drover.Adapters.Apns`, `Drover.Adapters.S3`, and so on.
 
@@ -66,9 +78,11 @@ The model transport uses Drover-owned records and `IModelChatClient` in `Domain`
 | `Drover.Agents` | Everything built on the agent framework: building an agent from a bot, PostgreSQL history, session, and checkpoint stores, the tool gate middleware, `GovernedAgent`, team patterns. See [14-agent-framework.md](14-agent-framework.md). | Run lifecycle (claiming, leases, status), HTTP |
 | `Drover.Adapters.*` | One vendor each. Translation between the vendor's types and Drover's | Business rules, and database access of their own. An adapter whose store is a table (`Drover.Adapters.DataProtection`) reaches it only through a repository in `Drover.Data` and runs inside the caller's tenant scope. |
 | `Drover.Client` | `HttpClient`-based API client, SSE reader with resume, client-side run state reducer | UI |
+| `Drover.Presentation` | Everything about the interface that does not draw: words, drafts, tool cards, timelines, bot looks, icon shapes, the markdown node model, session state, toasts, view models, the router | Any UI framework type: no Razor, no XAML |
 | `Drover.Ui` | Components, design tokens, markdown rendering, platform service interfaces (`IPushRegistration`, `ISecureStore`, `IFilePicker`, `IMicrophone`) | Direct `HttpClient` use; it goes through `Drover.Client` |
 | `Drover.Web` | WebAssembly entry point, web implementations of the platform services, service worker, PWA manifest | Screens |
 | `Drover.App` | MAUI entry point, MAUI implementations of the platform services, platform folders | Screens |
+| `Drover.Native` | The native client: tokens, controls, layouts, shell, pages, platform folders | Interface logic that could live in `Drover.Presentation`; direct `HttpClient` use outside its two `PlatformServices` files |
 | `Drover.Server` | Endpoint mapping, authentication, hosted services, dependency injection wiring, status page | Business rules; endpoints call the engine |
 
 ## Dependency direction
@@ -79,9 +93,10 @@ Contracts  <-  Domain  <-  Data  <-  Engine  <-  Server
                  |           +----  Agents  <------+   (Server wires these in)
                  +----------------  Adapters.*  <--+
 
-Contracts  <-  Client  <-  Ui  <-  Web
-                            ^
-                            +----  App
+Contracts  <-  Client  <-  Presentation  <-  Ui  <-  Web
+                                 ^            ^
+                                 |            +----  App
+                                 +----  Native
 ```
 
 Rules, enforced by project references and by analyzer `DRV0007`:

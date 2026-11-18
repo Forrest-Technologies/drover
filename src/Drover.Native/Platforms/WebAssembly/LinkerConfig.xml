@@ -1,0 +1,4 @@
+<linker>
+  <assembly fullname="Drover.Native" />
+  <assembly fullname="Drover.Contracts" />
+</linker>
