@@ -66,7 +66,7 @@ jobs:
           - name: Compose with Uno builds and starts within budget
             native: "true"
     env:
-      BUILD_NATIVE: ${{ matrix.native }}
+      DROVER_BUILD_NATIVE: ${{ matrix.native }}
     permissions:
       contents: read
     steps:
@@ -101,7 +101,11 @@ jobs:
             test "$(wc -l < /proc/swaps)" = "1"
           fi
           start=$(date +%s)
-          docker buildx build --builder budget --build-arg DROVER_BUILD_NATIVE="$BUILD_NATIVE" --load -t drover:local .
+          build_args=()
+          if [ "$DROVER_BUILD_NATIVE" = false ]; then
+            build_args+=(--build-arg DROVER_BUILD_NATIVE=false)
+          fi
+          docker buildx build --builder budget "${build_args[@]}" --load -t drover:local .
           build_seconds=$(( $(date +%s) - start ))
           image_bytes=$(docker image inspect drover:local --format '{{.Size}}')
           peak_bytes=$(cat "$cgroup/memory.peak")

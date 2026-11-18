@@ -23,6 +23,9 @@ Where a section below covers an untested part, it says so.
 docker compose logs drover
 ```
 
+The image serves Uno at `/native/` and the existing web client at `/`. Set `DROVER_BUILD_NATIVE=false` in
+Compose's `.env` file before building to omit the Uno client.
+
 ## Reaching Drover from other devices
 
 `compose.yaml` binds Drover to this machine only. To open it from a phone or another computer, put HTTPS in front with the proxy overlay.
