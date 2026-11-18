@@ -62,6 +62,56 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
 
     #endregion
 
+    #region File saving
+
+    [Fact]
+    public async Task Saving_passes_the_current_file_and_its_name_to_the_platform()
+    {
+        var editor = await Opened();
+        editor.Name = "Sample export";
+        string? fileName = null;
+        string? fileText = null;
+
+        await editor.Download((name, text) =>
+        {
+            fileName = name;
+            fileText = text;
+            return Task.FromResult(true);
+        });
+
+        fileName.Should().Be(editor.FileName);
+        fileText.Should().Be(editor.CurrentText);
+        editor.NoticeIsProblem.Should().BeFalse();
+        editor.Notice.Should().Contain("save");
+    }
+
+    [Fact]
+    public async Task Cancelling_a_file_save_does_not_report_success_or_change_the_file()
+    {
+        var editor = await Opened();
+        var text = editor.CurrentText;
+
+        await editor.Download((_, _) => Task.FromResult(false));
+
+        editor.Notice.Should().BeNull();
+        editor.CurrentText.Should().Be(text);
+    }
+
+    [Fact]
+    public async Task A_failed_file_save_keeps_the_file_and_gives_a_working_fallback()
+    {
+        var editor = await Opened();
+        var text = editor.CurrentText;
+
+        await editor.Download((_, _) => throw new DeviceCallFailedException("Sample device refused.", new IOException("Sample failure.")));
+
+        editor.NoticeIsProblem.Should().BeTrue();
+        editor.Notice.Should().Contain("JSON tab");
+        editor.CurrentText.Should().Be(text);
+    }
+
+    #endregion
+
     #region Form
 
     [Fact]

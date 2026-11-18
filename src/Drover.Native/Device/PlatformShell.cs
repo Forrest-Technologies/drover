@@ -18,7 +18,31 @@ internal static class PlatformShell
 
     public static void GoBack(Navigator navigator) => navigator.GoBack();
 
+    public static async Task OpenOutside(string address)
+    {
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            throw new DeviceCallFailedException("The sign-in address must use HTTP or HTTPS.");
+        }
+
+        try
+        {
+            if (!await Launcher.LaunchUriAsync(uri))
+            {
+                throw new DeviceCallFailedException("The sign-in page could not be opened. Try again.");
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or UnauthorizedAccessException or IOException or System.Runtime.InteropServices.ExternalException)
+        {
+            throw new DeviceCallFailedException("The sign-in page could not be opened.", exception);
+        }
+    }
+
     public static void SetTitle(Window window, string title) => window.Title = title;
+
+    public static void Shown()
+    {
+    }
 
     /// <summary>The address of a screen in the web app of the chosen server.</summary>
     public static string? WebAddress(IServiceProvider services, string address) =>

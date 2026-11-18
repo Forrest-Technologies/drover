@@ -290,6 +290,24 @@ public sealed partial class ExtensionEditorViewModel(
         }
     }
 
+    /// <summary>Offers the file to the platform. Cancelling the save picker leaves the editor as it was.</summary>
+    public async Task Download(Func<string, string, Task<bool>> save)
+    {
+        Notice = null;
+        try
+        {
+            if (await save(FileName, CurrentText))
+            {
+                (Notice, NoticeIsProblem) = ("The file was handed to this device to save.", false);
+            }
+        }
+        catch (DeviceCallFailedException exception)
+        {
+            logger.LogWarning(exception, "The extension editor could not save the file");
+            (Notice, NoticeIsProblem) = ("The file could not be saved. Copy its text from the JSON tab and save it as a JSON file.", true);
+        }
+    }
+
     /// <summary>Hands the file to the extensions screen, where it is reviewed like any other file before it is added.</summary>
     [RelayCommand]
     public void Import()
