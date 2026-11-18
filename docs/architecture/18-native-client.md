@@ -17,6 +17,9 @@ The web client (`Drover.Ui`, `Drover.Web`) and the Android shell (`Drover.App`) 
 | `src/Drover.Presentation` | `net11.0` library, in `Drover.slnx` | The moved framework-free code (`Drover.Ui.*`), view models (`Drover.Presentation.ViewModels`), the router (`Drover.Presentation.Routing`), the readers for drawings kept as data (`Drover.Presentation.Drawing`), `IDeviceSettings` |
 | `src/Drover.Native` | Uno single project, in `Drover.Native.slnx` | The app: tokens, controls, layouts, shell, pages, platform code |
 | `src/Shared/Transport` | Source files, linked | `AntiforgeryHandler` (compiled into `Drover.Web` and the native browser build); `AppRequests`, `NativeSession`, `NativeSessionTokens`, `ServerAddress` (compiled into `Drover.App` and the native device builds) |
+| `src/Shared/Web` | Browser files, linked | `boot.js`, `cookies.js`, `push.js`, `push-worker.js`, `service-worker.published.js`, the icons: the web client's own, served by `Drover.Web` at the root and by the native browser build under `/native/` |
+| `src/Shared/Android` | Source files, linked | The Android shell's UnifiedPush registration, transport, receivers and delivery service, notifications, shares in (`AndroidShares`), files out (`AndroidFileDelivery`, `DocumentDestination`), and `IncomingIntents`; compiled into `Drover.App` and the native Android build |
+| `src/Shared/Chat` | Source file, linked | `ShareInbox`, compiled into `Drover.Ui` (with Blazor's `IBrowserFile`) and the native app (with `Shell/IBrowserFile.cs`, the same shape) |
 | `tests/Drover.Presentation.Tests` | xunit, in `Drover.slnx` | Router, view models, token parity and contrast, the interface rules for native source |
 
 `Drover.Native` has its own solution file because it needs workloads the main solution's build does not have (`wasm-tools`, Android), and because the Android preview workflow formats and license-checks everything in `Drover.Apps.slnx` without restoring it.
@@ -199,7 +202,11 @@ Unchanged from the clients this one replaces, because it compiles the same sourc
 - **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. The only thing in local storage is the theme choice.
 - **On a device:** `AppRequests` sends requests only to the HTTPS origin the person chose, follows no redirects, and keeps cookies in memory. `ServerAddress` keeps the address in plain settings. `NativeSession` keeps the sign-in that outlives the app through `ISecureStorage`: on a phone, the platform's credential store; on desktop, nothing is written and the person signs in again next launch.
 - **Content security policy.** The published browser build runs under the policy `SecurityHeaders` sends, with nothing added. The platform's runtime evaluates five small expressions as script at startup, which the policy forbids. `Platforms/WebAssembly/WasmScripts/NoEval.js` answers exactly those five with functions and passes anything else to the browser's own `eval`, which the policy refuses. So a new expression fails loudly instead of being allowed. After any SDK upgrade, and after first using a platform feature (clipboard, launcher, file picker, share), run the published build under the policy and read the console.
-- **Calling the browser.** Use `[JSImport]` on a browser function, as `Platforms/WebAssembly/Browser.cs` does. Never `WebAssemblyRuntime.InvokeJS`: it is `eval`.
+- **Calling the browser.** Use `[JSImport]` on a browser function, as `Platforms/WebAssembly/Browser.cs` does. Never `WebAssemblyRuntime.InvokeJS`: it is `eval`. A shared script module is imported with `JSHost.ImportAsync` relative to `_framework`, as `PageCookies` (`cookies.js`) and `BrowserPushRegistration` (`push.js`) do.
+- **The page and its worker.** The browser build's page is `Platforms/WebAssembly/index.html`; `DroverIndexHtml` in the project file writes its `<base>` (`/native/` when published, `/` in development) and gives it to the platform as its page template. It loads the web client's `boot.js` before anything is drawn: the stored theme is on the page from the first frame (`boot.css` colors the loader in it), and the service worker is registered with the same update behavior as the web client's (a new build takes over at once, and the page reloads unless the person is writing, then when they look away). The worker is the web client's `service-worker.published.js`: `DroverServiceWorker` in the project file puts it in place of the platform's own worker after publish (the platform's PWA switch stays off, so its worker is never registered) and writes `service-worker-assets.js`, the build's files with a SHA-256 of each that the worker stores at install. The worker keeps to its own client: the web client's worker answers nothing under `/native/`, each keeps its own stored shell, and a notification opens the client that registered it (`NativeServiceWorkerTests`). `manifest.webmanifest` makes `/native/` installable as its own app. The loader's picture comes from the app's own package; the platform's default asks another site for one, which the policy refuses.
+- **Notifications in a browser** go through the same `push.js` and `push-worker.js` as the web client, behind `IPushRegistration` (`BrowserPushRegistration`). A browser failure is reported as `DeviceCallFailedException`. The development build has no service worker (the platform's own module worker is what a development build serves), so notifications need a published build.
+- **On Android** the native build uses the Android shell's code, shared (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims).
+- **On a desktop** a conversation file is saved through the system's save dialog (`DesktopFileDelivery`). Sharing puts a copy in a folder of the app's own and opens the folder: the file itself is never opened, because a bot can send a program.
 
 ## How to move a screen
 
@@ -286,8 +293,8 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | Find in page, reader mode, translation, selection across the page | None works: there is no text in the page. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. The browser's text-size setting has no effect |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
-| Download size | The published browser build is 17.9 MB compressed with Brotli (57 MB of files), and a first load fetched 44 MB from a host that does not compress. The web client's publish is 3.6 MB compressed. Ahead-of-time compilation is not on, and would add to it |
-| Service worker, install, push in a browser | Not set up. The published app registers no service worker |
+| Download size | Measured 2026-11-18 on a Release publish: 50.5 MB of files, 15.3 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed, 12.1 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
+| Service worker, install, push in a browser | The web client's worker, start script and notification script, shared. Verified in Chromium against Drover's server: the worker installs, stores all 169 shell files with matching hashes, and takes control. A real push delivered to the worker, and the notification tap, are covered by `NativeServiceWorkerTests`; a subscription against a real push service was not made from this machine |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
 | Credential store on desktop | Not implemented by the platform, so the desktop app keeps the sign-in only until it closes |
 | Variable fonts | The resolved 7.0.65 provider applies variation axes. This app still uses static cuts; matching the web’s variable rendering is unverified |
@@ -314,22 +321,32 @@ The following four classes still explicitly derive from `PendingScreen`:
 - `BotSandboxPage`: power controls, terminal, native screen rendering, and input.
 - `ShareToPage`: incoming content and recipient selection.
 
-The native browser build is served from `wwwroot/native`, with `/native/` and its non-file deep links falling back
-to `native/index.html`. The existing client continues to own `/`. Manifest files are JSON; content-named framework
-files and content-named native package directories can be cached immutably; entry files are revalidated. The CSP
-is unchanged. To include the native publish in a container built from this repository:
+The native browser build is served from `wwwroot/native` (or the folder `NativeClient:Path` names) by
+`src/Drover.Server/Clients/NativeClientFiles.cs`, with `/native/` and its non-file deep links falling back to its `index.html`
+and `/native` sent to `/native/`. A missing file is a 404, never the page. The existing client continues to own `/`.
+Manifest files are JSON; the build's Brotli and gzip copies are served to a browser that accepts them, with the
+file's own type and `Vary: Accept-Encoding`; content-named framework files and content-named native package
+directories can be cached immutably; entry files are revalidated. The CSP is unchanged. Verified on 2026-11-18
+against a real server and PostgreSQL: `/native/sign-in` loaded in Chromium with no policy violation and no console
+error but the expected `401` for the session and `404` for closed setup; signing in through the drawn form sent the
+antiforgery header, set only `HttpOnly` session cookies (plus the readable `XSRF-TOKEN`), left local storage empty,
+and showed the workspace. To include the native publish in a container built from this repository:
 
 ```bash
 docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
 ```
 
-The default image still contains only the existing client. The opt-in build must meet the same container memory
+The default image still contains only the existing client. The opt-in build installs `python3` in the build stage,
+which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. It must meet the same container memory
 budget as the existing deployment before becoming the default. This environment accepted a 2 GB Docker builder configuration but exposed a shared 16 GB cgroup, so its reported memory use cannot verify that budget. The local opt-in container build was stopped after fetching the pinned base images; container publishing and startup still need the real CI/deployment check.
 
 `.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
-packaging, incoming links, OAuth app returns, native push registration, install/offline support, credential
-persistence on desktop, and real provider flows remain to be verified or implemented. `ShareInbox` still holds a
-Blazor file type. `ConnectViewModel` still lives in the native app and lacks unit tests.
+packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
+registration and notifications, and shares in are built on Android from the shell's own code and compile in the
+APK (its manifest was read back: receivers, the file provider, the return scheme, the share targets), but were not
+run on a device. Credential persistence on desktop is not implemented by the platform. `ConnectViewModel` still
+lives in the native app and lacks unit tests. A desktop has no system share target or link scheme, so nothing
+comes into the desktop app from outside it.
 
 Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: desktop usage still uses cards instead of the original table; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
 the feature ports above are complete. Passing tests for the existing clients must not be reported as native parity.
@@ -398,3 +415,16 @@ Checked on 2026-11-18 against `unoplatform/uno` commit
 These upstream statements are constraints to test against. They do not establish that Drover's controls or
 platform integrations have met them. Historical observations earlier in this document are not a current parity
 sign-off.
+
+## Size levers
+
+Measured on Release publishes of the browser build; "Brotli" is the sum a browser fetches when every file is
+served as its Brotli copy.
+
+| Lever | Result |
+| --- | --- |
+| Serving the build's own Brotli copies | First load 44.1 MB to 12.1 MB on the wire. Kept (`PrecompressedFiles`) |
+| Trimming | Already `TrimMode=full` in a Release publish of this SDK |
+| IL stripping (`WasmStripILAfterAOT`) | Applies only with ahead-of-time compilation, which is off |
+| XAML resource trimming (`UnoXamlResourcesTrimming`) | Uno.UI 2.12 to 1.58 MB and Uno.UI.FluentTheme 0.52 to 0.34 MB Brotli, about 0.75 MB less on a first load. See the project file for whether it is on |
+| Lazy assets | Fonts are fetched only when drawn: the 12 MB of Open Sans the platform ships are never fetched by Drover, whose text is Inter; the platform's symbol font (0.23 MB) is |

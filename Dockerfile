@@ -4,10 +4,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:11.0@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea AS build
 WORKDIR /src
 
-# The native client's browser build is served beside the web client under /native/ (docs/adr/0015). Building it
-# needs the WebAssembly workload and Python for its native linker, in this stage only, and adds time and memory.
-# Leave it out with: docker build --build-arg DROVER_BUILD_NATIVE=false .
-ARG DROVER_BUILD_NATIVE=true
+# The native client's browser build can be served beside the web client under /native/ (docs/adr/0015). Building it
+# needs the WebAssembly workload and Python for its native linker, in this stage only, and adds time and memory, so
+# it stays opt-in until it is shown to fit the image's memory budget:
+#   docker build --build-arg DROVER_BUILD_NATIVE=true .
+ARG DROVER_BUILD_NATIVE=false
 
 # Keep peak memory low on a small machine, at the cost of some build time (docs/architecture/13-deployment-and-push.md).
 ENV DOTNET_NOLOGO=1 \

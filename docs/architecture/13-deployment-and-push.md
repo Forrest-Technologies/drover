@@ -182,7 +182,7 @@ The VAPID key pair belongs to the whole server, not to a space: a browser holds 
 | Signing out turns the device off first, so the next person on that browser is never woken for the last one's bots. Turning a device on when the browser already holds a subscription that is not this person's ends it and makes a new one: the old address stops working, and its push service reports it gone, which deletes the other person's row. One address belongs to one person at a time without any lookup across people. | `AccountMenu`, `DevicePush` |
 | Push requests use the checked outbound client and never follow a redirect. They never say they may reach a private address, so one is refused in every deployment. | `PushServiceExtensions` |
 
-The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>"}`. The service worker (`push-worker.js`, loaded by both workers) asks `GET /api/push/wake?kind=&thread=` with the person's own cookie, which looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. A thread the person cannot see, or a request without a sign-in, gets nothing, and the worker shows only "Something changed. Open Drover to see it." Tapping a notification takes an open Drover window to that conversation, or opens one.
+The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>"}`. The service worker (`src/Shared/Web/push-worker.js`, loaded by both workers, and by the native client's browser build under `/native/`, where a notification opens `/native/talk/...`) asks `GET /api/push/wake?kind=&thread=` with the person's own cookie, which looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. A thread the person cannot see, or a request without a sign-in, gets nothing, and the worker shows only "Something changed. Open Drover to see it." Tapping a notification takes an open Drover window to that conversation, or opens one.
 
 ### Android client
 
@@ -200,7 +200,7 @@ What changes is how the app speaks it. There is no .NET or MAUI binding for the 
 | Distributor choice | One activity call that lets the user pick among installed distributors |
 | Decryption | The Web Push payload, using the platform's elliptic-curve and AES-GCM primitives. No extra library. |
 
-A few hundred lines of C#, all in `Drover.App/Platforms/Android`, behind `IPushRegistration`. One other .NET app is known to do the same, which shows it is feasible.
+A few hundred lines of C#, in `src/Shared/Android`, behind `IPushRegistration`, compiled into both the Android shell (`Drover.App`) and the native client's Android build (`Drover.Native`). One other .NET app is known to do the same, which shows it is feasible.
 
 The app picks a path at run time, in this order:
 
@@ -238,4 +238,4 @@ On the Drover server it is one more `IPushChannel` that posts to the relay. A se
 
 ### Client registration
 
-`IPushRegistration` in `Drover.Ui` has a web implementation (`BrowserPushRegistration` and `push.js` in `Drover.Web`: the service worker and the Push API) and MAUI implementations per platform. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain. The control is "Notifications" in the account menu. On an iPhone or iPad outside the Home Screen web app, it says the web app must be added to the Home Screen first.
+`IPushRegistration` in `Drover.Presentation` has a web implementation (`BrowserPushRegistration` in `Drover.Web` and in the native browser build, both over `src/Shared/Web/push.js`: the service worker and the Push API) and the Android one above, shared by the Android shell and the native Android build. The native client and the Android code report a platform failure as `DeviceCallFailedException`; the web client's Blazor control still catches the browser's own `JSException`. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain. The control is "Notifications" in the account menu. On an iPhone or iPad outside the Home Screen web app, it says the web app must be added to the Home Screen first.
