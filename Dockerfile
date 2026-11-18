@@ -65,7 +65,7 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
 # The server serves the native client from wwwroot/native beside it (NativeClient:Path names another folder).
 # Keep the managed linker and the WebAssembly optimizer within the container build's memory budget.
 RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
-        DOTNET_GCHeapHardLimit=0x4C000000 EMCC_CORES=1 BINARYEN_CORES=1 \
+        DOTNET_GCHeapHardLimit=0x56000000 DOTNET_GCConserveMemory=7 EMCC_CORES=1 BINARYEN_CORES=1 \
         dotnet publish src/Drover.Native/Drover.Native.csproj \
             --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
             -p:DroverNativeTargetFrameworks=net11.0-browserwasm -p:EmccLinkOptimizationFlag=-O1 \
