@@ -144,6 +144,8 @@ public sealed partial class BotEditorPage : Screen
             _ => null,
         };
 
+        Stage.Shown(wanted is not null);
+
         if ((Stage.Content as EmptyState)?.Title == wanted && (state is not BotEditorState.Failed || ((EmptyState)Stage.Content!).Cause == Model.LoadProblem))
         {
             return;
@@ -198,6 +200,7 @@ public sealed partial class BotEditorPage : Screen
         column.Children.Add(instructions.OnChanged(() => showing, value => Model.Edit(draft => draft.Instructions = value)));
         column.Children.Add(Sections());
         column.Children.Add(SaveBar());
+        Form.Children.Add(heading);
         Form.Children.Add(column);
         Form.Children.Add(saveWordsSaid);
         Form.Children.Add(Removing());
@@ -227,7 +230,7 @@ public sealed partial class BotEditorPage : Screen
         pauseOrResume.Selected += (_, _) => _ = Model.IsPaused ? Model.Resume() : Model.Pause();
 
         // The character's own controls, re-roll and part swapping, take their place beside it here.
-        var names = BotParts.Column("DvSpace2", heading, name, handle, handleRow);
+        var names = BotParts.Column("DvSpace2", name, handle, handleRow);
         identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         identity.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         identity.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
