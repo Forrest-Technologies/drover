@@ -39,12 +39,17 @@ public sealed class ModelConnectionsPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        body.Add(PageParts.Title("Model connections"));
-        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
+        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
+        header.Children.Add(PageParts.Title("Model connections"));
         if (model.CanEdit && !model.Adding && model.Connections is { Count: > 0 })
         {
-            body.Add(Action("Add a model connection", () => { model.StartAdding(); return Task.CompletedTask; }, ButtonKind.Primary));
+            var add = Action("Add a model connection", () => { model.StartAdding(); return Task.CompletedTask; }, ButtonKind.Primary);
+            add.Content = PageParts.WithIcon(IconName.Plus, "Add a model connection");
+            header.Children.Add(add);
         }
+
+        body.Add(header);
+        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
 
         if (model.Adding)
         {
@@ -63,11 +68,20 @@ public sealed class ModelConnectionsPage : Screen
         }
         else if (model.Connections.Count == 0 && !model.Adding)
         {
-            body.Add(Styles.Text(model.CanEdit ? "No model connection yet" : "This space has no model connections yet. An owner or admin of the space can add one.", "DvTextSecondary"));
             if (model.CanEdit)
             {
-                body.Add(Styles.Text("Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.", "DvTextSecondary"));
-                body.Add(Action("Add a model connection", () => { model.StartAdding(); return Task.CompletedTask; }, ButtonKind.Primary));
+                var empty = new EmptyState
+                {
+                    Title = "No model connection yet",
+                    Cause = "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.",
+                    ActionLabel = "Add a model connection",
+                };
+                empty.Action += (_, _) => { model.StartAdding(); Refresh(); };
+                body.Add(empty);
+            }
+            else
+            {
+                body.Add(Styles.Text("This space has no model connections yet. An owner or admin of the space can add one.", "DvTextSecondary"));
             }
         }
         else
@@ -84,7 +98,7 @@ public sealed class ModelConnectionsPage : Screen
         var provider = new SegmentedControl { Label = "Provider", Options = ModelConnectionsViewModel.Providers, Value = model.Kind, Disabled = model.AddingBusy };
         provider.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => { model.ChooseProvider(provider.Value ?? model.Kind); Refresh(); });
         var fields = PageParts.Column(
-            Styles.Text("Add a model connection", "DvTextH2"), provider,
+            PageParts.CardTitle("Add a model connection"), provider,
             PageParts.Field("Connection name", model.Name, value => model.Name = value, disabled: model.AddingBusy));
         if (model.Kind is "openai_compatible")
         {
@@ -103,9 +117,10 @@ public sealed class ModelConnectionsPage : Screen
     private Facet Connection(Drover.Contracts.Models.ModelConnectionSummary connection)
     {
         var status = ModelConnectionsViewModel.StatusOf(connection);
-        var body = PageParts.Column(
-            PageParts.Row(Styles.Text(connection.Name, "DvTextH2"), new Badge { Text = status.Words, Kind = status.Kind }),
-            Styles.Text(ModelConnectionsViewModel.Facts(connection), "DvTextMono"));
+        var head = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween, CenterItems = false };
+        head.Children.Add(PageParts.Column(PageParts.CardTitle(connection.Name), Styles.Text(ModelConnectionsViewModel.Facts(connection), "DvTextMono")));
+        head.Children.Add(new Badge { Text = status.Words, Kind = status.Kind });
+        var body = PageParts.Column(head);
         if (model.Problems.TryGetValue(connection.Id, out var problem))
         {
             body.Children.Add(new StatusNote { Kind = NoteKind.Danger, Text = problem });
@@ -133,18 +148,19 @@ public sealed class ModelConnectionsPage : Screen
 
         if (model.CanEdit)
         {
-            body.Children.Add(Action("Test connection", () => model.Test(connection)));
+            var keys = PageParts.Row(Action("Test connection", () => model.Test(connection)));
             if (model.Replacing == connection.Id)
             {
-                body.Children.Add(PageParts.Field("New key", model.NewKey, value => model.NewKey = value, "password", "Stored encrypted. It is not shown again.", model.ChangePending));
-                body.Children.Add(PageParts.Row(
-                    Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }),
-                    Action("Save key", () => model.ReplaceKey(connection), ButtonKind.Primary)));
+                keys.Children.Add(PageParts.Field("New key", model.NewKey, value => model.NewKey = value, "password", "Stored encrypted. It is not shown again.", model.ChangePending));
+                keys.Children.Add(Action("Cancel", () => { model.CancelReplacing(); return Task.CompletedTask; }));
+                keys.Children.Add(Action("Save key", () => model.ReplaceKey(connection), ButtonKind.Primary));
             }
             else
             {
-                body.Children.Add(Action("Replace key", () => { model.StartReplacing(connection); return Task.CompletedTask; }));
+                keys.Children.Add(Action("Replace key", () => { model.StartReplacing(connection); return Task.CompletedTask; }));
             }
+
+            body.Children.Add(keys);
         }
 
         return PageParts.Card(body);

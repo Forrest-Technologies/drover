@@ -23,7 +23,7 @@
                 Submitted="Submit" />
       <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
       <dv:Button Kind="Primary"
-                 HorizontalAlignment="Left"
+                 HorizontalAlignment="Stretch"
                  Content="{x:Bind Model.SubmitLabel, Mode=OneWay}"
                  Command="{x:Bind Model.SubmitCommand}" />
     </StackPanel>

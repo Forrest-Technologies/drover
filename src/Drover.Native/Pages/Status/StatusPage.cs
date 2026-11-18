@@ -42,7 +42,14 @@ public sealed class StatusPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        body.Add(PageParts.Title("Status"));
+        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
+        header.Children.Add(PageParts.Title("Status"));
+        if (!opening && model.Report is not null)
+        {
+            header.Children.Add(PageParts.Action("Check again", model.Load, Refresh, !model.Loading));
+        }
+
+        body.Add(header);
         if (opening)
         {
             body.Add(PageParts.Waiting("Checking the server and the space's connections."));
@@ -63,43 +70,72 @@ public sealed class StatusPage : Screen
         }
         else
         {
-            body.Add(PageParts.Action("Check again", model.Load, Refresh, !model.Loading));
             if (report.ServerRowsShown)
             {
                 body.Add(Group("This server", model.ServerRows));
             }
 
-            body.Add(Group("This space", model.SpaceRows));
+            var space = Group("This space", model.SpaceRows);
             if (model.SpaceRows.Count == 0)
             {
-                body.Add(Styles.Text("No model or tool connection yet. Add a model connection or a tool server and it is listed here.", "DvTextSecondary"));
-                body.Add(PageParts.Row(new Link { Text = "Add a model connection", Address = Addresses.SetupModel }, new Link { Text = "Add a tool server", Address = Addresses.Tools }));
+                space.Children.Add(Styles.Text("No model or tool connection yet. Add a model connection or a tool server and it is listed here.", "DvTextSecondary"));
+                space.Children.Add(PageParts.Row(new Link { Text = "Add a model connection", Address = Addresses.SetupModel }, new Link { Text = "Add a tool server", Address = Addresses.Tools }));
             }
+
+            body.Add(space);
         }
     }
 
-    private static StackPanel Group(string title, IReadOnlyList<Drover.Contracts.Status.StatusRow> rows)
+    // One list per owner of the problem: a small heading, then each row under a line, its name and badge on one line.
+    private static StackPanel Group(string title, List<Drover.Contracts.Status.StatusRow> rows)
     {
-        var group = PageParts.Column(Styles.Text(title, "DvTextH2"));
+        var heading = Styles.Text(title, "DvTextH3");
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
+        var group = PageParts.Column(heading);
+        var list = new StackPanel();
         foreach (var row in rows)
         {
-            var (kind, word) = row.State switch
-            {
-                "ok" => (BadgeKind.Ok, "Working"),
-                "warning" => (BadgeKind.Warn, "Needs attention"),
-                "problem" => (BadgeKind.Danger, "Not working"),
-                _ => (BadgeKind.Neutral, "Off"),
-            };
-            var entry = PageParts.Column(PageParts.Row(Styles.Text(row.Name, "DvTextLabel"), new Badge { Kind = kind, Text = word }), Styles.Text(row.Summary));
-            if (row.CheckedAt is { } at)
-            {
-                entry.Children.Add(Styles.Text($"checked {at.ToLocalTime():d MMM, HH:mm}", "DvTextMono"));
-            }
+            list.Children.Add(Line(row));
+        }
 
-            group.Children.Add(entry);
+        if (rows.Count > 0)
+        {
+            group.Children.Add(list);
         }
 
         return group;
+    }
+
+    private static Border Line(Drover.Contracts.Status.StatusRow row)
+    {
+        var (kind, word) = row.State switch
+        {
+            "ok" => (BadgeKind.Ok, "Working"),
+            "warning" => (BadgeKind.Warn, "Needs attention"),
+            "problem" => (BadgeKind.Danger, "Not working"),
+            _ => (BadgeKind.Neutral, "Off"),
+        };
+        var name = Styles.Text(row.Name);
+        name.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
+        var head = new FlexPanel { Gap = Tokens.Number("DvSpace3"), RowGap = Tokens.Number("DvSpace2"), Justify = FlexJustify.SpaceBetween };
+        head.Children.Add(name);
+        head.Children.Add(new Badge { Kind = kind, Text = word });
+        var entry = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
+        entry.Children.Add(head);
+        entry.Children.Add(Styles.Text(row.Summary, "DvTextSecondary"));
+        if (row.CheckedAt is { } at)
+        {
+            entry.Children.Add(Styles.Text($"checked {at.ToLocalTime():d MMM, HH:mm}", "DvTextMono"));
+        }
+
+        var line = new Border
+        {
+            Child = entry,
+            Padding = new(0, Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3")),
+            BorderThickness = new(0, Tokens.Number("DvBorder"), 0, 0),
+        };
+        line.WhenShownOrRethemed(() => line.BorderBrush = Tokens.Brush(line, "DvLine"));
+        return line;
     }
 
     #endregion

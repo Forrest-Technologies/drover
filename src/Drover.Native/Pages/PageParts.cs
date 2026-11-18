@@ -12,6 +12,25 @@ internal static class PageParts
         return heading;
     }
 
+    /// <summary>The name at the head of a card: a small heading, a level below the screen's title.</summary>
+    public static TextBlock CardTitle(string text)
+    {
+        var heading = Styles.Text(text, "DvTextH3");
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
+        return heading;
+    }
+
+    /// <summary>A primary button's words after its icon, as the web client lays out a button with an icon.</summary>
+    public static StackPanel WithIcon(IconName icon, string words)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+        var mark = new Icon { NameOfIcon = icon, VerticalAlignment = VerticalAlignment.Center };
+        mark.WhenShownOrRethemed(() => mark.Foreground = Tokens.Brush(mark, "DvOnAccent"));
+        content.Children.Add(mark);
+        content.Children.Add(new TextBlock { Text = words, VerticalAlignment = VerticalAlignment.Center });
+        return content;
+    }
+
     public static StackPanel Column(params UIElement[] children)
     {
         var column = new StackPanel { Spacing = Tokens.Number("DvSpace3") };

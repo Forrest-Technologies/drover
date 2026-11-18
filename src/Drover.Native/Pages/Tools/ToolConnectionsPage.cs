@@ -50,12 +50,17 @@ public sealed class ToolConnectionsPage : Screen
     {
         var body = layout.Body;
         body.Clear();
-        body.Add(PageParts.Title("Tool connections"));
-        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
+        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
+        header.Children.Add(PageParts.Title("Tool connections"));
         if (model.CanEdit && model.Connections is { Count: > 0 } && !model.Adding)
         {
-            body.Add(Action("Add a tool server", StartAdding, ButtonKind.Primary));
+            var add = Action("Add a tool server", StartAdding, ButtonKind.Primary);
+            add.Content = PageParts.WithIcon(IconName.Plus, "Add a tool server");
+            header.Children.Add(add);
         }
+
+        body.Add(header);
+        body.Add(new StatusNote { Text = model.Notice, Kind = model.NoticeIsProblem ? NoteKind.Danger : NoteKind.Ok });
 
         if (model.Adding)
         {
@@ -126,12 +131,17 @@ public sealed class ToolConnectionsPage : Screen
             Options = [new("none", "Nothing"), new("header", "A header"), new("oauth", "A sign-in")],
             Value = draft.AuthKind,
             Disabled = model.AddingBusy,
-            Fills = true,
         };
         kind.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) => { draft.AuthKind = kind.Value ?? "none"; Refresh(); });
-        var fields = PageParts.Column(Styles.Text("Add a tool server", "DvTextH2"),
+        var address = Field("Address", draft.Url, value => draft.Url = value, "url", "The address of the server's MCP endpoint.");
+        address.Placeholder = "https://";
+
+        // The choice's name is drawn above it as the web form draws it; assistive technology reads it from the choice.
+        var kindName = Styles.Text(kind.Label, "DvTextLabel");
+        AutomationProperties.SetAccessibilityView(kindName, AccessibilityView.Raw);
+        var fields = PageParts.Column(PageParts.CardTitle("Add a tool server"),
             Field("Name", draft.Name, value => draft.Name = value, hint: "What you call it, such as Calendar."),
-            Field("Address", draft.Url, value => draft.Url = value, "url", "The address of the server's MCP endpoint."), kind);
+            address, new StackPanel { Spacing = Tokens.Number("DvSpace2"), Children = { kindName, kind } });
         if (draft.AuthKind is "header")
         {
             fields.Children.Add(Field("Header name", draft.HeaderName, value => draft.HeaderName = value));
@@ -165,13 +175,15 @@ public sealed class ToolConnectionsPage : Screen
                 Choice("Protocol", draft.ProtocolMode, [new("automatic", "Chosen by Drover"), new("stateless_only", "Without sessions only"), new("session_only", "With sessions only")], value => draft.ProtocolMode = value)),
         });
         fields.Children.Add(new StatusNote { Text = model.AddProblem, Kind = NoteKind.Danger });
-        fields.Children.Add(PageParts.Row(Action("Cancel", () => { model.Adding = false; draft = new(); }),
-            Action(model.AddingBusy ? "Adding the server" : "Add server", async () =>
-            {
-                await model.Add(draft);
-                if (!model.Adding)
-                { draft = new(); }
-            }, ButtonKind.Primary)));
+        var actions = new FlexPanel { Gap = Tokens.Number("DvSpace2"), RowGap = Tokens.Number("DvSpace2"), Justify = FlexJustify.End };
+        actions.Children.Add(Action("Cancel", () => { model.Adding = false; draft = new(); }));
+        actions.Children.Add(Action(model.AddingBusy ? "Adding the server" : "Add server", async () =>
+        {
+            await model.Add(draft);
+            if (!model.Adding)
+            { draft = new(); }
+        }, ButtonKind.Primary));
+        fields.Children.Add(actions);
         return PageParts.Card(fields);
     }
 
@@ -179,7 +191,10 @@ public sealed class ToolConnectionsPage : Screen
     {
         var status = Drover.Ui.Tools.ConnectionWords.Status(connection);
         var tools = model.Tools.GetValueOrDefault(connection.Id);
-        var body = PageParts.Column(PageParts.Row(Styles.Text(connection.Name, "DvTextH2"), new Badge { Text = status.Words, Kind = status.Kind }),
+        var head = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween, CenterItems = false };
+        head.Children.Add(PageParts.CardTitle(connection.Name));
+        head.Children.Add(new Badge { Text = status.Words, Kind = status.Kind });
+        var body = PageParts.Column(head,
             Styles.Text(connection.Url, "DvTextMono"), Styles.Text(Drover.Ui.Tools.ConnectionWords.Facts(connection, tools), "DvTextMono"));
         var shownError = connection.Status is "failed" ? connection.LastError : null;
         body.Children.Add(new StatusNote { Text = shownError, Kind = NoteKind.Danger });
