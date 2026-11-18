@@ -25,6 +25,12 @@
     <Compile Include="../Shared/Transport/NativeSessionTokens.cs" Link="Transport/NativeSessionTokens.cs" />
     <Compile Include="../Shared/Transport/ServerAddress.cs" Link="Transport/ServerAddress.cs" />
   </ItemGroup>
+  <!-- Notifications over UnifiedPush, shares in, files out, and what Android hands the activity. Shared with the
+       native client's Android build. -->
+  <ItemGroup>
+    <Compile Include="../Shared/Android/*.cs" Link="Platforms/Android/%(Filename)%(Extension)" />
+    <AndroidResource Include="../Shared/Android/drover_notification.xml" Link="Platforms/Android/Resources/drawable/drover_notification.xml" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Blazor Hybrid creates the head outlet and routes by type after Android links the app. -->
     <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components.Web" />

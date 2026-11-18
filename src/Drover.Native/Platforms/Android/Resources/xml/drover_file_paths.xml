@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the folder AndroidFileDelivery stages a conversation file in before sharing it. -->
+<paths>
+  <cache-path name="drover_shared_files" path="sharing-root/" />
+</paths>

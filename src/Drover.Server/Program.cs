@@ -81,10 +81,8 @@ app.UseTrustedProxies();
 app.UseSecurityHeaders();
 app.UseCookiePolicy();
 app.UseBlazorFrameworkFiles();
-// Uno's manifest files hold JSON. Keep the existing web client alongside the native client during parity work.
-var clientContentTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
-clientContentTypes.Mappings[".manifest"] = "application/json";
-app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = clientContentTypes });
+var nativeClient = app.UseNativeClientFiles();
+app.UseStaticFiles();
 app.UseRouting();
 app.UseRequestLimits();
 app.UseRateLimiter();
@@ -111,7 +109,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
 app.MapHealthChecks("/health/ready");
-app.MapFallbackToFile("/native/{*path:nonfile}", "native/index.html");
+app.MapNativeClientPages(nativeClient);
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync();

@@ -31,6 +31,9 @@ public sealed class ToolConnectionsPage : Screen
 
     #region Properties
 
+    // A device app has a scheme the provider's sign-in page comes back to; the browser build has none and comes back to its own address.
+    private static string? ReturnScheme => ((App)Application.Current).Services.GetService<AppSignInReturn>()?.Scheme;
+
     public override string Title => "Tool connections · Drover";
 
     #endregion
@@ -186,7 +189,7 @@ public sealed class ToolConnectionsPage : Screen
         {
             body.Children.Add(Styles.Text(need));
             body.Children.Add(maySignIn
-                ? Action(connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in", () => model.SignIn(connection, PlatformShell.OpenOutside), ButtonKind.Primary)
+                ? Action(connection.SignIn is "needs_reconnect" ? "Sign in again" : "Sign in", () => model.SignIn(connection, PlatformShell.OpenOutside, ReturnScheme), ButtonKind.Primary)
                 : Styles.Text("An owner or admin of the space signs in for everyone.", "DvTextSecondary"));
         }
 

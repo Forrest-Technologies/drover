@@ -24,6 +24,7 @@ global using Drover.Client;
 global using Drover.Client.Push;
 global using Drover.Contracts.Push;
 global using Drover.Contracts.Threads;
+global using Drover.Presentation.Platform;
 global using Drover.Transport;
 global using Drover.Ui;
 global using Drover.Ui.Chat;

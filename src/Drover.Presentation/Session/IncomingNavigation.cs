@@ -1,4 +1,4 @@
-namespace Drover.App;
+namespace Drover.Ui.Session;
 
 /// <summary>
 /// Where Android asked the app to go from outside it: a tapped notification, or a browser coming back from a tool

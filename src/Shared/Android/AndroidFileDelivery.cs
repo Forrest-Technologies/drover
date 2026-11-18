@@ -38,8 +38,7 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
         var staged = await Download(file, cancellationToken);
         try
         {
-            await MainThread.InvokeOnMainThreadAsync(() => global::Microsoft.Maui.ApplicationModel.DataTransfer.Share.Default.RequestAsync(
-                new ShareFileRequest { Title = "Share file", File = new ShareFile(staged.FullName, MimeType(file)) }));
+            await MainThread.InvokeOnMainThreadAsync(() => ShareSheet.Open("Share file", staged.FullName, MimeType(file)));
         }
         catch (Exception exception)
         {
@@ -55,11 +54,11 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
     private async Task<FileInfo> Download(SharedFile file, CancellationToken cancellationToken)
     {
         using var response = await api.OpenConversationFile(file.Href, cancellationToken);
-        var root = Path.Combine(FileSystem.CacheDirectory, "sharing-root");
+        var root = System.IO.Path.Combine(FileSystem.CacheDirectory, "sharing-root");
         Directory.CreateDirectory(root);
         ClearOldShares(root);
-        var directory = Directory.CreateDirectory(Path.Combine(root, Guid.NewGuid().ToString("N")));
-        var path = Path.Combine(directory.FullName, SafeName(file.Name));
+        var directory = Directory.CreateDirectory(System.IO.Path.Combine(root, Guid.NewGuid().ToString("N")));
+        var path = System.IO.Path.Combine(directory.FullName, SafeName(file.Name));
         try
         {
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -115,7 +114,7 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
     }
 
     private static string SafeName(string name) =>
-        Path.GetFileName(name.Replace('\\', '/')) is { Length: > 0 } filename && filename is not ("." or "..")
+        System.IO.Path.GetFileName(name.Replace('\\', '/')) is { Length: > 0 } filename && filename is not ("." or "..")
             ? filename
             : "Drover file";
 
@@ -128,7 +127,7 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
     {
         foreach (var folder in Directory.EnumerateDirectories(root))
         {
-            if (Guid.TryParseExact(Path.GetFileName(folder), "N", out _)
+            if (Guid.TryParseExact(System.IO.Path.GetFileName(folder), "N", out _)
                 && Directory.GetCreationTimeUtc(folder) < DateTime.UtcNow.AddDays(-1))
             {
                 Remove(new DirectoryInfo(folder));

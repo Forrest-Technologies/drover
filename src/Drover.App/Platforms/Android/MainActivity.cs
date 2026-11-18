@@ -10,7 +10,7 @@ namespace Drover.App.Platforms.Android;
     [Intent.ActionView],
     Categories = [Intent.CategoryDefault, Intent.CategoryBrowsable],
     DataScheme = SignInReturnScheme,
-    DataHost = SignInReturnHost)]
+    DataHost = IncomingIntents.SignInReturnHost)]
 [IntentFilter([Intent.ActionSend, Intent.ActionSendMultiple], Categories = [Intent.CategoryDefault], DataMimeType = "*/*")]
 public sealed class MainActivity : MauiAppCompatActivity
 {
@@ -21,11 +21,6 @@ public sealed class MainActivity : MauiAppCompatActivity
     /// the package name, and the server sends a browser only to the schemes of Drover's own apps.
     /// </summary>
     public const string SignInReturnScheme = "com.forresttechnologies.drover.preview";
-
-    private const string SignInReturnHost = "tool-sign-in";
-
-    // A ticket is 32 random bytes in URL-safe base64. Anything else is not one of this server's.
-    private const int TicketLength = 43;
 
     #endregion
 
@@ -39,53 +34,20 @@ public sealed class MainActivity : MauiAppCompatActivity
         // and not when the app is opened again from the recent apps.
         if (savedInstanceState is null && Intent?.Flags.HasFlag(ActivityFlags.LaunchedFromHistory) != true)
         {
-            OpenConversation(Intent);
-            ReturnFromSignIn(Intent);
-            TakeShare(Intent);
+            IncomingIntents.Take(Intent, SignInReturnScheme);
         }
     }
 
     protected override void OnNewIntent(Intent? intent)
     {
         base.OnNewIntent(intent);
-        OpenConversation(intent);
-        ReturnFromSignIn(intent);
-        TakeShare(intent);
+        IncomingIntents.Take(intent, SignInReturnScheme);
     }
 
     protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
     {
         base.OnActivityResult(requestCode, resultCode, data);
         IPlatformApplication.Current?.Services.GetService<DocumentDestination>()?.Complete(requestCode, resultCode, data);
-    }
-
-    private static void OpenConversation(Intent? intent)
-    {
-        if (intent?.Action == AndroidNotifications.OpenAction && AndroidNotifications.Conversation(intent, out var bot, out var thread))
-        {
-            var address = intent.GetBooleanExtra("main", true) ? Addresses.Talk(bot) : Addresses.SideChat(bot, thread);
-            IPlatformApplication.Current?.Services.GetService<IncomingNavigation>()?.Open(address);
-        }
-    }
-
-    private static void TakeShare(Intent? intent)
-    {
-        if (AndroidShares.IsShare(intent) && IPlatformApplication.Current?.Services.GetService<AndroidShares>() is { } shares)
-        {
-            _ = shares.Receive(intent!);
-        }
-    }
-
-    // Any app or page can send this address. The ticket means something only to the server, and only for the
-    // signed-in person who started the sign-in, so all that is done here is to hand it to the tools screen.
-    private static void ReturnFromSignIn(Intent? intent)
-    {
-        if (intent is { Action: Intent.ActionView, Data: { Scheme: SignInReturnScheme, Host: SignInReturnHost } address }
-            && address.GetQueryParameter("ticket") is { Length: TicketLength } ticket
-            && ticket.All(letter => char.IsAsciiLetterOrDigit(letter) || letter is '-' or '_'))
-        {
-            IPlatformApplication.Current?.Services.GetService<IncomingNavigation>()?.Open(Addresses.ToolSignInReturn(ticket));
-        }
     }
 
     #endregion
