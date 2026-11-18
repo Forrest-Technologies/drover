@@ -23,21 +23,27 @@ public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILo
     public async Task<string?> GetAccess(
         Uri origin,
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? rejectedAccess = null)
     {
         await gate.WaitAsync(cancellationToken);
         try
         {
-            if (access is { } current && loadedOrigin == origin && current.ExpiresAt - time.GetUtcNow() > renewEarly)
-            {
-                return current.Token;
-            }
-
             if (loadedOrigin != origin)
             {
+                refreshToken = await Load(origin);
                 loadedOrigin = origin;
                 access = null;
-                refreshToken = await Load(origin);
+            }
+
+            if (access is { } current)
+            {
+                if (current.Token != rejectedAccess && current.ExpiresAt - time.GetUtcNow() > renewEarly)
+                {
+                    return current.Token;
+                }
+
+                access = null;
             }
 
             if (refreshToken is null)
@@ -50,7 +56,7 @@ public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILo
                 Content = NativeSessionTokens.RefreshContent(refreshToken),
             };
             using var response = await send(request, cancellationToken);
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 Forget(origin);
                 return null;
@@ -61,7 +67,8 @@ public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILo
                 throw new HttpRequestException("Drover could not restore the sign-in.", null, response.StatusCode);
             }
 
-            return await Save(origin, response, cancellationToken);
+            return await Save(origin, response, cancellationToken)
+                ?? throw new HttpRequestException("Drover did not issue a usable native session.");
         }
         finally
         {
@@ -95,12 +102,12 @@ public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILo
         }
     }
 
-    public async Task Clear(Uri origin, string? rejectedAccess = null)
+    public async Task Clear(Uri origin, string? signedOutAccess)
     {
         await gate.WaitAsync();
         try
         {
-            if (rejectedAccess is null || (loadedOrigin == origin && access?.Token == rejectedAccess))
+            if (signedOutAccess is null || (loadedOrigin == origin && access?.Token == signedOutAccess))
             {
                 Forget(origin);
             }
@@ -148,8 +155,7 @@ public sealed class NativeSession(ISecureStorage storage, TimeProvider time, ILo
         catch (Exception)
         {
             logger.LogWarning("The platform could not read the saved Drover session");
-            Forget(origin);
-            return null;
+            throw new HttpRequestException("The device could not read the saved Drover session.");
         }
     }
 

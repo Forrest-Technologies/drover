@@ -13,6 +13,12 @@ ASP.NET Core Identity, used directly. It is the platform, it is maintained by Mi
 
 The native app uses the existing sign-in, setup, or registration endpoint first. It exchanges the resulting cookie and antiforgery token at `POST /api/native/session`. If the server supports native sessions, the app discards its session cookie after exchange. A cold start uses `POST /api/native/refresh` with the saved credential. Access and refresh both require the original server session and the current security stamp. Cookie clients still need antiforgery on state-changing requests. The refresh request uses its explicit credential and does not use cookies.
 
+If an access token is rejected while checking the session, the native app tries its stored refresh credential and
+retries the session check once. A refresh response of 401 clears the saved credential. A temporarily missing route,
+an unavailable server, or an unusable refresh response leaves it available for retry. A replacement server needs the
+same database and Data Protection key ring to validate existing credentials. Compose CI checks both access and refresh
+using a session issued before container replacement.
+
 Decisions:
 
 - **Password hashing**: Identity's default hasher. No extra dependency. The alternatives checked were stale or carried an unsuitable license.

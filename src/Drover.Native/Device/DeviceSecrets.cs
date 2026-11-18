@@ -41,34 +41,32 @@ internal sealed class DeviceSecrets(ILogger<DeviceSecrets> logger) : ISecureStor
 #if __ANDROID__ || __IOS__
     private string? Read(string key)
     {
-        try
+        if (Find(key) is not { } kept)
         {
-            var kept = vault.Retrieve(Resource, key);
-            kept.RetrievePassword();
-            return kept.Password;
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or ArgumentException)
-        {
-            logger.LogDebug(exception, "Nothing is kept in the credential store under that name");
+            logger.LogDebug("No saved Drover session was found in the credential store");
             return null;
         }
+
+        kept.RetrievePassword();
+        return kept.Password;
     }
 
     private void Write(string key, string value) => vault.Add(new(Resource, key, value));
 
     private bool Forget(string key)
     {
-        try
+        if (Find(key) is not { } kept)
         {
-            vault.Remove(vault.Retrieve(Resource, key));
-            return true;
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException or ArgumentException)
-        {
-            logger.LogDebug(exception, "Nothing was kept in the credential store under that name");
             return false;
         }
+
+        vault.Remove(kept);
+        return true;
     }
+
+    private Windows.Security.Credentials.PasswordCredential? Find(string key) => vault.RetrieveAll().FirstOrDefault(
+        credential => string.Equals(credential.Resource, Resource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(credential.UserName, key, StringComparison.OrdinalIgnoreCase));
 #else
     private string? Read(string key)
     {
