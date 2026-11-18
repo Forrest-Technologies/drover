@@ -9,6 +9,8 @@ public sealed class MessageList : Grid
 {
     #region Private Fields
 
+    private const double FramesInAFade = 4;
+
     private readonly ScrollViewer scroller = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -56,6 +58,8 @@ public sealed class MessageList : Grid
     private bool atFoot = true;
 
     private bool drawQueued;
+
+    private readonly System.Diagnostics.Stopwatch drawn = System.Diagnostics.Stopwatch.StartNew();
 
     #endregion
 
@@ -176,19 +180,30 @@ public sealed class MessageList : Grid
 
     private void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs change) => QueueDraw();
 
-    // A reply can arrive many words a second. The list is drawn once for all that arrived since it was last drawn.
-    private void QueueDraw()
+    // A reply can arrive many words a second, and a reply picked up again arrives all at once. The list is drawn
+    // once for all that arrived since it was last drawn, after what the person is doing, and never so soon after
+    // the last time that the screen has no moment to show it.
+    private async void QueueDraw()
     {
-        if (!drawQueued)
+        if (drawQueued)
         {
-            drawQueued = true;
-            DispatcherQueue.TryEnqueue(Draw);
+            return;
         }
+
+        drawQueued = true;
+        var rest = TimeSpan.FromMilliseconds(Tokens.Number("DvDur1") / FramesInAFade) - drawn.Elapsed;
+        if (rest > TimeSpan.Zero)
+        {
+            await Task.Delay(rest);
+        }
+
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Draw);
     }
 
     private void Draw()
     {
         drawQueued = false;
+        drawn.Restart();
 
         if (model is not { } list)
         {

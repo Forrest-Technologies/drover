@@ -17,6 +17,12 @@ public sealed class MarkdownView : StackPanel
 
     private IReadOnlyList<MarkdownNode> nodes = [];
 
+    // What the last paragraph of a streaming reply said when it was last drawn, and when each stretch of it that
+    // is still fading in arrived.
+    private readonly List<(int Start, long At)> arrivals = [];
+
+    private string arrived = string.Empty;
+
     #endregion
 
     #region Constructors
@@ -75,12 +81,130 @@ public sealed class MarkdownView : StackPanel
         AddBlocks(this, nodes, "DvText");
         AutomationProperties.SetItemStatus(this, Streaming ? "Busy" : string.Empty);
 
-        // Text is streaming: the block that just arrived fades in.
+        // Text is streaming: the block that just arrived fades in, and so do the characters added to the last one.
         if (Streaming && Children.Count > before && Children.Count > 0)
         {
             Motion.Arrive(Children[^1]);
+            arrived = PlainText(LastParagraph(this));
+            arrivals.Clear();
+        }
+        else if (Streaming)
+        {
+            FadeNewCharacters(LastParagraph(this));
+        }
+        else
+        {
+            arrived = string.Empty;
+            arrivals.Clear();
         }
     }
+
+    #endregion
+
+    #region Streaming
+
+    private static TextBlock? LastParagraph(Panel panel) => panel.Children.LastOrDefault() switch
+    {
+        TextBlock paragraph => paragraph,
+        Grid { Children: [.., Panel content] } => LastParagraph(content),
+        Panel inner => LastParagraph(inner),
+        _ => null,
+    };
+
+    private static string PlainText(TextBlock? paragraph) =>
+        paragraph is null ? string.Empty : string.Concat(paragraph.Inlines.OfType<Microsoft.UI.Xaml.Documents.Run>().Select(run => run.Text));
+
+    // New characters fade in over the shortest duration. The paragraph is drawn again each time text arrives, so a
+    // stretch that arrived a moment ago carries on from how far its fade had come. With reduced motion, and when
+    // the text did not simply grow, the characters are just there.
+    private void FadeNewCharacters(TextBlock? paragraph)
+    {
+        var now = Environment.TickCount64;
+        var lasts = (long)Motion.Duration("DvDur1").TotalMilliseconds;
+        var text = PlainText(paragraph);
+        var grew = text.Length > arrived.Length && text.StartsWith(arrived, StringComparison.Ordinal);
+
+        arrivals.RemoveAll(stretch => now - stretch.At >= lasts || stretch.Start >= text.Length);
+        if (!grew && text != arrived)
+        {
+            arrivals.Clear();
+        }
+        else if (grew)
+        {
+            arrivals.Add((arrived.Length, now));
+        }
+
+        arrived = text;
+
+        if (paragraph is null || lasts <= 0 || paragraph.Inlines.Any(inline => inline is not Microsoft.UI.Xaml.Documents.Run))
+        {
+            return;
+        }
+
+        for (var index = arrivals.Count - 1; index >= 0; index--)
+        {
+            var (start, at) = arrivals[index];
+            var end = index == arrivals.Count - 1 ? text.Length : arrivals[index + 1].Start;
+            Fade(paragraph, start, end, (double)(now - at) / lasts, TimeSpan.FromMilliseconds(lasts - (now - at)));
+        }
+    }
+
+    // The runs between two places in the paragraph get an ink of their own, which comes up from how far it had come.
+    private static void Fade(TextBlock paragraph, int start, int end, double from, TimeSpan remaining)
+    {
+        var ink = new SolidColorBrush(((SolidColorBrush)paragraph.Foreground).Color) { Opacity = from };
+        var position = 0;
+
+        for (var index = 0; index < paragraph.Inlines.Count; index++)
+        {
+            var run = (Microsoft.UI.Xaml.Documents.Run)paragraph.Inlines[index];
+            var (runStart, runEnd) = (position, position + run.Text.Length);
+            position = runEnd;
+
+            if (runEnd <= start || runStart >= end)
+            {
+                continue;
+            }
+
+            if (runStart < start)
+            {
+                paragraph.Inlines.Insert(index + 1, Like(run, run.Text[(start - runStart)..]));
+                run.Text = run.Text[..(start - runStart)];
+                position = start;
+                continue;
+            }
+
+            if (runEnd > end)
+            {
+                paragraph.Inlines.Insert(index + 1, Like(run, run.Text[(end - runStart)..]));
+                run.Text = run.Text[..(end - runStart)];
+                position = end;
+            }
+
+            run.Foreground = ink;
+        }
+
+        var fade = new DoubleAnimation { From = from, To = 1, Duration = remaining };
+        Storyboard.SetTarget(fade, ink);
+        Storyboard.SetTargetProperty(fade, nameof(Brush.Opacity));
+        var once = new Storyboard();
+        once.Children.Add(fade);
+        once.Begin();
+    }
+
+    private static Microsoft.UI.Xaml.Documents.Run Like(Microsoft.UI.Xaml.Documents.Run run, string text) => new()
+    {
+        Text = text,
+        FontWeight = run.FontWeight,
+        FontStyle = run.FontStyle,
+        TextDecorations = run.TextDecorations,
+        FontFamily = run.FontFamily,
+        FontSize = run.FontSize,
+    };
+
+    #endregion
+
+    #region Laying Out Blocks
 
     // Inline nodes between blocks are gathered into one paragraph, as loose text in a list item is.
     private void AddBlocks(Panel target, IReadOnlyList<MarkdownNode> children, string ink)
