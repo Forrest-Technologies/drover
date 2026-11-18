@@ -42,8 +42,7 @@ public static class NativeClientFiles
         {
             if (context.Request.Path.Value == BasePath)
             {
-                context.Response.Redirect($"{BasePath}/{context.Request.QueryString}");
-                return Task.CompletedTask;
+                return TypedResults.LocalRedirect($"{BasePath}/{context.Request.QueryString}").ExecuteAsync(context);
             }
 
             return next(context);

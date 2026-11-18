@@ -43,13 +43,16 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
         (await response.Content.ReadAsStringAsync(Token)).Should().Be(Page);
     }
 
-    [Fact]
-    public async Task The_native_folder_without_its_slash_is_sent_to_it()
+    [Theory]
+    [InlineData("/native", "/native/")]
+    [InlineData("/native?tool-sign-in=connected&connection=sample", "/native/?tool-sign-in=connected&connection=sample")]
+    public async Task The_native_folder_without_its_slash_redirects_locally_and_keeps_the_query(string path, string location)
     {
-        var response = await NewClient().Get("/native");
+        var response = await NewClient().Get(path);
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        response.Headers.Location!.OriginalString.Should().Be("/native/");
+        response.Headers.Location!.IsAbsoluteUri.Should().BeFalse();
+        response.Headers.Location.OriginalString.Should().Be(location);
     }
 
     [Theory]
