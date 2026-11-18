@@ -14,6 +14,7 @@ global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.UI.Xaml;
 global using Drover.Client;
+global using Drover.Contracts.Push;
 global using Drover.Native.Controls;
 global using Drover.Native.Layouts;
 global using Drover.Native.Pages;

@@ -6,13 +6,16 @@
     <TargetFramework />
     <TargetFrameworks>net11.0-desktop;net11.0-browserwasm;net11.0-android</TargetFrameworks>
     <TargetFrameworks Condition="'$(DroverEnableApple)' == 'true'">$(TargetFrameworks);net11.0-ios;net11.0-maccatalyst</TargetFrameworks>
+    <!-- A build that needs one target only names it, so it needs no other target's workload: the server's image
+         builds the browser target alone. -->
+    <TargetFrameworks Condition="'$(DroverNativeTargets)' != ''">$(DroverNativeTargets)</TargetFrameworks>
 
     <OutputType>Exe</OutputType>
     <UnoSingleProject>true</UnoSingleProject>
     <RootNamespace>Drover.Native</RootNamespace>
 
     <ApplicationTitle>Drover</ApplicationTitle>
-    <ApplicationId>com.forresttechnologies.drover.native</ApplicationId>
+    <ApplicationId>com.forresttechnologies.drover</ApplicationId>
     <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
     <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
     <!-- The development server's targets switch the version attribute off in Debug so hot reload sees a stable
@@ -67,6 +70,68 @@
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/NoEval.js" />
     <Compile Include="../Shared/Transport/AntiforgeryHandler.cs" Link="Transport/AntiforgeryHandler.cs" />
   </ItemGroup>
+
+  <!-- The page's start script, the cookie reader, notifications, the service worker, and the icons are the web
+       client's own files, shared, so both behave the same: the stored theme from the first frame, a new build that
+       takes over and reloads the page unless the person is writing, and notifications through the same worker. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
+    <Content Include="../Shared/Web/*.js;../Shared/Web/*.png;../Shared/Web/*.svg" Exclude="../Shared/Web/service-worker.published.js">
+      <Link>%(Filename)%(Extension)</Link>
+      <UnoDeploy>Root</UnoDeploy>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- The page names its files relative to the folder it is served from, so an address deep in the app still finds
+       them. The folder differs between a published build (/native/) and a development one (/). -->
+  <Target Name="DroverIndexHtml"
+          BeforeTargets="GenerateUnoWasmAssets"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
+    <PropertyGroup>
+      <_DroverBasePath>$(WasmShellWebAppBasePath)</_DroverBasePath>
+      <_DroverBasePath Condition="'$(_DroverBasePath)' == '' or '$(_DroverBasePath)' == './'">/</_DroverBasePath>
+      <_DroverIndexHtml>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)index.html</_DroverIndexHtml>
+      <_DroverIndexText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/Platforms/WebAssembly/index.html').Replace('DROVER_BASE_PATH', '$(_DroverBasePath)'))</_DroverIndexText>
+      <WasmShellIndexHtmlPath>$(_DroverIndexHtml)</WasmShellIndexHtmlPath>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_DroverIndexHtml)" Lines="$([MSBuild]::Escape('$(_DroverIndexText)'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <!-- A published build gets the web client's published service worker, with the list of the build's files and a
+       hash of each that the worker stores at install. It takes the place of the platform's own worker, which is
+       never registered (the platform's PWA switch is off). Runs after the platform's last change to the page. -->
+  <Target Name="DroverServiceWorker"
+          AfterTargets="Publish"
+          DependsOnTargets="_UnoUpdateDotnetJsFingerprintPublishOutput;_UnoGeneratePreloadLinksPublishOutput"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm' and '$(WasmBuildingForNestedPublish)' != 'true'">
+    <PropertyGroup>
+      <_DroverWebRoot>$([System.IO.Path]::GetFullPath('$(PublishDir)'))wwwroot/</_DroverWebRoot>
+      <_DroverAssetList>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)drover-shell-files.txt</_DroverAssetList>
+    </PropertyGroup>
+    <ItemGroup>
+      <_DroverShellFile Include="$(_DroverWebRoot)**"
+                        Exclude="$(_DroverWebRoot)**/*.br;$(_DroverWebRoot)**/*.gz;$(_DroverWebRoot)service-worker.js;$(_DroverWebRoot)service-worker-assets.js" />
+    </ItemGroup>
+    <GetFileHash Files="@(_DroverShellFile)" Algorithm="SHA256" HashEncoding="base64">
+      <Output TaskParameter="Items" ItemName="_DroverHashedFile" />
+    </GetFileHash>
+    <ItemGroup>
+      <_DroverHashedFile>
+        <Url>$([MSBuild]::MakeRelative('$(_DroverWebRoot)', '%(FullPath)').Replace('%5C', '/'))</Url>
+      </_DroverHashedFile>
+      <_DroverAssetLine Include="@(_DroverHashedFile->'    { &quot;url&quot;: &quot;%(Url)&quot;, &quot;hash&quot;: &quot;sha256-%(FileHash)&quot; },')" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_DroverAssetList)" Lines="@(_DroverAssetLine)" Overwrite="true" />
+    <GetFileHash Files="$(_DroverAssetList)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Hash" PropertyName="_DroverShellVersion" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(_DroverWebRoot)service-worker-assets.js"
+                      Lines="self.assetsManifest = {;  &quot;version&quot;: &quot;$(_DroverShellVersion.Substring(0, 12))&quot;,;  &quot;assets&quot;: [;@(_DroverAssetLine);  ];}%3B"
+                      Overwrite="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../Shared/Web/service-worker.published.js" DestinationFiles="$(_DroverWebRoot)service-worker.js" />
+    <!-- The compressed copies are of the platform's worker, which is gone. -->
+    <Delete Files="$(_DroverWebRoot)service-worker.js.br;$(_DroverWebRoot)service-worker.js.gz" />
+  </Target>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'browserwasm'">
     <Compile Include="../Shared/Transport/AppRequests.cs" Link="Transport/AppRequests.cs" />

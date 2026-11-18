@@ -6,9 +6,17 @@
 // for another host.
 self.importScripts("./service-worker-assets.js", "./push-worker.js");
 
-const cacheNamePrefix = "drover-shell-";
+// Two clients share this origin, each with this worker: the web client at the root, and the native client's browser
+// build under /native/ while screens move to it. Each worker keeps to its own client: its own stored shell, and
+// never a request for the other's files.
+const scope = new URL(self.registration.scope).pathname;
+const clientPaths = ["/", "/native/"];
+const otherClients = clientPaths.filter(path => path !== scope && path.startsWith(scope));
+const shellPrefix = path => path === "/" ? "drover-shell-" : `drover-shell${path.replaceAll("/", "-")}`;
+
+const cacheNamePrefix = shellPrefix(scope);
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
-const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
+const shellFiles = [/\.dll$/, /\.pdb$/, /\.wasm$/, /\.html$/, /\.js$/, /\.json$/, /\.css$/, /\.woff2$/, /\.ttf$/, /\.manifest$/, /\.png$/, /\.svg$/, /\.webmanifest$/, /\.dat$/, /\.blat$/];
 const neverCached = [/^service-worker\.js$/];
 const serverPaths = ["/api/", "/health/", "/openapi/", "/oauth/"];
 
@@ -36,6 +44,7 @@ async function dropOldShells() {
     const names = await caches.keys();
     await Promise.all(names
         .filter(name => name.startsWith(cacheNamePrefix) && name !== cacheName)
+        .filter(name => !otherClients.some(path => name.startsWith(shellPrefix(path))))
         .map(name => caches.delete(name)));
 }
 
@@ -44,7 +53,8 @@ function answersFor(request) {
     const url = new URL(request.url);
     return request.method === "GET"
         && url.origin === self.location.origin
-        && !serverPaths.some(path => url.pathname.startsWith(path));
+        && !serverPaths.some(path => url.pathname.startsWith(path))
+        && !otherClients.some(path => url.pathname.startsWith(path));
 }
 
 // Never rejects: a request the worker cannot answer gets a network error response, which the page sees as a failed

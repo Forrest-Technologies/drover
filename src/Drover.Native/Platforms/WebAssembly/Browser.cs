@@ -2,7 +2,7 @@ namespace Drover.Native.Platform;
 
 /// <summary>
 /// The few things the app asks of the browser itself: the page's local storage, its address and history, a media
-/// query, a cookie. Each is a direct call to a browser function, with no script of the app's own in between.
+/// query. Each is a direct call to a browser function, with no script of the app's own in between.
 /// </summary>
 internal static partial class Browser
 {
@@ -13,8 +13,6 @@ internal static partial class Browser
     /// <summary>The path, query, and fragment in the address bar.</summary>
     public static string Address =>
         $"{Location.GetPropertyAsString("pathname")}{Location.GetPropertyAsString("search")}{Location.GetPropertyAsString("hash")}";
-
-    public static string Cookies => Document.GetPropertyAsString("cookie") ?? string.Empty;
 
     private static JSObject Location => JSHost.GlobalThis.GetPropertyAsJSObject("location")!;
 
