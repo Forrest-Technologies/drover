@@ -88,9 +88,10 @@ jobs:
             --driver-opt memory=2g --driver-opt memory-swap=2g
           docker buildx inspect --bootstrap budget
           builder=buildx_buildkit_budget0
-          docker update --memory 2g --memory-swap 2g "$builder"
           pid=$(docker inspect --format '{{.State.Pid}}' "$builder")
           cgroup="/sys/fs/cgroup$(cut -d: -f3 "/proc/$pid/cgroup")"
+          # Docker can put its init process in a child cgroup. Measure the whole builder at its container scope.
+          cgroup="${cgroup%/init}"
           memory_max=$(cat "$cgroup/memory.max")
           swap_max=$(cat "$cgroup/memory.swap.max")
           printf 'BuildKit cgroup %s has memory.max=%s and memory.swap.max=%s\n' "$cgroup" "$memory_max" "$swap_max"
