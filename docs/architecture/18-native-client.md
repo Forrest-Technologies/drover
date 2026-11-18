@@ -81,9 +81,9 @@ with a test keyboard that composes, commits, and deletes text and with hardware 
 `bash scripts/check-native-android-text-editing.sh` on a fresh emulator with the Drover development APK installed.
 
 On Android, the edge-to-edge window draws its background behind the system bars. The shell and custom popup
-panels use Uno's visible-bounds padding to keep controls clear of the bars and display cutouts. The emulator
-check also compares the position of the server address with and without a tall cutout at 360 dp and captures
-the connection screen in both themes.
+panels use Uno's visible bounds to keep controls clear of the bars and display cutouts. The emulator check
+compares the first and last rows of the connection screen's yard with Android's system-bar bounds at 360 dp
+and captures the screen in both themes.
 
 Taking a screenshot of the browser build: serve the published `wwwroot` under `/native/` with any static host that falls back to `index.html`, open it in Playwright, wait until the element with class `uno-loader` is gone, then capture. The app is one canvas, so Playwright's full-page capture gives one viewport: use a tall viewport, or send wheel events of about 1300 pixels and capture again. A development build takes about fifteen seconds to start in headless Chromium; a published build about three.
 

@@ -3,6 +3,7 @@
 
 import re
 import shlex
+import struct
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -13,7 +14,6 @@ PACKAGE = "com.forresttechnologies.drover.client"
 IME_PACKAGE = "org.drover.tests.keyboard"
 IME = f"{IME_PACKAGE}/.TestKeyboard"
 DUMP = "/data/local/tmp/drover-text-editing.xml"
-CUTOUT = "com.android.internal.display.cutout.emulation.tall"
 
 
 def shell(*args):
@@ -27,6 +27,7 @@ def start_app():
 
 
 def find_address():
+    shell("rm", "-f", DUMP)
     shell("uiautomator", "dump", DUMP)
     for node in ET.fromstring(shell("cat", DUMP)).iter("node"):
         if (node.get("package") == PACKAGE and node.get("class") == "android.widget.EditText"
@@ -114,23 +115,56 @@ def screenshot(name):
     (folder / f"{name}.png").write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
 
 
+def system_bar_edge(displays, bar, edge):
+    frame = re.search(
+        rf"(?:mType|type)={bar} (?:mFrame|frame)=\[\d+,(\d+)\]\[\d+,(\d+)\][^\r\n}}]*"
+        r"\b(?:mVisible|visible)=true\b",
+        displays,
+    )
+    if frame is None:
+        raise AssertionError(f"Could not read the visible {bar} frame from Android.")
+    return int(frame.group(edge))
+
+
+def check_yard_edges(theme):
+    displays = shell("dumpsys", "window", "displays")
+    status_bottom = system_bar_edge(displays, "statusBars", 2)
+    navigation_top = system_bar_edge(displays, "navigationBars", 1)
+    pixels = subprocess.check_output(["adb", "exec-out", "screencap"])
+    width, height, format_id, _ = struct.unpack_from("<4I", pixels)
+    if (width, height, format_id) != (720, 1600, 1):
+        raise AssertionError(f"Expected a 720 × 1600 RGBA emulator image, got {width} × {height} format {format_id}.")
+
+    # The yard dots sit on a 16 dp grid. Sample the center of the display away from the status icons
+    # and look for the dot colors in the two themes.
+    dots = bytes((28, 36, 49, 255)) if theme == "dark" else bytes((223, 227, 234, 255))
+    pitch = 32
+
+    def has_dots(y):
+        offset = 16 + y * width * 4
+        strip = pixels[offset + width * 4 // 3:offset + width * 8 // 3]
+        return strip.count(dots) >= 3
+
+    top_rows = [y for y in range(status_bottom + pitch) if has_dots(y)]
+    bottom_rows = [y for y in range(navigation_top - pitch, height) if has_dots(y)]
+    if not top_rows or min(top_rows) < status_bottom or not bottom_rows or max(bottom_rows) >= navigation_top:
+        raise AssertionError(
+            f"The {theme} yard must start below y={status_bottom} and end above y={navigation_top}. "
+            f"Found dot rows {top_rows} at the top and {bottom_rows} at the bottom."
+        )
+    print(f"Android {theme} safe area passed with yard rows {min(top_rows)} and {max(bottom_rows)} "
+          f"between system bars at {status_bottom} and {navigation_top}.")
+
+
 def check_safe_area():
-    # Use a 360 dp viewport. A tall cutout grows the top system inset without changing this window's size.
+    # Use a 360 dp viewport for both themes.
     shell("wm", "size", "720x1600")
     shell("wm", "density", "320")
     try:
         start_app()
         normal_top = address_bounds()[1]
         screenshot("360-dark")
-
-        shell("cmd", "overlay", "enable-exclusive", "--category", CUTOUT)
-        start_app()
-        cutout_top = address_bounds()[1]
-        screenshot("360-dark-tall-cutout")
-        if cutout_top - normal_top < 48:
-            raise AssertionError(
-                f"The server address did not move below the taller cutout: y={normal_top} -> {cutout_top}."
-            )
+        check_yard_edges("dark")
 
         # The fresh emulator uses a debuggable system image. Seed the app's saved light choice before it launches.
         subprocess.run(["adb", "root"], check=True)
@@ -144,12 +178,11 @@ def check_safe_area():
               f"&& chown -R $(stat -c %u:%g {data}) {preferences} && restorecon -RF {preferences}")
         start_app()
         light_top = address_bounds()[1]
-        screenshot("360-light-tall-cutout")
-        if abs(light_top - cutout_top) > 2:
+        screenshot("360-light")
+        check_yard_edges("light")
+        if abs(light_top - normal_top) > 2:
             raise AssertionError("Changing the theme moved the server address relative to the safe area.")
-        print(f"Android safe-area layout passed at 360 dp (server address y={normal_top} -> {cutout_top}).")
     finally:
-        shell("cmd", "overlay", "disable", CUTOUT)
         shell("wm", "size", "reset")
         shell("wm", "density", "reset")
 
