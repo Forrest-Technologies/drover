@@ -85,7 +85,7 @@ public sealed class SegmentedControl : Grid
 
     private void Show()
     {
-        var hadFocus = row.Children.OfType<PlainButton>().Any(segment => segment.FocusState is not FocusState.Unfocused);
+        var hadFocus = row.Children.OfType<Border>().Select(cell => cell.Child).OfType<PlainButton>().Any(segment => segment.FocusState is not FocusState.Unfocused);
         var tabStop = Options.FirstOrDefault(option => option.Value == Value) ?? Options.FirstOrDefault(option => !option.Disabled);
 
         HorizontalAlignment = Fills ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
@@ -100,6 +100,7 @@ public sealed class SegmentedControl : Grid
             var segment = new SegmentButton
             {
                 Content = Words(option, chosen),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0),
                 Fill = chosen ? "DvBg3" : null,
                 HoverFill = chosen ? "DvBg3" : null,
@@ -116,7 +117,7 @@ public sealed class SegmentedControl : Grid
             segment.Click += (_, _) => Value = option.Value;
             segment.KeyDown += (_, key) => Move(option, key);
 
-            // Each choice is a column of its own: as wide as its words, or, when the control fills, one share of the width.
+            var index = row.Children.Count;
             row.ColumnDefinitions.Add(new() { Width = Fills ? new(1, GridUnitType.Star) : GridLength.Auto });
             var cell = new Border
             {
@@ -124,7 +125,7 @@ public sealed class SegmentedControl : Grid
                 BorderBrush = Tokens.Brush(this, "DvLine"),
                 BorderThickness = new(row.Children.Count == 0 ? 0 : Tokens.Number("DvBorder"), 0, 0, 0),
             };
-            SetColumn(cell, row.Children.Count);
+            Grid.SetColumn(cell, index);
             row.Children.Add(cell);
 
             if (chosen && hadFocus)
@@ -135,15 +136,22 @@ public sealed class SegmentedControl : Grid
     }
 
     // A choice that cannot be taken is struck through, so it is not told by color alone.
-    private static TextBlock Words(SegmentOption<string> option, bool chosen) => new()
+    private static TextBlock Words(SegmentOption<string> option, bool chosen)
     {
-        Text = option.Label,
-        TextDecorations = option.Disabled && !chosen ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None,
-    };
+        var words = new TextBlock { Text = option.Label, TextWrapping = TextWrapping.Wrap };
+        words.TextAlignment = TextAlignment.Center;
+        words.TextDecorations = option.Disabled && !chosen ? Windows.UI.Text.TextDecorations.Strikethrough : Windows.UI.Text.TextDecorations.None;
+        return words;
+    }
 
     private void Move(SegmentOption<string> from, KeyRoutedEventArgs key)
     {
         List<SegmentOption<string>> open = [.. Options.Where(option => !option.Disabled)];
+        if (open.Count == 0)
+        {
+            return;
+        }
+
         var current = open.IndexOf(from);
         int? next = key.Key switch
         {
@@ -152,7 +160,7 @@ public sealed class SegmentedControl : Grid
             _ => null,
         };
 
-        if (next is { } index && open.Count > 0)
+        if (next is { } index)
         {
             key.Handled = true;
             Value = open[index].Value;

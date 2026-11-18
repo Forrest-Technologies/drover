@@ -16,7 +16,8 @@ public static partial class ClientFileCaching
     /// keeps its own copy of the shell for opening offline, so nothing is lost by it.
     /// </summary>
     public static string For(PathString path) =>
-        path.StartsWithSegments(FrameworkFiles) && NamedByContent().IsMatch(path.Value!)
+        ((path.StartsWithSegments(FrameworkFiles) || path.StartsWithSegments("/native/_framework")) && NamedByContent().IsMatch(path.Value!))
+            || NativePackage().IsMatch(path.Value ?? string.Empty)
             ? KeepForGood
             : AskEveryTime;
 
@@ -39,6 +40,10 @@ public static partial class ClientFileCaching
     // no digit is asked for every time, which costs a request and nothing else.
     [GeneratedRegex(@"\.(?=[a-z0-9]{10}\.)[a-z]*[0-9][a-z0-9]*\.[A-Za-z0-9]+(\.(br|gz))?$", RegexOptions.CultureInvariant)]
     private static partial Regex NamedByContent();
+
+    // Uno places content in a directory named by the package hash. The loader and index stay revalidated.
+    [GeneratedRegex(@"^/native/package_[a-fA-F0-9]{40}/[^/].*$", RegexOptions.CultureInvariant)]
+    private static partial Regex NativePackage();
 
     #endregion
 }

@@ -116,6 +116,9 @@
           <dv:Button x:Name="Copy"
                      Content="{x:Bind vm:ExtensionEditorViewModel.CopyLabel}"
                      IsEnabled="{x:Bind Model.Idle, Mode=OneWay}" />
+          <dv:Button x:Name="Download"
+                     Content="Download extension.json"
+                     IsEnabled="{x:Bind Model.Idle, Mode=OneWay}" />
           <dv:Button Kind="Primary"
                      Content="{x:Bind vm:ExtensionEditorViewModel.ImportLabel}"
                      IsEnabled="{x:Bind Model.Idle, Mode=OneWay}"

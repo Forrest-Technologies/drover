@@ -3,75 +3,21 @@
               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
               xmlns:dv="using:Drover.Native.Controls"
               xmlns:layouts="using:Drover.Native.Layouts"
-              xmlns:local="using:Drover.Native.Pages"
               xmlns:session="using:Drover.Native.Session"
-              xmlns:shell="using:Drover.Native.Shell"
-              xmlns:ui="using:Drover.Ui"
-              xmlns:vm="using:Drover.Presentation.ViewModels">
-
-  <layouts:EntryLayout>
-    <session:SessionGate>
-      <StackPanel Spacing="{StaticResource DvSpace4}">
-        <dv:SetupSteps Current="3" />
-        <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="{x:Bind vm:MeetBotViewModel.Title}" />
-
-        <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.ShowFailed, Mode=OneWay}">
-          <dv:StatusNote Kind="Danger" Text="{x:Bind Model.LoadProblem, Mode=OneWay}" />
-          <dv:Button Kind="Primary" HorizontalAlignment="Left" Content="Try again" Command="{x:Bind Model.LoadCommand}" />
-        </StackPanel>
-
-        <TextBlock Style="{StaticResource DvTextSecondary}"
-                   AutomationProperties.LiveSetting="Polite"
-                   Text="{x:Bind vm:MeetBotViewModel.LoadingNote}"
-                   Visibility="{x:Bind Model.ShowLoading, Mode=OneWay}" />
-
-        <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.ShowMet, Mode=OneWay}">
-          <StackPanel x:Name="Meet" Spacing="{StaticResource DvSpace2}" HorizontalAlignment="Center">
-            <dv:Avatar HorizontalAlignment="Center" Size="96" BotName="{x:Bind Model.BotName, Mode=OneWay}" Hue="{x:Bind Model.BotHue, Mode=OneWay}" />
-            <TextBlock Style="{StaticResource DvTextH2}"
-                       AutomationProperties.HeadingLevel="None"
-                       TextAlignment="Center"
-                       Text="{x:Bind Model.BotName, Mode=OneWay}" />
-            <TextBlock Style="{StaticResource DvTextMono}"
-                       Foreground="{ThemeResource DvText2Brush}"
-                       TextAlignment="Center"
-                       Text="{x:Bind Model.BotModel, Mode=OneWay}" />
-          </StackPanel>
-          <TextBlock Style="{StaticResource DvTextSecondary}" Text="{x:Bind Model.MetLead, Mode=OneWay}" />
-          <local:StartLink Text="{x:Bind Model.TalkLabel, Mode=OneWay}" Address="{x:Bind Model.TalkAddress, Mode=OneWay}" />
-        </StackPanel>
-
-        <dv:EmptyState Title="{x:Bind vm:MeetBotViewModel.NoModelTitle}"
-                       Cause="{x:Bind vm:MeetBotViewModel.NoModelCause}"
-                       ActionLabel="{x:Bind vm:MeetBotViewModel.NoModelAction}"
-                       ActionHref="{x:Bind ui:Addresses.SetupModel}"
-                       Visibility="{x:Bind Model.ShowNoModel, Mode=OneWay}" />
-
-        <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.ShowForm, Mode=OneWay}">
-          <TextBlock Style="{StaticResource DvTextSecondary}" Text="{x:Bind vm:MeetBotViewModel.FormLead}" />
-          <dv:Field Label="Name"
-                    Value="{x:Bind Model.Name, Mode=TwoWay}"
-                    Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                    Submitted="Submit" />
-          <dv:Select Label="Model"
-                     Options="{x:Bind local:MeetBotPage.OptionsOf(Model.ModelChoices), Mode=OneWay}"
-                     Value="{x:Bind Model.ChosenModel, Mode=TwoWay}"
-                     Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                     Visibility="{x:Bind Model.ShowModelList, Mode=OneWay}" />
-          <dv:Field Label="Model name"
-                    Hint="{x:Bind Model.ModelNameHint, Mode=OneWay}"
-                    Value="{x:Bind Model.ChosenModel, Mode=TwoWay}"
-                    Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                    Visibility="{x:Bind Model.ShowModelName, Mode=OneWay}"
-                    Submitted="Submit" />
-          <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
-          <dv:Button Kind="Primary"
-                     HorizontalAlignment="Left"
-                     Content="{x:Bind Model.CreateLabel, Mode=OneWay}"
-                     Command="{x:Bind Model.CreateCommand}" />
-        </StackPanel>
+              xmlns:shell="using:Drover.Native.Shell">
+  <session:SessionGate>
+    <layouts:EntryLayout>
+      <dv:SetupSteps Current="3" />
+      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Meet your first bot" />
+      <ContentControl x:Name="State" />
+      <StackPanel x:Name="Form" Spacing="{StaticResource DvSpace4}">
+        <TextBlock Style="{StaticResource DvTextSecondary}" Text="Your first bot leads the crew. You talk to it, and the bots it makes for you work beneath it. Name it and choose the model it thinks with." />
+        <dv:Field Label="Name" Value="{x:Bind Model.Name, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+        <dv:Select x:Name="Models" Label="Model" Value="{x:Bind Model.Model, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+        <dv:Field x:Name="ModelName" Label="Model name" Value="{x:Bind Model.Model, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
+        <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
+        <dv:Button x:Name="Create" Kind="Primary" HorizontalAlignment="Stretch" Content="Create bot" Command="{x:Bind Model.CreateCommand}" />
       </StackPanel>
-    </session:SessionGate>
-  </layouts:EntryLayout>
-
+    </layouts:EntryLayout>
+  </session:SessionGate>
 </shell:Screen>

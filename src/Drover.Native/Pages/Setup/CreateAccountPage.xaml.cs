@@ -1,6 +1,6 @@
 namespace Drover.Native.Pages;
 
-/// <summary>First-run setup, step one: the account that owns the server.</summary>
+/// <summary>Create the first account on this server, proving access to the setup code when it is required.</summary>
 public sealed partial class CreateAccountPage : Screen
 {
     #region Constructors
@@ -8,13 +8,15 @@ public sealed partial class CreateAccountPage : Screen
     public CreateAccountPage()
     {
         InitializeComponent();
+        Model.PropertyChanged += (_, _) => Refresh();
+        Refresh();
     }
 
     #endregion
 
     #region Properties
 
-    public override string Title => CreateAccountViewModel.Title;
+    public override string Title => "Set up Drover";
 
     public CreateAccountViewModel Model { get; } = Make<CreateAccountViewModel>();
 
@@ -22,12 +24,22 @@ public sealed partial class CreateAccountPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route) => await Model.CheckServer();
+    protected override async void Opened(RouteMatch<Type> route) => await Model.Open();
 
-    // Enter in any field sends the form, as it does in a form on the web.
+    private void Refresh()
+    {
+        Checking.Visibility = Model.Status is null ? Visibility.Visible : Visibility.Collapsed;
+        CheckingText.Visibility = Model.Problem is null ? Visibility.Visible : Visibility.Collapsed;
+        Retry.Visibility = Model.Problem is null ? Visibility.Collapsed : Visibility.Visible;
+        Form.Visibility = Model.Status is null ? Visibility.Collapsed : Visibility.Visible;
+        Code.Visibility = Model.Status is { RequiresCode: true } ? Visibility.Visible : Visibility.Collapsed;
+        Create.IsEnabled = !Model.Busy;
+        Create.Content = Model.Busy ? "Creating your account" : "Create account";
+    }
+
     private void Submit(object? sender, EventArgs args)
     {
-        if (Model.SubmitCommand.CanExecute(null))
+        if (!Model.Busy && Model.Status is not null)
         {
             Model.SubmitCommand.Execute(null);
         }

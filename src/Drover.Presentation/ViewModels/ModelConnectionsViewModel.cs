@@ -1,7 +1,7 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The model connections of the space. Its job: see whether each connection works, add one, test it, replace its key.
+/// The model Connections of the space. Its job: see whether each connection works, add one, test it, replace its key.
 /// </summary>
 public sealed partial class ModelConnectionsViewModel(
     DroverApi api,
@@ -14,42 +14,44 @@ public sealed partial class ModelConnectionsViewModel(
 
     private const string CompatibleKind = "openai_compatible";
 
-    private static readonly SegmentOption<string>[] providers =
+    public static readonly SegmentOption<string>[] Providers =
     [
         new(VeniceKind, "Venice"),
         new(CompatibleKind, "Compatible endpoint"),
     ];
 
-    private static readonly string[] stateNames =
-    [
-        nameof(ShowAddButton), nameof(AddButtonEnabled), nameof(ShowFailed), nameof(ShowLoading), nameof(ShowEmptyToAdd),
-        nameof(ShowEmptyReadOnly), nameof(ShowList), nameof(CanEdit), nameof(ChangePending), nameof(AddFormEnabled),
-    ];
-
     private readonly Dictionary<Guid, string> problems = [];
 
+    [ObservableProperty]
     private List<ModelConnectionSummary>? connections;
 
-    private Guid? shownCatalog;
-
-    private IReadOnlyList<ModelCatalogResponse>? catalog;
-
-    private Guid? replacing;
-
-    private Guid? busy;
-
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowCompatible), nameof(ShowVenice))]
     private string kind = VeniceKind;
 
     [ObservableProperty]
     private string name = string.Empty;
 
     [ObservableProperty]
+    private Guid? shownCatalog;
+
+    [ObservableProperty]
+    private IReadOnlyList<ModelCatalogResponse>? catalog;
+
+
+    [ObservableProperty]
     private string baseUrl = string.Empty;
 
     [ObservableProperty]
     private string apiKey = string.Empty;
+
+    [ObservableProperty]
+    private string newKey = string.Empty;
+
+    [ObservableProperty]
+    private Guid? replacing;
+
+    [ObservableProperty]
+    private Guid? busy;
 
     [ObservableProperty]
     private string? loadProblem;
@@ -61,7 +63,7 @@ public sealed partial class ModelConnectionsViewModel(
     private string? notice;
 
     [ObservableProperty]
-    private NoteKind noticeKind = NoteKind.Ok;
+    private bool noticeIsProblem;
 
     [ObservableProperty]
     private bool adding;
@@ -73,61 +75,20 @@ public sealed partial class ModelConnectionsViewModel(
 
     #region Properties
 
-    public static string Title => "Model connections";
+    public IReadOnlyDictionary<Guid, string> Problems => problems;
 
-    public static string PageTitle => "Model connections · Drover";
+    private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
-    public static string AddLabel => "Add a model connection";
-
-    public static string LoadingNote => "Loading the model connections.";
-
-    public static string LoadFailedTitle => "Drover could not load the model connections";
-
-    public static string EmptyTitle => "No model connection yet";
-
-    public static string EmptyCause => "Bots think with a model you bring. Add a connection, then choose it in a bot's Model section.";
-
-    public static string EmptyReadOnlyNote => "This space has no model connections yet. An owner or admin of the space can add one.";
-
-    public static IReadOnlyList<SegmentOption<string>> Providers => providers;
-
-    /// <summary>The cards of the list, one for each connection.</summary>
-    public System.Collections.ObjectModel.ObservableCollection<ModelConnectionCard> Cards { get; } = [];
-
-    public bool ShowCompatible => Kind == CompatibleKind;
-
-    public bool ShowVenice => !ShowCompatible;
-
-    public string AddSubmitLabel => AddingBusy ? "Adding" : "Add and test";
-
-    public bool AddFormEnabled => !AddingBusy;
-
-    public bool ChangePending => busy is not null || AddingBusy;
-
-    public bool AddButtonEnabled => !ChangePending;
-
-    public bool ShowAddButton => CanEdit && connections is { Count: > 0 } && !Adding;
-
-    public bool ShowFailed => LoadProblem is not null;
-
-    public bool ShowLoading => LoadProblem is null && connections is null;
-
-    public bool ShowEmptyToAdd => LoadProblem is null && connections is { Count: 0 } && !Adding && CanEdit;
-
-    public bool ShowEmptyReadOnly => LoadProblem is null && connections is { Count: 0 } && !Adding && !CanEdit;
-
-    public bool ShowList => LoadProblem is null && connections is { Count: > 0 };
+    public bool ChangePending => Busy is not null || AddingBusy;
 
     // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
     public bool CanEdit => session.Space?.Role is "owner" or "admin";
 
-    private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
-
     #endregion
 
-    #region Public Methods
+    #region Overrides
 
-    public async Task Start()
+    public async Task Open()
     {
         if (await session.Load() is not null)
         {
@@ -135,117 +96,9 @@ public sealed partial class ModelConnectionsViewModel(
         }
     }
 
-    [RelayCommand]
-    public async Task Load()
-    {
-        LoadProblem = null;
+    #endregion
 
-        try
-        {
-            connections = [.. await api.ListModelConnections(SpaceId)];
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            LoadProblem = Failures.Sentence(exception);
-        }
-
-        Show();
-    }
-
-    [RelayCommand]
-    public void StartAdding()
-    {
-        Adding = true;
-        AddProblem = null;
-        Notice = null;
-        ApiKey = string.Empty;
-        BaseUrl = string.Empty;
-        Name = string.Empty;
-        Show();
-    }
-
-    [RelayCommand]
-    public void CancelAdding()
-    {
-        Adding = false;
-        Show();
-    }
-
-    [RelayCommand]
-    public async Task Add()
-    {
-        AddingBusy = true;
-        AddProblem = null;
-        Show();
-
-        try
-        {
-            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
-            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
-            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
-            connections!.Add(added);
-            Adding = false;
-            ApiKey = string.Empty;
-            Show();
-            await Test(added);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            AddProblem = Failures.Sentence(exception);
-        }
-        finally
-        {
-            AddingBusy = false;
-            Show();
-        }
-    }
-
-    public Task ShowCatalog(ModelConnectionCard card) =>
-        Change(card.Connection, async () =>
-        {
-            shownCatalog = card.Id;
-            catalog = null;
-            catalog = await api.ListModels(SpaceId, card.Id);
-        });
-
-    public Task RefreshCatalog(ModelConnectionCard card) =>
-        Change(card.Connection, async () =>
-        {
-            var result = await api.RefreshModels(SpaceId, card.Id);
-            catalog = result.Models;
-            Say(!result.Succeeded, result.Message ?? (result.Succeeded ? "Model list refreshed." : "The provider could not refresh the model list."));
-        });
-
-    public Task Test(ModelConnectionCard card) => Test(card.Connection);
-
-    public void StartReplacing(ModelConnectionCard card)
-    {
-        replacing = card.Id;
-        foreach (var other in Cards)
-        {
-            other.ForgetKey();
-        }
-
-        Show();
-    }
-
-    public void CancelReplacing(ModelConnectionCard card)
-    {
-        replacing = null;
-        card.ForgetKey();
-        Show();
-    }
-
-    public Task ReplaceKey(ModelConnectionCard card) =>
-        Change(card.Connection, async () =>
-        {
-            Replace(await api.ReplaceModelKey(SpaceId, card.Id, new(card.NewKey.Trim())));
-            card.ForgetKey();
-            replacing = null;
-            Say(false, $"The key for {card.Name} is replaced. Test the connection to check it.");
-        });
+    #region Private Methods
 
     public static (BadgeKind Kind, string Words) StatusOf(ModelConnectionSummary connection) => connection.Status switch
     {
@@ -262,11 +115,92 @@ public sealed partial class ModelConnectionsViewModel(
         return $"{kindWords} · {key} · {checkedWords}";
     }
 
-    #endregion
+    public async Task Load()
+    {
+        LoadProblem = null;
 
-    #region Private Methods
+        try
+        {
+            Connections = [.. await api.ListModelConnections(SpaceId)];
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            LoadProblem = Failures.Sentence(exception);
+        }
+    }
 
-    private Task Test(ModelConnectionSummary connection) =>
+    public void ChooseProvider(string chosen)
+    {
+        Kind = chosen;
+        AddProblem = null;
+    }
+
+    public void StartAdding()
+    {
+        Adding = true;
+        AddProblem = null;
+        Notice = null;
+        ApiKey = string.Empty;
+        BaseUrl = string.Empty;
+        Name = string.Empty;
+    }
+
+    public void StartReplacing(ModelConnectionSummary connection)
+    {
+        Replacing = connection.Id;
+        NewKey = string.Empty;
+    }
+
+    public void CancelReplacing()
+    {
+        Replacing = null;
+        NewKey = string.Empty;
+    }
+
+    public async Task Add()
+    {
+        AddingBusy = true;
+        AddProblem = null;
+
+        try
+        {
+            var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
+            var key = string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
+            var added = await api.CreateModelConnection(SpaceId, new(Kind, string.IsNullOrWhiteSpace(Name) ? NameFor(address) : Name.Trim(), address, key, null));
+            Connections!.Add(added);
+            Adding = false;
+            ApiKey = string.Empty;
+            await Test(added);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
+            AddProblem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            AddingBusy = false;
+        }
+    }
+
+    public Task ShowCatalog(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            ShownCatalog = connection.Id;
+            Catalog = null;
+            Catalog = await api.ListModels(SpaceId, connection.Id);
+        });
+
+    public Task RefreshCatalog(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            var result = await api.RefreshModels(SpaceId, connection.Id);
+            Catalog = result.Models;
+            Say(!result.Succeeded, result.Message ?? (result.Succeeded ? "Model list refreshed." : "The provider could not refresh the model list."));
+        });
+
+    public Task Test(ModelConnectionSummary connection) =>
         Change(connection, async () =>
         {
             var result = await api.TestModelConnection(SpaceId, connection.Id);
@@ -274,12 +208,20 @@ public sealed partial class ModelConnectionsViewModel(
             Say(!result.Succeeded, result.Message);
         });
 
+    public Task ReplaceKey(ModelConnectionSummary connection) =>
+        Change(connection, async () =>
+        {
+            Replace(await api.ReplaceModelKey(SpaceId, connection.Id, new(NewKey.Trim())));
+            NewKey = string.Empty;
+            Replacing = null;
+            Say(false, $"The key for {connection.Name} is replaced. Test the connection to check it.");
+        });
+
     private async Task Change(ModelConnectionSummary connection, Func<Task> action)
     {
-        busy = connection.Id;
+        Busy = connection.Id;
         Notice = null;
         problems.Remove(connection.Id);
-        Show();
 
         try
         {
@@ -293,78 +235,27 @@ public sealed partial class ModelConnectionsViewModel(
         }
         finally
         {
-            busy = null;
-            Show();
+            Busy = null;
         }
     }
 
     private void Replace(ModelConnectionSummary changed)
     {
-        var index = connections!.FindIndex(connection => connection.Id == changed.Id);
+        var index = Connections!.FindIndex(connection => connection.Id == changed.Id);
         if (index >= 0)
         {
-            connections[index] = changed;
+            Connections[index] = changed;
         }
     }
 
     private void Say(bool isProblem, string words)
     {
-        NoticeKind = isProblem ? NoteKind.Danger : NoteKind.Ok;
+        NoticeIsProblem = isProblem;
         Notice = words;
     }
 
     private static string NameFor(string? address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var parsed) ? parsed.Host : "Venice";
-
-    // Choosing another provider forgets what the last attempt said.
-    partial void OnKindChanged(string value) => AddProblem = null;
-
-    partial void OnAddingBusyChanged(bool value) => OnPropertyChanged(nameof(AddSubmitLabel));
-
-    // Gives each card what the screen's state says about its connection, and tells the page what to show.
-    private void Show()
-    {
-        SyncCards();
-        foreach (var stateName in stateNames)
-        {
-            OnPropertyChanged(stateName);
-        }
-    }
-
-    private void SyncCards()
-    {
-        var wanted = connections ?? [];
-        var changePending = ChangePending;
-
-        for (var index = 0; index < wanted.Count; index++)
-        {
-            var connection = wanted[index];
-            var card = Cards.FirstOrDefault(existing => existing.Id == connection.Id) ?? new ModelConnectionCard(this, connection);
-            card.Update(
-                connection, problems.GetValueOrDefault(connection.Id), changePending, CanEdit, CanEdit && shownCatalog == connection.Id,
-                replacing == connection.Id, shownCatalog == connection.Id ? CatalogLinesOf(catalog) : null);
-
-            if (index >= Cards.Count)
-            {
-                Cards.Add(card);
-            }
-            else if (Cards[index].Id != connection.Id)
-            {
-                Cards.Remove(card);
-                Cards.Insert(index, card);
-            }
-        }
-
-        while (Cards.Count > wanted.Count)
-        {
-            Cards.RemoveAt(Cards.Count - 1);
-        }
-    }
-
-    private static IReadOnlyList<CatalogLine>? CatalogLinesOf(IReadOnlyList<ModelCatalogResponse>? entries) =>
-        entries is null
-            ? null
-            : [.. entries.Select(entry => new CatalogLine(entry.DisplayName, entry.Model, entry.State is "available" ? null : $"({entry.State})"))];
 
     #endregion
 }

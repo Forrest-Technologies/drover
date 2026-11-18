@@ -1,16 +1,15 @@
 namespace Drover.Presentation.ViewModels;
 
-/// <summary>
-/// First-run setup, step one: the account that owns the server. Setup happens once; after that this address has
-/// nothing to offer, so it hands over to sign-in.
-/// </summary>
+/// <summary>The CreateAccount setup step, with the same server calls and transitions as the existing client.</summary>
 public sealed partial class CreateAccountViewModel(
-    DroverApi api, SessionState session, Navigator navigator, ILogger<CreateAccountViewModel> logger) : ObservableObject
+    DroverApi api,
+    SessionState session,
+    Navigator navigator,
+    ILogger<CreateAccountViewModel> logger) : ObservableObject
 {
     #region Private Fields
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowChecking), nameof(ShowFailed), nameof(ShowForm), nameof(RequiresCode))]
     private SetupStatus? status;
 
     [ObservableProperty]
@@ -26,43 +25,18 @@ public sealed partial class CreateAccountViewModel(
     private string setupCode = string.Empty;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowChecking), nameof(ShowFailed))]
     private string? problem;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(SubmitLabel))]
     private bool busy;
-
-    #endregion
-
-    #region Properties
-
-    public static string Title => "Set up Drover";
-
-    public static string Heading => "Create your account";
-
-    public static string CheckingNote => "Checking this server.";
-
-    public static string Lead => "This is the first account on this server. It owns the server and everything on it.";
-
-    public static string PasswordHint => "At least 12 characters.";
-
-    public static string SetupCodeHint => "Drover printed this code in its server log when it started. It proves you run this server.";
-
-    public bool ShowChecking => Status is null && Problem is null;
-
-    public bool ShowFailed => Status is null && Problem is not null;
-
-    public bool ShowForm => Status is not null;
-
-    public bool RequiresCode => Status is { RequiresCode: true };
-
-    public string SubmitLabel => Busy ? "Creating your account" : "Create account";
 
     #endregion
 
     #region Public Methods
 
+    public Task Open() => CheckServer();
+
+    // Setup happens once. After that this address has nothing to offer, so it hands over to sign-in.
     [RelayCommand]
     public async Task CheckServer()
     {
@@ -93,7 +67,7 @@ public sealed partial class CreateAccountViewModel(
             session.Begin(await api.CreateFirstAccount(new(Email.Trim(), DisplayName.Trim(), Password, code)));
             navigator.NavigateTo(Addresses.SetupModel);
         }
-        catch (DroverApiException exception) when (exception.StatusCode is HttpStatusCode.NotFound)
+        catch (DroverApiException exception) when (exception.StatusCode is System.Net.HttpStatusCode.NotFound)
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(CreateAccountViewModel));
             Problem = "This server already has its first account. Sign in with it.";

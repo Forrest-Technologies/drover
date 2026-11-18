@@ -4,67 +4,25 @@
               xmlns:dv="using:Drover.Native.Controls"
               xmlns:layouts="using:Drover.Native.Layouts"
               xmlns:session="using:Drover.Native.Session"
-              xmlns:shell="using:Drover.Native.Shell"
-              xmlns:vm="using:Drover.Presentation.ViewModels">
-
-  <layouts:EntryLayout>
-    <session:SessionGate>
-      <StackPanel Spacing="{StaticResource DvSpace4}">
-        <dv:SetupSteps Current="2" />
-        <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="{x:Bind vm:ConnectModelViewModel.Title}" />
-        <TextBlock Style="{StaticResource DvTextSecondary}" Text="{x:Bind vm:ConnectModelViewModel.Lead}" />
-
-        <dv:SegmentedControl Label="Provider"
-                             Fills="True"
-                             Options="{x:Bind vm:ConnectModelViewModel.Providers}"
-                             Value="{x:Bind Model.Kind, Mode=TwoWay}"
-                             Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
-
-        <StackPanel Spacing="{StaticResource DvSpace4}" Visibility="{x:Bind Model.ShowCompatible, Mode=OneWay}">
-          <dv:Field Label="Base address"
-                    Type="url"
-                    Placeholder="https://"
-                    Hint="Any server that speaks the chat completions API, such as one on your own machine."
-                    Value="{x:Bind Model.BaseUrl, Mode=TwoWay}"
-                    Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                    Submitted="Submit" />
-          <dv:Field Label="Key"
-                    Type="password"
-                    Hint="Leave this empty if the server needs no key."
-                    Value="{x:Bind Model.ApiKey, Mode=TwoWay}"
-                    Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                    Submitted="Submit" />
-        </StackPanel>
-
-        <dv:Field Label="Key"
-                  Type="password"
-                  Hint="Made in your Venice account, under API keys."
-                  Value="{x:Bind Model.ApiKey, Mode=TwoWay}"
-                  Disabled="{x:Bind Model.Busy, Mode=OneWay}"
-                  Visibility="{x:Bind Model.ShowVenice, Mode=OneWay}"
-                  Submitted="Submit" />
-
-        <dv:StatusNote Kind="{x:Bind Model.OutcomeKind, Mode=OneWay}" Text="{x:Bind Model.ShownOutcome, Mode=OneWay}" />
-        <TextBlock Style="{StaticResource DvTextSecondary}"
-                   AutomationProperties.LiveSetting="Polite"
-                   Text="{x:Bind vm:ConnectModelViewModel.AskingNote}"
-                   Visibility="{x:Bind Model.Busy, Mode=OneWay}" />
-
-        <Grid ColumnSpacing="{StaticResource DvSpace2}" Visibility="{x:Bind Model.Passed, Mode=OneWay}">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="*" />
-          </Grid.ColumnDefinitions>
-          <dv:Button HorizontalAlignment="Stretch" Content="Test again" Command="{x:Bind Model.TestCommand}" />
-          <dv:Button Grid.Column="1" Kind="Primary" HorizontalAlignment="Stretch" Content="Continue" Command="{x:Bind Model.ContinueCommand}" />
-        </Grid>
-        <dv:Button Kind="Primary"
-                   HorizontalAlignment="Stretch"
-                   Content="{x:Bind Model.TestLabel, Mode=OneWay}"
-                   Command="{x:Bind Model.TestCommand}"
-                   Visibility="{x:Bind Model.NotPassed, Mode=OneWay}" />
-      </StackPanel>
-    </session:SessionGate>
-  </layouts:EntryLayout>
-
+              xmlns:shell="using:Drover.Native.Shell">
+  <session:SessionGate>
+    <layouts:EntryLayout>
+      <dv:SetupSteps Current="2" />
+      <TextBlock Style="{StaticResource DvTextH2}" AutomationProperties.HeadingLevel="Level1" Text="Connect a model" />
+      <TextBlock Style="{StaticResource DvTextSecondary}" Text="Bots think with a model you bring. The key is stored encrypted on this server and is never shown again." />
+      <dv:SegmentedControl x:Name="Provider" Label="Provider" Fills="True" Value="{x:Bind Model.Kind, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Field x:Name="Address" Label="Base address" Type="url" Value="{x:Bind Model.BaseUrl, Mode=TwoWay}" Placeholder="https://" Hint="Any server that speaks the chat completions API, such as one on your own machine." Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+      <dv:Field x:Name="Key" Label="Key" Type="password" Value="{x:Bind Model.ApiKey, Mode=TwoWay}" Disabled="{x:Bind Model.Busy, Mode=OneWay}" Submitted="Submit" />
+      <dv:StatusNote x:Name="Outcome" Text="{x:Bind Model.Outcome, Mode=OneWay}" />
+      <TextBlock x:Name="Testing" Style="{StaticResource DvTextSecondary}" AutomationProperties.LiveSetting="Polite" Text="Asking the provider. This can take a few seconds." />
+      <Grid x:Name="Actions">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <dv:Button x:Name="Test" HorizontalAlignment="Stretch" Content="Test connection" Command="{x:Bind Model.TestCommand}" />
+        <dv:Button x:Name="Continue" Grid.Column="1" HorizontalAlignment="Stretch" Kind="Primary" Content="Continue" Command="{x:Bind Model.ContinueCommand}" />
+      </Grid>
+    </layouts:EntryLayout>
+  </session:SessionGate>
 </shell:Screen>

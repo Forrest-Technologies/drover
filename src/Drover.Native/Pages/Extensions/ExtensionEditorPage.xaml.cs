@@ -17,6 +17,7 @@ public sealed partial class ExtensionEditorPage : Screen
         Back.VerticalContentAlignment = VerticalAlignment.Center;
         Editor.Padding = new(Tokens.Number("DvSpace4"));
         Copy.Click += async (_, _) => await Model.Copy(WriteToClipboard);
+        Download.Click += async (_, _) => await Model.Download(PlatformFiles.SaveText);
         HowShown.RegisterPropertyChangedCallback(Tabs.ActiveProperty, (_, _) => _ = ShowTab());
         Model.PropertyChanged += (_, change) => Refresh(change.PropertyName);
         Refresh(string.Empty);
@@ -40,6 +41,7 @@ public sealed partial class ExtensionEditorPage : Screen
     // A form read again from text changes every field at once: the bindings are told to read them all.
     private void Refresh(string? changed)
     {
+        Download.Content = $"Download {Model.FileName}";
         if (string.IsNullOrEmpty(changed))
         {
             Bindings.Update();

@@ -145,23 +145,13 @@
             ?? string.Empty;
     }
 
-    // What the lead is told. It holds on a server that lets bots build bots and on one that does not: with its crew
-    // tools the lead makes the bot, and the person approves each use; without them it says which bot the job needs.
-    private static string LeadInstructions(string leadName) =>
-        $"You are {leadName}, the lead of this person's crew of bots: their chief of staff. Take what they ask and do what you can yourself. "
-        + "When a job would be better done by a bot of its own, or the person asks for one, and you have crew tools, make it beneath you: "
-        + "give it a name, say in two sentences what it is for, and write its instructions. The person is asked to approve each bot before it exists. "
-        + "A new bot starts with few tools, so say which tools it still needs and the person can allow them. "
-        + "If you have no crew tools, name the bot, say what it is for and which tools it needs, and the person can add it beneath you. "
-        + "Answer plainly and keep it short unless asked for more.";
-
     private async Task Create()
     {
         busy = true;
         problem = null;
         try
         {
-            bot = await Api.CreateBot(SpaceId, new(name.Trim(), LeadInstructions(name.Trim()), connection!.Id, model.Trim()));
+            bot = await Api.CreateBot(SpaceId, new(name.Trim(), FirstBot.Instructions(name.Trim()), connection!.Id, model.Trim()));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {

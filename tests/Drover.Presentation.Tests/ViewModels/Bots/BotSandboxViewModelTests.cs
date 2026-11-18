@@ -6,22 +6,30 @@ namespace Drover.Presentation.Tests.ViewModels.Bots;
 /// tab the way the page does it: it is there while that tab shows, is given the state the page reads, and tells the
 /// page when the person started the sandbox. Every name and value here is a sample.
 /// </summary>
-public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposable
+public sealed class BotSandboxViewModelTests : IAsyncDisposable
 {
     #region Private Fields
 
+    private static readonly Guid spaceId = Samples.Session().Spaces[0].Id;
+
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-000000000004");
 
-    private static readonly string sandbox = $"/api/spaces/{SpaceId}/bots/{botId}/sandbox";
+    private static readonly string sandbox = $"/api/spaces/{spaceId}/bots/{botId}/sandbox";
 
     private static readonly byte[] picture = Png(1024, 768);
 
     /// <summary>The screen's clock, moved by hand: the state reads and the picture's own timer wait on it.</summary>
     private static readonly DateTimeOffset now = new(2026, 11, 15, 12, 0, 0, TimeSpan.Zero);
 
+    private readonly FakeServer server = new();
+
+    private readonly Navigator navigator = new();
+
+    private readonly ServiceProvider services;
+
     private readonly FakeTimeProvider time = new(now);
 
-    private readonly ToastService toasts = new();
+    private readonly ToastService toasts;
 
     /// <summary>How far the screen's clock moves at a time while a test waits on it.</summary>
     private readonly TimeSpan step = TimeSpan.FromMilliseconds(20);
@@ -44,11 +52,19 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
 
     public BotSandboxViewModelTests()
     {
-        SignedIn();
-        Services.AddSingleton<TimeProvider>(time).AddSingleton(toasts);
-        Server.Answer("GET", $"/api/spaces/{SpaceId}/bots/{botId}", new BotSummary(botId, "Sample bot", "sample", "Sample instructions", Guid.Parse("0196f1a0-0000-7000-8000-000000000003"), "sample-model", "active"));
-        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
-        Server.Answer("POST", $"{sandbox}/input", HttpStatusCode.NoContent);
+        toasts = new(time);
+        services = new ServiceCollection()
+            .AddLogging()
+            .AddSingleton(server.CreateApi())
+            .AddSingleton(new SessionState(server.CreateApi()))
+            .AddSingleton(navigator)
+            .AddSingleton<TimeProvider>(time)
+            .AddSingleton(toasts)
+            .BuildServiceProvider();
+        server.Answer("GET", "/api/session", Samples.Session());
+        server.Answer("GET", $"/api/spaces/{spaceId}/bots/{botId}", new BotSummary(botId, "Sample bot", "sample", "Sample instructions", Guid.Parse("0196f1a0-0000-7000-8000-000000000003"), "sample-model", "active"));
+        server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        server.Answer("POST", $"{sandbox}/input", HttpStatusCode.NoContent);
     }
 
     #endregion
@@ -77,7 +93,8 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         }
 
         await Task.WhenAll(closing);
-        Dispose();
+        await services.DisposeAsync();
+        server.Dispose();
     }
 
     #endregion
@@ -102,7 +119,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Page.LastUsed.Should().Be("Used 3 minutes ago");
         (Page.OffersResume, Page.CanPause, Page.CanReplace).Should().Be((false, true, true));
         Page.Views.Select(tab => tab.Label).Should().Equal("Screen", "Terminal");
-        Server.Addresses.Should().Contain($"POST {sandbox}/screen?wake=false");
+        server.Addresses.Should().Contain($"POST {sandbox}/screen?wake=false");
         (Screen.PictureWidth, Screen.PictureHeight).Should().Be((1024, 768));
         Screen.Picture.Should().Equal(picture);
         Screen.ControlWords.Should().Contain("View only");
@@ -119,7 +136,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Page.OffersResume.Should().BeTrue();
         Screen.ScreenNote.Should().Contain("Resume it to see the screen");
         Screen.DesktopReady.Should().BeFalse("the control switch shows only with the picture");
-        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("looking at a paused sandbox would resume it");
+        Requests("POST", $"{sandbox}/screen").Should().BeEmpty("looking at a paused sandbox would resume it");
     }
 
     [Fact]
@@ -130,11 +147,11 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Screen.SetPasswordMode(true);
         Screen.Typed = "unsent sample";
 
-        Server.Answer("POST", $"{sandbox}/pause", Status("paused"));
+        server.Answer("POST", $"{sandbox}/pause", Status("paused"));
         await Page.Pause();
         (Screen.Picture, Screen.DesktopReady, Screen.Control).Should().Be((null, false, false));
 
-        Server.Answer("POST", $"{sandbox}/resume", Status("running"));
+        server.Answer("POST", $"{sandbox}/resume", Status("running"));
         await Page.Resume();
         (await PicturesWithin(2, TimeSpan.FromSeconds(3))).Should().Be(2);
         await Eventually(() => Screen.DesktopReady.Should().BeTrue());
@@ -143,7 +160,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Screen.Typed.Should().BeEmpty();
         Screen.PasswordMode.Should().BeFalse();
         Screen.TypeLabel.Should().Be("Text to type");
-        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty();
+        Requests("POST", $"{sandbox}/input").Should().BeEmpty();
         toasts.Toasts.Select(toast => toast.Message).Should().Equal("The sandbox is paused. Its files are kept.", "The sandbox is running again.");
     }
 
@@ -159,7 +176,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         (Page.OffersResume, Page.CanPause, Page.CanReplace).Should().Be((false, false, false));
         Page.PowerHint.Should().Be("Nothing to pause, rebuild, or turn off yet.");
         Screen.ScreenNote.Should().Contain("It starts when the bot first uses it.");
-        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty();
+        Requests("POST", $"{sandbox}/screen").Should().BeEmpty();
     }
 
     [Fact]
@@ -172,7 +189,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Page.StateWords.Should().Be("Start did not finish");
         Screen.ScreenNote.Should().Be("The last start of this sandbox did not finish. Start it here to see why.");
         Screen.WakeLabel.Should().Be("Start the sandbox");
-        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("looking alone starts nothing");
+        Requests("POST", $"{sandbox}/screen").Should().BeEmpty("looking alone starts nothing");
     }
 
     [Fact]
@@ -233,14 +250,14 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
 
         Screen.ScreenNote.Should().Be("The sandbox is starting. The screen shows once it runs.");
         Page.PowerHint.Should().BeNull("the screen tab says it already");
-        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty();
+        Requests("POST", $"{sandbox}/screen").Should().BeEmpty();
     }
 
     [Fact]
     public async Task While_the_first_picture_is_on_its_way_the_screen_says_so()
     {
         Answer(Status("running"));
-        var gate = Server.Hold("POST", $"{sandbox}/screen");
+        var gate = server.Hold("POST", $"{sandbox}/screen");
 
         await Open();
 
@@ -256,7 +273,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1");
         var since = new DateTimeOffset(2026, 1, 5, 9, 30, 0, TimeSpan.Zero);
         Answer(Status("running") with { Hold = new SandboxHold(holding, ForYou: false, since) });
-        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "cancelled", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        server.Answer("POST", $"/api/spaces/{spaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "cancelled", null, null, 1, 0, new(0, 0, 0, 0), null, null));
         await Open();
 
         Page.HoldWords.Should()
@@ -264,11 +281,11 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         BotSandboxViewModel.StopHoldLabel.Should().Be("Stop the run that holds it");
         Page.StoppingHold = true;
         BotSandboxViewModel.StopHoldTitle.Should().Be("Stop the run that holds the screen");
-        Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().BeEmpty("nothing stops before the person says yes");
+        server.Sent("POST", $"/api/spaces/{spaceId}/runs/{holding}/cancel").Should().BeEmpty("nothing stops before the person says yes");
         Answer(Status("running"));
         await Page.StopHold();
 
-        Server.Sent("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel").Should().ContainSingle();
+        server.Sent("POST", $"/api/spaces/{spaceId}/runs/{holding}/cancel").Should().ContainSingle();
         Page.StoppingHold.Should().BeFalse();
         Page.HoldWords.Should().BeNull();
         toasts.Toasts.Select(toast => toast.Message).Should().Equal("The run stopped. The screen is free.");
@@ -282,7 +299,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     {
         var holding = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d2");
         Answer(Status("running") with { Hold = new SandboxHold(holding, ForYou: false, null) });
-        Server.Answer("POST", $"/api/spaces/{SpaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "waiting", null, null, 1, 0, new(0, 0, 0, 0), null, null));
+        server.Answer("POST", $"/api/spaces/{spaceId}/runs/{holding}/cancel", new RunSummary(holding, Guid.Empty, botId, holding, "waiting", null, null, 1, 0, new(0, 0, 0, 0), null, null));
         await Open();
         Page.HoldIsStopping.Should().BeFalse();
 
@@ -310,7 +327,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_picture_the_server_refuses_says_why_in_its_words()
     {
         Answer(Status("running"));
-        Server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, "The sandbox's screen did not start.");
+        server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, "The sandbox's screen did not start.");
 
         await Open();
 
@@ -323,11 +340,11 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_picture_that_takes_too_long_says_so_and_the_screen_keeps_refreshing()
     {
         Answer(Status("running"));
-        Server.TimeOut("POST", $"{sandbox}/screen");
+        server.TimeOut("POST", $"{sandbox}/screen");
         await Open();
         await Eventually(() => Screen.ScreenProblem.Should().Be("Drover's server did not answer in time. The screen is tried again shortly."));
 
-        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
         (await PicturesWithin(2, SandboxWords.NextPictureAfter(1))).Should().Be(2, "the picture is asked for again on its own after a failure");
 
         await Eventually(() => Screen.Picture.Should().NotBeNull());
@@ -340,7 +357,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Answer(Status("none"));
         await Open();
         Screen.ScreenNote.Should().Contain("No sandbox yet.");
-        Server.Sent("POST", $"{sandbox}/screen").Should().BeEmpty("there is nothing to look at yet");
+        Requests("POST", $"{sandbox}/screen").Should().BeEmpty("there is nothing to look at yet");
 
         Answer(Status("running"));
         time.Advance(TimeSpan.FromSeconds(10));
@@ -364,7 +381,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         (await PicturesWithin(1)).Should().Be(1, "asking for the screen makes the sandbox");
         await Eventually(() => Screen.DesktopReady.Should().BeTrue());
         Page.StateWords.Should().Be("Running");
-        Server.Sent("GET", sandbox).Should().HaveCount(2, "the state is read again at once, not on its ten-second timer");
+        Requests("GET", sandbox).Should().HaveCount(2, "the state is read again at once, not on its ten-second timer");
         Screen.WakeLabel.Should().BeNull("a running sandbox needs no start");
     }
 
@@ -372,14 +389,14 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_paused_sandbox_is_resumed_from_the_screen_and_says_so_while_it_comes_back()
     {
         Answer(Status("paused"));
-        var gate = Server.Hold("POST", $"{sandbox}/screen");
+        var gate = server.Hold("POST", $"{sandbox}/screen");
         await Open();
         Screen.WakeLabel.Should().Be("Resume the sandbox");
 
         Screen.Wake();
 
         (await PicturesWithin(1)).Should().Be(1, "asking for the screen resumes the sandbox");
-        Server.Addresses.Should().Contain($"POST {sandbox}/screen");
+        server.Addresses.Should().Contain($"POST {sandbox}/screen");
         Screen.ProgressNote.Should().Be("Resuming the sandbox.");
         Screen.WakeLabel.Should().BeNull("one start at a time");
         Screen.ScreenNote.Should().BeNull();
@@ -393,7 +410,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     {
         var refusal = "The server's sandbox provider key does not work. Tell the server's operator.";
         Answer(Status("none", lastUsed: null));
-        Server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, refusal);
+        server.Refuse("POST", $"{sandbox}/screen", HttpStatusCode.Conflict, refusal);
         await Open();
         Screen.WakeLabel.Should().Be("Start the sandbox");
         Answer(Status("starting"));
@@ -406,7 +423,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         await Elapse(TimeSpan.FromSeconds(3));
         Pictures().Should().Be(1, "each try asks the provider for a sandbox, so only a tap tries again");
 
-        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
         Answer(Status("running"));
         Screen.Wake();
 
@@ -422,9 +439,9 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         await Open();
         Page.StateWords.Should().Be("No sandbox yet");
 
-        Server.TimeOut("GET", sandbox);
+        server.TimeOut("GET", sandbox);
         time.Advance(TimeSpan.FromSeconds(10));
-        await Eventually(() => Server.Sent("GET", sandbox).Should().HaveCount(2));
+        await Eventually(() => Requests("GET", sandbox).Should().HaveCount(2));
         Answer(Status("running"));
         time.Advance(TimeSpan.FromSeconds(10));
 
@@ -437,12 +454,12 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_picture_answered_with_a_page_says_so_and_the_screen_keeps_refreshing()
     {
         Answer(Status("running"));
-        Server.AnswerPage("POST", $"{sandbox}/screen");
+        server.AnswerPage("POST", $"{sandbox}/screen");
         await Open();
         await Eventually(() => Screen.ScreenProblem.Should().Be("Drover's server sent an answer this page could not read. The screen is tried again shortly."));
         Screen.Picture.Should().BeNull("a page is not a picture of the screen");
 
-        Server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
+        server.AnswerBytes("POST", $"{sandbox}/screen", picture, "image/png");
         (await PicturesWithin(2, SandboxWords.NextPictureAfter(1))).Should().Be(2);
 
         await Eventually(() => Screen.Picture.Should().NotBeNull());
@@ -459,15 +476,15 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
 
         if (failure is "page")
         {
-            Server.AnswerPage("GET", sandbox);
+            server.AnswerPage("GET", sandbox);
         }
         else
         {
-            Server.Fail("GET", sandbox, new InvalidOperationException("A failure no screen expects."));
+            server.Fail("GET", sandbox, new InvalidOperationException("A failure no screen expects."));
         }
 
         time.Advance(TimeSpan.FromSeconds(10));
-        await Eventually(() => Server.Sent("GET", sandbox).Should().HaveCount(2));
+        await Eventually(() => Requests("GET", sandbox).Should().HaveCount(2));
         Answer(Status("running"));
         time.Advance(TimeSpan.FromSeconds(10));
 
@@ -504,13 +521,12 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task While_the_state_is_on_its_way_the_screen_says_it_is_loading()
     {
         Answer(Status("running"));
-        var gate = Server.Hold("GET", sandbox);
+        var gate = server.Hold("GET", sandbox);
 
         var opening = Open();
 
         await Eventually(() => Page.Shows.Should().Be(BotSandboxContent.Loading));
         BotSandboxViewModel.LoadingNote.Should().Be("Loading the sandbox.");
-        Page.PageTitle.Should().Be("Sandbox · Drover");
         gate.SetResult();
         await opening;
         Page.Heading.Should().Be("Sample bot's sandbox");
@@ -519,7 +535,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     [Fact]
     public async Task A_state_that_cannot_be_read_says_what_failed_and_offers_to_try_again()
     {
-        Server.Refuse("GET", sandbox, HttpStatusCode.Conflict, "The sandbox could not be read.");
+        server.Refuse("GET", sandbox, HttpStatusCode.Conflict, "The sandbox could not be read.");
 
         await Open();
 
@@ -535,7 +551,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     [Fact]
     public async Task A_person_who_may_not_change_the_bot_is_told_so()
     {
-        Server.Answer("GET", sandbox, HttpStatusCode.Forbidden);
+        server.Answer("GET", sandbox, HttpStatusCode.Forbidden);
 
         await Open();
 
@@ -546,7 +562,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     [Fact]
     public async Task A_bot_that_is_not_there_says_so()
     {
-        Server.Answer("GET", $"/api/spaces/{SpaceId}/bots/{botId}", HttpStatusCode.NotFound);
+        server.Answer("GET", $"/api/spaces/{spaceId}/bots/{botId}", HttpStatusCode.NotFound);
 
         await Open();
 
@@ -562,7 +578,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task Rebuild_asks_first_says_what_is_lost_and_cancel_sends_nothing()
     {
         Answer(Status("running"));
-        Server.Answer("POST", $"{sandbox}/rebuild", Status("running"));
+        server.Answer("POST", $"{sandbox}/rebuild", Status("running"));
         await Open();
 
         Page.Rebuilding = true;
@@ -570,20 +586,20 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         BotSandboxViewModel.RebuildTitle.Should().Be("Rebuild the sandbox");
         Page.RebuildBody.Should().Be("Sample bot gets a fresh sandbox now. Everything in this one is lost: its files, open windows, and anything installed.");
         Page.Rebuilding = false;
-        Server.Sent("POST", $"{sandbox}/rebuild").Should().BeEmpty();
+        server.Sent("POST", $"{sandbox}/rebuild").Should().BeEmpty();
 
         Page.Rebuilding = true;
         await Page.Rebuild();
 
         Page.Rebuilding.Should().BeFalse();
-        Server.Sent("POST", $"{sandbox}/rebuild").Should().ContainSingle();
+        server.Sent("POST", $"{sandbox}/rebuild").Should().ContainSingle();
     }
 
     [Fact]
     public async Task Turn_off_asks_first_says_what_is_lost_and_shows_the_state_it_left()
     {
         Answer(Status("running"));
-        Server.Answer("POST", $"{sandbox}/turn-off", Status("none"));
+        server.Answer("POST", $"{sandbox}/turn-off", Status("none"));
         await Open();
 
         Page.TurningOff = true;
@@ -591,20 +607,20 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         BotSandboxViewModel.TurnOffTitle.Should().Be("Turn off the sandbox");
         Page.TurnOffBody.Should().Contain("everything in it is lost").And.Contain("Sample bot or you use it");
         Page.TurningOff = false;
-        Server.Sent("POST", $"{sandbox}/turn-off").Should().BeEmpty();
+        server.Sent("POST", $"{sandbox}/turn-off").Should().BeEmpty();
 
         Page.TurningOff = true;
         await Page.TurnOff();
 
         Page.StateWords.Should().Be("No sandbox yet");
-        Server.Sent("POST", $"{sandbox}/turn-off").Should().ContainSingle();
+        server.Sent("POST", $"{sandbox}/turn-off").Should().ContainSingle();
     }
 
     [Fact]
     public async Task Pause_sends_pause_and_a_refusal_is_shown_in_the_servers_words()
     {
         Answer(Status("running"));
-        Server.Refuse("POST", $"{sandbox}/pause", HttpStatusCode.Conflict, "The sandbox provider is not available right now. Try again in a moment.");
+        server.Refuse("POST", $"{sandbox}/pause", HttpStatusCode.Conflict, "The sandbox provider is not available right now. Try again in a moment.");
         await Open();
 
         await Page.Pause();
@@ -689,7 +705,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         await Screen.Tap(10, 10, 328, 246);
         await Screen.Press(["enter"]);
 
-        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty("the person has not turned on desktop input");
+        Requests("POST", $"{sandbox}/input").Should().BeEmpty("the person has not turned on desktop input");
     }
 
     [Fact]
@@ -765,7 +781,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task Text_that_was_refused_stays_in_the_field_and_no_Enter_follows_it()
     {
         Answer(Status("running"));
-        Server.Refuse("POST", $"{sandbox}/input", HttpStatusCode.BadRequest, "The text has a character the sandbox cannot type.");
+        server.Refuse("POST", $"{sandbox}/input", HttpStatusCode.BadRequest, "The text has a character the sandbox cannot type.");
         await OpenInControl();
         Screen.EnterAfter = true;
 
@@ -798,7 +814,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     {
         Answer(Status("running"));
         await OpenInControl();
-        var gate = Server.Hold("POST", $"{sandbox}/screen");
+        var gate = server.Hold("POST", $"{sandbox}/screen");
 
         await SendOne("key");
         (await PicturesWithin(2)).Should().Be(2);
@@ -914,7 +930,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         Screen.PanView("Tab", far: false).Should().BeFalse("Tab still leaves the picture");
 
         Screen.Zoom.Should().Be(new ScreenZoom(2, -0.9, -0.5));
-        Server.Sent("POST", $"{sandbox}/input").Should().BeEmpty("looking around sends nothing to the sandbox");
+        Requests("POST", $"{sandbox}/input").Should().BeEmpty("looking around sends nothing to the sandbox");
     }
 
     [Fact]
@@ -978,7 +994,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
         await Page.OpenTerminal();
 
         Page.View.Should().Be(BotSandboxViewModel.ScreenView);
-        Navigator.Current.Should().EndWith("?tab=screen");
+        navigator.Current.Should().EndWith("?tab=screen");
         Sent<SandboxInputRequest>($"{sandbox}/input").Should().ContainSingle().Which.Kind.Should().Be("open_terminal");
         screen.Should().NotBeNull("the Screen tab shows");
     }
@@ -987,14 +1003,14 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task Choosing_a_tab_puts_it_in_the_address_without_a_step_of_history()
     {
         Answer(Status("running"));
-        Navigator.NavigateTo(Addresses.BotSandbox(botId));
+        navigator.NavigateTo(Addresses.BotSandbox(botId));
         await Open();
 
         Page.SelectView(BotSandboxViewModel.TerminalView);
 
-        Navigator.Current.Should().Be(Addresses.BotTerminal(botId));
-        Navigator.GoBack();
-        Navigator.Current.Should().Be(Addresses.Home, "the tab replaced the address");
+        navigator.Current.Should().Be(Addresses.BotTerminal(botId));
+        navigator.GoBack();
+        navigator.Current.Should().Be(Addresses.Home, "the tab replaced the address");
         Page.TerminalHint.Should().Be("Run a shell command for up to five minutes. Use the interactive terminal for prompts.");
         await Eventually(() => screen.Should().BeNull("the picture is not read while the terminal shows"));
     }
@@ -1022,7 +1038,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_command_runs_and_its_exit_code_and_output_are_listed_with_the_commands_of_this_visit()
     {
         Answer(Status("running") with { Desktop = false });
-        Server.Answer("POST", $"{sandbox}/commands", new SandboxCommandResponse(0, "hello\n", string.Empty, false, false, false));
+        server.Answer("POST", $"{sandbox}/commands", new SandboxCommandResponse(0, "hello\n", string.Empty, false, false, false));
         await Open();
         Page.TerminalHint.Should().Be("Run a shell command for up to five minutes.");
         Page.CanRun.Should().BeFalse();
@@ -1045,7 +1061,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     public async Task A_refused_command_says_why_beside_it()
     {
         Answer(Status("running") with { Desktop = false });
-        Server.Refuse("POST", $"{sandbox}/commands", HttpStatusCode.Conflict, "This bot has no sandbox.");
+        server.Refuse("POST", $"{sandbox}/commands", HttpStatusCode.Conflict, "This bot has no sandbox.");
         await Open();
 
         Page.Command = "ls";
@@ -1132,11 +1148,11 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     private static BotSandboxStatus Status(string state, DateTimeOffset? lastUsed = default) =>
         new(Available: true, HasSandbox: true, state, lastUsed ?? (state is "none" ? null : now.AddMinutes(-3.5)), Desktop: true, BotWorking: false, DesktopOffered: true);
 
-    private void Answer(BotSandboxStatus status) => Server.Answer("GET", sandbox, status);
+    private void Answer(BotSandboxStatus status) => server.Answer("GET", sandbox, status);
 
     private async Task Open(string? tab = null)
     {
-        page = Make<BotSandboxViewModel>();
+        page = ActivatorUtilities.CreateInstance<BotSandboxViewModel>(services);
         page.HeadingWantsFocus += () => headingFocused++;
         page.PropertyChanged += (_, _) => PlaceScreen();
         await page.Open(botId, tab);
@@ -1161,7 +1177,7 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
             {
                 if (screen is null)
                 {
-                    screen = Make<SandboxScreenViewModel>();
+                    screen = ActivatorUtilities.CreateInstance<SandboxScreenViewModel>(services);
                     screen.BotId = botId;
                     screen.BotName = bot.Name;
                     screen.SandboxChanged += Page.RefreshStatus;
@@ -1184,20 +1200,22 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
 
     private int Pictures() => Requests("POST", $"{sandbox}/screen").Count;
 
-    /// <summary>The requests so far, read while the screen may be sending another.</summary>
+    /// <summary>The requests so far, read by position while the screen may be sending another.</summary>
     private List<string> Requests(string method, string path)
     {
-        for (var attempt = 0; ; attempt++)
+        List<string> bodies = [];
+        var count = server.Requests.Count;
+
+        for (var index = 0; index < count; index++)
         {
-            try
+            var request = server.Requests[index];
+            if (request.Method == method && request.Path == path)
             {
-                return [.. Server.Sent(method, path)];
-            }
-            catch (InvalidOperationException) when (attempt < 20)
-            {
-                // The list changed while it was read: a request arrived. Read it again.
+                bodies.Add(request.Body);
             }
         }
+
+        return bodies;
     }
 
     /// <summary>Waits until what the screen does on its own makes the assertion hold, up to five seconds.</summary>
@@ -1205,17 +1223,27 @@ public sealed class BotSandboxViewModelTests : ServerScreenTest, IAsyncDisposabl
     {
         var until = DateTimeOffset.UtcNow.AddSeconds(5);
 
-        while (true)
+        while (Failure(assertion) is { } notYet)
         {
-            try
+            if (DateTimeOffset.UtcNow >= until)
             {
-                assertion();
-                return;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(notYet).Throw();
             }
-            catch (Exception) when (DateTimeOffset.UtcNow < until)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
-            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
+        }
+    }
+
+    private static Exception? Failure(Action assertion)
+    {
+        try
+        {
+            assertion();
+            return null;
+        }
+        catch (Exception notYet)
+        {
+            return notYet;
         }
     }
 

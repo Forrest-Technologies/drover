@@ -7,139 +7,97 @@ namespace Drover.Presentation.ViewModels;
 public sealed partial class ToolConnectionsViewModel(
     DroverApi api,
     SessionState session,
-    Navigator navigator,
-    IServiceProvider services,
+    Navigator navigation,
     ILogger<ToolConnectionsViewModel> logger) : ObservableObject
 {
     #region Private Fields
-
-    private static readonly string[] stateNames =
-    [
-        nameof(ShowAddButton), nameof(ShowFailed), nameof(ShowLoading), nameof(ShowEmptyToAdd), nameof(ShowEmptyReadOnly),
-        nameof(ShowList), nameof(CanEdit), nameof(Adding), nameof(RemoveOpen), nameof(RemoveTitle),
-    ];
 
     private readonly Dictionary<Guid, IReadOnlyList<ConnectionToolSummary>> tools = [];
 
     private readonly Dictionary<Guid, string> problems = [];
 
+    [ObservableProperty]
     private List<ToolConnectionSummary>? connections;
 
+    [ObservableProperty]
     private ToolConnectionSummary? removing;
 
+    [ObservableProperty]
     private Guid? busy;
 
     [ObservableProperty]
     private string? loadProblem;
 
     [ObservableProperty]
+    private string? addProblem;
+
+    [ObservableProperty]
     private string? notice;
 
     [ObservableProperty]
-    private NoteKind noticeKind = NoteKind.Ok;
+    private bool noticeIsProblem;
 
     [ObservableProperty]
-    private AddConnectionFormViewModel? form;
+    private bool adding;
+
+    [ObservableProperty]
+    private bool addingBusy;
 
     #endregion
 
     #region Properties
 
-    public static string Title => "Tool connections";
+    /// <summary>How a sign-in at the provider ended, when the browser has just come back from one.</summary>
+    public string? SignInOutcome { get; set; }
 
-    public static string PageTitle => "Tool connections · Drover";
+    /// <summary>The connection that sign-in was for.</summary>
+    public Guid? SignInConnection { get; set; }
 
-    public static string AddLabel => "Add a tool server";
+    /// <summary>
+    /// The one-time ticket a browser carried into the native app after a sign-in at the provider. This screen
+    /// ends that sign-in with it, once, and takes it off the address.
+    /// </summary>
+    public string? SignInTicket { get; set; }
 
-    public static string LoadingNote => "Loading the tool connections.";
+    public IReadOnlyDictionary<Guid, IReadOnlyList<ConnectionToolSummary>> Tools => tools;
 
-    public static string LoadFailedTitle => "Drover could not load the tool connections";
+    public IReadOnlyDictionary<Guid, string> Problems => problems;
 
-    public static string EmptyTitle => "No tool server yet";
-
-    public static string EmptyCause =>
-        "A tool server gives bots tools beyond the built-in ones. Add one by its address, then give its tools to a bot.";
-
-    public static string EmptyReadOnlyNote => "This space has no tool servers yet. An owner or admin of the space can add one.";
-
-    public static string RemoveBody =>
-        "Bots lose its tools at once, and its stored credential and sign-ins are deleted. Runs that already used it keep their history.";
-
-    /// <summary>The cards of the list, one for each connection.</summary>
-    public System.Collections.ObjectModel.ObservableCollection<ToolConnectionCardModel> Cards { get; } = [];
-
-    public bool Adding => Form is not null;
-
-    public bool ShowAddButton => CanEdit && connections is { Count: > 0 } && !Adding;
-
-    public bool ShowFailed => LoadProblem is not null;
-
-    public bool ShowLoading => LoadProblem is null && connections is null;
-
-    public bool ShowEmptyToAdd => LoadProblem is null && connections is { Count: 0 } && !Adding && CanEdit;
-
-    public bool ShowEmptyReadOnly => LoadProblem is null && connections is { Count: 0 } && !Adding && !CanEdit;
-
-    public bool ShowList => LoadProblem is null && connections is { Count: > 0 };
-
-    public string RemoveTitle => $"Remove {removing?.Name}";
-
-    /// <summary>The dialog that asks before a server is removed is open while one is waiting to be.</summary>
-    public bool RemoveOpen
-    {
-        get => removing is not null;
-        set
-        {
-            if (!value && removing is not null)
-            {
-                removing = null;
-                Show();
-            }
-        }
-    }
-
-    // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
-    public bool CanEdit => session.Space?.Role is "owner" or "admin";
+    public bool ChangePending => Busy is not null || AddingBusy;
 
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
-
-    /// <summary>
-    /// The server wants the person at the provider's own page to sign in. It is a page outside the app, which the
-    /// platform opens; the provider sends the browser back when done.
-    /// </summary>
-    public event Action<string>? ProviderPageRequested;
+    // The server decides this for every request. Here it only keeps controls a person cannot use off the screen.
+    public bool CanEdit => session.Space?.Role is "owner" or "admin";
 
     #endregion
 
     #region Public Methods
 
-    /// <summary>
-    /// Shows the screen. <paramref name="signInOutcome"/> and <paramref name="signInConnection"/> are how a sign-in at
-    /// the provider ended, when the browser has just come back from one; <paramref name="ticket"/> is the one-time
-    /// ticket a browser carried into the native app after it, which this screen ends the sign-in with, once, and
-    /// takes off the address.
-    /// </summary>
-    public async Task Open(string? signInOutcome, Guid? signInConnection, string? ticket)
+    public async Task Open(string? outcome = null, Guid? connection = null, string? ticket = null)
     {
+        (SignInOutcome, SignInConnection, SignInTicket) = (outcome, connection, ticket);
         if (await session.Load() is not null)
         {
-            var finished = await FinishSignIn(ticket);
+            var finished = await FinishSignIn();
             await Load();
-            SayHowSignInEnded(finished?.Outcome ?? signInOutcome, finished?.ConnectionId ?? signInConnection);
+            SayHowSignInEnded(finished?.Outcome ?? SignInOutcome, finished?.ConnectionId ?? SignInConnection);
         }
     }
 
-    [RelayCommand]
+    #endregion
+
+    #region Private Methods
+
     public async Task Load()
     {
         LoadProblem = null;
 
         try
         {
-            connections = await api.ListToolConnections(SpaceId);
+            Connections = await api.ListToolConnections(SpaceId);
 
-            foreach (var connection in connections)
+            foreach (var connection in Connections)
             {
                 tools[connection.Id] = await api.ListConnectionTools(SpaceId, connection.Id);
             }
@@ -149,16 +107,77 @@ public sealed partial class ToolConnectionsViewModel(
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
             LoadProblem = Failures.Sentence(exception);
         }
-
-        Show();
     }
 
-    [RelayCommand]
+    // The sign-in was started here, in a native app, and its browser has just come back into the app. Only the
+    // server can end it, for the person who started it; a ticket that is not theirs ends as a failure.
+    private async Task<(string Outcome, Guid? ConnectionId)?> FinishSignIn()
+    {
+        if (string.IsNullOrEmpty(SignInTicket))
+        {
+            return null;
+        }
+
+        (string Outcome, Guid? ConnectionId) finished = ("failed", null);
+
+        try
+        {
+            var finish = await api.FinishToolSignIn(SignInTicket);
+            finished = (finish.Connected ? "connected" : "failed", finish.ConnectionId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
+        }
+
+        navigation.NavigateTo(Addresses.ToolSignIn(finished.Outcome, finished.ConnectionId?.ToString()), replace: true);
+        return finished;
+    }
+
+    // The address carries only one of two words this server chose and an id; the name is looked up here.
+    private void SayHowSignInEnded(string? outcome, Guid? connectionId)
+    {
+        if (outcome is not ("connected" or "failed"))
+        {
+            return;
+        }
+
+        var name = Connections?.Find(connection => connection.Id == connectionId)?.Name ?? "the tool server";
+        NoticeIsProblem = outcome is "failed";
+        Notice = NoticeIsProblem
+            ? $"The sign-in to {name} did not finish. Nothing was stored. Try again."
+            : $"You are signed in to {name}.";
+    }
+
     public void StartAdding()
     {
-        Form = new(Add, StopAdding);
+        Adding = true;
+        AddProblem = null;
         Notice = null;
-        Show();
+    }
+
+    public async Task Add(ConnectionDraft draft)
+    {
+        AddingBusy = true;
+        AddProblem = null;
+
+        try
+        {
+            var added = await api.CreateToolConnection(SpaceId, draft.ToRequest());
+            Connections!.Add(added.Connection);
+            tools[added.Connection.Id] = added.Tools;
+            Adding = false;
+            Say(added.Connection, added.Problem, $"{added.Connection.Name} is added.");
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
+            AddProblem = Failures.Sentence(exception);
+        }
+        finally
+        {
+            AddingBusy = false;
+        }
     }
 
     public Task Refresh(ToolConnectionSummary connection) =>
@@ -170,15 +189,15 @@ public sealed partial class ToolConnectionsViewModel(
             Say(refreshed.Connection, refreshed.Problem, Listed(refreshed));
         });
 
-    public Task SignIn(ToolConnectionSummary connection) =>
+    public Task SignIn(ToolConnectionSummary connection, Func<string, Task> openAddress, string? returnScheme = null) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<Drover.Ui.Pages.Tools.AppSignInReturn>()?.Scheme);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, returnScheme);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {
-                // The provider's own page: away from the app. It sends the browser back when done.
-                ProviderPageRequested?.Invoke(address);
+                // The provider's own page: a full load, away from the app. It sends the browser back when done.
+                await openAddress(address);
                 return;
             }
 
@@ -203,7 +222,7 @@ public sealed partial class ToolConnectionsViewModel(
 
     public Task Accept(ConnectionToolSummary tool)
     {
-        var connection = connections!.First(candidate => candidate.Id == tool.ConnectionId);
+        var connection = Connections!.First(candidate => candidate.Id == tool.ConnectionId);
         return Change(connection, async () =>
         {
             try
@@ -221,109 +240,17 @@ public sealed partial class ToolConnectionsViewModel(
         });
     }
 
-    public void AskToRemove(ToolConnectionSummary connection)
-    {
-        removing = connection;
-        Show();
-    }
-
-    [RelayCommand]
-    public void KeepServer()
-    {
-        removing = null;
-        Show();
-    }
-
-    [RelayCommand]
     public async Task Remove()
     {
-        var connection = removing!;
-        removing = null;
+        var connection = Removing!;
+        Removing = null;
         await Change(connection, async () =>
         {
             await api.RemoveToolConnection(SpaceId, connection.Id);
-            connections!.Remove(connection);
+            Connections!.Remove(connection);
             tools.Remove(connection.Id);
             Say(connection, null, $"{connection.Name} is removed.");
         });
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    // The sign-in was started here, in a native app, and its browser has just come back into the app. Only the
-    // server can end it, for the person who started it; a ticket that is not theirs ends as a failure.
-    private async Task<(string Outcome, Guid? ConnectionId)?> FinishSignIn(string? ticket)
-    {
-        if (string.IsNullOrEmpty(ticket))
-        {
-            return null;
-        }
-
-        (string Outcome, Guid? ConnectionId) finished = ("failed", null);
-
-        try
-        {
-            var finish = await api.FinishToolSignIn(ticket);
-            finished = (finish.Connected ? "connected" : "failed", finish.ConnectionId);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
-        }
-
-        navigator.NavigateTo(Addresses.ToolSignIn(finished.Outcome, finished.ConnectionId?.ToString()), replace: true);
-        return finished;
-    }
-
-    // The address carries only one of two words this server chose and an id; the name is looked up here.
-    private void SayHowSignInEnded(string? outcome, Guid? connectionId)
-    {
-        if (outcome is not ("connected" or "failed"))
-        {
-            return;
-        }
-
-        var name = connections?.Find(connection => connection.Id == connectionId)?.Name ?? "the tool server";
-        var failed = outcome is "failed";
-        NoticeKind = failed ? NoteKind.Danger : NoteKind.Ok;
-        Notice = failed
-            ? $"The sign-in to {name} did not finish. Nothing was stored. Try again."
-            : $"You are signed in to {name}.";
-        Show();
-    }
-
-    private void StopAdding()
-    {
-        Form = null;
-        Show();
-    }
-
-    private async Task Add(ConnectionDraft draft)
-    {
-        var adding = Form!;
-        adding.Busy = true;
-        adding.Problem = null;
-
-        try
-        {
-            var added = await api.CreateToolConnection(SpaceId, draft.ToRequest());
-            connections!.Add(added.Connection);
-            tools[added.Connection.Id] = added.Tools;
-            Form = null;
-            Say(added.Connection, added.Problem, $"{added.Connection.Name} is added.");
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
-            adding.Problem = Failures.Sentence(exception);
-        }
-        finally
-        {
-            adding.Busy = false;
-            Show();
-        }
     }
 
     private async Task Reload(ToolConnectionSummary connection)
@@ -335,7 +262,7 @@ public sealed partial class ToolConnectionsViewModel(
     }
 
     private void Replace(ToolConnectionSummary current) =>
-        connections![connections.FindIndex(listed => listed.Id == current.Id)] = current;
+        Connections![Connections.FindIndex(listed => listed.Id == current.Id)] = current;
 
     private static string Listed(ToolConnectionRefresh refreshed)
     {
@@ -365,7 +292,7 @@ public sealed partial class ToolConnectionsViewModel(
         if (problem is null)
         {
             problems.Remove(connection.Id);
-            (Notice, NoticeKind) = (done, NoteKind.Ok);
+            (Notice, NoticeIsProblem) = (done, false);
         }
         else
         {
@@ -376,14 +303,18 @@ public sealed partial class ToolConnectionsViewModel(
 
     private async Task Change(ToolConnectionSummary connection, Func<Task> work)
     {
-        busy = connection.Id;
+        Busy = connection.Id;
         problems.Remove(connection.Id);
         Notice = null;
-        Show();
 
         try
         {
             await work();
+        }
+        catch (DeviceCallFailedException exception)
+        {
+            logger.LogWarning(exception, "The device could not open the tool sign-in page");
+            problems[connection.Id] = "The sign-in page could not be opened. Try again.";
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -392,45 +323,7 @@ public sealed partial class ToolConnectionsViewModel(
         }
         finally
         {
-            busy = null;
-            Show();
-        }
-    }
-
-    // Gives each card what the screen's state says about its connection, and tells the page what to show.
-    private void Show()
-    {
-        SyncCards();
-        foreach (var stateName in stateNames)
-        {
-            OnPropertyChanged(stateName);
-        }
-    }
-
-    private void SyncCards()
-    {
-        var wanted = connections ?? [];
-
-        for (var index = 0; index < wanted.Count; index++)
-        {
-            var connection = wanted[index];
-            var card = Cards.FirstOrDefault(existing => existing.Id == connection.Id) ?? new ToolConnectionCardModel(this, connection);
-            card.Update(connection, tools.GetValueOrDefault(connection.Id), CanEdit, busy == connection.Id, problems.GetValueOrDefault(connection.Id));
-
-            if (index >= Cards.Count)
-            {
-                Cards.Add(card);
-            }
-            else if (Cards[index].Id != connection.Id)
-            {
-                Cards.Remove(card);
-                Cards.Insert(index, card);
-            }
-        }
-
-        while (Cards.Count > wanted.Count)
-        {
-            Cards.RemoveAt(Cards.Count - 1);
+            Busy = null;
         }
     }
 
