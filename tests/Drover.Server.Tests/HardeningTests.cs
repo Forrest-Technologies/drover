@@ -55,6 +55,8 @@ public sealed class HardeningTests(PostgresServer postgres) : ServerTestBase(pos
     [InlineData("/_framework/System.Linq.4jr7wme4t4.wasm")]
     [InlineData("/_framework/Markdig.cc9tzw8u3i.wasm")]
     [InlineData("/_framework/Drover.Ui.j239txtvda.wasm.br")]
+    [InlineData("/native/_framework/System.Linq.4jr7wme4t4.wasm")]
+    [InlineData("/native/package_0123456789abcdef0123456789abcdef01234567/uno-config.js")]
     public void A_framework_file_named_after_its_content_may_be_kept_for_good(string path) =>
         ClientFileCaching.For(path).Should().Be("public, max-age=31536000, immutable");
 
@@ -65,6 +67,9 @@ public sealed class HardeningTests(PostgresServer postgres) : ServerTestBase(pos
     [InlineData("/_framework/dotnet.native.mjledzavap.wasm")]
     [InlineData("/System.Linq.4jr7wme4t4.wasm")]
     [InlineData("/service-worker-assets.js")]
+    [InlineData("/native/index.html")]
+    [InlineData("/native/uno-bootstrap.js")]
+    [InlineData("/native/package_latest/uno-config.js")]
     [InlineData("/")]
     public void Any_other_client_file_is_asked_of_the_server_every_time(string path) =>
         ClientFileCaching.For(path).Should().Be("no-cache, no-store");
