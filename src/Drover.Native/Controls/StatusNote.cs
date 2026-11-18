@@ -37,6 +37,7 @@ public sealed class StatusNote : Grid
         box.BorderThickness = new(Tokens.Number("DvBorder"));
         box.CornerRadius = new(Tokens.Number("DvRadiusControl"));
         Children.Add(box);
+        Visibility = Visibility.Collapsed;
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -69,6 +70,9 @@ public sealed class StatusNote : Grid
     {
         words.Text = Text ?? string.Empty;
         box.Visibility = string.IsNullOrWhiteSpace(Text) ? Visibility.Collapsed : Visibility.Visible;
+
+        // An empty note takes no place in its column, so no gap is kept for it, as the web's region takes no room.
+        Visibility = box.Visibility;
         Paint();
 
         if (!string.IsNullOrWhiteSpace(Text))

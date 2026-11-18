@@ -7,6 +7,8 @@ public sealed partial class BotListPage : Screen
 
     private readonly Navigator navigator = ((App)Application.Current).Services.GetRequiredService<Navigator>();
 
+    private readonly TextBlock newBotWords = new() { VerticalAlignment = VerticalAlignment.Center };
+
     private BotListState? shownState;
 
     private (IReadOnlyList<BotSummary>? Bots, bool Creating) shownCrew;
@@ -23,6 +25,7 @@ public sealed partial class BotListPage : Screen
         NoBotForMember.Text = BotListViewModel.NoBotForMember;
         MemberHint.Text = BotListViewModel.MemberHint;
         Crew.Describe(BotListViewModel.ListName);
+        NewBot.Content = NewBotContent();
         Model.PropertyChanged += (_, _) => Show();
         Show();
     }
@@ -45,7 +48,8 @@ public sealed partial class BotListPage : Screen
     {
         var state = Model.State;
         NewBot.Shown(Model.ShowsNewBot);
-        NewBot.Content = Model.NewBotLabel;
+        newBotWords.Text = Model.NewBotLabel;
+        AutomationProperties.SetName(NewBot, Model.NewBotLabel);
         NewBot.IsEnabled = !Model.Creating;
         ShowStage(state);
         Loading.Shown(state is BotListState.Loading);
@@ -99,6 +103,16 @@ public sealed partial class BotListPage : Screen
         var empty = new EmptyState { Title = title, Cause = cause, ActionLabel = action };
         empty.Action += (_, _) => act();
         return empty;
+    }
+
+    private StackPanel NewBotContent()
+    {
+        var mark = new Icon { NameOfIcon = IconName.Plus, VerticalAlignment = VerticalAlignment.Center };
+        NewBot.RegisterPropertyChangedCallback(Control.ForegroundProperty, (_, _) => mark.Foreground = NewBot.Foreground);
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+        content.Children.Add(mark);
+        content.Children.Add(newBotWords);
+        return content;
     }
 
     private void Open(string address) => navigator.NavigateTo(address);
