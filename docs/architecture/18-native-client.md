@@ -487,7 +487,8 @@ docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
 The default image still contains only the existing client. The opt-in build installs `python3` in the build stage,
 which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. The Compose workflow builds both image
 variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and starts both images.
-The Docker publish uses one Emscripten and Binaryen worker and links at `-O1` to fit that build budget.
+The Docker publish caps the managed heap, skips the optional XAML resource-trimming pass, uses one Emscripten
+and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
 `.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,

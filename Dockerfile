@@ -63,11 +63,13 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
     -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
 
 # The server serves the native client from wwwroot/native beside it (NativeClient:Path names another folder).
-# Keep the WebAssembly optimizer within the container build's memory budget.
+# Keep the managed linker and the WebAssembly optimizer within the container build's memory budget.
 RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
-        EMCC_CORES=1 BINARYEN_CORES=1 dotnet publish src/Drover.Native/Drover.Native.csproj \
+        DOTNET_GCHeapHardLimit=0x4C000000 EMCC_CORES=1 BINARYEN_CORES=1 \
+        dotnet publish src/Drover.Native/Drover.Native.csproj \
             --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
             -p:DroverNativeTargetFrameworks=net11.0-browserwasm -p:EmccLinkOptimizationFlag=-O1 \
+            -p:UnoXamlResourcesTrimming=false \
             -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \
         && mkdir -p /app/publish/wwwroot/native \
         && cp -a /src/native-publish/wwwroot/. /app/publish/wwwroot/native/; \
