@@ -124,7 +124,7 @@ Volumes, both writable by the image's user:
 
 | Path | Holds |
 | --- | --- |
-| `/var/lib/drover/keys` | The key ring used by web cookies, native sessions, and stored secrets. Reuse the same volume across deploys and backups. |
+| `/var/lib/drover/keys` | The key ring used by web cookies, native sessions, and stored secrets. Reuse the same mounted volume on every deploy. Back it up along with the database. |
 | `/var/lib/drover/files` | Files people attach to messages. Set `Files__Path` to this path. Back it up with the database: a message's file is read from here. Nothing scans these files for viruses. |
 
 The image runs as a non-root user (uid 1654) and owns these paths. Leave the user as it is. If the platform lets you,

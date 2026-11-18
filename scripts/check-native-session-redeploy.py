@@ -27,8 +27,7 @@ def request(method, path, status, headers=None, payload=None):
         connection.close()
 
 
-def cookie_headers(headers):
-    cookies = SimpleCookie()
+def cookie_headers(cookies, headers):
     for value in headers.get_all("Set-Cookie", []):
         cookies.load(value)
     return {
@@ -49,14 +48,15 @@ def main():
     if not code:
         raise SystemExit("First-run setup code was missing from the Compose test server")
 
+    cookies = SimpleCookie()
     _, antiforgery = request("GET", "/api/antiforgery", 204)
-    person, signed_in = request("POST", "/api/setup", 201, cookie_headers(antiforgery), {
+    person, signed_in = request("POST", "/api/setup", 201, cookie_headers(cookies, antiforgery), {
         "email": "native-smoke@example.test",
         "displayName": "Native smoke test",
         "password": secrets.token_urlsafe(24),
         "setupCode": code[1],
     })
-    issued, _ = request("POST", "/api/native/session", 200, cookie_headers(signed_in))
+    issued, _ = request("POST", "/api/native/session", 200, cookie_headers(cookies, signed_in))
     verify_session(issued["accessToken"], person["userId"])
 
     subprocess.run(["docker", "compose", "down"], check=True)
