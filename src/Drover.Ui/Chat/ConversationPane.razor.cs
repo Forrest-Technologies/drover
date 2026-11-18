@@ -326,7 +326,7 @@ public sealed partial class ConversationPane(
 
         if (shared.Files.Count > 0)
         {
-            await Attach(shared.Files);
+            await Attach([.. shared.Files.Select(BrowserFiles.Of)]);
         }
 
         StateHasChanged();
