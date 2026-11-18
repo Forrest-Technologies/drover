@@ -46,7 +46,7 @@ src/Drover.Native/
 | Target | Framework | State |
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
-| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds; startup under a virtual X11 display fails in the Skia font fallback before the first frame. macOS and Windows not run |
+| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and starts under a virtual X11 display on a host whose fontconfig names a default family. On a host with no fonts, or a fontconfig without the generic family rules, it fails before the first frame (see "Linux desktop startup" below). macOS and Windows not run |
 | Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21; no emulator or device run |
 | iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
 
@@ -238,7 +238,7 @@ Unchanged from the clients this one replaces, because it compiles the same sourc
 
 - **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. The only thing in local storage is the theme choice.
 - **On a device:** `AppRequests` sends requests only to the HTTPS origin the person chose, follows no redirects, and keeps cookies in memory. `ServerAddress` keeps the address in plain settings. `NativeSession` keeps the sign-in that outlives the app through `ISecureStorage`: on a phone, the platform's credential store; on desktop, nothing is written and the person signs in again next launch.
-- **Content security policy.** The published browser build runs under the policy `SecurityHeaders` sends, with nothing added. The platform's runtime evaluates five small expressions as script at startup, which the policy forbids. `Platforms/WebAssembly/WasmScripts/NoEval.js` answers exactly those five with functions and passes anything else to the browser's own `eval`, which the policy refuses. So a new expression fails loudly instead of being allowed. After any SDK upgrade, and after first using a platform feature (clipboard, launcher, file picker, share), run the published build under the policy and read the console.
+- **Content security policy.** The published browser build runs under the policy `SecurityHeaders` sends, with nothing added. The platform's font fallback, which would fetch Noto fonts from another site for a character Inter lacks, is switched off in `Platforms/WebAssembly/Program.cs` (`SkiaBackend.CreateFontProvider(enableFallback: false)`): the policy refused every such fetch anyway, with an error in the console for each. The platform's runtime evaluates five small expressions as script at startup, which the policy forbids. `Platforms/WebAssembly/WasmScripts/NoEval.js` answers exactly those five with functions and passes anything else to the browser's own `eval`, which the policy refuses. So a new expression fails loudly instead of being allowed. After any SDK upgrade, and after first using a platform feature (clipboard, launcher, file picker, share), run the published build under the policy and read the console.
 - **Calling the browser.** Use `[JSImport]` on a browser function, as `Platforms/WebAssembly/Browser.cs` does. Never `WebAssemblyRuntime.InvokeJS`: it is `eval`. A shared script module is imported with `JSHost.ImportAsync` relative to `_framework`, as `PageCookies` (`cookies.js`) and `BrowserPushRegistration` (`push.js`) do.
 - **The page and its worker.** The browser build's page is `Platforms/WebAssembly/index.html`; `DroverIndexHtml` in the project file writes its `<base>` (`/native/` when published, `/` in development) and gives it to the platform as its page template. It loads the web client's `boot.js` before anything is drawn: the stored theme is on the page from the first frame (`boot.css` colors the loader in it), and the service worker is registered with the same update behavior as the web client's (a new build takes over at once, and the page reloads unless the person is writing, then when they look away). The worker is the web client's `service-worker.published.js`: `DroverServiceWorker` in the project file puts it in place of the platform's own worker after publish (the platform's PWA switch stays off, so its worker is never registered) and writes `service-worker-assets.js`, the build's files with a SHA-256 of each that the worker stores at install. The worker keeps to its own client: the web client's worker answers nothing under `/native/`, each keeps its own stored shell, and a notification opens the client that registered it (`NativeServiceWorkerTests`). `manifest.webmanifest` makes `/native/` installable as its own app. The loader's picture comes from the app's own package; the platform's default asks another site for one, which the policy refuses.
 - **Notifications in a browser** go through the same `push.js` and `push-worker.js` as the web client, behind `IPushRegistration` (`BrowserPushRegistration`). A browser failure is reported as `DeviceCallFailedException`. The development build has no service worker (the platform's own module worker is what a development build serves), so notifications need a published build.
@@ -300,6 +300,8 @@ A screen is one `.razor` file with a `@code` block or a `.razor.cs`. Moving it m
 - **JSON by reflection** is off by default in this SDK's browser build. The project turns it on, because the API client reads contracts that way, as the web client does.
 - **A layout change in `SizeChanged` must be guarded.** Change the layout only when the outcome differs from last time, or the handler runs forever.
 - **APIs that are not implemented** fail the build as `Uno0001`. That is how `PasswordVault` on desktop and `Timeline.AutoReverse` were found. Treat the error as the answer, not as something to suppress.
+- **A generic helper that makes a view model** must carry `[DynamicallyAccessedMembers(PublicConstructors)]` on its type parameter, as `Screen.Make` and `Pieces.Make` do. Without it the trimmed browser build drops the constructor and the view model fails with `CtorNotLocated` only in a Release publish.
+- **Read a field's text when Enter arrives**, not the view model's copy: in a browser the change event for the last letters can come after the key. `Field` and `Composer` do this.
 - **The development build logs a failed connection to a development server** on every start. It is the hot reload client looking for an editor, and it is not in a release build.
 - **Starting is slow in a development browser build**: about fifteen seconds in headless Chromium, three for a published build.
 
@@ -324,13 +326,13 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 
 | Area | What was found |
 | --- | --- |
-| Accessibility in a browser | The app now sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
-| Password managers | Not yet tested with a real password manager. What the platform does (read from the runtime script of SDK 7.0.22): a `PasswordBox` gets a real `input` with `type="password"` and `autocomplete="password"` while it has the focus, so a manager can recognize and fill it. What may still hinder pairing and saving: the element exists only while focused, the same element is reused for the next field, it is outside any `form`, and the user name field carries no `autocomplete="username"`. Test fill and save in Chromium, Firefox, and Safari with their built-in managers before the web client is retired |
+| Accessibility in a browser | Measured on 2026-11-18 (integration pass) against a running server: the semantic tree is present without the activation step (sign-in had 6 semantic elements on load; headings, buttons, text boxes, images, landmarks). **Every link is missing from it.** The runtime (7.0.65, `createLinkElement` in `Uno.Runtime.Wasm.js`) makes a link an `a` element with `aria-label` and no `href`; an `a` without `href` has no link role, so Chromium exposes neither role nor name. The crew, the top navigation, the rail links, "See what happened", and "Download" are each a focusable `a` that assistive technology reads as nothing, or as its inner text only. This is a platform defect to report upstream; Drover's peers ask for `Hyperlink` correctly. Earlier notes: the app sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
+| Password managers | Measured in the DOM of `/native/sign-in` while each field had the focus (integration pass): the email field is an `input type="text"` (not `email`) and the password field an `input type="password"`; neither carries `autocomplete` or `name`, and the page has no `form`. The web client's fields are `type="email" autocomplete="username" name="email"` and `type="password" autocomplete="current-password" name="password"` inside one `form`. A browser's heuristics can still see a text input followed by a password input, but nothing names them as a user name and current password, and no form submission happens for a manager to offer saving on. Not yet tried with a real password manager |
 | Text entry and input methods | Typing goes through that one hidden `input`. `inputmode` follows the field's type. Composition for languages that need it was not tested |
-| Find in page, reader mode, translation, selection across the page | None works: there is no text in the page. Selection works inside one text block that enables it |
-| Browser zoom and text size | Page zoom scales the canvas. The browser's text-size setting has no effect |
+| Find in page, reader mode, translation, selection across the page | None works. Measured: `window.find("Use the account you made")` is false on `/native/sign-in` and true on `/sign-in`; the words exist only as labels of the semantic tree, which is not drawn. Selection works inside one text block that enables it |
+| Browser zoom and text size | Page zoom scales the canvas. At 200 percent (a 640 px wide CSS viewport at twice the pixel ratio) sign-in draws sharp, at the same layout as the web client, with no sideways scroll. The browser's text-size setting has no effect (not re-measured) |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
-| Download size | Measured 2026-11-18 on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
+| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client; the native build makes the same requests in the same order, and the time is spent between them, in the interpreted runtime. In that time the native screen says "Loading the conversation", then for about two seconds "Nothing said yet" (an open defect: a conversation is made twice on opening), then loads again. Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
 | Service worker, install, push in a browser | The web client's worker, start script and notification script, shared. Verified in Chromium against Drover's server: the worker installs, stores all 169 shell files with matching hashes, and takes control. A real push delivered to the worker, and the notification tap, are covered by `NativeServiceWorkerTests`; a subscription against a real push service was not made from this machine |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
 | Credential store on desktop | Not implemented by the platform, so the desktop app keeps the sign-in only until it closes |
@@ -514,22 +516,56 @@ the feature ports above are complete. Passing tests for the existing clients mus
   advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged
   secret scan passed. Hadolint reports only the existing informational use of `USER $APP_UID`.
 
-### Linux runtime failure discovered during verification
+### Integration pass against a running server
 
-The Release desktop app was launched under a new Xorg dummy display with isolated settings. It created its
-native window but failed before mapping its first frame: `SKTypeface.GetTableTags()` threw
-`Unable to read the tables for the file`, reached through `SkiaFontProvider.GetDefaultFont` during text measure.
-A separate probe using the same SkiaSharp 4.156.0 packages reproduced an empty default typeface, while an
-explicit `DejaVu Sans` typeface and its TrueType file both loaded and exposed their tables. This also reproduced
-with a private fontconfig containing only valid DejaVu fonts, after excluding the host's WOFF2 defaults.
+Every screen and state was captured in both clients against one real server with a stand-in streaming model:
+`docs/screenshots/native-integration/` (pictures, the differences scene by scene, and how they were taken). The
+pass fixed what it found in the native port: the memory and files rails were empty in a trimmed build (a generic
+`Make<T>` without the trimming annotation), Enter in a field or the composer could send before the last letters
+arrived, a text file's card took its width from its neighbour, and several settings screens' layouts. Still open,
+in order of how much they stand in the way of retiring the web client:
 
-The pinned Uno [fallback source](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI.Composition.Skia/Composition/Uno/Drawing/SkiaFontProvider.cs#L197)
-constructs a font face from the default without rejecting an empty typeface. Its
-[font-loading path](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI/UI/Xaml/Documents/TextFormatting/FontDetailsCache.cs#L176)
-uses that fallback while file fonts load asynchronously. This needs a supported font/fallback correction and a
-successful runtime check; compiling the desktop head is insufficient. No exception suppression or fabricated
-startup screenshot has been added. The virtual display also lacks an EWMH window manager; that limitation is
-separate from the independently reproduced font failure.
+1. Links have no role or name for assistive technology in a browser (see the limits table): a platform defect.
+2. Opening a conversation takes about 10 s against the web client's 2 s, and says "Nothing said yet" for about
+   two seconds on the way, because the conversation is made twice.
+3. Tool and delegation cards appear as empty frames for seconds before they are drawn.
+4. No password manager semantics (type, autocomplete, form) on sign-in.
+5. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
+   sign-in at load).
+
+Interaction smoke on the browser build (Playwright, through the semantic tree and the keyboard): signing in with
+Enter, sending with Enter and watching the reply stream, Stop, Try again on a failed run, Approve on a waiting tool
+call, opening each rail and closing it with its close button, making a side chat from `/side/new`, browser back
+and forward, back after opening a rail, a deep link straight to each rail, and Tab, Shift+Tab, Enter through the main
+flows all worked. Reload on a rail's deep link failed before the memory rail was fixed and was not run again after.
+Escape does not close a rail in either client. In the crew, the arrow keys did not move the focus in the browser
+(they do on desktop), and Tab order passes through the page body between some controls.
+
+### Linux desktop startup
+
+Diagnosed in the integration pass with the Release desktop build under `xvfb-run` and a private `FONTCONFIG_FILE`
+for each case (`FONTCONFIG_FILE=<file> xvfb-run -a --server-args="-screen 0 1280x800x24" dotnet Drover.Native.dll`, a
+capture with `import -window root` after 20 to 25 s; the host case four times):
+
+| Fonts the process can see | Result |
+| --- | --- |
+| The host's fontconfig (its `conf.d` rules, Inter preferred for `sans-serif`) | Starts and draws the connect screen, four runs of four |
+| Only DejaVu, with the standard `conf.d` rules included | Starts and draws (one run) |
+| Only DejaVu, without the `conf.d` rules (no generic family aliases) | Fails before the first frame: black window (one run) |
+| No fonts at all | Fails before the first frame: black window (one run) |
+
+The failure is always the same exception, on the first text measured: `SKTypeface.GetTableTags()` throws
+`Unable to read the tables for the file` inside `SkiaFontFace.HasColorTables`, from
+`SkiaFontProvider.GetDefaultFont`. In 7.0.65 that method asks Skia for `SKTypeface.FromFamilyName(null)` and wraps
+the result without checking `IsEmpty`, unlike `GetFamilyFace` beside it, which does check. Skia returns an empty
+typeface when fontconfig cannot resolve a default family. The default font is used for every text block while
+Drover's own font (`DefaultTextFontFamily`, an `ms-appx` file) is still loading, and no setting skips it, so the
+app cannot avoid the call. This is a platform defect, not Drover's. A desktop with any ordinary fontconfig
+setup is not affected; a minimal container or CI image without fonts or without the `conf.d` rules is. The fix
+belongs upstream (check `IsEmpty` and fall back to a loaded font); for such images, installing a font package
+with its fontconfig rules (for example `fonts-dejavu-core`) is enough. Other log lines seen on every start are
+harmless here: no D-Bus session for the system theme, no Vulkan driver (OpenGL is used), and no EWMH window
+manager, which only means the window keeps its default size.
 
 ### Completion estimate and retirement gate
 
