@@ -26,6 +26,8 @@ public sealed class CodeBlock : Grid
 
     private readonly TextBlock code = Styles.Text(null, "DvTextCode");
 
+    private readonly ScrollViewer body;
+
     private int copies;
 
     #endregion
@@ -55,7 +57,7 @@ public sealed class CodeBlock : Grid
         bar.Padding = new(Tokens.Number("DvSpace3"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"), Tokens.Number("DvSpace1"));
         bar.BorderThickness = new(0, 0, 0, Tokens.Number("DvBorder"));
 
-        var body = new ScrollViewer
+        body = new()
         {
             Content = code,
             Padding = new(Tokens.Number("DvSpace3")),
@@ -90,6 +92,8 @@ public sealed class CodeBlock : Grid
     public static readonly DependencyProperty CodeLanguageProperty = Dp.Register<CodeBlock, string?>(
         nameof(CodeLanguage), null, block => block.language.Text = string.IsNullOrWhiteSpace(block.CodeLanguage) ? string.Empty : block.CodeLanguage);
 
+    public static readonly DependencyProperty WrapsProperty = Dp.Register<CodeBlock, bool>(nameof(Wraps), false, block => block.Fit());
+
     public string Code
     {
         get => (string)GetValue(CodeProperty);
@@ -103,9 +107,29 @@ public sealed class CodeBlock : Grid
         set => SetValue(CodeLanguageProperty, value);
     }
 
+    /// <summary>
+    /// Wraps long lines and scrolls down past a set number of them, in place of scrolling sideways: for arguments and
+    /// results in a card, so a phone shows all of a line.
+    /// </summary>
+    public bool Wraps
+    {
+        get => (bool)GetValue(WrapsProperty);
+        set => SetValue(WrapsProperty, value);
+    }
+
     #endregion
 
     #region Private Methods
+
+    private void Fit()
+    {
+        code.TextWrapping = Wraps ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        body.HorizontalScrollMode = Wraps ? ScrollMode.Disabled : ScrollMode.Auto;
+        body.HorizontalScrollBarVisibility = Wraps ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+        body.VerticalScrollMode = Wraps ? ScrollMode.Auto : ScrollMode.Disabled;
+        body.VerticalScrollBarVisibility = Wraps ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        body.MaxHeight = Wraps ? Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine14"] : double.PositiveInfinity;
+    }
 
     private async Task Copy()
     {

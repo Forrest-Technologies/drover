@@ -200,6 +200,7 @@ public sealed class GalleryPage : Screen
             "The four things that move. Each runs only while the work it reports is in progress; here they are held on as samples.",
             LiveStates),
         new("Not found", "What an address with no screen shows.", () => [new NotFound()]),
+        .. ChatPieceSamples.Sections(),
     ];
 
     private static string EmptyRun => "Nothing has run in this sample conversation yet.";

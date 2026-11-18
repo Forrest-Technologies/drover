@@ -31,13 +31,11 @@ public sealed class Disclosure : Grid
 
     public Disclosure()
     {
-        title.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightHeading"];
         AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level2);
 
         var titleRow = new FlowPanel { Gap = Tokens.Number("DvSpace2") };
         titleRow.Children.Add(title);
         titleRow.Children.Add(status);
-        summary.TextWrapping = TextWrapping.Wrap;
         var words = new StackPanel { Spacing = Tokens.Number("DvSpace1") };
         words.Children.Add(titleRow);
         words.Children.Add(summary);
@@ -51,12 +49,10 @@ public sealed class Disclosure : Grid
 
         toggle.Content = content;
         toggle.MinHeight = Tokens.Number("DvTargetTouch");
-        toggle.Padding = Tokens.Space("DvSpace4", "DvSpace3");
         toggle.HorizontalAlignment = HorizontalAlignment.Stretch;
         toggle.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         toggle.Click += (_, _) => Open = !Open;
 
-        body.Padding = new(Tokens.Number("DvSpace4"), Tokens.Number("DvSpace2"), Tokens.Number("DvSpace4"), Tokens.Number("DvSpace5"));
         frame.RowDefinitions.Add(new() { Height = GridLength.Auto });
         frame.RowDefinitions.Add(new() { Height = GridLength.Auto });
         SetRow(body, 1);
@@ -86,6 +82,13 @@ public sealed class Disclosure : Grid
     public static readonly DependencyProperty OpenProperty = Dp.Register<Disclosure, bool>(nameof(Open), false, section => section.Show());
 
     public static readonly DependencyProperty BodyProperty = Dp.Register<Disclosure, object?>(nameof(Body), null, section => section.Show());
+
+    public static readonly DependencyProperty TitleWeightProperty =
+        Dp.Register<Disclosure, string>(nameof(TitleWeight), "DvWeightHeading", section => section.Show());
+
+    public static readonly DependencyProperty SummaryWrapsProperty = Dp.Register<Disclosure, bool>(nameof(SummaryWraps), true, section => section.Show());
+
+    public static readonly DependencyProperty InsetProperty = Dp.Register<Disclosure, string>(nameof(Inset), "DvSpace4", section => section.Show());
 
     /// <summary>What the section holds, in a word or two.</summary>
     public string Title
@@ -136,6 +139,27 @@ public sealed class Disclosure : Grid
         set => SetValue(BodyProperty, value);
     }
 
+    /// <summary>The weight of the title, as a token name. A card in a conversation is lighter than a section of a form.</summary>
+    public string TitleWeight
+    {
+        get => (string)GetValue(TitleWeightProperty);
+        set => SetValue(TitleWeightProperty, value);
+    }
+
+    /// <summary>False keeps the summary to one line, cut short with an ellipsis, as a card's line of arguments is.</summary>
+    public bool SummaryWraps
+    {
+        get => (bool)GetValue(SummaryWrapsProperty);
+        set => SetValue(SummaryWrapsProperty, value);
+    }
+
+    /// <summary>The space between the frame's sides and what is in it, as a token name. A card set inside another keeps less on a phone.</summary>
+    public string Inset
+    {
+        get => (string)GetValue(InsetProperty);
+        set => SetValue(InsetProperty, value);
+    }
+
     #endregion
 
     #region Private Methods
@@ -143,6 +167,11 @@ public sealed class Disclosure : Grid
     private void Show()
     {
         title.Text = Title;
+        title.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[TitleWeight];
+        summary.TextWrapping = SummaryWraps ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        summary.TextTrimming = SummaryWraps ? TextTrimming.None : TextTrimming.CharacterEllipsis;
+        toggle.Padding = Tokens.Space(Inset, "DvSpace3");
+        body.Padding = new(Tokens.Number(Inset), Tokens.Number("DvSpace2"), Tokens.Number(Inset), Tokens.Number("DvSpace5"));
         status.Content = Status;
         summary.Text = Summary ?? string.Empty;
         summary.Visibility = !Open && Summary is not null ? Visibility.Visible : Visibility.Collapsed;
