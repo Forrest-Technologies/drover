@@ -5,6 +5,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 global using Drover.Client;
 global using Drover.Contracts.Push;
+global using Drover.Transport;
 global using Drover.Ui;
 global using Drover.Ui.Session;
 global using Drover.Web;

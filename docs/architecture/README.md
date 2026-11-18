@@ -23,6 +23,7 @@ This document answers the architecture handoff. It is split into one file per ha
 | 15 | [15-model-providers.md](15-model-providers.md) | Model connections: Venice first-party, compatible endpoints, subscription sign-in |
 | 16 | [16-deployment-policies.md](16-deployment-policies.md) | Deployment policy: self-hosted by default, a hosted preset that locks the server into compliance |
 | 17 | [17-extensions.md](17-extensions.md) | Extensions: one file that adds a bot to a space, read by a person before anything is added |
+| 18 | [18-native-client.md](18-native-client.md) | The native client: one app for web, Android, and desktop, its tokens and controls, and how a screen moves to it |
 
 Files that already sit at their final paths: [`/AGENTS.md`](../../AGENTS.md), [`/CODE_STYLE.md`](../../CODE_STYLE.md), [`/.editorconfig`](../../.editorconfig), [`/BannedSymbols.txt`](../../BannedSymbols.txt), and the CI and security workflows under `.github/`.
 

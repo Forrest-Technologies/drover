@@ -1,0 +1,28 @@
+/* The page and the loader in the theme a person chose, from the first frame. boot.js sets data-theme before
+   anything is drawn; for a person who follows the device it sets none, and the device's preference decides.
+   The colors are the first surface of tokens.css, dark and light. */
+html,
+.uno-loader {
+    background-color: #05070A;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] .uno-loader {
+    background-color: #F6F7FA;
+}
+
+/* The mark is drawn light, for a dark surface. */
+html[data-theme="light"] .uno-loader .logo {
+    filter: invert(1);
+}
+
+@media (prefers-color-scheme: light) {
+    html:not([data-theme]),
+    html:not([data-theme]) .uno-loader {
+        background-color: #F6F7FA;
+    }
+
+    html:not([data-theme]) .uno-loader .logo {
+        filter: invert(1);
+    }
+}

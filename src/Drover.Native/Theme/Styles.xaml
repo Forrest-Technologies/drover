@@ -1,0 +1,180 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:dv="using:Drover.Native.Controls">
+
+  <!-- The text styles and the structure of the controls Drover draws itself. Every value comes from Tokens.xaml. -->
+
+  <!-- Line heights are the size times the leading token: 1.5 for text, 1.25 for a heading. A style cannot
+       multiply, so each product is a resource here, beside the two tokens it comes from. -->
+  <x:Double x:Key="DvLine12">18</x:Double>
+  <x:Double x:Key="DvLine13">19.5</x:Double>
+  <x:Double x:Key="DvLine14">21</x:Double>
+  <x:Double x:Key="DvLineH1">35</x:Double>
+  <x:Double x:Key="DvLineH2">25</x:Double>
+  <x:Double x:Key="DvLineH3">20</x:Double>
+
+  <!-- The web client's one variable font draws large text with its display cut. The static files the native
+       renderer needs keep the two cuts apart, so the largest size names the display cut here. -->
+  <FontFamily x:Key="DvFontDisplay">ms-appx:///Assets/Fonts/InterDisplay.ttf</FontFamily>
+
+  <!-- A browser centers a line's letters in its line height. The native text box keeps the letters at the top
+       and puts the extra height under them, so each style moves its letters down by half the extra and takes the
+       same amount back below. The box keeps the height the line height gives it. -->
+  <Thickness x:Key="DvLeadIn14">0,2,0,0</Thickness>
+  <Thickness x:Key="DvLeadOut14">0,0,0,-2</Thickness>
+  <Thickness x:Key="DvLeadInMono">0,1,0,0</Thickness>
+  <Thickness x:Key="DvLeadOutMono">0,0,0,-1</Thickness>
+
+  <Style x:Key="DvTextBody" TargetType="TextBlock">
+    <Setter Property="Padding" Value="{StaticResource DvLeadIn14}" />
+    <Setter Property="Margin" Value="{StaticResource DvLeadOut14}" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontUi}" />
+    <Setter Property="FontSize" Value="{StaticResource DvText14}" />
+    <Setter Property="FontWeight" Value="{StaticResource DvWeightBody}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLine14}" />
+    <Setter Property="Foreground" Value="{ThemeResource DvTextBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- A paragraph: text that runs to several lines keeps to the measure, as every paragraph of the web client does. -->
+  <Style x:Key="DvTextParagraph" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="MaxWidth" Value="{StaticResource DvMeasure}" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+  </Style>
+
+  <!-- Secondary text: a lead under a heading, the cause in an empty state. -->
+  <Style x:Key="DvTextSecondary" TargetType="TextBlock" BasedOn="{StaticResource DvTextParagraph}">
+    <Setter Property="Foreground" Value="{ThemeResource DvText2Brush}" />
+  </Style>
+
+  <!-- A field's label. -->
+  <Style x:Key="DvTextLabel" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="FontSize" Value="{StaticResource DvText13}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLine13}" />
+    <Setter Property="FontWeight" Value="{StaticResource DvWeightLabel}" />
+    <Setter Property="Foreground" Value="{ThemeResource DvText2Brush}" />
+  </Style>
+
+  <!-- A hint under a field, a count, a caption. -->
+  <Style x:Key="DvTextCaption" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="FontSize" Value="{StaticResource DvText12}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLine12}" />
+    <Setter Property="Foreground" Value="{ThemeResource DvText3Brush}" />
+  </Style>
+
+  <Style x:Key="DvTextH1" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontDisplay}" />
+    <Setter Property="FontSize" Value="{StaticResource DvText28}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLineH1}" />
+    <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
+    <Setter Property="AutomationProperties.HeadingLevel" Value="Level1" />
+  </Style>
+
+  <Style x:Key="DvTextH2" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="FontSize" Value="{StaticResource DvText20}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLineH2}" />
+    <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
+    <Setter Property="AutomationProperties.HeadingLevel" Value="Level2" />
+  </Style>
+
+  <Style x:Key="DvTextH3" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="FontSize" Value="{StaticResource DvText16}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLineH3}" />
+    <Setter Property="FontWeight" Value="{StaticResource DvWeightHeading}" />
+    <Setter Property="AutomationProperties.HeadingLevel" Value="Level3" />
+  </Style>
+
+  <!-- Machine text beside conversation: a summary, an address, a count. -->
+  <Style x:Key="DvTextMono" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="Padding" Value="{StaticResource DvLeadInMono}" />
+    <Setter Property="Margin" Value="{StaticResource DvLeadOutMono}" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontMono}" />
+    <Setter Property="FontSize" Value="{StaticResource DvText12}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLine12}" />
+    <Setter Property="Foreground" Value="{ThemeResource DvText3Brush}" />
+  </Style>
+
+  <!-- Code and output. -->
+  <Style x:Key="DvTextCode" TargetType="TextBlock" BasedOn="{StaticResource DvTextBody}">
+    <Setter Property="Padding" Value="{StaticResource DvLeadInMono}" />
+    <Setter Property="Margin" Value="{StaticResource DvLeadOutMono}" />
+    <Setter Property="FontFamily" Value="{StaticResource DvFontMono}" />
+    <Setter Property="FontSize" Value="{StaticResource DvText13}" />
+    <Setter Property="LineHeight" Value="{StaticResource DvLine13}" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+
+  <!-- Where the layout changes shape. A phone is narrower than the first; the entry panel gets more room from
+       the second; a sheet comes up from the bottom below the third. -->
+  <x:Double x:Key="DvBreakPhone">560</x:Double>
+  <x:Double x:Key="DvBreakEntry">600</x:Double>
+  <x:Double x:Key="DvBreakSheet">640</x:Double>
+
+  <!-- The conversation workspace. Below the first it shows one of the crew, the conversation, and what is beside
+       it; from the first on the crew stands beside the conversation; from the second on there is room for all
+       three. A conversation column narrower than the third puts the ways beside it on a row of their own. -->
+  <x:Double x:Key="DvBreakCrew">900</x:Double>
+  <x:Double x:Key="DvBreakRail">1200</x:Double>
+  <x:Double x:Key="DvBreakBeside">640</x:Double>
+
+  <!-- A text input with nothing drawn around it: the field that holds it draws the faceted frame. -->
+  <ControlTemplate x:Key="DvTextBoxTemplate" TargetType="TextBox">
+    <ScrollViewer x:Name="ContentElement"
+                  Padding="{TemplateBinding Padding}"
+                  IsTabStop="False"
+                  ZoomMode="Disabled"
+                  HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                  HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                  VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                  VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+  </ControlTemplate>
+
+  <ControlTemplate x:Key="DvPasswordBoxTemplate" TargetType="PasswordBox">
+    <ScrollViewer x:Name="ContentElement"
+                  Padding="{TemplateBinding Padding}"
+                  IsTabStop="False"
+                  ZoomMode="Disabled"
+                  HorizontalScrollMode="Auto"
+                  HorizontalScrollBarVisibility="Hidden"
+                  VerticalScrollMode="Disabled"
+                  VerticalScrollBarVisibility="Disabled"
+                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+  </ControlTemplate>
+
+  <!-- A pressable control on a faceted frame. The control sets the frame's colors for its state. -->
+  <ControlTemplate x:Key="DvFacetTemplate" TargetType="ButtonBase">
+    <dv:Facet x:Name="Frame">
+      <ContentPresenter x:Name="Content"
+                        Content="{TemplateBinding Content}"
+                        Foreground="{TemplateBinding Foreground}"
+                        FontFamily="{TemplateBinding FontFamily}"
+                        FontSize="{TemplateBinding FontSize}"
+                        FontWeight="{TemplateBinding FontWeight}"
+                        Margin="{TemplateBinding Padding}"
+                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </dv:Facet>
+  </ControlTemplate>
+
+  <!-- A pressable control on a plain surface: an icon button, a menu item, a tab. -->
+  <ControlTemplate x:Key="DvPlainTemplate" TargetType="ButtonBase">
+    <Border x:Name="Frame" Padding="{TemplateBinding Padding}">
+      <ContentPresenter x:Name="Content"
+                        Content="{TemplateBinding Content}"
+                        Foreground="{TemplateBinding Foreground}"
+                        FontFamily="{TemplateBinding FontFamily}"
+                        FontSize="{TemplateBinding FontSize}"
+                        FontWeight="{TemplateBinding FontWeight}"
+                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+    </Border>
+  </ControlTemplate>
+
+</ResourceDictionary>

@@ -1,0 +1,66 @@
+namespace Drover.Native.Droid;
+
+/// <summary>
+/// The one screen Android knows about. Everything a person sees is drawn inside it by the shared app. It also takes
+/// what Android hands the app from outside: a tapped notification, a browser coming back from a tool server's
+/// sign-in page, and what another app shares.
+/// </summary>
+[Android.App.Activity(
+    MainLauncher = true,
+    LaunchMode = LaunchMode.SingleTop,
+    ConfigurationChanges = Uno.UI.ActivityHelper.AllConfigChanges,
+    WindowSoftInputMode = Android.Views.SoftInput.AdjustNothing | Android.Views.SoftInput.StateHidden,
+    Exported = true)]
+[IntentFilter(
+    [Intent.ActionView],
+    Categories = [Intent.CategoryDefault, Intent.CategoryBrowsable],
+    DataScheme = SignInReturnScheme,
+    DataHost = IncomingIntents.SignInReturnHost)]
+[IntentFilter([Intent.ActionSend, Intent.ActionSendMultiple], Categories = [Intent.CategoryDefault], DataMimeType = "*/*")]
+public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
+{
+    #region Private Fields
+
+    /// <summary>
+    /// The scheme of the address a browser comes back into this app with after a tool server's sign-in page. It is
+    /// the package name, and the server sends a browser only to the schemes of Drover's own apps.
+    /// </summary>
+    public const string SignInReturnScheme = "com.forresttechnologies.drover.client";
+
+    #endregion
+
+    #region Private Methods
+
+    protected override void OnCreate(Bundle? bundle)
+    {
+        AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
+        base.OnCreate(bundle);
+
+        // The launch intent is acted on once: not when Android rebuilds the activity, and not when the app is opened
+        // again from the recent apps.
+        if (bundle is null && Intent?.Flags.HasFlag(ActivityFlags.LaunchedFromHistory) != true)
+        {
+            IncomingIntents.Take(Intent, SignInReturnScheme);
+        }
+    }
+
+    protected override void OnNewIntent(Intent? intent)
+    {
+        base.OnNewIntent(intent);
+        IncomingIntents.Take(intent, SignInReturnScheme);
+    }
+
+    protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
+    {
+        base.OnActivityResult(requestCode, resultCode, data);
+        IPlatformApplication.Current?.Services.GetService<DocumentDestination>()?.Complete(requestCode, resultCode, data);
+    }
+
+    public override void OnRequestPermissionsResult(int requestCode, string[] permissions, Permission[] grantResults)
+    {
+        base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+        Permissions.Complete(requestCode, grantResults);
+    }
+
+    #endregion
+}

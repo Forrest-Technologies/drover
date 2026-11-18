@@ -13,6 +13,7 @@
     <Project Path="src/Drover.Data/Drover.Data.csproj" />
     <Project Path="src/Drover.Domain/Drover.Domain.csproj" />
     <Project Path="src/Drover.Engine/Drover.Engine.csproj" />
+    <Project Path="src/Drover.Presentation/Drover.Presentation.csproj" />
     <Project Path="src/Drover.Server/Drover.Server.csproj" />
     <Project Path="src/Drover.Ui/Drover.Ui.csproj" />
     <Project Path="src/Drover.Web/Drover.Web.csproj" />
@@ -25,6 +26,7 @@
     <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
+    <Project Path="tests/Drover.Presentation.Tests/Drover.Presentation.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
     <Project Path="tests/Drover.Ui.Tests/Drover.Ui.Tests.csproj" />
   </Folder>

@@ -255,7 +255,20 @@ dotnet_diagnostic.RS0030.severity = none
 generated_code = true
 dotnet_diagnostic.RS0030.severity = none
 
-# The Android shell owns a per-device HTTPS cookie jar for the selected Drover API.
-# The server's outbound provider policy still applies to every server-side call.
-[src/Drover.App/{AppRequests,MauiProgram}.cs]
+# A native shell owns a per-device HTTPS cookie jar for the selected Drover API. The handler is shared by the
+# Android shell and the native client. The server's outbound provider policy still applies to every server-side call.
+[src/Shared/Transport/AppRequests.cs]
 dotnet_diagnostic.RS0030.severity = none
+
+[src/Drover.App/MauiProgram.cs]
+dotnet_diagnostic.RS0030.severity = none
+
+# The native client's one place per platform that builds its HTTP client: in a browser it talks to its own origin
+# through the browser's fetch, and elsewhere to the selected Drover API through the shared handler above.
+[src/Drover.Native/{Device,Platforms/WebAssembly}/PlatformServices.cs]
+dotnet_diagnostic.RS0030.severity = none
+
+# The native client's browser files are compiled only into its browser build. The platform checker does not know
+# that build's framework name (browserwasm) as "browser", so it would flag every call into the browser.
+[src/Drover.Native/Platforms/WebAssembly/*.cs]
+dotnet_diagnostic.CA1416.severity = none

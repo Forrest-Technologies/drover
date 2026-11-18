@@ -4,3 +4,8 @@ Copyright 2026 The Drover Authors
 This product is licensed under the Apache License, Version 2.0. See LICENSE.
 
 Bundled third-party components and their licenses are listed in docs/architecture/05-dependencies.md.
+
+The native client includes Uno ICU packaging and Uno.Diagnostics.Eventing (Apache-2.0),
+ICU 77.1 (Unicode License V3 and included third-party notices), and Tmds.DBus
+(MIT). Their complete notices ship in Assets/Licenses alongside the font licenses.
+Exact-version license metadata corrections are recorded in licenses/allowed-exceptions.json.

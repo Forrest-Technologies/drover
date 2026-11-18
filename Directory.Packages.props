@@ -52,6 +52,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Interface">
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />
     <PackageVersion Include="Markdig" Version="1.6.0" />
   </ItemGroup>

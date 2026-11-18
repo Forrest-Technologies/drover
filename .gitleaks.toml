@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Drover's twelve avatar brush resource keys in each XAML theme dictionary"
+condition = "AND"
+paths = ['''^src/Drover\.Native/Theme/Tokens\.xaml$''']
+regexTarget = "line"
+regexes = ['''^\s*<SolidColorBrush x:Key="DvHead(?:[0-9]|1[01])Brush" Color="\{StaticResource DvHead(?:[0-9]|1[01])\}" />\s*$''']
