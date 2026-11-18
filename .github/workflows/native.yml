@@ -48,7 +48,8 @@ jobs:
           sudo chmod a+rw /dev/kvm
           sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
           printf 'no\n' | avdmanager create avd -n drover-text-editing -k 'system-images;android-35;default;x86_64'
-          emulator -avd drover-text-editing -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
+          "$ANDROID_HOME/emulator/emulator" -avd drover-text-editing -no-window -no-audio \
+            -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
             >"$RUNNER_TEMP/drover-emulator.log" 2>&1 &
           trap 'adb emu kill || true' EXIT
           adb wait-for-device
