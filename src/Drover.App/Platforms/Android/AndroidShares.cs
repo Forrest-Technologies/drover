@@ -47,7 +47,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
     // Android puts the shared streams on the intent's clip. Only content addresses are read: a file address could
     // name one of this app's own files, and another app must not be able to have those attached.
-    private List<IBrowserFile> Stage(Intent intent)
+    private List<IPickedFile> Stage(Intent intent)
     {
         var root = Path.Combine(FileSystem.CacheDirectory, Folder);
 
@@ -56,7 +56,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
             Directory.Delete(root, recursive: true);
         }
 
-        List<IBrowserFile> files = [];
+        List<IPickedFile> files = [];
         var resolver = AndroidApplication.Context.ContentResolver!;
 
         for (var index = 0; index < (intent.ClipData?.ItemCount ?? 0) && files.Count < MaxFiles; index++)
@@ -98,7 +98,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
     #region Nested Types
 
-    private sealed class StagedFile(FileInfo file, string contentType) : IBrowserFile
+    private sealed class StagedFile(FileInfo file, string contentType) : IBrowserFile, IPickedFile
     {
         #region Interface Implementations
 
@@ -111,6 +111,8 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
         public string ContentType => contentType;
 
         public Stream OpenReadStream(long maxAllowedSize = 512000, CancellationToken cancellationToken = default) => file.OpenRead();
+
+        public Task<Stream> OpenRead(long maxBytes, CancellationToken cancellationToken) => Task.FromResult<Stream>(file.OpenRead());
 
         #endregion
     }

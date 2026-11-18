@@ -343,12 +343,73 @@ replacement, usage selection, changed-tool review conflicts, external sign-in re
 and called by both clients, preserving their text. Native page presence and passing view-model tests do not
 establish visual parity.
 
-The following three classes still explicitly derive from `PendingScreen`:
+The following classes still explicitly derive from `PendingScreen`:
 
-- `TalkPage`: crew, main and side conversations, live runs, attachments, approvals, delegation, memory, activity,
-  summary, files, and screen panels.
 - `BotEditorPage`: definition, model, grants, rules, memory, routines, sandbox, team, limits, and unsaved changes.
 - `ShareToPage`: incoming content and recipient selection.
+
+### The conversation workspace
+
+`TalkPage` is native. Its logic is in `src/Drover.Presentation/ViewModels/Chat/`, moved from the web client's
+`Talk` page and `ConversationPane` with the same calls, order, messages, and failure handling:
+
+| View model | Holds |
+| --- | --- |
+| `TalkViewModel` | Everything read from the address (`TalkAddress`): what is beside the conversation, which of crew, main, and side a narrow window shows, the held takeover, the moment, the title with the waiting count. The space, the threads, the signal stream, the screen probe. It makes and ends the conversations on screen |
+| `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
+| `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
+| `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
+| `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
+
+A run is still the server's: these only watch it and ask. Three seams replace what the web client took from its
+framework:
+
+- **Drawing.** A view model says it changed through `IUiThread`, the interface's thread. Where the web client called
+  `StateHasChanged`, the view model works out what it shows once and raises one change. The views draw once for
+  every change since they last drew.
+- **Conversations that outlive an address.** `TalkViewModel` keeps a conversation for as long as what it was made
+  for is on screen: the main one for its bot, a side chat for its key (a new side chat keeps its conversation when
+  its first message gives it a thread and an address), handed work for its thread. These are the web client's
+  `@key` rules, and `TalkViewModelTests` hold them.
+- **Files.** `IPickedFile` is a file a person picked, pasted, dropped, or shared: a name, a size, and a way to read
+  it. `ShareInbox` moved to `Drover.Presentation` and holds picked files, so both clients use the one class; the
+  web client's browser files and the Android shell's staged files implement the interface.
+
+The page keeps the workspace while the app moves between this screen's addresses. A change of query or fragment
+goes through the shell's `StaysOpenWhenQueryChanges`. A change of path makes a new page, as for any screen, and the
+new page takes the workspace from the old one, with its conversations, what was written, and where the reader had
+scrolled to. Leaving for another screen ends it: the streams stop and unsent files are removed.
+
+The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
+`Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
+`BotNotifyMenu`. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
+is kept and told what changed, never made again.
+
+**The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
+message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
+foot stays at the foot while text streams, the reader who scrolled up stays put, a link to a moment can land on any
+message, an open card stays open, and assistive technology has the whole conversation. Measured on the desktop
+build with sample replies (bold, inline code, a list), on a machine whose four cores were loaded two to three times
+over by other builds: 300 messages took 2.2 s to first show and 22 ms for each update of a streaming reply (median
+of 40); 600 messages took 2.8 s and 26 ms. Before unchanged messages were skipped the update took 36 ms at 300. If
+conversations of thousands of messages become common, load the older part on demand; do not recycle elements.
+
+A streaming reply is parsed and laid out again for each stretch of text that arrives, as the web client does. The
+list draws at most once in a quarter of the shortest duration, and after what the person is doing, so a reply
+picked up again, whose events arrive all at once, does not hold the screen. New characters of the last paragraph
+fade in over the shortest duration; with reduced motion they are simply there.
+
+Known differences of this screen from the web client:
+
+| Area | Difference |
+| --- | --- |
+| Arrow keys | The crew and the side chats also move the focus with the arrow keys, Home, and End. The web client has Tab alone |
+| Pasting and dropping files | Written against the platform's clipboard and drag events. Not exercised: the display used for verification has no clipboard manager or file manager |
+| File chooser | The platform's own. Not exercised under the virtual display |
+| Enter while composing with an input method | The web client leaves Enter to the input method. The platform does not say that a composition is under way |
+| A bot's name in the header | In a wide header a long name is not cut short with an ellipsis; it is in a wrapped or phone header |
+| The line along the composer | Under the virtual display it was drawn with gaps. It is the shared `TravelLine` |
+| Failure heading | Wraps greedily, as every heading here does |
 
 ### The sandbox screen
 
@@ -407,8 +468,7 @@ budget as the existing deployment before becoming the default. This environment 
 
 `.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
 packaging, incoming links, OAuth app returns, native push registration, install/offline support, credential
-persistence on desktop, and real provider flows remain to be verified or implemented. `ShareInbox` still holds a
-Blazor file type. `ConnectViewModel` still lives in the native app and lacks unit tests.
+persistence on desktop, and real provider flows remain to be verified or implemented. `ConnectViewModel` still lives in the native app and lacks unit tests.
 
 Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: desktop usage still uses cards instead of the original table; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
 the feature ports above are complete. Passing tests for the existing clients must not be reported as native parity.

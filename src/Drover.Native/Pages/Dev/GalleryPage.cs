@@ -201,6 +201,7 @@ public sealed class GalleryPage : Screen
             LiveStates),
         new("Not found", "What an address with no screen shows.", () => [new NotFound()]),
         .. ChatPieceSamples.Sections(),
+        .. ChatSamples.Sections(),
     ];
 
     private static string EmptyRun => "Nothing has run in this sample conversation yet.";

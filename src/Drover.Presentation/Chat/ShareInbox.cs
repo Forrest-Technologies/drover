@@ -1,7 +1,7 @@
 namespace Drover.Ui.Chat;
 
 /// <summary>What another app shared to Drover: words, files, or both. Nothing of it has been sent anywhere.</summary>
-public sealed record SharedDraft(string Text, IReadOnlyList<IBrowserFile> Files);
+public sealed record SharedDraft(string Text, IReadOnlyList<IPickedFile> Files);
 
 /// <summary>
 /// Holds what another app shared until the person says which bot's conversation gets it. A native shell puts the
