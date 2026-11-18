@@ -137,7 +137,7 @@ try {
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
-                else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, state: 'running' }; }
+                else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: !reference && current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
                 else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
@@ -223,6 +223,9 @@ try {
                 }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'conversation' && !reference) {
+                    await checkWorkspacePanels(page, width, theme);
+                }
                 if (name === 'usage') {
                     const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
                     if (reference) {
@@ -257,6 +260,84 @@ try {
 } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+}
+
+async function checkWorkspacePanels(page, width, theme) {
+    const crew = page.getByLabel('Resize the crew sidebar', { exact: true });
+    const right = page.getByLabel('Resize the right panel', { exact: true });
+    const activity = page.getByRole('link', { name: 'Activity', exact: true });
+    const close = page.getByRole('link', { name: 'Close the activity', exact: true });
+    const composer = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const emptyActivity = page.getByRole('heading', { name: 'Nothing has run in this conversation yet', exact: true });
+
+    if (width === 360) {
+        assert.equal(await crew.count(), 0);
+        assert.equal(await right.count(), 0);
+        await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
+        await page.getByRole('menuitem', { name: 'Activity', exact: true }).dispatchEvent('click');
+        await emptyActivity.waitFor({ state: 'attached' });
+        assert.equal(await composer.count(), 0);
+        await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
+        await close.dispatchEvent('click');
+        await composer.waitFor({ state: 'attached' });
+        return;
+    }
+
+    await activity.dispatchEvent('click');
+    await emptyActivity.waitFor({ state: 'attached' });
+
+    async function bounds(control) {
+        await control.waitFor({ state: 'visible' });
+        const box = await control.boundingBox();
+        assert(box, `Missing bounds for ${control}`);
+        return box;
+    }
+
+    async function drag(divider, offset) {
+        const before = await bounds(divider);
+        const x = before.x + before.width / 2;
+        const y = before.y + before.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + offset, y, { steps: 8 });
+        await page.mouse.up();
+        await page.waitForFunction(({ label, before }) => {
+            const divider = document.querySelector(`[aria-label="${label}"]`);
+            return divider && divider.getBoundingClientRect().x < before - 20;
+        }, { label: await divider.getAttribute('aria-label'), before: before.x });
+    }
+
+    await drag(crew, -56);
+    await drag(right, -180);
+    const narrow = await bounds(right);
+    const leftDivider = await bounds(crew);
+    assert(narrow.x - (leftDivider.x + leftDivider.width) >= 399, 'The drag squeezed the conversation below 400 px.');
+
+    // The currently focused divider moves right by one keyboard step and respects the drag bounds.
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(x => document.querySelector('[aria-label="Resize the right panel"]')
+        .getBoundingClientRect().x > x + 10, narrow.x);
+
+    const edge = (await bounds(right)).x;
+    const start = (await bounds(crew)).x;
+    const tabs = ['Activity', 'Summary', 'Memory', 'Screen', 'Files', 'Side chats'];
+    const row = await bounds(activity);
+    for (const name of tabs) {
+        const tab = await bounds(page.getByRole('link', { name, exact: true }));
+        assert(tab.x >= start && tab.x + tab.width <= edge + 1, `${name} crosses a panel divider`);
+        assert(Math.abs(tab.y - row.y) <= 1, `${name} wrapped to another row`);
+    }
+
+    await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
+    await close.dispatchEvent('click');
+    await page.waitForURL(url => url.pathname.endsWith(`/talk/${botId}`));
+    await right.waitFor({ state: 'detached' });
+    await activity.dispatchEvent('click');
+    await page.waitForURL('**/activity');
+    await page.waitForFunction(x => {
+        const box = document.querySelector('[aria-label="Resize the right panel"]')?.getBoundingClientRect();
+        return box && box.width > 0 && Math.abs(box.x - x) <= 1;
+    }, edge);
 }
 
 /**

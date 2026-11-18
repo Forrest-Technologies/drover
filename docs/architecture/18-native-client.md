@@ -390,6 +390,11 @@ framework:
   it. `ShareInbox` moved to `Drover.Presentation` and holds picked files, so both clients use the one class; the
   web client's browser files and the Android shell's staged files implement the interface.
 
+When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
+Left and Right move it in 16-pixel steps. The workspace keeps those widths while you switch conversations and
+panels, and limits them to leave room for the conversation. The header uses the remaining conversation width to
+place the panel links beside the title or on one compact row below it. On a phone the links are in the bot menu.
+
 The page keeps the workspace while the app moves between this screen's addresses. A change of query or fragment
 goes through the shell's `StaysOpenWhenQueryChanges`. A change of path makes a new page, as for any screen, and the
 new page takes the workspace from the old one, with its conversations, what was written, and where the reader had
