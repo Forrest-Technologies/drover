@@ -71,6 +71,13 @@ public sealed class ShellView : Grid
     // the address asked for, and otherwise the screen is simply shown in place.
     private void Go(Type screen, RouteMatch<Type> match, NavigationKind kind)
     {
+        // A screen that shows a tab named in its address stays as it is when only that changes.
+        if (frame.Content is Screen open && open.GetType() == screen && open.Reopen(match))
+        {
+            PlatformShell.SetTitle(window, open.Title);
+            return;
+        }
+
         if (kind is NavigationKind.Travel && frame.CanGoBack && AddressOf(frame.BackStack[^1]) == match.Address)
         {
             frame.GoBack();
