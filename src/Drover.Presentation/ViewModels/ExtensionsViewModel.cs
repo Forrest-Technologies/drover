@@ -54,6 +54,8 @@ public sealed partial class ExtensionsViewModel(
 
     public static string Title => "Extensions";
 
+    public static string PageTitle => "Extensions · Drover";
+
     public static string LoadingNote => "Loading the extensions.";
 
     public static string LoadFailedTitle => "Drover could not load the extensions";
@@ -134,8 +136,8 @@ public sealed partial class ExtensionsViewModel(
     [RelayCommand]
     public void StartImporting()
     {
-        Importing = true;
         Form = new(logger);
+        Importing = true;
         Preview = null;
         PackageText = null;
         ImportProblem = null;

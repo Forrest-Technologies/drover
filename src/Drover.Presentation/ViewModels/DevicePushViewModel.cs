@@ -6,7 +6,7 @@ namespace Drover.Presentation.ViewModels;
 /// control says so in a sentence and offers nothing.
 /// </summary>
 public sealed partial class DevicePushViewModel(
-    IPushRegistration? registration, DroverApi api, SessionState session, ILogger<DevicePushViewModel> logger) : ObservableObject
+    DroverApi api, SessionState session, ILogger<DevicePushViewModel> logger, IPushRegistration? registration = null) : ObservableObject
 {
     #region Private Fields
 

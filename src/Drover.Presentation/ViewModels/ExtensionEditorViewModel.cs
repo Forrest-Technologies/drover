@@ -31,6 +31,7 @@ public sealed partial class ExtensionEditorViewModel(
     private string text = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shows))]
     private string? loadProblem;
 
     [ObservableProperty]
@@ -41,7 +42,7 @@ public sealed partial class ExtensionEditorViewModel(
     private bool noticeIsProblem;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CheckLabel))]
+    [NotifyPropertyChangedFor(nameof(CheckLabel), nameof(Idle))]
     private bool busy;
 
     #endregion
@@ -49,6 +50,8 @@ public sealed partial class ExtensionEditorViewModel(
     #region Properties
 
     public static string Title => "Make an extension";
+
+    public static string PageTitle => "Make an extension · Drover";
 
     public static string BackLabel => "Back to extensions";
 
@@ -87,6 +90,16 @@ public sealed partial class ExtensionEditorViewModel(
 
     /// <summary>The editor has what it edits: a form to fill, once the bot (if any) is opened.</summary>
     public bool IsOpen => opened;
+
+    /// <summary>Nothing is being asked of the server, so the form can be used.</summary>
+    public bool Idle => !Busy;
+
+    /// <summary>What fills the screen under its header, in the order the screen decides it.</summary>
+    public ExtensionEditorContent Shows =>
+        LoadProblem is not null ? ExtensionEditorContent.LoadFailed
+        : !opened ? ExtensionEditorContent.Opening
+        : !CanEdit ? ExtensionEditorContent.Member
+        : ExtensionEditorContent.Form;
 
     public bool ShowsJson => Tab == JsonTab;
 
@@ -336,4 +349,13 @@ public sealed partial class ExtensionEditorViewModel(
     }
 
     #endregion
+}
+
+/// <summary>What the extension editor shows under its header.</summary>
+public enum ExtensionEditorContent
+{
+    LoadFailed,
+    Opening,
+    Member,
+    Form,
 }

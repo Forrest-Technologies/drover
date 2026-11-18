@@ -1,0 +1,128 @@
+<shell:Screen x:Class="Drover.Native.Pages.ExtensionEditorPage"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:dv="using:Drover.Native.Controls"
+              xmlns:layouts="using:Drover.Native.Layouts"
+              xmlns:pages="using:Drover.Native.Pages"
+              xmlns:shell="using:Drover.Native.Shell"
+              xmlns:vm="using:Drover.Presentation.ViewModels">
+
+  <layouts:WorkLayout>
+    <pages:FlexPanel Gap="{StaticResource DvSpace3}" Justify="SpaceBetween">
+      <TextBlock Style="{StaticResource DvTextH2}"
+                 AutomationProperties.HeadingLevel="Level1"
+                 Text="{x:Bind vm:ExtensionEditorViewModel.Title}" />
+      <dv:Link x:Name="Back" Text="{x:Bind vm:ExtensionEditorViewModel.BackLabel}" />
+    </pages:FlexPanel>
+
+    <ContentControl x:Name="Under" IsTabStop="False" HorizontalContentAlignment="Stretch" />
+
+    <dv:Facet x:Name="Editor" Visibility="Collapsed">
+      <StackPanel Spacing="{StaticResource DvSpace4}">
+        <TextBlock Style="{StaticResource DvTextSecondary}" Text="{x:Bind vm:ExtensionEditorViewModel.Lead}" />
+
+        <dv:Tabs x:Name="HowShown"
+                 Label="{x:Bind vm:ExtensionEditorViewModel.TabsLabel}"
+                 Items="{x:Bind vm:ExtensionEditorViewModel.Tabs}"
+                 Active="{x:Bind Model.Tab, Mode=OneWay}">
+          <Grid>
+            <dv:TextArea x:Name="AsText"
+                         Label="{x:Bind vm:ExtensionEditorViewModel.TextLabel}"
+                         Value="{x:Bind Model.Text, Mode=TwoWay}"
+                         Rows="18"
+                         Machine="True"
+                         Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                         Hint="{x:Bind vm:ExtensionEditorViewModel.TextHint}"
+                         Visibility="Collapsed" />
+
+            <StackPanel x:Name="FormFields" Spacing="{StaticResource DvSpace4}">
+              <dv:Field Label="Extension name"
+                        Value="{x:Bind Model.Name, Mode=TwoWay}"
+                        Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+              <dv:Field Label="Id"
+                        Value="{x:Bind Model.Id, Mode=TwoWay}"
+                        Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                        Hint="Names the extension wherever it is installed. Lower-case letters, digits, dots, and hyphens." />
+              <dv:TextArea Label="What the extension is for"
+                           Value="{x:Bind Model.Description, Mode=TwoWay}"
+                           Rows="2"
+                           Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+
+              <pages:PartHeading Text="The bot it adds" />
+              <dv:Switch Label="Adds a bot" Value="{x:Bind Model.AddsBot, Mode=TwoWay}" IsEnabled="{x:Bind Model.Idle, Mode=OneWay}" />
+              <StackPanel x:Name="BotFields" Spacing="{StaticResource DvSpace4}">
+                <dv:Field Label="Bot name"
+                          Value="{x:Bind Model.BotName, Mode=TwoWay}"
+                          Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+                <dv:TextArea Label="What the bot is for"
+                             Value="{x:Bind Model.BotDescription, Mode=TwoWay}"
+                             Rows="2"
+                             Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                             Hint="Other bots read this to decide whether to hand it a task." />
+                <dv:TextArea Label="Instructions"
+                             Value="{x:Bind Model.Instructions, Mode=TwoWay}"
+                             Rows="10"
+                             Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                             Hint="Everything the bot is told. Whoever imports the file reads all of it first." />
+                <dv:Field Label="Suggested model"
+                          Value="{x:Bind Model.SuggestedModel, Mode=TwoWay}"
+                          Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                          Hint="Optional. Used only where the importing space has a model by this name." />
+              </StackPanel>
+
+              <pages:PartHeading Text="The tool server it names" />
+              <dv:Switch Label="Names a tool server" Value="{x:Bind Model.NamesServer, Mode=TwoWay}" IsEnabled="{x:Bind Model.Idle, Mode=OneWay}" />
+              <StackPanel x:Name="ServerFields" Spacing="{StaticResource DvSpace4}">
+                <TextBlock Style="{StaticResource DvTextSecondary}" Text="{x:Bind vm:ExtensionEditorViewModel.ServerLead}" />
+                <dv:Field Label="Server name"
+                          Value="{x:Bind Model.ServerName, Mode=TwoWay}"
+                          Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                          Hint="What it is called, such as Calendar." />
+                <dv:Field Label="Server address"
+                          Type="url"
+                          Value="{x:Bind Model.ServerAddress, Mode=TwoWay}"
+                          Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                          Placeholder="https://"
+                          Hint="The address of the server's MCP endpoint, with nothing after the path." />
+                <StackPanel Spacing="{StaticResource DvSpace2}">
+                  <TextBlock x:Name="AuthLabel" Style="{StaticResource DvTextLabel}" Foreground="{ThemeResource DvTextBrush}" AutomationProperties.AccessibilityView="Raw" Text="{x:Bind vm:ExtensionEditorViewModel.AuthLabel}" />
+                  <dv:SegmentedControl Label="{x:Bind vm:ExtensionEditorViewModel.AuthLabel}"
+                                       Options="{x:Bind vm:ExtensionEditorViewModel.AuthKinds}"
+                                       Value="{x:Bind Model.ServerAuth, Mode=TwoWay}"
+                                       Disabled="{x:Bind Model.Busy, Mode=OneWay}" />
+                </StackPanel>
+                <dv:Field x:Name="HeaderField"
+                          Label="Header name"
+                          Value="{x:Bind Model.HeaderName, Mode=TwoWay}"
+                          Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                          Hint="Such as Authorization or X-Api-Key. Its value is not part of the file." />
+                <dv:TextArea Label="Tools to suggest for the bot"
+                             Value="{x:Bind Model.SuggestedTools, Mode=TwoWay}"
+                             Rows="4"
+                             Machine="True"
+                             Disabled="{x:Bind Model.Busy, Mode=OneWay}"
+                             Hint="One a line: the tool's name as the server gives it, a colon, then why the bot needs it. Whoever imports the file chooses which the bot gets." />
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </dv:Tabs>
+
+        <dv:StatusNote Kind="{x:Bind Model.NoticeKind, Mode=OneWay}" Text="{x:Bind Model.Notice, Mode=OneWay}" />
+
+        <pages:FlexPanel Gap="{StaticResource DvSpace3}" RowGap="{StaticResource DvSpace2}" Justify="End">
+          <dv:Button Content="{x:Bind Model.CheckLabel, Mode=OneWay}"
+                     IsEnabled="{x:Bind Model.Idle, Mode=OneWay}"
+                     Command="{x:Bind Model.CheckCommand}" />
+          <dv:Button x:Name="Copy"
+                     Content="{x:Bind vm:ExtensionEditorViewModel.CopyLabel}"
+                     IsEnabled="{x:Bind Model.Idle, Mode=OneWay}" />
+          <dv:Button Kind="Primary"
+                     Content="{x:Bind vm:ExtensionEditorViewModel.ImportLabel}"
+                     IsEnabled="{x:Bind Model.Idle, Mode=OneWay}"
+                     Command="{x:Bind Model.ImportCommand}" />
+        </pages:FlexPanel>
+      </StackPanel>
+    </dv:Facet>
+  </layouts:WorkLayout>
+
+</shell:Screen>

@@ -349,7 +349,7 @@ public sealed class DevicePushViewModelTests : IDisposable
     private DevicePushViewModel Make() => Make(device);
 
     private DevicePushViewModel Make(IPushRegistration? registration) =>
-        new(registration, server.CreateApi(), session, NullLogger<DevicePushViewModel>.Instance);
+        new(server.CreateApi(), session, NullLogger<DevicePushViewModel>.Instance, registration);
 
     #endregion
 }
