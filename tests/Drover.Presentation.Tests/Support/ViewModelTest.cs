@@ -23,6 +23,7 @@ public abstract class ViewModelTest : IDisposable
             .AddSingleton(Session)
             .AddSingleton(Navigator)
             .AddSingleton(Toasts)
+            .AddSingleton(Inbox)
             .BuildServiceProvider();
     }
 
@@ -45,6 +46,9 @@ public abstract class ViewModelTest : IDisposable
     protected ToastService Toasts { get; } = new(TimeProvider.System);
 
     protected SessionState Session { get; }
+
+    /// <summary>What another app shared, waiting for a bot: the one inbox both clients register.</summary>
+    protected ShareInbox Inbox { get; } = new();
 
     #endregion
 
