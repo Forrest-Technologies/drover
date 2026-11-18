@@ -330,9 +330,14 @@ async function checkWorkspacePanels(page, width, theme) {
 
     await page.screenshot({ path: path.join(pictures, `conversation-activity-${width}-${theme}.png`) });
     await close.dispatchEvent('click');
+    await page.waitForURL(url => url.pathname.endsWith(`/talk/${botId}`));
     await right.waitFor({ state: 'detached' });
     await activity.dispatchEvent('click');
-    assert(Math.abs((await bounds(right)).x - edge) <= 1, 'Reopening the right panel lost its width.');
+    await page.waitForURL('**/activity');
+    await page.waitForFunction(x => {
+        const box = document.querySelector('[aria-label="Resize the right panel"]')?.getBoundingClientRect();
+        return box && box.width > 0 && Math.abs(box.x - x) <= 1;
+    }, edge);
 }
 
 /**
