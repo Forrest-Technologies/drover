@@ -26,10 +26,27 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     private const string OpenRecorder =
         "self.addEventListener('message', e => { if (e.data && e.data.open) { openConversation({ url: e.data.open }); } });\n";
 
+    // A synthetic PushEvent has no browser-managed lifetime. Keep the worker alive through the message event and
+    // report whether the production push handler completed the work it registered.
+    private const string PushDispatcher = """
+        self.addEventListener('message', message => {
+            if (typeof message.data?.testPush !== 'string') return;
+            const reply = message.ports[0];
+            const event = new PushEvent('push', { data: message.data.testPush });
+            const work = [];
+            event.waitUntil = promise => work.push(promise);
+            self.dispatchEvent(event);
+            if (work.length === 0) {
+                reply.postMessage('The push handler registered no work.');
+                return;
+            }
+            message.waitUntil(Promise.all(work).then(
+                () => reply.postMessage(null), error => reply.postMessage(String(error))));
+        });
+        """ + "\n";
+
     /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
     private const string SignInCookie = "drover-test-session=signed-in";
-
-    internal const string CollectionName = "Browser service workers";
 
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1");
 
@@ -51,8 +68,6 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     private IBrowser? browser;
 
     private IPage page = null!;
-
-    private ICDPSession devTools = null!;
 
     private readonly List<string> wakeQueries = [];
 
@@ -199,7 +214,6 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         page.Response += (_, response) => responses.Add(response);
         await page.GotoAsync($"{Origin}{Home}");
         await page.WaitForFunctionAsync("() => navigator.serviceWorker.controller !== null");
-        devTools = await context.NewCDPSessionAsync(page);
     }
 
     // Each part is let go if it was made, so a start that failed half way leaves no server running.
@@ -249,7 +263,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         app.MapGet($"{home}talk/{{bot}}", () => Results.Content(shellPage, "text/html"));
         app.MapGet($"{home}register.js", () => Results.Content($"navigator.serviceWorker.register('{home}service-worker.js');", "text/javascript"));
         app.MapGet($"{home}service-worker.js", async () => Results.Content(
-            $"{RejectionRecorder}{OpenRecorder}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
+            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
             "text/javascript"));
         app.MapGet($"{home}push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
         app.MapGet($"{home}service-worker-assets.js", () => Results.Content(AssetsManifest(shellPage), "text/javascript"));
@@ -263,25 +277,21 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
 
     private static string WebFile(string name) => Path.Combine(RepositoryFiles.Root, "src", "Shared", "Web", name);
 
-    /// <summary>A real push, as a push service delivers it, through the browser's developer protocol.</summary>
+    /// <summary>Dispatch a push in the active browser worker and await the work registered by its handler.</summary>
     private async Task DeliverPush(string payload)
     {
-        var registered = new TaskCompletionSource<string>();
-        devTools.Event("ServiceWorker.workerRegistrationUpdated").OnEvent += (_, update) =>
-        {
-            if (update?.GetProperty("registrations").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Object } registration)
-            {
-                registered.TrySetResult(registration.GetProperty("registrationId").GetString()!);
-            }
-        };
-        await devTools.SendAsync("ServiceWorker.enable");
-        var registrationId = await registered.Task.WaitAsync(TimeSpan.FromSeconds(10), Xunit.TestContext.Current.CancellationToken);
-        await devTools.SendAsync("ServiceWorker.deliverPushMessage", new()
-        {
-            ["origin"] = Origin,
-            ["registrationId"] = registrationId,
-            ["data"] = payload,
-        });
+        // DevTools reports that it accepted a push request without reporting whether delivery completed.
+        await page.EvaluateAsync("""
+            payload => new Promise((done, reject) => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = ({ data }) => {
+                    channel.port1.close();
+                    if (data === null) done();
+                    else reject(new Error(data));
+                };
+                navigator.serviceWorker.controller.postMessage({ testPush: payload }, [channel.port2]);
+            })
+            """, payload).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
     }
 
     /// <summary>The notifications the worker shows, as title, body, and the address a tap opens.</summary>
@@ -294,7 +304,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             var shown = await page.EvaluateAsync<string[]>(
                 "async () => (await (await navigator.serviceWorker.ready).getNotifications()).map(n => `${n.title}|${n.body}|${n.data.url}`)");
 
-            if (shown.Length > 0 || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(30))
+            if (shown.Length > 0 || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(10))
             {
                 return shown;
             }
@@ -329,7 +339,6 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
 
 
 /// <summary>The worker serving the web client, at the root.</summary>
-[Collection(ServiceWorkerScenarios.CollectionName)]
 public sealed class ServiceWorkerTests : ServiceWorkerScenarios
 {
     #region Properties
@@ -344,7 +353,6 @@ public sealed class ServiceWorkerTests : ServiceWorkerScenarios
 /// The same worker serving the native client's browser build under /native/, beside the web client's at the root. Each
 /// keeps to its own client: the web client's worker answers nothing under /native/ and leaves its stored shell alone.
 /// </summary>
-[Collection(ServiceWorkerScenarios.CollectionName)]
 public sealed class NativeServiceWorkerTests : ServiceWorkerScenarios
 {
     #region Private Fields
