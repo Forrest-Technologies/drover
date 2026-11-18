@@ -35,7 +35,7 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly Border mainHeader = new();
 
-    private readonly Grid mainHeaderRow = new() { ColumnSpacing = Tokens.Number("DvSpace2"), RowSpacing = Tokens.Number("DvSpace2") };
+    private readonly Grid mainHeaderRow = new() { ColumnSpacing = Tokens.Number("DvSpace2") };
 
     private readonly IconLink back = new() { Icon = IconName.ArrowLeft, Label = "Back to the crew", Address = Addresses.Home };
 
@@ -432,7 +432,20 @@ internal sealed class TalkWorkspace : Grid
         Set(SideView.Screen, "Screen", Addresses.Screen(shown.Id), model.Side is SideView.Screen);
         Set(SideView.Files, "Files", Addresses.Files(shown.Id), model.Side is SideView.Files);
         Set(SideView.List, model.SideChatsLabel, Addresses.SideChats(shown.Id), model.Side is SideView.List or SideView.New or SideView.Chat);
-        ways[SideView.Screen].Visibility = Shown(model.OffersScreen);
+
+        // The way to the screen is there only for a bot that has one: a way that is not offered takes no room.
+        var screen = ways[SideView.Screen];
+        if (model.OffersScreen != beside.Children.Contains(screen))
+        {
+            if (model.OffersScreen)
+            {
+                beside.Children.Insert(beside.Children.IndexOf(ways[SideView.Files]), screen);
+            }
+            else
+            {
+                beside.Children.Remove(screen);
+            }
+        }
 
         void Set(SideView side, string label, string address, bool open)
         {
@@ -658,6 +671,7 @@ internal sealed class TalkWorkspace : Grid
         mainHeader.Padding = new(inline, Tokens.Number("DvSpace2"), inline, Tokens.Number("DvSpace2"));
         beside.Visibility = Shown(!phone);
         beside.Gap = Tokens.Number(wrapped ? "DvSpace1" : "DvSpace2");
+        mainHeaderRow.RowSpacing = wrapped ? Tokens.Number("DvSpace2") : 0;
         SetRow(beside, wrapped ? 1 : 0);
         SetColumn(beside, wrapped ? 0 : mainHeaderRow.ColumnDefinitions.Count - 1);
         SetColumnSpan(beside, wrapped ? mainHeaderRow.ColumnDefinitions.Count : 1);

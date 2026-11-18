@@ -20,7 +20,7 @@ public sealed class Composer : Grid
 
     private readonly Facet frame = new();
 
-    private readonly Grid row = new() { ColumnSpacing = Tokens.Number("DvSpace2"), RowSpacing = Tokens.Number("DvSpace2") };
+    private readonly Grid row = new() { ColumnSpacing = Tokens.Number("DvSpace2") };
 
     private readonly TravelLine travel = new();
 
@@ -258,6 +258,7 @@ public sealed class Composer : Grid
         }
 
         stacked = two;
+        row.RowSpacing = two ? Tokens.Number("DvSpace2") : 0;
         SetColumn(fieldBox, 1);
         SetColumnSpan(fieldBox, two ? row.ColumnDefinitions.Count - 1 : 1);
         SetColumn(stop, 2);

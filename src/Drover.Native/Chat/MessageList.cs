@@ -212,8 +212,11 @@ public sealed class MessageList : Grid
         thinking.Visibility = Shown(list.Thinking);
         thinkingName.Text = list.BotName;
         ShowFailure(list);
+        // A note with nothing to say takes no room between the messages and the foot of the column.
         problem.Text = list.Problem;
+        problem.Visibility = Shown(!string.IsNullOrWhiteSpace(list.Problem));
         notice.Text = list.Notice;
+        notice.Visibility = Shown(!string.IsNullOrWhiteSpace(list.Notice));
         spoken.Say(list.Spoken);
         Paint();
 
