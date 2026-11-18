@@ -15,6 +15,7 @@ public static class AppServices
             .AddSingleton<Navigator>()
             .AddSingleton<SessionState>()
             .AddSingleton<ToastService>()
+            .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
             .AddPlatform()
             .BuildServiceProvider();

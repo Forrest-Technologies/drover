@@ -20,10 +20,6 @@ public sealed class AccountMenu : Grid
 
     public AccountMenu()
     {
-        notifications.Body = new StatusNote
-        {
-            Text = "This app cannot turn notifications on yet. Turn them on in the web app, in this same menu.",
-        };
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
         Children.Add(menu);
         Children.Add(notifications);
@@ -57,7 +53,7 @@ public sealed class AccountMenu : Grid
         menu.AccessibleLabel = model.AccessibleLabel;
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-        notifications.Open = model.NotificationsOpen;
+        ShowNotifications();
 
         if (Compact)
         {
@@ -82,6 +78,22 @@ public sealed class AccountMenu : Grid
         }
 
         menu.Items.Add(Item("Sign out", () => _ = model.SignOut()));
+    }
+
+    // The control is made each time the dialog opens, so the device is asked afresh, and let go when it closes.
+    private void ShowNotifications()
+    {
+        if (model.NotificationsOpen && !notifications.Open)
+        {
+            notifications.Body = new DevicePush { TitleHidden = true };
+        }
+
+        notifications.Open = model.NotificationsOpen;
+
+        if (!model.NotificationsOpen)
+        {
+            notifications.Body = null;
+        }
     }
 
     // In the dock the menu's button is one of four equal cells: no surface, no line, the icon over the word.
