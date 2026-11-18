@@ -124,7 +124,7 @@ public sealed class ShellView : Grid
 #if ANDROID
         if (Uno.UI.ContextHelper.Current is MainActivity activity)
         {
-            activity.UpdateSystemBars(ActualTheme);
+            activity.UpdateSystemBars(this);
         }
 #endif
     }
