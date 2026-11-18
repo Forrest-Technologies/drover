@@ -10,7 +10,7 @@ public sealed class SegmentedControl : Grid
 
     private readonly Border box = new();
 
-    private readonly StackPanel row = new() { Orientation = Orientation.Horizontal };
+    private readonly Grid row = new();
 
     #endregion
 
@@ -92,6 +92,7 @@ public sealed class SegmentedControl : Grid
         box.BorderBrush = Tokens.Brush(this, "DvText3");
         AutomationProperties.SetName(row, Label);
         row.Children.Clear();
+        row.ColumnDefinitions.Clear();
 
         foreach (var option in Options)
         {
@@ -115,12 +116,16 @@ public sealed class SegmentedControl : Grid
             segment.Click += (_, _) => Value = option.Value;
             segment.KeyDown += (_, key) => Move(option, key);
 
-            row.Children.Add(new Border
+            // Each choice is a column of its own: as wide as its words, or, when the control fills, one share of the width.
+            row.ColumnDefinitions.Add(new() { Width = Fills ? new(1, GridUnitType.Star) : GridLength.Auto });
+            var cell = new Border
             {
                 Child = segment,
                 BorderBrush = Tokens.Brush(this, "DvLine"),
                 BorderThickness = new(row.Children.Count == 0 ? 0 : Tokens.Number("DvBorder"), 0, 0, 0),
-            });
+            };
+            SetColumn(cell, row.Children.Count);
+            row.Children.Add(cell);
 
             if (chosen && hadFocus)
             {
