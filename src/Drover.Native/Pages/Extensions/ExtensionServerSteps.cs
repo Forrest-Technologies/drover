@@ -204,7 +204,7 @@ internal sealed class ExtensionServerSteps : Grid
 
         if (give is not null)
         {
-            give.Content = model.GiveLabel;
+            give.Content = new TextBlock { Text = model.GiveLabel, TextWrapping = TextWrapping.Wrap };
             give.IsEnabled = model.CanGive;
         }
 

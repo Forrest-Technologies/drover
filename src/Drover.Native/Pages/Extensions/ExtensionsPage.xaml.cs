@@ -74,6 +74,9 @@ public sealed partial class ExtensionsPage : Screen
             form = null;
             ImportHost.Content = null;
         }
+
+        // Nothing is left standing where the import was, so the column's spacing does not leave a gap for it.
+        ImportHost.Visibility = form is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void ShowUnder()

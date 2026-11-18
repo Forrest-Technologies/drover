@@ -99,6 +99,26 @@ public sealed class ExtensionEditorViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task The_screen_shows_the_form_a_failure_the_opening_note_or_the_member_note_in_that_order()
+    {
+        server.Answer("GET", "/api/session", Samples.Session());
+        server.Answer("GET", $"{root}/from-bot/{botId}", HttpStatusCode.ServiceUnavailable);
+        var editor = Make();
+        editor.Shows.Should().Be(ExtensionEditorContent.Opening);
+
+        await editor.Open(botId);
+        editor.Shows.Should().Be(ExtensionEditorContent.LoadFailed);
+
+        (await Opened()).Shows.Should().Be(ExtensionEditorContent.Form);
+    }
+
+    [Fact]
+    public async Task A_member_is_shown_the_member_note_not_the_form()
+    {
+        (await Opened(role: "member")).Shows.Should().Be(ExtensionEditorContent.Member);
+    }
+
+    [Fact]
     public async Task The_id_follows_the_name_until_the_person_types_one_of_their_own()
     {
         var editor = await Opened();

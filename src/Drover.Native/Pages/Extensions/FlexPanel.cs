@@ -16,6 +16,16 @@ internal enum FlexJustify
 /// </summary>
 internal sealed class FlexPanel : Panel
 {
+    #region Private Fields
+
+    private readonly Dictionary<UIElement, double> natural = [];
+
+    private List<Line> laid = [];
+
+    private double laidWidth = double.NaN;
+
+    #endregion
+
     #region Properties
 
     public static readonly DependencyProperty GapProperty = Dp.Register<FlexPanel, double>(nameof(Gap), 0, panel => panel.InvalidateMeasure());
@@ -76,18 +86,33 @@ internal sealed class FlexPanel : Panel
 
     #region Private Methods
 
+    // The width each item would like is asked once per measure, with room to spare. The lines are then laid for the
+    // width given, and kept for the arrange that follows, so no item is measured twice at different sizes in a pass.
     protected override Size MeasureOverride(Size availableSize)
     {
-        var lines = Lay(availableSize.Width);
-        var height = lines.Sum(line => line.Height) + (Math.Max(lines.Count - 1, 0) * Between);
-        var width = lines.Count == 0 ? 0 : lines.Max(line => line.Used);
+        natural.Clear();
+        foreach (var child in Children.Where(child => child.Visibility is Visibility.Visible))
+        {
+            child.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
+            natural[child] = child.DesiredSize.Width;
+        }
+
+        laid = Lay(availableSize.Width);
+        laidWidth = availableSize.Width;
+        var height = laid.Sum(line => line.Height) + (Math.Max(laid.Count - 1, 0) * Between);
+        var width = laid.Count == 0 ? 0 : laid.Max(line => line.Used);
         return new(double.IsInfinity(availableSize.Width) ? width : availableSize.Width, height);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
+        if (finalSize.Width != laidWidth)
+        {
+            (laid, laidWidth) = (Lay(finalSize.Width), finalSize.Width);
+        }
+
         var y = 0d;
-        foreach (var line in Lay(finalSize.Width))
+        foreach (var line in laid)
         {
             var (x, gap) = Start(line, finalSize.Width);
             foreach (var item in line.Items)
@@ -126,9 +151,8 @@ internal sealed class FlexPanel : Panel
 
         foreach (var child in Children.Where(child => child.Visibility is Visibility.Visible))
         {
-            child.Measure(new(double.PositiveInfinity, double.PositiveInfinity));
             var basis = GetBasis(child);
-            var wanted = double.IsNaN(basis) ? child.DesiredSize.Width : basis;
+            var wanted = double.IsNaN(basis) ? natural.GetValueOrDefault(child) : basis;
             var itemWidth = double.IsInfinity(width) ? wanted : Math.Min(wanted, width);
 
             if (current.Items.Count > 0 && !double.IsInfinity(width) && current.Used + Gap + itemWidth > width)
