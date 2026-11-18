@@ -101,6 +101,9 @@ public sealed class MessageListViewModel : ObservableObject
 
     public void ShowNewest() => NewestRequested?.Invoke();
 
+    /// <summary>Tries the failed run again. While that is being asked for, a second press does nothing.</summary>
+    public Task Retry() => Retrying ? Task.CompletedTask : OnRetry?.Invoke() ?? Task.CompletedTask;
+
     /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
     public static string Anchor(Guid messageId) => MessageAnchors.Anchor(messageId);
 

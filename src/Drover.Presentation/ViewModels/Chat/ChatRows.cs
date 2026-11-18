@@ -86,6 +86,9 @@ public static class ChatRows
         _ => $"{botName} said",
     };
 
+    /// <summary>What a reply used is offered once, at the last words of a finished run, where there is a way to read it.</summary>
+    public static bool OffersUsage(ChatMessage message, bool canRead) => canRead && message is { EndsReply: true, RunId: not null };
+
     /// <summary>Said under a message sent while the bot works, until the bot has read it.</summary>
     public static string Pending(string botName) => $"Sent. {botName} reads it at its next step.";
 
