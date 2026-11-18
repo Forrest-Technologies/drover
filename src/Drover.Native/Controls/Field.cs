@@ -38,6 +38,15 @@ public sealed class Field : StackPanel
         AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
         frame.Cut = Tokens.Number("DvCutS");
         frame.MinHeight = Targets.Minimum;
+#if ANDROID
+        frame.Tapped += (_, _) =>
+        {
+            if (input is AndroidAddressEditor editor)
+            {
+                editor.ShowKeyboard();
+            }
+        };
+#endif
         Children.Add(label);
         Children.Add(frame);
         Children.Add(hint);
@@ -181,8 +190,18 @@ public sealed class Field : StackPanel
                 Submit();
             }
         };
-        frame.Children.Add(input);
-        frame.Children.Add(placeholder);
+#if ANDROID
+        if (input is AndroidAddressEditor)
+        {
+            frame.Children.Add(placeholder);
+            frame.Children.Add(input);
+        }
+        else
+#endif
+        {
+            frame.Children.Add(input);
+            frame.Children.Add(placeholder);
+        }
         Describe();
     }
 

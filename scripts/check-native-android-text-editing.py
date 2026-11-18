@@ -32,6 +32,15 @@ def expect(text):
         raise AssertionError(f"Expected the Server address to contain {text!r}, got {actual!r}.")
 
 
+def expect_visible_keyboard():
+    for _ in range(5):
+        shell("uiautomator", "dump", "--windows", DUMP)
+        nodes = ET.fromstring(shell("cat", DUMP)).iter("node")
+        if any(node.get("package") == IME_PACKAGE and node.get("text") == "Drover test keyboard" for node in nodes):
+            return
+    raise AssertionError("Tapping the Server address did not open the on-screen keyboard.")
+
+
 def ime_edit(*args):
     # Retry only while Android is connecting the keyboard to the editor.
     for _ in range(20):
@@ -49,6 +58,7 @@ def check_edits():
     address = find_address()
     left, top, right, bottom = map(int, re.findall(r"\d+", address.attrib["bounds"]))
     shell("input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+    expect_visible_keyboard()
 
     ime_edit("--es", "text", "abc")
     expect("abc")
@@ -90,14 +100,20 @@ def check_edits():
 
 def main():
     previous = shell("settings", "get", "secure", "default_input_method")
+    show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
     shell("ime", "enable", IME)
     try:
+        shell("settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
         shell("ime", "set", IME)
         check_edits()
     finally:
         if previous and previous != "null":
             shell("ime", "set", previous)
         shell("ime", "disable", IME)
+        if show_with_hardware == "null":
+            shell("settings", "delete", "secure", "show_ime_with_hard_keyboard")
+        else:
+            shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
 
 
 if __name__ == "__main__":
