@@ -90,8 +90,16 @@ jobs:
           builder=buildx_buildkit_budget0
           pid=$(docker inspect --format '{{.State.Pid}}' "$builder")
           cgroup="/sys/fs/cgroup$(cut -d: -f3 "/proc/$pid/cgroup")"
-          test "$(cat "$cgroup/memory.max")" = "2147483648"
-          test "$(cat "$cgroup/memory.swap.max")" = "0"
+          # Docker can put its init process in a child cgroup. Measure the whole builder at its container scope.
+          cgroup="${cgroup%/init}"
+          memory_max=$(cat "$cgroup/memory.max")
+          swap_max=$(cat "$cgroup/memory.swap.max")
+          printf 'BuildKit cgroup %s has memory.max=%s and memory.swap.max=%s\n' "$cgroup" "$memory_max" "$swap_max"
+          test "$memory_max" = "2147483648"
+          # A runner without any swap devices cannot swap regardless of the controller's setting.
+          if [ "$swap_max" != "0" ]; then
+            test "$(wc -l < /proc/swaps)" = "1"
+          fi
           start=$(date +%s)
           docker buildx build --builder budget --build-arg DROVER_BUILD_NATIVE="$BUILD_NATIVE" --load -t drover:local .
           build_seconds=$(( $(date +%s) - start ))
