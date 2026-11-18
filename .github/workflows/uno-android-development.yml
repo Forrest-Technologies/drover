@@ -1,0 +1,62 @@
+name: Publish Uno Android development preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Native clients run ID from a push to main
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: uno-android-development-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # download the Android artifact from the selected main run
+      contents: write # publish the development prerelease and its assets
+    steps:
+      - name: Publish the main build as a development prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          sha=$(jq -er --arg repo "$GITHUB_REPOSITORY" '
+            select(.path == ".github/workflows/native.yml" and .event == "push" and .head_branch == "main"
+              and .head_repository.full_name == $repo and .conclusion == "success")
+            | .head_sha | select(test("^[a-f0-9]{40}$"))
+          ' <<< "$run")
+
+          cd "$(mktemp -d "$RUNNER_TEMP/drover-uno-android.XXXXXX")"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name native-android-development
+          short_sha=${sha:0:7}
+          tag="uno-android-development-$short_sha"
+          apk="drover-uno-android-$short_sha.apk"
+          mv com.forresttechnologies.drover.client-Signed.apk "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,targetCommitish > release.json; then
+            cat > notes.md <<EOF
+          Install \`$apk\` on your Android phone and enter your Drover server’s HTTPS base URL.
+
+          This preview uses Android’s development signing key and is built from \`$sha\`.
+          The Uno app installs alongside the existing MAUI preview.
+
+          [GitHub Actions build]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID)
+          EOF
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$sha" --draft --prerelease \
+              --latest=false --title 'Drover Uno Android development preview' --notes-file notes.md
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,targetCommitish > release.json
+          fi
+          jq -e --arg sha "$sha" '.isDraft and .isPrerelease and .targetCommitish == $sha' release.json
+          gh release upload "$tag" "$apk" "$apk.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false

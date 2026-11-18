@@ -1,5 +1,13 @@
 # Drover on Android
 
+## Uno development preview
+
+The [GitHub prereleases](https://github.com/Forrest-Technologies/drover/releases) also carry the Uno development APK
+when a maintainer runs **Publish Uno Android development preview** with a successful **Native clients** run ID from
+`main`. This APK uses Android’s development signing key and installs alongside the MAUI preview below.
+
+## MAUI preview
+
 Download the APK from the [GitHub prereleases](https://github.com/Forrest-Technologies/drover/releases) and open it on Android 7 or later. Enter the HTTPS address of your Drover server and sign in with your existing account.
 
 The preview remembers the server. With native sessions available on your server, the app stays signed in when Android stops the process. Older servers require signing in again. To change servers, sign out and choose **Use another server** on the sign-in screen; the same choice is offered when the server does not answer. Signing in to a tool server opens your browser and brings you back to the connection in the app; on an older server, finish it in the browser. Share text, links, images, or documents to **Drover Preview** from another app, choose the bot, then review the draft and send it. In a conversation’s file card, choose **Save** for Android’s file picker or **Share** for the Android Sharesheet.
