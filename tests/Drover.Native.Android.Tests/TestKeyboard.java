@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.inputmethodservice.InputMethodService;
+import android.view.View;
+import android.widget.TextView;
 
 public final class TestKeyboard extends InputMethodService {
     public static final String EDIT = "org.drover.tests.keyboard.EDIT";
@@ -40,6 +42,14 @@ public final class TestKeyboard extends InputMethodService {
     public void onCreate() {
         super.onCreate();
         registerReceiver(edits, new IntentFilter(EDIT), "android.permission.DUMP", null, Context.RECEIVER_EXPORTED);
+    }
+
+    @Override
+    public View onCreateInputView() {
+        var view = new TextView(this);
+        view.setText("Drover test keyboard");
+        view.setMinimumHeight(80);
+        return view;
     }
 
     @Override

@@ -22,6 +22,7 @@ internal sealed class AndroidAddressEditor : UserControl
         var inset = (int)Math.Round(Tokens.Number("DvSpace3") * density);
         editor.SetPadding(inset, 0, inset, 0);
         editor.TextChanged += (_, _) => TextChanged?.Invoke(this, EventArgs.Empty);
+        editor.Click += (_, _) => ShowKeyboard();
         editor.FocusChange += (_, args) =>
         {
             if (args.HasFocus && FocusState is FocusState.Unfocused)
@@ -70,6 +71,19 @@ internal sealed class AndroidAddressEditor : UserControl
         Editor.Enabled = enabled;
         IsEnabled = enabled;
         Editor.SetTextColor(new Android.Graphics.Color(color.R, color.G, color.B, color.A));
+    }
+
+    public void ShowKeyboard()
+    {
+        var editor = Editor;
+        editor.Post(() =>
+        {
+            if (editor.Enabled && editor.RequestFocus())
+            {
+                using var keyboard = new AndroidX.Core.View.SoftwareKeyboardControllerCompat(editor);
+                keyboard.Show();
+            }
+        });
     }
 
     #endregion
