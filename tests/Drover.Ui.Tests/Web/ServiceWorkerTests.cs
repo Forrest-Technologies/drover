@@ -29,6 +29,8 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
     private const string SignInCookie = "drover-test-session=signed-in";
 
+    internal const string CollectionName = "Browser service workers";
+
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1");
 
     private static readonly Guid threadId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000c1");
@@ -135,6 +137,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}");
     }
 
     [Fact]
@@ -250,6 +253,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             "text/javascript"));
         app.MapGet($"{home}push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
         app.MapGet($"{home}service-worker-assets.js", () => Results.Content(AssetsManifest(shellPage), "text/javascript"));
+        app.MapGet($"{home}icon-192.png", () => Results.File(WebFile("icon-192.png"), "image/png"));
     }
 
     protected async Task<string> Fetch(string url, string method) =>
@@ -290,7 +294,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             var shown = await page.EvaluateAsync<string[]>(
                 "async () => (await (await navigator.serviceWorker.ready).getNotifications()).map(n => `${n.title}|${n.body}|${n.data.url}`)");
 
-            if (shown.Length > 0 || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(10))
+            if (shown.Length > 0 || TimeProvider.System.GetElapsedTime(started) > TimeSpan.FromSeconds(30))
             {
                 return shown;
             }
@@ -325,6 +329,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
 
 
 /// <summary>The worker serving the web client, at the root.</summary>
+[Collection(ServiceWorkerScenarios.CollectionName)]
 public sealed class ServiceWorkerTests : ServiceWorkerScenarios
 {
     #region Properties
@@ -339,6 +344,7 @@ public sealed class ServiceWorkerTests : ServiceWorkerScenarios
 /// The same worker serving the native client's browser build under /native/, beside the web client's at the root. Each
 /// keeps to its own client: the web client's worker answers nothing under /native/ and leaves its stored shell alone.
 /// </summary>
+[Collection(ServiceWorkerScenarios.CollectionName)]
 public sealed class NativeServiceWorkerTests : ServiceWorkerScenarios
 {
     #region Private Fields
