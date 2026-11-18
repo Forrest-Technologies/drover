@@ -43,28 +43,30 @@ src/Drover.Native/
 | Target | Framework | State |
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
-| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Builds. Run on Linux under X11 in this work; macOS and Windows not run |
-| Android | `net11.0-android` | Project files are in place. Not built in this work: the build machine had no Android SDK |
-| iOS, Mac Catalyst | `net11.0-ios`, `net11.0-maccatalyst` | Added to the target list only when `DroverEnableApple` is true. Not built |
+| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds; startup under a virtual X11 display fails in the Skia font fallback before the first frame. macOS and Windows not run |
+| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21; no emulator or device run |
+| iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
+
+Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by the upstream [migration guide](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/doc/articles/migrating-to-uno-7/project-setup.md#mac-catalyst-is-removed).
 
 ## Commands
 
 ```bash
 # Build one target (-warnaserror holds the same rules as the rest of Drover)
-dotnet build src/Drover.Native -f net11.0-desktop -warnaserror
-dotnet build src/Drover.Native -f net11.0-browserwasm -warnaserror     # needs: dotnet workload install wasm-tools
-dotnet build src/Drover.Native -f net11.0-android -warnaserror         # needs the Android SDK
+dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -warnaserror
+dotnet build src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -warnaserror     # needs: dotnet workload install wasm-tools
+dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -warnaserror         # needs the Android SDK
 
 # Run on desktop
-dotnet run --project src/Drover.Native -f net11.0-desktop
+dotnet run --project src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop
 
 # Run in a browser, development build, at http://127.0.0.1:5199/ (the gallery is at /dev/gallery)
-ASPNETCORE_URLS=http://127.0.0.1:5199 dotnet run --project src/Drover.Native -f net11.0-browserwasm
+ASPNETCORE_URLS=http://127.0.0.1:5199 dotnet run --project src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm
 
 # Publish the browser build. It expects to be served under /native/.
-dotnet publish src/Drover.Native -f net11.0-browserwasm -c Release -o <folder>
+dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -o <folder>
 # The same, with the gallery in it, for the parity bench
-dotnet publish src/Drover.Native -f net11.0-browserwasm -c Release -p:DroverShowGallery=true -o <folder>
+dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -p:DroverShowGallery=true -o <folder>
 
 # Tests for everything that is not drawing
 dotnet test --project tests/Drover.Presentation.Tests
@@ -243,7 +245,7 @@ A screen is one `.razor` file with a `@code` block or a `.razor.cs`. Moving it m
 
 ## Pitfalls found
 
-- **A font is not variable here.** The Skia renderer does not vary a font along an axis. `Assets/Fonts/Inter.ttf.manifest` maps weights 400, 500, 600 to static files. A new weight needs a new file and a manifest row. Large headings use the display cut through `DvFontDisplay`, because the web's variable font switches cut by size.
+- **This app uses static font cuts.** `Assets/Fonts/Inter.ttf.manifest` maps weights 400, 500, 600 to static files, and large headings use the display cut through `DvFontDisplay`. The old foundation note that Skia cannot vary fonts is obsolete: the resolved 7.0.65 `SkiaFontProvider` applies OpenType variation axes. Variable-font parity still needs a runtime comparison before changing the bundled font strategy.
 - **A wrong family name after `#` shows nothing at all.** `ms-appx:///Assets/Fonts/InterDisplay.ttf` works without a name.
 - **Line height.** A text box keeps its letters at the top of the line height and puts the rest below; a browser centers them. The text styles correct this with a padding above and the same margin taken back below. Do not set `Margin` or `Padding` on a styled `TextBlock`: wrap it, or space it with the parent's `Spacing`.
 - **A shape must not size its parent.** A `Polygon` inside a `Grid` asks for the size of its points, which grows the grid, which moves the points: a layout cycle. `Facet` keeps its shapes on a `Canvas`.
@@ -278,8 +280,8 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 
 | Area | What was found |
 | --- | --- |
-| Accessibility in a browser | The interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
-| Password managers | A field has a real `input` only while it has the focus, one element reused for every field, outside any form, with no `autocomplete` and no `name`. A password manager cannot pair a user name with a password or offer to save them |
+| Accessibility in a browser | The app now sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
+| Password managers | Not yet tested with a real password manager. What the platform does (read from the runtime script of SDK 7.0.22): a `PasswordBox` gets a real `input` with `type="password"` and `autocomplete="password"` while it has the focus, so a manager can recognize and fill it. What may still hinder pairing and saving: the element exists only while focused, the same element is reused for the next field, it is outside any `form`, and the user name field carries no `autocomplete="username"`. Test fill and save in Chromium, Firefox, and Safari with their built-in managers before the web client is retired |
 | Text entry and input methods | Typing goes through that one hidden `input`. `inputmode` follows the field's type. Composition for languages that need it was not tested |
 | Find in page, reader mode, translation, selection across the page | None works: there is no text in the page. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. The browser's text-size setting has no effect |
@@ -288,17 +290,111 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | Service worker, install, push in a browser | Not set up. The published app registers no service worker |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
 | Credential store on desktop | Not implemented by the platform, so the desktop app keeps the sign-in only until it closes |
-| Variable fonts | Not supported by the renderer |
+| Variable fonts | The resolved 7.0.65 provider applies variation axes. This app still uses static cuts; matching the web’s variable rendering is unverified |
 | Search engines | Nothing to index. Drover's screens are behind sign-in, so this costs nothing today |
 
-## Not done
+## Current scope and remaining verification
 
-- No feature screen has moved. Every address but `/sign-in` and `/dev/gallery` opens a placeholder that says the screen is in the web app and links to it.
-- `Drover.Server` does not serve the native browser build. What it needs: static files under `/native` from a folder the deployment fills with the published `wwwroot`; a fallback of `/native/{**path}` to `/native/index.html`; the content type `application/json` for `.manifest`; and in `ClientFileCaching`, keep-for-good for `/native/_framework/` files named by content and for everything under `/native/package_<hash>/`.
-- The gallery does not show the feature components the web gallery shows: notifications, crew list, side chats, conversation, handed work, composer. They move with their screens.
-- The notifications dialog of the account menu says notifications are turned on in the web app. Push on a device and in the native browser build is not built.
-- `ShareInbox` and `ThemeService` stayed in `Drover.Ui`: the first carries a Blazor file type, the second is script interop. The starters stayed whole, as their own rules require.
-- `ConnectViewModel` lives in the app (it needs the device transport) and has no tests.
-- Android, iOS, and Mac Catalyst were not built. macOS and Windows desktop were not run.
-- No continuous integration job builds `Drover.Native.slnx`.
-- Files shared to the app, incoming links from the system, and sign-in returns from a provider are not handled natively.
+Status is checked against source and build results, not commit subjects or a handoff. The original PR head was
+`4f18a812505b90ecdcdc00cb46e98b73d34e1c1c`. At that revision, twelve of the sixteen screen classes registered in
+`Shell/Screens.cs` derived from `PendingScreen`; the four implemented classes were sign-in, gallery, extensions,
+and extension editor. Route registration alone was not implementation.
+
+The setup steps, bot list, model connections, status, usage, and tool connections now have native pages and framework-free view
+models. The setup account, provider retest, first-bot selection, role restrictions, bot creation, model key
+replacement, usage selection, changed-tool review conflicts, external sign-in redirects, one-time ticket returns, and refused tool removal have fake-server tests. The first bot's instructions are moved into `FirstBot`
+and called by both clients, preserving their text. Native page presence and passing view-model tests do not
+establish visual parity.
+
+The following four classes still explicitly derive from `PendingScreen`:
+
+- `TalkPage`: crew, main and side conversations, live runs, attachments, approvals, delegation, memory, activity,
+  summary, files, and screen panels.
+- `BotEditorPage`: definition, model, grants, rules, memory, routines, sandbox, team, limits, and unsaved changes.
+- `BotSandboxPage`: power controls, terminal, native screen rendering, and input.
+- `ShareToPage`: incoming content and recipient selection.
+
+The native browser build is served from `wwwroot/native`, with `/native/` and its non-file deep links falling back
+to `native/index.html`. The existing client continues to own `/`. Manifest files are JSON; content-named framework
+files and content-named native package directories can be cached immutably; entry files are revalidated. The CSP
+is unchanged. To include the native publish in a container built from this repository:
+
+```bash
+docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
+```
+
+The default image still contains only the existing client. The opt-in build must meet the same container memory
+budget as the existing deployment before becoming the default. This environment accepted a 2 GB Docker builder configuration but exposed a shared 16 GB cgroup, so its reported memory use cannot verify that budget. The local opt-in container build was stopped after fetching the pinned base images; container publishing and startup still need the real CI/deployment check.
+
+`.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
+packaging, incoming links, OAuth app returns, native push registration, install/offline support, credential
+persistence on desktop, and real provider flows remain to be verified or implemented. `ShareInbox` still holds a
+Blazor file type. `ConnectViewModel` still lives in the native app and lacks unit tests.
+
+Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: desktop usage still uses cards instead of the original table; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
+the feature ports above are complete. Passing tests for the existing clients must not be reported as native parity.
+
+### Verification recorded for this pass
+
+- Main solution Release build: zero warnings and errors. Both main and native format checks passed.
+- Linux desktop Release build and browser Release publish passed. Linux runtime startup did **not** pass (see below). Android Release compiled and produced a
+  development-signed APK for ARM64 and x64; the APK manifest keeps backup and cleartext traffic disabled.
+- Presentation tests pass (187), including server-returned review hashes, conflicts, tickets, and device launch refusal.
+- The expanded full run had 3,932 passing tests, three failures, and 25 explicit live-provider cases excluded.
+  The unchanged engine retry, web-push, and password-reset query tests each passed on isolated rerun with builds
+  stopped, without assertion changes. The password-reset failure had captured an unrelated run-queue poll.
+  This is recorded as an intermittent full-run failure, not a clean full-run sign-off. A preceding full run before
+  the final tool-screen additions passed 3,929 tests with 25 live-provider cases excluded.
+- The browser smoke check exercises the trimmed publish under the exact server CSP, actual accessible headings,
+  tool add/review states, extension loading/failure, both themes and widths, and downloaded JSON bytes. Reference
+  captures use the same fixtures in the existing client. Screenshots are regression evidence, not parity approval.
+- Native package metadata and exact-version license corrections pass the license checker, and NuGet's current
+  advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged
+  secret scan passed. Hadolint reports only the existing informational use of `USER $APP_UID`.
+
+### Linux runtime failure discovered during verification
+
+The Release desktop app was launched under a new Xorg dummy display with isolated settings. It created its
+native window but failed before mapping its first frame: `SKTypeface.GetTableTags()` threw
+`Unable to read the tables for the file`, reached through `SkiaFontProvider.GetDefaultFont` during text measure.
+A separate probe using the same SkiaSharp 4.156.0 packages reproduced an empty default typeface, while an
+explicit `DejaVu Sans` typeface and its TrueType file both loaded and exposed their tables. This also reproduced
+with a private fontconfig containing only valid DejaVu fonts, after excluding the host's WOFF2 defaults.
+
+The pinned Uno [fallback source](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI.Composition.Skia/Composition/Uno/Drawing/SkiaFontProvider.cs#L197)
+constructs a font face from the default without rejecting an empty typeface. Its
+[font-loading path](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI/UI/Xaml/Documents/TextFormatting/FontDetailsCache.cs#L176)
+uses that fallback while file fonts load asynchronously. This needs a supported font/fallback correction and a
+successful runtime check; compiling the desktop head is insufficient. No exception suppression or fabricated
+startup screenshot has been added. The virtual display also lacks an EWMH window manager; that limitation is
+separate from the independently reproduced font failure.
+
+### Completion estimate and retirement gate
+
+At the original head the overall migration was approximately 30 percent complete. After this pass the engineering
+estimate is approximately **45 percent**, with a wide uncertainty range: twelve of sixteen routed screen classes (including the development gallery)
+now have implementations, but conversations, chat panels, bot editing and sandbox interaction carry much more
+work than a simple settings page. Screen counts, test counts and successful compilation are not percentages of
+feature parity. No claim of 100 percent visual, feature, accessibility, deployment or security parity has been made.
+
+The estimate includes reuse of the existing transport, API and presentation logic, implemented native screens,
+foundation controls and the initial build/hosting path. It discounts the four placeholders, incomplete platform
+services and the outstanding verification above. The existing Blazor and MAUI hosts **cannot yet be retired**.
+Actual Apple/Windows runs and device accessibility need their target environments; provider flows, signing and
+push need configured services. The current Linux/browser tests cannot establish those outcomes.
+
+## Upstream grounding
+
+Checked on 2026-11-18 against `unoplatform/uno` commit
+`6405b51d91625198d9a2b5348cb7eb0bd9015284` and the `7.0.65` tag
+(`30034eefe42ecf5f3e3fff7d49a05340aaa0152e`). The resolved UI packages are 7.0.65 under Uno.Sdk 7.0.22. GitHub’s latest-release endpoint on that date also reports 7.0.65 (published 2026-11-13); the accessibility startup source is unchanged between that tag and the checked upstream commit.
+
+- [.NET 11 support](https://github.com/unoplatform/uno/blob/6405b51d91625198d9a2b5348cb7eb0bd9015284/doc/articles/migrating-from-net10-to-net11.md).
+- [Skia rendering and removal of Mac Catalyst](https://github.com/unoplatform/uno/blob/6405b51d91625198d9a2b5348cb7eb0bd9015284/doc/articles/migrating-to-uno-7/project-setup.md).
+- [Accessibility support matrix](https://github.com/unoplatform/uno/blob/6405b51d91625198d9a2b5348cb7eb0bd9015284/doc/articles/features/accessibility/index.md): Android and iOS Skia accessibility are listed as work in progress.
+- [Accessibility activation and its cost](https://github.com/unoplatform/uno/blob/6405b51d91625198d9a2b5348cb7eb0bd9015284/doc/articles/features/accessibility/testing-with-screen-readers.md).
+- [File-picker behavior and platform limitations](https://github.com/unoplatform/uno/blob/6405b51d91625198d9a2b5348cb7eb0bd9015284/doc/articles/features/windows-storage-pickers.md).
+
+These upstream statements are constraints to test against. They do not establish that Drover's controls or
+platform integrations have met them. Historical observations earlier in this document are not a current parity
+sign-off.

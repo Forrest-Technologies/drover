@@ -39,8 +39,14 @@ internal static partial class Browser
     [JSImport("globalThis.history.replaceState")]
     public static partial void ReplaceState(JSObject? state, string unused, string address);
 
+    [JSImport("globalThis.location.assign")]
+    public static partial void OpenOutside(string address);
+
     [JSImport("globalThis.history.back")]
     public static partial void GoBack();
+
+    [JSImport("globalThis.droverAccessibility.refresh")]
+    public static partial void RefreshAccessibility();
 
     [JSImport("globalThis.addEventListener")]
     public static partial void Listen(string eventName, [JSMarshalAs<JSType.Function>] Action handler);

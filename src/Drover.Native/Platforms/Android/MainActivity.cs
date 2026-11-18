@@ -8,9 +8,9 @@ namespace Drover.Native.Droid;
     Exported = true)]
 public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 {
-    protected override void OnCreate(Android.OS.Bundle? savedInstanceState)
+    protected override void OnCreate(Android.OS.Bundle? bundle)
     {
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
-        base.OnCreate(savedInstanceState);
+        base.OnCreate(bundle);
     }
 }

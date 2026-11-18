@@ -27,8 +27,8 @@ public sealed class Switch : ToggleButton
         Template = Styles.Template("DvPlainTemplate");
         UseSystemFocusVisuals = false;
         MinHeight = Targets.Minimum;
-        HorizontalAlignment = HorizontalAlignment.Left;
-        HorizontalContentAlignment = HorizontalAlignment.Left;
+        HorizontalAlignment = HorizontalAlignment.Stretch;
+        HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Center;
         Padding = new(0);
         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
@@ -45,7 +45,12 @@ public sealed class Switch : ToggleButton
         track.Child = thumb;
         words.VerticalAlignment = VerticalAlignment.Center;
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+        // The label needs the width left by the track. A horizontal stack measures it without a width limit.
+        var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
+        row.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
+        words.TextWrapping = TextWrapping.Wrap;
+        Grid.SetColumn(words, 1);
         row.Children.Add(new Border { Padding = new(Tokens.Number("DvFocusOffset") + Tokens.Number("DvFocusWidth")), Child = track });
         row.Children.Add(words);
         Content = row;
@@ -125,7 +130,7 @@ public sealed class Switch : ToggleButton
         words.Foreground = Tokens.Brush(this, "DvText");
 
         // The ring goes around the drawn switch, two wide with a gap of two, and only for the keyboard.
-        var ringed = (Border)((StackPanel)Content).Children[0];
+        var ringed = (Border)((Grid)Content).Children[0];
         ringed.BorderThickness = new(0);
         ringed.CornerRadius = new(ringed.ActualHeight / 2);
         ringed.Padding = new(Tokens.Number("DvFocusOffset"));
