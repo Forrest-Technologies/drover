@@ -46,7 +46,7 @@ src/Drover.Native/
 | Target | Framework | State |
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
-| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds; startup under a virtual X11 display fails in the Skia font fallback before the first frame. macOS and Windows not run |
+| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. macOS and Windows build in CI |
 | Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21; no emulator or device run |
 | iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
 
@@ -325,6 +325,7 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | Area | What was found |
 | --- | --- |
 | Accessibility in a browser | The app now sets `FeatureConfiguration.AutomationPeer.AutoEnableAccessibility` before creating its UI, so the semantic tree does not require a hidden opt-in. The resolved 7.0.65 runtime activates too early and can leave an empty semantic root, so the shell rebuilds it through the runtime’s own managed accessibility exports after loading. The published smoke check requires actual headings on every tested route and invokes the download through its accessible button. This deliberately accepts the runtime cost. Screen-reader testing across supported platforms is still required. Historical foundation observation: the interface is a canvas. The platform builds a parallel tree of real elements (headings with levels, buttons, inputs with their labels, tabs, images with names, landmarks), but only after the person activates a hidden "Enable accessibility" element that the first press of Tab reveals. Keeping the tree on for everyone is possible (`FeatureConfiguration.AutomationPeer.AutoEnableAccessibility`) and the platform's documentation warns of its cost |
+| Links in the browser accessibility tree | Uno 7.0.65 creates semantic anchors without `href`. The browser adapter gives those anchors a link role and keeps Uno's activation handlers. The published smoke check activates the usage link for a bot and checks that its details open |
 | Password managers | Not yet tested with a real password manager. What the platform does (read from the runtime script of SDK 7.0.22): a `PasswordBox` gets a real `input` with `type="password"` and `autocomplete="password"` while it has the focus, so a manager can recognize and fill it. What may still hinder pairing and saving: the element exists only while focused, the same element is reused for the next field, it is outside any `form`, and the user name field carries no `autocomplete="username"`. Test fill and save in Chromium, Firefox, and Safari with their built-in managers before the web client is retired |
 | Text entry and input methods | Typing goes through that one hidden `input`. `inputmode` follows the field's type. Composition for languages that need it was not tested |
 | Find in page, reader mode, translation, selection across the page | None works: there is no text in the page. Selection works inside one text block that enables it |
@@ -482,8 +483,9 @@ docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
 ```
 
 The default image still contains only the existing client. The opt-in build installs `python3` in the build stage,
-which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. It must meet the same container memory
-budget as the existing deployment before becoming the default. This environment accepted a 2 GB Docker builder configuration but exposed a shared 16 GB cgroup, so its reported memory use cannot verify that budget. The local opt-in container build was stopped after fetching the pinned base images; container publishing and startup still need the real CI/deployment check.
+which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. The Compose workflow builds both image
+variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and starts both images.
+The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
 `.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
 packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
@@ -493,10 +495,12 @@ run on a device. Credential persistence on desktop is not implemented by the pla
 lives in the native app and lacks unit tests. A desktop has no system share target or link scheme, so nothing
 comes into the desktop app from outside it.
 
-Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: they predate the usage table and the share screen, which have not been captured; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
-the feature ports above are complete. Passing tests for the existing clients must not be reported as native parity.
+Screenshots in `docs/screenshots/native-parity-pass` document the earlier setup and management pass. The browser
+workflow captures both published clients using the same sample data. It includes 360 and 1280 px, dark and light,
+sign-in and setup, management, conversation, editing a bot, the sandbox terminal, and sharing with an empty inbox.
+Complete state coverage, 200 percent zoom, keyboard navigation, and screen-reader verification remain open.
 
-### Verification recorded for this pass
+### Verification recorded for the setup and management pass
 
 - Main solution Release build: zero warnings and errors. Both main and native format checks passed.
 - Linux desktop Release build and browser Release publish passed. Linux runtime startup did **not** pass (see below). Android Release compiled and produced a
@@ -514,10 +518,10 @@ the feature ports above are complete. Passing tests for the existing clients mus
   advisory feed reports no vulnerable packages in the resolved native graph. Actionlint, Zizmor and the staged
   secret scan passed. Hadolint reports only the existing informational use of `USER $APP_UID`.
 
-### Linux runtime failure discovered during verification
+### Linux desktop startup
 
-The Release desktop app was launched under a new Xorg dummy display with isolated settings. It created its
-native window but failed before mapping its first frame: `SKTypeface.GetTableTags()` threw
+The original Release desktop app created a native window under Xorg but failed before its first frame:
+`SKTypeface.GetTableTags()` threw
 `Unable to read the tables for the file`, reached through `SkiaFontProvider.GetDefaultFont` during text measure.
 A separate probe using the same SkiaSharp 4.156.0 packages reproduced an empty default typeface, while an
 explicit `DejaVu Sans` typeface and its TrueType file both loaded and exposed their tables. This also reproduced
@@ -526,24 +530,20 @@ with a private fontconfig containing only valid DejaVu fonts, after excluding th
 The pinned Uno [fallback source](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI.Composition.Skia/Composition/Uno/Drawing/SkiaFontProvider.cs#L197)
 constructs a font face from the default without rejecting an empty typeface. Its
 [font-loading path](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI/UI/Xaml/Documents/TextFormatting/FontDetailsCache.cs#L176)
-uses that fallback while file fonts load asynchronously. This needs a supported font/fallback correction and a
-successful runtime check; compiling the desktop head is insufficient. No exception suppression or fabricated
-startup screenshot has been added. The virtual display also lacks an EWMH window manager; that limitation is
-separate from the independently reproduced font failure.
+uses that fallback while file fonts load asynchronously. The Linux head uses Uno's font-provider registration to
+supply bundled Inter for that default. Font file loading, named families, and glyph fallback continue through the
+Skia provider. The desktop smoke check opens the Release app with fresh settings, waits for a mapped connection
+window, and checks that pixels have been drawn in it.
 
-### Completion estimate and retirement gate
+### Retirement gate
 
-At the original head the overall migration was approximately 30 percent complete. After this pass the engineering
-estimate is approximately **45 percent**, with a wide uncertainty range: twelve of sixteen routed screen classes (including the development gallery)
-now have implementations, but conversations, chat panels, bot editing and sandbox interaction carry much more
-work than a simple settings page. Screen counts, test counts and successful compilation are not percentages of
-feature parity. No claim of 100 percent visual, feature, accessibility, deployment or security parity has been made.
+Each production route has an implemented Uno screen. The published browser smoke check covers the primary
+screens, including conversation, bot editing, the sandbox terminal and the empty share state. It uses the same
+fixtures for Blazor reference runs at 360 and 1280 pixels in both themes.
 
-The estimate includes reuse of the existing transport, API and presentation logic, implemented native screens,
-foundation controls and the initial build/hosting path. It discounts the four placeholders, incomplete platform
-services and the outstanding verification above. The existing Blazor and MAUI hosts **cannot yet be retired**.
-Actual Apple/Windows runs and device accessibility need their target environments; provider flows, signing and
-push need configured services. The current Linux/browser tests cannot establish those outcomes.
+Keep the existing Blazor and MAUI hosts while the remaining verification is open. It includes device sharing, push
+and OAuth returns, Windows and macOS runtime checks, browser and device assistive technology, IME input, long
+conversations, the sandbox with a real provider, and the production release and upgrade paths.
 
 ## Upstream grounding
 

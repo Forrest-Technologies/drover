@@ -67,6 +67,14 @@ jobs:
           global-json-file: global.json
       - name: Build desktop, warnings are errors
         run: dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
+      - name: Install the Linux display test tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils imagemagick libgl1-mesa-dri
+      - name: Open the Linux app and verify its first frame
+        if: runner.os == 'Linux'
+        run: xvfb-run -a bash scripts/check-native-desktop.sh
       - name: Check desktop dependency licenses
         env:
           DroverNativeTargetFrameworks: net11.0-desktop
@@ -109,6 +117,19 @@ jobs:
           pwsh tests/Drover.Ui.Tests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
       - name: Exercise the trimmed publish under the server CSP
         run: node scripts/check-native-browser.mjs artifacts/native/wwwroot
+      - name: Exercise the same screens in the Blazor client
+        env:
+          DROVER_REFERENCE_ROOT: artifacts/reference/wwwroot
+        run: |
+          dotnet publish src/Drover.Web -c Release -warnaserror -o artifacts/reference
+          node scripts/check-native-browser.mjs artifacts/native/wwwroot artifacts/reference-smoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-screen-comparison
+          path: |
+            artifacts/native-smoke
+            artifacts/reference-smoke
+          if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-browser

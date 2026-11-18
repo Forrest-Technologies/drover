@@ -54,6 +54,13 @@
     <DefineConstants>$(DefineConstants);DROVER_GALLERY</DefineConstants>
   </PropertyGroup>
 
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <Using Include="Uno.UI.Composition.Drawing" />
+    <Using Include="Uno.UI.Composition.Skia" />
+    <Using Include="Windows.UI.Text" />
+    <EmbeddedResource Include="Assets/Fonts/Inter-Regular.ttf" LogicalName="Drover.Native.FallbackInter.ttf" />
+  </ItemGroup>
+
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
     <!-- A published browser build is served by Drover's own server beside the web client, under this path. A
          development build is served from the root by the development host. -->

@@ -54,9 +54,19 @@ jobs:
           if-no-files-found: ignore
 
   compose:
-    name: Compose builds and starts within budget
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Compose builds and starts within budget
+            native: "false"
+          - name: Compose with Uno builds and starts within budget
+            native: "true"
+    env:
+      BUILD_NATIVE: ${{ matrix.native }}
     permissions:
       contents: read
     steps:
@@ -76,15 +86,19 @@ jobs:
         run: |
           docker buildx create --name budget --driver docker-container \
             --driver-opt memory=2g --driver-opt memory-swap=2g
-          start=$(date +%s)
-          docker buildx build --builder budget --load -t drover:local .
-          build_seconds=$(( $(date +%s) - start ))
-          image_bytes=$(docker image inspect drover:local --format '{{.Size}}')
+          docker buildx inspect --bootstrap budget
           builder=buildx_buildkit_budget0
           pid=$(docker inspect --format '{{.State.Pid}}' "$builder")
           cgroup="/sys/fs/cgroup$(cut -d: -f3 "/proc/$pid/cgroup")"
-          peak_bytes=$(cat "$cgroup/memory.peak" 2>/dev/null || echo unavailable)
-          oom_kills=$(awk '$1 == "oom_kill" { print $2 }' "$cgroup/memory.events" 2>/dev/null || echo unavailable)
+          test "$(cat "$cgroup/memory.max")" = "2147483648"
+          test "$(cat "$cgroup/memory.swap.max")" = "0"
+          start=$(date +%s)
+          docker buildx build --builder budget --build-arg DROVER_BUILD_NATIVE="$BUILD_NATIVE" --load -t drover:local .
+          build_seconds=$(( $(date +%s) - start ))
+          image_bytes=$(docker image inspect drover:local --format '{{.Size}}')
+          peak_bytes=$(cat "$cgroup/memory.peak")
+          oom_kills=$(awk '$1 == "oom_kill" { print $2 }' "$cgroup/memory.events")
+          test "$oom_kills" = "0"
           {
             echo "### Image build"
             echo "| Measure | Value |"
@@ -110,6 +124,15 @@ jobs:
           docker compose up -d --wait --wait-timeout 180 --no-build
           curl --fail --silent --show-error http://localhost:8080/health/ready
           curl --fail --silent --show-error http://localhost:8080/ | grep --quiet '<title>Drover</title>'
+      - name: Serve Uno entry point, deep link, and assets from the built image
+        if: matrix.native == 'true'
+        run: |
+          curl --fail --silent --show-error http://localhost:8080/native/ --output "$RUNNER_TEMP/native-index.html"
+          grep --quiet '<base href="/native/"' "$RUNNER_TEMP/native-index.html"
+          curl --fail --silent --show-error http://localhost:8080/native/sign-in --output "$RUNNER_TEMP/native-sign-in.html"
+          cmp "$RUNNER_TEMP/native-index.html" "$RUNNER_TEMP/native-sign-in.html"
+          curl --fail --silent --show-error http://localhost:8080/native/manifest.webmanifest
+          curl --fail --silent --show-error http://localhost:8080/native/service-worker.js --output /dev/null
       - name: The server runs as a non-root user
         run: |
           uid=$(docker compose exec -T drover id -u)

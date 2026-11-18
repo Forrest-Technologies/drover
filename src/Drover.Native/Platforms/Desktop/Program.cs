@@ -5,13 +5,17 @@ internal static class Program
     [STAThread]
     public static void Main()
     {
-        var host = UnoPlatformHostBuilder.Create()
+        var builder = UnoPlatformHostBuilder.Create()
             .App(() => new App())
             .UseX11()
             .UseMacOS()
-            .UseWin32()
-            .Build();
+            .UseWin32();
 
-        host.Run();
+        if (OperatingSystem.IsLinux())
+        {
+            builder.FontProvider(new LinuxFontProvider(SkiaBackend.CreateFontProvider()));
+        }
+
+        builder.Build().Run();
     }
 }

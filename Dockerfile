@@ -62,8 +62,9 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
     -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
 
 # The server serves the native client from wwwroot/native beside it (NativeClient:Path names another folder).
+# Limit Emscripten's workers as well as MSBuild's workers on a cold build.
 RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
-        dotnet publish src/Drover.Native/Drover.Native.csproj \
+        EMCC_CORES=1 dotnet publish src/Drover.Native/Drover.Native.csproj \
             --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
             -p:DroverNativeTargetFrameworks=net11.0-browserwasm \
             -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \

@@ -57,7 +57,9 @@ public sealed class ShareToPage : Screen
     {
         var parts = column.Children;
         parts.Clear();
-        parts.Add(Styles.Text(ShareToViewModel.Heading, "DvTextH1"));
+        var title = Styles.Text(ShareToViewModel.Heading, "DvTextH1");
+        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
+        parts.Add(title);
         if (model.ShowNothing)
         {
             parts.Add(new EmptyState { Cause = ShareToViewModel.NothingCause, ActionLabel = ShareToViewModel.GoToCrewLabel, ActionHref = Addresses.Home });
