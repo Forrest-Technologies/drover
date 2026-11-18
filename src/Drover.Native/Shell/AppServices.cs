@@ -17,6 +17,7 @@ public static class AppServices
             .AddSingleton<ToastService>()
             .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
+            .AddSingleton<ShareInbox>()
             .AddPlatform()
             .BuildServiceProvider();
 }

@@ -16,4 +16,10 @@
     <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
+  <!-- Holds what another app shared until a conversation takes it. Shared with the native client, which gives it its
+       own file type under the same name. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\Chat\ShareInbox.cs" Link="Chat\ShareInbox.cs" />
+  </ItemGroup>
+
 </Project>

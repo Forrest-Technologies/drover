@@ -136,6 +136,38 @@
     <Delete Files="$(_DroverWebRoot)service-worker.js.br;$(_DroverWebRoot)service-worker.js.gz" />
   </Target>
 
+  <!-- Holds what another app shared until a conversation takes it: the web client's, with this app's file type. -->
+  <ItemGroup>
+    <Compile Include="../Shared/Chat/ShareInbox.cs" Link="Shell/ShareInbox.cs" />
+  </ItemGroup>
+
+  <!-- The Android shell's notifications over UnifiedPush, shares in, files out, and what Android hands the activity:
+       one source in both apps. The few things it asks of its host by that shell's framework's names are in
+       Platforms/Android/AndroidShims.cs. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="../Shared/Android/*.cs" Link="Platforms/Android/Shared/%(Filename)%(Extension)" />
+    <AndroidResource Include="../Shared/Android/drover_notification.xml" Link="Platforms/Android/Resources/drawable/drover_notification.xml" />
+    <Using Include="Android.App" />
+    <Using Include="Android.Content" />
+    <Using Include="Android.Content.PM" />
+    <Using Include="Android.Runtime" />
+    <Using Include="System.Buffers.Text" />
+    <Using Include="System.Runtime.Versioning" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="Drover.App.Platforms.Android" />
+    <Using Include="Drover.Client.Push" />
+    <Using Include="Drover.Contracts.Threads" />
+    <Using Include="Drover.Native.Droid" />
+    <Using Include="Drover.Ui.Pages.Tools" />
+    <!-- Names both Android and this app's interface use, given to the interface's. -->
+    <Using Include="Microsoft.UI.Xaml.Application" Alias="Application" />
+    <Using Include="Drover.Native.Controls.Dialog" Alias="Dialog" />
+    <Using Include="Android.App.Application" Alias="AndroidApplication" />
+    <Using Include="Android.Net.Uri" Alias="AndroidUri" />
+    <Using Include="Android.OS.Bundle" Alias="Bundle" />
+    <Using Include="Drover.Native.Resource" Alias="Resource" />
+  </ItemGroup>
+
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'browserwasm'">
     <Compile Include="../Shared/Transport/AppRequests.cs" Link="Transport/AppRequests.cs" />
     <Compile Include="../Shared/Transport/NativeSession.cs" Link="Transport/NativeSession.cs" />

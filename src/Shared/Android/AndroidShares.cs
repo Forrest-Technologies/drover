@@ -49,7 +49,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
     // name one of this app's own files, and another app must not be able to have those attached.
     private List<IBrowserFile> Stage(Intent intent)
     {
-        var root = Path.Combine(FileSystem.CacheDirectory, Folder);
+        var root = System.IO.Path.Combine(FileSystem.CacheDirectory, Folder);
 
         if (Directory.Exists(root))
         {
@@ -63,7 +63,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
         {
             if (intent.ClipData!.GetItemAt(index)?.Uri is { Scheme: ContentResolver.SchemeContent } address)
             {
-                files.Add(Copy(resolver, address, Directory.CreateDirectory(Path.Combine(root, Guid.NewGuid().ToString("N")))));
+                files.Add(Copy(resolver, address, Directory.CreateDirectory(System.IO.Path.Combine(root, Guid.NewGuid().ToString("N")))));
             }
         }
 
@@ -72,7 +72,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
 
     private static StagedFile Copy(ContentResolver resolver, AndroidUri address, DirectoryInfo folder)
     {
-        var path = Path.Combine(folder.FullName, NameOf(resolver, address));
+        var path = System.IO.Path.Combine(folder.FullName, NameOf(resolver, address));
 
         using (var source = resolver.OpenInputStream(address) ?? throw new IOException("Android did not open a shared file."))
         using (var target = File.Create(path))
@@ -89,7 +89,7 @@ public sealed class AndroidShares(ShareInbox inbox, IncomingNavigation navigatio
         var name = cursor is not null && cursor.MoveToFirst() && !cursor.IsNull(0) ? cursor.GetString(0) : null;
 
         // The name comes from the other app. Only its last part is used, inside a folder of this file's own.
-        return Path.GetFileName((name ?? string.Empty).Replace('\\', '/')) is { Length: > 0 } leaf && leaf is not ("." or "..")
+        return System.IO.Path.GetFileName((name ?? string.Empty).Replace('\\', '/')) is { Length: > 0 } leaf && leaf is not ("." or "..")
             ? leaf
             : "Shared file";
     }

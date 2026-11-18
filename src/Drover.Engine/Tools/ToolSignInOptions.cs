@@ -19,10 +19,12 @@ public sealed class ToolSignInOptions
     public const string AppReturnHost = "tool-sign-in";
 
     /// <summary>
-    /// The address schemes of Drover's own native apps. A browser is sent into an app only through one of these,
-    /// never through a scheme a request names freely.
+    /// The address schemes of Drover's own native apps: the Android preview shell, and the native client's Android
+    /// build. Each is its app's package name. A browser is sent into an app only through one of these, never through a
+    /// scheme a request names freely.
     /// </summary>
-    public static readonly FrozenSet<string> AppSchemes = FrozenSet.ToFrozenSet(["com.forresttechnologies.drover.preview"], StringComparer.Ordinal);
+    public static readonly FrozenSet<string> AppSchemes = FrozenSet.ToFrozenSet(
+        ["com.forresttechnologies.drover.preview", "com.forresttechnologies.drover.client"], StringComparer.Ordinal);
 
     #endregion
 

@@ -37,6 +37,10 @@ public sealed class Preferences
 
     public void Set(string key, string value) => Settings.Values[key] = value;
 
+    public bool Get(string key, bool fallback) => Settings.Values.TryGetValue(key, out var value) && value is bool flag ? flag : fallback;
+
+    public void Set(string key, bool value) => Settings.Values[key] = value;
+
     public void Remove(string key) => Settings.Values.Remove(key);
 
     #endregion

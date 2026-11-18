@@ -3,6 +3,22 @@ namespace Drover.Native.Platform;
 /// <summary>The device's side of the shell: no address bar to keep in step, and a server to choose first.</summary>
 internal static class PlatformShell
 {
+    #region Private Fields
+
+    private static Action? openIncoming;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// Where the system asked the app to go from outside it: a tapped notification, or a browser back from a tool
+    /// server's sign-in. It outlives a restart of the interface, because the system can ask before the app has started.
+    /// </summary>
+    public static IncomingNavigation Incoming { get; } = new();
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>The screen that comes before every other while no server is chosen, or null once one is.</summary>
@@ -12,8 +28,14 @@ internal static class PlatformShell
     /// <summary>Reads what the device says about pointers and motion, before any control is made.</summary>
     public static void ReadDevice() => Motion.IsReduced = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
 
+    /// <summary>Opens an address the system asked for, now and whenever another comes, once a server is chosen.</summary>
     public static void Start(Navigator navigator)
     {
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        Incoming.Changed -= openIncoming;
+        openIncoming = () => queue.TryEnqueue(() => OpenIncoming(navigator));
+        Incoming.Changed += openIncoming;
+        OpenIncoming(navigator);
     }
 
     public static void GoBack(Navigator navigator) => navigator.GoBack();
@@ -39,6 +61,16 @@ internal static class PlatformShell
     }
 
     public static void SetTitle(Window window, string title) => window.Title = title;
+
+    // Before a server is chosen the address waits: the connect screen comes first.
+    private static void OpenIncoming(Navigator navigator)
+    {
+        if (((App)Application.Current).Services.GetRequiredService<ServerAddress>().Current is not null
+            && Incoming.Take() is { } address)
+        {
+            navigator.NavigateTo(address);
+        }
+    }
 
     public static void Shown()
     {

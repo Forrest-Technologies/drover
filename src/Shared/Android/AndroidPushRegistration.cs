@@ -18,71 +18,13 @@ public sealed class AndroidPushRegistration(
 
     #region Interface Implementations
 
-    public async Task<DevicePushCheck> Check(CancellationToken cancellationToken = default)
-    {
-        var saved = await Read(server.Current);
-        var requiresPermission = OperatingSystem.IsAndroidVersionAtLeast(33) && !Preferences.Default.Get(PermissionAsked, false);
-        var support = !AndroidNotifications.Allowed && !requiresPermission
-            ? DevicePushSupport.Blocked
-            : UnifiedPushTransport.Distributors().Count == 0 ? DevicePushSupport.NeedsDistributor : DevicePushSupport.Available;
-        return new(support, saved?.Endpoint);
-    }
+    public Task<DevicePushCheck> Check(CancellationToken cancellationToken = default) => AsDeviceCall(ReadCheck);
 
-    public async Task<PushDeviceRequest?> Subscribe(string publicKey, CancellationToken cancellationToken = default)
-    {
-        if (server.Current is not { } origin || !await AllowNotifications())
-        {
-            return null;
-        }
+    public Task<PushDeviceRequest?> Subscribe(string publicKey, CancellationToken cancellationToken = default) =>
+        AsDeviceCall(() => SubscribeOnDevice(publicKey, cancellationToken));
 
-        var distributor = await UnifiedPushTransport.Choose();
-        if (distributor is null)
-        {
-            return null;
-        }
-
-        await using var scope = scopes.CreateAsyncScope();
-        var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
-        if (await api.GetSession(cancellationToken) is not { } user)
-        {
-            return null;
-        }
-
-        var request = await Begin(origin, distributor, user.UserId, publicKey, cancellationToken);
-        try
-        {
-            return await request.Task.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
-        }
-        catch (TimeoutException)
-        {
-            logger.LogWarning("The UnifiedPush distributor did not return an endpoint");
-            await Unsubscribe(cancellationToken);
-            return null;
-        }
-    }
-
-    public async Task<string?> Unsubscribe(CancellationToken cancellationToken = default)
-    {
-        await gate.WaitAsync(cancellationToken);
-        try
-        {
-            if (server.Current is not { } origin || await Read(origin) is not { } saved)
-            {
-                return null;
-            }
-
-            storage.Remove(Key(origin));
-            AndroidNotifications.Clear();
-            UnifiedPushTransport.Send(saved, UnifiedPushTransport.Unregister);
-            pending?.TrySetResult(null);
-            pending = null;
-            return saved.Endpoint;
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
+    public Task<string?> Unsubscribe(CancellationToken cancellationToken = default) =>
+        AsDeviceCall(() => UnsubscribeOnDevice(cancellationToken));
 
     public void Dispose() => gate.Dispose();
 
@@ -146,6 +88,89 @@ public sealed class AndroidPushRegistration(
 
     internal async Task<bool> BelongsTo(Guid user, string token) =>
         await Read(server.Current) is { } saved && saved.UserId == user && saved.Token == token;
+
+    #endregion
+
+    #region Device Calls
+
+    // Android's own failures are Java exceptions. The notifications control knows a failed device call by one type.
+    private static async Task<T> AsDeviceCall<T>(Func<Task<T>> call)
+    {
+        try
+        {
+            return await call();
+        }
+        catch (Java.Lang.Exception exception)
+        {
+            throw new DeviceCallFailedException("Android could not change notifications for this device.", exception);
+        }
+    }
+
+    private async Task<DevicePushCheck> ReadCheck()
+    {
+        var saved = await Read(server.Current);
+        var requiresPermission = OperatingSystem.IsAndroidVersionAtLeast(33) && !Preferences.Default.Get(PermissionAsked, false);
+        var support = !AndroidNotifications.Allowed && !requiresPermission
+            ? DevicePushSupport.Blocked
+            : UnifiedPushTransport.Distributors().Count == 0 ? DevicePushSupport.NeedsDistributor : DevicePushSupport.Available;
+        return new(support, saved?.Endpoint);
+    }
+
+    private async Task<PushDeviceRequest?> SubscribeOnDevice(string publicKey, CancellationToken cancellationToken)
+    {
+        if (server.Current is not { } origin || !await AllowNotifications())
+        {
+            return null;
+        }
+
+        var distributor = await UnifiedPushTransport.Choose();
+        if (distributor is null)
+        {
+            return null;
+        }
+
+        await using var scope = scopes.CreateAsyncScope();
+        var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
+        if (await api.GetSession(cancellationToken) is not { } user)
+        {
+            return null;
+        }
+
+        var request = await Begin(origin, distributor, user.UserId, publicKey, cancellationToken);
+        try
+        {
+            return await request.Task.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning("The UnifiedPush distributor did not return an endpoint");
+            await UnsubscribeOnDevice(cancellationToken);
+            return null;
+        }
+    }
+
+    private async Task<string?> UnsubscribeOnDevice(CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (server.Current is not { } origin || await Read(origin) is not { } saved)
+            {
+                return null;
+            }
+
+            storage.Remove(Key(origin));
+            AndroidNotifications.Clear();
+            UnifiedPushTransport.Send(saved, UnifiedPushTransport.Unregister);
+            pending?.TrySetResult(null);
+            pending = null;
+            return saved.Endpoint;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
 
     #endregion
 
