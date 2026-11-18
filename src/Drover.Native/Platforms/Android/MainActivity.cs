@@ -65,7 +65,10 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
         if (Window is { } window)
         {
             using var controller = AndroidX.Core.View.WindowCompat.GetInsetsController(window, window.DecorView);
-            controller.AppearanceLightNavigationBars = light;
+            if (controller is not null)
+            {
+                controller.AppearanceLightNavigationBars = light;
+            }
         }
     }
 
@@ -101,7 +104,7 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
     protected override void OnStart()
     {
         base.OnStart();
-        if (Application.Current is App { MainWindow.Content: ShellView shell })
+        if (Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content: ShellView shell })
         {
             UpdateSystemBars(shell.ActualTheme);
         }
