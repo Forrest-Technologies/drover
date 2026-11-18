@@ -18,6 +18,9 @@ public sealed class TalkPage : Screen
 
     public override string Title => live?.Model.PageName ?? "Drover";
 
+    /// <summary>A moment named after the hash, or a held request named in the query, changes nothing but what the workspace is told.</summary>
+    protected override bool StaysOpenWhenQueryChanges => true;
+
     #endregion
 
     #region Private Methods
