@@ -183,6 +183,43 @@ Native only, because the web does these in CSS:
 - **Names.** A control that shows no words gets `AutomationProperties.Name`. A control that is decoration sets `AccessibilityView.Raw`. Use `RolePeer` or `RoleButtonPeer` to say what a drawn control is: a picture, a tab, a link.
 - **Dependency properties.** Register with `Dp.Register<TOwner, TValue>(nameof(Property), default, owner => ...)`. Keep the registration field and its property together in `#region Properties`.
 
+### The conversation's pieces
+
+What a conversation shows and what opens beside one is in `src/Drover.Native/Chat`, one control for each component of `src/Drover.Ui/Chat`, with the same name and the same parameters. Their logic is in `Drover.Presentation/ViewModels/Chat`, moved from the components as it was, and tested in `tests/Drover.Presentation.Tests/ViewModels/Chat` with the web client's cases and its recorded event logs, which are linked, not copied.
+
+| Control | Takes | Raises |
+| --- | --- | --- |
+| `ToolCallCard` | `Card`, `BotName`, `Decide`, `Forget`, `Forgotten`, `MemoryHref` | |
+| `DelegationCard` | `Item`, `ChildContent` (the child's activity, as an element) | |
+| `TakeoverCard` | `BotName`, `Reason`, `Phase`, `Sending`, `Problem`, `Access`, `SetupHref`, `AnswerBesideScreen`, `TakeFocus` | `OpenScreen`, `Done`, `CouldNot` |
+| `TakeoverCall` | `Takeover`, `BotName`, `Takeovers` | |
+| `FileCard` | `File`, `ReadWhole` | |
+| `ActivityPanel` | `Bot`, `Bots`, `RunId`, `Version` | |
+| `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
+| `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
+| `ExchangedFiles` | `Bot`, `Version` | |
+| `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
+| `MemoryRail` | `Bot`, `Version` | |
+| `SummaryPanel` | `Bot`, `Version` | |
+| `ScreenPanel` | `Bot`, `Takeover`, `Surface` | `HandedBack`, `StatusChanged` |
+
+- **A piece draws once for a batch of changes.** Setting several values on a piece, or a view model changing several things, ends in one redraw (`Chat/Batch.cs`): the values are handed to the view model, its `ParametersSet` runs once, and the piece draws. This is the order a component had.
+- **What a person is using is kept.** A piece keeps the elements a person may be in the middle of using (a button with the focus, a box they scrolled, a field they type in) and changes them in place. `Pieces.Detached` moves a kept element into a new drawing.
+- **A panel makes its own view model** with `Pieces.Make<T>()`, as a screen does with `Make<T>()`.
+- **The screen's surface is given to `ScreenPanel`.** The panel is everything around a bot's screen. The control that draws the screen and sends it input is set as `Surface`; it reads `ScreenPanel.Status` and `IsHeld`, listens to `StatusChanged`, and calls `Refresh()` where the web's screen raised that the sandbox changed.
+- **A line that takes the place of a button** is a `FocusLine`: it can be given the focus and is not a stop on the way through the page, as an element with a tab index of minus one is on the web.
+- **A status** is a text block with a live setting whose automation peer raises `LiveRegionChanged` when its words change (`Pieces.SayWhenShown`, `StatusNote`). That is the native form of a region marked as a status or an alert.
+- **The gallery reads from a sample server.** The panels that load from the server are shown with their real view models, which ask `Pages/Dev/SampleServer.cs` inside the app. Nothing leaves the app.
+
+Differences from the web client in these pieces, each seen in the pictures in `docs/screenshots/native-chat-pieces`:
+
+| Piece | Difference |
+| --- | --- |
+| Output of a tool | Error output is tagged `stderr: ` in the error color. The web draws the tag in an outlined box, which text here cannot hold |
+| `FileCard` on a device | "Save" and "Share" show when the app registers an `IFileDelivery`. None is registered yet, so a device shows "Download", which opens the file's address outside the app, where the person is not signed in. In a browser "Download" asks the server for the file as one to keep |
+| `ActivityPanel` | Details under a node are kept across redraws, but an element inside them loses the focus when a live run's next event redraws the timeline |
+| State badge in a card's title | Regular weight. On the web it takes the title's weight |
+
 ## The shell
 
 - **Start.** `App` builds the services (`AppServices.Build()`), starts the platform's side (`PlatformShell.Start`), and shows `ShellView`: a `Frame` for the screen and the `ToastHost` over it.
