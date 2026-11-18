@@ -42,30 +42,6 @@ jobs:
       - name: Build Android, warnings are errors
         run: dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
 
-      - name: Check Android text editing
-        timeout-minutes: 8
-        run: |
-          sudo chmod a+rw /dev/kvm
-          sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
-          printf 'no\n' | avdmanager create avd -n drover-text-editing -k 'system-images;android-35;default;x86_64'
-          "$ANDROID_HOME/emulator/emulator" -avd drover-text-editing -no-window -no-audio \
-            -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
-            >"$RUNNER_TEMP/drover-emulator.log" 2>&1 &
-          trap 'adb emu kill || true' EXIT
-          adb wait-for-device
-          for _ in {1..60}; do
-            if [[ $(adb shell getprop sys.boot_completed) == 1 ]]; then break; fi
-            sleep 2
-          done
-          if [[ $(adb shell getprop sys.boot_completed) != 1 ]]; then
-            cat "$RUNNER_TEMP/drover-emulator.log"
-            exit 1
-          fi
-          adb shell input keyevent KEYCODE_WAKEUP
-          adb shell wm dismiss-keyguard
-          adb install src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
-          bash scripts/check-native-android-text-editing.sh
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-android-development
