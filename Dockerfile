@@ -49,7 +49,8 @@ RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
         && apt-get install -y --no-install-recommends python3 \
         && rm -rf /var/lib/apt/lists/* \
         && dotnet workload install wasm-tools \
-        && dotnet restore src/Drover.Native/Drover.Native.csproj -p:DroverNativeTargetFrameworks=net11.0-browserwasm; \
+        && dotnet restore src/Drover.Native/Drover.Native.csproj \
+            -p:Configuration=Release -p:DroverNativeTargetFrameworks=net11.0-browserwasm; \
     fi
 
 # Publishing the server brings the web client with it. Only the server's project graph is built:
