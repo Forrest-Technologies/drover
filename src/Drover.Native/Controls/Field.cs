@@ -139,7 +139,13 @@ public sealed class Field : StackPanel
         }
         else
         {
-            var box = new TextBox { Template = Styles.Template("DvTextBoxTemplate"), Text = Value, InputScope = Scope() };
+            var box = new TextBox
+            {
+                Template = Styles.Template("DvTextBoxTemplate"),
+                Text = Value,
+                InputScope = Scope(),
+                IsSpellCheckEnabled = Type is not ("url" or "email"),
+            };
             box.TextChanged += (_, _) => Take(box.Text);
             input = box;
         }

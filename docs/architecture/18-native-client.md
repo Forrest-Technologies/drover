@@ -47,7 +47,7 @@ src/Drover.Native/
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
 | Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. macOS and Windows build in CI |
-| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21; no emulator or device run |
+| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21. The API 35 emulator checks text editing. |
 | iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
 
 Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by the upstream [migration guide](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/doc/articles/migrating-to-uno-7/project-setup.md#mac-catalyst-is-removed).
@@ -74,6 +74,8 @@ dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFra
 # Tests for everything that is not drawing
 dotnet test --project tests/Drover.Presentation.Tests
 ```
+
+Run the Android text-editing regression with `bash scripts/check-native-android-text-editing.sh` on a fresh API 35 emulator with the Drover development APK installed. The test keyboard uses Android's input connection to commit and delete text, and the check also sends hardware key events.
 
 Taking a screenshot of the browser build: serve the published `wwwroot` under `/native/` with any static host that falls back to `index.html`, open it in Playwright, wait until the element with class `uno-loader` is gone, then capture. The app is one canvas, so Playwright's full-page capture gives one viewport: use a tall viewport, or send wheel events of about 1300 pixels and capture again. A development build takes about fifteen seconds to start in headless Chromium; a published build about three.
 

@@ -29,7 +29,44 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 
     #endregion
 
+    #region Public Methods
+
+    public override bool DispatchKeyEvent(Android.Views.KeyEvent? e)
+    {
+        var editor = e?.Action is Android.Views.KeyEventActions.Down ? FocusedEditor() : null;
+        var before = EditorText(editor);
+        var handled = base.DispatchKeyEvent(e);
+
+        // Uno handles these edits in XAML. Reopen the Android input connection with the
+        // updated text so a following soft-keyboard edit cannot replay its old buffer.
+        if (before is not null
+            && ReferenceEquals(FocusedEditor(), editor)
+            && before != EditorText(editor)
+            && CurrentFocus is { } view
+            && GetSystemService(InputMethodService) is Android.Views.InputMethods.InputMethodManager keyboard
+            && keyboard.IsActive)
+        {
+            keyboard.RestartInput(view);
+        }
+
+        return handled;
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static object? FocusedEditor() =>
+        Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content.XamlRoot: { } root }
+            ? FocusManager.GetFocusedElement(root)
+            : null;
+
+    private static string? EditorText(object? editor) => editor switch
+    {
+        TextBox text => text.Text,
+        PasswordBox password => password.Password,
+        _ => null,
+    };
 
     protected override void OnCreate(Bundle? bundle)
     {
