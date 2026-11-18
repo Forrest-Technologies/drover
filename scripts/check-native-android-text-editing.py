@@ -2,19 +2,28 @@
 """Check the development APK on a fresh Android emulator with the test keyboard installed."""
 
 import re
+import shlex
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 PACKAGE = "com.forresttechnologies.drover.client"
 IME_PACKAGE = "org.drover.tests.keyboard"
 IME = f"{IME_PACKAGE}/.TestKeyboard"
 DUMP = "/data/local/tmp/drover-text-editing.xml"
+CUTOUT = "com.android.internal.display.cutout.emulation.tall"
 
 
 def shell(*args):
     return subprocess.check_output(["adb", "shell", *args], text=True).strip()
+
+
+def start_app():
+    shell("am", "force-stop", PACKAGE)
+    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+    shell("am", "start", "-W", "-n", activity)
 
 
 def find_address():
@@ -24,6 +33,10 @@ def find_address():
                 and node.get("content-desc") == "Server address"):
             return node
     raise AssertionError("Could not find the Server address editor on the connection screen.")
+
+
+def address_bounds():
+    return tuple(map(int, re.findall(r"\d+", find_address().attrib["bounds"])))
 
 
 def expect(text):
@@ -52,11 +65,8 @@ def ime_edit(*args):
 
 
 def check_edits():
-    shell("am", "force-stop", PACKAGE)
-    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
-    shell("am", "start", "-W", "-n", activity)
-    address = find_address()
-    left, top, right, bottom = map(int, re.findall(r"\d+", address.attrib["bounds"]))
+    start_app()
+    left, top, right, bottom = address_bounds()
     shell("input", "tap", str((left + right) // 2), str((top + bottom) // 2))
     expect_visible_keyboard()
 
@@ -98,6 +108,52 @@ def check_edits():
     print("Android server-address editing passed with hardware keys, composing text, and committed text.")
 
 
+def screenshot(name):
+    folder = Path("artifacts/android-layout")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.png").write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
+
+
+def check_safe_area():
+    # Use a 360 dp viewport. A tall cutout grows the top system inset without changing this window's size.
+    shell("wm", "size", "720x1600")
+    shell("wm", "density", "320")
+    try:
+        start_app()
+        normal_top = address_bounds()[1]
+        screenshot("360-dark")
+
+        shell("cmd", "overlay", "enable-exclusive", "--category", CUTOUT)
+        start_app()
+        cutout_top = address_bounds()[1]
+        screenshot("360-dark-tall-cutout")
+        if cutout_top - normal_top < 48:
+            raise AssertionError(
+                f"The server address did not move below the taller cutout: y={normal_top} -> {cutout_top}."
+            )
+
+        # The fresh emulator uses a debuggable system image. Seed the app's saved light choice before it launches.
+        subprocess.run(["adb", "root"], check=True)
+        subprocess.run(["adb", "wait-for-device"], check=True, timeout=30)
+        shell("am", "force-stop", PACKAGE)
+        data = f"/data/user/0/{PACKAGE}"
+        preferences = f"{data}/shared_prefs"
+        path = f"{preferences}/{PACKAGE}_preferences.xml"
+        fixture = '<map><string name="drover.theme">System.String:light</string></map>'
+        shell(f"mkdir -p {preferences} && printf '%s' {shlex.quote(fixture)} > {path} "
+              f"&& chown -R $(stat -c %u:%g {data}) {preferences} && restorecon -RF {preferences}")
+        start_app()
+        light_top = address_bounds()[1]
+        screenshot("360-light-tall-cutout")
+        if abs(light_top - cutout_top) > 2:
+            raise AssertionError("Changing the theme moved the server address relative to the safe area.")
+        print(f"Android safe-area layout passed at 360 dp (server address y={normal_top} -> {cutout_top}).")
+    finally:
+        shell("cmd", "overlay", "disable", CUTOUT)
+        shell("wm", "size", "reset")
+        shell("wm", "density", "reset")
+
+
 def main():
     previous = shell("settings", "get", "secure", "default_input_method")
     show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
@@ -114,6 +170,7 @@ def main():
             shell("settings", "delete", "secure", "show_ime_with_hard_keyboard")
         else:
             shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
+    check_safe_area()
 
 
 if __name__ == "__main__":

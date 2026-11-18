@@ -42,7 +42,7 @@ jobs:
       - name: Build Android, warnings are errors
         run: dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
 
-      - name: Check Android address editing
+      - name: Check Android address editing and safe-area layout
         timeout-minutes: 10
         run: |
           sudo chmod a+rw /dev/kvm
@@ -67,6 +67,12 @@ jobs:
           adb shell wm dismiss-keyguard
           adb install src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
           bash scripts/check-native-android-text-editing.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-android-layout
+          path: artifacts/android-layout/
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
