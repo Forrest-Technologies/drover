@@ -14,9 +14,37 @@ public abstract class Screen : Page
     /// <summary>The address this screen was opened at, taken apart. Set before <see cref="Opened"/> runs.</summary>
     public RouteMatch<Type>? Route { get; private set; }
 
+    /// <summary>
+    /// True for a screen that stays as it is when only the query of its address changes, as a tab named in the
+    /// address does: it is told the new address through <see cref="Opened"/> instead of being made again.
+    /// </summary>
+    protected virtual bool StaysOpenWhenQueryChanges => false;
+
+    #endregion
+
+    #region Public Methods
+
+    /// <summary>
+    /// Hands the screen a new address with the same path, when it asked to stay open for that. False when the
+    /// address is another screen's, or this screen is made again for each address.
+    /// </summary>
+    public bool Reopen(RouteMatch<Type> route)
+    {
+        if (!StaysOpenWhenQueryChanges || Route is null || PathOf(Route.Address) != PathOf(route.Address))
+        {
+            return false;
+        }
+
+        Route = route;
+        Opened(route);
+        return true;
+    }
+
     #endregion
 
     #region Private Methods
+
+    private static string PathOf(string address) => address.Split('?', '#')[0];
 
     /// <summary>
     /// Makes a view model, filling its constructor from the app's services. This is the screen's one use of the

@@ -306,13 +306,55 @@ replacement, usage selection, changed-tool review conflicts, external sign-in re
 and called by both clients, preserving their text. Native page presence and passing view-model tests do not
 establish visual parity.
 
-The following four classes still explicitly derive from `PendingScreen`:
+The following three classes still explicitly derive from `PendingScreen`:
 
 - `TalkPage`: crew, main and side conversations, live runs, attachments, approvals, delegation, memory, activity,
   summary, files, and screen panels.
 - `BotEditorPage`: definition, model, grants, rules, memory, routines, sandbox, team, limits, and unsaved changes.
-- `BotSandboxPage`: power controls, terminal, native screen rendering, and input.
 - `ShareToPage`: incoming content and recipient selection.
+
+### The sandbox screen
+
+`BotSandboxPage` and the control `SandboxScreen` (`src/Drover.Native/Bots/`) are native. What they say and do is in
+`BotSandboxViewModel` and `SandboxScreenViewModel` (`src/Drover.Presentation/ViewModels/Bots/`), moved from the web
+client's `BotSandbox.razor.cs` and `SandboxScreen.razor.cs` with the same calls, order, and sentences.
+
+- **What the screen speaks.** Nothing but the API every screen uses. The picture is one PNG per request,
+  `POST .../sandbox/screen?wake=false`, asked for every two seconds while the screen shows, the sandbox runs, and the
+  window is visible, later after each failure, and 300 ms after anything a person sends. Input is one JSON
+  `SandboxInputRequest` per action to `POST .../sandbox/input`. There is no stream and no socket, in the web client
+  or here, so there is nothing to connect or reconnect but the next request. Both go through `DroverApi`, so the
+  antiforgery token, the session, and the HTTPS-only rule of a device apply as they do everywhere. The server decides
+  who may see or drive a screen; the client draws what came and sends what the person did.
+- **The picture** is drawn with Skia (`PictureLayer`, an `SKCanvasElement`) from the PNG bytes, decoded once per
+  picture, inside `SandboxPicture`, a frame that keeps the screen's shape. The zoom is a transform on the layer, so an
+  enlarged picture is drawn again at its size and stays sharp. The ring of the keyboard pointer is drawn on the same
+  canvas.
+- **What the web client's script did** is now `ScreenGesture` (pinch, drag, and what counts as a tap; framework
+  free and tested), pointer and key handlers in `SandboxPicture`, the window's `VisibilityChanged`, and the
+  platform's `InputPane` for the on-screen keyboard.
+- **The keyboard.** While the person drives the screen the picture is one tab stop: the arrow keys move the pointer
+  (with Shift, far), Enter or Space clicks there. Enlarged and only looked at, it is a tab stop whose arrow keys
+  move the view. Tab and Shift+Tab are never taken, so the focus enters and leaves the picture as it does a button.
+- **`SandboxScreen`** has the web component's parameters as dependency properties (`BotId`, `BotName`, `Status`,
+  `Held`) and its callback as the event `SandboxChanged`. It makes its own view model, refreshes while it is in the
+  tree, and stops when it leaves it.
+- **A screen that stays open.** Choosing a tab changes the address (`?tab=terminal`). A screen that overrides
+  `Screen.StaysOpenWhenQueryChanges` is told the new address through `Opened` instead of being made again, as a
+  Razor page is given new parameters. `BotSandboxPage` is the one screen that asks for it.
+
+Tried on Linux under X11 against a stand-in for the server that speaks the same addresses and answers the screen
+with a test pattern (pictures in `docs/screenshots/native-sandbox/`): pictures drawn and refreshed, a click mapped
+to the sandbox's pixels at fit and enlarged, the keyboard pointer, Tab into and out of the picture, typed text, key
+buttons, key combinations, scroll, right click, zoom buttons, drag of the enlarged picture, a failing screen and its
+recovery, start from a paused sandbox, the terminal, pause, and the dialogs. Not tried: a real sandbox provider,
+touch (pinch, a finger on the picture while the page scrolls, the on-screen keyboard), a screen reader, the browser
+and Android builds.
+
+Differences from the web client: the text field does not ask the on-screen keyboard for a "send" key, which the
+platform's text box cannot; the level between the zoom buttons is announced politely as the web's is, but the
+buttons of a wrapped zoom row start at the left; a focused button that is switched off while an input is sent gets
+the focus back when it is on again, where a browser never takes it away.
 
 The native browser build is served from `wwwroot/native`, with `/native/` and its non-file deep links falling back
 to `native/index.html`. The existing client continues to own `/`. Manifest files are JSON; content-named framework
