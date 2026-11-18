@@ -478,15 +478,12 @@ directories can be cached immutably; entry files are revalidated. The CSP is unc
 against a real server and PostgreSQL: `/native/sign-in` loaded in Chromium with no policy violation and no console
 error but the expected `401` for the session and `404` for closed setup; signing in through the drawn form sent the
 antiforgery header, set only `HttpOnly` session cookies (plus the readable `XSRF-TOKEN`), left local storage empty,
-and showed the workspace. To include the native publish in a container built from this repository:
-
-```bash
-docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
-```
-
-The default image still contains only the existing client. The opt-in build installs `python3` in the build stage,
-which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. The Compose workflow builds both image
-variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and starts both images.
+and showed the workspace. The default image includes both browser clients in Docker Compose and CapRover.
+To omit the native browser client, set `DROVER_BUILD_NATIVE=false` in Compose's `.env` file or pass
+`--build-arg DROVER_BUILD_NATIVE=false` when building directly with Docker.
+The Uno build installs `python3` in the build stage for the native WebAssembly linker (`emcc`). The Compose workflow
+builds both image variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and
+starts both images.
 The Docker publish caps the managed heap, skips the optional XAML resource-trimming pass, uses one Emscripten
 and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.

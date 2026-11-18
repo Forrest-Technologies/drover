@@ -68,8 +68,10 @@ services:
       start_period: 10s
 
   database-init:
-    build:
+    build: &drover-build
       context: .
+      args:
+        DROVER_BUILD_NATIVE: "${DROVER_BUILD_NATIVE:-true}"
     image: drover:local
     user: "0:0"
     restart: "no"
@@ -93,8 +95,7 @@ services:
         condition: service_healthy
 
   drover:
-    build:
-      context: .
+    build: *drover-build
     image: drover:local
     # The image's own non-root user. It owns the key ring and files volumes and the copy of the app password.
     user: "1654:1654"
