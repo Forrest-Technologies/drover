@@ -197,7 +197,8 @@ public sealed class SandboxScreen : StackPanel
         widest.Opacity = 0;
         AutomationProperties.SetAccessibilityView(widest, AccessibilityView.Raw);
         zoomLevel.HorizontalAlignment = HorizontalAlignment.Center;
-        var level = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        var level = new Grid { MinHeight = Targets.Minimum };
+        widest.VerticalAlignment = zoomLevel.VerticalAlignment = VerticalAlignment.Center;
         level.Children.Add(widest);
         level.Children.Add(zoomLevel);
 

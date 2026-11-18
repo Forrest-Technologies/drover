@@ -29,9 +29,9 @@ public sealed class BotSandboxPage : Screen
 
     private readonly TextBlock used = Hint(live: false);
 
-    private readonly Button resume = new() { Kind = ButtonKind.Primary, Content = "Resume" };
+    private readonly FlowPanel stateRow = new() { Gap = Tokens.Number("DvSpace2") };
 
-    private readonly Button pause = new() { Content = "Pause" };
+    private readonly Button pauseOrResume = new();
 
     private readonly Button rebuild = new() { Content = "Rebuild" };
 
@@ -126,22 +126,18 @@ public sealed class BotSandboxPage : Screen
         headingHolder.Content = heading;
         headingHolder.LostFocus += (_, _) => headingHolder.IsTabStop = false;
 
-        var stateRow = new FlowPanel { Gap = Tokens.Number("DvSpace2") };
         stateRow.Children.Add(state);
-        stateRow.Children.Add(botWorking);
         stateRow.Children.Add(used);
-        used.VerticalAlignment = VerticalAlignment.Center;
 
         var power = new SandboxGroup("Power", "DvSpace2");
-        power.Add(resume, pause, rebuild, turnOff);
-        resume.Click += async (_, _) => await model.Resume();
-        pause.Click += async (_, _) => await model.Pause();
+        power.Add(pauseOrResume, rebuild, turnOff);
+        pauseOrResume.Click += async (_, _) => await (model.OffersResume ? model.Resume() : model.Pause());
         rebuild.Click += (_, _) => model.Rebuilding = true;
         turnOff.Click += (_, _) => model.TurningOff = true;
 
         hold.Children.Add(holdWords);
-        hold.Children.Add(holdStopping);
         hold.Children.Add(stopHold);
+        hold.Children.Add(holdStopping);
         holdStopping.Text = BotSandboxViewModel.StoppingNote;
         stopHold.Click += (_, _) => model.StoppingHold = true;
 
@@ -315,13 +311,13 @@ public sealed class BotSandboxPage : Screen
         heading.Text = model.Heading;
         state.Text = model.StateWords;
         state.Kind = model.StateBadge;
-        Show(botWorking, model.Status is { BotWorking: true });
+        ShowBotWorking(model.Status is { BotWorking: true });
         used.Text = model.LastUsed;
 
-        Show(resume, model.OffersResume);
-        Show(pause, !model.OffersResume);
-        resume.IsEnabled = !model.Busy;
-        pause.IsEnabled = model.CanPause;
+        // A paused sandbox offers Resume, the one thing to do with it, where a running one offers Pause.
+        pauseOrResume.Content = model.OffersResume ? "Resume" : "Pause";
+        pauseOrResume.Kind = model.OffersResume ? ButtonKind.Primary : ButtonKind.Quiet;
+        pauseOrResume.IsEnabled = model.OffersResume ? !model.Busy : model.CanPause;
         rebuild.IsEnabled = turnOff.IsEnabled = model.CanReplace;
         Say(powerHint, model.PowerHint);
 
@@ -340,6 +336,19 @@ public sealed class BotSandboxPage : Screen
         ShowTabs();
         ShowTerminal();
         ShowDialogs();
+    }
+
+    // The badge is in the row only while the bot works, so the row keeps no room for it otherwise.
+    private void ShowBotWorking(bool working)
+    {
+        if (working && !stateRow.Children.Contains(botWorking))
+        {
+            stateRow.Children.Insert(1, botWorking);
+        }
+        else if (!working)
+        {
+            stateRow.Children.Remove(botWorking);
+        }
     }
 
     private void ShowTabs()
