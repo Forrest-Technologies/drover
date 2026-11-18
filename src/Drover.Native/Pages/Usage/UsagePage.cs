@@ -60,52 +60,27 @@ public sealed class UsagePage : Screen
         {
             body.Add(Failed("Drover could not add up what the bots used", problem, model.Load));
         }
-        else if (model.Crew is not { } crew)
+        else if (model.Crew is null)
         {
             body.Add(PageParts.Waiting("Adding up what each bot used."));
         }
         else
         {
-            ShowCrew(crew);
+            ShowCrew();
             ShowRuns();
         }
     }
 
-    private void ShowCrew(Drover.Contracts.Runs.CrewUsage crew)
+    // The crew as a table that leads with cost; a period in which nothing ran says so and shows no table.
+    private void ShowCrew()
     {
-        if (Drover.Ui.Usage.UsageWords.IsEmpty(crew.Crew))
+        if (model.NothingRan)
         {
-            layout.Body.Add(Styles.Text("No bot ran in this period.", "DvTextSecondary"));
+            layout.Body.Add(Styles.Text(UsagePageViewModel.NoBotRan, "DvTextSecondary"));
             return;
         }
 
-        foreach (var row in Drover.Ui.Usage.UsageWords.Rows(crew.Crew))
-        {
-            var bot = row.Bot;
-            var entry = PageParts.Column(
-                new Link { Text = bot.BotName, Address = Addresses.UsageFor(model.Period, bot.BotId) },
-                Styles.Text($"Cost: {Drover.Ui.Usage.UsageWords.Cost(bot.Own, crew.Currency)}{(bot.WithBeneath is null ? string.Empty : " on its own")}"),
-                Styles.Text($"Tokens in: {Drover.Ui.Usage.UsageWords.Tokens(bot.Own.InputTokens)} · Tokens out: {Drover.Ui.Usage.UsageWords.Tokens(bot.Own.OutputTokens)}", "DvTextMono"),
-                Styles.Text($"Model: {bot.Model}", "DvTextMono"));
-            if (bot.IsRemoved)
-            {
-                entry.Children.Add(Styles.Text("removed", "DvTextSecondary"));
-            }
-
-            if (bot.WithBeneath is { } beneath)
-            {
-                entry.Children.Add(Styles.Text($"{Drover.Ui.Usage.UsageWords.Cost(beneath, crew.Currency)} with the bots beneath it"));
-                entry.Children.Add(Styles.Text($"With the bots beneath it: {Drover.Ui.Usage.UsageWords.Tokens(beneath.InputTokens)} tokens in, {Drover.Ui.Usage.UsageWords.Tokens(beneath.OutputTokens)} out", "DvTextMono"));
-            }
-
-            if ((Drover.Ui.Usage.UsageWords.LeftOut(bot.WithBeneath ?? bot.Own) ?? Drover.Ui.Usage.UsageWords.LeftOut(bot.Own)) is { } leftOut)
-            {
-                entry.Children.Add(Styles.Text(leftOut, "DvTextSecondary"));
-            }
-
-            entry.Margin = new(row.Depth * Tokens.Number("DvSpace4"), 0, 0, 0);
-            layout.Body.Add(PageParts.Card(entry));
-        }
+        layout.Body.Add(new UsageTable(model.Caption, model.Rows));
     }
 
     private void ShowRuns()

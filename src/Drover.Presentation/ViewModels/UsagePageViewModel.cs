@@ -49,6 +49,27 @@ public sealed partial class UsagePageViewModel(DroverApi api, SessionState sessi
 
     public UsageNode? ChosenBot => Bot is { } id && Crew is not null && !UsageWords.IsEmpty(Crew.Crew) ? Find(Crew.Crew, id) : null;
 
+    /// <summary>The table's columns, cost first after the bot: the figure that decides what to change.</summary>
+    public static IReadOnlyList<string> Columns => ["Bot", "Cost", "Tokens in", "Tokens out", "Model"];
+
+    public static string NoBotRan => "No bot ran in this period.";
+
+    /// <summary>What the table shows and for when, such as "What each bot used in the last 7 days".</summary>
+    public string Caption => UsageWords.Caption(Period);
+
+    /// <summary>True when the crew is loaded and nothing ran in the period, so the screen says so and shows no table.</summary>
+    public bool NothingRan => Crew is { } loaded && UsageWords.IsEmpty(loaded.Crew);
+
+    /// <summary>
+    /// The crew as the table's rows: the hierarchy it is, the biggest spender first at every level, each name linking
+    /// to that bot's most expensive runs in the period, the chosen one marked.
+    /// </summary>
+    public IReadOnlyList<UsageTableRow> Rows => Crew is not { } loaded || NothingRan ? [] :
+    [
+        .. UsageWords.Rows(loaded.Crew).Select(row =>
+            UsageTableRow.Of(row, loaded.Currency, Addresses.UsageFor(Period, row.Bot.BotId), row.Bot.BotId == ChosenBot?.BotId)),
+    ];
+
     private static string Zone => TimeZoneInfo.Local.HasIanaId ? TimeZoneInfo.Local.Id : "UTC";
 
     #endregion

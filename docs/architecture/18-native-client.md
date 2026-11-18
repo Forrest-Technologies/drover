@@ -343,10 +343,15 @@ replacement, usage selection, changed-tool review conflicts, external sign-in re
 and called by both clients, preserving their text. Native page presence and passing view-model tests do not
 establish visual parity.
 
-The following classes still explicitly derive from `PendingScreen`:
+No screen class derives from `PendingScreen` any more; the class stays for a screen added to the web client before
+it moves. The last two to move were the bot editor and the share screen.
 
-- `BotEditorPage`: definition, model, grants, rules, memory, routines, sandbox, team, limits, and unsaved changes.
-- `ShareToPage`: incoming content and recipient selection.
+The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one `ShareInbox`, names the
+chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the
+share with `TakeFor` when it opens, as the web client's `ConversationPane` does. The usage screen's crew is a table
+at desktop width, with the web's columns, order, and hidden caption, and a block for each bot below the phone
+breakpoint. With no table semantics on this platform, each figure carries its column's name for assistive
+technology (`Tokens in: 100 on its own`), and the drawn column names and phone labels are left out of what is read.
 
 ### The conversation workspace
 
@@ -470,7 +475,7 @@ budget as the existing deployment before becoming the default. This environment 
 packaging, incoming links, OAuth app returns, native push registration, install/offline support, credential
 persistence on desktop, and real provider flows remain to be verified or implemented. `ConnectViewModel` still lives in the native app and lacks unit tests.
 
-Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: desktop usage still uses cards instead of the original table; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
+Screenshots in `docs/screenshots/native-parity-pass` cover dark and light at 1280 and 360 px with explicitly marked sample data. The browser check includes loading and failed extension states, empty setup/usage/tool states, tool creation and review. These are regression evidence, not a full visual comparison: they predate the usage table and the share screen, which have not been captured; spacing differences remain. Each port still needs complete state coverage, 200 percent zoom, keyboard, screen-reader, and pixel comparisons against the existing client. Keep both existing hosts until these checks and
 the feature ports above are complete. Passing tests for the existing clients must not be reported as native parity.
 
 ### Verification recorded for this pass
