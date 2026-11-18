@@ -643,8 +643,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         try
         {
             await using var content = await file.OpenRead(maxBytes, left);
-            var uploaded = await api.UploadFile(
-                SpaceId, threadId, file.Name, content, file.Size, progress, left);
+            var uploaded = file.Size is 0
+                ? await api.UploadFileWithUnverifiedSize(SpaceId, threadId, file.Name, content, maxBytes, progress, left)
+                : await api.UploadFile(SpaceId, threadId, file.Name, content, file.Size, progress, left);
 
             // Taken off while it was on its way, or the conversation was left: the server keeps nothing nobody will
             // send, so this removal goes ahead even after leaving.

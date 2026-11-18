@@ -42,27 +42,42 @@ public sealed partial class DroverApi
     /// on so far. A refused file throws <see cref="DroverApiException"/> with the server's sentence and its
     /// <see cref="DroverApiException.Refusal"/> code.
     /// </summary>
-    public async Task<FileResponse> UploadFile(
+    public Task<FileResponse> UploadFile(
         Guid spaceId,
         Guid threadId,
         string name,
         Stream content,
         long size,
         IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        SendFile(spaceId, threadId, name, new ProgressContent(content, size, progress), cancellationToken);
+
+    /// <summary>Measures and uploads a file whose provider may not know its exact byte length.</summary>
+    public async Task<FileResponse> UploadFileWithUnverifiedSize(
+        Guid spaceId,
+        Guid threadId,
+        string name,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
+        using var body = new ProgressContent(content, null, progress);
+        try
         {
-            Content = new ProgressContent(content, size, progress),
-        };
-
-        if (AntiforgeryToken is { Length: > 0 } token)
+            // Android's HTTP handler chooses fixed-length framing before it buffers the content. Buffer first so
+            // Content-Length comes from the bytes themselves, even when the picker returned zero or a stale size.
+            await body.LoadIntoBufferAsync(maxBytes, cancellationToken);
+        }
+        catch (HttpRequestException exception) when (exception.HttpRequestError is HttpRequestError.ConfigurationLimitExceeded)
         {
-            request.Headers.Add(AntiforgeryHeader, token);
+            throw new DroverApiException(HttpStatusCode.RequestEntityTooLarge, "The file is larger than the server takes.")
+            {
+                Refusal = FileRefusals.TooLarge,
+            };
         }
 
-        using var response = await http.SendAsync(request, cancellationToken);
-        return await Read<FileResponse>(response, cancellationToken);
+        return await SendFile(spaceId, threadId, name, body, cancellationToken);
     }
 
     /// <summary>Removes a file the caller attached and has not sent.</summary>
@@ -96,10 +111,31 @@ public sealed partial class DroverApi
 
     #endregion
 
+    #region Private Methods
+
+    private async Task<FileResponse> SendFile(
+        Guid spaceId, Guid threadId, string name, HttpContent body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
+        {
+            Content = body,
+        };
+
+        if (AntiforgeryToken is { Length: > 0 } token)
+        {
+            request.Headers.Add(AntiforgeryHeader, token);
+        }
+
+        using var response = await http.SendAsync(request, cancellationToken);
+        return await Read<FileResponse>(response, cancellationToken);
+    }
+
+    #endregion
+
     #region Nested Types
 
-    /// <summary>The file's bytes as a request body of known length, telling how far the send has read.</summary>
-    private sealed class ProgressContent(Stream content, long size, IProgress<long>? progress) : HttpContent
+    /// <summary>The file's bytes as a request body, telling how far the send has read.</summary>
+    private sealed class ProgressContent(Stream content, long? size, IProgress<long>? progress) : HttpContent
     {
         #region Private Fields
 
@@ -128,8 +164,8 @@ public sealed partial class DroverApi
 
         protected override bool TryComputeLength(out long length)
         {
-            length = size;
-            return true;
+            length = size.GetValueOrDefault();
+            return size.HasValue;
         }
 
         #endregion
