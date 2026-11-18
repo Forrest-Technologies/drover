@@ -26,6 +26,12 @@ public sealed class Navigator
     /// <summary>Raised after the address changed, with how it changed.</summary>
     public event Action<string, NavigationKind>? Navigated;
 
+    /// <summary>
+    /// Asked before the app goes to another address, with that address. A screen holding work that would be lost
+    /// sets it, and answers false to stay where it is and ask the person first.
+    /// </summary>
+    public Func<string, bool>? Leaving { get; set; }
+
     #endregion
 
     #region Public Methods
@@ -33,6 +39,11 @@ public sealed class Navigator
     /// <summary>Goes to an address. With <paramref name="replace"/>, the address left behind cannot be gone back to.</summary>
     public void NavigateTo(string address, bool replace = false)
     {
+        if (Leaving is { } ask && !ask(address))
+        {
+            return;
+        }
+
         if (replace)
         {
             history[position] = address;
@@ -90,7 +101,7 @@ public sealed class Navigator
     private bool Travel(int step)
     {
         var target = position + step;
-        if (target < 0 || target >= history.Count)
+        if (target < 0 || target >= history.Count || (Leaving is { } ask && !ask(history[target])))
         {
             return false;
         }

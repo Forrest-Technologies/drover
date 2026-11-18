@@ -92,7 +92,7 @@ internal static class PanelSamples
                 server.Answer("GET", $"{space}/bots/{bot.Id}/sandbox", status);
             }
 
-            return Wide(new ScreenPanel(new(api, session, TimeProvider.System, Log.For<ScreenPanelViewModel>())) { Bot = bot, Surface = SampleSurface() });
+            return Wide(new ScreenPanel(new(api, session, TimeProvider.System, Log.For<ScreenPanelViewModel>()), SampleSurface()) { Bot = bot });
         }
 
         return

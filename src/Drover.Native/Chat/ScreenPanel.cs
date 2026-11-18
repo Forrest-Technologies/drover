@@ -2,12 +2,9 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// A bot's sandbox screen beside the conversation, so a person can watch it and send desktop input, and hand it back
-/// here when the bot asked them to take it over. This is the panel around the screen: the request the person holds,
-/// every state in which there is no screen to show, and the sandbox's state above one that is. The screen itself is
-/// what the panel is given as <see cref="Surface"/>, which reads <see cref="Status"/> and <see cref="IsHeld"/> from
-/// the panel and asks it to <see cref="Refresh"/> when it changed the sandbox.
+/// here when the bot asked them to take it over. The panel holds the request the person holds, every state in which
+/// there is no screen to show, and the sandbox's state above the screen where there is one.
 /// </summary>
-[Microsoft.UI.Xaml.Markup.ContentProperty(Name = nameof(Surface))]
 public sealed class ScreenPanel : Grid
 {
     #region Private Fields
@@ -30,6 +27,11 @@ public sealed class ScreenPanel : Grid
 
     private readonly ContentPresenter surface = new();
 
+    // The gallery's stand-in for the screen, whose own view model would ask a real server.
+    private readonly UIElement? sample;
+
+    private Drover.Native.Bots.SandboxScreen? screen;
+
     private ScreenPanelViewModel model;
 
     private TakeoverCard? card;
@@ -50,9 +52,10 @@ public sealed class ScreenPanel : Grid
     }
 
     /// <summary>A panel with a view model made elsewhere, for the gallery, which reads from a sample server.</summary>
-    internal ScreenPanel(ScreenPanelViewModel model)
+    internal ScreenPanel(ScreenPanelViewModel model, UIElement? sampleScreen = null)
     {
         this.model = model;
+        sample = sampleScreen;
         batch = new(this, Apply, Draw);
         model.PropertyChanged += Changed;
         model.HandedBack += Returned;
@@ -94,8 +97,6 @@ public sealed class ScreenPanel : Grid
 
     public static readonly DependencyProperty TakeoverProperty = Dp.Register<ScreenPanel, Takeover?>(nameof(Takeover), null, panel => panel.batch.Values());
 
-    public static readonly DependencyProperty SurfaceProperty = Dp.Register<ScreenPanel, object?>(nameof(Surface), null, panel => panel.batch.Draw());
-
     /// <summary>The bot whose screen is shown. Required.</summary>
     public BotSummary? Bot
     {
@@ -110,34 +111,8 @@ public sealed class ScreenPanel : Grid
         set => SetValue(TakeoverProperty, value);
     }
 
-    /// <summary>
-    /// The screen itself: the control that shows the sandbox's picture and sends it input. It is in the panel only
-    /// while the bot has a screen to show.
-    /// </summary>
-    public object? Surface
-    {
-        get => GetValue(SurfaceProperty);
-        set => SetValue(SurfaceProperty, value);
-    }
-
-    /// <summary>The sandbox as last read, for the surface to draw from. Null until it was read.</summary>
-    public BotSandboxStatus? Status => model.Status;
-
-    /// <summary>True while the person holds the screen for the bot's request, for the surface to say so.</summary>
-    public bool IsHeld => model.IsHeld;
-
-    /// <summary>Raised each time <see cref="Status"/> or <see cref="IsHeld"/> may have changed.</summary>
-    public event EventHandler? StatusChanged;
-
     /// <summary>The person handed the screen back, or found it already answered.</summary>
     public event EventHandler<Guid>? HandedBack;
-
-    #endregion
-
-    #region Public Methods
-
-    /// <summary>Reads the sandbox's state again now, as the surface asks when it started, woke, or changed the sandbox.</summary>
-    public Task Refresh() => model.Refresh();
 
     #endregion
 
@@ -230,7 +205,7 @@ public sealed class ScreenPanel : Grid
 
         var shown = state is ScreenPanelState.Screen;
         stateRow.Visibility = surface.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
-        surface.Content = shown ? Surface : null;
+        surface.Content = shown ? sample ?? Screen() : null;
         if (shown)
         {
             sandbox.Text = model.SandboxState;
@@ -238,8 +213,20 @@ public sealed class ScreenPanel : Grid
             working.Visibility = model.BotWorking ? Visibility.Visible : Visibility.Collapsed;
             terminal.Address = model.TerminalHref;
         }
+    }
 
-        StatusChanged?.Invoke(this, EventArgs.Empty);
+    // The screen is made when there is one to show, and kept, so the picture a person is watching is not started over
+    // each time the sandbox's state is read again.
+    private Drover.Native.Bots.SandboxScreen Screen()
+    {
+        if (screen is null)
+        {
+            screen = new();
+            screen.SandboxChanged += async (_, _) => await model.Refresh();
+        }
+
+        (screen.BotId, screen.BotName, screen.Status, screen.Held) = (model.Bot.Id, model.Bot.Name, model.Status, model.IsHeld);
+        return screen;
     }
 
     // The request the person holds stands above the screen with its controls. Each request gets a card of its own, so

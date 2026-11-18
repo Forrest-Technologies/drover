@@ -59,7 +59,7 @@ public static class ChatPieceSamples
         new("Files panel", "The files a person and a bot exchanged, newest first. The filter appears only when files came from both sides.", FilesPanels),
         new("Memory panel", "What a bot remembers about the person reading. Each note says where it came from and is changed in place.", MemoryPanels),
         new("Summary panel", "The summary the server keeps of a conversation, and what it says when there is none.", () => PanelSamples.Summaries()),
-        new("Screen panel", "The panel around a bot's screen: every state with no screen to show, and the sandbox's state above one that is. The screen itself is given to the panel.", () => PanelSamples.Screens()),
+        new("Screen panel", "The panel around a bot's screen: every state with no screen to show, and the sandbox's state above one that is. Here a labeled box stands where the screen is drawn.", () => PanelSamples.Screens()),
         new("Activity panel", "A run as a timeline, read from its stream. This sample run waits for a person, so nothing in it moves.", () => PanelSamples.Activities()),
     ];
 
