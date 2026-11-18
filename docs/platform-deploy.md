@@ -124,7 +124,7 @@ Volumes, both writable by the image's user:
 
 | Path | Holds |
 | --- | --- |
-| `/var/lib/drover/keys` | The key ring. Without it, every stored key and password is unreadable. Back it up with the database. |
+| `/var/lib/drover/keys` | The key ring used by web cookies, native sessions, and stored secrets. Reuse the same volume across deploys and backups. |
 | `/var/lib/drover/files` | Files people attach to messages. Set `Files__Path` to this path. Back it up with the database: a message's file is read from here. Nothing scans these files for viruses. |
 
 The image runs as a non-root user (uid 1654) and owns these paths. Leave the user as it is. If the platform lets you,
@@ -188,3 +188,5 @@ This is not supported yet. Until it is, let people reach the platform's proxy di
 2. The status page shows the database connected as `drover_app`, migrations up to date, the key ring writable, and
    the public address on HTTPS.
 3. Sign-in works over the public address, and failed sign-ins by two different people count against separate limits.
+4. An Android session opened before replacing the serving container can still open the app afterward. Keep the
+   database and key-ring volumes attached across the replacement, as the Compose CI check does.

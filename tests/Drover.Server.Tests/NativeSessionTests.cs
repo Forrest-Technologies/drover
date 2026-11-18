@@ -30,16 +30,19 @@ public sealed class NativeSessionTests(PostgresServer postgres) : ServerTestBase
     }
 
     [Fact]
-    public async Task A_cold_client_can_refresh_its_access_until_its_session_expires()
+    public async Task A_cold_client_can_refresh_its_access_after_the_server_is_replaced_until_its_session_expires()
     {
         var person = await SeedPerson("native-refresh");
         var preview = NewClient();
         (await preview.SignIn(person.Email, person.Password)).EnsureSuccessStatusCode();
         var tokens = await ReadTokens(await preview.Post("/api/native/session"));
 
-        Time.Advance(TimeSpan.FromMinutes(11));
+        await RestartServer();
         var native = NewClient();
         native.ForwardedHeaders["Authorization"] = $"Bearer {tokens.AccessToken}";
+        (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        Time.Advance(TimeSpan.FromMinutes(11));
         (await native.Get("/api/session")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         var renewed = await ReadTokens(await NewClient()

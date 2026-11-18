@@ -1,10 +1,6 @@
 namespace Drover.Transport;
 
-public sealed class AppRequests(ServerAddress server, NativeSession session) : DelegatingHandler(new HttpClientHandler
-{
-    AllowAutoRedirect = false,
-    CookieContainer = new(),
-})
+public sealed class AppRequests : DelegatingHandler
 {
     #region Private Fields
 
@@ -13,6 +9,29 @@ public sealed class AppRequests(ServerAddress server, NativeSession session) : D
     private const string SessionCookie = "__Host-Drover.Session";
 
     internal const string AntiforgeryHeader = "X-XSRF-TOKEN";
+
+    private readonly ServerAddress server;
+
+    private readonly NativeSession session;
+
+    private readonly CookieContainer cookies;
+
+    #endregion
+
+    #region Constructors
+
+    public AppRequests(ServerAddress server, NativeSession session)
+        : this(server, session, new HttpClientHandler { AllowAutoRedirect = false })
+    {
+    }
+
+    internal AppRequests(ServerAddress server, NativeSession session, HttpMessageHandler transport)
+        : base(transport)
+    {
+        this.server = server;
+        this.session = session;
+        cookies = transport is HttpClientHandler handler ? handler.CookieContainer : new();
+    }
 
     #endregion
 
@@ -63,6 +82,12 @@ public sealed class AppRequests(ServerAddress server, NativeSession session) : D
         var response = await base.SendAsync(request, cancellationToken);
         try
         {
+            if (request.Method == HttpMethod.Get && path == "/api/session" && access is not null
+                && response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return await RetrySession(request, response, origin, access, cancellationToken);
+            }
+
             await UpdateSession(origin, path, opening, access, response, cancellationToken);
             return response;
         }
@@ -77,17 +102,45 @@ public sealed class AppRequests(ServerAddress server, NativeSession session) : D
 
     #region Private Methods
 
+    private async Task<HttpResponseMessage> RetrySession(
+        HttpRequestMessage request,
+        HttpResponseMessage rejected,
+        Uri origin,
+        string rejectedAccess,
+        CancellationToken cancellationToken)
+    {
+        var renewed = await session.GetAccess(origin, base.SendAsync, cancellationToken, rejectedAccess);
+        if (renewed is null)
+        {
+            return rejected;
+        }
+
+        rejected.Dispose();
+        using var retry = new HttpRequestMessage(request.Method, request.RequestUri)
+        {
+            Version = request.Version,
+            VersionPolicy = request.VersionPolicy,
+        };
+        foreach (var header in request.Headers)
+        {
+            retry.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", renewed);
+        var response = await base.SendAsync(retry, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            throw new HttpRequestException("Drover could not verify the renewed session.", null, HttpStatusCode.Unauthorized);
+        }
+
+        return response;
+    }
+
     private async Task UpdateSession(
         Uri origin, string path, bool opening, string? access, HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        if ((path == "/api/sign-out" && response.IsSuccessStatusCode)
-            || (path == "/api/account/password" && response.StatusCode == HttpStatusCode.Unauthorized))
-        {
-            await session.Clear(origin, access);
-            return;
-        }
-
-        if (path == "/api/session" && access is not null && response.StatusCode == HttpStatusCode.Unauthorized)
+        if (path == "/api/sign-out" && response.IsSuccessStatusCode)
         {
             await session.Clear(origin, access);
             return;
@@ -98,7 +151,7 @@ public sealed class AppRequests(ServerAddress server, NativeSession session) : D
             var token = ReadCookie(origin);
             if (token is not null && await session.Exchange(origin, base.SendAsync, token, cancellationToken))
             {
-                Cookies.Add(origin, new Cookie(SessionCookie, string.Empty, "/") { Expired = true, Secure = true });
+                cookies.Add(origin, new Cookie(SessionCookie, string.Empty, "/") { Expired = true, Secure = true });
             }
         }
     }
@@ -115,9 +168,7 @@ public sealed class AppRequests(ServerAddress server, NativeSession session) : D
         return token ?? throw new HttpRequestException("Drover did not issue a request token.");
     }
 
-    private CookieContainer Cookies => ((HttpClientHandler)InnerHandler!).CookieContainer;
-
-    private string? ReadCookie(Uri origin) => Cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
+    private string? ReadCookie(Uri origin) => cookies.GetCookies(origin)[AntiforgeryCookie]?.Value;
 
     private async Task IssueToken(Uri origin, CancellationToken cancellationToken)
     {
