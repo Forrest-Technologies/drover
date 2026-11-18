@@ -10,7 +10,7 @@ public interface IPickedFile
     /// <summary>The file's name, as the person knows it.</summary>
     string Name { get; }
 
-    /// <summary>How many bytes it holds.</summary>
+    /// <summary>How many bytes it holds, or zero when the size is unknown.</summary>
     long Size { get; }
 
     /// <summary>Opens the file to be read once, from its start. A file larger than <paramref name="maxBytes"/> may refuse.</summary>

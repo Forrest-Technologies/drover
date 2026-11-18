@@ -32,8 +32,9 @@ internal static class PickedFiles
 
         foreach (var file in files ?? [])
         {
-            var facts = await file.GetBasicPropertiesAsync();
-            picked.Add(new Picked(file, (long)facts.Size));
+            // Android providers can leave the size blank or report a different size from the opened stream.
+            var size = OperatingSystem.IsAndroid() ? 0 : (long)(await file.GetBasicPropertiesAsync()).Size;
+            picked.Add(new Picked(file, size));
         }
 
         return picked;

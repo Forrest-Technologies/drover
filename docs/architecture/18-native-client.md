@@ -398,7 +398,9 @@ framework:
   `@key` rules, and `TalkViewModelTests` hold them.
 - **Files.** `IPickedFile` is a file a person picked, pasted, dropped, or shared: a name, a size, and a way to read
   it. `ShareInbox` moved to `Drover.Presentation` and holds picked files, so both clients use the one class; the
-  web client's browser files and the Android shell's staged files implement the interface.
+  web client's browser files and the Android shell's staged files implement the interface. Android document providers
+  can report no size or a stale size. The Android composer reads the bytes within the server's file limit before the
+  HTTP handler sends the request, so the request's length matches the bytes it carries.
 
 When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
 Left and Right move it in 16-pixel steps. The workspace keeps those widths while you switch conversations and

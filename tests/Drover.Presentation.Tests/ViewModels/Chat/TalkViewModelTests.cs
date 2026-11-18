@@ -952,8 +952,10 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #region Files
 
-    [Fact]
-    public async Task A_file_attached_is_uploaded_at_once_and_goes_with_the_message()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_attached_is_uploaded_at_once_and_goes_with_the_message(bool sizeKnown)
     {
         var fileId = Guid.CreateVersion7();
         AttachmentsAllowed();
@@ -962,10 +964,11 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Messages.Should().HaveCount(2));
 
-        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one", sizeKnown));
 
         await Until(() => Status(MainPane).Should().Equal("3 bytes"));
         Server.Addresses.Should().Contain($"POST {Space}/threads/{threadId}/files?name=notes.txt");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().Equal("one");
         await Do(() => MainPane.Composer.Send());
 
         await Until(() => Server.Sent("POST", $"{Space}/threads/{threadId}/messages").Should().ContainSingle()
@@ -1049,14 +1052,16 @@ public sealed class TalkViewModelTests : WorkspaceTest
         MainPane.Composer.CanSend.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task A_file_past_the_servers_limit_is_refused_without_being_sent()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_past_the_servers_limit_is_refused_without_being_sent(bool sizeKnown)
     {
         Server.Answer("GET", $"{Space}/threads/{threadId}/attachment-rules", new AttachmentRules(2, 10, false, false));
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Messages.Should().HaveCount(2));
 
-        await Attach(() => MainPane, new SamplePickedFile("big.txt", "three"));
+        await Attach(() => MainPane, new SamplePickedFile("big.txt", "three", sizeKnown));
 
         await Until(() => Status(MainPane).Should().Equal("Larger than this server takes."));
         Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
