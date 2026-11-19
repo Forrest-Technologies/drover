@@ -8,6 +8,9 @@ namespace Drover.Contracts.Threads;
 /// <see cref="ScheduleCron"/> is that schedule's time while the schedule still exists.
 /// <see cref="RunPrincipalUserId"/> is the person the run that wrote the message acts for, when a run wrote it.
 /// <see cref="Model"/> is the model that wrote a bot's reply, when the server kept it.
+/// <see cref="Versions"/> is set when the message's place in the conversation has more than one version: a person
+/// edited their message, or asked for another reply. It holds the id of every version, oldest first, this one among
+/// them. The conversation shows one version of each place; showing another is asked of the server.
 /// </summary>
 public sealed record MessageResponse(
     Guid Id,
@@ -22,7 +25,8 @@ public sealed record MessageResponse(
     Guid? ScheduleId = null,
     string? ScheduleCron = null,
     Guid? RunPrincipalUserId = null,
-    string? Model = null);
+    string? Model = null,
+    IReadOnlyList<Guid>? Versions = null);
 
 /// <summary>
 /// One part of a message. <see cref="Kind"/> names it (text, reasoning, source, tool_call, tool_result, image, file)

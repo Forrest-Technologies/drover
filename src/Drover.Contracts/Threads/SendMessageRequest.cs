@@ -26,3 +26,9 @@ public static class BusyModes
 /// already under way: the message is pending (it has no position yet) and the run's events say when it is delivered.
 /// </summary>
 public sealed record SendMessageResponse(MessageResponse Message, RunSummary Run);
+
+/// <summary>
+/// A new version of a person's message: <see cref="Text"/> replaces its words, and any files sent with it go with it.
+/// The message and everything after it are kept as the earlier version, and a new run answers the edit.
+/// </summary>
+public sealed record EditMessageRequest(string? Text);
