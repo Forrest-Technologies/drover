@@ -9,7 +9,7 @@ internal sealed class HtmlPreview : Grid
 
     private readonly StatusNote loading = new() { Text = "Loading preview." };
 
-    private BrowserHtmlElement? frame;
+    private Uno.UI.NativeElementHosting.BrowserHtmlElement? frame;
 
     private EventHandler<JSObject>? loaded;
 
@@ -43,7 +43,7 @@ internal sealed class HtmlPreview : Grid
             return;
         }
 
-        frame = BrowserHtmlElement.CreateHtmlElement("iframe");
+        frame = Uno.UI.NativeElementHosting.BrowserHtmlElement.CreateHtmlElement("iframe");
         loaded = (_, _) => loading.Text = null;
         frame.RegisterHtmlEventHandler("load", loaded);
         frame.SetHtmlAttribute(

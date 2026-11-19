@@ -67,7 +67,6 @@ global using Path = Microsoft.UI.Xaml.Shapes.Path;
 global using SkiaSharp;
 global using Timeline = Drover.Native.Controls.Timeline;
 global using Uno.UI.Hosting;
-global using Uno.UI.NativeElementHosting;
 global using Uno.WinUI.Graphics2DSK;
 global using Windows.Foundation;
 global using Windows.System;

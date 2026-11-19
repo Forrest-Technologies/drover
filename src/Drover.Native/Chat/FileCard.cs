@@ -193,14 +193,15 @@ public sealed class FileCard : Grid
 
     private void Apply()
     {
+        if (model.File is { } before && before.Id != File?.Id)
+        {
+            previewDialog.Open = false;
+            previewSurface.Clear();
+            _ = model.ClosePreview();
+        }
+
         if (File is { } file)
         {
-            if (model.File is { } before && before.Id != file.Id)
-            {
-                previewDialog.Open = false;
-                _ = model.ClosePreview();
-            }
-
             model.File = file;
             model.ReadWhole = ReadWhole;
             model.RequestPreview = selected => api.PreviewConversationFile(selected.Href);
@@ -246,7 +247,7 @@ public sealed class FileCard : Grid
 
     private void ShowPreview()
     {
-        if (model.PreviewAddress is not { } address)
+        if (File?.Id != model.File.Id || model.PreviewAddress is not { } address)
         {
             previewDialog.Open = false;
             return;
