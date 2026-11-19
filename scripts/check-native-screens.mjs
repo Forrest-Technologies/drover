@@ -70,6 +70,11 @@ page.on('requestfailed', request => {
     const failure = request.failure();
     console.log(`request failed: ${request.url()} ${failure ? failure.errorText : ''}`);
 });
+page.on('response', response => {
+    if (response.status() >= 400) {
+        console.log(`response ${response.status()} ${response.url()}`);
+    }
+});
 
 const url = new URL('native/sign-in', origin);
 await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 120000 });

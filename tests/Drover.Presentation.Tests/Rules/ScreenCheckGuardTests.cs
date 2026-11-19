@@ -1,8 +1,8 @@
 namespace Drover.Presentation.Tests.Rules;
 
 /// <summary>
-/// The screen-check harness wipes an Android package only on an emulator or a checks build, and a missing
-/// automation id is not a match.
+/// The screen-check harness wipes an Android package only when the run names that device and the package is the
+/// checks build, and a missing automation id is not a match.
 /// </summary>
 public sealed partial class ScreenCheckGuardTests
 {
@@ -14,11 +14,61 @@ public sealed partial class ScreenCheckGuardTests
         const string Devices = "List of devices attached\nemulator-5554\tdevice\n";
 
         AndroidCheckGuard.Serials(Devices).Should().Equal("emulator-5554");
-        AndroidCheckGuard.Choose(["emulator-5554"], null).Should().Be("emulator-5554");
-        AndroidCheckGuard.Choose(["R58M"], "0.1.0").Should().BeNull();
-        AndroidCheckGuard.Choose(["R58M"], AndroidCheckGuard.ChecksVersion).Should().Be("R58M");
-        AndroidCheckGuard.Choose(["R58M", "emulator-5554"], null).Should().Be("emulator-5554");
+        AndroidCheckGuard.Choose(["emulator-5554"], "emulator-5554", AndroidCheckGuard.ChecksVersion)
+            .Should().Be("emulator-5554");
+        AndroidCheckGuard.Choose(["emulator-5554"], null, AndroidCheckGuard.ChecksVersion).Should().BeNull();
+        AndroidCheckGuard.Choose(["emulator-5554"], "emulator-5554", "0.1.0").Should().BeNull();
+        AndroidCheckGuard.Choose(["R58M"], "R58M", "0.1.0").Should().BeNull();
+        AndroidCheckGuard.Choose(["R58M"], "R58M", AndroidCheckGuard.ChecksVersion).Should().Be("R58M");
+        AndroidCheckGuard.Choose(["R58M", "emulator-5554"], null, null).Should().BeNull();
+        AndroidCheckGuard.Choose(["emulator-5554"], "missing", AndroidCheckGuard.ChecksVersion).Should().BeNull();
         AndroidCheckGuard.VersionName("    versionName=checks\n").Should().Be("checks");
+    }
+
+    [Fact]
+    public void A_report_from_before_this_run_is_not_the_result()
+    {
+        const long Started = 1_700_000_000;
+        const string Log = """
+            1699999998.000  1  2 I DroverUiCheck: ui-check old
+            1699999999.000  1  2 I DroverUiCheck: ui-check kept
+            not a stamp
+            1700000002.000  1  2 I Other: hello
+            1700000002.500  1  2 I DroverUiCheck: ui-check result: passed
+            """;
+
+        AndroidCheckGuard.ReportsSince(Log, Started).Should().Equal(
+            "ui-check kept",
+            "ui-check result: passed");
+    }
+
+    [Fact]
+    public void The_checks_build_is_a_separate_package_and_keeps_its_own_settings()
+    {
+        var project = File.ReadAllText(Path.Combine(Repository.Root, "src", "Drover.Native", "Drover.Native.csproj"));
+        var settings = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "src",
+            "Drover.Native",
+            "Device",
+            "StorageShims.cs"));
+        var android = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "AndroidApp.cs"));
+        var workflow = File.ReadAllText(Path.Combine(Repository.Root, ".github", "workflows", "native.yml"));
+
+        project.Should().Contain(
+            """<ApplicationId Condition="'$(DroverUiChecks)' == 'true'">com.forresttechnologies.drover.checks</ApplicationId>""");
+        settings.Should().Contain("DROVER_UI_CHECK_REPORT");
+        settings.Should().Contain("checks-preferences.txt");
+        android.Should().Contain("com.forresttechnologies.drover.checks");
+        android.Should().NotContain("logcat\", \"-c\"");
+        android.Should().Contain("DROVER_ANDROID_SERIAL");
+        workflow.Should().Contain("DROVER_ANDROID_SERIAL");
+        workflow.IndexOf("*-Signed.apk", StringComparison.Ordinal).Should().BeLessThan(
+            workflow.IndexOf("DROVER_ANDROID_SERIAL", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -76,8 +126,11 @@ public sealed partial class ScreenCheckGuardTests
 
         channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckRead\")]");
         channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckWrite\")]");
+        channel.Should().Contain("[JSImport(\"globalThis.setInterval\")]");
+        channel.Should().Contain("[JSImport(\"globalThis.clearInterval\")]");
         settings.Should().Contain("PageCheckChannel.Read(name)");
         report.Should().Contain("PageCheckChannel.Write(line)");
+        report.Should().Contain("PageCheckChannel.Every");
         script.Should().Contain("globalThis.droverUiCheckRead = name => localStorage.getItem(name)");
         script.Should().Contain("globalThis.droverUiCheckLines");
         script.Should().Contain("globalThis.droverUiCheckWrite");

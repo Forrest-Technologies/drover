@@ -27,6 +27,17 @@ internal static partial class PageCheckChannel
         }
     }
 
+    /// <summary>
+    /// A repeating page timer. The dispatcher timer does not tick while the browser window is opening, so a check
+    /// that waited on it would never report.
+    /// </summary>
+    [JSImport("globalThis.setInterval")]
+    public static partial int Every([JSMarshalAs<JSType.Function>] Action tick, int milliseconds);
+
+    /// <summary>Stops a timer <see cref="Every"/> started.</summary>
+    [JSImport("globalThis.clearInterval")]
+    public static partial void Stop(int timer);
+
     /// <summary>Records one report line on the page, where the harness reads it.</summary>
     public static void Write(string line)
     {

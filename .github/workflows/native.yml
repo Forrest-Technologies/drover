@@ -74,7 +74,13 @@ jobs:
           bash scripts/check-native-android-text-editing.sh
           python3 scripts/check-native-android-back.py
           adb install -r "$RUNNER_TEMP"/ui-checks-android/*-Signed.apk
-          dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- android
+          # The checks package is a different id. Name the emulator so the harness will not clear any other device.
+          serial="$(adb devices | awk '/^emulator-/{ print $1; exit }')"
+          if [[ -z "${serial}" ]]; then
+            echo "The screen checks need the emulator this job started."
+            exit 1
+          fi
+          DROVER_ANDROID_SERIAL="${serial}" dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- android
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

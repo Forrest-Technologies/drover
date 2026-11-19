@@ -275,10 +275,31 @@ async function checkLeavingWithEdits(page, address) {
     const editorUrl = page.url();
     await instructions.focus();
     await page.keyboard.type('Sample edit. ');
-    await page.waitForTimeout(300);
+    const deadline = Date.now() + 15000;
+    let typed = '';
+    while (Date.now() < deadline) {
+        typed = await instructions.inputValue();
+        if (typed.includes('Sample edit. ')) {
+            break;
+        }
+        await page.waitForTimeout(100);
+    }
+    assert(typed.includes('Sample edit. '), `Instructions did not take the edit. The field held ${JSON.stringify(typed)}.`);
+    // The save words are not in the accessibility tree. The save button enables only once the editor is dirty.
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    const enabledAt = Date.now() + 15000;
+    let enabled = false;
+    while (Date.now() < enabledAt) {
+        if (await save.isEnabled()) {
+            enabled = true;
+            break;
+        }
+        await page.waitForTimeout(100);
+    }
+    assert(enabled, 'The edit did not make the bot editor dirty.');
 
     await page.goBack();
-    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await leavePrompt.waitFor({ state: 'attached', timeout: 15000 });
     await page.waitForURL(editorUrl);
     await page.getByRole('button', { name: 'Stay here', exact: true }).dispatchEvent('click');
     await leavePrompt.waitFor({ state: 'detached' });

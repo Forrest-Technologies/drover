@@ -1,8 +1,8 @@
 namespace Drover.Native.UITests;
 
 /// <summary>
-/// Decides whether the harness may wipe an installed app. A phone keeps its data. An emulator is disposable, and
-/// so is a package built for these checks.
+/// Decides whether the harness may wipe an installed app. The run names the device, and the package on it must be
+/// the checks build. A device that was not named keeps its data, emulator or not.
 /// </summary>
 internal static class AndroidCheckGuard
 {
@@ -39,16 +39,56 @@ internal static class AndroidCheckGuard
         return null;
     }
 
-    /// <summary>The device to wipe, or null when wiping would touch something that is not disposable.</summary>
-    public static string? Choose(IReadOnlyList<string> serials, string? versionName)
+    /// <summary>
+    /// The device to wipe. The caller names the device, and its installed package must be the checks build. The
+    /// first emulator is not assumed to be disposable.
+    /// </summary>
+    public static string? Choose(IReadOnlyList<string> serials, string? selected, string? versionName)
     {
-        var emulator = serials.FirstOrDefault(IsEmulator);
-        if (emulator is not null)
+        if (string.IsNullOrWhiteSpace(selected) || versionName != ChecksVersion)
         {
-            return emulator;
+            return null;
         }
 
-        return serials.Count == 1 && versionName == ChecksVersion ? serials[0] : null;
+        return serials.Contains(selected) ? selected : null;
+    }
+
+    /// <summary>Report lines written at or after <paramref name="startedEpochSeconds"/>, device time.</summary>
+    public static IReadOnlyList<string> ReportsSince(string log, long startedEpochSeconds)
+    {
+        List<string> lines = [];
+        foreach (var raw in log.Split('\n'))
+        {
+            var trimmed = raw.Trim();
+            var split = trimmed.IndexOf(' ');
+            if (split <= 0)
+            {
+                continue;
+            }
+
+            if (!double.TryParse(
+                trimmed[..split],
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var stamp))
+            {
+                continue;
+            }
+
+            if (stamp + 1 < startedEpochSeconds)
+            {
+                continue;
+            }
+
+            const string Marker = "ui-check";
+            var at = trimmed.IndexOf(Marker, StringComparison.Ordinal);
+            if (at >= 0)
+            {
+                lines.Add(trimmed[at..]);
+            }
+        }
+
+        return lines;
     }
 
     #endregion

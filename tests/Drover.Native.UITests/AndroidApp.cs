@@ -9,7 +9,7 @@ internal sealed class AndroidApp : IAppUnderCheck
 {
     #region Private Fields
 
-    private const string Package = "com.forresttechnologies.drover.client";
+    private const string Package = "com.forresttechnologies.drover.checks";
 
     private const string Tag = "DroverUiCheck";
 
@@ -29,12 +29,14 @@ internal sealed class AndroidApp : IAppUnderCheck
         {
             await Adb(serial, "shell", "am", "force-stop", Package);
             await Adb(serial, "shell", "pm", "clear", Package);
-            await Adb(serial, "logcat", "-c");
+            var started = long.Parse(
+                (await Adb(serial, "shell", "date", "+%s")).Trim(),
+                System.Globalization.CultureInfo.InvariantCulture);
             var activity = (await Adb(serial, "shell", "cmd", "package", "resolve-activity", "--brief", Package))
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
             string[] start = ["shell", "am", "start", "-W", "-n", activity];
             await Adb(serial, [.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
-            var lines = await ReadReport(serial);
+            var lines = await ReadReport(serial, started);
 
             if (!lines.Any(line => line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal)))
             {
@@ -57,27 +59,27 @@ internal sealed class AndroidApp : IAppUnderCheck
     private static async Task<string> ChooseDevice()
     {
         var serials = AndroidCheckGuard.Serials(await Adb(null, "devices"));
+        var selected = Environment.GetEnvironmentVariable("DROVER_ANDROID_SERIAL");
         string? version = null;
-        if (serials.Count == 1 && !AndroidCheckGuard.IsEmulator(serials[0]))
+        if (!string.IsNullOrWhiteSpace(selected) && serials.Contains(selected))
         {
-            version = AndroidCheckGuard.VersionName(await Adb(serials[0], "shell", "dumpsys", "package", Package));
+            version = AndroidCheckGuard.VersionName(await Adb(selected, "shell", "dumpsys", "package", Package));
         }
 
-        return AndroidCheckGuard.Choose(serials, version)
+        return AndroidCheckGuard.Choose(serials, selected, version)
             ?? throw new InvalidOperationException(
-                "Refusing to clear the app on a device that is not an emulator and not the checks build.");
+                "Refusing to clear a package that was not named for this run, or that is not the checks build.");
     }
 
-    private static async Task<IReadOnlyList<string>> ReadReport(string serial)
+    private static async Task<IReadOnlyList<string>> ReadReport(string serial, long startedEpochSeconds)
     {
         var watch = Stopwatch.StartNew();
 
         while (true)
         {
-            var lines = (await Adb(serial, "logcat", "-d", "-v", "raw", "-s", $"{Tag}:I"))
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(line => line.StartsWith("ui-check", StringComparison.Ordinal))
-                .ToList();
+            var lines = AndroidCheckGuard.ReportsSince(
+                await Adb(serial, "logcat", "-d", "-v", "epoch", "-s", $"{Tag}:I"),
+                startedEpochSeconds).ToList();
 
             if (lines.Any(line => line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal)) || watch.Elapsed > patience)
             {

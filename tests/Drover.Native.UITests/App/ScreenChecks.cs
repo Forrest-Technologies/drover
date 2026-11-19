@@ -198,8 +198,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         invoker.Invoke();
     }
 
-    // The next look is a dispatcher tick, not a delay. On a browser a delay started while the window is opening
-    // never resumes, so a check that waited that way never reported.
+    // The next look is a tick, not a delay. On a browser a delay started while the window is opening never
+    // resumes, and the dispatcher timer does not tick then either. The page's own interval does.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
         where T : class
     {
@@ -211,35 +211,53 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var found = new TaskCompletionSource<T>();
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var limit = wait ?? patience;
-        var timer = window.DispatcherQueue.CreateTimer();
-        timer.Interval = poll;
-        timer.IsRepeating = true;
-        timer.Tick += (_, _) =>
-        {
-            try
-            {
-                if (probe() is { } hit)
-                {
-                    timer.Stop();
-                    found.TrySetResult(hit);
-                    return;
-                }
-
-                if (watch.Elapsed > limit)
-                {
-                    timer.Stop();
-                    found.TrySetException(new CheckFailedException($"waited {limit.TotalSeconds:0} s for {what}"));
-                }
-            }
-            catch (Exception exception)
-            {
-                timer.Stop();
-                logger.LogError(exception, "The screen checks could not look at the page.");
-                found.TrySetException(exception);
-            }
-        };
-        timer.Start();
+#if DROVER_BROWSER
+        var timer = 0;
+#pragma warning disable CA1416
+        timer = PageCheckChannel.Every(
+            () => Look(found, watch, limit, what, probe, () => PageCheckChannel.Stop(timer)),
+            (int)poll.TotalMilliseconds);
+#pragma warning restore CA1416
+#else
+        var queue = window.DispatcherQueue.CreateTimer();
+        queue.Interval = poll;
+        queue.IsRepeating = true;
+        queue.Tick += (_, _) => Look(found, watch, limit, what, probe, queue.Stop);
+        queue.Start();
+#endif
         return found.Task;
+    }
+
+    private void Look<T>(
+        TaskCompletionSource<T> found,
+        System.Diagnostics.Stopwatch watch,
+        TimeSpan limit,
+        string what,
+        Func<T?> probe,
+        Action stop)
+        where T : class
+    {
+        try
+        {
+            if (probe() is { } hit)
+            {
+                stop();
+                found.TrySetResult(hit);
+                return;
+            }
+
+            if (watch.Elapsed > limit)
+            {
+                stop();
+                found.TrySetException(new CheckFailedException($"waited {limit.TotalSeconds:0} s for {what}"));
+            }
+        }
+        catch (Exception exception)
+        {
+            stop();
+            logger.LogError(exception, "The screen checks could not look at the page.");
+            found.TrySetException(exception);
+        }
     }
 
     #endregion

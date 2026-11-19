@@ -33,15 +33,113 @@ public sealed class Preferences
 
     #region Public Methods
 
-    public string Get(string key, string fallback) => Settings.Values.TryGetValue(key, out var value) && value is string text ? text : fallback;
+    public string Get(string key, string fallback)
+    {
+        if (IsolatedPath() is { } path)
+        {
+            return Read(path).TryGetValue(key, out var value) ? value : fallback;
+        }
 
-    public void Set(string key, string value) => Settings.Values[key] = value;
+        return Settings.Values.TryGetValue(key, out var stored) && stored is string text ? text : fallback;
+    }
 
-    public bool Get(string key, bool fallback) => Settings.Values.TryGetValue(key, out var value) && value is bool flag ? flag : fallback;
+    public void Set(string key, string value)
+    {
+        if (IsolatedPath() is { } path)
+        {
+            var stored = Read(path);
+            stored[key] = value;
+            Write(path, stored);
+            return;
+        }
 
-    public void Set(string key, bool value) => Settings.Values[key] = value;
+        Settings.Values[key] = value;
+    }
 
-    public void Remove(string key) => Settings.Values.Remove(key);
+    public bool Get(string key, bool fallback)
+    {
+        if (IsolatedPath() is { } path)
+        {
+            return Read(path).TryGetValue(key, out var value) ? value == "true" : fallback;
+        }
+
+        return Settings.Values.TryGetValue(key, out var stored) && stored is bool flag ? flag : fallback;
+    }
+
+    public void Set(string key, bool value)
+    {
+        if (IsolatedPath() is { } path)
+        {
+            var stored = Read(path);
+            stored[key] = value ? "true" : "false";
+            Write(path, stored);
+            return;
+        }
+
+        Settings.Values[key] = value;
+    }
+
+    public void Remove(string key)
+    {
+        if (IsolatedPath() is { } path)
+        {
+            var stored = Read(path);
+            stored.Remove(key);
+            Write(path, stored);
+            return;
+        }
+
+        Settings.Values.Remove(key);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // A screen-check run keeps its server choice beside its report. The regular app's settings stay untouched.
+    private static string? IsolatedPath()
+    {
+        var report = Environment.GetEnvironmentVariable("DROVER_UI_CHECK_REPORT");
+        if (string.IsNullOrWhiteSpace(report))
+        {
+            return null;
+        }
+
+        var directory = System.IO.Path.GetDirectoryName(report);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(directory);
+        return System.IO.Path.Combine(directory, "checks-preferences.txt");
+    }
+
+    private static Dictionary<string, string> Read(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+
+        var stored = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var split = line.IndexOf('=');
+            if (split > 0)
+            {
+                stored[line[..split]] = line[(split + 1)..];
+            }
+        }
+
+        return stored;
+    }
+
+    private static void Write(string path, Dictionary<string, string> stored)
+    {
+        var lines = stored.Select(pair => $"{pair.Key}={pair.Value}");
+        File.WriteAllLines(path, lines);
+    }
 
     #endregion
 }
