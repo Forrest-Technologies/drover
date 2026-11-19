@@ -1327,7 +1327,72 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Choosing The Model
+
+    [Fact]
+    public async Task The_conversation_offers_the_bots_models_and_a_choice_goes_to_the_server()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", Models(null));
+        Server.Answer("PUT", $"{Space}/threads/{threadId}/model", Models("sample-stronger"));
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Composer.HasModelChoice.Should().BeTrue());
+        MainPane.Composer.ModelOptions.Select(option => option.Label).Should().Equal("Sample default (the bot's own)", "Sample stronger");
+
+        await Do(() => MainPane.Composer.ChooseModel("sample-stronger"));
+
+        await Until(() => MainPane.Composer.ChosenModel.Should().Be("sample-stronger"));
+        Server.Sent("PUT", $"{Space}/threads/{threadId}/model").Single().Should().Contain("sample-stronger");
+    }
+
+    [Fact]
+    public async Task A_choice_the_server_refuses_is_said_and_the_choice_goes_back()
+    {
+        const string Refusal = "Sample stronger could cost more in one run than this space lets a run cost (10.00 USD).";
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", Models(null));
+        Server.Answer("PUT", $"{Space}/threads/{threadId}/model", new { title = Refusal }, HttpStatusCode.BadRequest);
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Composer.HasModelChoice.Should().BeTrue());
+        await Do(() => MainPane.Composer.ChooseModel("sample-stronger"));
+
+        await Until(() => Toasts.Toasts.Should().ContainSingle(toast => toast.Message == Refusal && toast.Kind == ToastKind.Error));
+        await Until(() => MainPane.Composer.ChosenModel.Should().Be(ComposerViewModel.BotsOwnModel));
+    }
+
+    [Fact]
+    public async Task Without_the_models_the_conversation_reads_as_before_and_offers_no_choice()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", HttpStatusCode.InternalServerError);
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Composer.HasModelChoice.Should().BeFalse();
+        MainPane.Problem.Should().BeNull("the choice is an option; failing to read it is not the conversation's failure");
+    }
+
+    [Fact]
+    public async Task Each_stored_reply_carries_the_model_that_wrote_it()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[]
+        {
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer") with { RunId = runId, Model = "sample-stronger" },
+        });
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages.Select(message => message.Model).Should().Equal(null, "sample-stronger");
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static ConversationModelChoice Models(string? chosen) =>
+        new("sample-default", "Sample default", chosen, [new("sample-default", "Sample default"), new("sample-stronger", "Sample stronger")]);
 
     private static ThreadSummary Thread(Guid? activeRunId) =>
         new(threadId, botId, null, false, DateTimeOffset.UnixEpoch, activeRunId, IsMain: true);

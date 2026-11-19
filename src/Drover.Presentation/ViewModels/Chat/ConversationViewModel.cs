@@ -101,6 +101,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.OnCancel = () => Rendered(Stop());
         Composer.OnFiles = files => Rendered(Attach(files));
         Composer.OnRemoveFile = id => Rendered(RemoveFile(id));
+        Composer.OnModelChosen = model => Rendered(ChooseModel(model));
         List.OnRetry = () => Rendered(Retry());
         List.Decide = Decide;
         List.Forget = Forget;
@@ -281,11 +282,14 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            // The messages and the tool calls they made are read together; neither needs the other.
+            // The messages, the tool calls they made, and the models it may answer with are read together; none
+            // needs another.
             var said = api.ListMessages(SpaceId, thread.Id);
             var tools = LoadToolHistory(thread.Id, thread.ActiveRunId);
-            await Task.WhenAll(said, tools);
+            var models = LoadModels(thread.Id);
+            await Task.WhenAll(said, tools, models);
             (stored, history) = (await said, await tools);
+            Composer.ShowModels(await models);
 
             ResumeActiveRun(thread);
             await ReportBusy();
@@ -338,6 +342,41 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             logger.LogWarning(exception, "The tool history of thread {ThreadId} could not be loaded", threadId);
             return [];
+        }
+    }
+
+    // Choosing a model is a quiet option: when what it may choose cannot be read, the conversation reads and answers
+    // as before, with the bot's own model, and offers no choice.
+    private async Task<ConversationModelChoice?> LoadModels(Guid threadId)
+    {
+        try
+        {
+            return await api.GetConversationModels(SpaceId, threadId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The models of thread {ThreadId} could not be read", threadId);
+            return null;
+        }
+    }
+
+    // The server decides whether the bot may answer with the model. A refusal says why, and the choice goes back.
+    private async Task ChooseModel(string? model)
+    {
+        if (thread is not { } shown)
+        {
+            return;
+        }
+
+        try
+        {
+            Composer.ShowModels(await api.ChooseConversationModel(SpaceId, shown.Id, model));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The model of thread {ThreadId} could not be chosen", shown.Id);
+            toasts.Show(Failures.Sentence(exception), ToastKind.Error);
+            Composer.ShowModels(await LoadModels(shown.Id));
         }
     }
 

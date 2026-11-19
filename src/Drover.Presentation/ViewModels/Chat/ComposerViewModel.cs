@@ -2,8 +2,9 @@ namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
 /// The field a person writes to a bot in, and what stands beside it: Send, Stop while the bot works, the files
-/// chosen for the message, and the row of options behind the plus button. The conversation around it says what
-/// is going on and hears what the person does.
+/// chosen for the message, and the row of options behind the plus button. The row offers the model the
+/// conversation answers with when the bot may use more than one. The conversation around it says what is going on
+/// and hears what the person does.
 /// </summary>
 public sealed partial class ComposerViewModel : ObservableObject
 {
@@ -43,6 +44,13 @@ public sealed partial class ComposerViewModel : ObservableObject
     [ObservableProperty]
     private bool optionsOpen;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasModelChoice))]
+    private IReadOnlyList<ModelOption> modelOptions = [];
+
+    [ObservableProperty]
+    private string chosenModel = BotsOwnModel;
+
     #endregion
 
     #region Properties
@@ -55,6 +63,9 @@ public sealed partial class ComposerViewModel : ObservableObject
 
     /// <summary>A chosen file taken off before sending.</summary>
     public Func<Guid, Task>? OnRemoveFile { get; set; }
+
+    /// <summary>The model the person chose for the conversation's next replies, or null for the bot's own.</summary>
+    public Func<string?, Task>? OnModelChosen { get; set; }
 
     /// <summary>Stops the whole run, including work it handed to other bots.</summary>
     public Func<Task>? OnCancel { get; set; }
@@ -80,6 +91,14 @@ public sealed partial class ComposerViewModel : ObservableObject
 
     /// <summary>True while the bot works and does not wait for a person: the line travels the top edge then.</summary>
     public bool IsWorking => Running && !Waiting;
+
+    /// <summary>The value of the option that answers with the bot's own model.</summary>
+    public static string BotsOwnModel => string.Empty;
+
+    public static string ModelLabel => "Model for this conversation";
+
+    /// <summary>The choice is offered only when there is one to make.</summary>
+    public bool HasModelChoice => ModelOptions.Count > 1;
 
     /// <summary>Raised to put the cursor in the message field.</summary>
     public event Action? FocusRequested;
@@ -110,6 +129,34 @@ public sealed partial class ComposerViewModel : ObservableObject
         {
             OptionsFocusRequested?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// Shows what the server said the conversation may answer with: the bot's own model first, then the others it may
+    /// choose. Nothing is offered while that is not known.
+    /// </summary>
+    public void ShowModels(ConversationModelChoice? choice)
+    {
+        ModelOptions = choice is null
+            ? []
+            :
+            [
+                new(BotsOwnModel, $"{choice.BotModelName} (the bot's own)"),
+                .. choice.Models.Where(option => option.Model != choice.BotModel).Select(option => new ModelOption(option.Model, option.Name)),
+            ];
+        ChosenModel = choice?.Chosen ?? BotsOwnModel;
+    }
+
+    /// <summary>The person picked a model. The conversation asks the server, which may refuse it.</summary>
+    public Task ChooseModel(string value)
+    {
+        if (value == ChosenModel)
+        {
+            return Task.CompletedTask;
+        }
+
+        ChosenModel = value;
+        return OnModelChosen?.Invoke(value == BotsOwnModel ? null : value) ?? Task.CompletedTask;
     }
 
     /// <summary>Chosen with Attach, pasted into the field, or dropped on the composer: every file comes through here.</summary>

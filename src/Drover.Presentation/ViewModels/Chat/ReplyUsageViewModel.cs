@@ -1,10 +1,11 @@
 namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
-/// What a finished reply used, behind one small control under its words. Read only when asked for: a conversation
-/// with many replies makes no request until a person opens one.
+/// What a finished reply used, behind one small control under its words, beside the model that wrote it. Read only
+/// when asked for: a conversation with many replies makes no request until a person opens one.
 /// </summary>
-public sealed partial class ReplyUsageViewModel(Guid runId, Func<Guid, Task<RunUsageDetail>> load, ILogger logger) : ObservableObject
+public sealed partial class ReplyUsageViewModel(Guid runId, Func<Guid, Task<RunUsageDetail>> load, ILogger logger, string? model = null)
+    : ObservableObject
 {
     #region Private Fields
 
@@ -30,6 +31,9 @@ public sealed partial class ReplyUsageViewModel(Guid runId, Func<Guid, Task<RunU
     public static string Adding => "Adding it up.";
 
     public bool IsAdding => Open && Problem is null && Detail is null;
+
+    /// <summary>The model that wrote the reply, in words, when the server kept it.</summary>
+    public string? WrittenBy => model is null ? null : $"Written by {model}";
 
     /// <summary>The one or two lines that say what the reply used, once it is known.</summary>
     public IReadOnlyList<string> Lines => Open && Problem is null && Detail is { } read ? UsageWords.Reply(read) : [];
