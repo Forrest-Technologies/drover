@@ -34,7 +34,8 @@ public sealed record ImagePart(
 
 /// <summary>
 /// Any other file, by its <c>files</c> row. A text file carries its first lines for the conversation to show.
-/// <see cref="Caption"/> is the line a bot wrote under a file it shared.
+/// <see cref="Caption"/> is the line a bot wrote under a file it shared, or under a document a person attached, the
+/// server's note that a bot reads less than all of it.
 /// </summary>
 public sealed record FilePart(Guid FileId, string Name, string MediaType, long Size = 0, string? Preview = null, string? Caption = null)
     : MessagePart;
