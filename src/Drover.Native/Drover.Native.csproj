@@ -54,6 +54,16 @@
     <DefineConstants>$(DefineConstants);DROVER_GALLERY</DefineConstants>
   </PropertyGroup>
 
+  <!-- The operating system's credential store on a desktop (Keychain, Secret Service, or a file only the Windows
+       user can decrypt), through Microsoft's maintained wrapper of the three. Used only by
+       Platforms/Desktop/SystemSecrets.cs. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" />
+    <Using Include="Microsoft.Identity.Client.Extensions.Msal" />
+    <Using Include="System.Security.Cryptography" />
+    <Using Include="System.Text" />
+  </ItemGroup>
+
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
     <Using Include="Uno.UI.Composition.Drawing" />
     <Using Include="Uno.UI.Composition.Skia" />

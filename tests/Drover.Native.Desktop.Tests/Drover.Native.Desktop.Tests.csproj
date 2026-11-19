@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runs the desktop app's credential store against the real one of the computer it runs on: the Keychain on
+       macOS, the Secret Service on Linux, DPAPI on Windows. It needs that store, so it is in no solution:
+       Drover.slnx's Linux CI has none, and the jobs that check Drover.Native.slnx restore only Android or the
+       browser. The desktop workflow runs it by path on each system, on Linux under a test Secret Service
+       (scripts/check-native-desktop.sh). Its packages are the desktop app's own, which that job license-checks. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSecrets.cs" Link="Desktop/DesktopSecrets.cs" />
+    <Compile Include="../../src/Drover.Native/Platforms/Desktop/SystemSecrets.cs" Link="Desktop/SystemSecrets.cs" />
+  </ItemGroup>
+
+</Project>

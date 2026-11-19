@@ -56,6 +56,10 @@
     <PackageVersion Include="Microsoft.Maui.Controls" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Native desktop">
+    <PackageVersion Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.92.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Interface">
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />

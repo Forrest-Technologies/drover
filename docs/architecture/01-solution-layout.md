@@ -61,6 +61,8 @@ Drover.Native.slnx
     (references Drover.Presentation, Drover.Client, Drover.Contracts)
 ```
 
+`tests/Drover.Native.Desktop.Tests` runs the desktop credential store against the computer's real one. It is in neither solution: `Drover.slnx`'s Linux CI has no Secret Service, and the Android and browser jobs that license-check `Drover.Native.slnx` never restore a desktop project. The desktop workflow runs it by path on each system.
+
 `src/Shared/Transport` holds how a client reaches the server, as source files linked into the projects that need them: `AntiforgeryHandler` into `Drover.Web` and the native browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into `Drover.App` and the native device builds. One source, so the two clients cannot drift apart on security.
 
 Later adapters get their own projects in the same pattern: `Drover.Adapters.Docker`, `Drover.Adapters.Apns`, `Drover.Adapters.S3`, and so on.
