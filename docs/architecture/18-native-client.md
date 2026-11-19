@@ -210,6 +210,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `ActivityPanel` | `Bot`, `Bots`, `RunId`, `Version` | |
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
+| `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
@@ -384,7 +385,7 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 | View model | Holds |
 | --- | --- |
 | `TalkViewModel` | Everything read from the address (`TalkAddress`): what is beside the conversation, which of crew, main, and side a narrow window shows, the held takeover, the moment, the title with the waiting count. The space, the threads, the signal stream, the screen probe. It makes and ends the conversations on screen |
-| `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
+| `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, edit the last message, ask for another reply, show another version, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
 | `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
 | `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
 | `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
