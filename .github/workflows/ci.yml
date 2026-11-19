@@ -53,6 +53,42 @@ jobs:
           path: "**/TestResults/**"
           if-no-files-found: ignore
 
+  dev-postgres:
+    name: Development PostgreSQL helper (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Install PostgreSQL on macOS
+        if: runner.os == 'macOS'
+        run: brew install postgresql@17
+      - name: Start, test, and stop PostgreSQL
+        shell: bash
+        run: |
+          export DROVER_PG_DIR="$RUNNER_TEMP/drover-dev-postgres"
+          export DROVER_PG_PORT=54329
+          cleanup() {
+            scripts/dev-postgres.sh stop
+            test ! -e "$DROVER_PG_DIR"
+          }
+          trap cleanup EXIT
+          unset DROVER_TEST_POSTGRES
+          postgres_environment=$(scripts/dev-postgres.sh start)
+          eval "$postgres_environment"
+          test -n "$DROVER_TEST_POSTGRES"
+          dotnet test --project tests/Drover.Data.Tests -- --filter-class '*ThreadReadTests'
+
   compose:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
