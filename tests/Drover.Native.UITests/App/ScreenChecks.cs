@@ -100,7 +100,15 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         await Type("ConnectAddress", settings.Server.AbsoluteUri);
         await Press("ConnectSubmit");
-        await Shown("SignInEmail");
+        try
+        {
+            await Shown("SignInEmail");
+        }
+        catch (CheckFailedException failure)
+            when (Find("ConnectProblem") is StatusNote { Text: { Length: > 0 } problem })
+        {
+            throw new CheckFailedException(problem, failure);
+        }
     }
 
     private async Task SignIn()
