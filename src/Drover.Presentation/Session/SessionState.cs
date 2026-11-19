@@ -22,6 +22,15 @@ public sealed class SessionState(DroverApi api)
 
     public event Action? Changed;
 
+    /// <summary>
+    /// True when the screen last opened could not reach the server. The screen's gate says so, with a way to try
+    /// again.
+    /// </summary>
+    public bool Unreachable { get; private set; }
+
+    /// <summary>Raised when a screen could not reach the server, or a screen is opened again.</summary>
+    public event Action? ReachChanged;
+
     #endregion
 
     #region Public Methods
@@ -42,6 +51,24 @@ public sealed class SessionState(DroverApi api)
     public async Task<string> FindEntryAddress(CancellationToken cancellationToken = default) =>
         await api.GetSetupStatus(cancellationToken) is null ? Addresses.SignIn : Addresses.Setup;
 
+    /// <summary>
+    /// Opens a screen. A request that fails on the way is kept in <see cref="Unreachable"/> for the screen's gate to
+    /// show, instead of escaping into the platform, where nothing catches it and the app closes.
+    /// </summary>
+    public async Task OpenScreen(Func<Task> open, ILogger logger)
+    {
+        SetUnreachable(false);
+        try
+        {
+            await open();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A screen could not reach the server while it opened");
+            SetUnreachable(true);
+        }
+    }
+
     public void Begin(SessionResponse session)
     {
         Current = session;
@@ -54,6 +81,16 @@ public sealed class SessionState(DroverApi api)
         await api.SignOut(cancellationToken);
         Current = null;
         Changed?.Invoke();
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private void SetUnreachable(bool unreachable)
+    {
+        Unreachable = unreachable;
+        ReachChanged?.Invoke();
     }
 
     #endregion
