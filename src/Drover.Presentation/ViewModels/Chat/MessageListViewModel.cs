@@ -51,6 +51,18 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>Starts a new run from the message the failed run answered.</summary>
     public Func<Task>? OnRetry { get; set; }
 
+    /// <summary>True while a new version, or another version to show, is being asked for.</summary>
+    public bool Changing { get; set; }
+
+    /// <summary>Shows another version of a place in the conversation, by the id of that version.</summary>
+    public Func<Guid, Task>? OnShowVersion { get; set; }
+
+    /// <summary>Asks for another reply to the message a reply answers, by the id of the reply.</summary>
+    public Func<Guid, Task>? OnRegenerate { get; set; }
+
+    /// <summary>Sends an edit of a person's message, by its id, and has it answered.</summary>
+    public Func<Guid, string, Task>? OnEdit { get; set; }
+
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     public string? Notice { get; set; }
 
@@ -115,6 +127,16 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>Tries the failed run again. While that is being asked for, a second press does nothing.</summary>
     public Task Retry() => Retrying ? Task.CompletedTask : OnRetry?.Invoke() ?? Task.CompletedTask;
+
+    /// <summary>Shows another version. While one change is being asked for, another does nothing.</summary>
+    public Task ShowVersion(Guid messageId) => Changing ? Task.CompletedTask : OnShowVersion?.Invoke(messageId) ?? Task.CompletedTask;
+
+    /// <summary>Asks for another reply. While one change is being asked for, another does nothing.</summary>
+    public Task Regenerate(Guid replyId) => Changing ? Task.CompletedTask : OnRegenerate?.Invoke(replyId) ?? Task.CompletedTask;
+
+    /// <summary>Sends an edit with words in it. While one change is being asked for, another does nothing.</summary>
+    public Task Edit(Guid messageId, string text) =>
+        Changing || string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : OnEdit?.Invoke(messageId, text.Trim()) ?? Task.CompletedTask;
 
     /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
     public static string Anchor(Guid messageId) => MessageAnchors.Anchor(messageId);
