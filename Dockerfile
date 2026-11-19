@@ -29,6 +29,7 @@ COPY src/Drover.Adapters.DataProtection/Drover.Adapters.DataProtection.csproj sr
 COPY src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj src/Drover.Adapters.LocalFiles/
 COPY src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj src/Drover.Adapters.Mcp/
 COPY src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj src/Drover.Adapters.OpenAICompatible/
+COPY src/Drover.Adapters.SearXng/Drover.Adapters.SearXng.csproj src/Drover.Adapters.SearXng/
 COPY src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj src/Drover.Adapters.Venice/
 COPY src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj src/Drover.Adapters.WebPush/
 COPY src/Drover.Client/Drover.Client.csproj src/Drover.Client/
