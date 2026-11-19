@@ -3,7 +3,7 @@ namespace Drover.Native.Controls;
 /// <summary>
 /// The modal layer a <see cref="Dialog"/> and a <see cref="Sheet"/> share. It covers the window with the flat dim,
 /// holds a panel with a title, a Close button, a body, and actions, keeps Tab inside the panel, closes on Escape,
-/// and puts the focus back where it was when it closes.
+/// and puts the focus back where it was when it closes. While it is open, a device's Back closes it first.
 /// </summary>
 internal sealed class DialogSurface
 {
@@ -38,6 +38,8 @@ internal sealed class DialogSurface
     private readonly TranslateTransform slide = new();
 
     private Control? opener;
+
+    private Navigator? closesFor;
 
     #endregion
 
@@ -109,7 +111,10 @@ internal sealed class DialogSurface
 
     #region Properties
 
-    /// <summary>Raised when the person closed the surface: Escape, or the Close button.</summary>
+    /// <summary>The app's navigator, told while a surface is open so that a step back closes it first.</summary>
+    public static Navigator? Navigator { get; set; }
+
+    /// <summary>Raised when the person closed the surface: Escape, Back, or the Close button.</summary>
     public event Action? Closed;
 
     #endregion
@@ -141,6 +146,8 @@ internal sealed class DialogSurface
 
         if (!popup.IsOpen)
         {
+            closesFor = Navigator;
+            closesFor?.AddCloser(CloseFromBack);
             popup.IsOpen = true;
             Motion.FadeIn(layer);
             SlideIn(root.Size);
@@ -157,6 +164,8 @@ internal sealed class DialogSurface
         }
 
         popup.IsOpen = false;
+        closesFor?.RemoveCloser(CloseFromBack);
+        closesFor = null;
         body.Content = null;
         actions.Content = null;
         if (popup.XamlRoot is { } root)
@@ -177,6 +186,8 @@ internal sealed class DialogSurface
         close.Loaded -= FocusClose;
         close.TakeFocus();
     }
+
+    private void CloseFromBack() => Closed?.Invoke();
 
     private void CloseOnEscape(KeyRoutedEventArgs key)
     {

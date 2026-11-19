@@ -36,6 +36,9 @@ internal static class PlatformShell
         openIncoming = () => queue.TryEnqueue(() => OpenIncoming(navigator));
         Incoming.Changed += openIncoming;
         OpenIncoming(navigator);
+#if ANDROID
+        BackButton.Follow(navigator);
+#endif
     }
 
     public static void GoBack(Navigator navigator) => navigator.GoBack();
