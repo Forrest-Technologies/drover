@@ -32,6 +32,7 @@ public sealed class SessionState(DroverApi api)
         {
             Current = await api.GetSession(cancellationToken);
             loaded = true;
+            Changed?.Invoke();
         }
 
         return Current;

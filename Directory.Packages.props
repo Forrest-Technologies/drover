@@ -58,6 +58,7 @@
 
   <ItemGroup Label="Native desktop">
     <PackageVersion Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.92.0" />
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.92.0" />
   </ItemGroup>
 
   <ItemGroup Label="Interface">

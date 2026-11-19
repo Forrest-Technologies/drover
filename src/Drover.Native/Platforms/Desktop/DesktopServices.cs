@@ -10,6 +10,11 @@ internal static class DesktopServices
     public static IServiceCollection AddDevice(this IServiceCollection services) =>
         services
             .AddSingleton<IFileDelivery, DesktopFileDelivery>()
+            .AddSingleton<DesktopNotificationSelections>()
+            .AddSingleton<DesktopNotificationSink>()
+            .AddSingleton<ILiveNotifications, DesktopNotifications>()
+            .AddSingleton<ILiveNotificationStatus>(provider =>
+                (DesktopNotifications)provider.GetRequiredService<ILiveNotifications>())
             .AddSingleton<ISecureStorage>(provider => new DesktopSecrets(
                 SystemSecrets.Open,
                 provider.GetRequiredService<ILogger<DesktopSecrets>>()))

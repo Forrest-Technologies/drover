@@ -61,6 +61,19 @@ public sealed class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Loading_the_session_tells_live_services_who_is_signed_in()
+    {
+        server.Answer("GET", "/api/session", Samples.Session());
+        var changes = 0;
+        session.Changed += () => changes++;
+
+        await session.Load(TestContext.Current.CancellationToken);
+
+        changes.Should().Be(1);
+        session.Space.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task The_gate_sends_a_person_with_no_session_to_sign_in()
     {
         server.Answer("GET", "/api/session", HttpStatusCode.Unauthorized);
