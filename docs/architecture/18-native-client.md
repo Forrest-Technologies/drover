@@ -559,8 +559,11 @@ The Docker publish caps the managed heap, skips the optional XAML resource-trimm
 and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
-`.github/workflows/native.yml` builds Android on hosted Linux, iOS on hosted macOS, desktop on hosted Linux, Windows and macOS, and publishes the browser head. The iOS job builds for a simulator with warnings as errors, passes the shared screen checks, and relaunches the installed app to verify its saved sign-in. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. Production iOS signing,
-packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
+`.github/workflows/native.yml` builds Android on hosted Linux, iOS on hosted macOS, and desktop on hosted Linux,
+Windows and macOS. It also publishes the browser head. The iOS job builds for a simulator with warnings as errors,
+runs the shared screen checks, and relaunches the installed app to verify its saved sign-in. CI uploads a
+development-signed Android APK and the browser publish as artifacts. Production iOS signing, packaging, and real
+provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
 registration and notifications, and shares in are built on Android from the shell's own code and compile in the
 APK (its manifest was read back: receivers, the file provider, the return scheme, the share targets), but were not
 run on a device. `ConnectViewModel` still
