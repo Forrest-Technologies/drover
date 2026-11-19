@@ -55,6 +55,25 @@ Rules that hold for both:
 
 Stored order is the order things happened in. A run stopped in the middle of a tool call leaves that call without a result, and the result is stored later, after whatever was said in between. The history given to a model is therefore always put in call order first: every tool result directly after the message that made its call.
 
+### Versions of a conversation
+
+A person may edit a message of theirs or ask for another reply, and switch between the versions that made. Nothing is deleted. Each message names the message before it in its version (`parent_id`); the messages that share a parent are versions of one place: a person's message and its edits, or the first messages of each reply to one message. One version of each place is shown. The rest are **shelved** (`shelved_at` is set): kept with their runs, events, tool calls, and usage as they were, left out of the conversation the API lists and the model reads, and brought back when their version is chosen again.
+
+| Request | What happens |
+| --- | --- |
+| `POST .../threads/{threadId}/messages/{messageId}/regenerate` | `messageId` is a bot's reply. The last message of a person before it is answered again: everything after that message is shelved and a run is queued for it, as for a new message. The run answers with the conversation's current model. Returns the person's message and the run. |
+| `POST .../threads/{threadId}/messages/{messageId}/edit` | `messageId` is a person's message. Its edit is stored in its place, after the same message, with the same position; the message and everything after it are shelved, and a run answers the edit. The edit replaces the words; files sent with the message go with it. Returns the edit and the run. |
+| `POST .../threads/{threadId}/messages/{messageId}/show` | Shows that version of its place in place of the one shown, and with it the messages that followed it when it was left: from each message, the one shelved last, which is the one that was shown. 204. |
+
+Rules that hold for all three:
+
+- **Only while nothing works on the thread.** A run that is queued, running, or waiting answers 409: the version shown is what the next run reads, so it does not move under a run. The bot must be active to answer again (409 otherwise).
+- **Only the message's author asks for a new version.** Asking again or editing starts a run that acts for the caller, from their own words; another member's message answers 403. Anyone who can read the conversation may switch versions, since nothing is lost. 404 to anyone who cannot read the thread, and for a message that is not shown or is not the kind asked for.
+- **The model reads the version shown.** History comes only from the messages shown (`MessageRepository.ListMessages`), so a run answering again sees the conversation up to the message it answers and nothing of the version left. The framework's session for the thread is discarded when the version changes; it is working state of the version left, and the next run starts from the messages ([14-agent-framework.md](14-agent-framework.md)). A conversation summary that covers any shelved message is dropped and written again later.
+- **Runs of an earlier version stay.** Their rows, logs, tool calls, and usage are untouched, so they stay in the run history, the activity view, and every usage figure. `MessageResponse.Versions` lists the ids of every version of a message's place, oldest first, when there is more than one.
+
+A position is unique among the messages shown, not among all of them: an edit takes the position of the message it edits, and another reply the positions of the one before it. The data model allows a new version at any message; the clients offer it at the last message and the last reply.
+
 ## Workers
 
 `RunWorker` is a hosted service inside `Drover.Server`. It runs the engine's `RunDispatcher`, which executes a fixed number of runs at once (default 8, `Runs:Workers`). One loop claims for all of them, asking for as many runs as it has free workers: every call to `sys.claim_runs` writes an audit row, so an idle server asks once per poll, not once per worker. For each run:

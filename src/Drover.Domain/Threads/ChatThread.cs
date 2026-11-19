@@ -46,5 +46,11 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
 
     public DateTimeOffset? SummaryUpdatedAt { get; set; }
 
+    /// <summary>
+    /// The model this conversation answers with in place of the bot's own: one of the models on the bot's model
+    /// connection that the space may use. Null answers with the bot's model.
+    /// </summary>
+    public string? Model { get; set; }
+
     #endregion
 }

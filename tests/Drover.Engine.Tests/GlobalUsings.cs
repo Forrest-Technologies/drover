@@ -78,4 +78,16 @@ global using Npgsql;
 global using Testcontainers.PostgreSql;
 global using Xunit;
 
+// Aliases, not namespaces: the document libraries name types Run, Text, Paragraph, and Page, which Drover uses too.
+global using OpenXml = DocumentFormat.OpenXml;
+global using OpenXmlPackaging = DocumentFormat.OpenXml.Packaging;
+global using PdfContent = UglyToad.PdfPig.Content;
+global using PdfCore = UglyToad.PdfPig.Core;
+global using PdfFonts = UglyToad.PdfPig.Fonts.Standard14Fonts;
+global using PdfWriter = UglyToad.PdfPig.Writer;
+global using Slides = DocumentFormat.OpenXml.Presentation;
+global using SlideText = DocumentFormat.OpenXml.Drawing;
+global using Spreadsheet = DocumentFormat.OpenXml.Spreadsheet;
+global using Word = DocumentFormat.OpenXml.Wordprocessing;
+
 [assembly: AssemblyFixture(typeof(PostgresServer))]

@@ -298,6 +298,42 @@ public sealed class ChatViewModelTests : IDisposable
         composer.HasSomething.Should().BeTrue("a message may be only its files");
     }
 
+    [Fact]
+    public async Task The_model_choice_is_offered_only_when_the_bot_may_answer_with_more_than_one()
+    {
+        List<string?> chosen = [];
+        var composer = Composer();
+        composer.OnModelChosen = model =>
+        {
+            chosen.Add(model);
+            return Task.CompletedTask;
+        };
+
+        composer.ShowModels(new ConversationModelChoice("sample-model", "Sample model", null, [new("sample-model", "Sample model")]));
+        composer.HasModelChoice.Should().BeFalse("with only the bot's own model there is nothing to choose");
+
+        composer.ShowModels(new ConversationModelChoice(
+            "sample-model",
+            "Sample model",
+            null,
+            [new("sample-model", "Sample model"), new("sample-stronger", "Sample stronger")]));
+
+        ComposerViewModel.ModelLabel.Should().Be("Model for this conversation");
+        composer.HasModelChoice.Should().BeTrue();
+        composer.ModelOptions.Should().Equal(
+            new ModelOption(ComposerViewModel.BotsOwnModel, "Sample model (the bot's own)"),
+            new ModelOption("sample-stronger", "Sample stronger"));
+        composer.ChosenModel.Should().Be(ComposerViewModel.BotsOwnModel);
+
+        await composer.ChooseModel("sample-stronger");
+        await composer.ChooseModel("sample-stronger");
+        await composer.ChooseModel(ComposerViewModel.BotsOwnModel);
+
+        chosen.Should().Equal(["sample-stronger", null], "choosing what is already chosen asks nothing, and the bot's own is no choice at all");
+        composer.ShowModels(null);
+        composer.HasModelChoice.Should().BeFalse("nothing is offered while the server has not said what may be chosen");
+    }
+
     #endregion
 
     #region What A Reply Used
@@ -355,6 +391,16 @@ public sealed class ChatViewModelTests : IDisposable
 
         line.Problem.Should().BeNull();
         line.Lines.Should().Equal("This reply: USD 0.01, 10 tokens in, 1 out.");
+    }
+
+    [Fact]
+    public void The_line_names_the_model_that_wrote_the_reply_when_the_server_kept_it()
+    {
+        var named = new ReplyUsageViewModel(Guid.CreateVersion7(), id => Task.FromException<RunUsageDetail>(new InvalidOperationException()), NullLogger.Instance, "sample-stronger");
+        var older = new ReplyUsageViewModel(Guid.CreateVersion7(), id => Task.FromException<RunUsageDetail>(new InvalidOperationException()), NullLogger.Instance);
+
+        named.WrittenBy.Should().Be("Written by sample-stronger");
+        older.WrittenBy.Should().BeNull("a reply written before the model was kept names none");
     }
 
     [Fact]

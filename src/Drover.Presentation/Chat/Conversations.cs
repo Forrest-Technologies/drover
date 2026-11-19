@@ -13,6 +13,10 @@ public static class Conversations
 
     private const string TextKind = "text";
 
+    private const string ReasoningKind = "reasoning";
+
+    private const string SourceKind = "source";
+
     private const string ToolCallKind = "tool_call";
 
     private const string ToolResultKind = "tool_result";
@@ -72,7 +76,7 @@ public static class Conversations
             conversation.Add(ToChatMessage(message, cards, fileAddress) with { RunId = RunOf(message, run) });
         }
 
-        conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
+        conversation.RemoveAll(message => message is { Text.Length: 0, Tools.Count: 0, Files.Count: 0, Reasoning: null, Sources.Count: 0 });
         if (reader is not null)
         {
             var principals = shown.Where(message => message.RunPrincipalUserId is not null)
@@ -81,7 +85,30 @@ public static class Conversations
         }
 
         AddUnplaced(conversation, unplaced, run, handover);
+        PlaceVersions(conversation, shown);
         return LeadToRuns(conversation, shown);
+    }
+
+    /// <summary>
+    /// The conversation with a new version offered where it may be asked for: the person may edit their last message
+    /// and ask for another reply to it, at the reply's last words, while nothing works on the conversation and
+    /// nothing waits to be sent. While something does, the versions shown cannot be switched either.
+    /// </summary>
+    public static IReadOnlyList<ChatMessage> OfferingVersions(this IReadOnlyList<ChatMessage> conversation, bool idle)
+    {
+        var lastAsked = conversation.ToList().FindLastIndex(message => message is { FromPerson: true, Pending: false });
+        var lastReply = conversation.ToList().FindLastIndex(message => message is { FromPerson: false, Streaming: false, Text.Length: > 0 });
+        var free = idle && !conversation.Any(message => message.Pending);
+
+        return
+        [
+            .. conversation.Select((message, index) => message with
+            {
+                MayEdit = free && index == lastAsked && Guid.TryParse(message.Key, out _),
+                MayRegenerate = free && index == lastReply && index > lastAsked && lastAsked >= 0 && Guid.TryParse(message.Key, out _),
+                Versions = message.Versions is { } versions && versions.Enabled != free ? versions with { Enabled = free } : message.Versions,
+            }),
+        ];
     }
 
     /// <summary>Every tool call the conversation shows.</summary>
@@ -136,6 +163,8 @@ public static class Conversations
         var shown = new ChatMessage(message.Id.ToString(), fromPerson, Words(message), message.IsStreaming, message.IsPending)
         {
             SentBy = SentBy(message),
+            Reasoning = fromPerson ? null : Reasoning(message),
+            Model = fromPerson ? null : message.Model,
             Files = fileAddress is null
                 ? []
                 :
@@ -145,7 +174,51 @@ public static class Conversations
                         .Select(part => FileWords.Shared(part.File!, fileAddress(part.File!.Id), fromBot: !fromPerson)),
                 ],
         };
+        List<SourceLink> sources = fromPerson ? [] : [.. Sources(message)];
+        shown = sources.Count == 0 ? shown : shown with { Sources = sources };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
+    }
+
+    private static string? Reasoning(MessageView message)
+    {
+        var reasoning = message.Parts.Where(part => part.Kind is ReasoningKind && !string.IsNullOrWhiteSpace(part.Text)).Select(part => part.Text);
+        return reasoning.Any() ? string.Join("\n\n", reasoning) : null;
+    }
+
+    // A source cited twice is shown once, and one that is not a web address is not shown at all.
+    private static IEnumerable<SourceLink> Sources(MessageView message) =>
+        message.Parts
+            .Where(part => part.Kind is SourceKind)
+            .Select(part => SourceLink.From(part.Url, part.Text))
+            .OfType<SourceLink>()
+            .DistinctBy(source => source.Address);
+
+    // A person's message switches between its own versions. A reply's versions are the first messages of each reply
+    // to the same message, so the switch stands at the end of the reply shown: its last words, or its last message.
+    private static void PlaceVersions(List<ChatMessage> conversation, List<MessageView> shown)
+    {
+        for (var index = 0; index < shown.Count; index++)
+        {
+            if (shown[index] is not { Versions: { } versions } message || VersionSwitch.For(message.Id, versions) is not { } place)
+            {
+                continue;
+            }
+
+            var at = message.Role is PersonRole
+                ? conversation.FindIndex(entry => entry.Key == message.Id.ToString())
+                : EndOfReply(conversation, [.. shown.Skip(index).TakeWhile(each => each.Role is BotRole).Select(each => each.Id.ToString())]);
+
+            if (at >= 0)
+            {
+                conversation[at] = conversation[at] with { Versions = place };
+            }
+        }
+    }
+
+    private static int EndOfReply(List<ChatMessage> conversation, HashSet<string> reply)
+    {
+        var lastWords = conversation.FindLastIndex(entry => reply.Contains(entry.Key) && entry.Text.Length > 0);
+        return lastWords >= 0 ? lastWords : conversation.FindLastIndex(entry => reply.Contains(entry.Key));
     }
 
     // Each run is reached from its last reply that has words, so a run of many steps is offered once, at its end.

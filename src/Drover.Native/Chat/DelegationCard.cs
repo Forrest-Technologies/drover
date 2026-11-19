@@ -17,9 +17,10 @@ public sealed class DelegationCard : Grid
 
     private readonly Batch batch;
 
-    private readonly Avatar head = new() { Size = HeadSize, VerticalAlignment = VerticalAlignment.Top };
+    // Neither the head nor the card shows before the card has drawn the work it was given.
+    private readonly Avatar head = new() { Size = HeadSize, VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed };
 
-    private readonly Disclosure section = new() { TitleWeight = "DvWeightLabel" };
+    private readonly Disclosure section = new() { TitleWeight = "DvWeightLabel", Visibility = Visibility.Collapsed };
 
     private readonly Badge state = new() { Wraps = true };
 
@@ -91,6 +92,17 @@ public sealed class DelegationCard : Grid
 
     #endregion
 
+    #region Layout
+
+    // The card is drawn from the work it was given before it is first measured, so it never shows as an empty frame.
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        batch.DrawIfWaiting();
+        return base.MeasureOverride(availableSize);
+    }
+
+    #endregion
+
     #region Private Methods
 
     private void Apply()
@@ -144,7 +156,7 @@ public sealed class DelegationCard : Grid
             return;
         }
 
-        Visibility = Visibility.Visible;
+        Visibility = head.Visibility = section.Visibility = Visibility.Visible;
         head.BotName = model.Item.ChildName;
         head.Hue = model.Hue;
         head.State = model.Head;

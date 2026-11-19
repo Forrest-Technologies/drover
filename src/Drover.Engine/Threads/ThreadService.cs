@@ -3,6 +3,9 @@ namespace Drover.Engine.Threads;
 /// <summary>A thread, the run still working on it, if any, and what it has for the person who asked.</summary>
 public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAttention? Attention = null);
 
+/// <summary>What choosing a conversation's model came to: the models now, or why the choice was refused. Neither when the thread is not found.</summary>
+public sealed record ModelChoice(ConversationModelChoice? Choice, string? Problem = null);
+
 /// <summary>
 /// Threads and their messages, as the caller may see them: row-level security shows a person their own threads and
 /// the shared ones, so a thread that is not theirs simply is not found. Runs in the tenant scope the endpoint filter
@@ -17,6 +20,7 @@ public sealed class ThreadService(
     BotScheduleRepository schedules,
     TenantScope scope,
     UserSignalHub signals,
+    ConversationModels models,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -164,6 +168,10 @@ public sealed class ThreadService(
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
+    /// <summary>The versions of each place in the thread that has more than one, by the id of every version.</summary>
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ListVersions(Guid threadId, CancellationToken cancellationToken) =>
+        messages.ListVersions(threadId, cancellationToken);
+
     /// <summary>The person each run that wrote one of the messages acts for, by run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListRunPrincipals(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
         sent.Any(message => message.RunId is not null)
@@ -215,12 +223,59 @@ public sealed class ThreadService(
 
     private bool ServerWrites => deployment.Value.Rules.AllowConversationSummaries;
 
+    /// <summary>The models the conversation may answer with, or null when the caller may not see the thread.</summary>
+    public async Task<ConversationModelChoice?> GetModels(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) is { } thread && await bots.FindBot(thread.BotId, cancellationToken) is { } bot
+            ? await DescribeModels(thread, bot, cancellationToken)
+            : null;
+
+    /// <summary>
+    /// Makes the conversation answer with <paramref name="model"/> from its next run, for anyone who may write in it.
+    /// The bot's own model, or none, goes back to the bot's. A model the bot may not use is refused with the reason.
+    /// </summary>
+    public async Task<ModelChoice> ChooseModel(Guid threadId, string? model, CancellationToken cancellationToken)
+    {
+        if (await threads.GetThreadForUpdate(threadId, cancellationToken) is not { } thread
+            || await bots.FindBot(thread.BotId, cancellationToken) is not { } bot)
+        {
+            return new ModelChoice(null);
+        }
+
+        var chosen = string.IsNullOrWhiteSpace(model) || model.Trim() == bot.Model ? null : model.Trim();
+
+        if (chosen is { Length: > BotService.MaxModelLength })
+        {
+            return new ModelChoice(null, $"A model's name is at most {BotService.MaxModelLength} characters.");
+        }
+
+        if (chosen is not null && await models.FindProblem(bot, chosen, cancellationToken) is { } problem)
+        {
+            return new ModelChoice(null, problem);
+        }
+
+        thread.Model = chosen;
+        return new ModelChoice(await DescribeModels(thread, bot, cancellationToken));
+    }
+
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];
 
     #endregion
 
     #region Private Methods
+
+    // A choice the bot may no longer use is not shown as chosen: its runs answer with the bot's own model.
+    private async Task<ConversationModelChoice> DescribeModels(ChatThread thread, Bot bot, CancellationToken cancellationToken)
+    {
+        var allowed = await models.ListAllowed(bot, cancellationToken);
+        var answering = await models.ModelFor(thread, bot, cancellationToken);
+        var botModelName = allowed.FirstOrDefault(entry => entry.Model == bot.Model)?.DisplayName ?? bot.Model;
+        return new ConversationModelChoice(
+            bot.Model,
+            botModelName,
+            answering == bot.Model ? null : answering,
+            [.. allowed.Select(entry => new ConversationModelOption(entry.Model, entry.DisplayName))]);
+    }
 
     private async Task<ThreadView> WithAttention(ChatThread thread, Guid userId, CancellationToken cancellationToken)
     {

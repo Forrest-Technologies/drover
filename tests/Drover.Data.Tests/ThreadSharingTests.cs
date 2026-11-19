@@ -152,7 +152,12 @@ public sealed class ThreadSharingTests(PostgresFixture postgres)
         await using var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1);
         var thread = CoreRows.NewThread(bot, world.UserA1, shared ? Audience.Everyone : world.UserA1);
         session.Db.Threads.Add(thread);
-        session.Db.Messages.AddRange(Enumerable.Range(1, messages).Select(position => CoreRows.NewMessage(thread, position, $"message {position}")));
+        // Appended as the conversation appends them, each linked to the one before, so sharing carries the new
+        // audience along those links too.
+        await new MessageRepository(session.Db).AppendMessages(
+            thread,
+            [.. Enumerable.Range(1, messages).Select(position => CoreRows.NewMessage(thread, position, $"message {position}"))],
+            TestContext.Current.CancellationToken);
         session.Db.AgentSessions.Add(new AgentSession
         {
             ThreadId = thread.Id,

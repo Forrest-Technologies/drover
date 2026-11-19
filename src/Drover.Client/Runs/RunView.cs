@@ -60,7 +60,7 @@ public sealed record RunView
 /// <see cref="IsPending"/> is true for a message sent while the bot was working that no run has taken yet, and
 /// <see cref="Steers"/> says it joins at the working run's next step and not after the run. <see cref="ScheduleId"/> is
 /// set on a message a schedule sent, and <see cref="ScheduleCron"/> is that schedule's time while it exists.
-/// <see cref="RunId"/> is the run that wrote a stored reply.
+/// <see cref="RunId"/> is the run that wrote a stored reply, and <see cref="Model"/> the model that wrote it.
 /// </summary>
 public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> Parts, bool IsStreaming, int? Step)
 {
@@ -78,11 +78,20 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
     /// <summary>The person the run that wrote the message acts for, when the server said.</summary>
     public Guid? RunPrincipalUserId { get; init; }
 
+    /// <summary>The model that wrote a stored reply, when the server kept it.</summary>
+    public string? Model { get; init; }
+
+    /// <summary>
+    /// Every version of the message's place, oldest first, this one among them, when there is more than one: the
+    /// person edited it, or asked for another reply.
+    /// </summary>
+    public IReadOnlyList<Guid>? Versions { get; init; }
+
     public static MessageView From(MessageResponse stored) =>
         new(
             stored.Id,
             stored.Role,
-            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File))],
+            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File, part.Url))],
             IsStreaming: false,
             Step: null)
         {
@@ -92,13 +101,16 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
             ScheduleCron = stored.ScheduleCron,
             RunId = stored.RunId,
             RunPrincipalUserId = stored.RunPrincipalUserId,
+            Model = stored.Model,
+            Versions = stored.Versions,
         };
 }
 
 
 /// <summary>
-/// One part of a message: text, reasoning, tool_call, tool_result, image, or file. Arguments and result are JSON
-/// text, already redacted.
+/// One part of a message: text, reasoning, source, tool_call, tool_result, image, or file. Arguments and result are
+/// JSON text, already redacted. A source is a web address the reply cites (<see cref="Url"/>) with its title as the
+/// text; both came from outside Drover.
 /// </summary>
 public sealed record PartView(
     string Kind,
@@ -108,7 +120,8 @@ public sealed record PartView(
     string? Arguments = null,
     string? Result = null,
     bool IsError = false,
-    FileResponse? File = null);
+    FileResponse? File = null,
+    string? Url = null);
 
 
 /// <summary>

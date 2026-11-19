@@ -116,7 +116,9 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                     .. reconciled
                         .Select((message, index) => (
                             IsReply: index >= request.Count,
-                            Message: message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId, keepReplyId: index >= request.Count)))
+                            Message: index >= request.Count
+                                ? message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId, keepReplyId: true, model: execution.Bot.Model)
+                                : message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId)))
                         .Where(pair => pair.Message is not null)
                         .Select(pair => (pair.IsReply, WithRedactedArguments(pair.Message!))),
                 ];

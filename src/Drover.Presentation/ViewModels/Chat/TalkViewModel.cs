@@ -437,6 +437,9 @@ public sealed class TalkViewModel(
         }
 
         KeepOrRenewSidePane();
+
+        // The conversation starts loading now, beside the question of the bot's screen, not after it.
+        Changed();
         await AskForScreen();
     }
 
@@ -445,8 +448,11 @@ public sealed class TalkViewModel(
         spaceProblem = null;
         try
         {
-            connections = await api.ListModelConnections(SpaceId);
-            var found = await api.ListBots(SpaceId);
+            var connected = api.ListModelConnections(SpaceId);
+            var listed = api.ListBots(SpaceId);
+            await Task.WhenAll(connected, listed);
+            connections = await connected;
+            var found = await listed;
             await LoadThreads(found, CancellationToken.None);
             bots = found;
             Listen();
@@ -462,9 +468,9 @@ public sealed class TalkViewModel(
     private async Task LoadThreads(IReadOnlyList<BotSummary> crew, CancellationToken cancellationToken)
     {
         Dictionary<Guid, ThreadSummary> found = [];
-        foreach (var bot in crew)
+        foreach (var threadsOfBot in await Task.WhenAll(crew.Select(bot => api.ListThreads(SpaceId, bot.Id, cancellationToken))))
         {
-            foreach (var thread in await api.ListThreads(SpaceId, bot.Id, cancellationToken))
+            foreach (var thread in threadsOfBot)
             {
                 found[thread.Id] = thread;
             }

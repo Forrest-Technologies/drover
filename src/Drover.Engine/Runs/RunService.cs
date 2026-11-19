@@ -35,9 +35,10 @@ public sealed record RunRetry(RetryOutcome Outcome, Run? Run = null);
 /// workers after the commit; their endpoints sit outside the scope filter. Reading a run happens in the scope the
 /// filter opened.
 /// </summary>
-public sealed class RunService(
+public sealed partial class RunService(
     ThreadRepository threads,
     MessageRepository messages,
+    AgentSessionRepository sessions,
     BotRepository bots,
     FileRepository files,
     FileAbilityReader abilities,
