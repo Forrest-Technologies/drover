@@ -68,21 +68,28 @@ public static class DocumentReader
         }
     }
 
-    public static NativeFilePreview ReadPdfPreview(byte[] content)
+    public static NativeFilePreview ReadPdfPreview(byte[] content, CancellationToken cancellationToken = default)
     {
         if (content.Length > NativeFilePreview.MaxPdfBytes)
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        if (PdfPreviewGuard.Validate(content) is { } preflightRefusal)
-        {
-            return new(Refusal: preflightRefusal);
-        }
-
+        var filters = new PdfPreviewFilters(cancellationToken);
         try
         {
-            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions { UseLenientParsing = false, SkipMissingFonts = true });
+            if (PdfPreviewGuard.ScreenStructure(content, cancellationToken) is { } preflightRefusal)
+            {
+                return new(Refusal: preflightRefusal);
+            }
+
+            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
+            {
+                UseLenientParsing = false,
+                SkipMissingFonts = true,
+                FilterProvider = filters,
+            });
+            cancellationToken.ThrowIfCancellationRequested();
             var total = document.NumberOfPages;
             if (total <= 0)
             {
@@ -94,11 +101,15 @@ public static class DocumentReader
                 return new(Refusal: NativePreviewRefusal.TooLarge);
             }
 
+            document.AddPageFactory<PdfTokens.DictionaryToken>(new PdfPreviewPageDictionary());
             List<NativePdfPage> pages = [];
             var characters = 0;
 
             for (var number = 1; number <= total; number++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                var dictionary = document.GetPage<PdfTokens.DictionaryToken>(number);
+                filters.ReserveRawPageContents(document.Structure, dictionary);
                 var page = document.GetPage(number);
                 var images = page.GetImages().Take(NativeFilePreview.MaxPdfPageImages + 1).ToArray();
                 if (images.Length > NativeFilePreview.MaxPdfPageImages)
@@ -130,11 +141,17 @@ public static class DocumentReader
                 pages.Add(new(number, text, picture));
             }
 
-            return new(Pages: pages);
+            cancellationToken.ThrowIfCancellationRequested();
+            return filters.Refusal is { } refusal ? new(Refusal: refusal) : new(Pages: pages);
         }
         catch (Exception failed) when (failed is not OutOfMemoryException)
         {
-            return new(Refusal: failed is not null ? NativePreviewRefusal.Malformed : NativePreviewRefusal.Malformed);
+            return new(Refusal: filters.Refusal ?? failed switch
+            {
+                RegexMatchTimeoutException or OperationCanceledException or NotSupportedException =>
+                    NativePreviewRefusal.TooComplex,
+                _ => NativePreviewRefusal.Malformed,
+            });
         }
     }
 
@@ -384,4 +401,14 @@ public static class DocumentReader
     }
 
     #endregion
+}
+
+
+file sealed class PdfPreviewPageDictionary : Pdf.Content.IPageFactory<PdfTokens.DictionaryToken>
+{
+    public PdfTokens.DictionaryToken Create(
+        int number,
+        PdfTokens.DictionaryToken dictionary,
+        Pdf.Content.PageTreeMembers pageTreeMembers,
+        Pdf.Outline.Destinations.NamedDestinations namedDestinations) => dictionary;
 }

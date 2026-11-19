@@ -91,7 +91,10 @@ global using Microsoft.Extensions.Options;
 // Aliases, not namespaces: both libraries name types Run, Text, Paragraph, ImagePart, and Page, which Drover uses too.
 global using OpenXmlPackaging = DocumentFormat.OpenXml.Packaging;
 global using Pdf = UglyToad.PdfPig;
+global using PdfFilters = UglyToad.PdfPig.Filters;
+global using PdfObjects = UglyToad.PdfPig.Parser.Parts;
 global using PdfText = UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
+global using PdfTokens = UglyToad.PdfPig.Tokens;
 global using Slides = DocumentFormat.OpenXml.Presentation;
 global using SlideText = DocumentFormat.OpenXml.Drawing;
 global using Spreadsheet = DocumentFormat.OpenXml.Spreadsheet;

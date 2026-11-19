@@ -1,20 +1,14 @@
 namespace Drover.Engine.Files;
 
 /// <summary>
-/// Guards server-side PDF preview parsing with a pre-scan of raw PDF objects, page trees, filters, and bounded Flate
-/// stream inflation, plus per-user work accounting, a small server-wide concurrency gate, and a hard task deadline.
+/// Limits concurrent PDF previews and screens out some expensive files before parsing.
+/// The parser's filter provider enforces the decoded byte budget.
 /// </summary>
 public static partial class PdfPreviewGuard
 {
     #region Private Fields
 
     private const int MaxPagesInteriorNodes = 4;
-
-    private const int MaxDecodeColumns = 4096;
-
-    private const int MaxDecodeColors = 4;
-
-    private const int MaxDecodeBitsPerComponent = 16;
 
     private static readonly TimeSpan defaultDeadline = TimeSpan.FromSeconds(2);
 
@@ -37,6 +31,7 @@ public static partial class PdfPreviewGuard
         Guid userId = default,
         TimeSpan? deadline = null,
         Action? onParse = null,
+        TimeProvider? timeProvider = null,
         CancellationToken cancellationToken = default)
     {
         if (content.Length > NativeFilePreview.MaxPdfBytes)
@@ -44,7 +39,8 @@ public static partial class PdfPreviewGuard
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        if (!TryAcquireUserSlot(userId))
+        var time = timeProvider ?? TimeProvider.System;
+        if (!TryAcquireUserSlot(userId, time))
         {
             return new(Refusal: NativePreviewRefusal.TooComplex);
         }
@@ -68,41 +64,38 @@ public static partial class PdfPreviewGuard
             return new(Refusal: NativePreviewRefusal.TooComplex);
         }
 
+        using var parseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var parseToken = parseCancellation.Token;
         var parseTask = Task.Run(
             () =>
             {
-                onParse?.Invoke();
-                return DocumentReader.ReadPdfPreview(content);
-            },
-            CancellationToken.None);
+                try
+                {
+                    onParse?.Invoke();
+                    return DocumentReader.ReadPdfPreview(content, parseToken);
+                }
+                finally
+                {
+                    ReleaseUserSlot(userId);
+                    globalGate.Release();
+                }
+            });
 
-        _ = parseTask.ContinueWith(
-            _ =>
-            {
-                ReleaseUserSlot(userId);
-                globalGate.Release();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-
-        try
-        {
-            return await parseTask.WaitAsync(effectiveDeadline, cancellationToken);
-        }
-        catch (TimeoutException timeout)
-        {
-            return new(Refusal: timeout is not null ? NativePreviewRefusal.TooComplex : NativePreviewRefusal.TooComplex);
-        }
+        var elapsed = Task.Delay(effectiveDeadline, time, parseToken);
+        var completed = await Task.WhenAny(parseTask, elapsed);
+        await parseCancellation.CancelAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return completed == parseTask ? await parseTask : new(Refusal: NativePreviewRefusal.TooComplex);
     }
 
-    public static NativePreviewRefusal? Validate(byte[] content)
+    public static NativePreviewRefusal? ScreenStructure(byte[] content, CancellationToken cancellationToken)
     {
         if (content.Length > NativeFilePreview.MaxPdfBytes)
         {
             return NativePreviewRefusal.TooLarge;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var chars = new char[content.Length];
         for (var index = 0; index < content.Length; index++)
         {
@@ -111,7 +104,7 @@ public static partial class PdfPreviewGuard
 
         var rawText = new string(chars);
         var objectStreams = new StringBuilder();
-        var streamRefusal = InspectStreams(content, rawText, chars, objectStreams);
+        var streamRefusal = InspectStreams(content, rawText, chars, objectStreams, cancellationToken);
         if (streamRefusal is not null)
         {
             return streamRefusal;
@@ -120,7 +113,7 @@ public static partial class PdfPreviewGuard
         var structure = objectStreams.Length == 0
             ? new string(chars)
             : $"{new string(chars)}\n{objectStreams}";
-        return InspectObjectsAndPageTree(structure);
+        return InspectObjectsAndPageTree(structure, cancellationToken);
     }
 
     #endregion
@@ -131,7 +124,8 @@ public static partial class PdfPreviewGuard
         byte[] content,
         string rawText,
         char[] strippedChars,
-        StringBuilder objectStreams)
+        StringBuilder objectStreams,
+        CancellationToken cancellationToken)
     {
         var searchIndex = 0;
         var streamCount = 0;
@@ -139,6 +133,7 @@ public static partial class PdfPreviewGuard
 
         while (searchIndex < rawText.Length)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var keywordIndex = rawText.IndexOf("stream", searchIndex, StringComparison.Ordinal);
             if (keywordIndex < 0)
             {
@@ -179,32 +174,14 @@ public static partial class PdfPreviewGuard
             var dataEnd = TrimStreamTrailingNewline(rawText, dataStart, endStreamIndex);
             Array.Fill(strippedChars, ' ', dataStart, dataEnd - dataStart);
 
-            var filterRefusal = InspectStreamDictionary(dictionary, out var isFlate, out var isObjectStream);
-            if (filterRefusal is not null)
-            {
-                return filterRefusal;
-            }
-
             var slice = content.AsSpan(dataStart, dataEnd - dataStart);
-            if (isFlate)
+            if (TypeObjStmRegex().IsMatch(dictionary))
             {
-                var inflateRefusal = InflateBounded(slice, isObjectStream, ref totalDecodedBytes, objectStreams);
-                if (inflateRefusal is not null)
+                var objectRefusal = InspectObjectStream(
+                    dictionary, slice, ref totalDecodedBytes, objectStreams, cancellationToken);
+                if (objectRefusal is not null)
                 {
-                    return inflateRefusal;
-                }
-            }
-            else
-            {
-                if (slice.Length > NativeFilePreview.MaxPdfDecodedStreamBytes)
-                {
-                    return NativePreviewRefusal.TooLarge;
-                }
-
-                totalDecodedBytes += slice.Length;
-                if (totalDecodedBytes > NativeFilePreview.MaxPdfTotalDecodedBytes)
-                {
-                    return NativePreviewRefusal.TooLarge;
+                    return objectRefusal;
                 }
             }
 
@@ -312,131 +289,59 @@ public static partial class PdfPreviewGuard
         return end;
     }
 
-    private static NativePreviewRefusal? InspectStreamDictionary(
+    // Only for early page-tree screening. The parser handles filter lookup and enforces its own byte budget.
+    private static NativePreviewRefusal? InspectObjectStream(
         string dictionary,
-        out bool isFlate,
-        out bool isObjectStream)
+        ReadOnlySpan<byte> compressed,
+        ref int totalDecodedBytes,
+        StringBuilder objectStreams,
+        CancellationToken cancellationToken)
     {
-        isFlate = false;
-        isObjectStream = TypeObjStmRegex().IsMatch(dictionary);
-
-        if (TryReadIntParameter(ColumnsRegex(), dictionary, out var columns) && (columns <= 0 || columns > MaxDecodeColumns))
+        var filter = SingleFilterRegex().Match(dictionary);
+        if (!filter.Success || filter.Groups[1].Value is not ("FlateDecode" or "Fl"))
         {
-            return NativePreviewRefusal.TooComplex;
-        }
-
-        if (TryReadIntParameter(ColorsRegex(), dictionary, out var colors) && (colors <= 0 || colors > MaxDecodeColors))
-        {
-            return NativePreviewRefusal.TooComplex;
-        }
-
-        if (TryReadIntParameter(BitsPerComponentRegex(), dictionary, out var bits)
-            && (bits <= 0 || bits > MaxDecodeBitsPerComponent))
-        {
-            return NativePreviewRefusal.TooComplex;
-        }
-
-        var arrayMatch = FilterArrayRegex().Match(dictionary);
-        if (arrayMatch.Success)
-        {
-            var names = PdfNameRegex().Matches(arrayMatch.Groups[1].Value)
-                .Select(match => match.Groups[1].Value)
-                .ToArray();
-            if (names.Length > 1)
-            {
-                return NativePreviewRefusal.TooComplex;
-            }
-
-            if (names.Length == 1)
-            {
-                if (!IsSupportedFilter(names[0], out isFlate))
-                {
-                    return NativePreviewRefusal.TooComplex;
-                }
-            }
-
             return null;
         }
 
-        var singleMatch = SingleFilterRegex().Match(dictionary);
-        if (singleMatch.Success && !IsSupportedFilter(singleMatch.Groups[1].Value, out isFlate))
-        {
-            return NativePreviewRefusal.TooComplex;
-        }
-
-        return null;
-    }
-
-    private static bool IsSupportedFilter(string filter, out bool isFlate)
-    {
-        if (filter is "FlateDecode" or "Fl")
-        {
-            isFlate = true;
-            return true;
-        }
-
-        isFlate = false;
-        return filter is "DCTDecode" or "DCT";
-    }
-
-    private static NativePreviewRefusal? InflateBounded(
-        ReadOnlySpan<byte> compressed,
-        bool captureText,
-        ref int totalDecodedBytes,
-        StringBuilder objectStreams)
-    {
         if (compressed.IsEmpty)
         {
             return null;
         }
 
         var rawBytes = compressed.ToArray();
-        try
+        using var source = new MemoryStream(rawBytes, writable: false);
+        using Stream decompressor = HasZlibHeader(compressed)
+            ? new ZLibStream(source, CompressionMode.Decompress)
+            : new DeflateStream(source, CompressionMode.Decompress);
+
+        var scratch = new byte[8192];
+        var streamDecoded = 0;
+
+        while (true)
         {
-            using var source = new MemoryStream(rawBytes, writable: false);
-            using Stream decompressor = HasZlibHeader(compressed)
-                ? new ZLibStream(source, CompressionMode.Decompress)
-                : new DeflateStream(source, CompressionMode.Decompress);
-
-            var scratch = new byte[8192];
-            var streamDecoded = 0;
-
-            while (true)
+            cancellationToken.ThrowIfCancellationRequested();
+            var read = decompressor.Read(scratch, 0, scratch.Length);
+            if (read <= 0)
             {
-                var read = decompressor.Read(scratch, 0, scratch.Length);
-                if (read <= 0)
-                {
-                    break;
-                }
-
-                streamDecoded += read;
-                totalDecodedBytes += read;
-                if (streamDecoded > NativeFilePreview.MaxPdfDecodedStreamBytes
-                    || totalDecodedBytes > NativeFilePreview.MaxPdfTotalDecodedBytes)
-                {
-                    return NativePreviewRefusal.TooLarge;
-                }
-
-                if (captureText)
-                {
-                    for (var index = 0; index < read; index++)
-                    {
-                        objectStreams.Append((char)scratch[index]);
-                    }
-                }
+                break;
             }
 
-            if (captureText)
+            streamDecoded += read;
+            totalDecodedBytes += read;
+            if (streamDecoded > NativeFilePreview.MaxPdfDecodedStreamBytes
+                || totalDecodedBytes > NativeFilePreview.MaxPdfTotalDecodedBytes)
             {
-                objectStreams.Append('\n');
+                return NativePreviewRefusal.TooLarge;
             }
 
-            return null;
+            for (var index = 0; index < read; index++)
+            {
+                objectStreams.Append((char)scratch[index]);
+            }
         }
-        catch (Exception exception) when (exception is InvalidDataException or IOException or ArgumentException)
-        {
-            return exception is not null ? NativePreviewRefusal.Malformed : NativePreviewRefusal.Malformed;
-        }
+
+        objectStreams.Append('\n');
+        return null;
     }
 
     private static bool HasZlibHeader(ReadOnlySpan<byte> bytes) =>
@@ -445,7 +350,8 @@ public static partial class PdfPreviewGuard
         && (bytes[0] >> 4) <= 7
         && (((bytes[0] << 8) | bytes[1]) % 31) == 0;
 
-    private static NativePreviewRefusal? InspectObjectsAndPageTree(string structure)
+    private static NativePreviewRefusal? InspectObjectsAndPageTree(
+        string structure, CancellationToken cancellationToken)
     {
         var objects = IndirectObjectRegex().Matches(structure);
         if (objects.Count > NativeFilePreview.MaxPdfObjects)
@@ -460,6 +366,7 @@ public static partial class PdfPreviewGuard
 
         foreach (Match match in objects)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var objectId))
             {
                 continue;
@@ -599,7 +506,7 @@ public static partial class PdfPreviewGuard
         return false;
     }
 
-    private static bool TryAcquireUserSlot(Guid userId)
+    private static bool TryAcquireUserSlot(Guid userId, TimeProvider time)
     {
         if (userId == Guid.Empty)
         {
@@ -607,7 +514,7 @@ public static partial class PdfPreviewGuard
         }
 
         var budget = userBudgets.GetOrAdd(userId, _ => new UserPdfBudget());
-        var now = DateTimeOffset.UtcNow;
+        var now = time.GetUtcNow();
         lock (budget.Sync)
         {
             while (budget.RecentStarts.Count > 0 && now - budget.RecentStarts.Peek() >= userWindow)
@@ -642,46 +549,31 @@ public static partial class PdfPreviewGuard
         }
     }
 
-    [GeneratedRegex(@"/Type\s*/ObjStm\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Type\s*/ObjStm\b", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex TypeObjStmRegex();
 
-    [GeneratedRegex(@"/Filter\s*\[([^\]]*)\]", RegexOptions.CultureInvariant)]
-    private static partial Regex FilterArrayRegex();
-
-    [GeneratedRegex(@"/Filter\s*/([A-Za-z0-9]+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Filter\s*/([A-Za-z0-9]+)", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex SingleFilterRegex();
 
-    [GeneratedRegex(@"/([A-Za-z0-9]+)", RegexOptions.CultureInvariant)]
-    private static partial Regex PdfNameRegex();
-
-    [GeneratedRegex(@"/Columns\s+(-?\d+)", RegexOptions.CultureInvariant)]
-    private static partial Regex ColumnsRegex();
-
-    [GeneratedRegex(@"/Colors\s+(-?\d+)", RegexOptions.CultureInvariant)]
-    private static partial Regex ColorsRegex();
-
-    [GeneratedRegex(@"/BitsPerComponent\s+(-?\d+)", RegexOptions.CultureInvariant)]
-    private static partial Regex BitsPerComponentRegex();
-
-    [GeneratedRegex(@"(?:^|\s)(\d+)\s+\d+\s+obj\b([\s\S]*?)endobj\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?:^|\s)(\d+)\s+\d+\s+obj\b([\s\S]*?)endobj\b", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex IndirectObjectRegex();
 
-    [GeneratedRegex(@"/Type\s*/Pages\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Type\s*/Pages\b", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex PagesTypeRegex();
 
-    [GeneratedRegex(@"/Type\s*/Page\b(?!s)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Type\s*/Page\b(?!s)", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex PageTypeRegex();
 
-    [GeneratedRegex(@"/Count\s+(-?\d+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Count\s+(-?\d+)", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex CountRegex();
 
-    [GeneratedRegex(@"/Kids\s*\[([^\]]*)\]", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Kids\s*\[([^\]]*)\]", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex KidsRegex();
 
-    [GeneratedRegex(@"/Parent\s+(\d+)\s+\d+\s+R\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"/Parent\s+(\d+)\s+\d+\s+R\b", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex ParentRegex();
 
-    [GeneratedRegex(@"(\d+)\s+\d+\s+R\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(\d+)\s+\d+\s+R\b", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
     private static partial Regex IndirectReferenceRegex();
 
     #endregion
