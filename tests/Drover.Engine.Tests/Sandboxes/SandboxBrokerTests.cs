@@ -421,10 +421,46 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeTrue();
 
         var reader = await world.Post(await world.NewThread(), "Look again");
+        await ApproveTheWrite(world, reader);
         var clean = await world.WaitForStatus(reader, RunStatus.Completed, RunStatus.Failed);
 
         clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
         clean.Tainted.Should().BeTrue("the command was run by a tainted run, and the network being off does not make the sandbox trusted");
+    }
+
+    [Fact]
+    public async Task A_clean_run_does_not_run_a_command_in_a_tainted_sandbox_until_a_person_approves()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "web__fetch")],
+            [new ToolCallOutput("c2", "sandbox_run", """{"command":"printf planted"}""")],
+            [new TextOutput("Ran it.")],
+            [new ToolCallOutput("c3", "sandbox_run", """{"command":"printf later"}""")],
+            [new TextOutput("Read it.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private, NetworkAccess.Off);
+        await OfferUntrustedPage(world);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        world.StartHost();
+
+        var writer = await world.Post(await world.NewThread(), "Read the page and run it");
+        await ApproveTheWrite(world, writer);
+        (await world.WaitForStatus(writer, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf planted"));
+
+        var reader = await world.Post(await world.NewThread(), "Look again");
+        var waiting = await world.WaitForStatus(reader, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        waiting.Status.Should().Be(RunStatus.Waiting, waiting.Error?.Message);
+        provider.Commands.Should().NotContain(command => command.Arguments.Contains("printf later"), "the shell does not start until the person approves");
+        var pending = (await world.ReadToolCalls(reader)).Single(call => call.Status == ToolCallStatus.PendingApproval);
+        await world.Decide(pending.Id, approved: true);
+        var clean = await world.WaitForStatus(reader, RunStatus.Completed, RunStatus.Failed);
+
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        clean.Tainted.Should().BeTrue();
+        provider.Commands.Should().Contain(command => command.Arguments.Contains("printf later"));
     }
 
     [Theory]

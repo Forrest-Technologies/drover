@@ -67,6 +67,13 @@ public sealed class BotRepository(DroverDbContext db)
         return [.. path.Select(entry => new SandboxPathEntry(entry.Id, entry.Distance, entry.SandboxPolicy))];
     }
 
+    /// <summary>The bots that share their sandbox with this one by name.</summary>
+    public Task<List<Guid>> ListOwnersSharingWith(Guid botId, CancellationToken cancellationToken) =>
+        db.BotSandboxShares.AsNoTracking()
+            .Where(share => share.SharedWithBotId == botId)
+            .Select(share => share.BotId)
+            .ToListAsync(cancellationToken);
+
     /// <summary>The bots this bot's sandbox is shared with. A removed bot shares nothing, whatever rows remain.</summary>
     public Task<List<Guid>> ListSandboxShares(Guid botId, CancellationToken cancellationToken) =>
         db.BotSandboxShares.AsNoTracking()

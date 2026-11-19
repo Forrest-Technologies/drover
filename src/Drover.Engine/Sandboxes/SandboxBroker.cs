@@ -90,6 +90,14 @@ public sealed class SandboxBroker(
         return await RunCommand(caller, environment, command, workingDirectory, timeout, call.Output, cancellationToken);
     }
 
+    /// <summary>
+    /// Whether a sandbox this bot can run a command in is already marked tainted: its own, or one a named share lets
+    /// it enter. No sandbox is made and the provider is not called. A command names one of these, so a tainted one
+    /// among them is tainted state the next command could start.
+    /// </summary>
+    public Task<bool> ACommandWouldUseATaintedSandbox(RunTenant tenant, Guid botId, CancellationToken cancellationToken) =>
+        tenant.Transact(services => ACommandWouldUseATaintedSandbox(services, botId, cancellationToken), cancellationToken);
+
     private async Task<SandboxCommandResult> RunCommand(
         SandboxCaller caller,
         string? environment,
@@ -704,6 +712,48 @@ public sealed class SandboxBroker(
         }
 
         return new SandboxTarget(caller.Tenant.SpaceId, owner, row, token, retired);
+    }
+
+    /// <summary>Whether <paramref name="botId"/> can start a command in a live sandbox that is already tainted.</summary>
+    private static async Task<bool> ACommandWouldUseATaintedSandbox(IServiceProvider services, Guid botId, CancellationToken cancellationToken)
+    {
+        var bots = services.GetRequiredService<BotRepository>();
+        var bot = await bots.FindBot(botId, cancellationToken);
+
+        if (bot is null or { Status: BotStatus.Removed } || bot.SandboxPolicy is SandboxPolicy.None)
+        {
+            return false;
+        }
+
+        var sandboxes = services.GetRequiredService<SandboxRepository>();
+        var callerOwner = SandboxGroups.OwnerOf(botId, await bots.ListSandboxPath(botId, cancellationToken));
+
+        if (await sandboxes.FindLiveForOwner(callerOwner, cancellationToken) is { Tainted: true })
+        {
+            return true;
+        }
+
+        foreach (var sharedOwnerId in await bots.ListOwnersSharingWith(botId, cancellationToken))
+        {
+            if (await bots.FindBot(sharedOwnerId, cancellationToken) is not { Status: not BotStatus.Removed, SandboxPolicy: SandboxPolicy.Named } owner)
+            {
+                continue;
+            }
+
+            var shares = await bots.ListSandboxShares(owner.Id, cancellationToken);
+
+            if (!SandboxGroups.MayEnter(botId, callerOwner, owner.Id, owner.SandboxPolicy, shares))
+            {
+                continue;
+            }
+
+            if (await sandboxes.FindLiveForOwner(owner.Id, cancellationToken) is { Tainted: true })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The owner of the sandbox another bot's handle names, when the caller may work in it.</summary>
