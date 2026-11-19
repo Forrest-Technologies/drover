@@ -64,10 +64,18 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         await Shown("ConnectAddress", startPatience);
 #if !__ANDROID__
-        // Every target is checked at phone width, so each shows the same controls: the crew and the conversation
-        // one at a time, with the way back to the crew. A window that is not shown yet keeps its first size.
-        window.AppWindow.Resize(new(420, 860));
-        await Until("a window at phone width", () => Width() < 560 ? window.Content : null);
+        // The native window can attach after the connect control is on screen. A resize before that is ignored,
+        // and the host then stays at its first width, so ask again until the content is at phone width.
+        await Until("a window at phone width", () =>
+        {
+            if (Width() is > 0 and < 560)
+            {
+                return window.Content;
+            }
+
+            window.AppWindow.Resize(new(420, 860));
+            return null;
+        });
 #endif
     }
 
