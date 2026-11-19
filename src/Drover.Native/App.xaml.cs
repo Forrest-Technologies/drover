@@ -79,6 +79,13 @@ public partial class App : Application
             MainWindow = new Window { Title = "Drover" };
             MainWindow.Activated += (_, activated) =>
                 IsActive = activated.WindowActivationState is not WindowActivationState.Deactivated;
+            if (Environment.GetEnvironmentVariable("DROVER_TIMELINE_FOCUS_CHECK") == "1")
+            {
+                TimelineFocusCheck.Start(MainWindow);
+                MainWindow.Activate();
+                return;
+            }
+
             Restart();
             MainWindow.Activate();
             StartChecks(MainWindow);

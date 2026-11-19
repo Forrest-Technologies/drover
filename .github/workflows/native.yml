@@ -140,6 +140,16 @@ jobs:
       - name: Keep a sign-in in the system credential store across a restart
         if: runner.os != 'Linux'
         run: dotnet test --project tests/Drover.Native.Desktop.Tests -c Release
+      - name: A focused activity row keeps focus when a new event arrives
+        shell: bash
+        run: |
+          export DROVER_TIMELINE_FOCUS_CHECK=1
+          app="src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a dotnet "$app"
+          else
+            dotnet "$app"
+          fi
       - name: Check desktop dependency licenses
         env:
           DroverNativeTargetFrameworks: net11.0-desktop
