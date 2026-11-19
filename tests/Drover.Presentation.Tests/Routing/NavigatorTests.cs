@@ -108,5 +108,97 @@ public sealed class NavigatorTests
         navigator.Current.Should().Be(Addresses.Home);
     }
 
+    [Fact]
+    public void A_step_back_closes_what_was_opened_last_and_stays_on_the_screen()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        List<string> closed = [];
+        Action rail = () => closed.Add("rail");
+        Action dialog = () => closed.Add("dialog");
+        navigator.AddCloser(rail);
+        navigator.AddCloser(dialog);
+
+        navigator.StepBack().Should().Be(BackStep.Closed);
+        navigator.StepBack().Should().Be(BackStep.Closed);
+
+        closed.Should().Equal("dialog", "rail");
+        navigator.Current.Should().Be(Addresses.Bots);
+        heard.Should().ContainSingle("closing does not move the app");
+    }
+
+    [Fact]
+    public void A_step_back_with_nothing_open_goes_to_the_address_before()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        Action closed = () => { };
+        navigator.AddCloser(closed);
+        navigator.RemoveCloser(closed);
+
+        navigator.StepBack().Should().Be(BackStep.WentBack);
+
+        navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public void A_step_back_from_a_screen_holding_work_stays_and_lets_it_ask_first()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        string? asked = null;
+        navigator.Leaving = target =>
+        {
+            asked = target;
+            return false;
+        };
+
+        navigator.StepBack().Should().Be(BackStep.Held);
+
+        asked.Should().Be(Addresses.Home);
+        navigator.Current.Should().Be(Addresses.Bots);
+    }
+
+    [Fact]
+    public void A_step_back_from_the_first_screen_with_nothing_open_leaves_the_app()
+    {
+        navigator.CanStepBack.Should().BeFalse();
+
+        navigator.StepBack().Should().Be(BackStep.Out);
+
+        navigator.Current.Should().Be(Addresses.Home);
+        heard.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Whether_a_step_back_stays_in_the_app_is_announced_as_it_changes()
+    {
+        var announced = 0;
+        navigator.StepBackChanged += () => announced++;
+        Action dialog = () => { };
+
+        navigator.AddCloser(dialog);
+        navigator.CanStepBack.Should().BeTrue("an open dialog closes first");
+        navigator.AddCloser(dialog);
+        navigator.RemoveCloser(dialog);
+        navigator.CanStepBack.Should().BeFalse();
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.CanStepBack.Should().BeTrue();
+
+        announced.Should().Be(3, "adding the same closer twice changes nothing");
+    }
+
+    [Fact]
+    public void Returning_to_the_address_before_goes_back_and_to_another_takes_its_place()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.NavigateTo(Addresses.Tools);
+
+        navigator.ReturnTo(Addresses.Bots);
+        navigator.Current.Should().Be(Addresses.Bots);
+        navigator.CanGoForward.Should().BeTrue("it went back");
+
+        navigator.ReturnTo(Addresses.Models);
+        navigator.Current.Should().Be(Addresses.Models);
+        navigator.Previous.Should().Be(Addresses.Home, "the address left leaves no step behind");
+    }
+
     #endregion
 }

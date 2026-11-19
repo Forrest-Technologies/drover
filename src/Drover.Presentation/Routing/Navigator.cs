@@ -3,13 +3,17 @@ namespace Drover.Presentation.Routing;
 /// <summary>
 /// Where the app is, and the addresses it came through. Screens ask it to go somewhere; the shell listens and shows
 /// the screen for the address. In a browser the shell also keeps the address bar and the browser's own history in
-/// step, in both directions, so every address is a link that can be opened, shared, and gone back from.
+/// step, in both directions, so every address is a link that can be opened, shared, and gone back from. A device's
+/// Back takes one step at a time: it closes what is open over the screen before it leaves the screen.
 /// </summary>
 public sealed class Navigator
 {
     #region Private Fields
 
     private readonly List<string> history = [Addresses.Home];
+
+    // What is open over the screen, the last opened at the end. A step back closes the last one first.
+    private readonly List<Action> closers = [];
 
     private int position;
 
@@ -21,7 +25,16 @@ public sealed class Navigator
 
     public bool CanGoBack => position > 0;
 
+    /// <summary>The address a step back goes to, or null at the first entry.</summary>
+    public string? Previous => CanGoBack ? history[position - 1] : null;
+
     public bool CanGoForward => position < history.Count - 1;
+
+    /// <summary>True when a step back stays in the app: something is open to close, or there is an address to go back to.</summary>
+    public bool CanStepBack => closers.Count > 0 || CanGoBack;
+
+    /// <summary>Raised when <see cref="CanStepBack"/> may have changed.</summary>
+    public event Action? StepBackChanged;
 
     /// <summary>Raised after the address changed, with how it changed.</summary>
     public event Action<string, NavigationKind>? Navigated;
@@ -55,12 +68,73 @@ public sealed class Navigator
             position++;
         }
 
-        Navigated?.Invoke(address, replace ? NavigationKind.Replace : NavigationKind.Push);
+        Announce(address, replace ? NavigationKind.Replace : NavigationKind.Push);
     }
 
     public bool GoBack() => Travel(-1);
 
     public bool GoForward() => Travel(1);
+
+    /// <summary>
+    /// One step back, as a device's Back asks for it. The last thing opened over the screen closes first. Then the app
+    /// goes to the address before, unless the screen holds work and asks the person first. With nothing to close and
+    /// nowhere to go back to, the step leaves the app.
+    /// </summary>
+    public BackStep StepBack()
+    {
+        if (closers is [.., var close])
+        {
+            closers.RemoveAt(closers.Count - 1);
+            close();
+            StepBackChanged?.Invoke();
+            return BackStep.Closed;
+        }
+
+        if (!CanGoBack)
+        {
+            return BackStep.Out;
+        }
+
+        return GoBack() ? BackStep.WentBack : BackStep.Held;
+    }
+
+    /// <summary>
+    /// Something is open over the screen, such as a dialog or a rail, and <paramref name="close"/> closes it. A step
+    /// back closes it before the app leaves the screen. Adding the same one again changes nothing.
+    /// </summary>
+    public void AddCloser(Action close)
+    {
+        if (!closers.Contains(close))
+        {
+            closers.Add(close);
+            StepBackChanged?.Invoke();
+        }
+    }
+
+    /// <summary>What <paramref name="close"/> closes is gone, so a step back no longer closes it.</summary>
+    public void RemoveCloser(Action close)
+    {
+        if (closers.Remove(close))
+        {
+            StepBackChanged?.Invoke();
+        }
+    }
+
+    /// <summary>
+    /// Goes back to <paramref name="address"/> when it is the entry before, and otherwise takes it in place of where
+    /// the app is. Closing a part of a screen this way leaves no step behind to open it again.
+    /// </summary>
+    public void ReturnTo(string address)
+    {
+        if (Previous == address)
+        {
+            GoBack();
+        }
+        else
+        {
+            NavigateTo(address, replace: true);
+        }
+    }
 
     /// <summary>
     /// The address the app was opened at, before anything is shown. It becomes the first and only entry.
@@ -70,6 +144,7 @@ public sealed class Navigator
         history.Clear();
         history.Add(address);
         position = 0;
+        StepBackChanged?.Invoke();
     }
 
     /// <summary>
@@ -91,7 +166,7 @@ public sealed class Navigator
             history[position] = address;
         }
 
-        Navigated?.Invoke(address, NavigationKind.Travel);
+        Announce(address, NavigationKind.Travel);
     }
 
     #endregion
@@ -107,8 +182,14 @@ public sealed class Navigator
         }
 
         position = target;
-        Navigated?.Invoke(Current, NavigationKind.Travel);
+        Announce(Current, NavigationKind.Travel);
         return true;
+    }
+
+    private void Announce(string address, NavigationKind kind)
+    {
+        Navigated?.Invoke(address, kind);
+        StepBackChanged?.Invoke();
     }
 
     #endregion
