@@ -8,6 +8,10 @@ Without both values, a version release still publishes installers but publishes 
 without the public value does not show update controls or make update requests. Each release has a signed feed for
 each desktop operating system, so a package never offers an installer for a different system.
 
+The app and signed feed keep the full release version, including `-preview.N`. Operating system package metadata
+uses numeric versions where required. The numeric revision keeps preview order and reserves its largest value for the
+stable package. Debian packages use `~preview.N`, which has the same order.
+
 ## Manual run
 
 1. Generate a throwaway Ed25519 key pair with the pinned appcast generator.
