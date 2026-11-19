@@ -103,6 +103,19 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         void Corrupt(AppCastItem item, string path) =>
             downloaded.TrySetException(new InvalidDataException("The downloaded update did not have a valid signature."));
 
+        bool InstallFailed(InstallUpdateFailureReason reason, string? path)
+        {
+            Change(State with
+            {
+                Phase = DesktopUpdatePhase.Failed,
+                Problem = reason is InstallUpdateFailureReason.InvalidSignature
+                    ? "The downloaded update did not have a valid signature."
+                    : "Drover could not open the downloaded installer.",
+            });
+            return false;
+        }
+
+        updater.InstallUpdateFailed += InstallFailed;
         updater.DownloadFinished += Finished;
         updater.DownloadHadError += Failed;
         updater.DownloadedFileIsCorrupt += Corrupt;
@@ -123,6 +136,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         }
         finally
         {
+            updater.InstallUpdateFailed -= InstallFailed;
             updater.DownloadFinished -= Finished;
             updater.DownloadHadError -= Failed;
             updater.DownloadedFileIsCorrupt -= Corrupt;

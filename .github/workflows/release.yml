@@ -600,8 +600,12 @@ jobs:
             --os macos --base-url "$base" --product-name Drover --appcast-output-directory update-feed \
             --output-file-name "$prefix-macos" "${channel_args[@]}"
           for feed in update-feed/*.xml; do
-            dotnet tool run netsparkle-generate-appcast -- --verify "$feed" \
-              --signature "$(cat "$feed.signature")"
+            verification=$(dotnet tool run netsparkle-generate-appcast -- --verify "$feed" \
+              --signature "$(cat "$feed.signature")")
+            if ! grep -Fxq 'Signature valid' <<< "$verification"; then
+              echo "::error::The generated update feed signature did not verify."
+              exit 1
+            fi
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.keys.outputs.available == 'true'
