@@ -31,6 +31,20 @@ public sealed class Message : ISpaceOwned, IAudienceScoped
     /// </summary>
     public bool Withheld { get; set; }
 
+    /// <summary>
+    /// The message before this one in its version of the conversation; null for the first. The messages that share a
+    /// parent are versions of one place in the conversation: a person's message and its edits, or the replies to one
+    /// message. Set when the message gets its position.
+    /// </summary>
+    public Guid? ParentId { get; set; }
+
+    /// <summary>
+    /// When the message left the conversation that is shown: a person edited a message at or before it, asked for
+    /// another reply, or switched to another version. It is kept and comes back when its version is chosen again.
+    /// Null while it is part of the conversation people see and the model reads.
+    /// </summary>
+    public DateTimeOffset? ShelvedAt { get; set; }
+
     public MessageRole Role { get; set; }
 
     public Guid? AuthorUserId { get; set; }
