@@ -19,7 +19,7 @@ All live in `Drover.Domain`. Each has a conformance suite in `Drover.Adapters.Co
 | `ISandboxProvider` | Create, pause, resume, destroy an environment; run commands; read and write files | E2B | Operator's Docker host |
 | `IMemoryStore` | Store and recall long-term memory for a bot | PostgreSQL with `pgvector` (Phase 1) | |
 | `IEmbeddingProvider` | Text to vector | Venice and compatible endpoints, through `IEmbeddingGenerator` (Phase 1) | |
-| `IWebSearch` | Search the web | Venice's search endpoint, since a Venice key is already there (Phase 1) | Any provider with a plain HTTP API and operator key |
+| `IWebSearch` | Search the web, for the `web.search` tool | `Drover.Adapters.SearXng`: the operator's own SearXNG instance through its JSON search API, which a self-hoster runs without an account or a key | Venice's search endpoint; any provider with a plain HTTP API and operator key |
 | `ISpeechToText`, `ITextToSpeech` | Voice in and out | Venice's speech endpoints (Phase 2) | |
 | `IPushChannel` | Deliver a wake-up to one subscription | Web Push, which also serves UnifiedPush | Apple relay, Google |
 | `IFileStore` | Store and fetch blobs by key | Local volume | S3-compatible through `AWSSDK.S3` |
@@ -47,6 +47,7 @@ Twelve interfaces. Nothing else in the codebase gets an interface "in case"; see
 | `ModelContextProtocol` 2.4.x | Apache-2.0 | The protocol's project, with Microsoft | MCP client, OAuth | **Wrapped** by `IToolSource`. Its types stop at the adapter. |
 | Markdig 1.6.0 | BSD-2-Clause | Alexandre Mutel; the standard .NET markdown library, active | Markdown to HTML in `Drover.Ui` | Direct. One call site, `MarkdownDocument`, which `MarkdownView` renders from. |
 | HtmlSanitizer 11.0.26, with AngleSharp and AngleSharp.Css | MIT, MIT, MIT | Michael Ganss; AngleSharp project. Both active | Sanitize rendered markdown | Direct. Same call site. |
+| AngleSharp 1.10.0 | MIT | AngleSharp project, active; the version HtmlSanitizer already brings | Parse a page `web.fetch` reads, in `Drover.Engine`, to give the bot its readable text | Direct. One call site, `ReadableText`, which takes HTML text and returns plain text: no AngleSharp type leaves it. It only parses: no request is made and no script runs. |
 | `Lib.Net.Http.WebPush` | MIT | Tomasz Peczek; steady releases, no extra crypto dependency on .NET (its one dependency there is the same author's `Lib.Net.Http.EncryptedContentEncoding`, MIT) | Web Push and VAPID | **Wrapped** by `IPushChannel`, referenced only by `Drover.Adapters.WebPush` |
 | Cronos 0.13.0 | MIT | The Hangfire authors | Parse cron expressions, compute next run | Direct, in `Drover.Engine`. `ScheduleService` checks an expression, refuses one whose times are closer together than the deployment allows, and computes the next time it is due; the scheduler (`ScheduleFiring`) uses the same calculation each time a schedule comes due. |
 | `Microsoft.Extensions.Http.Resilience` (Polly underneath) | MIT (BSD-3-Clause) | Microsoft; Polly is an established project | Timeouts, retries, circuit breakers on outbound HTTP | Direct. Configured where each `HttpClient` is registered. |
@@ -88,6 +89,8 @@ Phase 1 and 2 additions, already checked:
 | OpenIddict | Apache-2.0 | Kévin Chalet, active | Only if Drover must act as an OAuth server for third-party clients | Direct if adopted |
 
 No library is used for E2B or for Apple's push service. Neither has an official or well-adopted .NET client, and both are small HTTP APIs. Drover owns those clients inside their adapter projects. See [07-sandbox.md](07-sandbox.md) and [13-deployment-and-push.md](13-deployment-and-push.md).
+
+`Drover.Adapters.SearXng` adds no package either. It uses `System.Net.Http`, `System.Text.Json`, and the client factory that arrives with `Microsoft.Extensions.Http.Resilience`, and it is the only project that knows SearXNG's request and answer shapes.
 
 `Drover.Adapters.E2B` adds no package. It uses `System.Net.Http`, `System.Text.Json`, and `Microsoft.Extensions.Http.Resilience`, which is already central, and it is the only project that talks to E2B: its control plane, its in-sandbox daemon, and their JSON shapes are internal to it.
 
