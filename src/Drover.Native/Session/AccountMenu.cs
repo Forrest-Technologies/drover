@@ -136,6 +136,7 @@ public sealed class AccountMenu : Grid
         updateChecks.Value = model.UpdateChecksEnabled;
         refreshingUpdates = false;
         checkUpdate.IsEnabled = model.CanCheckUpdates;
+        installUpdate.Content = model.InstallLabel;
         installUpdate.IsEnabled = model.CanInstallUpdate;
         installUpdate.Visibility = model.CanInstallUpdate ? Visibility.Visible : Visibility.Collapsed;
         updates.Open = model.UpdatesOpen;

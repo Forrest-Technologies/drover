@@ -4,6 +4,12 @@ Desktop updates need a dedicated Ed25519 key pair. Keep `UPDATE_SIGNING_PRIVATE_
 environment. Set the matching public value as the repository variable `UPDATE_SIGNING_PUBLIC_KEY`. The private key
 is separate from every operating system signing credential.
 
+If the private key is lost or exposed, treat it as public. Generate a new pair, store the private key in the `release`
+environment, and replace `UPDATE_SIGNING_PUBLIC_KEY`. Publish new installers. An older install keeps the previous
+public key and will not accept a feed signed by the new key, so it needs a new package from the release page. Announce
+that outside the update feed. A signed feed cannot tell a client to trust a key the client does not already have, and
+the feed has no expiry. Ship a newer signed release instead of trying to recall an older file.
+
 Without both values, a version release still publishes installers but publishes no automatic update feed. A build
 without the public value does not show update controls or make update requests. Each release has a signed feed for
 each desktop operating system, so a package never offers an installer for a different system.
@@ -24,4 +30,6 @@ stable package. Debian packages use `~preview.N`, which has the same order.
    Confirm Drover reports that the package signature is invalid and does not open it.
 8. Turn Check for desktop updates off, restart, and confirm no release request is made.
 
-Repeat the install step on Windows, macOS, and Linux. Use only preview tags for this verification.
+Repeat the install step on Windows and macOS. On Linux, confirm the signature check and that Drover shows the download
+link instead of starting a privileged installer. Use only preview tags for this verification. Linux has no trusted
+privileged install yet, so it stays manual.

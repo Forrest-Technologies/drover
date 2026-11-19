@@ -5,8 +5,6 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
 {
     #region Private Fields
 
-    private const string ChecksSetting = "drover-update-checks";
-
     private const string PublicKeyMetadata = "DroverUpdatePublicKey";
 
     private const string PreviewReleases =
@@ -61,14 +59,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
     {
         try
         {
-            if (enabled)
-            {
-                settings.Remove(ChecksSetting);
-            }
-            else
-            {
-                settings.Write(ChecksSetting, "off");
-            }
+            DesktopUpdateChecks.Store(settings, enabled);
         }
         catch (Exception exception)
         {
@@ -97,36 +88,39 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             return;
         }
 
-        var downloaded = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Finished(AppCastItem item, string path) => downloaded.TrySetResult(path);
-        void Failed(AppCastItem item, string? path, Exception exception) => downloaded.TrySetException(exception);
-        void Corrupt(AppCastItem item, string path) =>
-            downloaded.TrySetException(new InvalidDataException("The downloaded update did not have a valid signature."));
-
         bool InstallFailed(InstallUpdateFailureReason reason, string? path)
         {
             Change(State with
             {
                 Phase = DesktopUpdatePhase.Failed,
                 Problem = reason is InstallUpdateFailureReason.InvalidSignature
-                    ? "The downloaded update did not have a valid signature."
+                    ? UpdatePackageTrust.SignatureProblem
                     : "Drover could not open the downloaded installer.",
             });
             return false;
         }
 
         updater.InstallUpdateFailed += InstallFailed;
-        updater.DownloadFinished += Finished;
-        updater.DownloadHadError += Failed;
-        updater.DownloadedFileIsCorrupt += Corrupt;
-        updater.DownloadedFileThrewWhileCheckingSignature += Corrupt;
 
         try
         {
             Change(State with { Phase = DesktopUpdatePhase.Downloading, Problem = null });
-            await updater.InitAndBeginDownload(available);
-            var path = await downloaded.Task.WaitAsync(downloadLimit);
-            Change(State with { Phase = DesktopUpdatePhase.Installing });
+            var path = await UpdatePackageTrust.Download(updater, available, downloadLimit);
+            var package = await File.ReadAllBytesAsync(path);
+            var decision = UpdatePackageTrust.Decide(
+                publicKey,
+                available.DownloadSignature,
+                package,
+                UpdatePackageTrust.CurrentHost,
+                available.DownloadLink,
+                State with { Version = available.Version });
+            if (!decision.StartInstaller)
+            {
+                Change(decision.State);
+                return;
+            }
+
+            Change(decision.State);
             await updater.InstallUpdate(available, path);
         }
         catch (Exception exception)
@@ -137,10 +131,6 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         finally
         {
             updater.InstallUpdateFailed -= InstallFailed;
-            updater.DownloadFinished -= Finished;
-            updater.DownloadHadError -= Failed;
-            updater.DownloadedFileIsCorrupt -= Corrupt;
-            updater.DownloadedFileThrewWhileCheckingSignature -= Corrupt;
         }
     }
 
@@ -169,17 +159,18 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             updater?.Dispose();
             updater = BuildUpdater(feed);
             var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
-            available = result.Status is UpdateStatus.UpdateAvailable ? result.Updates.FirstOrDefault() : null;
             if (!State.ChecksEnabled)
             {
                 return;
             }
 
-            Change(State with
-            {
-                Phase = available is null ? DesktopUpdatePhase.Idle : DesktopUpdatePhase.Available,
-                Version = available?.Version,
-            });
+            available = result.Status is UpdateStatus.UpdateAvailable ? result.Updates.FirstOrDefault() : null;
+            Change(UpdatePackageTrust.AfterCheck(
+                State,
+                result.Status,
+                available?.Version,
+                reportFailure,
+                () => logger.LogWarning("The signed desktop release feed could not be verified")));
         }
         catch (Exception exception)
         {
@@ -192,29 +183,13 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         }
     }
 
-    private SparkleUpdater BuildUpdater(string feed)
-    {
-        var verifier = new Ed25519Checker(SecurityMode.Strict, publicKey, string.Empty, true, 25 * 1024 * 1024);
-        var built = new SparkleUpdater(feed, verifier, typeof(App).Assembly.Location)
-        {
-            CheckServerFileName = false,
-            RelaunchAfterUpdate = true,
-            ShouldKillParentProcessWhenStartingInstaller = true,
-            UserInteractionMode = UserInteractionMode.DownloadNoInstall,
-        };
-        built.CloseApplication += () => ((App)Application.Current).MainWindow?.Close();
-
-        if (DesktopUpdateChannel.FromVersion(installedVersion) is "preview")
-        {
-            built.AppCastHelper.AppCastFilter = new ChannelAppCastFilter
-            {
-                ChannelSearchNames = ["preview"],
-                KeepItemsWithNoChannelInfo = false,
-            };
-        }
-
-        return built;
-    }
+    private SparkleUpdater BuildUpdater(string feed) => UpdatePackageTrust.CreateUpdater(
+        feed,
+        publicKey,
+        typeof(App).Assembly.Location,
+        UpdatePackageTrust.DownloadDirectory(),
+        installedVersion,
+        () => ((App)Application.Current).MainWindow?.Close());
 
     private async Task<string> FindFeed()
     {
@@ -240,8 +215,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             {
                 if (asset.GetProperty("name").GetString() == assetName)
                 {
-                    return asset.GetProperty("browser_download_url").GetString()
-                        ?? throw new InvalidDataException("The preview feed address is empty.");
+                    return UpdatePackageTrust.RequireReleaseDownload(asset.GetProperty("browser_download_url").GetString());
                 }
             }
         }
@@ -264,7 +238,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
     {
         try
         {
-            return settings.Read(ChecksSetting) is not "off";
+            return DesktopUpdateChecks.AreEnabled(settings);
         }
         catch (Exception exception)
         {

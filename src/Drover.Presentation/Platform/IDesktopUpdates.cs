@@ -6,7 +6,8 @@ public sealed record DesktopUpdateState(
     bool ChecksEnabled,
     DesktopUpdatePhase Phase = DesktopUpdatePhase.Idle,
     string? Version = null,
-    string? Problem = null);
+    string? Problem = null,
+    string? DownloadLink = null);
 
 
 public enum DesktopUpdatePhase
@@ -17,6 +18,7 @@ public enum DesktopUpdatePhase
     Downloading,
     Installing,
     Failed,
+    Manual,
 }
 
 

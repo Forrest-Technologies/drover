@@ -42,7 +42,6 @@ if "gh release create" not in publish or tag_gate not in publish:
 if "GH_REPO: ${{ github.repository }}" not in publish:
     raise SystemExit("The release job must provide repository context without a checkout.")
 
-<<<<<<< HEAD
 def reject_wide_secrets(parsed_jobs):
     secret_names = re.compile(r"secrets\.([A-Za-z0-9_]+)")
     for name, body in parsed_jobs.items():
