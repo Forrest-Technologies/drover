@@ -63,6 +63,17 @@ public sealed class SandboxBroker(
 
     #endregion
 
+    #region Properties
+
+    /// <summary>
+    /// Runs after a bot write has passed its audience check and before the sandbox is acquired. A test holds the
+    /// write open here so a narrowing can commit in between. Production leaves it unset.
+    /// </summary>
+    public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
+
+    #endregion
+
+
     #region Public Methods
 
     /// <summary>Runs a command, streaming its output into the run's events, and returns what it printed.</summary>
@@ -90,6 +101,7 @@ public sealed class SandboxBroker(
     {
         var limit = CommandLimit(timeout);
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
+        await AuthorizeLiveWrite(caller, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -160,6 +172,7 @@ public sealed class SandboxBroker(
         }
 
         var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
+        await AuthorizeLiveWrite(caller, cancellationToken);
 
         try
         {
@@ -327,6 +340,7 @@ public sealed class SandboxBroker(
             return null;
         }
 
+        await AuthorizeLiveWrite(caller, cancellationToken);
         await RunOnScreen(lease, action, doing, cancellationToken);
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
@@ -954,6 +968,44 @@ public sealed class SandboxBroker(
         {
             throw new BuiltinToolException(ClosedConversationSentence);
         }
+
+        if (BeforeAcquire is { } pause)
+        {
+            await pause(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Reads the conversation's audience again under the space's copy fence, after the sandbox is acquired and before
+    /// the provider is called. Retirement of every live sandbox holds the same fence until the narrower audience is
+    /// committed, so a write that passed the earlier check cannot land on a sandbox acquired after that retirement.
+    /// A person's own controls have no call and are not refused here.
+    /// </summary>
+    private static async Task AuthorizeLiveWrite(SandboxCaller caller, CancellationToken cancellationToken)
+    {
+        if (caller.Call is not { ThreadId: { } threadId })
+        {
+            return;
+        }
+
+        await caller.Tenant.Transact(
+            async services =>
+            {
+                await services.GetRequiredService<SandboxRepository>().LockCopies(cancellationToken);
+                var thread = await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken);
+                var covered = thread is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        thread.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
+
+                if (!covered)
+                {
+                    throw new BuiltinToolException(ClosedConversationSentence);
+                }
+            },
+            cancellationToken);
     }
 
     /// <summary>

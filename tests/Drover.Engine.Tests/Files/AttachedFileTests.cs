@@ -536,6 +536,48 @@ public sealed class AttachedFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_private_write_paused_before_the_sandbox_is_acquired_never_lands()
+    {
+        var sandbox = ListingSandbox();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(sandbox, script);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        var host = world.StartHost();
+        var broker = host.Services.GetRequiredService<SandboxBroker>();
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        broker.BeforeAcquire = async cancellationToken =>
+        {
+            opened.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+        var control = host.Services.GetRequiredService<SandboxControlService>();
+        var runId = world.Post(await world.NewThread(), "Write the plan down");
+
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        var member = await world.AddMember(MembershipRole.Admin);
+        release.TrySetResult();
+        (await world.WaitForStatus(await runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        sandbox.Tokens.SelectMany(token => sandbox.WithToken(token).Files.Keys).Should().NotContain("/home/user/notes.txt");
+        var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("notes.txt");
+    }
+
+    [Fact]
+    public async Task A_member_cannot_add_another_member()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Hi.")]));
+        var member = await world.AddMember(MembershipRole.Member);
+
+        (await world.AddMemberAs(member, MembershipRole.Admin)).Should().BeNull();
+        (await world.Read(db => db.Memberships.CountAsync(RunWorld.Token))).Should().Be(2);
+    }
+
+    [Fact]
     public async Task A_copy_paused_while_a_member_joins_never_lands_in_the_sandbox()
     {
         var sandbox = new FakeSandboxProvider();
