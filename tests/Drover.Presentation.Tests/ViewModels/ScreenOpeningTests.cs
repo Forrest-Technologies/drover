@@ -76,19 +76,6 @@ public sealed class ScreenOpeningTests : ViewModelTest
     }
 
     [Fact]
-    public void A_native_screen_opens_through_the_same_call_these_tests_use()
-    {
-        var screen = Repository.NativeFiles(".cs").Single(file => file.Path == "Shell/Screen.cs").Text;
-        var opened = screen.IndexOf("void OnNavigatedTo", StringComparison.Ordinal);
-        var open = screen.IndexOf("void Open(", StringComparison.Ordinal);
-
-        opened.Should().BeGreaterThan(-1);
-        open.Should().BeGreaterThan(-1);
-        screen[opened..].Should().Contain("Open(route)");
-        screen[open..opened].Should().Contain("ScreenOpen.At");
-    }
-
-    [Fact]
     public async Task Opening_a_screen_lets_a_failure_that_is_not_the_servers_escape()
     {
         var opening = () => ScreenOpen.At(

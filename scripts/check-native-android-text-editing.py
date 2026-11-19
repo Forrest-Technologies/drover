@@ -191,6 +191,29 @@ def check_safe_area():
         shell("wm", "density", "reset")
 
 
+def check_unreachable_open():
+    """A cold deep link while the server refuses the connection shows the unreachable gate and stays up."""
+    shell("am", "force-stop", PACKAGE)
+    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+    shell("am", "start", "-W", "-n", activity, "--ez", "drover.unreachable_open", "true")
+    report = f"/storage/emulated/0/Android/data/{PACKAGE}/files/unreachable-open.txt"
+    for _ in range(100):
+        listing = subprocess.run(["adb", "shell", "cat", report], text=True, capture_output=True)
+        text = listing.stdout
+        if "Unreachable open check passed" in text:
+            print(text.strip())
+            return
+        if "Unreachable open check failed" in text:
+            raise AssertionError(text.strip())
+        time.sleep(1)
+    log = subprocess.run(
+        ["adb", "logcat", "-d", "-e", "Unreachable open check"],
+        text=True,
+        capture_output=True,
+    ).stdout
+    raise AssertionError(log.strip() or "The unreachable open check did not report a result.")
+
+
 def main():
     previous = shell("settings", "get", "secure", "default_input_method")
     show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
@@ -208,6 +231,7 @@ def main():
         else:
             shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
     check_safe_area()
+    check_unreachable_open()
 
 
 if __name__ == "__main__":
