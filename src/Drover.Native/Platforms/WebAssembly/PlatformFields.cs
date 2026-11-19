@@ -1,22 +1,22 @@
 namespace Drover.Native.Platform;
 
 /// <summary>
-/// In a browser every field types through one hidden input that follows the focus. A password manager reads that
-/// input, so it is told what the focused field holds each time the focus moves.
+/// In a browser a password manager reads the page's inputs. The platform keeps one for each field it draws, in the
+/// accessibility tree, named by the field's label, and that is where a field's <c>autocomplete</c> goes.
 /// </summary>
 internal static partial class PlatformFields
 {
     #region Public Methods
 
-    /// <summary>Names what the focused field holds, as the input's <c>autocomplete</c>, or clears it with null.</summary>
-    public static void Describe(string? autofill) => SetAutofill(autofill);
+    /// <summary>Names what the field with this label holds while it is on screen, or stops naming it with null.</summary>
+    public static void Name(string label, string? autofill) => SetNamed(label, autofill);
 
     #endregion
 
     #region Private Methods
 
-    [JSImport("globalThis.droverFields.describe")]
-    private static partial void SetAutofill(string? autofill);
+    [JSImport("globalThis.droverFields.name")]
+    private static partial void SetNamed(string label, string? autofill);
 
     #endregion
 }

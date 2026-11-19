@@ -53,6 +53,8 @@ public sealed class Field : StackPanel
         Children.Add(error);
         BuildInput();
         IsEnabledChangedBridge();
+        Loaded += (_, _) => NameForPasswordManagers(Autofill);
+        Unloaded += (_, _) => NameForPasswordManagers(null);
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -168,16 +170,8 @@ public sealed class Field : StackPanel
         input.VerticalContentAlignment = VerticalAlignment.Center;
         input.MinHeight = Targets.Minimum;
         input.UseSystemFocusVisuals = false;
-        input.GotFocus += (_, _) =>
-        {
-            SetFocused(true);
-            PlatformFields.Describe(Autofill);
-        };
-        input.LostFocus += (_, _) =>
-        {
-            SetFocused(false);
-            PlatformFields.Describe(null);
-        };
+        input.GotFocus += (_, _) => SetFocused(true);
+        input.LostFocus += (_, _) => SetFocused(false);
         input.KeyDown += (_, key) =>
         {
             if (key.Key is VirtualKey.Enter)
@@ -310,6 +304,14 @@ public sealed class Field : StackPanel
         }
 
         placeholder.Visibility = Value.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void NameForPasswordManagers(string? autofill)
+    {
+        if (Autofill is not null)
+        {
+            PlatformFields.Name(Label, autofill);
+        }
     }
 
     private void SetFocused(bool value)

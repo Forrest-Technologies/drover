@@ -1,29 +1,39 @@
 // Ordinary browser APIs, loaded as a script under the same CSP as the app. No eval or inline script.
-// The app draws its fields; typing goes through the one input the platform keeps for the focused field
-// (id "uno-input"). The platform makes a new input when a field's kind changes and reuses it otherwise, so what
-// the field holds is set again whenever that input takes the focus, and whenever the app says it changed.
+// The app draws its fields. A password manager finds them as the inputs the platform keeps in the accessibility
+// tree, one per field, named by the field's label. The platform makes and replaces those inputs as screens change,
+// so the names are put back whenever an input appears.
 globalThis.droverFields = (() => {
-    let wanted = null;
+    const named = new Map();
 
-    const apply = () => {
-        const input = document.getElementById("uno-input");
-        if (input === null) {
-            return;
-        }
+    const inputsLabelled = label =>
+        [...document.querySelectorAll("input[aria-label]")].filter(input => input.getAttribute("aria-label") === label);
 
-        if (wanted === null) {
-            input.removeAttribute("autocomplete");
-        } else {
-            input.setAttribute("autocomplete", wanted);
+    const nameFieldsOnScreen = () => {
+        for (const [label, autofill] of named) {
+            for (const input of inputsLabelled(label)) {
+                if (input.getAttribute("autocomplete") !== autofill) {
+                    input.setAttribute("autocomplete", autofill);
+                }
+            }
         }
     };
 
-    document.addEventListener("focusin", apply, true);
+    new MutationObserver(nameFieldsOnScreen).observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+        attributeFilter: ["aria-label"],
+    });
 
     return {
-        describe(autofill) {
-            wanted = autofill || null;
-            apply();
+        name(label, autofill) {
+            if (autofill) {
+                named.set(label, autofill);
+                nameFieldsOnScreen();
+            } else if (named.delete(label)) {
+                for (const input of inputsLabelled(label)) {
+                    input.removeAttribute("autocomplete");
+                }
+            }
         }
     };
 })();
