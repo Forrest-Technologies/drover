@@ -90,6 +90,9 @@ public abstract class WorkspaceTest : IDisposable
 
     protected Task Until(Action assertion) => Ui.Until(assertion);
 
+    /// <summary>Takes one step back on the interface's thread, as a device's Back does, and checks what it did.</summary>
+    protected Task StepBack(BackStep expected) => Ui.Run(() => Navigator.StepBack().Should().Be(expected));
+
     /// <summary>Writes in a conversation's field and sends, as Enter does.</summary>
     protected Task Send(Func<ConversationViewModel> pane, string text) => Do(() =>
     {

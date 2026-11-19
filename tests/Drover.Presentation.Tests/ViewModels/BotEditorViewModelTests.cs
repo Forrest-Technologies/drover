@@ -451,6 +451,25 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_step_back_with_changes_not_saved_asks_first_and_then_goes_back()
+    {
+        Navigator.NavigateTo(Addresses.Bots);
+        Navigator.NavigateTo(Addresses.Bot(botId));
+        var editor = await OpenEditor();
+        editor.Rename("Scout");
+
+        Navigator.StepBack().Should().Be(BackStep.Held);
+
+        Navigator.Current.Should().Be(Addresses.Bot(botId));
+        editor.Leaving.Should().BeTrue();
+
+        editor.Leave();
+
+        Navigator.Current.Should().Be(Addresses.Bots);
+        Navigator.CanGoForward.Should().BeTrue("the person went back, so the next step back does not open the editor again");
+    }
+
+    [Fact]
     public async Task Leaving_with_nothing_to_save_asks_nothing()
     {
         var editor = await OpenEditor();

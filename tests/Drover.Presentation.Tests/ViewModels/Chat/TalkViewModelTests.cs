@@ -491,6 +491,47 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_step_back_closes_a_rail_opened_from_the_conversation_and_then_leaves_it()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Go($"/talk/{botId}");
+        await Go($"/talk/{botId}/screen");
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+
+        await StepBack(BackStep.Closed);
+
+        await Until(() => Talk.Side.Should().Be(SideView.Closed));
+        Navigator.Current.Should().Be($"/talk/{botId}");
+        Navigator.StepBack().Should().Be(BackStep.WentBack, "with the rail closed, back leaves the conversation");
+        Navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public async Task A_step_back_closes_a_rail_opened_directly_into_its_conversation()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Navigator.StartAt($"/talk/{botId}/screen");
+        await Do(() => Talk.Open(new(botId, "screen")));
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+
+        await StepBack(BackStep.Closed);
+
+        await Until(() => Talk.Side.Should().Be(SideView.Closed));
+        Navigator.Current.Should().Be($"/talk/{botId}");
+        Navigator.CanStepBack.Should().BeFalse("the rail leaves no step behind, so the next back leaves the app");
+    }
+
+    [Fact]
+    public async Task A_step_back_in_a_side_chat_goes_to_the_list_of_them()
+    {
+        await Go($"/talk/{botId}/side/new");
+
+        await StepBack(BackStep.Closed);
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+    }
+
+    [Fact]
     public async Task A_bot_with_a_screen_offers_it_beside_the_conversation()
     {
         Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));

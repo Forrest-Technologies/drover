@@ -363,6 +363,8 @@ public sealed class TalkViewModel(
 
     private Guid? ThreadId => Guid.TryParse(address.SideChat, out var id) ? id : null;
 
+    private Guid? RailBotId => Shown?.Id ?? address.BotId;
+
     private Guid? HeldCallId => Side is SideView.Screen ? HeldTakeover?.ToolCallId : null;
 
     private Func<Guid, Guid, string> WorkAddress => (worker, thread) => Addresses.Work(Shown!.Id, worker, thread);
@@ -379,6 +381,7 @@ public sealed class TalkViewModel(
         }
 
         gone = true;
+        navigator.RemoveCloser(CloseRail);
         listening?.Cancel();
         listening?.Dispose();
         MainPane?.Dispose();
@@ -390,8 +393,12 @@ public sealed class TalkViewModel(
     public Task Open(TalkAddress opened)
     {
         address = opened;
+        HoldRail();
         return Ready = Rendered(AddressSet());
     }
+
+    /// <summary>Where the rail's first control leads: closed, or from a side chat back to the list of them.</summary>
+    public string RailUp(Guid botId) => RailCloses ? Addresses.Talk(botId) : Addresses.SideChats(botId);
 
     /// <summary>Reads the space again, after it could not be read.</summary>
     public Task Retry() => Rendered(LoadSpace());
@@ -666,6 +673,27 @@ public sealed class TalkViewModel(
     #endregion
 
     #region Private Methods
+
+    // While a rail is open, a step back closes it before it leaves the conversation.
+    private void HoldRail()
+    {
+        if (Side is SideView.Closed || RailBotId is null)
+        {
+            navigator.RemoveCloser(CloseRail);
+        }
+        else
+        {
+            navigator.AddCloser(CloseRail);
+        }
+    }
+
+    private void CloseRail()
+    {
+        if (RailBotId is { } botId)
+        {
+            navigator.ReturnTo(RailUp(botId));
+        }
+    }
 
     private void ScreenTakenOver(Takeover takeover)
     {

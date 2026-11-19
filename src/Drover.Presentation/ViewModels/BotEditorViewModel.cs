@@ -527,7 +527,17 @@ public sealed partial class BotEditorViewModel : ObservableObject
         Leaving = false;
         leaveConfirmed = true;
         Notify();
-        navigator.NavigateTo(leavingFor ?? Addresses.Bots);
+        var target = leavingFor ?? Addresses.Bots;
+
+        // Left by a step back, the app goes back, so the editor is not the next step back again.
+        if (navigator.Previous == target)
+        {
+            navigator.GoBack();
+        }
+        else
+        {
+            navigator.NavigateTo(target);
+        }
     }
 
     /// <summary>Asks the screen to read everything it shows again.</summary>

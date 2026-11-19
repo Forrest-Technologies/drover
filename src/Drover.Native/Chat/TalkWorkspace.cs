@@ -497,7 +497,7 @@ internal sealed class TalkWorkspace : Grid
         AutomationProperties.SetName(railBox, model.RailName);
         railUp.Icon = model.RailCloses ? IconName.Close : IconName.ArrowLeft;
         railUp.Label = model.RailCloses ? model.CloseRailName : model.AllSideChatsName;
-        railUp.Address = model.RailCloses ? Addresses.Talk(shown.Id) : Addresses.SideChats(shown.Id);
+        railUp.Address = model.RailUp(shown.Id);
         railBot.Text = model.Side is SideView.Work ? model.WorkName : shown.Name;
         railTitle.Text = model.SideTitle;
 
