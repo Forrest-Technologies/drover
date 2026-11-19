@@ -207,6 +207,7 @@ public sealed class MessageRepository(DroverDbContext db)
                     FROM jsonb_array_elements_text(jsonb_path_query_array(m.parts, '$[*] ? (@.type == "text").text')) AS part(text)
                 ) AS said
                 WHERE m.position IS NOT NULL
+                  AND m.shelved_at IS NULL
                   AND m.role IN ('user', 'assistant')
                   AND t.archived_at IS NULL
                   AND to_tsvector('english', said.text) @@ q.query

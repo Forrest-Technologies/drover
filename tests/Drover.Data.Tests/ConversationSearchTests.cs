@@ -78,13 +78,15 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         };
         var pending = CoreRows.NewMessage(new ChatThread { Id = said.ThreadId, AudienceUserId = world.UserA1, OwnerUserId = world.UserA1 }, 0, "An unsent pangolin.");
         pending.Position = null;
-        await Save(provider, world.SpaceA, world.UserA1, reply, pending);
+        var shelved = CoreRows.NewMessage(new ChatThread { Id = said.ThreadId, AudienceUserId = world.UserA1, OwnerUserId = world.UserA1 }, 3, "A shelved pangolin reply.");
+        shelved.ShelvedAt = DateTimeOffset.UtcNow;
+        await Save(provider, world.SpaceA, world.UserA1, reply, pending, shelved);
 
         var deploy = await Search(provider, world.SpaceA, world.UserA1, "deploy");
         var hidden = await Search(provider, world.SpaceA, world.UserA1, "pangolin");
 
         deploy.Select(hit => (hit.MessageId, hit.FromBot)).Should().BeEquivalentTo([(said.Id, false), (reply.Id, true)], "stemming matches deploying and deploy");
-        hidden.Should().BeEmpty("reasoning, tool arguments, and pending messages are not what was said");
+        hidden.Should().BeEmpty("reasoning, tool arguments, pending messages, and shelved versions are not what is currently shown");
     }
 
     [Fact]
