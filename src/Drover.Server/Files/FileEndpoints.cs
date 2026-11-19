@@ -32,6 +32,9 @@ public static class FileEndpoints
         space.MapGet("/files/{fileId:guid}", Download)
             .WithName("DownloadFile")
             .WithSummary("The file's content, for someone who can see its conversation. download=true asks for it as an attachment.");
+        space.MapPost("/files/{fileId:guid}/preview", MintPreview)
+            .WithName("MintFilePreview")
+            .WithSummary("Issues one short-lived, single-use address for an authorized HTML file on the isolated preview origin.");
         space.MapGet("/bots/{botId:guid}/files", ListExchanged)
             .AddEndpointFilter<TenantScopeFilter>()
             .WithName("ListExchangedFiles")
@@ -90,6 +93,17 @@ public static class FileEndpoints
             FileNameStar = found.File.Name,
         }.ToString();
         return TypedResults.Stream(found.Content, contentType);
+    }
+
+    private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(
+        Guid fileId,
+        HttpContext context,
+        PreviewFileService previews)
+    {
+        var access = context.GetSpaceAccess();
+        return await previews.Mint(access.SpaceId, access.UserId, fileId, context.RequestAborted) is { } response
+            ? TypedResults.Ok(response)
+            : TypedResults.NotFound();
     }
 
     private static async Task<Results<Ok<IReadOnlyList<ExchangedFileResponse>>, NotFound>> ListExchanged(Guid botId, HttpContext context, FileService files) =>
