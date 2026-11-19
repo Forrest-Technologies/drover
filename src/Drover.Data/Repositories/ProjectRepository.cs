@@ -40,10 +40,8 @@ public sealed class ProjectRepository(DroverDbContext db)
     /// conversations the caller cannot read, through an audited system function so conversations stay intact when the
     /// project is deleted.
     /// </summary>
-    public Task<int> ClearThreadsForProject(Guid projectId, CancellationToken cancellationToken) =>
-        db.Database
-            .SqlQuery<int>($"SELECT sys.clear_project_threads({projectId}) AS \"Value\"")
-            .SingleAsync(cancellationToken);
+    public Task ClearThreadsForProject(Guid projectId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync($"SELECT sys.clear_project_threads({projectId})", cancellationToken);
 
     #endregion
 }

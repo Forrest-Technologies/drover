@@ -58,31 +58,65 @@ namespace Drover.Data.Migrations
             // The application role updates threads by column. Moving a conversation into or out of a project writes project_id.
             migrationBuilder.Sql("GRANT UPDATE (project_id) ON threads TO drover_app;");
 
+            // Enforce conversation ownership for project_id changes at the database boundary: a shared thread is
+            // visible and writable to every space member, so row-level security alone cannot stop another member from
+            // moving someone else's thread between projects. sys.clear_project_threads runs as drover_system when an
+            // owner or admin removes a project.
+            migrationBuilder.Sql(
+                """
+                CREATE FUNCTION public.enforce_thread_project_owner()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                SET search_path = pg_catalog, public, pg_temp
+                AS $function$
+                BEGIN
+                  IF NEW.project_id IS DISTINCT FROM OLD.project_id AND current_user <> 'drover_system' THEN
+                    IF OLD.owner_user_id IS DISTINCT FROM sys.current_user_id() THEN
+                      RAISE EXCEPTION 'Only the thread owner may change its project membership.'
+                        USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                  END IF;
+                  RETURN NEW;
+                END;
+                $function$;
+                REVOKE ALL ON FUNCTION public.enforce_thread_project_owner() FROM PUBLIC;
+
+                CREATE TRIGGER trg_threads_project_owner
+                  BEFORE UPDATE OF project_id ON public.threads
+                  FOR EACH ROW
+                  EXECUTE FUNCTION public.enforce_thread_project_owner();
+                """);
+
             // Removing a project preserves every conversation in it, including private ones the remover cannot see, so
-            // clearing threads.project_id crosses audiences within the caller's own space through an audited sys function.
+            // clearing threads.project_id crosses audiences within the caller's own space through an audited sys
+            // function that checks owner or admin membership and returns no private row count.
             migrationBuilder.Sql("GRANT SELECT (id, space_id, project_id) ON threads TO drover_system;");
             migrationBuilder.Sql("GRANT UPDATE (project_id) ON threads TO drover_system;");
             migrationBuilder.Sql("GRANT EXECUTE ON FUNCTION sys.everyone() TO drover_system;");
             migrationBuilder.CreateSystemFunction(
                 "clear_project_threads",
                 [("target_project_id", "uuid")],
-                "integer",
+                "void",
                 """
                 #variable_conflict use_column
-                DECLARE
-                  cleared integer;
                 BEGIN
+                  IF NOT EXISTS (
+                    SELECT 1
+                    FROM public.memberships m
+                    WHERE m.space_id = sys.current_space()
+                      AND m.user_id = sys.current_user_id()
+                      AND m.role IN ('owner', 'admin')) THEN
+                    RAISE EXCEPTION 'Only space owners and admins may clear project threads.'
+                      USING ERRCODE = 'insufficient_privilege';
+                  END IF;
+
                   WITH updated AS (
                     UPDATE public.threads
                     SET project_id = NULL
                     WHERE space_id = sys.current_space() AND project_id = target_project_id
-                    RETURNING 1),
-                  logged AS (
-                    INSERT INTO sys.audit (function_name, caller, row_count)
-                    SELECT 'clear_project_threads', session_user, count(*)::integer FROM updated)
-                  SELECT count(*)::integer INTO cleared FROM updated;
-
-                  RETURN cleared;
+                    RETURNING 1)
+                  INSERT INTO sys.audit (function_name, caller, row_count)
+                  SELECT 'clear_project_threads', session_user, count(*)::integer FROM updated;
                 END;
                 """);
         }
@@ -94,6 +128,8 @@ namespace Drover.Data.Migrations
             migrationBuilder.Sql("REVOKE EXECUTE ON FUNCTION sys.everyone() FROM drover_system;");
             migrationBuilder.Sql("REVOKE UPDATE (project_id) ON threads FROM drover_system;");
             migrationBuilder.Sql("REVOKE SELECT (id, space_id, project_id) ON threads FROM drover_system;");
+            migrationBuilder.Sql("DROP TRIGGER trg_threads_project_owner ON public.threads;");
+            migrationBuilder.Sql("DROP FUNCTION public.enforce_thread_project_owner();");
             migrationBuilder.Sql("REVOKE UPDATE (project_id) ON threads FROM drover_app;");
 
             migrationBuilder.DropForeignKey(

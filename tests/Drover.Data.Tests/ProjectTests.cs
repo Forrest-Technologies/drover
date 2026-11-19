@@ -182,10 +182,7 @@ public sealed class ProjectTests(PostgresFixture postgres)
         // Space B trying to clear Space A's project touches nothing.
         await using (var asB = await TenantSession.Open(provider, world.SpaceB, world.UserB1))
         {
-            var wrongSpace = await asB.Db.Database
-                .SqlQuery<int>($"SELECT sys.clear_project_threads({projectAId}) AS \"Value\"")
-                .SingleAsync(TestContext.Current.CancellationToken);
-            wrongSpace.Should().Be(0);
+            await asB.Db.Database.ExecuteSqlAsync($"SELECT sys.clear_project_threads({projectAId})", TestContext.Current.CancellationToken);
             await asB.Commit();
         }
 
@@ -193,13 +190,9 @@ public sealed class ProjectTests(PostgresFixture postgres)
         await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
         {
             var project = await asA1.Db.Projects.SingleAsync(p => p.Id == projectAId, TestContext.Current.CancellationToken);
-            var cleared = await asA1.Db.Database
-                .SqlQuery<int>($"SELECT sys.clear_project_threads({projectAId}) AS \"Value\"")
-                .SingleAsync(TestContext.Current.CancellationToken);
+            await asA1.Db.Database.ExecuteSqlAsync($"SELECT sys.clear_project_threads({projectAId})", TestContext.Current.CancellationToken);
             asA1.Db.Projects.Remove(project);
             await asA1.Commit();
-
-            cleared.Should().Be(2);
         }
 
         await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
@@ -218,6 +211,195 @@ public sealed class ProjectTests(PostgresFixture postgres)
         {
             var untouched = await asB.Db.Threads.SingleAsync(t => t.Id == threadBId, TestContext.Current.CancellationToken);
             untouched.ProjectId.Should().Be(projectBId);
+        }
+    }
+
+    [Fact]
+    public async Task A_same_space_non_owner_cannot_change_a_shared_threads_project_at_the_database_boundary()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        Guid projectOneId;
+        Guid projectTwoId;
+        Guid sharedInProjectId;
+        Guid sharedUnassignedId;
+
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var connection = CoreRows.NewConnection();
+            var bot = CoreRows.NewBot(connection);
+            var projectOne = new Project { Name = "Project One" };
+            var projectTwo = new Project { Name = "Project Two" };
+            asA1.Db.ModelConnections.Add(connection);
+            CoreRows.AddBot(asA1.Db, bot, []);
+            asA1.Db.Projects.AddRange(projectOne, projectTwo);
+            await asA1.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var inProject = CoreRows.NewThread(bot, world.UserA1, Audience.Everyone);
+            inProject.ProjectId = projectOne.Id;
+            var unassigned = CoreRows.NewThread(bot, world.UserA1, Audience.Everyone);
+            asA1.Db.Threads.AddRange(inProject, unassigned);
+            await asA1.Commit();
+
+            projectOneId = projectOne.Id;
+            projectTwoId = projectTwo.Id;
+            sharedInProjectId = inProject.Id;
+            sharedUnassignedId = unassigned.Id;
+        }
+
+        // Another member in the same space can see and update shared columns such as model, but cannot move the owner's thread.
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var moveOther = () => asA2.Execute(
+                "UPDATE threads SET project_id = @project WHERE id = @thread",
+                ("project", projectTwoId),
+                ("thread", sharedInProjectId));
+            (await moveOther.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var clearOther = () => asA2.Execute(
+                "UPDATE threads SET project_id = NULL WHERE id = @thread",
+                ("thread", sharedInProjectId));
+            (await clearOther.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var assignOther = () => asA2.Execute(
+                "UPDATE threads SET project_id = @project WHERE id = @thread",
+                ("project", projectOneId),
+                ("thread", sharedUnassignedId));
+            (await assignOther.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var updated = await asA2.Execute(
+                "UPDATE threads SET model = 'chosen-by-member' WHERE id = @thread",
+                ("thread", sharedInProjectId));
+            updated.Should().Be(1, "other permitted column updates on shared threads still succeed");
+            await asA2.Commit();
+        }
+
+        // Even after another member's attempts, both shared threads keep their original projects; the owner can still move hers.
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var storedAssigned = await asA1.Db.Threads.SingleAsync(t => t.Id == sharedInProjectId, TestContext.Current.CancellationToken);
+            var storedUnassigned = await asA1.Db.Threads.SingleAsync(t => t.Id == sharedUnassignedId, TestContext.Current.CancellationToken);
+            storedAssigned.ProjectId.Should().Be(projectOneId);
+            storedUnassigned.ProjectId.Should().BeNull();
+
+            storedAssigned.ProjectId = projectTwoId;
+            await asA1.Commit();
+        }
+    }
+
+    [Fact]
+    public async Task A_space_member_is_refused_from_calling_clear_project_threads_and_it_returns_void()
+    {
+        await using var scratch = await postgres.CreateScratchDatabase();
+        await using var provider = scratch.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var adminUserId = Guid.CreateVersion7();
+        Guid projectAId;
+        Guid ownerThreadId;
+        Guid memberThreadId;
+
+        await using (var asNewAdmin = await TenantSession.Open(provider, world.SpaceA, adminUserId))
+        {
+            asNewAdmin.Db.Users.Add(TenantWorld.NewUser(adminUserId));
+            await asNewAdmin.Commit();
+        }
+
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            asA1.Db.Memberships.Add(new Membership { UserId = adminUserId, Role = MembershipRole.Admin });
+
+            var connection = CoreRows.NewConnection();
+            var bot = CoreRows.NewBot(connection);
+            var project = new Project { Name = "Guarded Project" };
+            asA1.Db.ModelConnections.Add(connection);
+            CoreRows.AddBot(asA1.Db, bot, []);
+            asA1.Db.Projects.Add(project);
+            await asA1.Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+            var ownerThread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
+            ownerThread.ProjectId = project.Id;
+            asA1.Db.Threads.Add(ownerThread);
+            await asA1.Commit();
+
+            projectAId = project.Id;
+            ownerThreadId = ownerThread.Id;
+
+            await using var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2);
+            var memberThread = CoreRows.NewThread(bot, world.UserA2, world.UserA2);
+            memberThread.ProjectId = project.Id;
+            asA2.Db.Threads.Add(memberThread);
+            await asA2.Commit();
+            memberThreadId = memberThread.Id;
+        }
+
+        // The function signature returns void so callers learn no private thread count.
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var resultType = await asA1.Db.Database
+                .SqlQueryRaw<string>(
+                    "SELECT pg_get_function_result(p.oid) AS \"Value\" FROM pg_proc p WHERE p.pronamespace = 'sys'::regnamespace AND p.proname = 'clear_project_threads'")
+                .SingleAsync(TestContext.Current.CancellationToken);
+            resultType.Should().Be("void");
+        }
+
+        // A regular member in the same space cannot invoke clear_project_threads.
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var callAsMember = () => asA2.Execute(
+                "SELECT sys.clear_project_threads(@project)",
+                ("project", projectAId));
+            (await callAsMember.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        // A connection with no tenant context is also refused.
+        await using (var unauthenticated = await TenantSession.Open(provider, spaceId: null, userId: null))
+        {
+            var callWithoutTenant = () => unauthenticated.Execute(
+                "SELECT sys.clear_project_threads(@project)",
+                ("project", projectAId));
+            (await callWithoutTenant.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        // Both private threads keep their project link after member refusal.
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            (await asA1.Db.Threads.SingleAsync(t => t.Id == ownerThreadId, TestContext.Current.CancellationToken)).ProjectId.Should().Be(projectAId);
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            (await asA2.Db.Threads.SingleAsync(t => t.Id == memberThreadId, TestContext.Current.CancellationToken)).ProjectId.Should().Be(projectAId);
+        }
+
+        // A space admin is authorized to clear project threads across audiences.
+        await using (var asAdmin = await TenantSession.Open(provider, world.SpaceA, adminUserId))
+        {
+            await asAdmin.Db.Database.ExecuteSqlAsync($"SELECT sys.clear_project_threads({projectAId})", TestContext.Current.CancellationToken);
+            await asAdmin.Commit();
+        }
+
+        await using (var asA1 = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            (await asA1.Db.Threads.SingleAsync(t => t.Id == ownerThreadId, TestContext.Current.CancellationToken)).ProjectId.Should().BeNull();
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            (await asA2.Db.Threads.SingleAsync(t => t.Id == memberThreadId, TestContext.Current.CancellationToken)).ProjectId.Should().BeNull();
         }
     }
 
