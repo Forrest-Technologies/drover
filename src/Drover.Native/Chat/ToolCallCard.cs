@@ -13,8 +13,8 @@ public sealed class ToolCallCard : Grid
 
     private readonly Batch batch;
 
-    // The card that opens.
-    private readonly StackPanel card = new();
+    // The card that opens. Neither form shows before the card has drawn what it was given.
+    private readonly StackPanel card = new() { Visibility = Visibility.Collapsed };
 
     private readonly Disclosure section = new() { TitleWeight = "DvWeightLabel", SummaryWraps = false };
 
@@ -39,7 +39,7 @@ public sealed class ToolCallCard : Grid
     private readonly StatusNote forgetProblem = new() { Kind = NoteKind.Danger };
 
     // The question, for a call that waits for a person.
-    private readonly Facet ask = new();
+    private readonly Facet ask = new() { Visibility = Visibility.Collapsed };
 
     private readonly TextBlock askTitle = Styles.Text(null);
 
@@ -47,9 +47,9 @@ public sealed class ToolCallCard : Grid
 
     private readonly ContentPresenter askDetails = new();
 
-    private readonly Button approve = new() { Kind = ButtonKind.Primary, Content = ToolCallCardViewModel.Approve };
+    private readonly Button approve = new() { Kind = ButtonKind.Primary, Content = ToolCallCardViewModel.Approve, IsEnabled = false };
 
-    private readonly Button deny = new() { Content = ToolCallCardViewModel.Deny };
+    private readonly Button deny = new() { Content = ToolCallCardViewModel.Deny, IsEnabled = false };
 
     private readonly StatusNote problem = new() { Kind = NoteKind.Danger };
 
@@ -130,6 +130,17 @@ public sealed class ToolCallCard : Grid
     {
         get => (string?)GetValue(MemoryHrefProperty);
         set => SetValue(MemoryHrefProperty, value);
+    }
+
+    #endregion
+
+    #region Layout
+
+    // The card is drawn from the call it was given before it is first measured, so it never shows as an empty frame.
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        batch.DrawIfWaiting();
+        return base.MeasureOverride(availableSize);
     }
 
     #endregion
@@ -244,7 +255,8 @@ public sealed class ToolCallCard : Grid
         AutomationProperties.SetFullDescription(approve, model.AskTitle);
         AutomationProperties.SetName(deny, ToolCallCardViewModel.Deny);
         AutomationProperties.SetFullDescription(deny, model.AskTitle);
-        approve.IsEnabled = deny.IsEnabled = !model.Deciding;
+        // The answers are offered only once the question says what they answer.
+        approve.IsEnabled = deny.IsEnabled = model.CanAnswer;
         problem.Text = model.Problem;
     }
 
