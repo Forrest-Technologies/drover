@@ -9,7 +9,8 @@ namespace Drover.Native.Platform;
 /// <remarks>
 /// Any program on this computer can reach the listener. The ticket means something only to the server, and only for
 /// the signed-in person who started the sign-in, so nothing here trusts it beyond its shape. The listener reads no
-/// more than a request line and headers, answers with a page that loads nothing, and closes the connection.
+/// more than a request line and headers, answers with a page that loads nothing, and closes the connection. It holds
+/// only a few of those reads at once. A further connection is refused at once, so it cannot pin a socket and a timer.
 /// </remarks>
 internal sealed class DesktopSignInReturn : IDisposable
 {
@@ -23,9 +24,15 @@ internal sealed class DesktopSignInReturn : IDisposable
 
     private const int MostRequestBytes = 8192;
 
+    /// <summary>How many incomplete requests are read at once. The next connection is refused.</summary>
+    internal const int MostCallers = 4;
+
     private static readonly TimeSpan readPatience = TimeSpan.FromSeconds(10);
 
     private static readonly byte[] headersEnd = "\r\n\r\n"u8.ToArray();
+
+    private static readonly byte[] overloaded =
+        "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n"u8.ToArray();
 
     private readonly TcpListener listener;
 
@@ -34,6 +41,8 @@ internal sealed class DesktopSignInReturn : IDisposable
     private readonly ILogger logger;
 
     private readonly CancellationTokenSource stopping = new();
+
+    private readonly SemaphoreSlim callers = new(MostCallers, MostCallers);
 
     #endregion
 
@@ -96,6 +105,7 @@ internal sealed class DesktopSignInReturn : IDisposable
         listener.Stop();
         listener.Dispose();
         stopping.Dispose();
+        callers.Dispose();
     }
 
     #endregion
@@ -119,31 +129,89 @@ internal sealed class DesktopSignInReturn : IDisposable
                 return;
             }
 
+            var room = false;
+
+            try
+            {
+                room = await callers.WaitAsync(TimeSpan.Zero);
+            }
+            catch (ObjectDisposedException disposed)
+            {
+                caller.Dispose();
+                logger.LogInformation("The desktop sign-in listener stopped while accepting: {Failure}", disposed.GetType().Name);
+                return;
+            }
+
+            if (!room)
+            {
+                Refuse(caller);
+                continue;
+            }
+
             _ = Answer(caller);
         }
     }
 
     private async Task Answer(TcpClient caller)
     {
+        try
+        {
+            using var connection = caller;
+            using var patience = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+            patience.CancelAfter(readPatience);
+
+            try
+            {
+                var stream = connection.GetStream();
+                var ticket = TicketIn(await ReadRequestLine(stream, patience.Token));
+
+                if (ticket is not null)
+                {
+                    arrived(ticket);
+                }
+
+                await stream.WriteAsync(Reply(ticket is not null), patience.Token);
+            }
+            catch (Exception failure) when (failure is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+            {
+                logger.LogInformation("A request to the desktop sign-in listener ended early: {Failure}", failure.GetType().Name);
+            }
+        }
+        finally
+        {
+            try
+            {
+                callers.Release();
+            }
+            catch (ObjectDisposedException disposed)
+            {
+                logger.LogInformation("The desktop sign-in listener closed while a request finished: {Failure}", disposed.GetType().Name);
+            }
+        }
+    }
+
+    // A connection past the limit is not read. The reply is short so this does not sit on the accept loop.
+    private void Refuse(TcpClient caller)
+    {
         using var connection = caller;
-        using var patience = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
-        patience.CancelAfter(readPatience);
 
         try
         {
-            var stream = connection.GetStream();
-            var ticket = TicketIn(await ReadRequestLine(stream, patience.Token));
+            connection.NoDelay = true;
+            connection.Client.SendTimeout = 200;
+            var sent = 0;
 
-            if (ticket is not null)
+            while (sent < overloaded.Length)
             {
-                arrived(ticket);
+                sent += connection.Client.Send(overloaded, sent, overloaded.Length - sent, SocketFlags.None);
             }
 
-            await stream.WriteAsync(Reply(ticket is not null), patience.Token);
+            connection.Client.Shutdown(SocketShutdown.Send);
+            logger.LogInformation("The desktop sign-in listener refused a connection because it was already busy");
         }
-        catch (Exception failure) when (failure is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+        catch (Exception failure) when (failure is SocketException or IOException or ObjectDisposedException)
         {
-            logger.LogInformation("A request to the desktop sign-in listener ended early: {Failure}", failure.GetType().Name);
+            logger.LogInformation("A refused desktop sign-in connection closed early: {Failure}", failure.GetType().Name);
         }
     }
 

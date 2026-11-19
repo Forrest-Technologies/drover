@@ -60,6 +60,46 @@ public sealed class DesktopSignInReturnTests
     }
 
     [Fact]
+    public async Task A_connection_past_the_limit_is_refused_and_a_later_ticket_still_arrives()
+    {
+        var handed = new List<string>();
+        using var listener = DesktopSignInReturn.Open(handed.Add, NullLogger<DesktopSignInReturn>.Instance);
+        var port = new Uri(listener.Address).Port;
+        var callers = new TcpClient[DesktopSignInReturn.MostCallers + 1];
+
+        for (var index = 0; index < callers.Length; index++)
+        {
+            callers[index] = new TcpClient();
+            await callers[index].ConnectAsync(IPAddress.Loopback, port, TestContext.Current.CancellationToken);
+        }
+
+        var answers = await Task.WhenAll(callers.Select(ReadOrGiveUp));
+
+        try
+        {
+            answers.Count(answer => answer.StartsWith("HTTP/1.1 503 Service Unavailable\r\n", StringComparison.Ordinal)).Should().Be(1);
+            handed.Should().BeEmpty();
+        }
+        finally
+        {
+            foreach (var caller in callers)
+            {
+                caller.Dispose();
+            }
+        }
+
+        var returned = string.Empty;
+
+        for (var attempt = 0; attempt < 20 && !returned.StartsWith("HTTP/1.1 200 OK\r\n", StringComparison.Ordinal); attempt++)
+        {
+            returned = await Visit(listener, $"/tool-sign-in?ticket={ticket}");
+        }
+
+        returned.Should().StartWith("HTTP/1.1 200 OK\r\n");
+        handed.Should().ContainSingle().Which.Should().Be(ticket);
+    }
+
+    [Fact]
     public void After_the_app_closes_nothing_listens()
     {
         var listener = DesktopSignInReturn.Open(_ => { }, NullLogger<DesktopSignInReturn>.Instance);
@@ -78,6 +118,31 @@ public sealed class DesktopSignInReturnTests
     #endregion
 
     #region Private Methods
+
+    /// <summary>The first bytes a held or refused connection sends, or empty when nothing arrives within two seconds.</summary>
+    private static async Task<string> ReadOrGiveUp(TcpClient caller)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, TestContext.Current.CancellationToken);
+        var buffer = new byte[256];
+
+        try
+        {
+            var read = await caller.GetStream().ReadAsync(buffer.AsMemory(), linked.Token);
+            return Encoding.ASCII.GetString(buffer, 0, read);
+        }
+        catch (OperationCanceledException cancelled) when (timeout.IsCancellationRequested)
+        {
+            return NothingArrived(cancelled);
+        }
+        catch (IOException failure)
+        {
+            return NothingArrived(failure);
+        }
+    }
+
+    private static string NothingArrived(Exception failure) =>
+        failure is OperationCanceledException or IOException ? string.Empty : throw failure;
 
     /// <summary>What a browser sends to the listener and reads back, until the listener closes the connection.</summary>
     private static async Task<string> Visit(DesktopSignInReturn listener, string path)
