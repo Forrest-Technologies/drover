@@ -52,7 +52,7 @@ public sealed class UsagePage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         model.PeriodInAddress = route.QueryValue("period");
         model.Bot = Guid.TryParse(route.QueryValue("bot"), out var bot) ? bot : null;

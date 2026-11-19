@@ -35,8 +35,7 @@ public abstract class Screen : Page
             return false;
         }
 
-        Route = route;
-        Opened(route);
+        Open(route);
         return true;
     }
 
@@ -53,9 +52,18 @@ public abstract class Screen : Page
     protected static T Make<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() =>
         ActivatorUtilities.CreateInstance<T>(((App)Application.Current).Services);
 
-    /// <summary>Runs when the screen is shown at an address: the place to read parameters and load what it shows.</summary>
-    protected virtual void Opened(RouteMatch<Type> route)
+    /// <summary>
+    /// Runs when the screen is shown at an address: the place to read parameters and load what it shows. A request
+    /// that fails on the way is caught, and the screen's gate says the server did not answer.
+    /// </summary>
+    protected virtual Task Opened(RouteMatch<Type> route) => Task.CompletedTask;
+
+    // The platform calls a screen without waiting for it, so a failure that escaped from here would close the app.
+    private async void Open(RouteMatch<Type> route)
     {
+        Route = route;
+        var session = ((App)Application.Current).Services.GetRequiredService<SessionState>();
+        await session.OpenScreen(() => Opened(route), Log.Factory.CreateLogger(GetType()));
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -63,8 +71,7 @@ public abstract class Screen : Page
         base.OnNavigatedTo(e);
         if (e.Parameter is RouteMatch<Type> route)
         {
-            Route = route;
-            Opened(route);
+            Open(route);
         }
     }
 
