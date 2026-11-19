@@ -27,6 +27,17 @@ public static class OutboundHttp
         return request;
     }
 
+    /// <summary>
+    /// States that this request goes to an address the operator configured for the whole server, such as its search
+    /// service, so it may reach a private address whenever the deployment allows private addresses. Never for an
+    /// address a space, a person, or a bot supplied: those carry the space's value with <see cref="ForSpace"/>.
+    /// </summary>
+    public static HttpRequestMessage ForOperatorAddress(this HttpRequestMessage request)
+    {
+        request.Options.Set(allowPrivateAddresses, true);
+        return request;
+    }
+
     public static HttpMessageHandler CreateHandler(DeploymentPolicy policy) =>
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains);
 
