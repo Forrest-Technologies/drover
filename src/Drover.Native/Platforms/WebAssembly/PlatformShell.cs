@@ -22,6 +22,9 @@ internal static class PlatformShell
     // True while the app follows the browser, which has already moved.
     private static bool arriving;
 
+    // True after the shell moved the browser's history itself, until the browser says it arrived.
+    private static bool stepping;
+
     #endregion
 
     #region Public Methods
@@ -97,9 +100,10 @@ internal static class PlatformShell
     }
 
     // The app took a step through its history itself, so the browser takes the same step. Its popstate then arrives
-    // where the app already is, which changes nothing.
+    // where the app already is, and is let pass.
     private static void StepBrowser(Navigator navigator)
     {
+        stepping = true;
         if (navigator.Next == shown)
         {
             Browser.GoBack();
@@ -112,6 +116,12 @@ internal static class PlatformShell
 
     private static void Arrive(Navigator navigator)
     {
+        if (stepping)
+        {
+            stepping = false;
+            return;
+        }
+
         var address = InApp(Browser.Address);
         arriving = true;
         try
@@ -130,15 +140,17 @@ internal static class PlatformShell
         PutAddressBack(navigator, address);
     }
 
-    // The app stayed, so the browser goes back to the entry the app is at. Its popstate arrives where the app already is.
+    // The app stayed, so the browser goes back to the entry the app is at. Its popstate is let pass.
     private static void PutAddressBack(Navigator navigator, string address)
     {
         if (address == navigator.Previous)
         {
+            stepping = true;
             Browser.GoForward();
         }
         else if (address == navigator.Next)
         {
+            stepping = true;
             Browser.GoBack();
         }
         else

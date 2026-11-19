@@ -176,14 +176,15 @@ public sealed class NavigatorTests
     }
 
     [Fact]
-    public void Arriving_where_the_app_already_is_changes_nothing_and_asks_nothing()
+    public void Arriving_where_the_app_already_is_shows_it_again_without_asking()
     {
         navigator.NavigateTo(Addresses.Bots);
         navigator.Leaving = _ => throw new InvalidOperationException("Nothing should be asked.");
 
         navigator.Arrive(Addresses.Bots).Should().BeTrue();
 
-        heard.Should().ContainSingle();
+        navigator.Current.Should().Be(Addresses.Bots);
+        heard.Should().Equal((Addresses.Bots, NavigationKind.Push), (Addresses.Bots, NavigationKind.Travel));
     }
 
     [Fact]

@@ -160,13 +160,14 @@ public sealed class Navigator
     /// The browser moved through its own history to an address. The app follows the same way it takes any step: a step
     /// back to the entry before goes through <see cref="StepBack"/>, so what is open closes first and a screen holding
     /// work asks first. Any other address goes through <see cref="Leaving"/>, to the entry after when it is there and
-    /// otherwise taken as where the app now is. Returns false when the app stayed, so the browser's address must be put
-    /// back to <see cref="Current"/>.
+    /// otherwise taken as where the app now is. The address the app is already at is shown again without asking.
+    /// Returns false when the app stayed, so the browser's address must be put back to <see cref="Current"/>.
     /// </summary>
     public bool Arrive(string address)
     {
         if (address == Current)
         {
+            Announce(address, NavigationKind.Travel);
             return true;
         }
 
