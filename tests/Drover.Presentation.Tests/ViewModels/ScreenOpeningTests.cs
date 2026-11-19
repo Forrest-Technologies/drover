@@ -39,9 +39,9 @@ public sealed class ScreenOpeningTests : ViewModelTest
         var tools = Make<ToolConnectionsViewModel>();
         var gate = Watched();
         var reopened = Task.CompletedTask;
-        Navigator.Navigated += (_, _) => reopened = Session.OpenScreen(() => tools.Open(), NullLogger.Instance);
+        Navigator.Navigated += (_, _) => reopened = ScreenOpen.At(Session, () => tools.Open(), NullLogger.Instance);
         Server.Unreachable = true;
-        await Session.OpenScreen(() => tools.Open(), NullLogger.Instance);
+        await ScreenOpen.At(Session, () => tools.Open(), NullLogger.Instance);
         await gate.Check();
         gate.State.Should().Be(GateState.Unreachable);
 
@@ -62,20 +62,42 @@ public sealed class ScreenOpeningTests : ViewModelTest
     {
         SignedIn();
         await Session.Load(TestContext.Current.CancellationToken);
-        await Session.OpenScreen(() => Task.FromException(new HttpRequestException("Sample refusal.")), NullLogger.Instance);
+        await ScreenOpen.At(
+            Session,
+            () => Task.FromException(new HttpRequestException("Sample refusal.")),
+            NullLogger.Instance);
         var gate = Watched();
 
         await gate.Check();
 
-        gate.State.Should().Be(GateState.Unreachable, "a known session does not mean the screen behind the gate loaded");
+        gate.State.Should().Be(
+            GateState.Unreachable,
+            "a known session does not mean the screen behind the gate loaded");
+    }
+
+    [Fact]
+    public void A_native_screen_opens_through_the_same_call_these_tests_use()
+    {
+        var screen = Repository.NativeFiles(".cs").Single(file => file.Path == "Shell/Screen.cs").Text;
+        var opened = screen.IndexOf("void OnNavigatedTo", StringComparison.Ordinal);
+        var open = screen.IndexOf("void Open(", StringComparison.Ordinal);
+
+        opened.Should().BeGreaterThan(-1);
+        open.Should().BeGreaterThan(-1);
+        screen[opened..].Should().Contain("Open(route)");
+        screen[open..opened].Should().Contain("ScreenOpen.At");
     }
 
     [Fact]
     public async Task Opening_a_screen_lets_a_failure_that_is_not_the_servers_escape()
     {
-        var opening = () => Session.OpenScreen(() => throw new InvalidOperationException("Sample fault."), NullLogger.Instance);
+        var opening = () => ScreenOpen.At(
+            Session,
+            () => throw new InvalidOperationException("Sample fault."),
+            NullLogger.Instance);
 
-        await opening.Should().ThrowAsync<InvalidOperationException>("a fault in the app is a bug to see, not a server to blame");
+        await opening.Should().ThrowAsync<InvalidOperationException>(
+            "a fault in the app is a bug to see, not a server to blame");
         Session.Unreachable.Should().BeFalse();
     }
 
@@ -95,9 +117,10 @@ public sealed class ScreenOpeningTests : ViewModelTest
         Server.Unreachable = true;
         var gate = Watched();
 
-        var opening = () => Session.OpenScreen(open, NullLogger.Instance);
+        var opening = () => ScreenOpen.At(Session, open, NullLogger.Instance);
 
         await opening.Should().NotThrowAsync();
+        await gate.Check();
         gate.State.Should().Be(GateState.Unreachable);
         Session.Unreachable.Should().BeTrue();
     }
