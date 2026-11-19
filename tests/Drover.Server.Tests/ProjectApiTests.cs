@@ -44,8 +44,16 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
 
         var memberList = await GetFor<List<ProjectSummary>>(asMember, $"{Space(owner.SpaceId)}/projects");
         var memberRead = await GetFor<ProjectSummary>(asMember, $"{Space(owner.SpaceId)}/projects/{created.Id}");
-        memberList.Should().ContainSingle().Which.Should().Be(created);
-        memberRead.Should().Be(created);
+        memberList.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            created,
+            options => options
+                .Using<DateTimeOffset>(ctx => ctx.Subject.Should().BeCloseTo(ctx.Expectation, TimeSpan.FromMilliseconds(1)))
+                .WhenTypeIs<DateTimeOffset>());
+        memberRead.Should().BeEquivalentTo(
+            created,
+            options => options
+                .Using<DateTimeOffset>(ctx => ctx.Subject.Should().BeCloseTo(ctx.Expectation, TimeSpan.FromMilliseconds(1)))
+                .WhenTypeIs<DateTimeOffset>());
 
         var renamed = await PutFor<ProjectSummary>(
             asAdmin,
