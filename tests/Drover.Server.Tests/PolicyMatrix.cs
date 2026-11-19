@@ -45,6 +45,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.MaxFileBytes), "26214400", "10485760"),
         new(nameof(DeploymentPolicy.MaxFilesPerMessage), "10", "5"),
         new(nameof(DeploymentPolicy.MaxSpaceFileMegabytes), "10240", "1024"),
+        new(nameof(DeploymentPolicy.MaxDocumentPages), "500", "100"),
         new(nameof(DeploymentPolicy.MaxDelegationDepth), "5", "5"),
         new(nameof(DeploymentPolicy.MaxRunsPerDelegationTree), "50", "50"),
         new(nameof(DeploymentPolicy.MaxDelegationTreeCostCents), "10000", "1000"),

@@ -3,7 +3,9 @@ namespace Drover.Contracts.Files;
 /// <summary>
 /// A stored file, as the server found it. <see cref="Kind"/> is <c>image</c>, <c>text</c>, or <c>other</c>, decided
 /// from the bytes. A picture has <see cref="Width"/> and <see cref="Height"/>; text has its first lines in
-/// <see cref="Preview"/>. <see cref="Caption"/> is the line a bot wrote under a file it shared into a conversation.
+/// <see cref="Preview"/>. <see cref="Caption"/> is the line shown under a file: what a bot wrote under a file it
+/// shared into a conversation, or, under a PDF or office document a person attached (kind <c>other</c>), the
+/// server's note that a bot reads less than all of it.
 /// </summary>
 public sealed record FileResponse(
     Guid Id,

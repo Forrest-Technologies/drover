@@ -72,7 +72,7 @@ public static class RunViews
 
     /// <summary>A stored file as the API shows it.</summary>
     public static FileResponse ToResponse(this StoredFile file) =>
-        new(file.Id, file.Name, file.ContentType, KindName(file.ContentType), file.Size, file.Width, file.Height, file.Preview);
+        new(file.Id, file.Name, file.ContentType, KindName(file.ContentType), file.Size, file.Width, file.Height, file.Preview, file.ReadingNote);
 
     /// <summary>A file a person and a bot exchanged, as the API shows it.</summary>
     public static ExchangedFileResponse ToResponse(this ExchangedFile exchanged) =>

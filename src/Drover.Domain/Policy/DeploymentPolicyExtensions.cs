@@ -88,6 +88,7 @@ public static class DeploymentPolicyExtensions
             MaxFileBytes = DeploymentPolicy.HostedMaxFileBytes,
             MaxFilesPerMessage = DeploymentPolicy.HostedMaxFilesPerMessage,
             MaxSpaceFileMegabytes = DeploymentPolicy.HostedMaxSpaceFileMegabytes,
+            MaxDocumentPages = DeploymentPolicy.HostedMaxDocumentPages,
         };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
