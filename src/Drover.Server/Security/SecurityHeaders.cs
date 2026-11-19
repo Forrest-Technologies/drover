@@ -32,6 +32,11 @@ public static class SecurityHeaders
     public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app) =>
         app.Use(async (context, next) =>
         {
+            if (await PreviewFileEndpoints.TryServe(context))
+            {
+                return;
+            }
+
             context.Response.OnStarting(() =>
             {
                 var headers = context.Response.Headers;
