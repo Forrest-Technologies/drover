@@ -53,6 +53,10 @@ jobs:
           dotnet build tests/Drover.Native.UITests -c Release -warnaserror
           dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
             -p:DroverUiChecks=true -p:ApplicationDisplayVersion=checks -warnaserror -o "$RUNNER_TEMP/ui-checks-android"
+      - name: Build the Android unreachable-open check
+        run: |
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
+            -p:DroverUnreachableCheck=true -warnaserror -o "$RUNNER_TEMP/unreachable-android"
 
       - name: Check Android address editing, safe-area layout, and the shared screen checks
         timeout-minutes: 20
@@ -89,6 +93,8 @@ jobs:
           fi
           adb -s "${serial}" install -r "$RUNNER_TEMP"/ui-checks-android/*-Signed.apk
           DROVER_ANDROID_SERIAL="${serial}" dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- android
+          adb install -r "$RUNNER_TEMP"/unreachable-android/*-Signed.apk
+          DROVER_UNREACHABLE_OPEN_ONLY=1 python3 scripts/check-native-android-text-editing.py
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

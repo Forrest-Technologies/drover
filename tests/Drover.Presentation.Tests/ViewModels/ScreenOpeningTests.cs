@@ -88,6 +88,29 @@ public sealed class ScreenOpeningTests : ViewModelTest
         Session.Unreachable.Should().BeFalse();
     }
 
+    [Fact]
+    public void The_unreachable_open_check_is_compiled_only_for_its_own_build()
+    {
+        var root = Repository.Root;
+        var project = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "Drover.Native.csproj"));
+        var activity = File.ReadAllText(Path.Combine(
+            root, "src", "Drover.Native", "Platforms", "Android", "MainActivity.cs"));
+        var app = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "App.xaml.cs"));
+        var screen = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "Shell", "Screen.cs"));
+        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "native.yml"));
+
+        project.Should().Contain("DroverUnreachableCheck)' == 'true'");
+        project.Should().Contain("""<Compile Remove="Shell/UnreachableOpenCheck.cs" />""");
+        activity.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
+        activity.Should().Contain("drover.unreachable_open");
+        app.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
+        screen.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
+        workflow.Should().Contain(
+            "net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror");
+        workflow.Should().Contain("DroverUnreachableCheck=true -warnaserror -o \"$RUNNER_TEMP/unreachable-android\"");
+        workflow.Should().Contain("-c Release -p:DroverUnreachableCheck=true -warnaserror");
+    }
+
     #endregion
 
     #region Private Methods

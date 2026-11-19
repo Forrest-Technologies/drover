@@ -87,10 +87,12 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 
     protected override void OnCreate(Bundle? bundle)
     {
+#if DROVER_UNREACHABLE_CHECK
         if (Intent?.GetBooleanExtra("drover.unreachable_open", false) == true)
         {
             UnreachableOpenCheck.Arm();
         }
+#endif
 
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);

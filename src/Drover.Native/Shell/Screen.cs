@@ -69,7 +69,9 @@ public abstract class Screen : Page
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+#if DROVER_UNREACHABLE_CHECK
         UnreachableOpenCheck.Seen(GetType());
+#endif
         if (e.Parameter is RouteMatch<Type> route)
         {
             Open(route);

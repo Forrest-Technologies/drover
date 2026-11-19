@@ -28,6 +28,8 @@ internal static class UnreachableOpenCheck
 
     private static DateTimeOffset deadline;
 
+    private const int PollMilliseconds = 200;
+
     private static int finished;
 
     private static Window? window;
@@ -64,8 +66,13 @@ internal static class UnreachableOpenCheck
         }
 
         prepared = true;
+#if DROVER_BROWSER
+        // A browser has no device shell and no saved server. This check runs on desktop and Android.
+        _ = services;
+#else
         services.GetRequiredService<ServerAddress>().Use(new Uri("https://127.0.0.1/"));
         PlatformShell.Incoming.Open(steps[0].Address);
+#endif
     }
 
     /// <summary>
@@ -108,7 +115,7 @@ internal static class UnreachableOpenCheck
         while (Volatile.Read(ref finished) == 0 && DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(90))
         {
             window?.DispatcherQueue.TryEnqueue(Look);
-            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            await Task.Delay(TimeSpan.FromMilliseconds(PollMilliseconds));
         }
 
         if (Volatile.Read(ref finished) == 0)

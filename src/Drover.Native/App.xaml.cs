@@ -68,7 +68,9 @@ public partial class App : Application
     {
         var before = services;
         services = AppServices.Build();
+#if DROVER_UNREACHABLE_CHECK
         UnreachableOpenCheck.Prepare(services);
+#endif
         before?.Dispose();
 
         var window = MainWindow ?? throw new InvalidOperationException("The app has no window yet.");
@@ -94,7 +96,9 @@ public partial class App : Application
     {
         try
         {
+#if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.ArmFromEnvironment();
+#endif
             PlatformShell.ReadDevice();
             MainWindow = new Window { Title = "Drover" };
             MainWindow.Activated += (_, activated) =>
@@ -109,7 +113,9 @@ public partial class App : Application
 #endif
 
             Restart();
+#if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.Start(MainWindow);
+#endif
             MainWindow.Activate();
             ActivatorUtilities.CreateInstance<AboutViewModel>(Services).OfferAfterFailure(PlatformFiles.SaveLog);
             StartChecks(MainWindow);
