@@ -12,7 +12,7 @@ public sealed class DesktopUpdateTests
         var settings = new MemorySettings();
         var session = new SessionState(server.CreateApi());
         var theme = new ThemeModel(settings, NullLogger<ThemeModel>.Instance);
-        var updates = new MemoryDesktopUpdates(new(true, true, DesktopUpdatePhase.Available, "1.2.3"));
+        var updates = new MemoryDesktopUpdates(new(true, true, DesktopUpdatePhase.Available, "1.2.3"), settings);
         using var menu = new AccountMenuViewModel(
             session,
             theme,
@@ -29,6 +29,7 @@ public sealed class DesktopUpdateTests
         menu.SetUpdateChecks(false);
         menu.UpdateChecksEnabled.Should().BeFalse();
         menu.UpdatesDetail.Should().Be("This installation does not check for updates.");
+        settings.Values[DesktopUpdateChecks.SettingName].Should().Be("off");
 
         await menu.CheckUpdates();
         await menu.InstallUpdate();
@@ -118,12 +119,13 @@ public sealed class DesktopUpdateTests
         var package = Encoding.UTF8.GetBytes($"sample desktop package{host}");
         var signature = Sign(package, privateKey);
         var link = "https://github.com/Forrest-Technologies/drover/releases/download/v1.2.3/drover-linux.deb";
+        var checkedFile = Path.Combine(Path.GetTempPath(), $"drover-checked-{hostName}.deb");
         var decision = UpdatePackageTrust.Decide(
             publicKey,
             signature,
             package,
             host,
-            link,
+            checkedFile,
             new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "1.2.3"));
 
         decision.StartInstaller.Should().Be(starts);
@@ -134,7 +136,12 @@ public sealed class DesktopUpdateTests
         else
         {
             decision.State.Phase.Should().Be(DesktopUpdatePhase.Manual);
-            decision.State.DownloadLink.Should().Be(link);
+            decision.State.VerifiedPackage.Should().Be(checkedFile);
+            var updates = new MemoryDesktopUpdates(decision.State);
+            using var menu = Menu(updates);
+            menu.UpdatesDetail.Should().Be(
+                $"The package signature is valid. Install the checked file at {checkedFile}. Drover does not open a privileged installer on this system.");
+            menu.UpdatesDetail.Should().NotContain(link);
         }
 
         package[^1] ^= 1;
@@ -210,7 +217,7 @@ public sealed class DesktopUpdateTests
         {
             var path = await UpdatePackageTrust.Download(updater, item, TimeSpan.FromSeconds(20));
             var package = await File.ReadAllBytesAsync(path);
-            var decision = UpdatePackageTrust.Decide(publicKey, item.DownloadSignature, package, UpdateHost.Windows, item.DownloadLink, new(true, true));
+            var decision = UpdatePackageTrust.Decide(publicKey, item.DownloadSignature, package, UpdateHost.Windows, path, new(true, true));
             if (decision.StartInstaller)
             {
                 started = true;
@@ -251,8 +258,34 @@ public sealed class DesktopUpdateTests
 
         var result = await updater.CheckForUpdatesQuietly(ignoreSkippedVersions: true);
         result.Status.Should().Be(UpdateStatus.UpdateAvailable);
-        result.Updates.Should().ContainSingle().Which.Version.Should().Be("2.0.0-preview.2");
+        var item = result.Updates.Should().ContainSingle().Subject;
+        item.Version.Should().Be("2.0.0-preview.2");
+        var path = await UpdatePackageTrust.Download(updater, item, TimeSpan.FromSeconds(20));
+        (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).Should().Equal(package);
         updater.RelaunchAfterUpdate.Should().BeTrue();
+
+        foreach (var host in new[] { UpdateHost.Windows, UpdateHost.Mac, UpdateHost.Linux })
+        {
+            var decision = UpdatePackageTrust.Decide(
+                publicKey,
+                item.DownloadSignature,
+                package,
+                host,
+                path,
+                new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, item.Version));
+            if (UpdatePackageTrust.StartsPrivilegedInstaller(host))
+            {
+                decision.StartInstaller.Should().BeTrue();
+                decision.State.Phase.Should().Be(DesktopUpdatePhase.Installing);
+            }
+            else
+            {
+                decision.StartInstaller.Should().BeFalse();
+                decision.State.VerifiedPackage.Should().Be(path);
+                decision.State.Phase.Should().Be(DesktopUpdatePhase.Manual);
+            }
+        }
+
         Directory.Delete(directory, true);
     }
 
@@ -261,6 +294,15 @@ public sealed class DesktopUpdateTests
     [InlineData("1.2.3-preview.4", "preview")]
     public void An_installed_version_keeps_its_release_channel(string version, string channel) =>
         DesktopUpdateChannel.FromVersion(version).Should().Be(channel);
+
+    [Theory]
+    [InlineData("1.2.0", "1.1.0", true)]
+    [InlineData("1.2.0-preview.2", "1.2.0-preview.1", true)]
+    [InlineData("1.2.0-preview.1", "1.2.0", false)]
+    [InlineData("1.2.0", "1.2.0", false)]
+    [InlineData(null, "1.0.0", false)]
+    public void An_older_signed_feed_is_refused_after_a_newer_one_was_verified(string? seen, string offered, bool older) =>
+        UpdatePackageTrust.IsOlderThanSeen(seen, offered).Should().Be(older);
 
     [Theory]
     [InlineData("1.2.3", "1.2.4")]

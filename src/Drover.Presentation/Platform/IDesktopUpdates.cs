@@ -7,7 +7,7 @@ public sealed record DesktopUpdateState(
     DesktopUpdatePhase Phase = DesktopUpdatePhase.Idle,
     string? Version = null,
     string? Problem = null,
-    string? DownloadLink = null);
+    string? VerifiedPackage = null);
 
 
 public enum DesktopUpdatePhase

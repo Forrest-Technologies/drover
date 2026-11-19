@@ -29,6 +29,24 @@ internal static class UpdatePackageTrust
 
     public const string SignatureProblem = "The downloaded update did not have a valid signature.";
 
+    public const string FeedSettingName = "drover-update-feed";
+
+    public const string StaleProblem = "This signed feed is older than one this installation has already verified.";
+
+    /// <summary>
+    /// True when <paramref name="offered"/> is older than a signed feed this install has already verified.
+    /// A missing version is not a replay.
+    /// </summary>
+    public static bool IsOlderThanSeen(string? seen, string? offered)
+    {
+        if (string.IsNullOrWhiteSpace(seen) || string.IsNullOrWhiteSpace(offered))
+        {
+            return false;
+        }
+
+        return SemVerLike.Parse(offered).CompareTo(SemVerLike.Parse(seen)) < 0;
+    }
+
     public static UpdateHost CurrentHost => OperatingSystem.IsWindows()
         ? UpdateHost.Windows
         : OperatingSystem.IsMacOS()
@@ -150,7 +168,7 @@ internal static class UpdatePackageTrust
         string? signature,
         byte[] package,
         UpdateHost host,
-        string? downloadLink,
+        string? verifiedPackage,
         DesktopUpdateState state)
     {
         var verdict = CreateVerifier(publicKey).VerifySignature(signature ?? string.Empty, package);
@@ -164,7 +182,7 @@ internal static class UpdatePackageTrust
         if (!StartsPrivilegedInstaller(host))
         {
             return new DownloadDecision(
-                state with { Phase = DesktopUpdatePhase.Manual, Problem = null, DownloadLink = downloadLink },
+                state with { Phase = DesktopUpdatePhase.Manual, Problem = null, VerifiedPackage = verifiedPackage },
                 false);
         }
 

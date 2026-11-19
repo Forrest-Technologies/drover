@@ -8,7 +8,10 @@ If the private key is lost or exposed, treat it as public. Generate a new pair, 
 environment, and replace `UPDATE_SIGNING_PUBLIC_KEY`. Publish new installers. An older install keeps the previous
 public key and will not accept a feed signed by the new key, so it needs a new package from the release page. Announce
 that outside the update feed. A signed feed cannot tell a client to trust a key the client does not already have, and
-the feed has no expiry. Ship a newer signed release instead of trying to recall an older file.
+the feed has no expiry. Ship a newer signed release instead of trying to recall an older file. The app remembers
+the newest release version in a signed feed it has verified and refuses a later feed that offers an older version.
+A feed this install has never verified is still accepted, including one that is not the newest release published,
+because the app has no other copy of a later version. Losing the key still cannot make an already trusted feed expire.
 
 Without both values, a version release still publishes installers but publishes no automatic update feed. A build
 without the public value does not show update controls or make update requests. Each release has a signed feed for
@@ -30,6 +33,6 @@ stable package. Debian packages use `~preview.N`, which has the same order.
    Confirm Drover reports that the package signature is invalid and does not open it.
 8. Turn Check for desktop updates off, restart, and confirm no release request is made.
 
-Repeat the install step on Windows and macOS. On Linux, confirm the signature check and that Drover shows the download
-link instead of starting a privileged installer. Use only preview tags for this verification. Linux has no trusted
+Repeat the install step on Windows and macOS. On Linux, confirm the signature check and that Drover shows the checked
+local file instead of starting a privileged installer. Use only preview tags for this verification. Linux has no trusted
 privileged install yet, so it stays manual.

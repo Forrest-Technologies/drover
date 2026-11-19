@@ -110,8 +110,8 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         { Phase: DesktopUpdatePhase.Available } => "The package signature will be checked before installation.",
         { Phase: DesktopUpdatePhase.Downloading } => "Downloading and checking the package.",
         { Phase: DesktopUpdatePhase.Installing } => "The installer is opening. Drover will restart when it finishes.",
-        { Phase: DesktopUpdatePhase.Manual, DownloadLink: { } link } =>
-            $"The package signature is valid. Install it from {link}. Drover does not open a privileged installer on this system.",
+        { Phase: DesktopUpdatePhase.Manual, VerifiedPackage: { } package } =>
+            $"The package signature is valid. Install the checked file at {package}. Drover does not open a privileged installer on this system.",
         { Phase: DesktopUpdatePhase.Failed, Problem: { } problem } => problem,
         _ => "Drover checks the signed release feed when it starts.",
     };

@@ -112,7 +112,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
                 available.DownloadSignature,
                 package,
                 UpdatePackageTrust.CurrentHost,
-                available.DownloadLink,
+                path,
                 State with { Version = available.Version });
             if (!decision.StartInstaller)
             {
@@ -165,6 +165,31 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             }
 
             available = result.Status is UpdateStatus.UpdateAvailable ? result.Updates.FirstOrDefault() : null;
+            var offered = available?.Version;
+            if (UpdatePackageTrust.IsOlderThanSeen(settings.Read(UpdatePackageTrust.FeedSettingName), offered))
+            {
+                available = null;
+                Change(State with
+                {
+                    Phase = DesktopUpdatePhase.Failed,
+                    Version = null,
+                    Problem = UpdatePackageTrust.StaleProblem,
+                });
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(offered))
+            {
+                try
+                {
+                    settings.Write(UpdatePackageTrust.FeedSettingName, offered);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception, "The newest verified update feed could not be saved");
+                }
+            }
+
             Change(UpdatePackageTrust.AfterCheck(
                 State,
                 result.Status,

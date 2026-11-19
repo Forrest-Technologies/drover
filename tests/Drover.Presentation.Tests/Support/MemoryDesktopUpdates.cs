@@ -1,7 +1,7 @@
 namespace Drover.Presentation.Tests.Support;
 
 /// <summary>A desktop updater controlled by a view-model test.</summary>
-public sealed class MemoryDesktopUpdates(DesktopUpdateState state) : IDesktopUpdates
+public sealed class MemoryDesktopUpdates(DesktopUpdateState state, IDeviceSettings? settings = null) : IDesktopUpdates
 {
     #region Properties
 
@@ -19,7 +19,15 @@ public sealed class MemoryDesktopUpdates(DesktopUpdateState state) : IDesktopUpd
 
     public Task Start() => Task.CompletedTask;
 
-    public void SetChecks(bool enabled) => Change(State with { ChecksEnabled = enabled });
+    public void SetChecks(bool enabled)
+    {
+        if (settings is not null)
+        {
+            DesktopUpdateChecks.Store(settings, enabled);
+        }
+
+        Change(State with { ChecksEnabled = enabled });
+    }
 
     public Task Check()
     {
