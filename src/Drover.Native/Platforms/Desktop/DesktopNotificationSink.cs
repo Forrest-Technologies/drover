@@ -810,9 +810,14 @@ internal sealed class LinuxSystemNotification : ISystemNotification
         try
         {
             await EnsureObserving();
+            if (IsStale(shownEpoch))
+            {
+                return;
+            }
+
             var id = await Notify(body);
             var old = Remember(id, address, version, shownEpoch);
-            await Task.WhenAll(old.Select(Close));
+            await Task.WhenAll(old.Select(CloseQuietly));
         }
         catch (Exception exception)
         {
@@ -988,6 +993,17 @@ internal sealed class LinuxSystemNotification : ISystemNotification
         }
     }
 
+    /// <summary>
+    /// Whether the notifications were cleared, or the connection began closing, since this one was asked for.
+    /// </summary>
+    private bool IsStale(long shownEpoch)
+    {
+        lock (gate)
+        {
+            return disposed || shownEpoch != epoch;
+        }
+    }
+
     private bool IsDisposed()
     {
         lock (gate)
@@ -1015,16 +1031,11 @@ internal sealed class LinuxSystemNotification : ISystemNotification
     {
         try
         {
-            var closes = ids.Select(Close);
-            await Task.WhenAll([.. operations, .. closes]).WaitAsync(shutdownLimit);
+            await Task.WhenAll([.. operations, .. ids.Select(CloseQuietly)]).WaitAsync(shutdownLimit);
         }
         catch (TimeoutException exception)
         {
             logger.LogDebug(exception, "Timed out while dismissing desktop notifications");
-        }
-        catch (Exception exception)
-        {
-            logger.LogDebug(exception, "The system could not dismiss every desktop notification");
         }
         finally
         {
