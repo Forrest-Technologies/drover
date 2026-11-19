@@ -41,9 +41,14 @@ jobs:
         run: dotnet workload install android --version 11.0.100
       - name: Build Android, warnings are errors
         run: dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
+      - name: Build the screen checks and an Android build made for them
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
+            -p:DroverUiChecks=true -warnaserror -o "$RUNNER_TEMP/ui-checks-android"
 
-      - name: Check Android address editing and safe-area layout
-        timeout-minutes: 10
+      - name: Check Android address editing, safe-area layout, and the shared screen checks
+        timeout-minutes: 20
         run: |
           sudo chmod a+rw /dev/kvm
           sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
@@ -68,6 +73,8 @@ jobs:
           adb install src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
           bash scripts/check-native-android-text-editing.sh
           python3 scripts/check-native-android-back.py
+          adb install -r "$RUNNER_TEMP"/ui-checks-android/*-Signed.apk
+          dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- android
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -88,7 +95,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -118,6 +125,38 @@ jobs:
         run: |
           dotnet tool restore
           dotnet tool run nuget-license -- -i Drover.Native.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -override licenses/allowed-exceptions.json -err
+      - name: Build the screen checks and a desktop build made for them
+        shell: bash
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release \
+            -p:DroverUiChecks=true -warnaserror -o "$RUNNER_TEMP/ui-checks-desktop"
+      # Linux runs PostgreSQL in a container. Windows has it installed but stopped; macOS installs it.
+      - name: Start PostgreSQL for the screen checks on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-Service -Name 'postgresql*' | Start-Service
+          "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$env:PGPASSWORD" >> $env:GITHUB_ENV
+      - name: Start PostgreSQL for the screen checks on macOS
+        if: runner.os == 'macOS'
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          brew install postgresql@17
+          bin="$(brew --prefix postgresql@17)/bin"
+          "$bin/initdb" -D "$RUNNER_TEMP/postgres" -A trust -U postgres > /dev/null
+          "$bin/pg_ctl" -D "$RUNNER_TEMP/postgres" -o "-p 5432 -c listen_addresses=127.0.0.1" -l "$RUNNER_TEMP/postgres.log" -w start
+          echo "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres" >> "$GITHUB_ENV"
+      - name: Open the app and pass the shared screen checks
+        shell: bash
+        run: |
+          checks=(dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- desktop "$RUNNER_TEMP/ui-checks-desktop/Drover.Native.dll")
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a "${checks[@]}"
+          else
+            "${checks[@]}"
+          fi
 
   browser:
     env:
@@ -138,7 +177,7 @@ jobs:
         run: dotnet workload install wasm-tools
       - name: Check formatting of the native client and its shared sources
         # The analyzers run in the builds above; this checks the layout of the files only, without a restore.
-        run: dotnet format whitespace --folder --verify-no-changes --include src/Drover.Native src/Shared
+        run: dotnet format whitespace --folder --verify-no-changes --include src/Drover.Native src/Shared tests/Drover.Native.UITests/App
       - name: Publish browser, warnings are errors
         run: dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -warnaserror -o artifacts/native
       - name: Check native dependency licenses
