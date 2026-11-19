@@ -14,3 +14,6 @@ if dispatch_rejection not in workflow:
 publish = workflow[workflow.index("  publish:\n") :]
 if "gh release create" not in publish or tag_gate not in publish:
     raise SystemExit("The public release command must remain behind the pushed-tag gate.")
+
+if "GH_REPO: ${{ github.repository }}" not in publish:
+    raise SystemExit("The release job must provide repository context without a checkout.")
