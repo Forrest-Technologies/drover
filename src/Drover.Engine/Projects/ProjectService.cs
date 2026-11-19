@@ -101,39 +101,37 @@ public sealed class ProjectService(
     public async Task<bool> Remove(Guid id, AuditActor actor, CancellationToken cancellationToken)
     {
         var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("Projects are always handled inside a space.");
-        List<StoredFile> projectFiles;
+        var now = time.GetUtcNow();
+        var claimUntil = now.Add(ProjectFileCleanup.ClaimWindow);
+        List<StoredDeletion> deletions;
 
         await using (var work = await scope.Begin(cancellationToken))
         {
             if (await projects.GetProjectForUpdate(id, cancellationToken) is not { } project)
             {
-                return false;
+                var pending = await files.ClaimPendingForProject(id, now, claimUntil, cancellationToken);
+
+                if (pending.Count == 0)
+                {
+                    return false;
+                }
+
+                deletions = [.. pending.Select(row => new StoredDeletion(row.Id, row.StorageKey))];
+                await work.Commit(cancellationToken);
             }
-
-            projectFiles = await files.GetProjectFilesForUpdate(project.Id, cancellationToken);
-            var released = projectFiles.Sum(file => file.Size);
-
-            if (projectFiles.Count > 0)
+            else
             {
-                files.RemoveRange(projectFiles);
+                var projectFiles = await files.GetProjectFilesForUpdate(project.Id, cancellationToken);
+                await files.StageProjectFileDeletion(projectFiles, now, claimUntil, cancellationToken);
+                deletions = [.. projectFiles.Select(file => new StoredDeletion(file.Id, file.StorageKey))];
+                await projects.ClearThreadsForProject(project.Id, cancellationToken);
+                projects.Remove(project);
+                audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
+                await work.Commit(cancellationToken);
             }
-
-            if (released > 0)
-            {
-                await files.ReleaseBytes(spaceId, released, cancellationToken);
-            }
-
-            await projects.ClearThreadsForProject(project.Id, cancellationToken);
-            projects.Remove(project);
-            audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
-            await work.Commit(cancellationToken);
         }
 
-        foreach (var file in projectFiles)
-        {
-            await store.Delete(spaceId, file.StorageKey, CancellationToken.None);
-        }
-
+        await ProjectFileCleanup.Finish(scope, files, store, spaceId, deletions, logger, cancellationToken);
         logger.LogInformation("Project {ProjectId} removed", id);
         return true;
     }

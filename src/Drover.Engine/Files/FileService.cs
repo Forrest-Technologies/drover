@@ -191,12 +191,32 @@ public sealed class FileService(
             return prepared.Refusal;
         }
 
-        var clean = CleanName(name);
+        var allowance = declaredLength is > 0
+            ? declaredLength.Value
+            : Math.Min(Rules.MaxFileBytes, prepared.Room);
+
+        if (allowance <= 0)
+        {
+            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
+        }
+
         var id = Guid.CreateVersion7();
+        var held = await HoldProjectBytes(projectId, id, allowance, cancellationToken);
+
+        if (held.Missing)
+        {
+            return new FileUpload(null, FileProblem.NotFound);
+        }
+
+        if (held.Hold is not { } hold)
+        {
+            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
+        }
+
+        var clean = CleanName(name);
         var key = FileStorageKeys.For(SpaceId, id);
         var inspector = new FileInspector();
-        var limit = Math.Min(Rules.MaxFileBytes, prepared.Room);
-        await using var metered = new MeteredStream(content, limit, inspector);
+        await using var metered = new MeteredStream(content, hold.Bytes, inspector);
 
         try
         {
@@ -205,14 +225,16 @@ public sealed class FileService(
         catch (FileTooLargeException tooLarge)
         {
             await store.Delete(SpaceId, key, CancellationToken.None);
-            logger.LogInformation(tooLarge, "An upload to project {ProjectId} went past {MaxBytes} bytes and was refused", projectId, limit);
-            return limit < Rules.MaxFileBytes
+            await ReleaseHold(hold, cancellationToken);
+            logger.LogInformation(tooLarge, "An upload to project {ProjectId} went past {MaxBytes} bytes and was refused", projectId, hold.Bytes);
+            return hold.Bytes < Rules.MaxFileBytes
                 ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
                 : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
         }
         catch (Exception)
         {
             await store.Delete(SpaceId, key, CancellationToken.None);
+            await ReleaseHold(hold, cancellationToken);
             throw;
         }
 
@@ -241,11 +263,12 @@ public sealed class FileService(
                 file.ReadingNote = await ReadingNote(file, modelReadsImages: false, cancellationToken);
             }
 
-            upload = await KeepForProject(projectId, file, cancellationToken);
+            upload = await KeepForProject(projectId, file, hold, cancellationToken);
         }
         catch (Exception)
         {
             await store.Delete(SpaceId, key, CancellationToken.None);
+            await ReleaseHold(hold, cancellationToken);
             throw;
         }
 
@@ -361,23 +384,32 @@ public sealed class FileService(
     /// </summary>
     public async Task<bool> RemoveProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken)
     {
-        StoredFile? file;
+        StoredDeletion? deletion;
+        var now = time.GetUtcNow();
+        var claimUntil = now.Add(ProjectFileCleanup.ClaimWindow);
 
         await using (var work = await scope.Begin(cancellationToken))
         {
-            file = await files.GetProjectFileForUpdate(projectId, fileId, cancellationToken);
+            var file = await files.GetProjectFileForUpdate(projectId, fileId, cancellationToken);
 
-            if (file is null)
+            if (file is not null)
+            {
+                deletion = new StoredDeletion(file.Id, file.StorageKey);
+                await files.StageProjectFileDeletion([file], now, claimUntil, cancellationToken);
+            }
+            else if (await files.ClaimPending(fileId, projectId, now, claimUntil, cancellationToken) is { } pending)
+            {
+                deletion = new StoredDeletion(pending.Id, pending.StorageKey);
+            }
+            else
             {
                 return false;
             }
 
-            files.Remove(file);
-            await files.ReleaseBytes(SpaceId, file.Size, cancellationToken);
             await work.Commit(cancellationToken);
         }
 
-        await store.Delete(SpaceId, file.StorageKey, CancellationToken.None);
+        await ProjectFileCleanup.Finish(scope, files, store, SpaceId, [deletion.Value], logger, cancellationToken);
         logger.LogInformation("Project file {FileId} removed from project {ProjectId}", fileId, projectId);
         return true;
     }
@@ -493,17 +525,48 @@ public sealed class FileService(
         return new FileUpload(file);
     }
 
-    private async Task<FileUpload> KeepForProject(Guid projectId, StoredFile file, CancellationToken cancellationToken)
+    private async Task<HoldAttempt> HoldProjectBytes(Guid projectId, Guid fileId, long bytes, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await projects.FindProject(projectId, cancellationToken) is null)
+        {
+            return HoldAttempt.NotFound;
+        }
+
+        var reservation = await files.TryHold(SpaceId, fileId, bytes, MaxSpaceBytes, time.GetUtcNow(), cancellationToken);
+
+        if (reservation is null)
+        {
+            return HoldAttempt.Full;
+        }
+
+        await work.Commit(cancellationToken);
+        return new HoldAttempt(new ByteHold(reservation.Id, reservation.Bytes), false);
+    }
+
+    private async Task ReleaseHold(ByteHold hold, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        await files.ReleaseHold(SpaceId, hold.Id, hold.Bytes, cancellationToken);
+        await work.Commit(cancellationToken);
+    }
+
+    private async Task<FileUpload> KeepForProject(Guid projectId, StoredFile file, ByteHold hold, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
 
         if (await projects.LockProjectForShare(projectId, cancellationToken) is null)
         {
+            await files.ReleaseHold(SpaceId, hold.Id, hold.Bytes, cancellationToken);
+            await work.Commit(cancellationToken);
             return new FileUpload(null, FileProblem.NotFound);
         }
 
-        if (!await files.ReserveBytes(SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
+        if (file.Size > hold.Bytes || !await files.CompleteHold(SpaceId, hold.Id, hold.Bytes, file.Size, cancellationToken))
         {
+            await files.ReleaseHold(SpaceId, hold.Id, hold.Bytes, cancellationToken);
+            await work.Commit(cancellationToken);
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
@@ -525,6 +588,15 @@ public sealed class FileService(
     private sealed record Prepared(string BotName, FileAbilities Abilities, long Room, FileUpload? Refusal);
 
     private sealed record PreparedProject(long Room, FileUpload? Refusal);
+
+    private readonly record struct ByteHold(Guid Id, long Bytes);
+
+    private sealed record HoldAttempt(ByteHold? Hold, bool Missing)
+    {
+        public static HoldAttempt NotFound { get; } = new(null, true);
+
+        public static HoldAttempt Full { get; } = new(null, false);
+    }
 
     #endregion
 }

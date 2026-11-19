@@ -43,6 +43,26 @@ public sealed class StoredFileSeeder : PlainSeeder<StoredFile>
     }
 }
 
+public sealed class FileByteReservationSeeder : PlainSeeder<FileByteReservation>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["bytes"] = 1L,
+    };
+}
+
+public sealed class PendingFileDeletionSeeder : PlainSeeder<PendingFileDeletion>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["project_id"] = Guid.CreateVersion7(),
+        ["storage_key"] = seed.Unique("key"),
+        ["size"] = 1L,
+    };
+}
+
 public sealed class SecretSeeder : PlainSeeder<Secret>
 {
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()

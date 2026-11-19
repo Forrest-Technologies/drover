@@ -76,6 +76,10 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<StoredFile> Files => Set<StoredFile>();
 
+    public DbSet<FileByteReservation> FileByteReservations => Set<FileByteReservation>();
+
+    public DbSet<PendingFileDeletion> PendingFileDeletions => Set<PendingFileDeletion>();
+
     public DbSet<Secret> Secrets => Set<Secret>();
 
     public DbSet<MemoryNote> Memories => Set<MemoryNote>();

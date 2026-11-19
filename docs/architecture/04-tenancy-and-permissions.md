@@ -92,6 +92,7 @@ User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.cur
 | `user_claims`, `user_logins`, `user_tokens` | The rest of the ASP.NET Core Identity tables, renamed. `IsolateByUser`: `user_id = sys.current_user_id()`. No passkey table until passkeys are offered (Phase 2). |
 
 | `audit_log` | Space match; `drover_app` has no `UPDATE` or `DELETE` privilege |
+| `files` | The space and audience policies. A project file is shared, so audience alone would let every member write it. Trigger `trg_files_project_access` allows a project-file insert, update, or delete only for an owner or admin, and on delete it returns the file's quota and inserts `pending_file_deletions`. |
 
 In C# the helpers are extensions on `MigrationBuilder`, following the guide's preference for extension builders. They live in `Drover.Data.Tenancy`, not in the `Migrations` folder, because `.editorconfig` treats that folder as generated code:
 
