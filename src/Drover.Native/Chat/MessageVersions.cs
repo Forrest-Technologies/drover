@@ -5,9 +5,12 @@ namespace Drover.Native.Chat;
 /// "2 of 3" between the previous and the next, and the one way to make a new version, Edit under a person's last
 /// message and Write another reply under the last reply. Each control works by keyboard and is named.
 /// </summary>
-public sealed class MessageVersions : StackPanel
+public sealed class MessageVersions : Grid
 {
     #region Private Fields
+
+    // The switch and the action share a row, and the action wraps under the switch where the row is too narrow.
+    private readonly FlowPanel line = new() { Gap = Tokens.Number("DvSpace2") };
 
     private readonly StackPanel switcher = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace1") };
 
@@ -36,8 +39,6 @@ public sealed class MessageVersions : StackPanel
 
     public MessageVersions()
     {
-        Orientation = Orientation.Horizontal;
-        Spacing = Tokens.Number("DvSpace2");
         place.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetAccessibilityView(place, AccessibilityView.Raw);
         switcher.Children.Add(previous);
@@ -50,8 +51,9 @@ public sealed class MessageVersions : StackPanel
         previous.Click += async (_, _) => await Switch(shown?.Previous);
         next.Click += async (_, _) => await Switch(shown?.Next);
         action.Click += async (_, _) => await Act();
-        Children.Add(switcher);
-        Children.Add(action);
+        line.Children.Add(switcher);
+        line.Children.Add(action);
+        Children.Add(line);
         this.WhenShownOrRethemed(Paint);
     }
 
