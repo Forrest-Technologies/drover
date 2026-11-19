@@ -2,11 +2,12 @@ namespace Drover.Domain.Threads;
 
 /// <summary>
 /// One part of a message, in Drover's own shape. No vendor message type is ever serialized into the column. The
-/// <c>type</c> property names the part: text, reasoning, image, file, tool_call, tool_result.
+/// <c>type</c> property names the part: text, reasoning, source, image, file, tool_call, tool_result.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(TextPart), "text")]
 [JsonDerivedType(typeof(ReasoningPart), "reasoning")]
+[JsonDerivedType(typeof(SourcePart), "source")]
 [JsonDerivedType(typeof(ImagePart), "image")]
 [JsonDerivedType(typeof(FilePart), "file")]
 [JsonDerivedType(typeof(ToolCallPart), "tool_call")]
@@ -16,6 +17,12 @@ public abstract record MessagePart;
 public sealed record TextPart(string Text) : MessagePart;
 
 public sealed record ReasoningPart(string Text) : MessagePart;
+
+/// <summary>
+/// A source a reply cites: a web address and the title the model's provider gave it. Both come from outside Drover and
+/// are untrusted text. Only an http or https address is kept.
+/// </summary>
+public sealed record SourcePart(Uri Url, string? Title = null) : MessagePart;
 
 /// <summary>
 /// A picture, by its <c>files</c> row. The name, size, and dimensions are copied from the row when the message is

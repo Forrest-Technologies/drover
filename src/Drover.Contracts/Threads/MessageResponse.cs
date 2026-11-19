@@ -23,8 +23,9 @@ public sealed record MessageResponse(
     Guid? RunPrincipalUserId = null);
 
 /// <summary>
-/// One part of a message. <see cref="Kind"/> names it (text, reasoning, tool_call, tool_result, image, file) and
-/// says which of the other members are set. <see cref="Arguments"/> and <see cref="Result"/> are JSON text, already
+/// One part of a message. <see cref="Kind"/> names it (text, reasoning, source, tool_call, tool_result, image, file)
+/// and says which of the other members are set. A source part is a source the reply cites: <see cref="Url"/> is its web
+/// address and <see cref="Text"/> its title, when it has one. Both came from outside Drover and are untrusted text. <see cref="Arguments"/> and <see cref="Result"/> are JSON text, already
 /// redacted: a tool defines their shape, so the contract carries them as written.
 /// </summary>
 public sealed record MessagePartResponse(string Kind)
@@ -49,6 +50,9 @@ public sealed record MessagePartResponse(string Kind)
 
     /// <summary>An image or file part's file: its name, kind, size, and how it is shown.</summary>
     public FileResponse? File { get; init; }
+
+    /// <summary>A source part's address: always http or https.</summary>
+    public string? Url { get; init; }
 
     #endregion
 }
