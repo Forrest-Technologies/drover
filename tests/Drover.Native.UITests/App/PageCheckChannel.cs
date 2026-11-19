@@ -1,6 +1,6 @@
+#if DROVER_BROWSER
 namespace Drover.Native.Checks;
 
-#if DROVER_BROWSER
 /// <summary>
 /// The page the browser harness opened. It installs <c>droverUiCheckRead</c> and <c>droverUiCheckWrite</c> before
 /// the app starts: one reads a setting, the other records a line the harness polls. A direct call to the page's
