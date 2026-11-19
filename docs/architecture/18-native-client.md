@@ -415,6 +415,11 @@ establish visual parity.
 No screen class derives from `PendingScreen` any more; the class stays for a screen added to the web client before
 it moves. The last two to move were the bot editor and the share screen.
 
+Projects have a native list and a native project screen (`ProjectListPage`, `ProjectPage`) with view models in
+`Drover.Presentation`. An owner or admin creates, renames, and removes a project, edits its instructions, and adds or
+removes its files. A member sees those controls unavailable and can still open a project, start a conversation with a
+bot, and move a conversation they own. The server still decides each request.
+
 The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one `ShareInbox`, names the
 chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the
 share with `TakeFor` when it opens, as the web client's `ConversationPane` does. The usage screen's crew is a table
