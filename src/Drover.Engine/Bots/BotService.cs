@@ -19,13 +19,13 @@ public sealed class BotService(
 {
     #region Private Fields
 
-    public const int MaxNameLength = 200;
+    public const int MaxNameLength = FieldLimits.BotName;
 
-    public const int MaxDescriptionLength = 2_000;
+    public const int MaxDescriptionLength = FieldLimits.BotDescription;
 
     public const int MaxInstructionsLength = 32_000;
 
-    public const int MaxModelLength = 200;
+    public const int MaxModelLength = FieldLimits.ModelName;
 
     private const int MaxSymbolLength = 16;
 

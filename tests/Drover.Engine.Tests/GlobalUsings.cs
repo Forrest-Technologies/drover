@@ -24,6 +24,7 @@ global using Drover.Adapters.E2B;
 global using Drover.Agents;
 global using Drover.Agents.History;
 global using Drover.Agents.Runtime;
+global using Drover.Contracts;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;
 global using Drover.Contracts.Files;

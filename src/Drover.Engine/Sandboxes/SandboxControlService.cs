@@ -55,7 +55,7 @@ public sealed class SandboxControlService(
 
     #region Properties
 
-    public const int MaxCommandCharacters = 4000;
+    public const int MaxCommandCharacters = FieldLimits.SandboxCommand;
 
     #endregion
 
