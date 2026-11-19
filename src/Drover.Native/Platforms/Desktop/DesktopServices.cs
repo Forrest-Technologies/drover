@@ -1,8 +1,9 @@
 namespace Drover.Native.Platform;
 
 /// <summary>
-/// What the app is given on a desktop beyond any device: saving and opening a conversation's files, and keeping the
-/// sign-in in the operating system's credential store.
+/// What the app is given on a desktop beyond any device: saving and opening a conversation's files, keeping the
+/// sign-in in the operating system's credential store, and a listener on this computer's loopback address that a
+/// browser comes back to after a tool server's sign-in page. The listener starts the first time a sign-in asks for it.
 /// </summary>
 internal static class DesktopServices
 {
@@ -11,5 +12,9 @@ internal static class DesktopServices
             .AddSingleton<IFileDelivery, DesktopFileDelivery>()
             .AddSingleton<ISecureStorage>(provider => new DesktopSecrets(
                 SystemSecrets.Open,
-                provider.GetRequiredService<ILogger<DesktopSecrets>>()));
+                provider.GetRequiredService<ILogger<DesktopSecrets>>()))
+            .AddSingleton(provider => DesktopSignInReturn.Open(
+                ticket => PlatformShell.Incoming.Open(Addresses.ToolSignInReturn(ticket)),
+                provider.GetRequiredService<ILogger<DesktopSignInReturn>>()))
+            .AddSingleton(provider => new AppSignInReturn(provider.GetRequiredService<DesktopSignInReturn>().Address));
 }
