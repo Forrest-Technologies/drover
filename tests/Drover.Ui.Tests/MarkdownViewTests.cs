@@ -145,63 +145,40 @@ public sealed class MarkdownViewTests : BunitContext
     }
 
     [Fact]
-    public void A_remote_image_waits_behind_a_button_that_names_its_source_and_its_description()
+    public void A_remote_image_is_only_an_external_link_with_its_address_and_description()
     {
         var view = RenderMarkdown("![Crew diagram](https://example.org/crew.png)");
 
-        view.FindAll("img").Should().BeEmpty();
-        var button = view.Find("button");
-        button.GetAttribute("type").Should().Be("button");
-        button.TextContent.Should().Be("Load image from example.org: Crew diagram");
+        view.FindAll("img, button").Should().BeEmpty();
+        var link = view.Find("a");
+        link.GetAttribute("href").Should().Be("https://example.org/crew.png");
+        link.GetAttribute("target").Should().Be("_blank");
+        link.GetAttribute("rel").Should().Be("noopener noreferrer");
+        link.TextContent.Should().Be("Crew diagram: https://example.org/crew.png");
     }
 
     [Fact]
-    public void A_remote_image_without_a_description_is_still_named_by_its_source()
+    public void Remote_images_remain_links_while_more_text_streams_in()
     {
-        var view = RenderMarkdown("![](https://example.org/crew.png)");
-
-        view.Find("button").TextContent.Should().Be("Load image from example.org");
-    }
-
-    [Fact]
-    public void Asking_for_a_remote_image_shows_it_with_dimensions_and_its_description()
-    {
-        var view = RenderMarkdown("![Crew diagram](https://example.org/crew.png)");
-
-        view.Find("button").Click();
-
-        view.FindAll("button").Should().BeEmpty();
-        var image = view.Find("img");
-        image.GetAttribute("src").Should().Be("https://example.org/crew.png");
-        image.GetAttribute("alt").Should().Be("Crew diagram");
-        image.GetAttribute("width").Should().MatchRegex("^[1-9][0-9]*$");
-        image.GetAttribute("height").Should().MatchRegex("^[1-9][0-9]*$");
-        image.GetAttribute("referrerpolicy").Should().Be("no-referrer");
-    }
-
-    [Fact]
-    public void A_loaded_image_stays_loaded_while_more_text_streams_in()
-    {
-        var view = RenderMarkdown("![Crew diagram](https://example.org/crew.png)", streaming: true);
-        view.Find("button").Click();
-
+        var view = RenderMarkdown("![](https://example.org/crew.png)", streaming: true);
+        view.Find("a").TextContent.Should().Be("https://example.org/crew.png");
         view.Render(parameters => parameters.Add(
             component => component.Text,
-            "![Crew diagram](https://example.org/crew.png)\n\nand ![another](https://example.net/other.png)"));
+            "![](https://example.org/crew.png) and ![another](https://example.net/other.png)"));
 
-        view.FindAll("img").Should().ContainSingle().Which.GetAttribute("src").Should().Be("https://example.org/crew.png");
-        view.FindAll("button").Should().ContainSingle().Which.TextContent.Should().Be("Load image from example.net: another");
+        view.FindAll("img, button").Should().BeEmpty();
+        view.FindAll("a").Select(link => link.GetAttribute("href")).Should()
+            .Equal("https://example.org/crew.png", "https://example.net/other.png");
     }
 
     [Fact]
-    public void An_image_inside_a_link_is_not_a_control_inside_a_control()
+    public void An_image_inside_a_link_has_two_separate_external_links()
     {
         var view = RenderMarkdown("[![Crew diagram](https://example.org/crew.png)](https://example.org/crew)");
 
-        view.FindAll("a button").Should().BeEmpty();
-        view.Find("button").TextContent.Should().Be("Load image from example.org: Crew diagram");
-        view.Find("a").GetAttribute("href").Should().Be("https://example.org/crew");
-        view.Find("a").TextContent.Should().Be("https://example.org/crew");
+        view.FindAll("a a, img, button").Should().BeEmpty();
+        view.FindAll("a").Select(link => link.GetAttribute("href")).Should()
+            .BeEquivalentTo(["https://example.org/crew.png", "https://example.org/crew"]);
     }
 
     [Fact]

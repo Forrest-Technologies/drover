@@ -16,7 +16,15 @@ public sealed record ElementNode(string Name, IReadOnlyList<MarkdownNode> Childr
 public sealed record LinkNode(string Address, IReadOnlyList<MarkdownNode> Children) : MarkdownNode;
 
 /// <summary>A remote image at an absolute http or https address. It is not fetched until a person asks.</summary>
-public sealed record ImageNode(Uri Source, string Alt) : MarkdownNode;
+public sealed record ImageNode(Uri Source, string Alt) : MarkdownNode
+{
+    #region Public Methods
+
+    public LinkNode ToExternalLink() => new(Source.AbsoluteUri,
+        [new TextNode(string.IsNullOrWhiteSpace(Alt) ? Source.AbsoluteUri : $"{Alt}: {Source.AbsoluteUri}")]);
+
+    #endregion
+}
 
 /// <summary>A fenced or indented code block.</summary>
 public sealed record CodeNode(string Code, string? Language) : MarkdownNode;

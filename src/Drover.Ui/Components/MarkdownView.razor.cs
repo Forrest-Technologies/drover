@@ -3,17 +3,11 @@ namespace Drover.Ui.Components;
 /// <summary>
 /// Shows message text written in markdown. The text is untrusted: it is parsed into a fixed set of nodes by
 /// <see cref="MarkdownDocument"/> and built element by element, so nothing in it is ever injected as markup.
-/// Remote images wait behind a button until a person asks for them.
+/// Remote images are shown as links.
 /// </summary>
 public sealed partial class MarkdownView
 {
     #region Private Fields
-
-    private const string ImageWidth = "480";
-
-    private const string ImageHeight = "270";
-
-    private readonly HashSet<Uri> loadedImages = [];
 
     private readonly RenderFragment content;
 
@@ -84,11 +78,8 @@ public sealed partial class MarkdownView
             case LinkNode link:
                 RenderLink(builder, link);
                 break;
-            case ImageNode image when loadedImages.Contains(image.Source):
-                RenderImage(builder, image);
-                break;
             case ImageNode image:
-                RenderImagePlaceholder(builder, image);
+                RenderLink(builder, image.ToExternalLink());
                 break;
             case CodeNode code:
                 RenderCode(builder, code);
@@ -134,29 +125,6 @@ public sealed partial class MarkdownView
         builder.CloseElement();
     }
 
-    private void RenderImagePlaceholder(RenderTreeBuilder builder, ImageNode image)
-    {
-        builder.OpenElement(40, "button");
-        builder.AddAttribute(41, "type", "button");
-        builder.AddAttribute(42, "class", "dv-markdown-image-load");
-        builder.AddAttribute(43, "onclick", EventCallback.Factory.Create<MouseEventArgs>(this, () => LoadImage(image)));
-        builder.AddContent(44, PlaceholderLabel(image));
-        builder.CloseElement();
-    }
-
-    private static void RenderImage(RenderTreeBuilder builder, ImageNode image)
-    {
-        builder.OpenElement(50, "img");
-        builder.AddAttribute(51, "class", "dv-markdown-image");
-        builder.AddAttribute(52, "src", image.Source.AbsoluteUri);
-        builder.AddAttribute(53, "alt", image.Alt);
-        builder.AddAttribute(54, "width", ImageWidth);
-        builder.AddAttribute(55, "height", ImageHeight);
-        builder.AddAttribute(56, "loading", "lazy");
-        builder.AddAttribute(57, "referrerpolicy", "no-referrer");
-        builder.CloseElement();
-    }
-
     private static void RenderCode(RenderTreeBuilder builder, CodeNode code)
     {
         builder.OpenComponent<CodeBlock>(60);
@@ -174,17 +142,6 @@ public sealed partial class MarkdownView
         builder.AddAttribute(74, "aria-label", task.Done ? "Done" : "Not done");
         builder.CloseElement();
     }
-
-    #endregion
-
-    #region Remote Images
-
-    private void LoadImage(ImageNode image) => loadedImages.Add(image.Source);
-
-    private static string PlaceholderLabel(ImageNode image) =>
-        string.IsNullOrWhiteSpace(image.Alt)
-            ? $"Load image from {image.Source.Host}"
-            : $"Load image from {image.Source.Host}: {image.Alt}";
 
     #endregion
 }

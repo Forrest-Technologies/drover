@@ -209,7 +209,7 @@ A tool result is text chosen by a third party that the model will read. The desi
 | Size limits | Results over a limit are cut for the model, with the full output saved as a file the user can open |
 | No secrets in context | Credentials are added at the transport by the adapter. The model never sees them. Known secret values are scrubbed from arguments and results before they are stored or shown ([08-auth-and-secrets.md](08-auth-and-secrets.md)). |
 | Server-initiated requests | Sampling is refused. It is deprecated in the current spec. Elicitation (a server asking the user a question) is declined in Phase 0 and shown as an approval prompt later. |
-| Output cannot phone home | Rendered markdown is sanitized. Remote images in bot output are not loaded automatically; an image address can carry stolen data in its query string. They show as a placeholder the user can click. |
+| Output cannot phone home | Rendered markdown is sanitized. Remote images in bot output appear as explicit external links with the address visible. The client never loads them inside a message or preview. An image address can carry data in its query string. |
 | Everything is visible | Each call's arguments, result, and outcome are in the activity view. |
 
 What this does not solve: a bot with broad `allow` grants and no taint escalation can still be talked into misuse. The defaults are set so that takes a human choice.

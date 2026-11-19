@@ -3,15 +3,13 @@ namespace Drover.Native.Controls;
 /// <summary>
 /// Message text, drawn from the nodes <see cref="MarkdownDocument"/> makes of it. Only those node kinds reach the
 /// screen, and each is drawn as text and native controls: nothing in a message is ever treated as markup here, so
-/// there is nothing for a message to inject. A remote image is not fetched until a person asks for it.
+/// there is nothing for a message to inject. Remote images are shown as links.
 /// </summary>
 public sealed class MarkdownView : StackPanel
 {
     #region Private Fields
 
     private static readonly HashSet<string> blocks = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "blockquote", "hr", "table"];
-
-    private readonly HashSet<Uri> loadedImages = [];
 
     private string? parsedText;
 
@@ -254,18 +252,11 @@ public sealed class MarkdownView : StackPanel
         _ => Prose([node], ink),
     };
 
-    // A run of text is one paragraph. A picture cannot sit inside a line of text here, so each stands on its own
-    // under the words it came with.
     private IEnumerable<FrameworkElement> Prose(IReadOnlyList<MarkdownNode> children, string ink)
     {
-        if (children.Any(node => node is not ImageNode && (node is not TextNode { Text: var text } || !string.IsNullOrWhiteSpace(text))))
+        if (children.Any(node => node is not TextNode { Text: var text } || !string.IsNullOrWhiteSpace(text)))
         {
             yield return Paragraph(children, ink, "DvText14", heading: false);
-        }
-
-        foreach (var image in children.OfType<ImageNode>())
-        {
-            yield return Picture(image);
         }
     }
 
@@ -481,7 +472,8 @@ public sealed class MarkdownView : StackPanel
                 case LinkNode link:
                     target.Add(Hyperlink(link, style));
                     break;
-                case ImageNode:
+                case ImageNode image:
+                    target.Add(Hyperlink(image.ToExternalLink(), style));
                     break;
                 case TaskNode task:
                     target.Add(Run(task.Done ? "Done: " : "Not done: ", style));
@@ -530,56 +522,6 @@ public sealed class MarkdownView : StackPanel
         AddInlines(hyperlink.Inlines, link.Children, style);
         return hyperlink;
     }
-
-    #endregion
-
-    #region Remote Images
-
-    private FrameworkElement Picture(ImageNode image)
-    {
-        if (!loadedImages.Contains(image.Source))
-        {
-            var load = new PlainButton
-            {
-                Content = PlaceholderLabel(image),
-                Fill = "DvBg2",
-                Line = "DvText3",
-                Padding = Tokens.Space("DvSpace3", "DvSpace1"),
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"],
-            };
-            load.HorizontalAlignment = HorizontalAlignment.Left;
-            load.Click += (_, _) =>
-            {
-                loadedImages.Add(image.Source);
-                Draw();
-            };
-            return load;
-        }
-
-        // The frame keeps one shape whatever the picture's own size is, so nothing below it moves when it arrives.
-        var width = Tokens.Number("DvImageWidth");
-        var picture = new Image
-        {
-            Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(image.Source),
-            Stretch = Stretch.Uniform,
-        };
-        AutomationProperties.SetName(picture, image.Alt);
-
-        return new Border
-        {
-            Child = picture,
-            MaxWidth = width,
-            Height = width / Tokens.Number("DvImageRatio"),
-            CornerRadius = new(Tokens.Number("DvRadiusControl")),
-            Background = Tokens.Brush(this, "DvBg2"),
-        };
-    }
-
-    private static string PlaceholderLabel(ImageNode image) =>
-        string.IsNullOrWhiteSpace(image.Alt)
-            ? $"Load image from {image.Source.Host}"
-            : $"Load image from {image.Source.Host}: {image.Alt}";
 
     private sealed record InlineStyle(bool Strong, bool Emphasis, bool Struck, bool Machine);
 
