@@ -13,6 +13,8 @@ public sealed class MarkdownView : StackPanel
 
     private readonly HashSet<Uri> loadedImages = [];
 
+    private readonly Dictionary<CodeNode, NativeDiagram> diagrams = [];
+
     private string? parsedText;
 
     private IReadOnlyList<MarkdownNode> nodes = [];
@@ -61,7 +63,28 @@ public sealed class MarkdownView : StackPanel
     internal void ShowFile(IReadOnlyList<MarkdownNode> content)
     {
         nodes = content;
+        diagrams.Clear();
+        CollectDiagrams(content);
         Draw();
+    }
+
+    private void CollectDiagrams(IReadOnlyList<MarkdownNode> items)
+    {
+        foreach (var item in items)
+        {
+            if (item is CodeNode code
+                && NativeDiagramParser.IsDiagramLanguage(code.Language)
+                && code.Code.Length <= NativeFilePreview.MaxTextBytes
+                && NativeDiagramParser.TryParse(code.Code, out var diagram, out _)
+                && diagram is not null)
+            {
+                diagrams[code] = diagram;
+            }
+            else if (item is ElementNode element)
+            {
+                CollectDiagrams(element.Children);
+            }
+        }
     }
 
     #endregion
@@ -75,6 +98,7 @@ public sealed class MarkdownView : StackPanel
             return;
         }
 
+        diagrams.Clear();
         nodes = MarkdownDocument.Parse(Text);
         parsedText = Text;
         Draw();
@@ -252,7 +276,7 @@ public sealed class MarkdownView : StackPanel
 
     private IEnumerable<FrameworkElement> Block(MarkdownNode node, string ink) => node switch
     {
-        CodeNode code when NativeDiagramParser.TryParse(code.Code, out var diagram, out _) && diagram is not null =>
+        CodeNode code when diagrams.TryGetValue(code, out var diagram) =>
             [NativeFilePreviewControl.BuildDiagram(this, diagram)],
         CodeNode code => [new CodeBlock { Code = code.Code, CodeLanguage = code.Language }],
         ElementNode { Name: "h1" } heading => [Paragraph(heading.Children, ink, "DvText20", heading: true)],

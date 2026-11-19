@@ -75,6 +75,11 @@ public static class DocumentReader
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
+        if (PdfPreviewGuard.Validate(content) is { } preflightRefusal)
+        {
+            return new(Refusal: preflightRefusal);
+        }
+
         try
         {
             using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions { UseLenientParsing = false, SkipMissingFonts = true });
@@ -95,7 +100,12 @@ public static class DocumentReader
             for (var number = 1; number <= total; number++)
             {
                 var page = document.GetPage(number);
-                var images = page.GetImages().ToArray();
+                var images = page.GetImages().Take(NativeFilePreview.MaxPdfPageImages + 1).ToArray();
+                if (images.Length > NativeFilePreview.MaxPdfPageImages)
+                {
+                    return new(Refusal: NativePreviewRefusal.TooComplex);
+                }
+
                 if (images.Any(image =>
                     image.WidthInSamples <= 0
                     || image.HeightInSamples <= 0

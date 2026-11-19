@@ -8,7 +8,12 @@ public static class NativePreviewReader
 {
     #region Public Methods
 
-    public static async Task<NativeFilePreview> Read(Stream content, CancellationToken cancellationToken)
+    public static async Task<NativeFilePreview> Read(
+        Stream content,
+        CancellationToken cancellationToken,
+        Guid userId = default,
+        TimeSpan? pdfDeadline = null,
+        Action? onPdfParse = null)
     {
         var prefix = new byte[12];
         var prefixLength = await content.ReadAtLeastAsync(prefix, prefix.Length, false, cancellationToken);
@@ -38,7 +43,7 @@ public static class NativePreviewReader
 
         if (pdf)
         {
-            return DocumentReader.ReadPdfPreview(bytes.ToArray());
+            return await PdfPreviewGuard.Run(bytes.ToArray(), userId, pdfDeadline, onPdfParse, cancellationToken);
         }
 
         return InspectText(bytes);

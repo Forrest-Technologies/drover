@@ -126,7 +126,8 @@ public static class NativeDiagramParser
         diagram = null;
         refusal = null;
 
-        if (Encoding.UTF8.GetByteCount(text) > NativeFilePreview.MaxTextBytes)
+        if (text.Length > NativeFilePreview.MaxTextBytes
+            || Encoding.UTF8.GetByteCount(text) > NativeFilePreview.MaxTextBytes)
         {
             refusal = NativePreviewRefusal.TooLarge;
             return false;
