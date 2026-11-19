@@ -244,6 +244,8 @@ public sealed class MessageList : Grid
 
         if (list.TakeMoment() is { } moment)
         {
+            // Layout grows right after this draw, so leave the foot now before SizeChanged pulls the list back down.
+            atFoot = false;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => ShowMoment(moment));
         }
     }

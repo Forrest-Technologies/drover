@@ -13,9 +13,6 @@ public static class ThreadEndpoints
     public static IEndpointRouteBuilder MapThreadEndpoints(this RouteGroupBuilder space)
     {
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
-        threads.MapGet("/search", SearchMessages)
-            .WithName("SearchMessages")
-            .WithSummary("The messages of the caller's conversations whose words match q, best match first, each with a snippet around the match. Only the threads the caller may read are searched.");
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
         threads.MapGet("/{threadId:guid}/summary", GetConversationSummary)
@@ -34,6 +31,10 @@ public static class ThreadEndpoints
             .WithName("SetThreadProject")
             .WithSummary("Moves a conversation into a project of the same space, or out of its project when projectId is null. Only the conversation's owner may move it.");
 
+        space.MapPost("/threads/search", SearchMessages)
+            .WithBodyLimit(SearchBodyLimit)
+            .WithName("SearchMessages")
+            .WithSummary("The messages of the caller's conversations whose words match the query in the request body, best match first, each with a snippet around the match. Only the threads the caller may read are searched.");
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
             .WithSummary("Stores the message and returns the run that answers it. While a run is active the message is pending: it steers that run or waits for it to end, as whenBusy says.");
@@ -57,12 +58,30 @@ public static class ThreadEndpoints
     #region Endpoints
 
     private static async Task<Results<Ok<List<MessageSearchHit>>, ProblemHttpResult>> SearchMessages(
-        string? q,
+        SearchMessagesRequest request,
         HttpContext context,
-        ConversationSearchService search) =>
-        ConversationSearchService.Refusal(q) is { } refusal
-            ? TypedResults.Problem(title: refusal, statusCode: StatusCodes.Status400BadRequest)
-            : TypedResults.Ok(await search.Search(q!, context.RequestAborted));
+        TenantScope scope,
+        ConversationSearchLimiter limiter,
+        ConversationSearchService search)
+    {
+        if (ConversationSearchService.Refusal(request.Query) is { } refusal)
+        {
+            return TypedResults.Problem(title: refusal, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var access = context.GetSpaceAccess();
+        using var lease = limiter.TryAcquire(access.SpaceId, access.UserId);
+
+        if (lease is null)
+        {
+            return TypedResults.Problem(
+                title: "Too many conversation searches are running right now. Try again in a moment.",
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
+        await using var work = await scope.Begin(context.RequestAborted);
+        return TypedResults.Ok(await search.Search(request.Query!, context.RequestAborted));
+    }
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>
         await threads.FindThread(threadId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } view
@@ -237,6 +256,12 @@ public static class ThreadEndpoints
                 statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Problem(title: change.Detail, statusCode: StatusCodes.Status400BadRequest),
         };
+
+    #endregion
+
+    #region Constants
+
+    private const long SearchBodyLimit = 4 * 1024;
 
     #endregion
 }

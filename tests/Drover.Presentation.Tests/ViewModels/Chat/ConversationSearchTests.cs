@@ -37,7 +37,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task Each_message_found_opens_its_conversation_at_that_message()
     {
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>
         {
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
             new(repliedId, sideThreadId, botId, "Marshal", "Errands", false, true, sentAt, "The lighthouse is done.", [new(4, 10)]),
@@ -49,8 +49,10 @@ public sealed class ConversationSearchTests : IDisposable
 
         model.State.Should().Be(ConversationSearchState.Found);
         model.Searched.Should().Be("lighthouse & paint");
-        bench.Server.Addresses.Should().ContainSingle(address => address.StartsWith("GET ")).Which
-            .Should().Be($"GET {search}?q=lighthouse%20%26%20paint");
+        bench.Server.Addresses.Should().ContainSingle(address => address.StartsWith("POST ")).Which
+            .Should().Be($"POST {search}");
+        JsonSerializer.Deserialize<SearchMessagesRequest>(bench.Server.Sent("POST", search).Single(), JsonSerializerOptions.Web)!
+            .Query.Should().Be("lighthouse & paint");
         model.Status.Should().Be("2 messages found.");
         model.Hits.Select(hit => hit.Href).Should().Equal(
             $"/talk/{botId}#message-{askedId}",
@@ -69,7 +71,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task A_side_chat_with_no_title_is_named_as_a_side_chat()
     {
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>
         {
             new(askedId, sideThreadId, botId, "Marshal", null, false, false, sentAt, "Paint.", []),
         });
@@ -85,7 +87,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task A_full_page_of_matches_says_how_to_narrow_them()
     {
-        bench.Server.Answer("GET", search, Enumerable.Range(0, ConversationSearchViewModel.MaxShown)
+        bench.Server.Answer("POST", search, Enumerable.Range(0, ConversationSearchViewModel.MaxShown)
             .Select(_ => new MessageSearchHit(Guid.CreateVersion7(), mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []))
             .ToList());
         var model = Make();
@@ -103,8 +105,8 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task Searching_says_so_until_the_answer_comes()
     {
-        var gate = bench.Server.Hold("GET", search);
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>());
+        var gate = bench.Server.Hold("POST", search);
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>());
         var model = Make();
         model.Query = "paint";
 
@@ -121,7 +123,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task Words_that_match_nothing_say_so_and_offer_to_clear_the_search()
     {
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>());
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>());
         var model = Make();
         model.Query = "zebra";
 
@@ -141,7 +143,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task A_search_that_fails_says_why_and_works_on_a_second_try()
     {
-        bench.Server.Answer("GET", search, HttpStatusCode.InternalServerError);
+        bench.Server.Answer("POST", search, HttpStatusCode.InternalServerError);
         var model = Make();
         model.Query = "paint";
 
@@ -151,7 +153,7 @@ public sealed class ConversationSearchTests : IDisposable
         model.Problem.Should().NotBeNullOrWhiteSpace();
         ConversationSearchViewModel.FailedTitle.Should().Be("Drover could not search your conversations");
 
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>
         {
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []),
         });
@@ -178,8 +180,8 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task An_answer_that_comes_after_the_search_was_cleared_is_dropped()
     {
-        var gate = bench.Server.Hold("GET", search);
-        bench.Server.Answer("GET", search, new List<MessageSearchHit>
+        var gate = bench.Server.Hold("POST", search);
+        bench.Server.Answer("POST", search, new List<MessageSearchHit>
         {
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []),
         });
@@ -200,6 +202,78 @@ public sealed class ConversationSearchTests : IDisposable
     #region Helpers
 
     private ConversationSearchViewModel Make() => bench.Make<ConversationSearchViewModel>();
+
+    #endregion
+}
+
+/// <summary>Verifies that following a search hit navigates into TalkViewModel with that message selected as its moment.</summary>
+public sealed class ConversationSearchNavigationTests : WorkspaceTest
+{
+    #region Private Fields
+
+    private static readonly Guid connectionId = Guid.Parse("0196f1a0-0000-7000-8000-000000000003");
+
+    private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-000000000004");
+
+    private static readonly Guid mainThreadId = Guid.Parse("0196f1a0-0000-7000-8000-000000000005");
+
+    private static readonly Guid sideThreadId = Guid.Parse("0196f1a0-0000-7000-8000-000000000006");
+
+    private static readonly Guid askedId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1");
+
+    private static readonly Guid repliedId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a2");
+
+    private static readonly DateTimeOffset sentAt = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
+
+    #endregion
+
+    #region Public Methods
+
+    [Fact]
+    public async Task Navigating_to_a_search_hit_opens_its_conversation_with_that_message_as_its_moment()
+    {
+        var bot = new BotSummary(botId, "Marshal", "marshal", "Answer briefly.", connectionId, "sample-model", "active");
+        var main = new ThreadSummary(mainThreadId, botId, null, true, sentAt, null);
+        var side = new ThreadSummary(sideThreadId, botId, "Errands", false, sentAt, null);
+        var mainHitMessage = new MessageResponse(askedId, mainThreadId, 1, "user", null, [new MessagePartResponse("text") { Text = "Paint the lighthouse." }], sentAt);
+        var sideHitMessage = new MessageResponse(repliedId, sideThreadId, 1, "assistant", null, [new MessagePartResponse("text") { Text = "The lighthouse is done." }], sentAt);
+
+        Server.Answer("GET", $"{Space}/model-connections", new[]
+        {
+            new ModelConnectionSummary(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null),
+        });
+        Server.Answer("GET", $"{Space}/bots", new[] { bot });
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", new[] { main, side });
+        Server.Answer("PUT", $"{Space}/bots/{botId}/main-thread", main);
+        Server.Answer("GET", $"{Space}/threads/{mainThreadId}", main);
+        Server.Answer("GET", $"{Space}/threads/{mainThreadId}/messages", new[] { mainHitMessage });
+        Server.Answer("GET", $"{Space}/threads/{sideThreadId}", side);
+        Server.Answer("GET", $"{Space}/threads/{sideThreadId}/messages", new[] { sideHitMessage });
+        Server.Answer("POST", $"{Space}/threads/search", new List<MessageSearchHit>
+        {
+            new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
+            new(repliedId, sideThreadId, botId, "Marshal", "Errands", false, true, sentAt, "The lighthouse is done.", [new(4, 10)]),
+        });
+
+        var search = new ConversationSearchViewModel(Server.CreateApi(), Session, NullLogger<ConversationSearchViewModel>.Instance)
+        {
+            Query = "lighthouse",
+        };
+        await Go("/");
+        await Until(() => Talk.MainPane.Should().NotBeNull());
+
+        await search.Search();
+        search.Hits.Should().HaveCount(2);
+
+        await Go(search.Hits[0].Href);
+        await Until(() => Talk.MainPane!.List.Moment.Should().Be(askedId));
+        (await Ui.Read(Talk.MainPane!.List.TakeMoment)).Should().Be(askedId);
+
+        await Go(search.Hits[1].Href);
+        await Until(() => Talk.SidePane?.List.Moment.Should().Be(repliedId));
+        Talk.Side.Should().Be(SideView.Chat);
+        (await Ui.Read(Talk.SidePane!.List.TakeMoment)).Should().Be(repliedId);
+    }
 
     #endregion
 }

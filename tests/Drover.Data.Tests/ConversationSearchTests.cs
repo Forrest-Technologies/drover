@@ -122,6 +122,51 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
             "marks already in the text are taken out before the matches are marked");
     }
 
+    [Fact]
+    public async Task Only_the_most_recent_candidates_are_scanned()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
+        var start = DateTimeOffset.UtcNow.AddHours(-2);
+
+        Guid threadId;
+        Message oldMatch;
+        Message recentMatch;
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
+            threadId = thread.Id;
+            session.Db.Threads.Add(thread);
+
+            oldMatch = CoreRows.NewMessage(thread, 1, "Ancient nautilus fossil.");
+            oldMatch.CreatedAt = start;
+            session.Db.Messages.Add(oldMatch);
+
+            var position = 2;
+            List<Message> bulk = [];
+            for (var index = 1; index < MessageRepository.SearchCandidateLimit; index++)
+            {
+                var filler = CoreRows.NewMessage(thread, position++, "Routine log entry.");
+                filler.CreatedAt = start.AddSeconds(index);
+                bulk.Add(filler);
+            }
+
+            recentMatch = CoreRows.NewMessage(thread, position, "Fresh nautilus sighting.");
+            recentMatch.CreatedAt = start.AddSeconds(MessageRepository.SearchCandidateLimit);
+            bulk.Add(recentMatch);
+
+            session.Db.Messages.AddRange(bulk);
+            await session.Commit();
+        }
+
+        var found = await Search(provider, world.SpaceA, world.UserA1, "nautilus");
+
+        found.Select(hit => hit.MessageId).Should().Equal(
+            [recentMatch.Id],
+            "the older message sits past the recent candidate window");
+    }
+
     #endregion
 
     #region Helpers

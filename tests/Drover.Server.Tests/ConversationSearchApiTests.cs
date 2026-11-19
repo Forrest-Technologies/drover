@@ -35,7 +35,7 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         await Ask(client, alice.SpaceId, main.Id, "When does the lighthouse keeper come?");
         await Ask(client, alice.SpaceId, side.Id, "Buy paint for the lighthouse.");
 
-        var hits = await GetFor<List<MessageSearchHit>>(client, SearchPath(alice.SpaceId, "lighthouse"));
+        var hits = await Search(client, alice.SpaceId, "lighthouse");
 
         hits.Should().HaveCount(3);
         hits.Should().OnlyContain(hit => hit.BotId == bot.Id && hit.BotName == "Helper");
@@ -58,7 +58,7 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         await Ask(client, alice.SpaceId, main.Id, "Where is the saffron & salt?");
         var api = new DroverApi(NewRelay(client)) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
 
-        var throughApi = await GetFor<List<MessageSearchHit>>(client, SearchPath(alice.SpaceId, "saffron & salt"));
+        var throughApi = await Search(client, alice.SpaceId, "saffron & salt");
         var throughClient = await api.SearchMessages(alice.SpaceId, "saffron & salt", Token);
 
         throughClient.Should().BeEquivalentTo(throughApi);
@@ -73,12 +73,18 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice.Email, alice.Password);
 
-        var response = await client.Get(SearchPath(alice.SpaceId, words));
-        var tooLong = await client.Get(SearchPath(alice.SpaceId, new string('a', 201)));
+        var response = await client.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest(words));
+        var tooLong = await client.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest(new string('a', 201)));
+        using var oversizedBody = new StringContent(
+            System.Text.Json.JsonSerializer.Serialize(new SearchMessagesRequest(new string('a', 5000))),
+            System.Text.Encoding.UTF8,
+            "application/json");
+        var pastBodyLimit = await client.PostContent(SearchPath(alice.SpaceId), oversizedBody);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync(Token)).Should().Contain("Say what to look for.");
         tooLong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        pastBodyLimit.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
     }
 
     #endregion
@@ -99,10 +105,10 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         var main = await OpenMain(asAlice, alice.SpaceId, bot.Id);
         await Ask(asAlice, alice.SpaceId, main.Id, "Keep the marmalade recipe secret.");
 
-        var alices = await GetFor<List<MessageSearchHit>>(asAlice, SearchPath(alice.SpaceId, "marmalade"));
-        var admins = await GetFor<List<MessageSearchHit>>(asAdmin, SearchPath(alice.SpaceId, "marmalade"));
-        var outsidersOwn = await GetFor<List<MessageSearchHit>>(asOutsider, SearchPath(outsider.SpaceId, "marmalade"));
-        var outsiderInAlices = await asOutsider.Get(SearchPath(alice.SpaceId, "marmalade"));
+        var alices = await Search(asAlice, alice.SpaceId, "marmalade");
+        var admins = await Search(asAdmin, alice.SpaceId, "marmalade");
+        var outsidersOwn = await Search(asOutsider, outsider.SpaceId, "marmalade");
+        var outsiderInAlices = await asOutsider.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest("marmalade"));
 
         alices.Should().HaveCount(2);
         admins.Should().BeEmpty("an admin of the space cannot read a person's private thread");
@@ -113,11 +119,96 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
 
     #endregion
 
+    #region Limits
+
+    [Fact]
+    public async Task Concurrent_searches_past_the_limit_are_refused_with_429()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var limiter = Services.GetRequiredService<ConversationSearchLimiter>();
+
+        List<IDisposable> held = [];
+        try
+        {
+            for (var index = 0; index < ConversationSearchLimiter.MaxPerUser; index++)
+            {
+                held.Add(limiter.TryAcquire(alice.SpaceId, alice.UserId)!);
+            }
+
+            held.Should().NotContainNulls();
+
+            var refused = await client.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest("lighthouse"));
+            refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        }
+        finally
+        {
+            foreach (var lease in held)
+            {
+                lease.Dispose();
+            }
+        }
+
+        var allowed = await client.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest("lighthouse"));
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public void The_limiter_bounds_per_user_per_space_and_global_concurrent_searches()
+    {
+        var limiter = new ConversationSearchLimiter();
+        var spaceA = Guid.CreateVersion7();
+        var user1 = Guid.CreateVersion7();
+        var user2 = Guid.CreateVersion7();
+        var user3 = Guid.CreateVersion7();
+        List<IDisposable> leases = [];
+
+        try
+        {
+            using var u1a = limiter.TryAcquire(spaceA, user1);
+            using var u1b = limiter.TryAcquire(spaceA, user1);
+            u1a.Should().NotBeNull();
+            u1b.Should().NotBeNull();
+            limiter.TryAcquire(spaceA, user1).Should().BeNull("a single user may hold at most MaxPerUser");
+
+            using var u2a = limiter.TryAcquire(spaceA, user2);
+            using var u2b = limiter.TryAcquire(spaceA, user2);
+            u2a.Should().NotBeNull();
+            u2b.Should().NotBeNull();
+            limiter.TryAcquire(spaceA, user3).Should().BeNull("one space may hold at most MaxPerSpace");
+
+            u1b!.Dispose();
+            using var u3a = limiter.TryAcquire(spaceA, user3);
+            u3a.Should().NotBeNull("releasing a lease frees both the user and space slots");
+
+            while (leases.Count < ConversationSearchLimiter.MaxGlobal - ConversationSearchLimiter.MaxPerSpace)
+            {
+                var lease = limiter.TryAcquire(Guid.CreateVersion7(), Guid.CreateVersion7());
+                lease.Should().NotBeNull();
+                leases.Add(lease!);
+            }
+
+            limiter.TryAcquire(Guid.CreateVersion7(), Guid.CreateVersion7()).Should().BeNull("the server caps total concurrent searches");
+        }
+        finally
+        {
+            foreach (var lease in leases)
+            {
+                lease.Dispose();
+            }
+        }
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
 
-    private static string SearchPath(Guid spaceId, string words) => $"{Space(spaceId)}/threads/search?q={Uri.EscapeDataString(words)}";
+    private static string SearchPath(Guid spaceId) => $"{Space(spaceId)}/threads/search";
+
+    private static Task<List<MessageSearchHit>> Search(ApiClient client, Guid spaceId, string words) =>
+        PostFor<List<MessageSearchHit>>(client, SearchPath(spaceId), new SearchMessagesRequest(words), HttpStatusCode.OK);
 
     private async Task<ApiClient> SignIn(string email, string password)
     {
@@ -176,6 +267,45 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         var response = await client.Get(path);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
         return (await response.Content.ReadFromJsonAsync<T>(Token))!;
+    }
+
+    #endregion
+}
+
+/// <summary>Verifies that HTTP request routing and SQL command logs do not record searched words when enabled.</summary>
+public sealed class ConversationSearchLoggingTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        ["Logging:LogLevel:Microsoft.AspNetCore.Routing"] = "Information",
+        ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Information",
+    };
+
+    #endregion
+
+    #region Public Methods
+
+    [Fact]
+    public async Task Request_diagnostics_omit_the_search_words()
+    {
+        var alice = await SeedPerson("alice");
+        var client = NewClient();
+        (await client.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
+        const string SecretPhrase = "sensitive-search-phrase-98765";
+
+        var response = await client.Post($"/api/spaces/{alice.SpaceId}/threads/search", new SearchMessagesRequest(SecretPhrase));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Logs.Entries.Should().Contain(entry =>
+            entry.Category.StartsWith("Microsoft.AspNetCore.Routing", StringComparison.Ordinal)
+            && entry.Text.Contains("/threads/search", StringComparison.Ordinal));
+        Logs.Entries.Should().Contain(entry =>
+            entry.Category == "Microsoft.EntityFrameworkCore.Database.Command"
+            && entry.Text.Contains("websearch_to_tsquery", StringComparison.Ordinal));
+        Logs.Entries.Should().NotContain(entry =>
+            entry.Text.Contains(SecretPhrase, StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion

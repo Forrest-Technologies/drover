@@ -75,7 +75,7 @@ public sealed partial class DroverApi
     /// the threads the caller may read are searched. Blank words, or more than the server allows, are refused.
     /// </summary>
     public Task<List<MessageSearchHit>> SearchMessages(Guid spaceId, string words, CancellationToken cancellationToken = default) =>
-        Get<List<MessageSearchHit>>($"{Space(spaceId)}/threads/search?q={Uri.EscapeDataString(words)}", cancellationToken);
+        Post<List<MessageSearchHit>>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words), cancellationToken);
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);

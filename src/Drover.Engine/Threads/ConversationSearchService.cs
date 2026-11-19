@@ -1,9 +1,9 @@
 namespace Drover.Engine.Threads;
 
 /// <summary>
-/// Finds the messages of a person's conversations that contain the words they typed. It runs in the tenant scope
-/// the endpoint filter opened, so row-level security keeps every search to the caller's space and to the threads
-/// they may read: their own, and the ones shared with everyone.
+/// Finds the messages of a person's conversations that contain the words they typed. It runs in a tenant scope opened
+/// after validation and concurrency checks, so row-level security keeps every search to the caller's space and to the
+/// threads they may read: their own, and the ones shared with everyone.
 /// </summary>
 public sealed class ConversationSearchService(MessageRepository messages)
 {

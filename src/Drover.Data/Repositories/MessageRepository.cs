@@ -182,39 +182,63 @@ public sealed class MessageRepository(DroverDbContext db)
 
     /// <summary>
     /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
-    /// first, at most <paramref name="limit"/>. Only what a person or a bot said is searched: the text parts of
-    /// placed messages in threads that are not archived. Row-level security keeps this to the caller's space and to
-    /// the threads whose audience includes them. There is no text search index: under row-level security PostgreSQL
-    /// uses an index only for a leakproof operator, and the text search match is not one, so the words are matched
-    /// across the space's messages, which the space's own index finds. Each snippet marks a matched word with
-    /// <see cref="MatchStart"/> and <see cref="MatchEnd"/>, which are taken out of the text before it is marked.
+    /// first, at most <paramref name="limit"/> within the most recent <paramref name="candidateLimit"/> readable
+    /// placed messages. Only what a person or a bot said is searched: the text parts of placed messages in threads
+    /// that are not archived. Row-level security keeps this to the caller's space and to the threads whose audience
+    /// includes them. A partial descending index over the space's recent placed messages bounds the candidate window
+    /// so text extraction, tokenization, and ranking never scan unbounded history, and a statement timeout caps
+    /// execution time. Each snippet marks a matched word with <see cref="MatchStart"/> and <see cref="MatchEnd"/>,
+    /// which are taken out of the text before it is marked.
     /// </summary>
-    public async Task<IReadOnlyList<MessageMatch>> SearchMessages(string words, int limit, CancellationToken cancellationToken) =>
-        await db.Database
+    public async Task<IReadOnlyList<MessageMatch>> SearchMessages(
+        string words,
+        int limit,
+        CancellationToken cancellationToken,
+        int candidateLimit = SearchCandidateLimit)
+    {
+        if (db.Database.CurrentTransaction is not null)
+        {
+            await db.Database.ExecuteSqlRawAsync(SearchStatementTimeoutSql, cancellationToken);
+        }
+
+        return await db.Database
             .SqlQuery<MessageMatch>(
                 $"""
-                SELECT m.id AS message_id, m.thread_id, t.bot_id, b.name AS bot_name, t.title AS thread_title,
-                       (t.is_main AND t.owner_user_id = sys.current_user_id()) AS in_main_conversation,
-                       m.role = 'assistant' AS from_bot, m.created_at,
+                WITH candidates AS MATERIALIZED (
+                    SELECT m.id, m.space_id, m.thread_id, m.role, m.created_at, m.parts,
+                           t.bot_id, t.title AS thread_title,
+                           (t.is_main AND t.owner_user_id = sys.current_user_id()) AS in_main_conversation
+                    FROM messages m
+                    JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
+                    WHERE m.position IS NOT NULL
+                      AND m.shelved_at IS NULL
+                      AND m.role IN ('user', 'assistant')
+                      AND t.archived_at IS NULL
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT {candidateLimit}
+                )
+                SELECT c.id AS message_id, c.thread_id, c.bot_id, b.name AS bot_name, c.thread_title,
+                       c.in_main_conversation,
+                       c.role = 'assistant' AS from_bot, c.created_at,
                        ts_headline('english', said.text, q.query, said.marks) AS snippet
-                FROM messages m
-                JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
-                JOIN bots b ON b.space_id = t.space_id AND b.id = t.bot_id
+                FROM candidates c
+                JOIN bots b ON b.space_id = c.space_id AND b.id = c.bot_id
                 CROSS JOIN websearch_to_tsquery('english', {words}) AS q(query)
                 CROSS JOIN LATERAL (
                     SELECT string_agg(translate(part.text, E'\u0001\u0002', ''), E'\n') AS text,
                            'StartSel=' || E'\u0001' || ', StopSel=' || E'\u0002' || ', MaxFragments=1, MaxWords=24, MinWords=10' AS marks
-                    FROM jsonb_array_elements_text(jsonb_path_query_array(m.parts, '$[*] ? (@.type == "text").text')) AS part(text)
+                    FROM jsonb_array_elements_text(jsonb_path_query_array(c.parts, '$[*] ? (@.type == "text").text')) AS part(text)
                 ) AS said
-                WHERE m.position IS NOT NULL
-                  AND m.shelved_at IS NULL
-                  AND m.role IN ('user', 'assistant')
-                  AND t.archived_at IS NULL
-                  AND to_tsvector('english', said.text) @@ q.query
-                ORDER BY ts_rank(to_tsvector('english', said.text), q.query) DESC, m.created_at DESC, m.id DESC
+                CROSS JOIN LATERAL (
+                    SELECT to_tsvector('english', said.text) AS document
+                ) AS doc
+                WHERE said.text IS NOT NULL
+                  AND doc.document @@ q.query
+                ORDER BY ts_rank(doc.document, q.query) DESC, c.created_at DESC, c.id DESC
                 LIMIT {limit}
                 """)
             .ToListAsync(cancellationToken);
+    }
 
     /// <summary>Stores a message without a position: it waits for a run to take it.</summary>
     public void AddPending(ChatThread thread, Message message)
@@ -268,7 +292,15 @@ public sealed class MessageRepository(DroverDbContext db)
 
     #endregion
 
-    #region Search Marks
+    #region Search Bounds And Marks
+
+    /// <summary>The most recent readable placed messages scanned per search so growing history stays bounded.</summary>
+    public const int SearchCandidateLimit = 2000;
+
+    /// <summary>The longest a search statement may run on the database, in milliseconds.</summary>
+    public const int SearchTimeoutMilliseconds = 5000;
+
+    private const string SearchStatementTimeoutSql = "SET LOCAL statement_timeout = '5000'";
 
     /// <summary>Marks where a matched word starts in a search snippet.</summary>
     public const char MatchStart = '\u0001';
