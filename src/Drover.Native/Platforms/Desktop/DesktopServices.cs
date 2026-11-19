@@ -7,8 +7,10 @@ namespace Drover.Native.Platform;
 /// </summary>
 internal static class DesktopServices
 {
-    public static IServiceCollection AddDevice(this IServiceCollection services) =>
-        services
+    public static IServiceCollection AddDevice(this IServiceCollection services)
+    {
+        services.AddHttpClient("desktop-updates");
+        return services
             .AddSingleton<IFileDelivery, DesktopFileDelivery>()
             .AddSingleton<DesktopNotificationSelections>()
             .AddSingleton<DesktopNotificationSink>()
@@ -21,5 +23,7 @@ internal static class DesktopServices
             .AddSingleton(provider => DesktopSignInReturn.Open(
                 ticket => PlatformShell.Incoming.Open(Addresses.ToolSignInReturn(ticket)),
                 provider.GetRequiredService<ILogger<DesktopSignInReturn>>()))
-            .AddSingleton(provider => new AppSignInReturn(provider.GetRequiredService<DesktopSignInReturn>().Address));
+            .AddSingleton(provider => new AppSignInReturn(provider.GetRequiredService<DesktopSignInReturn>().Address))
+            .AddSingleton<IDesktopUpdates, DesktopUpdates>();
+    }
 }
