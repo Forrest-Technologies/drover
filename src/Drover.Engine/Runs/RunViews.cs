@@ -92,6 +92,7 @@ public static class RunViews
     {
         TextPart text => new("text") { Text = text.Text },
         ReasoningPart reasoning => new("reasoning") { Text = reasoning.Text },
+        SourcePart source => new("source") { Text = source.Title, Url = source.Url.AbsoluteUri },
         ToolCallPart call => new("tool_call") { ToolCallId = call.ToolCallId, ToolName = call.ToolName, Arguments = call.Arguments.GetRawText() },
         ToolResultPart result => new("tool_result") { ToolCallId = result.ToolCallId, Result = result.Result.GetRawText(), IsError = result.IsError },
         ImagePart image => new("image")

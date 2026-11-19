@@ -231,7 +231,7 @@ public sealed class MessageList : Grid
             start: 1,
             tail: 4);
 
-        thinking.Visibility = Shown(list.Thinking);
+        thinking.Visibility = Shown(list.ShowsThinking);
         thinkingName.Text = list.BotName;
         ShowFailure(list);
         // A note with nothing to say takes no room between the messages and the foot of the column.

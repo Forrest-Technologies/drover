@@ -66,6 +66,10 @@ public sealed class ChatEntry : ContentControl
 
     private readonly MarkdownView words = new();
 
+    private readonly ReplyReasoning reasoning = new();
+
+    private readonly ReplySources sources = new();
+
     private readonly StackPanel tools = new() { Spacing = Tokens.Number("DvSpace2") };
 
     private readonly StackPanel files = new() { Spacing = Tokens.Number("DvSpace2") };
@@ -166,9 +170,10 @@ public sealed class ChatEntry : ContentControl
     private static bool Same(ChatMessage message, ChatMessage? before) =>
         before is not null
         && (ReferenceEquals(message, before)
-            || (message with { Tools = before.Tools, Files = before.Files } == before
+            || (message with { Tools = before.Tools, Files = before.Files, Sources = before.Sources } == before
                 && message.Tools.SequenceEqual(before.Tools)
-                && message.Files.SequenceEqual(before.Files)));
+                && message.Files.SequenceEqual(before.Files)
+                && message.Sources.SequenceEqual(before.Sources)));
 
     /// <summary>Puts the focus on the message a link named, so a keyboard or a screen reader lands there too.</summary>
     public void Land() => Focus(FocusState.Programmatic);
@@ -181,18 +186,19 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted)
     {
-        Detach(words, tools, files, usage, bubble, sentBy, pending, plate, name, writing, run);
+        Detach(words, reasoning, sources, tools, files, usage, bubble, sentBy, pending, plate, name, writing, run);
 
         return wanted switch
         {
             ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, sentBy, files, pending),
-            ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, files),
-            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, words, tools, files),
+            ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files),
+            ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, words, sources, tools, files),
             _ => Spoken(),
         };
     }
 
-    // A bot's words beside its head: the plate, then who speaks, the words, what it did, and what the reply used.
+    // A bot's words beside its head: the plate, then who speaks, what it reasoned, the words and the sources they cite,
+    // what it did, and what the reply used.
     private Grid Spoken()
     {
         var from = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
@@ -205,7 +211,7 @@ public sealed class ChatEntry : ContentControl
         from.Children.Add(writing);
         from.Children.Add(run);
 
-        var body = Column(HorizontalAlignment.Stretch, from, words, tools, files, usage);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, usage);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -262,7 +268,7 @@ public sealed class ChatEntry : ContentControl
         if (tools.Margin.Left != inset)
         {
             tools.Margin = new(inset, 0, 0, 0);
-            files.Margin = shape is ChatEntryShape.Tools ? new(inset, 0, 0, 0) : new(0);
+            files.Margin = sources.Margin = shape is ChatEntryShape.Tools ? new(inset, 0, 0, 0) : new(0);
         }
 
         if (files.MaxWidth != most2)
@@ -286,8 +292,14 @@ public sealed class ChatEntry : ContentControl
 
         head.BotName = parameters.BotName;
         head.Hue = parameters.BotHue;
-        head.State = message.Streaming ? AvatarState.Writing : AvatarState.Rest;
+        head.State = message switch
+        {
+            { Thinking: true } => AvatarState.Thinking,
+            { Streaming: true } => AvatarState.Writing,
+            _ => AvatarState.Rest,
+        };
         name.Text = parameters.BotName;
+        writing.Text = ChatRows.Arriving(message);
         writing.Visibility = Shown(message.Streaming);
         run.Address = parameters.RunAddress is { } address && message.ActivityRunId is { } activityRunId ? address(activityRunId) : null;
         run.Visibility = Shown(run.Address is not null);
@@ -297,6 +309,16 @@ public sealed class ChatEntry : ContentControl
             words.Streaming = message.Streaming;
             words.Text = message.Text;
         }
+
+        words.Visibility = Shown(message.Text.Length > 0);
+        reasoning.Visibility = Shown(message.Reasoning is not null);
+        if (message.Reasoning is { } reasoned)
+        {
+            reasoning.Show(reasoned, message.Thinking);
+        }
+
+        sources.Sources = message.Sources;
+        sources.Visibility = Shown(message.Sources.Count > 0);
 
         Keyed.Sync(tools, message.Tools, tool => $"{tool.Id}:{ChatRows.Shape(tool, parameters.Takeovers)}", tool => Card(tool, parameters), (card, tool) => Tell(card, tool, parameters));
         tools.Visibility = Shown(message.Tools.Count > 0);

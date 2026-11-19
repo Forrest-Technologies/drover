@@ -56,6 +56,10 @@ internal static class ChatSamples
         [
             Tall(new MessageList { Model = Conversation(writing: true) }),
         ]),
+        new("A reply's reasoning and sources", "Reasoning stays closed until opened; while it arrives the bot's head breathes and the section's edge is lit. Sources sit under the words and open outside the app.", () =>
+        [
+            Fitting(new MessageList { Model = Reasoned() }),
+        ]),
         new("A reply that failed", "What failed in a sentence, one way forward, and the server's report for whoever needs it.", () =>
         [
             Wide(new FailureLine { Cause = FailureCause.ModelUnreachable, BotName = "Sample lead bot", Reported = "sample_error: A sample report from the server." }),
@@ -96,6 +100,30 @@ internal static class ChatSamples
         return list;
     }
 
+    /// <summary>A sample conversation with a reply that reasoned and cited sources, and one whose reasoning is arriving.</summary>
+    public static MessageListViewModel Reasoned()
+    {
+        List<ChatMessage> messages =
+        [
+            new("sample-reasoned-question", true, "A sample question that needs sources."),
+            new("sample-reasoned-answer", false, "A sample answer drawn from two sample sources.")
+            {
+                Reasoning = "A sample line of reasoning.\n\nA second sample line that weighs the sources.",
+                Sources =
+                [
+                    SourceLink.From("https://sample.example/first", "Sample source with a title")!,
+                    SourceLink.From("https://www.sample.example/second", null)!,
+                ],
+            },
+            new("sample-thinking-question", true, "A sample follow-up question."),
+            new("sample-thinking-answer", false, string.Empty, Streaming: true) { Reasoning = "A sample line of reasoning, still arriving" },
+        ];
+
+        var list = new MessageListViewModel { BotName = "Sample lead bot", BotHue = BotIdentity.Hue(lead), Messages = messages, Thinking = true };
+        list.Update();
+        return list;
+    }
+
     #endregion
 
     #region Private Methods
@@ -110,6 +138,10 @@ internal static class ChatSamples
         """;
 
     private static Border Wide(FrameworkElement sample) => new() { Child = sample, Width = Tokens.Number("DvDialogWidth") };
+
+    // As tall as a tall sample, and no wider than the page, so a phone shows the sample at its own width.
+    private static Border Fitting(FrameworkElement sample) =>
+        new() { Child = sample, MaxWidth = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };
 
     private static Border Tall(FrameworkElement sample) =>
         new() { Child = sample, Width = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };

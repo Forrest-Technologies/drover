@@ -82,7 +82,7 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
         new(
             stored.Id,
             stored.Role,
-            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File))],
+            [.. stored.Parts.Select(part => new PartView(part.Kind, part.Text, part.ToolCallId, part.ToolName, part.Arguments, part.Result, part.IsError, part.File, part.Url))],
             IsStreaming: false,
             Step: null)
         {
@@ -97,8 +97,9 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
 
 
 /// <summary>
-/// One part of a message: text, reasoning, tool_call, tool_result, image, or file. Arguments and result are JSON
-/// text, already redacted.
+/// One part of a message: text, reasoning, source, tool_call, tool_result, image, or file. Arguments and result are
+/// JSON text, already redacted. A source is a web address the reply cites (<see cref="Url"/>) with its title as the
+/// text; both came from outside Drover.
 /// </summary>
 public sealed record PartView(
     string Kind,
@@ -108,7 +109,8 @@ public sealed record PartView(
     string? Arguments = null,
     string? Result = null,
     bool IsError = false,
-    FileResponse? File = null);
+    FileResponse? File = null,
+    string? Url = null);
 
 
 /// <summary>
