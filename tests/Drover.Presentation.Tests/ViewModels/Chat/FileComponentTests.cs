@@ -287,6 +287,28 @@ public sealed class FileComponentTests : IDisposable
         Card(file with { FromBot = true }).CanPreview.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("https://app.example.test/preview/file?grant=hidden")]
+    [InlineData("https://preview.example.test/preview/file?grant=hidden")]
+    public async Task An_html_preview_on_the_app_servers_own_site_is_refused_and_revoked(string sameSiteAddress)
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "https://app.example.test/api/spaces/1/files/2", true, start);
+        string? revoked = null;
+        var card = Card(file);
+        card.RequestPreview = _ => Task.FromResult(new FilePreviewResponse(sameSiteAddress, Grant: "hidden"));
+        card.RevokePreview = (_, grant) =>
+        {
+            revoked = grant;
+            return Task.CompletedTask;
+        };
+
+        await card.Preview();
+
+        card.PreviewAddress.Should().BeNull();
+        card.PreviewProblem.Should().Be("Drover could not preview report.html. Download is still available.");
+        revoked.Should().Be("hidden");
+    }
+
     #endregion
 
     #region Files Panel

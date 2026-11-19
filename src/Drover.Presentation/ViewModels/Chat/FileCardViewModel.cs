@@ -196,6 +196,7 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
             if (response.Address is { } address
                 && Uri.TryCreate(address, UriKind.Absolute, out var parsed)
                 && parsed.Scheme is "https"
+                && !SharesAppSite(file.Href, parsed)
                 && response.Grant is { Length: > 0 } grant)
             {
                 PreviewAddress = address;
@@ -203,6 +204,7 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
             }
             else
             {
+                await RevokeGrant(file, response.Grant);
                 PreviewProblem = response.Problem ?? $"Drover could not preview {File.Name}. Download is still available.";
             }
         }
@@ -254,6 +256,18 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
     #endregion
 
     #region Private Methods
+
+    private static bool SharesAppSite(string fileHref, Uri preview) =>
+        Uri.TryCreate(fileHref, UriKind.Absolute, out var app)
+        && string.Equals(Site(app), Site(preview), StringComparison.OrdinalIgnoreCase);
+
+    private static string Site(Uri address)
+    {
+        var host = address.IdnHost.TrimEnd('.');
+        return host.Split('.') is [.., var secondLast, var last] && !System.Net.IPAddress.TryParse(host, out _)
+            ? $"{secondLast}.{last}"
+            : host;
+    }
 
     private async Task RevokeGrant(SharedFile file, string? grant)
     {
