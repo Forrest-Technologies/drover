@@ -20,6 +20,7 @@ global using Drover.Client.Runs;
 global using Drover.Contracts.Files;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Threads;
+global using Drover.Native.Platform;
 global using Drover.Transport;
 global using Microsoft.Extensions.Logging;
 global using Microsoft.Extensions.Logging.Abstractions;
