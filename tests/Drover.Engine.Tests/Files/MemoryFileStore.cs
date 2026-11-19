@@ -18,6 +18,12 @@ public sealed class MemoryFileStore : IFileStore
     /// <summary>How many saves took their whole content, including any removed since.</summary>
     public int Saved => saved;
 
+    /// <summary>
+    /// Awaited at the start of <see cref="Open"/>, so a test can pause after a caller has read its rows and before it
+    /// copies the bytes. Null does nothing.
+    /// </summary>
+    public Func<CancellationToken, Task>? BeforeOpen { get; set; }
+
     #endregion
 
     #region Interface Implementations
@@ -31,10 +37,16 @@ public sealed class MemoryFileStore : IFileStore
         Interlocked.Increment(ref saved);
     }
 
-    public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken)
+    public async Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken)
     {
         FileStorageKeys.Require(spaceId, storageKey);
-        return Task.FromResult<Stream?>(files.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes, writable: false) : null);
+
+        if (BeforeOpen is { } before)
+        {
+            await before(cancellationToken);
+        }
+
+        return files.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes, writable: false) : null;
     }
 
     public Task Delete(Guid spaceId, string storageKey, CancellationToken cancellationToken)

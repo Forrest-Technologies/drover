@@ -165,11 +165,11 @@ public sealed class AccountService(
     }
 
     /// <summary>
-    /// Adds a person to the space. When the space is personal and has one member, every live sandbox that holds a
-    /// copied file is retired in this same transaction, before the new membership is visible: the one person who
-    /// could see those copies is no longer the only person who can reach the sandbox. The new person joins as
-    /// themselves, because a user row is theirs to write. The password is random and is not returned, so this join
-    /// does not sign anyone in.
+    /// Adds a person to the space. When the space is personal and has one member, every live sandbox is retired in
+    /// this same transaction, before the new membership is visible: the one person who could see a private write is
+    /// no longer the only person who can reach the sandbox. The retirement holds the space's copy fence, so a copy
+    /// still in flight re-checks the audience before it writes. The new person joins as themselves, because a user
+    /// row is theirs to write. The password is random and is not returned, so this join does not sign anyone in.
     /// </summary>
     public async Task<Guid> AddMember(Guid spaceId, MembershipRole role, CancellationToken cancellationToken)
     {
@@ -190,7 +190,7 @@ public sealed class AccountService(
 
         if (await accounts.IsPersonalWithOneMember(spaceId, cancellationToken))
         {
-            await sandboxes.RetireTainted(time.GetUtcNow(), cancellationToken);
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
         }
 
         accounts.Add(member);
@@ -200,9 +200,10 @@ public sealed class AccountService(
     }
 
     /// <summary>
-    /// Makes a personal space shared. Every live sandbox that holds a copied file is retired in this same
-    /// transaction, before the kind changes: a private conversation in a shared space is not one person's any more.
-    /// False when the caller may not change the space, or the space is not there. Already shared is left as it is.
+    /// Makes a personal space shared. Every live sandbox is retired in this same transaction, before the kind
+    /// changes: a private conversation in a shared space is not one person's any more. The retirement holds the
+    /// space's copy fence, so a copy still in flight re-checks the audience before it writes. False when the caller
+    /// may not change the space, or the space is not there. Already shared is left as it is.
     /// </summary>
     public async Task<bool> MakeShared(Guid spaceId, Guid userId, CancellationToken cancellationToken)
     {
@@ -217,7 +218,7 @@ public sealed class AccountService(
 
         if (await accounts.GetSpace(spaceId, cancellationToken) is { Kind: SpaceKind.Personal })
         {
-            await sandboxes.RetireTainted(time.GetUtcNow(), cancellationToken);
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
             await accounts.MakeShared(spaceId, cancellationToken);
         }
 

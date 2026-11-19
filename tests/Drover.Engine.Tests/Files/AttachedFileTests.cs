@@ -513,7 +513,7 @@ public sealed class AttachedFileTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_sandbox_that_holds_no_copied_file_stays_when_a_member_joins()
+    public async Task A_private_write_from_before_a_member_joined_is_gone()
     {
         var sandbox = ListingSandbox();
         var script = new ScriptedModel(
@@ -531,8 +531,39 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
 
         after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
-        after.Value!.Stdout.Should().Contain("/home/user/notes.txt");
-        sandbox.Created.Should().Be(1, "a sandbox that holds no copied file is not replaced");
+        after.Value!.Stdout.Should().NotContain("notes.txt");
+        sandbox.Created.Should().Be(2, "the sandbox that held the private write was replaced");
+    }
+
+    [Fact]
+    public async Task A_copy_paused_while_a_member_joins_never_lands_in_the_sandbox()
+    {
+        var sandbox = new FakeSandboxProvider();
+        await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
+        var threadId = await world.NewThread();
+        var upload = await world.Upload(threadId, "report.zip", Zip);
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Files.BeforeOpen = async cancellationToken =>
+        {
+            opened.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+        world.StartHost();
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var path = $"attachments/{upload.File!.Id:N}/report.zip";
+        var runId = PostWith(world, threadId, "Keep the report", upload.File.Id);
+
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        var member = await world.AddMember(MembershipRole.Admin);
+        release.TrySetResult();
+        (await world.WaitForStatus(await runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        sandbox.Tokens.SelectMany(token => sandbox.WithToken(token).Files.Keys).Should().NotContain(path);
+        TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("could not be put in the sandbox", StringComparison.Ordinal));
+        var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("report.zip");
     }
 
     #endregion

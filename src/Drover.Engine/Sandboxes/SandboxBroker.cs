@@ -50,6 +50,9 @@ public sealed class SandboxBroker(
     private const string HeldSentence =
         "A person has this sandbox's screen right now, because a bot that shares it asked them to take it over. Nothing was done in the sandbox. Try again once they hand it back; an owner or admin can see who holds it, and stop that run, on the bot's sandbox page.";
 
+    private const string ClosedConversationSentence =
+        "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.";
+
     private const int MaxEntries = 1000;
 
     /// <summary>The least time a sandbox stays up for a desktop action: starting the display can take a minute and a half.</summary>
@@ -175,9 +178,11 @@ public sealed class SandboxBroker(
     /// <summary>
     /// Puts a file a person attached into the bot's own sandbox, made on first use, for the bot to work on. Not a tool
     /// call: the server does it while it builds what the model reads, for a bot whose grants let it use a sandbox. The
-    /// same file size limit binds it as a bot's own writes. Refusals are <see cref="BuiltinToolException"/>.
+    /// same file size limit binds it as a bot's own writes. The file's audience is read again under the space's copy
+    /// fence, in the same transaction as the tainted mark, and the provider is called only when everyone who can reach
+    /// the sandbox can still see it. Refusals are <see cref="BuiltinToolException"/>.
     /// </summary>
-    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, CancellationToken cancellationToken)
+    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, Guid fileId, CancellationToken cancellationToken)
     {
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
 
@@ -187,7 +192,7 @@ public sealed class SandboxBroker(
         }
 
         var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
-        await MarkTainted(caller, lease, cancellationToken);
+        await AuthorizeCopy(caller, lease, fileId, cancellationToken);
 
         try
         {
@@ -876,7 +881,7 @@ public sealed class SandboxBroker(
     /// <summary>
     /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
     /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network, or
-    /// from one marked tainted (<see cref="MarkTainted"/>), taints the run.
+    /// from one marked tainted (<see cref="AuthorizeCopy"/>), taints the run.
     /// </summary>
     private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
@@ -947,35 +952,43 @@ public sealed class SandboxBroker(
 
         if (!covered)
         {
-            throw new BuiltinToolException(
-                "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.");
+            throw new BuiltinToolException(ClosedConversationSentence);
         }
     }
 
     /// <summary>
-    /// Marks the sandbox as holding a file a person attached, for good, in its own committed transaction before the
-    /// file is written: a write that is cancelled or fails after the provider took it still leaves the mark. A sandbox
-    /// whose row is gone is not written to, since nothing could carry the mark.
+    /// Re-reads who may see <paramref name="fileId"/> and marks the sandbox, under the space's copy fence, before the
+    /// provider is called. A narrowing of that audience holds the same fence until the change is committed, so this
+    /// either sees the narrower audience and writes nothing, or marks a sandbox that the narrowing then retires.
     /// </summary>
-    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    private static async Task AuthorizeCopy(SandboxCaller caller, SandboxLease lease, Guid fileId, CancellationToken cancellationToken)
     {
-        var marked = await caller.Tenant.Transact(
+        await caller.Tenant.Transact(
             async services =>
             {
-                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                var sandboxes = services.GetRequiredService<SandboxRepository>();
+                await sandboxes.LockCopies(cancellationToken);
+                var file = await services.GetRequiredService<FileRepository>().FindFile(fileId, cancellationToken);
+                var covered = file is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        file.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
+
+                if (!covered)
                 {
-                    return false;
+                    throw new BuiltinToolException(ClosedConversationSentence);
+                }
+
+                if (await sandboxes.GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                {
+                    throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
                 }
 
                 row.Tainted = true;
-                return true;
             },
             cancellationToken);
-
-        if (!marked)
-        {
-            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
-        }
     }
 
     #endregion

@@ -356,12 +356,13 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         var provider = new FakeSandboxProvider { AfterWrite = _ => cancelled.Cancel() };
         await using var world = await SandboxWorld(provider);
         await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var upload = await world.Upload(await world.NewThread(), "notes.txt", "attached"u8.ToArray());
         var host = world.StartHost();
         var broker = host.Services.GetRequiredService<SandboxBroker>();
         var caller = new SandboxCaller(new RunTenant(host.Services.GetRequiredService<IServiceScopeFactory>(), world.SpaceId, world.UserId), world.BotId);
         using var content = new MemoryStream("attached"u8.ToArray());
 
-        var put = () => broker.PutFile(caller, "attachments/a/notes.txt", content, content.Length, cancelled.Token);
+        var put = () => broker.PutFile(caller, "attachments/a/notes.txt", content, content.Length, upload.File!.Id, cancelled.Token);
 
         await put.Should().ThrowAsync<OperationCanceledException>();
         provider.Only().Files.Should().ContainKey("attachments/a/notes.txt");
