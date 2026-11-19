@@ -121,6 +121,7 @@
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/NoEval.js" />
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Files.js" />
     <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Accessibility.js" />
+    <EmbeddedResource Include="Platforms/WebAssembly/WasmScripts/Fields.js" />
     <Compile Include="../Shared/Transport/AntiforgeryHandler.cs" Link="Transport/AntiforgeryHandler.cs" />
   </ItemGroup>
 

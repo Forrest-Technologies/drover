@@ -175,7 +175,7 @@ public sealed class BotSandboxPage : Screen
         AutomationProperties.SetName(history, BotSandboxViewModel.HistoryLabel);
         command.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.Command = command.Value);
         command.Submitted += async (_, _) => await model.RunCommand();
-        command.Loaded += (_, _) => SandboxScreen.TuneInput(command, BotSandboxViewModel.LongestCommand, machine: true);
+        command.Loaded += (_, _) => SandboxScreen.TuneInput(command, FieldLimits.SandboxCommand, machine: true);
         run.Click += async (_, _) => await model.RunCommand();
 
         terminal.Children.Add(openTerminal);

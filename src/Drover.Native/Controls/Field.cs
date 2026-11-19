@@ -41,7 +41,7 @@ public sealed class Field : StackPanel
 #if ANDROID
         frame.Tapped += (_, _) =>
         {
-            if (input is AndroidAddressEditor editor)
+            if (input is AndroidTextEditor editor)
             {
                 editor.ShowKeyboard();
             }
@@ -73,6 +73,10 @@ public sealed class Field : StackPanel
     public static readonly DependencyProperty ErrorProperty = Dp.Register<Field, string?>(nameof(Error), null, field => field.Describe());
 
     public static readonly DependencyProperty DisabledProperty = Dp.Register<Field, bool>(nameof(Disabled), false, field => field.Describe());
+
+    public static readonly DependencyProperty MaxLengthProperty = Dp.Register<Field, int>(nameof(MaxLength), 0, field => field.Describe());
+
+    public static readonly DependencyProperty AutofillProperty = Dp.Register<Field, string?>(nameof(Autofill), null, field => field.BuildInput());
 
     public string Label
     {
@@ -120,6 +124,23 @@ public sealed class Field : StackPanel
         set => SetValue(DisabledProperty, value);
     }
 
+    /// <summary>The most characters the field takes, or 0 for no limit. Typing or pasting past it does nothing.</summary>
+    public int MaxLength
+    {
+        get => (int)GetValue(MaxLengthProperty);
+        set => SetValue(MaxLengthProperty, value);
+    }
+
+    /// <summary>
+    /// What a password manager may fill in: "username", "current-password", or "new-password", the names a browser
+    /// knows. Each platform is told in its own terms.
+    /// </summary>
+    public string? Autofill
+    {
+        get => (string?)GetValue(AutofillProperty);
+        set => SetValue(AutofillProperty, value);
+    }
+
     /// <summary>Raised when Enter is pressed in the field, which sends the form the field is in.</summary>
     public event EventHandler? Submitted;
 
@@ -134,40 +155,12 @@ public sealed class Field : StackPanel
 
     #region Private Methods
 
-    // The platform has one control for text that is shown and another for text that is hidden.
     private void BuildInput()
     {
         frame.Children.Remove(input);
         frame.Children.Remove(placeholder);
 
-        if (Type is "password")
-        {
-            var box = new PasswordBox { Template = (ControlTemplate)Styles.Dictionary["DvPasswordBoxTemplate"], Password = Value };
-            box.PasswordChanged += (_, _) => Take(box.Password);
-            input = box;
-        }
-#if ANDROID
-        else if (Type is "url")
-        {
-            var box = new AndroidAddressEditor { Text = Value };
-            box.TextChanged += (_, _) => Take(box.Text);
-            box.Submitted += (_, _) => Submit();
-            input = box;
-        }
-#endif
-        else
-        {
-            var box = new TextBox
-            {
-                Template = Styles.Template("DvTextBoxTemplate"),
-                Text = Value,
-                InputScope = Scope(),
-                IsSpellCheckEnabled = Type is not ("url" or "email"),
-            };
-            box.TextChanged += (_, _) => Take(box.Text);
-            input = box;
-        }
-
+        input = MakeInput();
         input.FontFamily = Tokens.FontUi;
         input.FontSize = Tokens.Number("DvText14");
         input.Padding = new(Tokens.Number("DvSpace3"), 0, Tokens.Number("DvSpace3"), 0);
@@ -175,14 +168,22 @@ public sealed class Field : StackPanel
         input.VerticalContentAlignment = VerticalAlignment.Center;
         input.MinHeight = Targets.Minimum;
         input.UseSystemFocusVisuals = false;
-        input.GotFocus += (_, _) => SetFocused(true);
-        input.LostFocus += (_, _) => SetFocused(false);
+        input.GotFocus += (_, _) =>
+        {
+            SetFocused(true);
+            PlatformFields.Describe(Autofill);
+        };
+        input.LostFocus += (_, _) =>
+        {
+            SetFocused(false);
+            PlatformFields.Describe(null);
+        };
         input.KeyDown += (_, key) =>
         {
             if (key.Key is VirtualKey.Enter)
             {
 #if ANDROID
-                if (input is AndroidAddressEditor)
+                if (input is AndroidTextEditor)
                 {
                     key.Handled = true;
                 }
@@ -191,7 +192,7 @@ public sealed class Field : StackPanel
             }
         };
 #if ANDROID
-        if (input is AndroidAddressEditor)
+        if (input is AndroidTextEditor)
         {
             frame.Children.Add(placeholder);
             frame.Children.Add(input);
@@ -205,6 +206,47 @@ public sealed class Field : StackPanel
         Describe();
     }
 
+    // The platform has one control for text that is shown and another for text that is hidden.
+    private Control MakeInput()
+    {
+#if ANDROID
+        if (AndroidEditor() is { } editor)
+        {
+            editor.Text = Value;
+            editor.TextChanged += (_, _) => Take(editor.Text);
+            editor.Submitted += (_, _) => Submit();
+            return editor;
+        }
+
+#endif
+        if (Type is "password")
+        {
+            var box = new PasswordBox
+            {
+                Template = (ControlTemplate)Styles.Dictionary["DvPasswordBoxTemplate"],
+                Password = Value,
+                InputScope = Scope(InputScopeNameValue.Password),
+            };
+            box.PasswordChanged += (_, _) => Take(box.Password);
+            return box;
+        }
+
+        var text = new TextBox
+        {
+            Template = Styles.Template("DvTextBoxTemplate"),
+            Text = Value,
+            InputScope = Scope(Type switch
+            {
+                "email" => InputScopeNameValue.EmailSmtpAddress,
+                "url" => InputScopeNameValue.Url,
+                _ => InputScopeNameValue.Default,
+            }),
+            IsSpellCheckEnabled = Type is not ("url" or "email"),
+        };
+        text.TextChanged += (_, _) => Take(text.Text);
+        return text;
+    }
+
     private void Submit()
     {
         // The change event for the last letters can still be on its way when Enter arrives, as it is in a browser.
@@ -212,25 +254,33 @@ public sealed class Field : StackPanel
         {
             PasswordBox box => box.Password,
 #if ANDROID
-            AndroidAddressEditor box => box.Text,
+            AndroidTextEditor box => box.Text,
 #endif
             _ => ((TextBox)input).Text,
         });
         Submitted?.Invoke(this, EventArgs.Empty);
     }
 
-    private InputScope Scope() => new()
+    // What the text is, for the keyboard and for the system: the one hint a desktop platform takes.
+    private static InputScope Scope(InputScopeNameValue name) => new() { Names = { new InputScopeName(name) } };
+
+#if ANDROID
+    // Android's autofill service reads hints from a real field only, so a field it may fill is one. An address is one
+    // too, so input methods compose it as they do elsewhere.
+    private AndroidTextEditor? AndroidEditor()
     {
-        Names =
+        const Android.Text.InputTypes PlainText = Android.Text.InputTypes.ClassText;
+        const Android.Text.InputTypes NoSuggestions = Android.Text.InputTypes.TextFlagNoSuggestions;
+        return (Type, Autofill) switch
         {
-            new InputScopeName(Type switch
-            {
-                "email" => InputScopeNameValue.EmailSmtpAddress,
-                "url" => InputScopeNameValue.Url,
-                _ => InputScopeNameValue.Default,
-            }),
-        },
-    };
+            ("url", _) => new(PlainText | Android.Text.InputTypes.TextVariationUri | NoSuggestions),
+            ("password", "current-password") => new(PlainText | Android.Text.InputTypes.TextVariationPassword, "password"),
+            ("password", "new-password") => new(PlainText | Android.Text.InputTypes.TextVariationPassword, "newPassword"),
+            (_, "username") => new(PlainText | Android.Text.InputTypes.TextVariationEmailAddress | NoSuggestions, "username"),
+            _ => null,
+        };
+    }
+#endif
 
     private void Take(string text)
     {
@@ -253,7 +303,7 @@ public sealed class Field : StackPanel
                 box.Text = Value;
                 break;
 #if ANDROID
-            case AndroidAddressEditor box when box.Text != Value:
+            case AndroidTextEditor box when box.Text != Value:
                 box.Text = Value;
                 break;
 #endif
@@ -281,6 +331,16 @@ public sealed class Field : StackPanel
         error.Text = Error ?? string.Empty;
         error.Visibility = Error is null ? Visibility.Collapsed : Visibility.Visible;
         input.IsEnabled = !Disabled;
+        switch (input)
+        {
+            case TextBox box:
+                box.MaxLength = MaxLength;
+                break;
+            case PasswordBox box:
+                box.MaxLength = MaxLength;
+                break;
+        }
+
         AutomationProperties.SetName(input, Label);
         AutomationProperties.SetHelpText(input, string.Join(" ", new[] { Hint, Error }.Where(text => text is not null)));
         Paint();
@@ -294,9 +354,9 @@ public sealed class Field : StackPanel
         var foreground = Disabled ? "DvText3" : "DvText";
         input.Foreground = Tokens.Brush(this, foreground);
 #if ANDROID
-        if (input is AndroidAddressEditor box)
+        if (input is AndroidTextEditor box)
         {
-            box.Describe(Label, !Disabled, Tokens.Color(this, foreground));
+            box.Describe(Label, !Disabled, Tokens.Color(this, foreground), MaxLength);
         }
 #endif
         placeholder.Foreground = Tokens.Brush(this, "DvText3");

@@ -100,9 +100,6 @@ public sealed partial class SandboxScreenViewModel(
 
     public static string ScrollLabel => "Scroll";
 
-    /// <summary>How long the text or the password sent at once may be.</summary>
-    public static int LongestText => 2000;
-
     public Guid BotId
     {
         get => botId;

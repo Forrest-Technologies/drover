@@ -332,7 +332,7 @@ public sealed class SandboxScreen : StackPanel
         if (typed.Type != kind)
         {
             typed.Type = kind;
-            TuneInput(typed, SandboxScreenViewModel.LongestText);
+            TuneInput(typed, FieldLimits.TypedText);
         }
 
         if (typed.Value != model.Typed)
@@ -414,7 +414,7 @@ public sealed class SandboxScreen : StackPanel
         pane.Showing += KeyboardChanged;
         pane.Hiding += KeyboardChanged;
 
-        TuneInput(typed, SandboxScreenViewModel.LongestText);
+        TuneInput(typed, FieldLimits.TypedText);
         FitToWidth();
         model.Start();
     }
@@ -451,20 +451,15 @@ public sealed class SandboxScreen : StackPanel
     /// </summary>
     internal static void TuneInput(Field field, int longest, bool machine = false)
     {
+        field.MaxLength = longest;
         if (Inner(field) is not { } input)
         {
             return;
         }
 
-        switch (input)
+        if (input is TextBox box)
         {
-            case TextBox box:
-                box.MaxLength = longest;
-                box.IsSpellCheckEnabled = false;
-                break;
-            case PasswordBox box:
-                box.MaxLength = longest;
-                break;
+            box.IsSpellCheckEnabled = false;
         }
 
         if (machine)
