@@ -240,7 +240,7 @@ public sealed class SandboxControlService(
         return new(value);
     }
 
-    private async Task<SandboxScreenshot> SharedScreenshot(
+    internal async Task<SandboxScreenshot> SharedScreenshot(
         SandboxBroker sandbox,
         SandboxCaller person,
         (Guid SpaceId, Guid BotId, bool Wake) key,

@@ -267,17 +267,38 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task Screens_asked_for_at_the_same_time_share_one_screenshot()
+    public async Task Screens_asked_for_while_one_is_being_taken_share_it()
     {
-        var provider = DesktopProvider(TimeSpan.FromMilliseconds(300));
+        var taking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = DesktopProvider(async cancellationToken =>
+        {
+            taking.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        });
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
-        await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token);
-        provider.Commands.Clear();
 
-        var shots = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)));
+        var services = world.Hosts[^1].Services;
+        var broker = services.GetRequiredService<SandboxBroker>();
+        var tenant = services.GetRequiredService<RunScopes>().For(world.SpaceId, world.UserId);
+        var caller = new SandboxCaller(tenant, world.BotId);
+        var key = (world.SpaceId, world.BotId, true);
+        var first = control.SharedScreenshot(broker, caller, key, RunWorld.Token);
+        Task<SandboxScreenshot>[] others;
+        try
+        {
+            await taking.Task.WaitAsync(RunWorld.Token);
+            others = [.. Enumerable.Range(0, 4).Select(_ => control.SharedScreenshot(broker, caller, key, RunWorld.Token))];
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
 
-        shots.Should().OnlyContain(shot => shot.Value != null && shot.Value.Png.SequenceEqual(png));
+        var shots = await Task.WhenAll([first, .. others]);
+
+        shots.Should().OnlyContain(shot => shot.Png.SequenceEqual(png));
         provider.Commands.Count(command => command.Program == "scrot").Should().Be(1);
     }
 
@@ -642,26 +663,30 @@ public sealed class SandboxControlTests(PostgresServer postgres)
 
     /// <summary>
     /// A provider whose sandbox behaves like a desktop: the display check passes, scrot writes a PNG to the path it is
-    /// given after <paramref name="delay"/>, rm removes it, and xdotool does what it is told.
+    /// given once <paramref name="shooting"/> lets it, rm removes it, and xdotool does what it is told.
     /// </summary>
-    private static FakeSandboxProvider DesktopProvider(TimeSpan? delay = null)
+    private static FakeSandboxProvider DesktopProvider(Func<CancellationToken, Task>? shooting = null)
     {
         var provider = new FakeSandboxProvider();
-        provider.Behaviour = (command, token, cancellationToken) => Desktop(provider.WithToken(token), command, delay ?? TimeSpan.Zero, cancellationToken);
+        provider.Behaviour = (command, token, cancellationToken) => Desktop(provider.WithToken(token), command, shooting, cancellationToken);
         return provider;
     }
 
     private static async IAsyncEnumerable<CommandOutput> Desktop(
         FakeSandboxProvider.FakeSandbox sandbox,
         CommandRequest command,
-        TimeSpan delay,
+        Func<CancellationToken, Task>? shooting,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await Task.Yield();
 
         if (command.Program == "scrot")
         {
-            await Task.Delay(delay, cancellationToken);
+            if (shooting is not null)
+            {
+                await shooting(cancellationToken);
+            }
+
             sandbox.Files[command.Arguments[^1]] = png;
         }
         else if (command.Program == "rm")
