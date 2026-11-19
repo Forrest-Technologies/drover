@@ -414,6 +414,11 @@ framework:
   can report no size or a stale size. The Android composer reads the bytes within the server's file limit before the
   HTTP handler sends the request, so the request's length matches the bytes it carries.
 
+The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
+writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
+the way the extension editor's download does (`PlatformFiles.SaveText`): the system's save dialog on desktop and
+Android, a download in a browser. A toast says it was saved or why not; a cancelled dialog says nothing.
+
 When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
 Left and Right move it in 16-pixel steps. The workspace keeps those widths while you switch conversations and
 panels, and limits them to leave room for the conversation. The header uses the remaining conversation width to
