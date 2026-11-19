@@ -1,0 +1,4 @@
+# The linter's bundled list predates this hosted runner label.
+self-hosted-runner:
+  labels:
+    - xcode-27
