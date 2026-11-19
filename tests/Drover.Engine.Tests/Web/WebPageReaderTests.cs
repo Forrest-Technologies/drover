@@ -54,6 +54,7 @@ public sealed class WebPageReaderTests
     [InlineData("http://0.0.0.0/")]
     [InlineData("http://[::1]/")]
     [InlineData("http://[fd00::1]/")]
+    [InlineData("http://[fd00:ec2::254]/latest/meta-data/")]
     [InlineData("http://[fe80::1]/")]
     [InlineData("http://[::ffff:127.0.0.1]/")]
     public async Task Private_link_local_and_metadata_addresses_are_refused(string address)
@@ -89,6 +90,44 @@ public sealed class WebPageReaderTests
         (await second.Should().ThrowAsync<BuiltinToolException>()).Which.Message.Should().Contain("inside.test");
         toMetadata.Requests.Should().Be(1);
         toInside.Requests.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://files.example/readme.txt")]
+    [InlineData("http://name:password@public.test/")]
+    public async Task A_redirect_to_a_disallowed_scheme_or_credentials_is_refused(string target)
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Redirect(target));
+        var reader = Reader(DeploymentPolicy.SelfHosted, PublicOrInside, OnlyTheTestServerIsPublic);
+
+        var read = () => reader.Read(new Uri($"http://public.test:{server.Port}/"), Token);
+
+        await read.Should().ThrowAsync<BuiltinToolException>();
+        server.Requests.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task DNS_rebinding_is_stopped_by_connecting_once_to_the_checked_address_and_rechecking_on_redirect()
+    {
+        using var server = new TestWebServer(_ => TestWebServer.Redirect("/next"));
+        var lookups = 0;
+        var reader = Reader(
+            DeploymentPolicy.SelfHosted,
+            _ => Interlocked.Increment(ref lookups) == 1 ? [IPAddress.Loopback] : [IPAddress.Parse("127.0.0.2")],
+            OnlyTheTestServerIsPublic);
+
+        var read = () => reader.Read(new Uri($"http://rebind.test:{server.Port}/start"), Token);
+
+        (await read.Should().ThrowAsync<BuiltinToolException>()).Which.Message.Should().Contain("rebind.test");
+        lookups.Should().Be(2, "each connection resolves once and refuses as soon as the host rebinds to a private address");
+        server.Requests.Should().Be(1);
+
+        lookups = 0;
+        using var singleHop = new TestWebServer(_ => Text("text/plain", "Safe hop."));
+        var page = await reader.Read(new Uri($"http://rebind-once.test:{singleHop.Port}/"), Token);
+        page.Text.Should().Be("Safe hop.");
+        lookups.Should().Be(1, "the checked address is connected to directly without a second DNS lookup");
     }
 
     [Theory]
@@ -195,6 +234,45 @@ public sealed class WebPageReaderTests
         var read = () => reader.Read(new Uri($"http://public.test:{server.Port}/"), Token);
 
         (await read.Should().ThrowAsync<BuiltinToolException>()).Which.Message.Should().Contain("longer than 1 seconds");
+    }
+
+    [Fact]
+    public async Task A_page_whose_body_stalls_past_the_request_timeout_is_given_up()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var stop = new CancellationTokenSource();
+        var serve = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(stop.Token);
+            var stream = client.GetStream();
+            var requestBuffer = new byte[1024];
+            _ = await stream.ReadAsync(requestBuffer, stop.Token);
+            await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 100\r\n\r\nhello"), stop.Token);
+            await stream.FlushAsync(stop.Token);
+            await Task.Delay(TimeSpan.FromSeconds(5), stop.Token);
+        }, Token);
+        var reader = Reader(DeploymentPolicy.SelfHosted with { MaxWebRequestSeconds = 1 }, PublicOrInside, OnlyTheTestServerIsPublic);
+
+        var read = () => reader.Read(new Uri($"http://public.test:{port}/"), Token);
+
+        (await read.Should().ThrowAsync<BuiltinToolException>()).Which.Message.Should().Contain("longer than 1 seconds");
+        await stop.CancelAsync();
+        await serve.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+    }
+
+    [Fact]
+    public async Task An_unbounded_response_without_content_length_is_cut_at_the_byte_limit()
+    {
+        using var server = new TestWebServer(_ =>
+            $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{new string('b', 40_000)}");
+        var reader = Reader(DeploymentPolicy.SelfHosted with { MaxWebPageBytes = 1000 }, PublicOrInside, OnlyTheTestServerIsPublic);
+
+        var page = await reader.Read(new Uri($"http://public.test:{server.Port}/"), Token);
+
+        page.IsCut.Should().BeTrue();
+        page.Text.Should().HaveLength(1000);
     }
 
     [Fact]

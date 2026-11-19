@@ -108,9 +108,19 @@ public sealed class WebPageReader(HttpClient client, IOptions<DeploymentPolicyOp
             return null;
         }
 
-        return response.Headers.Location is { } location
-            ? new Uri(current, location)
-            : throw new BuiltinToolException("The page redirected without saying where to.");
+        if (response.Headers.Location is not { } location)
+        {
+            throw new BuiltinToolException("The page redirected without saying where to.");
+        }
+
+        try
+        {
+            return new Uri(current, location);
+        }
+        catch (UriFormatException)
+        {
+            throw new BuiltinToolException("The page redirected to an invalid address.");
+        }
     }
 
     private static async Task<WebPage> ReadPage(Uri address, HttpResponseMessage response, int maxBytes, CancellationToken cancellationToken)
@@ -145,17 +155,18 @@ public sealed class WebPageReader(HttpClient client, IOptions<DeploymentPolicyOp
     private static async Task<(byte[] Bytes, bool IsCut)> ReadAtMost(HttpContent content, int maxBytes, CancellationToken cancellationToken)
     {
         await using var body = await content.ReadAsStreamAsync(cancellationToken);
-        var buffer = new byte[maxBytes];
-        var total = 0;
+        using var buffer = new MemoryStream();
+        var chunk = new byte[Math.Min(16 * 1024, Math.Max(maxBytes, 1))];
         int read;
 
-        while (total < maxBytes && (read = await body.ReadAsync(buffer.AsMemory(total, maxBytes - total), cancellationToken)) > 0)
+        while (buffer.Length < maxBytes
+            && (read = await body.ReadAsync(chunk.AsMemory(0, (int)Math.Min(chunk.Length, maxBytes - buffer.Length)), cancellationToken)) > 0)
         {
-            total += read;
+            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
         }
 
-        var isCut = total == maxBytes && await body.ReadAsync(new byte[1], cancellationToken) > 0;
-        return (buffer[..total], isCut);
+        var isCut = buffer.Length == maxBytes && await body.ReadAsync(chunk.AsMemory(0, 1), cancellationToken) > 0;
+        return (buffer.ToArray(), isCut);
     }
 
     /// <summary>The encoding the answer names, or UTF-8 when it names none this runtime knows.</summary>
