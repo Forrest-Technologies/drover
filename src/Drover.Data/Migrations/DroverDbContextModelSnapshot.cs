@@ -1867,6 +1867,11 @@ namespace Drover.Data.Migrations
                         .HasColumnName("last_activity_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("Model")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("model");
+
                     b.Property<string>("Origin")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1948,6 +1953,11 @@ namespace Drover.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("model");
 
                     b.Property<string>("Parts")
                         .IsRequired()
