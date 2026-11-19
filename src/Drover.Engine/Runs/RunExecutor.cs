@@ -213,7 +213,7 @@ public sealed partial class RunExecutor(
     {
         var runId = run.Id;
         var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.ThreadId, cancellationToken);
-        var bot = await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken);
+        var bot = await AnsweringBot(services, thread, run, cancellationToken);
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var connection = bot is null ? null : await connections.FindConnection(bot.ModelConnectionId, cancellationToken);
         var entry = bot is null ? null : await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
@@ -264,6 +264,21 @@ public sealed partial class RunExecutor(
             && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
 
         return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
+    }
+
+    /// <summary>
+    /// The run's bot, answering with the model its conversation chose when the bot may still use that model. The
+    /// choice is checked again here, because the space's limits may have narrowed since it was made.
+    /// </summary>
+    private static async Task<Bot?> AnsweringBot(IServiceProvider services, ChatThread? thread, Run run, CancellationToken cancellationToken)
+    {
+        if (await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var model = await services.GetRequiredService<ConversationModels>().ModelFor(thread, bot, cancellationToken);
+        return model == bot.Model ? bot : bot.AnsweringWith(model);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>

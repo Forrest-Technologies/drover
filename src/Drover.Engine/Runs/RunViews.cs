@@ -68,7 +68,8 @@ public static class RunViews
             message.Withheld,
             message.ScheduleId,
             message.ScheduleId is null ? null : scheduleCron,
-            message.RunId is null ? null : runPrincipalUserId);
+            message.RunId is null ? null : runPrincipalUserId,
+            message.Model);
 
     /// <summary>A stored file as the API shows it.</summary>
     public static FileResponse ToResponse(this StoredFile file) =>
