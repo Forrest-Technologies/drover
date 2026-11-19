@@ -141,6 +141,9 @@ public sealed class MessageList : Grid
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, ToFoot);
     }
 
+    /// <summary>Draws what the list has now, without waiting for its next turn. For when it is about to be shown.</summary>
+    public void DrawNow() => Draw();
+
     #endregion
 
     #region Building
