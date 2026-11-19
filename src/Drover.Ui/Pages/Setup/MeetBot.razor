@@ -40,7 +40,7 @@
         <p class="dv-entry-lead">Your first bot leads the crew. You talk to it, and the bots it makes for you work beneath it. Name it and choose the model it thinks with.</p>
 
         <form class="dv-entry-form" @onsubmit="Create">
-            <Field Label="Name" @bind-Value="name" name="bot-name" autocomplete="off" required="true" maxlength="80" Disabled="busy" />
+            <Field Label="Name" @bind-Value="name" name="bot-name" autocomplete="off" required="true" maxlength="@FieldLimits.BotName" Disabled="busy" />
             @if (models.Count > 0)
             {
                 <Select Label="Model" @bind-Value="model" Disabled="busy">
