@@ -17,8 +17,11 @@ public enum SignInStep
 /// <summary>What a person gets back when they ask to sign in to a tool server.</summary>
 public sealed record SignInStart(SignInStep Step, Uri? AuthorizationUrl = null, string? Problem = null);
 
-/// <summary>How a sign-in ended when the browser came back. The ids are set once the sign-in was found to be the caller's own.</summary>
-public sealed record SignInFinish(bool Connected, Guid? SpaceId, Guid? ConnectionId, string? Problem);
+/// <summary>
+/// How a sign-in ended when the browser came back. The ids are set once the sign-in was found to be the caller's own.
+/// <see cref="WebPath"/> is the browser client it was started in, which the browser goes back to.
+/// </summary>
+public sealed record SignInFinish(bool Connected, Guid? SpaceId, Guid? ConnectionId, string? Problem, string WebPath = "/");
 
 /// <summary>
 /// Signs people in to tool servers. The protocol library runs a sign-in as one call that waits for the code, and
@@ -69,14 +72,14 @@ public sealed class ToolSignIns(
     /// <summary>
     /// Starts a sign-in for the person, to their own credential or, where one sign-in serves the space, to the
     /// space's. Returns when the tool server has said where the person must go, or when it turned out that no
-    /// sign-in is needed, or that none is possible. <paramref name="appScheme"/> is the address scheme of the native
-    /// app the browser must come back into, one of <see cref="ToolSignInOptions.AppSchemes"/>, or null for the web.
+    /// sign-in is needed, or that none is possible. <paramref name="returnTo"/> says where the browser must come back
+    /// to, as <see cref="SignInReturn.Read"/> reads it; null is the web client.
     /// </summary>
-    public async Task<SignInStart> Begin(Guid spaceId, Guid userId, Guid connectionId, string? appScheme, CancellationToken cancellationToken)
+    public async Task<SignInStart> Begin(Guid spaceId, Guid userId, Guid connectionId, string? returnTo, CancellationToken cancellationToken)
     {
-        if (appScheme is not null && !ToolSignInOptions.AppSchemes.Contains(appScheme))
+        if (SignInReturn.Read(returnTo) is not { } comeBack)
         {
-            return new SignInStart(SignInStep.Failed, Problem: "This server does not know the app the sign-in should return to.");
+            return new SignInStart(SignInStep.Failed, Problem: "This server does not know where the sign-in should return to.");
         }
 
         if (sources.FirstOrDefault(found => found.Kind is ToolSourceKind.Mcp) is not { } source)
@@ -92,7 +95,7 @@ public sealed class ToolSignIns(
             return new SignInStart(prepared.Problem is null ? SignInStep.NotFound : SignInStep.Failed, Problem: prepared.Problem);
         }
 
-        var pending = new Pending(tenant, connectionId, appScheme);
+        var pending = new Pending(tenant, connectionId, comeBack);
 
         if (byPerson.TryRemove((userId, connectionId), out var earlier))
         {
@@ -160,7 +163,7 @@ public sealed class ToolSignIns(
 
         var hash = Hash(state);
 
-        if (!byState.TryGetValue(hash, out var pending) || pending.AppScheme is not { } scheme
+        if (!byState.TryGetValue(hash, out var pending) || pending.Return.App is not { } app
             || !byState.TryRemove(new KeyValuePair<string, Pending>(hash, pending)))
         {
             return null;
@@ -170,7 +173,7 @@ public sealed class ToolSignIns(
         pending.Arrived = new Arrival(state, code, issuer, refused);
         pending.TicketHash = Hash(ticket);
         byTicket[pending.TicketHash] = pending;
-        return $"{scheme}://{ToolSignInOptions.AppReturnHost}?ticket={ticket}";
+        return $"{app}?ticket={ticket}";
     }
 
     /// <summary>
@@ -225,12 +228,17 @@ public sealed class ToolSignIns(
         try
         {
             var problem = await pending.Finished.WaitAsync(finishPatience, time, cancellationToken);
-            return new SignInFinish(problem is null, pending.Tenant.SpaceId, pending.ConnectionId, problem);
+            return new SignInFinish(problem is null, pending.Tenant.SpaceId, pending.ConnectionId, problem, pending.Return.WebPath);
         }
         catch (TimeoutException slow)
         {
             logger.LogInformation("The sign-in to tool connection {ConnectionId} had not finished when its callback answered: {Failure}", pending.ConnectionId, slow.GetType().Name);
-            return new SignInFinish(false, pending.Tenant.SpaceId, pending.ConnectionId, "The tool server is taking a long time to finish the sign-in. Check the connection in a moment.");
+            return new SignInFinish(
+                false,
+                pending.Tenant.SpaceId,
+                pending.ConnectionId,
+                "The tool server is taking a long time to finish the sign-in. Check the connection in a moment.",
+                pending.Return.WebPath);
         }
     }
 
@@ -410,7 +418,7 @@ public sealed class ToolSignIns(
         public override string ToString() => nameof(Arrival);
     }
 
-    private sealed class Pending(RunTenant tenant, Guid connectionId, string? appScheme)
+    private sealed class Pending(RunTenant tenant, Guid connectionId, SignInReturn comeBack)
     {
         #region Properties
 
@@ -418,7 +426,7 @@ public sealed class ToolSignIns(
 
         public Guid ConnectionId => connectionId;
 
-        public string? AppScheme => appScheme;
+        public SignInReturn Return => comeBack;
 
         public Arrival? Arrived { get; set; }
 

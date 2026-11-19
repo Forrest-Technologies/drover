@@ -135,15 +135,19 @@ def check_yard_edges(theme):
     if (width, height, format_id) != (720, 1600, 1):
         raise AssertionError(f"Expected a 720 × 1600 RGBA emulator image, got {width} × {height} format {format_id}.")
 
-    # The yard dots sit on a 16 dp grid. Sample the center of the display away from the status icons
-    # and look for the dot colors in the two themes.
-    dots = bytes((28, 36, 49, 255)) if theme == "dark" else bytes((223, 227, 234, 255))
+    # The yard dots sit on a 16 dp grid. Sample the center away from the status icons.
+    # The strongest light pixels have two observed blends over the same background.
+    light = {bytes((223, 227, 234, 255)), bytes((227, 230, 237, 255))}
+    dots = {bytes((28, 36, 49, 255))} if theme == "dark" else light
     pitch = 32
 
     def has_dots(y):
-        offset = 16 + y * width * 4
-        strip = pixels[offset + width * 4 // 3:offset + width * 8 // 3]
-        return strip.count(dots) >= 3
+        row = 16 + y * width * 4
+        matches = {
+            x for x in range(width // 3, width * 2 // 3)
+            if pixels[row + x * 4:row + (x + 1) * 4] in dots
+        }
+        return any(x + pitch in matches and x + 2 * pitch in matches for x in matches)
 
     top_rows = [y for y in range(status_bottom + pitch) if has_dots(y)]
     bottom_rows = [y for y in range(navigation_top - pitch, height) if has_dots(y)]

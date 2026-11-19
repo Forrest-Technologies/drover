@@ -189,10 +189,10 @@ public sealed partial class ToolConnectionsViewModel(
             Say(refreshed.Connection, refreshed.Problem, Listed(refreshed));
         });
 
-    public Task SignIn(ToolConnectionSummary connection, Func<string, Task> openAddress, string? returnScheme = null) =>
+    public Task SignIn(ToolConnectionSummary connection, Func<string, Task> openAddress, string? returnTo = null) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id, returnScheme);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, returnTo);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {

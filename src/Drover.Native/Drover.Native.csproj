@@ -65,6 +65,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <Using Include="System.Net.Sockets" />
     <Using Include="Uno.UI.Composition.Drawing" />
     <Using Include="Uno.UI.Composition.Skia" />
     <Using Include="Windows.UI.Text" />

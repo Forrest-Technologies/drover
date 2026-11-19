@@ -65,8 +65,10 @@ public sealed partial class DroverApi
     /// <see cref="ToolConnectionSummary.SignIn"/> then reads "signed_in".
     /// </summary>
     /// <remarks>
-    /// A native app passes its own address scheme as <paramref name="returnTo"/>. The browser is then sent into the
-    /// app with a one-time ticket, and the app ends the sign-in with <see cref="FinishToolSignIn"/>.
+    /// A native app passes its own address scheme, or its loopback listener, as <paramref name="returnTo"/>. The
+    /// browser is then sent into the app with a one-time ticket, and the app ends the sign-in with
+    /// <see cref="FinishToolSignIn"/>. A browser client served under its own path passes that path, and the browser
+    /// comes back to it.
     /// </remarks>
     public Task<ToolSignInStart> BeginToolSignIn(
         Guid spaceId, Guid connectionId, string? returnTo = null, CancellationToken cancellationToken = default) =>
