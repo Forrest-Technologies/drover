@@ -71,6 +71,12 @@ public sealed class SandboxBroker(
     /// </summary>
     public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
 
+    /// <summary>
+    /// Runs after a clean command has passed its taint check and before that command is admitted for the provider.
+    /// A test holds the command open here so another run can mark the sandbox in between. Production leaves it unset.
+    /// </summary>
+    public Func<CancellationToken, Task>? BeforeCommand { get; set; }
+
     #endregion
 
 
@@ -110,8 +116,12 @@ public sealed class SandboxBroker(
         var limit = CommandLimit(timeout);
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
-        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
         await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
+
+        if (caller.Call is { } waiting && !waiting.IsTainted() && BeforeCommand is { } pause)
+        {
+            await pause(cancellationToken);
+        }
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -126,21 +136,27 @@ public sealed class SandboxBroker(
         int? exitCode = null;
         var timedOut = false;
 
-        try
+        await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            await foreach (var piece in provider.Run(lease.Handle, request, cancellationToken))
+            await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
+            await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
+
+            try
             {
-                exitCode = await transcript.Take(piece) ?? exitCode;
+                await foreach (var piece in provider.Run(lease.Handle, request, cancellationToken))
+                {
+                    exitCode = await transcript.Take(piece) ?? exitCode;
+                }
             }
-        }
-        catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.TimedOut)
-        {
-            logger.LogInformation("A command in sandbox {SandboxId} ran past its {Seconds} seconds and was stopped", lease.SandboxId, limit.TotalSeconds);
-            timedOut = true;
-        }
-        catch (SandboxProviderException failure)
-        {
-            throw Refusal(failure);
+            catch (SandboxProviderException failure) when (failure.Failure is SandboxFailure.TimedOut)
+            {
+                logger.LogInformation("A command in sandbox {SandboxId} ran past its {Seconds} seconds and was stopped", lease.SandboxId, limit.TotalSeconds);
+                timedOut = true;
+            }
+            catch (SandboxProviderException failure)
+            {
+                throw Refusal(failure);
+            }
         }
 
         await transcript.Finish();
@@ -183,12 +199,15 @@ public sealed class SandboxBroker(
 
         var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
-        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
 
         try
         {
-            await using var stream = new MemoryStream(bytes, writable: false);
-            await provider.WriteFile(lease.Handle, path, stream, cancellationToken);
+            await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
+            {
+                await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
+                await using var stream = new MemoryStream(bytes, writable: false);
+                await provider.WriteFile(lease.Handle, path, stream, cancellationToken);
+            }
         }
         catch (SandboxProviderException failure)
         {
@@ -216,11 +235,14 @@ public sealed class SandboxBroker(
         }
 
         var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
-        await AuthorizeCopy(caller, lease, fileId, cancellationToken);
 
         try
         {
-            await provider.WriteFile(lease.Handle, path, content, cancellationToken);
+            await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
+            {
+                await AuthorizeCopy(caller, lease, fileId, cancellationToken);
+                await provider.WriteFile(lease.Handle, path, content, cancellationToken);
+            }
         }
         catch (SandboxProviderException failure)
         {
@@ -352,8 +374,11 @@ public sealed class SandboxBroker(
         }
 
         await AuthorizeLiveWrite(caller, cancellationToken);
-        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
-        await RunOnScreen(lease, action, doing, cancellationToken);
+        await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
+        {
+            await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
+            await RunOnScreen(lease, action, doing, cancellationToken);
+        }
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
@@ -1098,10 +1123,27 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
+    /// Takes the sandbox's command lock on its own connection. No tenant transaction stays open while that lock is
+    /// waited on or held. A tainted write takes the same lock, so it cannot mark the row or change the sandbox
+    /// while this command is admitted.
+    /// </summary>
+    private static async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
+    {
+        SandboxCommandGate? gate = null;
+        await caller.Tenant.InScope(async services =>
+        {
+            gate = await services.GetRequiredService<SandboxRepository>().HoldCommands(sandboxId, cancellationToken);
+        });
+
+        return gate ?? throw new InvalidOperationException("The command lock was not taken.");
+    }
+
+    /// <summary>
     /// A clean run's agent was built before this check, so an allow grant would start the shell. The selected
-    /// sandbox is read again here, after it is acquired and before the provider is called. When another conversation
-    /// has marked it tainted since the run was built, the run is tainted and the command is not started: the agent
-    /// is built again, and the command asks. A person's own controls have no call and still run.
+    /// sandbox is read again here. The row lock ends with this transaction. The command lock, taken after this
+    /// returns, is what keeps a tainted write from landing before the provider starts the shell. When the row is
+    /// tainted, the run is tainted and the command is not started: the agent is built again, and the command asks.
+    /// A person's own controls have no call and still run.
     /// </summary>
     private static async Task RefuseCleanRunInATaintedSandbox(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
     {

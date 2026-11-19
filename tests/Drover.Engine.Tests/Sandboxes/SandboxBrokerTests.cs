@@ -517,6 +517,140 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf later"));
     }
 
+    [Fact]
+    public async Task A_command_does_not_start_when_the_sandbox_is_tainted_after_the_check()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_run", """{"command":"printf planted"}""")],
+            [new TextOutput("Ready.")],
+            [new ToolCallOutput("c2", "sandbox_run", """{"command":"printf later"}""")],
+            [new ToolCallOutput("c3", "sandbox_run", """{"command":"printf later"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private, NetworkAccess.Off);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        var host = world.StartHost();
+
+        var planted = await world.Post(await world.NewThread(), "Plant it");
+        (await world.WaitForStatus(planted, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf planted"));
+
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Services.GetRequiredService<SandboxBroker>().BeforeCommand = async cancellationToken =>
+        {
+            opened.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+        var reader = world.Post(await world.NewThread(), "Look again");
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        provider.Commands.Should().NotContain(command => command.Arguments.Contains("printf later"));
+        await world.Transact(async services =>
+        {
+            var row = await services.GetRequiredService<DroverDbContext>().Sandboxes.SingleAsync(RunWorld.Token);
+            row.Tainted = true;
+            return true;
+        });
+        release.TrySetResult();
+        var waiting = await world.WaitForStatus(await reader, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        waiting.Status.Should().Be(RunStatus.Waiting, waiting.Error?.Message);
+        provider.Commands.Should().NotContain(command => command.Arguments.Contains("printf later"), "a taint that commits after the check still keeps the shell from starting");
+        var pending = (await world.ReadToolCalls(await reader)).Single(call => call.Status == ToolCallStatus.PendingApproval);
+        await world.Decide(pending.Id, approved: true);
+        var clean = await world.WaitForStatus(await reader, RunStatus.Completed, RunStatus.Failed);
+
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        clean.Tainted.Should().BeTrue();
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf later"));
+    }
+
+    [Fact]
+    public async Task A_command_holds_its_sandbox_until_the_provider_call_returns()
+    {
+        var running = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new FakeSandboxProvider
+        {
+            Behaviour = (command, _, cancellationToken) => Hold(command, cancellationToken),
+        };
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_run", """{"command":"printf planted"}""")],
+            [new TextOutput("Ready.")],
+            [new ToolCallOutput("c2", "sandbox_run", """{"command":"printf held"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private, NetworkAccess.Off);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        world.StartHost();
+
+        var planted = await world.Post(await world.NewThread(), "Plant it");
+        (await world.WaitForStatus(planted, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        var reader = world.Post(await world.NewThread(), "Hold it");
+        await running.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        provider.Commands.Should().Contain(command => command.Arguments.Contains("printf held"));
+        var sandboxId = (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Id;
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acquired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contending = Task.Run(async () =>
+        {
+            started.TrySetResult();
+            await world.Transact(async services =>
+            {
+                await using var gate = await services.GetRequiredService<SandboxRepository>().HoldCommands(sandboxId, RunWorld.Token);
+                acquired.TrySetResult();
+                return true;
+            });
+        }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+            (await StillHeld(acquired.Task)).Should().BeTrue("a command holds the sandbox until the provider call returns");
+        }
+        finally
+        {
+            release.TrySetResult();
+            await contending.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        acquired.Task.IsCompletedSuccessfully.Should().BeTrue("the lock is released when the provider call returns");
+        var clean = await world.WaitForStatus(await reader, RunStatus.Completed, RunStatus.Failed);
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf held"));
+
+        async Task<bool> StillHeld(Task acquiring)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+
+            try
+            {
+                await acquiring.WaitAsync(timeout.Token);
+                return false;
+            }
+            catch (OperationCanceledException canceled) when (timeout.IsCancellationRequested && !RunWorld.Token.IsCancellationRequested)
+            {
+                return canceled.CancellationToken.IsCancellationRequested;
+            }
+        }
+
+        async IAsyncEnumerable<CommandOutput> Hold(CommandRequest command, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            if (command.Arguments.Contains("printf held"))
+            {
+                running.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            }
+
+            yield return new CommandStarted(1);
+            yield return new CommandStdout(Encoding.UTF8.GetBytes($"{command.Arguments[^1]}\n"));
+            yield return new CommandExited(0, null);
+        }
+    }
+
     [Theory]
     [InlineData(NetworkAccess.Off, false)]
     [InlineData(NetworkAccess.Allowlist, true)]
