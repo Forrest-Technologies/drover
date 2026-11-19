@@ -49,6 +49,7 @@ public sealed class ReplyReasoningTests
         var source = SourceLink.From("https://www.sample.example/page", "Sample page")!;
 
         ChatRows.SourceName(source).Should().Be("Sample page, sample.example, opens outside the app");
+        ChatRows.SourceName(SourceLink.From("https://sample.example/", null)!).Should().Be("sample.example, opens outside the app");
     }
 
     [Fact]

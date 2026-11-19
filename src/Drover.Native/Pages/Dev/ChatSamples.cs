@@ -58,7 +58,7 @@ internal static class ChatSamples
         ]),
         new("A reply's reasoning and sources", "Reasoning stays closed until opened; while it arrives the bot's head breathes and the section's edge is lit. Sources sit under the words and open outside the app.", () =>
         [
-            Tall(new MessageList { Model = Reasoned() }),
+            Fitting(new MessageList { Model = Reasoned() }),
         ]),
         new("A reply that failed", "What failed in a sentence, one way forward, and the server's report for whoever needs it.", () =>
         [
@@ -138,6 +138,10 @@ internal static class ChatSamples
         """;
 
     private static Border Wide(FrameworkElement sample) => new() { Child = sample, Width = Tokens.Number("DvDialogWidth") };
+
+    // As tall as a tall sample, and no wider than the page, so a phone shows the sample at its own width.
+    private static Border Fitting(FrameworkElement sample) =>
+        new() { Child = sample, MaxWidth = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };
 
     private static Border Tall(FrameworkElement sample) =>
         new() { Child = sample, Width = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };

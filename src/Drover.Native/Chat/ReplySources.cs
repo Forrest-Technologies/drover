@@ -22,7 +22,7 @@ public sealed class ReplySources : StackPanel
     {
         Spacing = Tokens.Number("DvSpace1");
         AutomationProperties.SetAccessibilityView(heading, AccessibilityView.Raw);
-        AutomationProperties.SetName(links, "Sources");
+        AutomationProperties.SetName(this, "Sources");
         Children.Add(heading);
         Children.Add(links);
         this.WhenShownOrRethemed(Paint);
@@ -67,16 +67,21 @@ public sealed class ReplySources : StackPanel
 
     private static FlowPanel Row(SourceLink source)
     {
-        var link = new Link { Text = source.Title, Address = source.Address, MinHeight = Targets.Minimum };
+        var link = new Link { Text = source.Title, Address = source.Address, MinHeight = Targets.Minimum, VerticalContentAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(link, ChatRows.SourceName(source));
 
         var site = Styles.Text(source.Site, "DvTextCaption");
         site.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetAccessibilityView(site, AccessibilityView.Raw);
 
+        // A source without a title is named by its site already, so the site is not said twice.
         var row = new FlowPanel { Gap = Tokens.Number("DvSpace2") };
         row.Children.Add(link);
-        row.Children.Add(site);
+        if (source.Title != source.Site)
+        {
+            row.Children.Add(site);
+        }
+
         return row;
     }
 

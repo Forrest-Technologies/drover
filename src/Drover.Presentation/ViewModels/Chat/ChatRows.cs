@@ -98,7 +98,8 @@ public static class ChatRows
     public static string Arriving(ChatMessage message) => message.Thinking ? "Thinking" : "Writing";
 
     /// <summary>What a source is read out as: its title and the site it opens, outside the app.</summary>
-    public static string SourceName(SourceLink source) => $"{source.Title}, {source.Site}, opens outside the app";
+    public static string SourceName(SourceLink source) =>
+        source.Title == source.Site ? $"{source.Site}, opens outside the app" : $"{source.Title}, {source.Site}, opens outside the app";
 
     /// <summary>
     /// A waiting call inside handed work is asked for by the bot that made it. A request for a person at the bot's
