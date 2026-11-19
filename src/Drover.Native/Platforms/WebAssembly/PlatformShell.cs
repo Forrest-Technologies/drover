@@ -27,6 +27,13 @@ internal static class PlatformShell
 
     #endregion
 
+    #region Properties
+
+    /// <summary>The path the app is served under, with its trailing slash: "/native/", or "/" at the root.</summary>
+    public static string ClientPath => $"{basePath}/";
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>The screen that comes before every other while no server is chosen. In a browser there is never one.</summary>
