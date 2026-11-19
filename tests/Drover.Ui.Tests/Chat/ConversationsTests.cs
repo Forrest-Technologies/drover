@@ -33,6 +33,52 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void A_reply_shows_its_reasoning_while_it_arrives_and_after_it_is_stored()
+    {
+        var arriving = Message("assistant", true, new PartView("reasoning", "Check the sample"));
+        var stored = Message("assistant", false, new PartView("reasoning", "Check the sample page."), new PartView("text", "Done."));
+
+        var thinking = new[] { arriving }.ToChatMessages().Single();
+        var finished = new[] { stored }.ToChatMessages().Single();
+
+        thinking.Should().Match<ChatMessage>(message => message.Text == string.Empty && message.Thinking);
+        thinking.Reasoning.Should().Be("Check the sample");
+        finished.Reasoning.Should().Be("Check the sample page.");
+        finished.Thinking.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_reply_shows_the_web_sources_it_cites_once_each_with_a_title()
+    {
+        var reply = Message(
+            "assistant",
+            false,
+            new PartView("text", "Cited."),
+            new PartView("source", "Sample page", Url: "https://www.sample.example/page"),
+            new PartView("source", "Same page again", Url: "https://www.sample.example/page"),
+            new PartView("source", Url: "http://sample.example/untitled"),
+            new PartView("source", "Not a web address", Url: "javascript:alert(1)"));
+
+        var sources = new[] { reply }.ToChatMessages().Single().Sources;
+
+        sources.Should().Equal(
+            new SourceLink("Sample page", "https://www.sample.example/page", "sample.example"),
+            new SourceLink("sample.example", "http://sample.example/untitled", "sample.example"));
+    }
+
+    [Fact]
+    public void A_reply_without_reasoning_or_sources_shows_neither()
+    {
+        var reply = Message("assistant", false, new PartView("text", "Plain."));
+
+        var shown = new[] { reply }.ToChatMessages().Single();
+
+        shown.Reasoning.Should().BeNull();
+        shown.Sources.Should().BeEmpty();
+        shown.Thinking.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_message_the_bot_has_not_taken_yet_is_shown_as_pending()
     {
         var waiting = Message("user", false, new PartView("text", "One more thing")) with { IsPending = true };
