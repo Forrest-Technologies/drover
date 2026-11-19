@@ -25,6 +25,7 @@ public sealed class FileService(
     TenantContext tenant,
     FileRepository files,
     ThreadRepository threads,
+    ProjectRepository projects,
     BotRepository bots,
     FileAbilityReader abilities,
     IFileStore store,
@@ -108,10 +109,16 @@ public sealed class FileService(
         }
         catch (FileTooLargeException tooLarge)
         {
+            await store.Delete(SpaceId, key, CancellationToken.None);
             logger.LogInformation(tooLarge, "An upload to thread {ThreadId} went past {MaxBytes} bytes and was refused", threadId, limit);
             return limit < Rules.MaxFileBytes
                 ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
                 : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
+        }
+        catch (Exception)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+            throw;
         }
 
         var facts = inspector.Finish(clean);
@@ -158,6 +165,108 @@ public sealed class FileService(
     }
 
     /// <summary>
+    /// Stores a shared file in a project using the space's file size limits and storage quota. Opens short scopes of its
+    /// own so no database scope stays open while bytes stream.
+    /// </summary>
+    public async Task<FileUpload> UploadForProject(
+        Guid projectId,
+        string? name,
+        Stream content,
+        long? declaredLength,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (declaredLength > Rules.MaxFileBytes)
+        {
+            return Refused(FileRefusals.TooLarge, FileWords.TooLarge(declaredLength, Rules.MaxFileBytes));
+        }
+
+        if (await PrepareForProject(projectId, declaredLength ?? 0, cancellationToken) is not { } prepared)
+        {
+            return new FileUpload(null, FileProblem.NotFound);
+        }
+
+        if (prepared.Refusal is not null)
+        {
+            return prepared.Refusal;
+        }
+
+        var clean = CleanName(name);
+        var id = Guid.CreateVersion7();
+        var key = FileStorageKeys.For(SpaceId, id);
+        var inspector = new FileInspector();
+        var limit = Math.Min(Rules.MaxFileBytes, prepared.Room);
+        await using var metered = new MeteredStream(content, limit, inspector);
+
+        try
+        {
+            await store.Save(SpaceId, key, metered, cancellationToken);
+        }
+        catch (FileTooLargeException tooLarge)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+            logger.LogInformation(tooLarge, "An upload to project {ProjectId} went past {MaxBytes} bytes and was refused", projectId, limit);
+            return limit < Rules.MaxFileBytes
+                ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
+                : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
+        }
+        catch (Exception)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+            throw;
+        }
+
+        var facts = inspector.Finish(clean);
+        var file = new StoredFile
+        {
+            Id = id,
+            StorageKey = key,
+            Name = clean,
+            ContentType = facts.ContentType,
+            Size = metered.BytesRead,
+            Sha256 = metered.FinishHash(),
+            CreatedByUserId = userId,
+            Width = facts.Width,
+            Height = facts.Height,
+            Preview = facts.Preview,
+            CreatedAt = time.GetUtcNow(),
+        };
+
+        FileUpload upload;
+
+        try
+        {
+            if (facts.Kind is FileKind.Document)
+            {
+                file.ReadingNote = await ReadingNote(file, modelReadsImages: false, cancellationToken);
+            }
+
+            upload = await KeepForProject(projectId, file, cancellationToken);
+        }
+        catch (Exception)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+            throw;
+        }
+
+        if (upload.File is null)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+        }
+
+        return upload;
+    }
+
+    /// <summary>
+    /// The files shared in a project, newest first. Null when the caller cannot see the project. Runs in the scope the
+    /// endpoint filter opened.
+    /// </summary>
+    public async Task<IReadOnlyList<StoredFile>?> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
+        await projects.FindProject(projectId, cancellationToken) is null
+            ? null
+            : await files.ListProjectFiles(projectId, cancellationToken);
+
+    /// <summary>
     /// The files the person and the bot exchanged in the person's conversations with it, newest first. Null when the
     /// caller cannot see the bot. Runs in the scope the endpoint filter opened.
     /// </summary>
@@ -192,6 +301,34 @@ public sealed class FileService(
     }
 
     /// <summary>
+    /// A shared project file and its content, when it belongs to <paramref name="projectId"/> in this space. The scope
+    /// closes before the content stream is opened.
+    /// </summary>
+    public async Task<FileDownload?> OpenForProject(Guid projectId, Guid fileId, CancellationToken cancellationToken)
+    {
+        StoredFile? file;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            file = await files.FindProjectFile(projectId, fileId, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        if (file is null)
+        {
+            return null;
+        }
+
+        if (await store.Open(SpaceId, file.StorageKey, cancellationToken) is not { } content)
+        {
+            logger.LogWarning("Project file {FileId} in project {ProjectId} has a row and nothing in the file store", fileId, projectId);
+            return null;
+        }
+
+        return new FileDownload(file, content);
+    }
+
+    /// <summary>
     /// Removes a file the person attached and has not sent, and gives its bytes back to the space. A sent file is
     /// kept as long as its message. False when there is no such file of theirs waiting to be sent.
     /// </summary>
@@ -203,7 +340,7 @@ public sealed class FileService(
         {
             file = (await files.GetFilesForUpdate([fileId], cancellationToken)).SingleOrDefault();
 
-            if (file is not { MessageId: null } || file.CreatedByUserId != userId)
+            if (file is not { ProjectId: null, MessageId: null } || file.CreatedByUserId != userId)
             {
                 return false;
             }
@@ -215,6 +352,33 @@ public sealed class FileService(
 
         await store.Delete(SpaceId, file.StorageKey, CancellationToken.None);
         logger.LogInformation("File {FileId} was removed before it was sent", fileId);
+        return true;
+    }
+
+    /// <summary>
+    /// Removes a file shared in a project and returns its bytes to the space once, even across concurrent or retried
+    /// requests. False when the file is absent from that project in this space.
+    /// </summary>
+    public async Task<bool> RemoveProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken)
+    {
+        StoredFile? file;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            file = await files.GetProjectFileForUpdate(projectId, fileId, cancellationToken);
+
+            if (file is null)
+            {
+                return false;
+            }
+
+            files.Remove(file);
+            await files.ReleaseBytes(SpaceId, file.Size, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        await store.Delete(SpaceId, file.StorageKey, CancellationToken.None);
+        logger.LogInformation("Project file {FileId} removed from project {ProjectId}", fileId, projectId);
         return true;
     }
 
@@ -285,6 +449,24 @@ public sealed class FileService(
             : new Prepared(bot.Name, can, room, null);
     }
 
+    private async Task<PreparedProject?> PrepareForProject(Guid projectId, long declaredLength, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await projects.FindProject(projectId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var stored = await files.GetStoredBytes(SpaceId, cancellationToken);
+        await work.Commit(cancellationToken);
+
+        var room = Math.Max(0, MaxSpaceBytes - stored);
+        return declaredLength > room
+            ? new PreparedProject(room, Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes)))
+            : new PreparedProject(room, null);
+    }
+
     /// <summary>
     /// Stores the row with the thread's audience, as the thread is now, and counts its bytes against the space, in
     /// one transaction. A thread the caller can no longer see takes nothing.
@@ -311,6 +493,28 @@ public sealed class FileService(
         return new FileUpload(file);
     }
 
+    private async Task<FileUpload> KeepForProject(Guid projectId, StoredFile file, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await projects.LockProjectForShare(projectId, cancellationToken) is null)
+        {
+            return new FileUpload(null, FileProblem.NotFound);
+        }
+
+        if (!await files.ReserveBytes(SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
+        {
+            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
+        }
+
+        file.ProjectId = projectId;
+        file.AudienceUserId = Audience.Everyone;
+        files.Add(file);
+        await work.Commit(cancellationToken);
+        logger.LogInformation("File {FileId} of {Size} bytes stored for project {ProjectId}", file.Id, file.Size, projectId);
+        return new FileUpload(file);
+    }
+
     private static FileUpload Refused(string refusal, string detail) => new(null, FileProblem.Refused, refusal, detail);
 
     #endregion
@@ -319,6 +523,8 @@ public sealed class FileService(
 
     /// <summary>What an upload needs before its bytes move. <see cref="Room"/> is how many more bytes the space may hold.</summary>
     private sealed record Prepared(string BotName, FileAbilities Abilities, long Room, FileUpload? Refusal);
+
+    private sealed record PreparedProject(long Room, FileUpload? Refusal);
 
     #endregion
 }

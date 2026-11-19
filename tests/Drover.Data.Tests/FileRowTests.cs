@@ -115,6 +115,134 @@ public sealed class FileRowTests(PostgresFixture postgres)
 
     #endregion
 
+    #region Project Files
+
+    [Fact]
+    public async Task A_project_file_is_visible_to_every_member_of_its_space_and_isolated_from_other_spaces()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        Guid projectId;
+        Guid fileId;
+
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var project = new Project { Name = "Shared Handbook" };
+            session.Db.Projects.Add(project);
+            await session.Db.SaveChangesAsync(Token);
+
+            fileId = Guid.CreateVersion7();
+            session.Db.Files.Add(new StoredFile
+            {
+                Id = fileId,
+                AudienceUserId = Audience.Everyone,
+                ProjectId = project.Id,
+                StorageKey = FileStorageKeys.For(world.SpaceA, fileId),
+                Name = "guide.txt",
+                ContentType = "text/plain",
+                Size = 12,
+                Sha256 = new string('1', 64),
+                CreatedByUserId = world.UserA1,
+            });
+            await session.Commit();
+            projectId = project.Id;
+        }
+
+        await using (var asA2 = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var repo = new FileRepository(asA2.Db);
+            (await repo.ListProjectFiles(projectId, Token)).Should().ContainSingle().Which.Id.Should().Be(fileId);
+            (await repo.FindProjectFile(projectId, fileId, Token)).Should().NotBeNull();
+        }
+
+        await using (var asB = await TenantSession.Open(provider, world.SpaceB, world.UserB1))
+        {
+            var repo = new FileRepository(asB.Db);
+            (await repo.ListProjectFiles(projectId, Token)).Should().BeEmpty();
+            (await repo.FindProjectFile(projectId, fileId, Token)).Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task A_project_file_enforces_same_space_foreign_key_exclusive_owner_and_shared_audience()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        Guid projectAId;
+        Guid threadAId;
+
+        await using (var asA = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var connection = CoreRows.NewConnection();
+            var bot = CoreRows.NewBot(connection);
+            var project = new Project { Name = "Project A" };
+            asA.Db.ModelConnections.Add(connection);
+            CoreRows.AddBot(asA.Db, bot, []);
+            asA.Db.Projects.Add(project);
+            await asA.Db.SaveChangesAsync(Token);
+
+            var thread = CoreRows.NewThread(bot, world.UserA1, Audience.Everyone);
+            asA.Db.Threads.Add(thread);
+            await asA.Commit();
+            projectAId = project.Id;
+            threadAId = thread.Id;
+        }
+
+        // Cross-space project reference is rejected by fk_files_projects_space_id_project_id.
+        await using (var asB = await TenantSession.Open(provider, world.SpaceB, world.UserB1))
+        {
+            var crossSpace = () => asB.Execute(
+                "INSERT INTO files (id, space_id, audience_user_id, project_id, storage_key, name, content_type, size, sha256) VALUES (@id, @space, @everyone, @project, 'k1', 'a.txt', 'text/plain', 1, 'x')",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceB),
+                ("everyone", Audience.Everyone),
+                ("project", projectAId));
+
+            (await crossSpace.Should().ThrowAsync<PostgresException>())
+                .Which.SqlState.Should().Be(PostgresErrorCodes.ForeignKeyViolation);
+        }
+
+        await using (var asA = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var privateAudience = () => asA.Execute(
+                "INSERT INTO files (id, space_id, audience_user_id, project_id, storage_key, name, content_type, size, sha256) VALUES (@id, @space, @user, @project, 'k2', 'b.txt', 'text/plain', 1, 'x')",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceA),
+                ("user", world.UserA1),
+                ("project", projectAId));
+
+            (await privateAudience.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+        }
+
+        await using (var asA = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var bothOwners = () => asA.Execute(
+                "INSERT INTO files (id, space_id, audience_user_id, thread_id, project_id, storage_key, name, content_type, size, sha256) VALUES (@id, @space, @everyone, @thread, @project, 'k3', 'c.txt', 'text/plain', 1, 'x')",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceA),
+                ("everyone", Audience.Everyone),
+                ("thread", threadAId),
+                ("project", projectAId));
+
+            (await bothOwners.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+        }
+
+        await using (var asA = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var withMessage = () => asA.Execute(
+                "INSERT INTO files (id, space_id, audience_user_id, project_id, message_id, storage_key, name, content_type, size, sha256) VALUES (@id, @space, @everyone, @project, @message, 'k4', 'd.txt', 'text/plain', 1, 'x')",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceA),
+                ("everyone", Audience.Everyone),
+                ("project", projectAId),
+                ("message", Guid.CreateVersion7()));
+
+            (await withMessage.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+        }
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;

@@ -710,6 +710,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("preview");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
                     b.Property<string>("ReadingNote")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)")
@@ -758,9 +762,16 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "ThreadId", "AudienceUserId")
                         .HasDatabaseName("ix_files_space_id_thread_id_audience_user_id");
 
+                    b.HasIndex("SpaceId", "ProjectId", "CreatedAt", "Id")
+                        .HasDatabaseName("ix_files_space_id_project_id_created_at_id");
+
                     b.ToTable("files", null, t =>
                         {
+                            t.HasCheckConstraint("ck_files_owner", "thread_id IS NULL OR project_id IS NULL");
+
                             t.HasCheckConstraint("ck_files_picture_size", "(width IS NULL) = (height IS NULL) AND (width IS NULL OR (width > 0 AND height > 0))");
+
+                            t.HasCheckConstraint("ck_files_project_audience", "project_id IS NULL OR (message_id IS NULL AND audience_user_id = sys.everyone())");
 
                             t.HasCheckConstraint("ck_files_size", "size >= 0");
                         });
@@ -2604,6 +2615,13 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_files_bots_space_id_created_by_bot_id");
+
+                    b.HasOne("Drover.Domain.Projects.Project", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "ProjectId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_files_projects_space_id_project_id");
 
                     b.HasOne("Drover.Domain.Threads.ChatThread", null)
                         .WithMany()

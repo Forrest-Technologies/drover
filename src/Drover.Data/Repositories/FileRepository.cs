@@ -45,9 +45,34 @@ public sealed class FileRepository(DroverDbContext db)
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
 
+    /// <summary>The files shared in a project that the caller can see, newest first.</summary>
+    public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files
+            .AsNoTracking()
+            .Where(file => file.ProjectId == projectId)
+            .OrderByDescending(file => file.CreatedAt)
+            .ThenByDescending(file => file.Id)
+            .ToListAsync(cancellationToken);
+
+    public Task<StoredFile?> FindProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken) =>
+        db.Files.AsNoTracking().SingleOrDefaultAsync(file => file.Id == fileId && file.ProjectId == projectId, cancellationToken);
+
+    public async Task<StoredFile?> GetProjectFileForUpdate(Guid projectId, Guid fileId, CancellationToken cancellationToken) =>
+        (await db.Files
+            .FromSql($"SELECT * FROM files WHERE id = {fileId} AND project_id = {projectId} FOR UPDATE")
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    public Task<List<StoredFile>> GetProjectFilesForUpdate(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files
+            .FromSql($"SELECT * FROM files WHERE project_id = {projectId} FOR UPDATE")
+            .ToListAsync(cancellationToken);
+
     public void Add(StoredFile file) => db.Files.Add(file);
 
     public void Remove(StoredFile file) => db.Files.Remove(file);
+
+    public void RemoveRange(IEnumerable<StoredFile> files) => db.Files.RemoveRange(files);
 
     /// <summary>
     /// Adds the bytes to the space's total when the total stays within <paramref name="limit"/>, in one statement,

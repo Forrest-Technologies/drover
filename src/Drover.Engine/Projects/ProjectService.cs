@@ -13,10 +13,15 @@ public sealed record ProjectChange(Project? Project, string? Problem = null)
 /// <summary>
 /// Projects of the current space: reading them, changing their name and shared instructions, and removing them while
 /// leaving every conversation intact. Each change is checked here and recorded in the audit log without writing
-/// instruction text. Runs in the caller's tenant scope.
+/// instruction text. Listing, reading, and editing run in the caller's tenant scope; removal opens its own scope so
+/// project files are deleted from the file store after commit.
 /// </summary>
 public sealed class ProjectService(
+    TenantScope scope,
+    TenantContext tenant,
     ProjectRepository projects,
+    FileRepository files,
+    IFileStore store,
     AuditLog audit,
     TimeProvider time,
     ILogger<ProjectService> logger)
@@ -90,19 +95,46 @@ public sealed class ProjectService(
     }
 
     /// <summary>
-    /// Removes the project and detaches every conversation in it in the same transaction so conversations stay intact.
+    /// Removes the project, detaches every conversation in the same transaction so conversations stay intact, removes
+    /// its shared project files and releases their quota once, and deletes their stored bytes after commit.
     /// </summary>
     public async Task<bool> Remove(Guid id, AuditActor actor, CancellationToken cancellationToken)
     {
-        if (await projects.GetProjectForUpdate(id, cancellationToken) is not { } project)
+        var spaceId = tenant.SpaceId ?? throw new InvalidOperationException("Projects are always handled inside a space.");
+        List<StoredFile> projectFiles;
+
+        await using (var work = await scope.Begin(cancellationToken))
         {
-            return false;
+            if (await projects.GetProjectForUpdate(id, cancellationToken) is not { } project)
+            {
+                return false;
+            }
+
+            projectFiles = await files.GetProjectFilesForUpdate(project.Id, cancellationToken);
+            var released = projectFiles.Sum(file => file.Size);
+
+            if (projectFiles.Count > 0)
+            {
+                files.RemoveRange(projectFiles);
+            }
+
+            if (released > 0)
+            {
+                await files.ReleaseBytes(spaceId, released, cancellationToken);
+            }
+
+            await projects.ClearThreadsForProject(project.Id, cancellationToken);
+            projects.Remove(project);
+            audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
+            await work.Commit(cancellationToken);
         }
 
-        await projects.ClearThreadsForProject(project.Id, cancellationToken);
-        projects.Remove(project);
-        audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
-        logger.LogInformation("Project {ProjectId} removed", project.Id);
+        foreach (var file in projectFiles)
+        {
+            await store.Delete(spaceId, file.StorageKey, CancellationToken.None);
+        }
+
+        logger.LogInformation("Project {ProjectId} removed", id);
         return true;
     }
 
