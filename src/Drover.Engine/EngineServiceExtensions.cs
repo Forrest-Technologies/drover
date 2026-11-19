@@ -42,6 +42,7 @@ public static class EngineServiceExtensions
     {
         services.AddOptions<RunOptions>().Configure(options => configure?.Invoke(options));
         services.AddBuiltinTools();
+        services.AddImageTools();
         services.AddSingleton<SandboxAvailability>();
         services.AddSingleton<SandboxControlService>();
         services.AddSingleton<RunScopes>();

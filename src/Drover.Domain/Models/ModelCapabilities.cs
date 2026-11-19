@@ -26,5 +26,7 @@ public sealed record ModelCapabilities
 
     public bool WebSearch { get; init; }
 
+    public bool ImageGeneration { get; init; }
+
     #endregion
 }

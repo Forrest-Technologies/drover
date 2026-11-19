@@ -26,7 +26,9 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<OpenAICompatibleProvider>();
         services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
+        services.AddSingleton<IModelImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>());
         services.AddSingleton<CompatibleChatClientBuilder>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().CreateProtocolClient);
+        services.AddSingleton<CompatibleImageGenerator>(provider => provider.GetRequiredService<OpenAICompatibleProvider>().GenerateCompatibleImage);
 
         return services;
     }

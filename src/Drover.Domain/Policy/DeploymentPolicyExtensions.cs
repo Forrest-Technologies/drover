@@ -33,7 +33,8 @@ public static class DeploymentPolicyExtensions
             .WithoutWrittenRulePatterns()
             .WithBoundedConversationSummaries()
             .WithBoundedMemory()
-            .WithoutWebTools();
+            .WithoutWebTools()
+            .WithoutImageGeneration();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -147,6 +148,9 @@ public static class DeploymentPolicyExtensions
             MaxWebPageBytes = DeploymentPolicy.HostedMaxWebPageBytes,
             MaxWebRequestSeconds = DeploymentPolicy.HostedMaxWebRequestSeconds,
         };
+
+    public static DeploymentPolicy WithoutImageGeneration(this DeploymentPolicy policy) =>
+        policy with { AllowImageGeneration = false };
 
     #endregion
 }

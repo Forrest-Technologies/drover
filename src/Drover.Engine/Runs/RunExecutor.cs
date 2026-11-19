@@ -471,6 +471,12 @@ public sealed partial class RunExecutor(
                 return null;
             }
 
+            // Where the server does not offer image generation, its tool is not offered, whatever the grant says.
+            if (ImageTools.IsImageTool(granted.Tool.Name) && !deployment.Value.Rules.AllowImageGeneration)
+            {
+                return null;
+            }
+
             // A memory tool needs memory on for the bot and a conversation private to the run's person: a note is
             // that person's own, so it is never kept from a conversation other people read.
             if (MemoryTools.IsMemoryTool(granted.Tool.Name)
