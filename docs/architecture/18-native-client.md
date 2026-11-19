@@ -217,6 +217,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `ScreenPanel` | `Bot`, `Takeover` | `HandedBack` |
 
 - **A piece draws once for a batch of changes.** Setting several values on a piece, or a view model changing several things, ends in one redraw (`Chat/Batch.cs`): the values are handed to the view model, its `ParametersSet` runs once, and the piece draws. This is the order a component had.
+- **A card is drawn before it is first measured.** `ToolCallCard` and `DelegationCard` run their waiting draw in `MeasureOverride` (`Batch.DrawIfWaiting`), and show nothing of their frame until then, so a card appears with its title and state in the frame it first appears in. A question offers Approve and Deny only once it says who asks and what for (`ToolCallCardViewModel.CanAnswer`).
 - **What a person is using is kept.** A piece keeps the elements a person may be in the middle of using (a button with the focus, a box they scrolled, a field they type in) and changes them in place. `Pieces.Detached` moves a kept element into a new drawing.
 - **A panel makes its own view model** with `Pieces.Make<T>()`, as a screen does with `Make<T>()`.
 - **`ScreenPanel` hosts the sandbox screen.** It makes one `Bots.SandboxScreen` when the bot has a screen to show, keeps it while the sandbox's state is read again, and reads the state again when the screen says the sandbox changed. The gallery puts a labeled box in its place, because the screen's own view model would ask a real server.
@@ -545,14 +546,17 @@ pass fixed what it found in the native port: the memory and files rails were emp
 arrived, a text file's card took its width from its neighbour, and several settings screens' layouts. Still open,
 in order of how much they stand in the way of retiring the web client:
 
+Tool and delegation cards appeared as empty frames for seconds before they were drawn, and a waiting call showed only
+Approve and Deny: each card queued its first draw behind the conversation's other work. They are now drawn before
+they are first measured (see "The conversation's pieces").
+
 Links measured without a role or name in this pass; the browser adapter merged alongside it now gives them the
 link role (see the limits table).
 
 1. Opening a conversation takes about 10 s against the web client's 2 s, and says "Nothing said yet" for about
    two seconds on the way, because the conversation is made twice.
-2. Tool and delegation cards appear as empty frames for seconds before they are drawn.
-3. No password manager semantics (type, autocomplete, form) on sign-in.
-4. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
+2. No password manager semantics (type, autocomplete, form) on sign-in.
+3. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
    sign-in at load).
 
 Interaction smoke on the browser build (Playwright, through the semantic tree and the keyboard): signing in with
