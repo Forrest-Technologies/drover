@@ -390,6 +390,124 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
 
     #endregion
 
+    #region Conversation Audience
+
+    [Fact]
+    public async Task A_bot_in_a_private_conversation_of_a_shared_space_cannot_write_a_file_and_an_admins_command_sees_nothing()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the secret plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        var adminId = await MakeShared(world);
+        var threadId = await world.NewThread();
+        world.StartHost();
+
+        var runId = await world.Post(threadId, "Write the plan down");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        var call = (await world.ReadToolCalls(runId)).Single();
+        call.IsError.Should().BeTrue("a write from a private conversation is refused");
+        call.Result!.Value.GetProperty("error").GetString().Should().Contain("private");
+        provider.Created.Should().Be(0, "the write is refused before a sandbox is made");
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var after = await control.Run(world.SpaceId, adminId, world.BotId, "find .", RunWorld.Token);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("notes.txt").And.NotContain("secret plan");
+        provider.Only().Files.Should().BeEmpty("the sandbox an admin reaches holds nothing from the private conversation");
+    }
+
+    [Fact]
+    public async Task A_bot_in_a_private_conversation_of_a_shared_space_cannot_run_a_command()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_run", """{"command":"echo the secret plan > notes.txt"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        await MakeShared(world);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Save the plan");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        var call = (await world.ReadToolCalls(runId)).Single();
+        call.IsError.Should().BeTrue("a command from a private conversation is refused");
+        call.Result!.Value.GetProperty("error").GetString().Should().Contain("private");
+        provider.Commands.Should().BeEmpty("nothing ran in the sandbox");
+    }
+
+    [Fact]
+    public async Task A_bot_in_a_private_conversation_of_a_personal_space_that_gained_a_member_cannot_write()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the secret plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        await world.AddMember(MembershipRole.Member);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Write the plan down");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadToolCalls(runId)).Single().IsError.Should().BeTrue("another member can reach the sandbox");
+        provider.Created.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_bot_in_a_shared_conversation_of_a_shared_space_writes_a_file_and_runs_a_command()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [
+                new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the plan"}"""),
+                new ToolCallOutput("c2", "sandbox_run", """{"command":"cat notes.txt"}"""),
+            ],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        await MakeShared(world);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewSharedThread(), "Write the plan down");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadToolCalls(runId)).Should().OnlyContain(call => !call.IsError);
+        provider.Only().Files.Should().ContainKey("/home/user/notes.txt");
+        provider.Commands.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_bot_in_a_private_conversation_of_a_personal_space_with_one_member_writes_a_file()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Write the plan down");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        (await world.ReadToolCalls(runId)).Single().IsError.Should().BeFalse("only its one member can reach the sandbox");
+        provider.Only().Files.Should().ContainKey("/home/user/notes.txt");
+    }
+
+    #endregion
+
     #region Helpers
 
     private async Task<RunWorld> SandboxWorld(FakeSandboxProvider provider, ScriptedModel? script = null, DeploymentPolicy? policy = null) =>
@@ -421,6 +539,14 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
             };
             return true;
         });
+
+    /// <summary>Makes the world's space a shared one with an admin besides its owner. Returns the admin.</summary>
+    private static async Task<Guid> MakeShared(RunWorld world)
+    {
+        await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
+            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), RunWorld.Token));
+        return await world.AddMember(MembershipRole.Admin);
+    }
 
     /// <summary>A bot under <paramref name="parentId"/>, or at the top, with its closure rows, as the tree keeps them.</summary>
     private static Task<Guid> AddBot(RunWorld world, string handle, Guid? parentId, SandboxPolicy policy) =>

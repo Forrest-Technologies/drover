@@ -195,14 +195,26 @@ public sealed class SharedFileTests(PostgresServer postgres)
     public async Task A_file_shared_in_a_private_conversation_reaches_no_other_member_and_one_in_a_shared_conversation_does()
     {
         var provider = new FakeSandboxProvider();
-        var script = new ScriptedModel([.. WriteAndShareSteps("out/private.txt", "private"), .. WriteAndShareSteps("out/shared.txt", "shared")]);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_share_file", """{"path":"out/private.txt"}""")],
+            [new TextOutput("Here it is.")],
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"out/shared.txt","content":"shared"}""")],
+            [new ToolCallOutput("c2", "sandbox_share_file", """{"path":"out/shared.txt"}""")],
+            [new TextOutput("Here it is.")]);
         await using var world = await SandboxWorld(provider, script);
         var adminId = await MakeShared(world);
         var privateThread = await world.NewThread();
         var sharedThread = await world.NewSharedThread();
         world.StartHost();
 
-        (await world.WaitForStatus(await world.Post(privateThread, "Make it"), RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        // A person puts the private file there. A bot's own write from a private conversation is refused (#185), and the
+        // stand-in provider does not run a shell, so the file is placed on the sandbox the person's command made.
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var put = await control.Run(world.SpaceId, world.UserId, world.BotId, "printf private > out/private.txt", RunWorld.Token);
+        put.Refusal.Should().Be(SandboxControlRefusal.None, put.Problem);
+        provider.Only().Files["out/private.txt"] = "private"u8.ToArray();
+
+        (await world.WaitForStatus(await world.Post(privateThread, "Share it"), RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
         (await world.WaitForStatus(await world.Post(sharedThread, "Make it"), RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
         var files = await world.Read(db => db.Files.AsNoTracking().ToListAsync(RunWorld.Token));
         var privateFile = files.Single(file => file.ThreadId == privateThread);

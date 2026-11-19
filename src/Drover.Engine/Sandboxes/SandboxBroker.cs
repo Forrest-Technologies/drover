@@ -63,14 +63,18 @@ public sealed class SandboxBroker(
     #region Public Methods
 
     /// <summary>Runs a command, streaming its output into the run's events, and returns what it printed.</summary>
-    public Task<SandboxCommandResult> Run(
+    public async Task<SandboxCommandResult> Run(
         BuiltinToolCall call,
         string? environment,
         string command,
         string? workingDirectory,
         TimeSpan? timeout,
-        CancellationToken cancellationToken) =>
-        RunCommand(SandboxCaller.Of(call), environment, command, workingDirectory, timeout, call.Output, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
+        return await RunCommand(caller, environment, command, workingDirectory, timeout, call.Output, cancellationToken);
+    }
 
     private async Task<SandboxCommandResult> RunCommand(
         SandboxCaller caller,
@@ -142,6 +146,8 @@ public sealed class SandboxBroker(
 
     public async Task<bool> WriteFile(BuiltinToolCall call, string? environment, string path, string content, CancellationToken cancellationToken)
     {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
         var bytes = Encoding.UTF8.GetBytes(content);
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
 
@@ -150,7 +156,7 @@ public sealed class SandboxBroker(
             throw new BuiltinToolException($"The content is {bytes.Length} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
         }
 
-        var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
+        var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
 
         try
         {
@@ -162,7 +168,7 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(SandboxCaller.Of(call), lease, readsSandbox: false, cancellationToken);
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
@@ -298,8 +304,12 @@ public sealed class SandboxBroker(
     /// Runs one mouse or keyboard action on the bot's sandbox screen. The command is a program and its arguments, built
     /// by <see cref="DesktopCommands"/>; its output is not read, so nothing from the sandbox comes back with it.
     /// </summary>
-    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken) =>
-        await Act(SandboxCaller.Of(call), action, doing, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
+        return await Act(caller, action, doing, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+    }
 
     /// <summary>
     /// One action on the screen, for a bot or a person. Null when <paramref name="create"/> is false and there is no
@@ -906,6 +916,39 @@ public sealed class SandboxBroker(
         if (readsSandbox && (tainted || lease.Network.Access is not NetworkAccess.Off) && caller.Call is { } reading)
         {
             await reading.Taint();
+        }
+    }
+
+    /// <summary>
+    /// Refuses a bot's write into the sandbox from a conversation not everyone who can reach the sandbox can see, as
+    /// the copy of an attached file is refused when its rows are read. The audience is read as it is now, in one short
+    /// transaction that closes before the sandbox is touched, so a conversation made private, or a personal space that
+    /// gained a member, stops the write from the next call. A person's own controls have no call and never pass through here.
+    /// </summary>
+    private async Task RefuseWriteFromAClosedConversation(SandboxCaller caller, CancellationToken cancellationToken)
+    {
+        if (caller.Call is not { ThreadId: { } threadId })
+        {
+            return;
+        }
+
+        var covered = await caller.Tenant.Transact(
+            async services =>
+            {
+                var thread = await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken);
+                return thread is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        thread.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
+            },
+            cancellationToken);
+
+        if (!covered)
+        {
+            throw new BuiltinToolException(
+                "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.");
         }
     }
 
