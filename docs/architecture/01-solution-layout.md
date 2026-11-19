@@ -59,6 +59,8 @@ Drover.Native.slnx
   src/
     Drover.Native                 Uno Platform app: web (WebAssembly), desktop, Android, [iOS, Mac Catalyst]
     (references Drover.Presentation, Drover.Client, Drover.Contracts)
+  tests/
+    Drover.Native.Desktop.Tests   the desktop credential store against the computer's real one
 ```
 
 `src/Shared/Transport` holds how a client reaches the server, as source files linked into the projects that need them: `AntiforgeryHandler` into `Drover.Web` and the native browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into `Drover.App` and the native device builds. One source, so the two clients cannot drift apart on security.
