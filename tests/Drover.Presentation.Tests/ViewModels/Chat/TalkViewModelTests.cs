@@ -621,6 +621,64 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Talk.At.Should().Be("side");
     }
 
+    [Theory]
+    [InlineData("summary", SideView.Summary)]
+    [InlineData("memory", SideView.Memory)]
+    [InlineData("files", SideView.Files)]
+    [InlineData("activity", SideView.Activity)]
+    [InlineData("side", SideView.List)]
+    [InlineData("side/new", SideView.List)]
+    public async Task Escape_closes_the_rail_and_the_focus_goes_back_to_the_way_that_opened_it(string rail, SideView way)
+    {
+        await Go($"/talk/{botId}/{rail}");
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = false;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeTrue();
+        Address.Should().Be($"talk/{botId}");
+        await Until(() => openers.Should().Equal(way));
+        Talk.Side.Should().Be(SideView.Closed);
+        Talk.At.Should().Be("main");
+        await Until(() => MainPane.Messages.Should().HaveCount(2, "the main conversation is as it was"));
+    }
+
+    [Fact]
+    public async Task Escape_with_nothing_beside_the_conversation_is_left_to_something_else()
+    {
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = true;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Address.Should().Be($"talk/{botId}");
+        openers.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(SideView.Summary, SideView.Summary)]
+    [InlineData(SideView.Chat, SideView.List)]
+    [InlineData(SideView.New, SideView.List)]
+    [InlineData(SideView.Work, null)]
+    [InlineData(SideView.Closed, null)]
+    public void Each_thing_beside_the_conversation_is_opened_by_its_way_in_the_header(SideView side, SideView? way) =>
+        side.Way().Should().Be(way);
+
     [Fact]
     public async Task An_earlier_run_opens_in_the_activity_rail_by_its_own_address()
     {

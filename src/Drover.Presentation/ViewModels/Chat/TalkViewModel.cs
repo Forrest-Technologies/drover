@@ -81,6 +81,11 @@ public sealed class TalkViewModel(
 
     private bool focusRailClose;
 
+    // The rail was closed from the keyboard, so the focus goes back to the way that opened it once it is gone.
+    private bool focusRailOpener;
+
+    private SideView? railOpener;
+
     // A request for the person at the bot's screen: the one waiting in the main conversation, the one the person took
     // over (from a side chat too, which the screen replaces), and the one they handed back while its events were on
     // their way. The screen beside the conversation shows the controls for whichever is held.
@@ -359,6 +364,12 @@ public sealed class TalkViewModel(
     /// <summary>Raised when the focus belongs on the rail's close control: the controls the person used there are gone.</summary>
     public event Action? RailCloseFocusRequested;
 
+    /// <summary>
+    /// Raised once a rail closed from the keyboard is gone, with the way in the conversation's header that opens it
+    /// again: the focus belongs there. Null when no way in the header opens it, as for work handed to another bot.
+    /// </summary>
+    public event Action<SideView?>? RailOpenerFocusRequested;
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private Guid? ThreadId => Guid.TryParse(address.SideChat, out var id) ? id : null;
@@ -405,6 +416,24 @@ public sealed class TalkViewModel(
 
     /// <summary>Opens something beside the conversation, from the conversation's menu.</summary>
     public void OpenSide(string target) => navigator.NavigateTo(target);
+
+    /// <summary>
+    /// Closes what is beside the conversation, as Escape does, and asks for the focus to go back to the way that
+    /// opened it. False when nothing is open beside it, so the key is left to whatever else wants it. A device's
+    /// Back that closes the rail can call this too: what is open is read from the address, so either way leaves the
+    /// screen in the same state.
+    /// </summary>
+    public bool CloseRailFromKeyboard()
+    {
+        if (!CanShowRail || Shown is not { } bot)
+        {
+            return false;
+        }
+
+        (railOpener, focusRailOpener) = (Side.Way(), true);
+        navigator.NavigateTo(Addresses.Talk(bot.Id));
+        return true;
+    }
 
     /// <summary>The controls the person used are gone, so the focus goes to the screen's close control, the one way on.</summary>
     public void HandedBack(Guid toolCallId)
@@ -889,6 +918,12 @@ public sealed class TalkViewModel(
         {
             focusRailClose = false;
             RailCloseFocusRequested?.Invoke();
+        }
+
+        if (focusRailOpener && Side is SideView.Closed)
+        {
+            focusRailOpener = false;
+            RailOpenerFocusRequested?.Invoke(railOpener);
         }
     }
 
