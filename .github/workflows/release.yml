@@ -442,6 +442,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           mapfile -d '' assets < <(find release -type f -print0)
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" --generate-notes --verify-tag
