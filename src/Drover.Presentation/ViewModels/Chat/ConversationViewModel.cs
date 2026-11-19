@@ -274,20 +274,22 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            stored = await api.ListMessages(SpaceId, thread.Id);
-
             if (ReadOnly)
             {
+                stored = await api.ListMessages(SpaceId, thread.Id);
                 await FollowHandedWork(thread.Id);
                 return;
             }
 
-            history = await LoadToolHistory(thread.Id, thread.ActiveRunId);
+            // The messages and the tool calls they made are read together; neither needs the other.
+            var said = api.ListMessages(SpaceId, thread.Id);
+            var tools = LoadToolHistory(thread.Id, thread.ActiveRunId);
+            await Task.WhenAll(said, tools);
+            (stored, history) = (await said, await tools);
 
             ResumeActiveRun(thread);
             await ReportBusy();
-            await MarkSeen();
-            markedOnOpen = parameters.Opened;
+            await ShownThenMarkSeen();
         }
         catch (DroverApiException exception) when (!Main && exception.StatusCode is HttpStatusCode.NotFound)
         {
@@ -303,6 +305,15 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             loading = false;
         }
+    }
+
+    // The conversation is on screen as soon as it is read; telling the server it was seen does not hold it back.
+    private async Task ShownThenMarkSeen()
+    {
+        markedOnOpen = parameters.Opened;
+        loading = false;
+        Changed();
+        await MarkSeen();
     }
 
     // The start page's conversation becomes seen when the person chooses its bot: the conversation stays, the address changes.
@@ -973,6 +984,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     private void ShowList()
     {
         List.Messages = Messages;
+        List.Loading = loading;
         List.BotName = Bot.Name;
         List.BotHue = BotIdentity.Hue(Bot.Id);
         List.Thinking = Thinking;
