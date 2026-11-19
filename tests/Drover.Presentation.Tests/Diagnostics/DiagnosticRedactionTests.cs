@@ -168,6 +168,30 @@ public sealed class DiagnosticRedactionTests : IDisposable
         log.Compose(app).Should().Contain("Nothing logged.");
     }
 
+    [Fact]
+    public void Unhandled_crash_report_emits_fixed_event_and_withholds_exception_text_from_platform_sinks()
+    {
+        var platform = new CapturingPlatformProvider();
+        using var combined = LoggerFactory.Create(logging => logging
+            .AddProvider(platform)
+            .AddProvider(new DiagnosticLogProvider(log, time, new HashSet<string>(StringComparer.Ordinal))));
+        var logger = combined.CreateLogger("Drover.Native.App");
+
+        log.ReportUnhandled(logger, LogLevel.Critical, new EventId(2, "ProcessUnhandled"), Thrown());
+
+        platform.Entries.Should().ContainSingle(entry =>
+            entry.Level == LogLevel.Critical
+            && entry.EventId.Id == 2
+            && entry.Exception == null
+            && entry.Message.Contains(typeof(HttpRequestException).FullName!, StringComparison.Ordinal));
+        log.TakeFailureOffer().Should().BeTrue();
+        var saved = log.Compose(app);
+        saved.Should().Contain("unhandled failure").And.Contain(typeof(HttpRequestException).FullName!);
+        ShouldHoldNoSecret(saved);
+        ShouldHoldNoSecret(platform.Entries.Single().Message);
+        platform.Entries.Single().Message.Should().NotContain("was refused by").And.NotContain("POST ");
+    }
+
     #endregion
 
     #region Private Methods
@@ -206,6 +230,49 @@ public sealed class DiagnosticRedactionTests : IDisposable
     }
 
     private static string ThisFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class CapturingPlatformProvider : ILoggerProvider
+    {
+        #region Properties
+
+        public List<(LogLevel Level, EventId EventId, Exception? Exception, string Message)> Entries { get; } = [];
+
+        #endregion
+
+        #region Interface Implementations
+
+        public ILogger CreateLogger(string categoryName) => new Sink(Entries);
+
+        public void Dispose()
+        {
+        }
+
+        #endregion
+
+        #region Nested Types
+
+        private sealed class Sink(List<(LogLevel, EventId, Exception?, string)> entries) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                entries.Add((logLevel, eventId, exception, formatter(state, exception)));
+        }
+
+        #endregion
+    }
 
     #endregion
 }

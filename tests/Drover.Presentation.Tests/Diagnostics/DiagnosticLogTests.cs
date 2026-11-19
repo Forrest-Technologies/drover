@@ -102,6 +102,37 @@ public sealed class DiagnosticLogTests : IDisposable
     }
 
     [Fact]
+    public void Two_writers_sharing_storage_rotate_without_exceeding_the_limit()
+    {
+        var first = new DiagnosticLog(store, time);
+        var second = new DiagnosticLog(store, time);
+
+        for (var entry = 0; entry < 1500; entry++)
+        {
+            (entry % 2 == 0 ? first : second).Write($"entry {entry:D5} {new string('x', 100)}\n");
+        }
+
+        store.Texts.Values.Should().OnlyContain(part => part.Length <= DiagnosticLog.PartLimit);
+        store.Texts.Values.Sum(part => part.Length).Should().BeLessThanOrEqualTo(2 * DiagnosticLog.PartLimit);
+
+        // Even if storage already holds an oversized part from an external writer, rotation keeps only PartLimit.
+        store.Write("diagnostics", new string('z', DiagnosticLog.PartLimit + 5000));
+        first.Write("fresh\n");
+        store.Texts["diagnostics-older"].Length.Should().BeLessThanOrEqualTo(DiagnosticLog.PartLimit);
+        store.Texts["diagnostics"].Should().Be("fresh\n");
+
+        var diskFirst = new DiagnosticLog(new DiagnosticFolder(folder), time);
+        var diskSecond = new DiagnosticLog(new DiagnosticFolder(folder), time);
+        for (var entry = 0; entry < 1500; entry++)
+        {
+            (entry % 2 == 0 ? diskFirst : diskSecond).Write($"entry {entry:D5} {new string('x', 100)}\n");
+        }
+
+        Directory.GetFiles(folder).Sum(file => new FileInfo(file).Length)
+            .Should().BeLessThanOrEqualTo(2 * DiagnosticLog.PartLimit);
+    }
+
+    [Fact]
     public void An_empty_log_says_so()
     {
         var saved = new DiagnosticLog(store, time).Compose(app);

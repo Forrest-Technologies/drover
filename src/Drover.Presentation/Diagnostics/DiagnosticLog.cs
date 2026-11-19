@@ -23,8 +23,6 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
 
     private readonly Lock gate = new();
 
-    private int? newerLength;
-
     private string? problem;
 
     #endregion
@@ -48,7 +46,7 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
 
     /// <summary>
     /// A failure nothing handled, which may be the last thing the app does. Written at once, apart from the log, and
-    /// offered at the next start. The app also logs it, so it appears in the log in its place among the rest.
+    /// offered at the next start.
     /// </summary>
     public void RecordFailure(Exception exception)
     {
@@ -61,6 +59,17 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
                 store.Write(FailureNotOffered, Stamp());
             });
         }
+    }
+
+    /// <summary>
+    /// Records an unhandled failure in storage and logs a fixed event without passing <paramref name="exception"/>,
+    /// so console and platform sinks never write exception messages or stack paths.
+    /// </summary>
+    public void ReportUnhandled(ILogger logger, LogLevel level, EventId eventId, Exception exception)
+    {
+        RecordFailure(exception);
+        var failureType = exception.GetType().FullName ?? exception.GetType().Name;
+        logger.Log(level, eventId, "Unhandled failure {FailureType} (result {HResult})", failureType, exception.HResult);
     }
 
     /// <summary>True once after a failure nothing handled: the app offers the log then, and not again for it.</summary>
@@ -89,9 +98,9 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
         {
             Guarded(() =>
             {
-                older = store.Read(Older);
-                newer = store.Read(Newer);
-                failure = store.Read(LastFailure);
+                older = Tail(store.Read(Older));
+                newer = Tail(store.Read(Newer));
+                failure = Tail(store.Read(LastFailure));
             });
         }
 
@@ -118,17 +127,19 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
 
     private void Append(string entry)
     {
-        newerLength ??= store.Read(Newer)?.Length ?? 0;
-        if (newerLength + entry.Length > PartLimit)
+        var current = store.Read(Newer) ?? string.Empty;
+        if (current.Length + entry.Length > PartLimit)
         {
-            store.Write(Older, store.Read(Newer) ?? string.Empty);
-            store.Remove(Newer);
-            newerLength = 0;
+            store.Write(Older, Tail(current) ?? string.Empty);
+            store.Write(Newer, entry);
+            return;
         }
 
         store.Append(Newer, entry);
-        newerLength += entry.Length;
     }
+
+    private static string? Tail(string? text) =>
+        text is { Length: > PartLimit } ? text[^PartLimit..] : text;
 
     private string Problem() =>
         problem is null ? string.Empty : $"\nSome entries could not be kept on this device ({problem}).\n";
@@ -139,11 +150,10 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
     private string Stamp() => time.GetUtcNow().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
     // The log is how a failure is reported, so a failure to write it has nowhere else to go: logging it would come
-    // straight back here. The app carries on without the entry, the saved file says what kind of failure it was, and
-    // the length is read again next time.
+    // straight back here. The app carries on without the entry and the saved file says what kind of failure it was.
     private void Guarded(Action write) => problem = Attempt(write) ?? problem;
 
-    private string? Attempt(Action write)
+    private static string? Attempt(Action write)
     {
         try
         {
@@ -153,7 +163,6 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
         catch (Exception exception)
             when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            newerLength = null;
             return exception.GetType().FullName;
         }
     }

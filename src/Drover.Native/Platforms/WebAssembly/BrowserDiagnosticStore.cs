@@ -17,7 +17,11 @@ internal sealed class BrowserDiagnosticStore : IDiagnosticStore
         return null;
     });
 
-    public void Append(string name, string text) => Write(name, $"{Read(name)}{text}");
+    public void Append(string name, string text)
+    {
+        var combined = $"{Read(name)}{text}";
+        Write(name, combined.Length <= DiagnosticLog.PartLimit ? combined : combined[^DiagnosticLog.PartLimit..]);
+    }
 
     public void Remove(string name) => Guarded<object?>(() =>
     {
