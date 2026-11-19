@@ -35,7 +35,9 @@ public static class ServiceCollectionExtensions
             })
             .SelectPipelineByAuthority();
 
-        services.AddSingleton<IModelClientProvider, VeniceProvider>();
+        services.AddSingleton<VeniceProvider>();
+        services.AddSingleton<IModelClientProvider>(provider => provider.GetRequiredService<VeniceProvider>());
+        services.AddSingleton<IModelImageGenerator>(provider => provider.GetRequiredService<VeniceProvider>());
 
         return services;
     }

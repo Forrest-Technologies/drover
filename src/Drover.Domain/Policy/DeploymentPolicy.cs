@@ -418,6 +418,12 @@ public sealed record DeploymentPolicy
     /// <summary>The most seconds one search or one page read may take, redirects included, before it is given up.</summary>
     public int MaxWebRequestSeconds { get; init; } = SelfHostedMaxWebRequestSeconds;
 
+    /// <summary>
+    /// A bot granted the image tool may create an image through its model connection. Off in the hosted preset until
+    /// the operator can set a per-space spending limit. Off, the tool is not offered and a call is refused.
+    /// </summary>
+    public bool AllowImageGeneration { get; init; } = true;
+
     #endregion
 
     #region Rule Table
@@ -663,6 +669,10 @@ public sealed record DeploymentPolicy
             policy => policy.MaxWebRequestSeconds,
             HostedMaxWebRequestSeconds,
             Enforcement.Now("Every web.fetch and web.search call")),
+        PolicyRule.Permission(
+            nameof(AllowImageGeneration),
+            policy => policy.AllowImageGeneration,
+            Enforcement.Now("RunExecutor, which offers no image.create tool, and every image.create call")),
     ];
 
     #endregion
