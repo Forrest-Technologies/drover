@@ -216,6 +216,35 @@ def check_unreachable_open():
     raise AssertionError(log.strip() or "The unreachable open check did not report a result.")
 
 
+def check_field_input():
+    """Username, password, and address fields expose Android autofill hints, and a long paste is cut."""
+    shell("am", "force-stop", PACKAGE)
+    activity = shell("cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+    # The check ends the process from inside launch, so start can report a crash after the report is written.
+    subprocess.run(
+        ["adb", "shell", "am", "start", "-W", "-n", activity, "--ez", "drover.field_input", "true"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    report = f"/storage/emulated/0/Android/data/{PACKAGE}/files/field-input.txt"
+    for _ in range(30):
+        listing = subprocess.run(["adb", "shell", "cat", report], text=True, capture_output=True)
+        text = listing.stdout
+        if "Field input check passed" in text:
+            print("Android fields carried autofill hints, and a paste past the limit was cut with no error.")
+            return
+        if "Field input check failed" in text:
+            raise AssertionError(text.strip())
+        time.sleep(1)
+    log = subprocess.run(
+        ["adb", "logcat", "-d", "-e", "Field input check"],
+        text=True,
+        capture_output=True,
+    ).stdout
+    raise AssertionError(log.strip() or "The field input check did not report a result.")
+
+
 def main():
     if os.environ.get("DROVER_UNREACHABLE_OPEN_ONLY") == "1":
         check_unreachable_open()
@@ -237,6 +266,7 @@ def main():
         else:
             shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
     check_safe_area()
+    check_field_input()
 
 
 if __name__ == "__main__":

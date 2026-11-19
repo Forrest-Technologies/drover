@@ -69,6 +69,24 @@ check_unreachable_open() {
   return 1
 }
 
+# Email, password, and address fields carry the platform's own hints, and a paste past a limit is cut with no error.
+check_field_input() {
+  local report="$scratch/field-input.txt"
+  export DROVER_FIELD_INPUT_CHECK=1
+  export DROVER_FIELD_INPUT_REPORT="$report"
+  set +e
+  dotnet "$app" >"$scratch/field-input.log" 2>&1
+  set -e
+  cat "$scratch/field-input.log" >&2
+  if [[ -f $report ]] && grep -F 'Field input check passed' "$report"; then
+    echo 'Desktop fields carried their input scopes, and a paste past the limit was cut with no error.'
+    return 0
+  fi
+  echo 'The field input check did not pass.' >&2
+  return 1
+}
+
 check_first_frame
 check_sign_in_survives_restart
 check_unreachable_open
+check_field_input

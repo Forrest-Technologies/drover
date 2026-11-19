@@ -99,6 +99,10 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
             UnreachableOpenCheck.Arm();
         }
 #endif
+        if (Intent?.GetBooleanExtra("drover.field_input", false) == true)
+        {
+            FieldInputCheck.Arm();
+        }
 
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);

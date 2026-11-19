@@ -343,11 +343,13 @@ public sealed class Field : StackPanel
         input.IsEnabled = !Disabled;
         switch (input)
         {
+            // The platform rejects a whole paste that is longer than its own limit, so the control stays open and
+            // Take keeps the prefix. A limit of zero already means the field has no limit.
             case TextBox box:
-                box.MaxLength = MaxLength;
+                box.MaxLength = 0;
                 break;
             case PasswordBox box:
-                box.MaxLength = MaxLength;
+                box.MaxLength = 0;
                 break;
         }
 

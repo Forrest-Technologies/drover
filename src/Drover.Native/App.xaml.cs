@@ -102,6 +102,7 @@ public partial class App : Application
 #if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.ArmFromEnvironment();
 #endif
+            FieldInputCheck.ArmFromEnvironment();
             PlatformShell.ReadDevice();
             MainWindow = new Window { Title = "Drover" };
             MainWindow.Activated += (_, activated) =>
@@ -114,6 +115,12 @@ public partial class App : Application
                 return;
             }
 #endif
+            if (FieldInputCheck.Armed)
+            {
+                FieldInputCheck.Start(MainWindow);
+                MainWindow.Activate();
+                return;
+            }
 
             Restart();
 #if DROVER_UNREACHABLE_CHECK
