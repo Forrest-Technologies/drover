@@ -21,9 +21,23 @@ public sealed record NativeFilePreview(
 
     public const int MaxPdfBytes = 1024 * 1024;
 
+    public const int MaxPdfDecodedStreamBytes = 1024 * 1024;
+
+    public const int MaxPdfTotalDecodedBytes = 2 * 1024 * 1024;
+
+    public const int MaxPdfStreams = 64;
+
+    public const int MaxPdfObjects = 256;
+
     public const int MaxPdfPages = 10;
 
+    public const int MaxPdfPageImages = 4;
+
     public const int MaxPdfCharacters = 16 * 1024;
+
+    public const int MaxConcurrentPdfPreviews = 2;
+
+    public const int MaxPdfPreviewsPerUserPerMinute = 10;
 
     public const int MaxDiagramNodes = 32;
 

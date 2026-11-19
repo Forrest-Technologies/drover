@@ -56,6 +56,18 @@ public sealed class NativePreviewReaderTests
     }
 
     [Fact]
+    public void Refuses_diagram_text_past_character_and_byte_limit_before_splitting_lines()
+    {
+        var oversized = $"flowchart TD\nA --> B\n{new string('x', NativeFilePreview.MaxTextBytes + 1)}";
+
+        var parsed = NativeDiagramParser.TryParse(oversized, out var diagram, out var refusal);
+
+        parsed.Should().BeFalse();
+        diagram.Should().BeNull();
+        refusal.Should().Be(NativePreviewRefusal.TooLarge);
+    }
+
+    [Fact]
     public async Task Extracts_pdf_pages_within_page_and_character_limits()
     {
         var pdf = TestDocuments.Pdf("First page text", "Second page text");
@@ -106,6 +118,138 @@ public sealed class NativePreviewReaderTests
 
         result.Refusal.Should().Be(NativePreviewRefusal.Malformed);
         result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refuses_pdf_flate_bomb_before_full_stream_inflation()
+    {
+        var inflated = new byte[NativeFilePreview.MaxPdfDecodedStreamBytes + 4096];
+        using var compressedStream = new MemoryStream();
+        await using (var zlib = new ZLibStream(compressedStream, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            await zlib.WriteAsync(inflated, TestContext.Current.CancellationToken);
+        }
+
+        var compressed = compressedStream.ToArray();
+        compressed.Length.Should().BeLessThan(NativeFilePreview.MaxPdfBytes);
+
+        using var pdf = new MemoryStream();
+        var header = Encoding.ASCII.GetBytes(
+            $"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n4 0 obj << /Filter /FlateDecode /Length {compressed.Length} >>\nstream\n");
+        pdf.Write(header);
+        pdf.Write(compressed);
+        pdf.Write("\nendstream\nendobj\n%%EOF"u8);
+
+        var result = await Read(pdf.ToArray());
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refuses_pdf_with_cyclic_or_fan_out_page_tree()
+    {
+        var cyclic = Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] /Parent 3 0 R >> endobj\n3 0 obj << /Type /Pages /Count 1 /Kids [2 0 R] /Parent 2 0 R >> endobj\n%%EOF");
+        var cyclicResult = await Read(cyclic);
+
+        cyclicResult.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        cyclicResult.Pages.Should().BeNull();
+
+        var fanOut = Encoding.ASCII.GetBytes(
+            "%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Count 2 /Kids [3 0 R 3 0 R] >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R >> endobj\n%%EOF");
+        var fanOutResult = await Read(fanOut);
+
+        fanOutResult.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        fanOutResult.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refuses_pdf_that_exceeds_parse_deadline()
+    {
+        var pdf = TestDocuments.Pdf("Page one");
+        using var gate = new ManualResetEventSlim(false);
+
+        using var content = new MemoryStream(pdf);
+        var result = await NativePreviewReader.Read(
+            content,
+            CancellationToken.None,
+            Guid.NewGuid(),
+            TimeSpan.FromMilliseconds(40),
+            () => gate.Wait(TimeSpan.FromMilliseconds(250)));
+        gate.Set();
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refuses_concurrent_pdf_previews_from_same_user_or_beyond_server_gate()
+    {
+        var pdf = TestDocuments.Pdf("Concurrent page");
+        var sameUser = Guid.NewGuid();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim(false);
+
+        var firstTask = Task.Run(async () =>
+        {
+            using var firstStream = new MemoryStream(pdf);
+            return await NativePreviewReader.Read(
+                firstStream,
+                CancellationToken.None,
+                sameUser,
+                TimeSpan.FromSeconds(2),
+                () =>
+                {
+                    entered.TrySetResult();
+                    release.Wait(TimeSpan.FromSeconds(2));
+                });
+        });
+
+        await entered.Task;
+
+        using var secondStream = new MemoryStream(pdf);
+        var duplicateUserResult = await NativePreviewReader.Read(
+            secondStream,
+            CancellationToken.None,
+            sameUser,
+            TimeSpan.FromMilliseconds(100));
+
+        duplicateUserResult.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondSlotTask = Task.Run(async () =>
+        {
+            using var slotStream = new MemoryStream(pdf);
+            return await NativePreviewReader.Read(
+                slotStream,
+                CancellationToken.None,
+                Guid.NewGuid(),
+                TimeSpan.FromSeconds(2),
+                () =>
+                {
+                    secondEntered.TrySetResult();
+                    release.Wait(TimeSpan.FromSeconds(2));
+                });
+        });
+
+        await secondEntered.Task;
+
+        using var thirdStream = new MemoryStream(pdf);
+        var overGateResult = await NativePreviewReader.Read(
+            thirdStream,
+            CancellationToken.None,
+            Guid.NewGuid(),
+            TimeSpan.FromMilliseconds(60));
+
+        overGateResult.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+
+        release.Set();
+        var firstResult = await firstTask;
+        var secondSlotResult = await secondSlotTask;
+
+        firstResult.Refusal.Should().BeNull();
+        secondSlotResult.Refusal.Should().BeNull();
     }
 
     [Fact]
