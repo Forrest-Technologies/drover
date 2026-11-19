@@ -30,3 +30,5 @@ if "SecurityMode.Strict" in workflow:
 for platform in ("linux", "windows", "macos"):
     if f'--output-file-name "$prefix-{platform}"' not in feed:
         raise SystemExit(f"The signed update feed must include {platform}.")
+if workflow.count("DroverReleaseVersion") != 3:
+    raise SystemExit("Every packaged desktop build must carry the release channel version.")

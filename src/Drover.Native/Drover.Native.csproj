@@ -48,6 +48,12 @@
     <UnoSplashScreenBackgroundColor>#05070A</UnoSplashScreenBackgroundColor>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(DroverReleaseVersion)' != ''">
+    <ApplicationDisplayVersion>$(DroverReleaseVersion)</ApplicationDisplayVersion>
+    <InformationalVersion>$(DroverReleaseVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
   <!-- The component gallery is part of a development build. This switch puts it in a release build too, for the
        parity bench: a published app is what runs under the server's security headers. -->
   <PropertyGroup Condition="'$(DroverShowGallery)' == 'true'">
