@@ -16,7 +16,29 @@ public sealed class Timeline : StackPanel
 
     private const double RailHueShare = 0.55;
 
+    // A node, and the details open under it, are kept for as long as their event is shown and the form stays the
+    // same, so the focus on either stays put while a live run's next events arrive.
     private readonly Dictionary<Guid, TimelineNodeButton> buttons = [];
+
+    private readonly Dictionary<Guid, Border> detailBoxes = [];
+
+    private readonly TextBlock empty = Styles.Text(null, "DvTextSecondary");
+
+    private readonly StackPanel earlier = new() { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly TextBlock hidden = Styles.Text(null, "DvTextSecondary");
+
+    // The lanes form: a grid of columns that share the width, inside a region the arrow keys move through.
+    private Grid? grid;
+
+    private ArrowKeyZone? zone;
+
+    private ScrollViewer? lanes;
+
+    private double smallestLanes;
+
+    // The list form: one section for each node.
+    private StackPanel? list;
 
     // Kept by event, not by row: a late event with an earlier start moves rows, and must not move the selection.
     private Guid? selected;
@@ -24,6 +46,8 @@ public sealed class Timeline : StackPanel
     private Guid? opened;
 
     private bool moveFocus;
+
+    private bool drawing;
 
     // How many of the newest events are shown. It grows a page at a time, and to reach a node a key moved to.
     private int shownCount;
@@ -35,6 +59,15 @@ public sealed class Timeline : StackPanel
     public Timeline()
     {
         Spacing = Tokens.Number("DvSpace3");
+        var more = new Button { Content = "Show earlier events" };
+        more.Click += (_, _) =>
+        {
+            shownCount = Math.Max(shownCount, PageSize) + PageSize;
+            Draw();
+        };
+        hidden.VerticalAlignment = VerticalAlignment.Center;
+        earlier.Children.Add(hidden);
+        earlier.Children.Add(more);
         this.WhenShownOrRethemed(Draw);
     }
 
@@ -104,80 +137,136 @@ public sealed class Timeline : StackPanel
 
     private void Draw()
     {
-        // A run that is still going is drawn again as its events arrive: the node the keyboard is on keeps the focus.
-        moveFocus |= buttons.Values.Any(button => button.FocusState is not FocusState.Unfocused);
-        Children.Clear();
-        buttons.Clear();
-
-        if (Model.Nodes.Count is 0)
+        if (drawing)
         {
-            Children.Add(Styles.Text(EmptyText, "DvTextSecondary"));
             return;
         }
 
-        if (First > 0)
+        drawing = true;
+        try
         {
-            Children.Add(Earlier());
+            DrawShown();
+        }
+        finally
+        {
+            drawing = false;
+        }
+    }
+
+    private void DrawShown()
+    {
+        // The node the keyboard is on stays the one in the tab order, whichever row its event moves to.
+        if (buttons.Values.FirstOrDefault(button => button.FocusState is not FocusState.Unfocused) is { } focused)
+        {
+            selected = focused.Node.Event.Id;
+        }
+
+        if (Model.Nodes.Count is 0)
+        {
+            empty.Text = EmptyText;
+            DropForms();
+            ShowOnly(empty);
+            return;
         }
 
         var shown = Shown;
-        Children.Add(AsList ? List(shown) : Lanes(shown));
+        hidden.Text = Hidden;
+        FrameworkElement form = AsList ? List(shown) : Lanes(shown);
+        ShowOnly(First > 0 ? [earlier, form] : [form]);
 
         if (moveFocus && Selected(shown) is { } id && buttons.TryGetValue(id, out var button))
         {
             moveFocus = false;
-            button.Loaded += (_, _) => button.TakeFocus();
+            Pieces.FocusWhenShown(button, button.TakeFocus);
         }
     }
 
-    private StackPanel Earlier()
+    // The timeline's own children become exactly these, in this order. One already in place is not taken out.
+    private void ShowOnly(params UIElement[] wanted)
     {
-        var more = new Button { Content = "Show earlier events" };
-        more.Click += (_, _) =>
+        for (var index = Children.Count - 1; index >= 0; index--)
         {
-            shownCount = Math.Max(shownCount, PageSize) + PageSize;
-            Draw();
-        };
+            if (!wanted.Contains(Children[index]))
+            {
+                Children.RemoveAt(index);
+            }
+        }
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace3") };
-        var hint = Styles.Text(Hidden, "DvTextSecondary");
-        hint.VerticalAlignment = VerticalAlignment.Center;
-        row.Children.Add(hint);
-        row.Children.Add(more);
-        return row;
+        for (var index = 0; index < wanted.Length; index++)
+        {
+            if (index < Children.Count && ReferenceEquals(Children[index], wanted[index]))
+            {
+                continue;
+            }
+
+            Children.Remove(wanted[index]);
+            Children.Insert(index, wanted[index]);
+        }
     }
 
+    private void DropForms()
+    {
+        (grid, zone, lanes, list) = (null, null, null, null);
+        buttons.Clear();
+        detailBoxes.Clear();
+    }
+
+    // The same nodes as a list of sentences, each a section that opens to its details.
     private StackPanel List(IReadOnlyList<TimelineNode> shown)
     {
-        var list = new StackPanel { Spacing = Tokens.Number("DvSpace2") };
-        AutomationProperties.SetName(list, Label);
-
-        foreach (var node in shown)
+        if (list is null)
         {
-            var section = new Disclosure
-            {
-                Title = Timelines.Sentence(Model, node),
-                Summary = node.Event.Summary,
-                Running = node.Event is { State: TimelineState.Live, Kind: TimelineKind.Tool },
-                Open = opened == node.Event.Id,
-            };
-            section.Body = section.Open ? Detail?.Invoke(node) : null;
-            section.RegisterPropertyChangedCallback(Disclosure.OpenProperty, (_, _) =>
-            {
-                opened = section.Open ? node.Event.Id : null;
-                Draw();
-            });
-            list.Children.Add(section);
+            DropForms();
+            list = new() { Spacing = Tokens.Number("DvSpace2") };
         }
 
+        AutomationProperties.SetName(list, Label);
+        Keyed.Sync(list, shown, node => node.Event.Id.ToString(), Section, ShowSection);
         return list;
+    }
+
+    private Disclosure Section(TimelineNode node)
+    {
+        var id = node.Event.Id;
+        var section = new Disclosure();
+        section.RegisterPropertyChangedCallback(Disclosure.OpenProperty, (_, _) =>
+        {
+            if (drawing)
+            {
+                return;
+            }
+
+            opened = section.Open ? id : opened == id ? null : opened;
+            Draw();
+        });
+        return section;
+    }
+
+    private void ShowSection(Disclosure section, TimelineNode node)
+    {
+        section.Title = Timelines.Sentence(Model, node);
+        section.Summary = node.Event.Summary;
+        section.Running = node.Event is { State: TimelineState.Live, Kind: TimelineKind.Tool };
+        section.Open = opened == node.Event.Id;
+        var body = section.Open ? Detail?.Invoke(node) : null;
+        if (!ReferenceEquals(section.Body, body))
+        {
+            section.Body = Placed(body);
+        }
     }
 
     // Lanes are columns that share the width, so three lanes fit a phone; time runs down. Each event takes two
     // grid rows: its node, and under it the row its details open into across every lane.
     private ScrollViewer Lanes(IReadOnlyList<TimelineNode> shown)
     {
-        var grid = new Grid { ColumnSpacing = Tokens.Number("DvSpace3"), RowSpacing = Tokens.Number("DvSpace2") };
+        if (grid is null || zone is null || lanes is null)
+        {
+            DropForms();
+            (grid, zone, lanes) = NewLanes();
+        }
+
+        Clear(grid, shown);
+        zone.Label = Label;
         grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
         foreach (var _ in shown)
         {
@@ -203,9 +292,7 @@ public sealed class Timeline : StackPanel
                 Place(grid, Branch(node), from, row, columnSpan: Math.Max(1, to - from));
             }
 
-            var button = Node(node, isTabStop: node.Event.Id == selectedId);
-            buttons[node.Event.Id] = button;
-            Place(grid, button, node.Lane, row);
+            Place(grid, Node(node, isTabStop: node.Event.Id == selectedId), node.Lane, row);
 
             if (opened == node.Event.Id)
             {
@@ -213,39 +300,91 @@ public sealed class Timeline : StackPanel
             }
         }
 
-        var zone = new ArrowKeyZone { Label = Label, Items = grid };
-        ScrollViewer lanes = new()
+        // The lanes share the width there is. Only when every lane is at its smallest and they still do not fit does
+        // the timeline scroll sideways.
+        smallestLanes = (Model.Lanes.Count * Tokens.Number("DvLaneMin")) + ((Model.Lanes.Count - 1) * grid.ColumnSpacing);
+        FitLanes();
+        return lanes;
+    }
+
+    private (Grid Grid, ArrowKeyZone Zone, ScrollViewer Lanes) NewLanes()
+    {
+        var newGrid = new Grid { ColumnSpacing = Tokens.Number("DvSpace3"), RowSpacing = Tokens.Number("DvSpace2") };
+        var newZone = new ArrowKeyZone { Items = newGrid };
+        ScrollViewer newLanes = new()
         {
-            Content = zone,
+            Content = newZone,
             HorizontalScrollMode = ScrollMode.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollMode = ScrollMode.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             IsTabStop = false,
         };
-
-        // The lanes share the width there is. Only when every lane is at its smallest and they still do not fit does
-        // the timeline scroll sideways.
-        var smallest = (Model.Lanes.Count * Tokens.Number("DvLaneMin")) + ((Model.Lanes.Count - 1) * grid.ColumnSpacing);
-        lanes.SizeChanged += (_, _) =>
-        {
-            var width = Math.Max(lanes.ActualWidth, smallest);
-            if (Math.Abs(grid.Width - width) >= 1 || double.IsNaN(grid.Width))
-            {
-                grid.Width = width;
-            }
-        };
-        return lanes;
+        newLanes.SizeChanged += (_, _) => FitLanes();
+        return (newGrid, newZone, newLanes);
     }
 
-    private static void Place(Grid grid, FrameworkElement element, int column, int row, int columnSpan = 1, int rowSpan = 1)
+    private void FitLanes()
+    {
+        if (grid is null || lanes is null)
+        {
+            return;
+        }
+
+        var width = Math.Max(lanes.ActualWidth, smallestLanes);
+        if (Math.Abs(grid.Width - width) >= 1 || double.IsNaN(grid.Width))
+        {
+            grid.Width = width;
+        }
+    }
+
+    // Everything drawn for the run as it was is taken out, except the nodes and the details still shown: they stay
+    // in the grid, so the focus on them stays too, and are only moved to their new places.
+    private void Clear(Grid lanesGrid, IReadOnlyList<TimelineNode> shown)
+    {
+        var stays = shown.Select(node => node.Event.Id).ToHashSet();
+        foreach (var gone in buttons.Keys.Where(id => !stays.Contains(id)).ToList())
+        {
+            buttons.Remove(gone);
+        }
+
+        foreach (var gone in detailBoxes.Keys.Where(id => id != opened || !stays.Contains(id)).ToList())
+        {
+            detailBoxes.Remove(gone);
+        }
+
+        for (var index = lanesGrid.Children.Count - 1; index >= 0; index--)
+        {
+            var stay = lanesGrid.Children[index] switch
+            {
+                TimelineNodeButton button => buttons.ContainsValue(button),
+                Border box => detailBoxes.ContainsValue(box),
+                _ => false,
+            };
+            if (!stay)
+            {
+                lanesGrid.Children.RemoveAt(index);
+            }
+        }
+
+        lanesGrid.RowDefinitions.Clear();
+        lanesGrid.ColumnDefinitions.Clear();
+    }
+
+    private static void Place(Grid lanesGrid, FrameworkElement element, int column, int row, int columnSpan = 1, int rowSpan = 1)
     {
         Grid.SetColumn(element, column);
         Grid.SetRow(element, row);
         Grid.SetColumnSpan(element, columnSpan);
         Grid.SetRowSpan(element, rowSpan);
-        grid.Children.Add(element);
+        if (!lanesGrid.Children.Contains(element))
+        {
+            lanesGrid.Children.Add(element);
+        }
     }
+
+    // A detail kept by its owner, such as an answer on its way, is moved out of where it was shown before.
+    private static object? Placed(object? body) => body is FrameworkElement element ? Pieces.Detached(element) : body;
 
     // A lane's head shows what its bot is doing, as the bot's head does everywhere else. It repeats what the
     // nodes say, so it is not read out a second time.
@@ -307,27 +446,55 @@ public sealed class Timeline : StackPanel
 
     private TimelineNodeButton Node(TimelineNode node, bool isTabStop)
     {
-        var button = new TimelineNodeButton(node, opened == node.Event.Id, EdgeOf(node, opened == node.Event.Id)) { IsTabStop = isTabStop };
-        ArrowKeyZone.SetIsItem(button, true);
-        AutomationProperties.SetName(button, Timelines.Sentence(Model, node));
-        AutomationProperties.SetItemStatus(button, opened == node.Event.Id ? "Expanded" : "Collapsed");
-        button.Click += (_, _) =>
+        var isOpen = opened == node.Event.Id;
+        if (buttons.TryGetValue(node.Event.Id, out var button))
         {
-            (selected, opened, moveFocus) = (node.Event.Id, opened == node.Event.Id ? null : node.Event.Id, true);
-            Draw();
-        };
-        button.KeyDown += (_, key) => OnKey(node, key);
+            button.Show(node, isOpen, EdgeOf(node, isOpen));
+        }
+        else
+        {
+            button = new TimelineNodeButton(node, isOpen, EdgeOf(node, isOpen));
+            ArrowKeyZone.SetIsItem(button, true);
+            var kept = button;
+            button.Click += (_, _) =>
+            {
+                var id = kept.Node.Event.Id;
+                (selected, opened, moveFocus) = (id, opened == id ? null : id, true);
+                Draw();
+            };
+            button.KeyDown += (_, key) => OnKey(kept.Node, key);
+            buttons[node.Event.Id] = button;
+        }
+
+        button.IsTabStop = isTabStop;
+        AutomationProperties.SetName(button, Timelines.Sentence(Model, node));
+        AutomationProperties.SetItemStatus(button, isOpen ? "Expanded" : "Collapsed");
         return button;
     }
 
-    private Border DetailBox(TimelineNode node) => new()
+    private Border DetailBox(TimelineNode node)
     {
-        Child = new ContentPresenter { Content = Detail?.Invoke(node) },
-        Padding = new(Tokens.Number("DvSpace3")),
-        BorderThickness = new(Tokens.Number("DvBorder")),
-        BorderBrush = Tokens.Brush(this, "DvLine"),
-        Background = Tokens.Brush(this, "DvBg1"),
-    };
+        if (!detailBoxes.TryGetValue(node.Event.Id, out var box))
+        {
+            box = new()
+            {
+                Child = new ContentPresenter(),
+                Padding = new(Tokens.Number("DvSpace3")),
+                BorderThickness = new(Tokens.Number("DvBorder")),
+            };
+            detailBoxes[node.Event.Id] = box;
+        }
+
+        (box.BorderBrush, box.Background) = (Tokens.Brush(this, "DvLine"), Tokens.Brush(this, "DvBg1"));
+        var presenter = (ContentPresenter)box.Child;
+        var body = Detail?.Invoke(node);
+        if (!ReferenceEquals(presenter.Content, body))
+        {
+            presenter.Content = Placed(body);
+        }
+
+        return box;
+    }
 
     #endregion
 
