@@ -70,10 +70,11 @@ public static class ChatRows
 
     #region Messages
 
+    /// <summary>A bot that reasoned without words yet still speaks from its head, so its reasoning has a place to arrive.</summary>
     public static ChatEntryShape Shape(ChatMessage message, bool compact) => message switch
     {
         { FromPerson: true } => ChatEntryShape.Person,
-        { Text.Length: 0 } => ChatEntryShape.Tools,
+        { Text.Length: 0, Reasoning: null } => ChatEntryShape.Tools,
         _ when compact => ChatEntryShape.Compact,
         _ => ChatEntryShape.Bot,
     };
@@ -82,7 +83,8 @@ public static class ChatRows
     public static string EntryName(ChatMessage message, string botName, string? asker) => message switch
     {
         { FromPerson: true } => asker is null ? message.SentBy ?? "You said" : $"{asker} asked",
-        { Text.Length: 0 } => $"What {botName} did",
+        { Text.Length: 0, Reasoning: null } => $"What {botName} did",
+        { Text.Length: 0 } => $"What {botName} thought",
         _ => $"{botName} said",
     };
 
@@ -91,6 +93,12 @@ public static class ChatRows
 
     /// <summary>Said under a message sent while the bot works, until the bot has read it.</summary>
     public static string Pending(string botName) => $"Sent. {botName} reads it at its next step.";
+
+    /// <summary>What a bot's reply says it is doing while it arrives: thinking until its words begin, then writing.</summary>
+    public static string Arriving(ChatMessage message) => message.Thinking ? "Thinking" : "Writing";
+
+    /// <summary>What a source is read out as: its title and the site it opens, outside the app.</summary>
+    public static string SourceName(SourceLink source) => $"{source.Title}, {source.Site}, opens outside the app";
 
     /// <summary>
     /// A waiting call inside handed work is asked for by the bot that made it. A request for a person at the bot's

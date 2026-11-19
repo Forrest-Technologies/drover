@@ -13,6 +13,10 @@ public static class Conversations
 
     private const string TextKind = "text";
 
+    private const string ReasoningKind = "reasoning";
+
+    private const string SourceKind = "source";
+
     private const string ToolCallKind = "tool_call";
 
     private const string ToolResultKind = "tool_result";
@@ -72,7 +76,7 @@ public static class Conversations
             conversation.Add(ToChatMessage(message, cards, fileAddress) with { RunId = RunOf(message, run) });
         }
 
-        conversation.RemoveAll(message => message.Text.Length == 0 && message.Tools.Count == 0 && message.Files.Count == 0);
+        conversation.RemoveAll(message => message is { Text.Length: 0, Tools.Count: 0, Files.Count: 0, Reasoning: null, Sources.Count: 0 });
         if (reader is not null)
         {
             var principals = shown.Where(message => message.RunPrincipalUserId is not null)
@@ -136,6 +140,7 @@ public static class Conversations
         var shown = new ChatMessage(message.Id.ToString(), fromPerson, Words(message), message.IsStreaming, message.IsPending)
         {
             SentBy = SentBy(message),
+            Reasoning = fromPerson ? null : Reasoning(message),
             Files = fileAddress is null
                 ? []
                 :
@@ -145,8 +150,24 @@ public static class Conversations
                         .Select(part => FileWords.Shared(part.File!, fileAddress(part.File!.Id), fromBot: !fromPerson)),
                 ],
         };
+        List<SourceLink> sources = fromPerson ? [] : [.. Sources(message)];
+        shown = sources.Count == 0 ? shown : shown with { Sources = sources };
         return cards.Count == 0 ? shown : shown with { Tools = cards };
     }
+
+    private static string? Reasoning(MessageView message)
+    {
+        var reasoning = message.Parts.Where(part => part.Kind is ReasoningKind && !string.IsNullOrWhiteSpace(part.Text)).Select(part => part.Text);
+        return reasoning.Any() ? string.Join("\n\n", reasoning) : null;
+    }
+
+    // A source cited twice is shown once, and one that is not a web address is not shown at all.
+    private static IEnumerable<SourceLink> Sources(MessageView message) =>
+        message.Parts
+            .Where(part => part.Kind is SourceKind)
+            .Select(part => SourceLink.From(part.Url, part.Text))
+            .OfType<SourceLink>()
+            .DistinctBy(source => source.Address);
 
     // Each run is reached from its last reply that has words, so a run of many steps is offered once, at its end.
     private static List<ChatMessage> LeadToRuns(List<ChatMessage> conversation, IEnumerable<MessageView> shown)

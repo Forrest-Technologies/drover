@@ -33,6 +33,12 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>True while the bot is working and has not started to answer.</summary>
     public bool Thinking { get; set; }
 
+    /// <summary>
+    /// The bot is thinking and no reply of its says so: a reply whose reasoning is arriving shows the bot thinking
+    /// itself, so the list does not show it twice.
+    /// </summary>
+    public bool ShowsThinking => Thinking && !Messages.Any(message => message.Thinking);
+
     /// <summary>Why the last reply failed and what to do, when it did.</summary>
     public string? Problem { get; set; }
 
