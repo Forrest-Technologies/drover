@@ -111,6 +111,7 @@ public sealed class SandboxBroker(
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
         await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
+        await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -1094,6 +1095,33 @@ public sealed class SandboxBroker(
                 row.Tainted = true;
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// A clean run's agent was built before this check, so an allow grant would start the shell. The selected
+    /// sandbox is read again here, after it is acquired and before the provider is called. When another conversation
+    /// has marked it tainted since the run was built, the run is tainted and the command is not started: the agent
+    /// is built again, and the command asks. A person's own controls have no call and still run.
+    /// </summary>
+    private static async Task RefuseCleanRunInATaintedSandbox(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        if (caller.Call is not { } call || call.IsTainted())
+        {
+            return;
+        }
+
+        var tainted = await caller.Tenant.Transact(
+            async services =>
+                await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is { Tainted: true },
+            cancellationToken);
+
+        if (!tainted)
+        {
+            return;
+        }
+
+        await call.Taint();
+        throw new BuiltinToolException("This sandbox was marked tainted while the run was in flight, so the command was not started.");
     }
 
     /// <summary>

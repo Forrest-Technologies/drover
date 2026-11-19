@@ -463,6 +463,60 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         provider.Commands.Should().Contain(command => command.Arguments.Contains("printf later"));
     }
 
+    [Fact]
+    public async Task A_command_does_not_start_when_the_sandbox_is_tainted_while_the_model_call_is_in_flight()
+    {
+        var provider = new FakeSandboxProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_run", """{"command":"printf planted"}""")],
+            [new TextOutput("Ready.")],
+            [new ToolCallOutput("c2", "sandbox_run", """{"command":"printf later"}""")],
+            [new ToolCallOutput("c3", "sandbox_run", """{"command":"printf later"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(provider, script);
+        await GiveSandbox(world, world.BotId, SandboxPolicy.Private, NetworkAccess.Off);
+        await world.Grant("sandbox.run", GrantEffect.Allow);
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        world.Model.BeforeCall = async step =>
+        {
+            if (step != 2)
+            {
+                return;
+            }
+
+            opened.TrySetResult();
+            await release.Task.WaitAsync(RunWorld.Token);
+        };
+        world.StartHost();
+
+        var planted = await world.Post(await world.NewThread(), "Plant it");
+        (await world.WaitForStatus(planted, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf planted"));
+        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeFalse();
+
+        var reader = world.Post(await world.NewThread(), "Look again");
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
+        await world.Transact(async services =>
+        {
+            var row = await services.GetRequiredService<DroverDbContext>().Sandboxes.SingleAsync(RunWorld.Token);
+            row.Tainted = true;
+            return true;
+        });
+        release.TrySetResult();
+        var waiting = await world.WaitForStatus(await reader, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+
+        waiting.Status.Should().Be(RunStatus.Waiting, waiting.Error?.Message);
+        provider.Commands.Should().NotContain(command => command.Arguments.Contains("printf later"), "the shell does not start on the allow grant");
+        var pending = (await world.ReadToolCalls(await reader)).Single(call => call.Status == ToolCallStatus.PendingApproval);
+        await world.Decide(pending.Id, approved: true);
+        var clean = await world.WaitForStatus(await reader, RunStatus.Completed, RunStatus.Failed);
+
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        clean.Tainted.Should().BeTrue();
+        provider.Commands.Should().ContainSingle(command => command.Arguments.Contains("printf later"));
+    }
+
     [Theory]
     [InlineData(NetworkAccess.Off, false)]
     [InlineData(NetworkAccess.Allowlist, true)]
