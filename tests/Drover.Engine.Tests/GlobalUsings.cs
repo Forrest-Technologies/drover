@@ -54,6 +54,7 @@ global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
 global using Drover.Domain.Web;
 global using Drover.Engine;
+global using Drover.Engine.Accounts;
 global using Drover.Engine.Audit;
 global using Drover.Engine.Bots;
 global using Drover.Engine.Extensions;
