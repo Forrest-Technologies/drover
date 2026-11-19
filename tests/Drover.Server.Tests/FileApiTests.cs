@@ -222,6 +222,8 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
         Logs.AllText().Should().NotContain(invalidToken);
         (await cleanClient.Get($"https://app.example.test/preview/file?grant={token}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await cleanClient.Get("https://preview.other.test/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await cleanClient.Get("https://preview.other.test:444/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await cleanClient.Get("http://preview.other.test/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -239,6 +241,23 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
         var changed = await MintPreview(client, spaceId, file.Id);
         await ChangeHash(spaceId, file.Id, new string('1', 64));
         (await NewClient().Get(changed)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Removing_membership_revokes_an_outstanding_preview_grant()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, "report.html", Body("<h1>Report</h1>"));
+        var preview = await MintPreview(client, spaceId, file.Id);
+
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand("delete from memberships where space_id = @space", connection);
+        command.Parameters.AddWithValue("space", spaceId);
+        (await command.ExecuteNonQueryAsync(Token)).Should().Be(1);
+
+        (await NewClient().Get(preview)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

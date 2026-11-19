@@ -34,7 +34,11 @@ public sealed record PreviewOrigin(Uri App, Uri Preview)
         return new(app, preview);
     }
 
-    public bool IsPreview(HttpRequest request) => SameAuthority(request, Preview);
+    public bool IsPreviewHost(HttpRequest request) =>
+        string.Equals(request.Host.Host.TrimEnd('.'), Preview.IdnHost, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsPreview(HttpRequest request) =>
+        IsPreviewHost(request) && request.IsHttps && (request.Host.Port ?? 443) == Preview.Port;
 
     #endregion
 
@@ -64,10 +68,6 @@ public sealed record PreviewOrigin(Uri App, Uri Preview)
         var labels = address.IdnHost.Split('.');
         return $"{labels[^2]}.{labels[^1]}";
     }
-
-    private static bool SameAuthority(HttpRequest request, Uri address) =>
-        string.Equals(request.Host.Value, address.Authority, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(request.Scheme, address.Scheme, StringComparison.OrdinalIgnoreCase);
 
     private static InvalidOperationException Invalid(string message) => new(message);
 

@@ -89,7 +89,13 @@ public sealed class PreviewFileService(
 
     private async Task<StoredFile?> Find(Guid spaceId, Guid userId, Guid fileId, CancellationToken cancellationToken) =>
         await scopes.For(spaceId, userId).Transact(
-            services => services.GetRequiredService<FileRepository>().FindFile(fileId, cancellationToken),
+            async services =>
+            {
+                var role = await services.GetRequiredService<AccountRepository>().FindRole(spaceId, userId, cancellationToken);
+                return role is null
+                    ? null
+                    : await services.GetRequiredService<FileRepository>().FindFile(fileId, cancellationToken);
+            },
             cancellationToken);
 
     #endregion

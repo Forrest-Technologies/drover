@@ -31,7 +31,7 @@ public static class PreviewFileEndpoints
             return false;
         }
 
-        if (!origin.IsPreview(context.Request))
+        if (!origin.IsPreviewHost(context.Request))
         {
             if (context.Request.Path.StartsWithSegments("/preview"))
             {
@@ -42,7 +42,7 @@ public static class PreviewFileEndpoints
             return false;
         }
 
-        if (!previewPath || !HttpMethods.IsGet(context.Request.Method)
+        if (!origin.IsPreview(context.Request) || !previewPath || !HttpMethods.IsGet(context.Request.Method)
             || context.Request.Headers.ContainsKey(HeaderNames.Cookie)
             || context.Request.Query["grant"] is not { Count: 1 } values
             || await context.RequestServices.GetRequiredService<PreviewFileService>()
