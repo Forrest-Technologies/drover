@@ -81,6 +81,15 @@ public sealed class ThreadRepository(DroverDbContext db)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The threads in one project that the caller may see and has not archived, newest activity first.</summary>
+    public Task<List<ChatThread>> ListThreadsForProject(Guid projectId, int limit, CancellationToken cancellationToken) =>
+        db.Threads.AsNoTracking()
+            .Where(thread => thread.ProjectId == projectId && thread.ArchivedAt == null)
+            .OrderByDescending(thread => thread.LastActivityAt)
+            .ThenByDescending(thread => thread.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
     #endregion
 
     #region Seen

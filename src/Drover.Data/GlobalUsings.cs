@@ -26,6 +26,7 @@ global using Drover.Domain.Memory;
 global using Drover.Domain.Models;
 global using Drover.Domain.Permissions;
 global using Drover.Domain.Policy;
+global using Drover.Domain.Projects;
 global using Drover.Domain.Push;
 global using Drover.Domain.Rules;
 global using Drover.Domain.Runs;

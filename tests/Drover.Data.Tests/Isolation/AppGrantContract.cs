@@ -9,7 +9,7 @@ public sealed record AppGrantContract(bool AppendOnly, IReadOnlyList<string>? Up
     {
         "audit_log" => new(true),
         "user_profiles" => new(false, AllowDelete: false),
-        "threads" => new(false, ["id", "space_id", "audience_user_id", "bot_id", "title", "origin",
+        "threads" => new(false, ["id", "space_id", "audience_user_id", "bot_id", "project_id", "title", "origin",
             "last_activity_at", "archived_at", "is_main", "summary", "summary_through_position", "summary_updated_at",
             "model"]),
         _ => new(false),

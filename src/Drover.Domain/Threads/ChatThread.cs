@@ -18,6 +18,8 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
 
     public Guid BotId { get; set; }
 
+    public Guid? ProjectId { get; set; }
+
     /// <summary>Never updated after insert: the application role has no privilege on this column.</summary>
     public Guid OwnerUserId { get; set; }
 

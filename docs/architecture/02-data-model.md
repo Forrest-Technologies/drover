@@ -127,7 +127,8 @@ Notes:
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `threads` | Space-owned with an audience | `id`, `bot_id`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null`, `is_main`, `summary null`, `summary_through_position null`, `summary_updated_at null`, `model null` |
+| `projects` | Space-owned | `id`, `name`, `instructions`, `created_at`, `updated_at` |
+| `threads` | Space-owned with an audience | `id`, `bot_id`, `project_id null`, `owner_user_id`, `audience_user_id`, `title`, `origin`, `last_activity_at`, `archived_at null`, `is_main`, `summary null`, `summary_through_position null`, `summary_updated_at null`, `model null` |
 | `messages` | Space-owned with an audience, inherited from the thread | `id`, `thread_id`, `audience_user_id`, `position null`, `parent_id null`, `shelved_at null`, `steers`, `withheld`, `role`, `author_user_id null`, `author_bot_id null`, `run_id null`, `schedule_id null`, `parts jsonb`, `model null`, `created_at` |
 | `thread_reads` | Space-owned with an audience: the person whose marker it is | `thread_id` (no foreign key), `audience_user_id`, `seen_through_position`, `seen_at`. Primary key `(space_id, thread_id, audience_user_id)` |
 | `runs` | Space-owned | `id`, `thread_id`, `bot_id`, `principal_user_id`, `trigger`, `trigger_message_id null`, `parent_run_id null`, `root_run_id`, `parent_tool_call_id null`, `depth`, `status`, `status_reason`, `error jsonb`, `tainted`, `attempt`, `lease_owner null`, `lease_expires_at null`, `cancel_requested_at null`, `last_event_seq`, `usage jsonb`, `subtree_usage jsonb`, `started_at`, `finished_at`, `waiting_since null` (when the run last began to wait for a person) |
