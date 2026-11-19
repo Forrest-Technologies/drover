@@ -1,4 +1,5 @@
 global using System;
+global using System.Buffers;
 global using System.Buffers.Binary;
 global using System.Buffers.Text;
 global using System.Collections.Concurrent;
@@ -20,6 +21,7 @@ global using System.Text.Json;
 global using System.Text.Json.Nodes;
 global using System.Text.Json.Serialization;
 global using System.Text.RegularExpressions;
+global using System.Text.Unicode;
 global using System.Threading;
 global using System.Threading.Channels;
 global using System.Threading.Tasks;

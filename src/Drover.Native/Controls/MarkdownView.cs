@@ -56,6 +56,16 @@ public sealed class MarkdownView : StackPanel
 
     #endregion
 
+    #region File Preview
+
+    internal void ShowFile(IReadOnlyList<MarkdownNode> content)
+    {
+        nodes = content;
+        Draw();
+    }
+
+    #endregion
+
     #region Parsing
 
     private void Parse()
@@ -242,6 +252,8 @@ public sealed class MarkdownView : StackPanel
 
     private IEnumerable<FrameworkElement> Block(MarkdownNode node, string ink) => node switch
     {
+        CodeNode code when NativeDiagramParser.TryParse(code.Code, out var diagram, out _) && diagram is not null =>
+            [NativeFilePreviewControl.BuildDiagram(this, diagram)],
         CodeNode code => [new CodeBlock { Code = code.Code, CodeLanguage = code.Language }],
         ElementNode { Name: "h1" } heading => [Paragraph(heading.Children, ink, "DvText20", heading: true)],
         ElementNode { Name: "h2" } heading => [Paragraph(heading.Children, ink, "DvText16", heading: true)],
