@@ -102,6 +102,7 @@ public sealed class SandboxBroker(
         var limit = CommandLimit(timeout);
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
+        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -173,6 +174,7 @@ public sealed class SandboxBroker(
 
         var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
+        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
 
         try
         {
@@ -341,6 +343,7 @@ public sealed class SandboxBroker(
         }
 
         await AuthorizeLiveWrite(caller, cancellationToken);
+        await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
         await RunOnScreen(lease, action, doing, cancellationToken);
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
@@ -1041,6 +1044,45 @@ public sealed class SandboxBroker(
                 row.Tainted = true;
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// A tainted run persists the text it read. Mark the sandbox before the provider is called, the same way an
+    /// attached file does, so a later clean run that reads it is tainted even when the network is off. A read does
+    /// not mark it. A person's own controls have no call and do not mark it.
+    /// </summary>
+    private static async Task MarkTaintedWhenTheRunIs(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        if (caller.Call?.IsTainted() == true)
+        {
+            await MarkTainted(caller, lease, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Marks the sandbox as holding text that must not reach a clean run untainted, for good, in its own committed
+    /// transaction before the provider is called: a write that is cancelled or fails after the provider took it still
+    /// leaves the mark. A sandbox whose row is gone is not written to, since nothing could carry the mark.
+    /// </summary>
+    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    {
+        var marked = await caller.Tenant.Transact(
+            async services =>
+            {
+                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                {
+                    return false;
+                }
+
+                row.Tainted = true;
+                return true;
+            },
+            cancellationToken);
+
+        if (!marked)
+        {
+            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
+        }
     }
 
     #endregion
