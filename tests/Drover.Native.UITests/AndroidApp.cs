@@ -29,7 +29,8 @@ internal sealed class AndroidApp : IAppUnderCheck
             await Adb("shell", "am", "force-stop", Package);
             await Adb("shell", "pm", "clear", Package);
             await Adb("logcat", "-c");
-            var activity = (await Adb("shell", "cmd", "package", "resolve-activity", "--brief", Package)).Split('\n')[^1].Trim();
+            var activity = (await Adb("shell", "cmd", "package", "resolve-activity", "--brief", Package))
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
             string[] start = ["shell", "am", "start", "-W", "-n", activity];
             await Adb([.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
             var lines = await ReadReport();
@@ -88,7 +89,8 @@ internal sealed class AndroidApp : IAppUnderCheck
 
         if (adb.ExitCode != 0)
         {
-            throw new InvalidOperationException($"adb {string.Join(' ', arguments)} failed: {await error}");
+            // The command, without the settings it carried: they hold the test account's password.
+            throw new InvalidOperationException($"adb {string.Join(' ', arguments.Take(4))} failed: {await error}");
         }
 
         return await output;
