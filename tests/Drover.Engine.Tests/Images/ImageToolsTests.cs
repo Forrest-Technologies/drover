@@ -45,6 +45,7 @@ public sealed class ImageToolsTests(PostgresServer postgres)
                 ModelConnectionId = world.ConnectionId,
                 Model = "picture-one",
                 DisplayName = "Picture One",
+                Capabilities = new ModelCapabilities { ImageGeneration = true },
                 Pricing = new ModelPricing
                 {
                     Currency = "EUR",
@@ -169,6 +170,7 @@ public sealed class ImageToolsTests(PostgresServer postgres)
             postgres,
             script,
             everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await SeedImageModel(world, "picture-one");
         await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
         var threadId = await world.NewThread();
         var host = world.StartHost();
@@ -251,7 +253,249 @@ public sealed class ImageToolsTests(PostgresServer postgres)
 
     #endregion
 
+    #region Catalog And Limits
+
+    [Theory]
+    [InlineData("unlisted-model")]
+    [InlineData("chat-only")]
+    [InlineData("retired-picture")]
+    public async Task Refuses_models_not_enabled_as_image_models_in_the_catalog_and_lists_allowed_ones(string requestedModel)
+    {
+        var generator = new FixedImageGenerator();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "image_create", $$"""{"prompt":"A green barn","model":"{{requestedModel}}"}""")],
+            [new TextOutput("The model was refused.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await world.Read(db =>
+        {
+            db.ModelCatalog.AddRange(
+                new ModelCatalogEntry
+                {
+                    ModelConnectionId = world.ConnectionId,
+                    Model = "picture-one",
+                    DisplayName = "Picture One",
+                    Capabilities = new ModelCapabilities { ImageGeneration = true },
+                    State = AvailabilityState.Available,
+                },
+                new ModelCatalogEntry
+                {
+                    ModelConnectionId = world.ConnectionId,
+                    Model = "chat-only",
+                    DisplayName = "Chat Only",
+                    Capabilities = new ModelCapabilities { ImageGeneration = false },
+                    State = AvailabilityState.Available,
+                },
+                new ModelCatalogEntry
+                {
+                    ModelConnectionId = world.ConnectionId,
+                    Model = "retired-picture",
+                    DisplayName = "Retired Picture",
+                    Capabilities = new ModelCapabilities { ImageGeneration = true },
+                    State = AvailabilityState.Missing,
+                });
+            return Task.FromResult(true);
+        });
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Create a barn picture.");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        var toolCall = (await world.ReadToolCalls(runId)).Should().ContainSingle().Which;
+        toolCall.IsError.Should().BeTrue();
+        var errorText = toolCall.Result!.Value.GetProperty("error").GetString()!;
+        errorText.Should().Contain("picture-one");
+        errorText.Should().NotContain("chat-only");
+        errorText.Should().NotContain("retired-picture");
+        generator.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Refuses_image_generation_when_the_connection_catalog_has_no_image_models()
+    {
+        var generator = new FixedImageGenerator();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "image_create", """{"prompt":"A green barn","model":"picture-one"}""")],
+            [new TextOutput("No image models.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Create a barn picture.");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        var toolCall = (await world.ReadToolCalls(runId)).Should().ContainSingle().Which;
+        toolCall.IsError.Should().BeTrue();
+        toolCall.Result!.Value.GetProperty("error").GetString().Should().Contain("no enabled image models");
+        generator.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Refuses_a_delegated_run_before_generating_an_image()
+    {
+        var generator = new FixedImageGenerator();
+        await using var world = await RunWorld.Create(
+            postgres,
+            new ScriptedModel([new TextOutput("unused")]),
+            everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await SeedImageModel(world, "picture-one");
+        var threadId = await world.NewThread();
+        var host = world.IdleHost();
+
+        var call = async () => await Tool(host).Run(
+            Call(world, host) with { ThreadId = threadId, IsDelegated = true },
+            RunWorld.Token);
+
+        (await call.Should().ThrowAsync<BuiltinToolException>())
+            .Which.Message.Should().Contain("cannot add files to the person's conversation");
+        generator.Requests.Should().BeEmpty();
+        world.Files.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Enforces_the_per_message_file_limit_for_generated_images()
+    {
+        var policy = DeploymentPolicy.SelfHosted with { MaxFilesPerMessage = 1 };
+        var generator = new FixedImageGenerator();
+        var script = new ScriptedModel(
+            [
+                new ToolCallOutput("c1", "image_create", """{"prompt":"First barn","model":"picture-one"}"""),
+                new ToolCallOutput("c2", "image_create", """{"prompt":"Second barn","model":"picture-one"}"""),
+            ],
+            [new TextOutput("Only one fit.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services =>
+            {
+                services.AddSingleton<IOptions<DeploymentPolicyOptions>>(
+                    Options.Create(new DeploymentPolicyOptions { Rules = policy }));
+                services.AddSingleton<IModelImageGenerator>(generator);
+            });
+        await SeedImageModel(world, "picture-one");
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Create two barn pictures.");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        var toolCalls = await world.ReadToolCalls(runId);
+        toolCalls.Should().HaveCount(2);
+        toolCalls.Should().ContainSingle(call => !call.IsError);
+        var second = toolCalls.Single(call => call.IsError);
+        second.Result!.Value.GetProperty("error").GetString().Should().Contain("already");
+        generator.Requests.Should().ContainSingle();
+        world.Files.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Enforces_the_space_byte_limit_when_a_generated_image_exceeds_remaining_room()
+    {
+        var policy = DeploymentPolicy.SelfHosted with { MaxSpaceFileMegabytes = 1 };
+        var generator = new FixedImageGenerator();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "image_create", """{"prompt":"A green barn","model":"picture-one"}""")],
+            [new TextOutput("Space was full.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services =>
+            {
+                services.AddSingleton<IOptions<DeploymentPolicyOptions>>(
+                    Options.Create(new DeploymentPolicyOptions { Rules = policy }));
+                services.AddSingleton<IModelImageGenerator>(generator);
+            });
+        await SeedImageModel(world, "picture-one");
+        await world.Transact(async services =>
+        {
+            var reserved = await services.GetRequiredService<FileRepository>().ReserveBytes(
+                world.SpaceId,
+                (1024L * 1024) - 10,
+                1024L * 1024,
+                RunWorld.Token);
+            reserved.Should().BeTrue();
+            services.GetRequiredService<DroverDbContext>().Files.Add(new StoredFile
+            {
+                Id = Guid.CreateVersion7(),
+                StorageKey = FileStorageKeys.For(world.SpaceId, Guid.CreateVersion7()),
+                Name = "existing.bin",
+                ContentType = "application/octet-stream",
+                Size = (1024L * 1024) - 10,
+                Sha256 = "00",
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            return true;
+        });
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Create a barn picture.");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        generator.Requests.Should().ContainSingle().Which.MaxBytes.Should().Be(10);
+        var toolCall = (await world.ReadToolCalls(runId)).Should().ContainSingle().Which;
+        toolCall.IsError.Should().BeTrue();
+        toolCall.Result!.Value.GetProperty("error").GetString().Should().Be(FileWords.SpaceFull(1));
+        world.Files.Count.Should().Be(0, "the unreserved blob copy must be deleted when space reservation fails");
+        (await world.Read(db => db.Files.CountAsync(RunWorld.Token))).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Refuses_non_png_bytes_returned_by_an_image_generator()
+    {
+        var generator = new FixedImageGenerator
+        {
+            ImageBytes = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
+        };
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "image_create", """{"prompt":"A green barn","model":"picture-one"}""")],
+            [new TextOutput("Not a PNG.")]);
+        await using var world = await RunWorld.Create(
+            postgres,
+            script,
+            everyHost: services => services.AddSingleton<IModelImageGenerator>(generator));
+        await SeedImageModel(world, "picture-one");
+        await world.Grant(ImageTools.CreateName, GrantEffect.Allow);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Create a barn picture.");
+        var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
+
+        run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
+        var toolCall = (await world.ReadToolCalls(runId)).Should().ContainSingle().Which;
+        toolCall.IsError.Should().BeTrue();
+        toolCall.Result!.Value.GetProperty("error").GetString().Should().Contain("not a supported PNG");
+        world.Files.Count.Should().Be(0);
+        (await world.Read(db => db.Files.CountAsync(RunWorld.Token))).Should().Be(0);
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static Task<bool> SeedImageModel(RunWorld world, string model) =>
+        world.Read(db =>
+        {
+            db.ModelCatalog.Add(new ModelCatalogEntry
+            {
+                ModelConnectionId = world.ConnectionId,
+                Model = model,
+                DisplayName = model,
+                Capabilities = new ModelCapabilities { ImageGeneration = true },
+                State = AvailabilityState.Available,
+            });
+            return Task.FromResult(true);
+        });
 
     private static BuiltinTool Tool(EngineHost host) =>
         host.Services.GetServices<BuiltinTool>().Single(tool => tool.Name == ImageTools.CreateName);
@@ -308,6 +552,8 @@ public sealed class ImageToolsTests(PostgresServer postgres)
 
         public Func<CancellationToken, Task> BeforeReturn { get; init; } = _ => Task.CompletedTask;
 
+        public byte[]? ImageBytes { get; init; }
+
         public ModelImageUsage Usage { get; init; } = new() { Cost = 0.07m };
 
         #endregion
@@ -325,7 +571,7 @@ public sealed class ImageToolsTests(PostgresServer postgres)
             Keys.Enqueue(apiKey);
             Requests.Enqueue(request);
             await BeforeReturn(cancellationToken);
-            return new ModelImageResult(TestPng.Make(64, 32), "image/png", request.Model)
+            return new ModelImageResult(ImageBytes ?? TestPng.Make(64, 32), "image/png", request.Model)
             {
                 Usage = Usage,
             };

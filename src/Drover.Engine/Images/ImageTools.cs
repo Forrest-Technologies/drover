@@ -159,16 +159,32 @@ public static class ImageTools
     {
         var bot = await services.GetRequiredService<BotRepository>().FindBot(botId, cancellationToken)
             ?? throw new BuiltinToolException("This bot no longer exists.");
-        var connection = await services.GetRequiredService<ModelConnectionRepository>()
-            .FindConnection(bot.ModelConnectionId, cancellationToken)
+        var connections = services.GetRequiredService<ModelConnectionRepository>();
+        var connection = await connections.FindConnection(bot.ModelConnectionId, cancellationToken)
             ?? throw new BuiltinToolException("This bot's model connection no longer exists.");
-        var pricing = (await services.GetRequiredService<ModelConnectionRepository>()
-            .FindCatalogEntry(connection.Id, model, cancellationToken))?.Pricing ?? new ModelPricing();
+        var catalog = await connections.ListCatalog(connection.Id, cancellationToken);
+        var entry = catalog.SingleOrDefault(candidate =>
+            candidate.Model == model
+            && candidate.State == AvailabilityState.Available
+            && candidate.Capabilities.ImageGeneration);
+
+        if (entry is null)
+        {
+            var allowed = catalog
+                .Where(candidate => candidate.State == AvailabilityState.Available && candidate.Capabilities.ImageGeneration)
+                .Select(candidate => candidate.Model)
+                .ToArray();
+            throw new BuiltinToolException(
+                allowed.Length == 0
+                    ? "This bot's model connection has no enabled image models in its catalog."
+                    : $"That image model is not enabled in this connection's catalog. Allowed image models: {string.Join(", ", allowed)}.");
+        }
+
         var key = connection.SecretId is { } secretId
             ? await services.GetRequiredService<ISecretVault>().Reveal(secretId, cancellationToken)
             : null;
         var policy = await services.GetRequiredService<PolicyService>().GetEffective(spaceId, cancellationToken);
-        return new Prepared(connection, key, pricing, policy);
+        return new Prepared(connection, key, entry.Pricing, policy);
     }
 
     #endregion

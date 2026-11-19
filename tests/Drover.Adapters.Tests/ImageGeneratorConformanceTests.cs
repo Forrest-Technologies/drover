@@ -7,6 +7,7 @@ public sealed class CompatibleImageGeneratorConformanceTests : ImageGeneratorCon
     [Theory]
     [InlineData(-1, 3000000000L, "-1", "USD")]
     [InlineData(3000000000L, -1, "1", "invalid currency")]
+    [InlineData(0, 0, "1000.01", "USD")]
     public async Task Discards_invalid_costs_and_token_counts(long input, long output, string cost, string currency)
     {
         var handler = new RecordedHandler(RecordedFixture.Parse(
@@ -38,6 +39,98 @@ public sealed class CompatibleImageGeneratorConformanceTests : ImageGeneratorCon
 
         result.Usage.Should().Be(new ModelImageUsage());
     }
+
+    #endregion
+
+    #region Response Bounds
+
+    [Fact]
+    public async Task Refuses_non_png_image_bytes()
+    {
+        var nonPng = Convert.ToBase64String([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+        var generator = GeneratorForBody($$"""{"data":[{"b64_json":"{{nonPng}}"}]}""");
+
+        var call = async () => await generator.Generate(
+            new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address),
+            TestKeys.Generate(),
+            new ModelImageRequest("A red square.", "picture-model", "1024x1024", 1024),
+            TestContext.Current.CancellationToken);
+
+        (await call.Should().ThrowAsync<ModelProviderException>())
+            .Which.Failure.Should().Be(ModelFailure.Rejected);
+    }
+
+    [Fact]
+    public async Task Refuses_an_image_larger_than_requested_max_bytes()
+    {
+        var oversized = new byte[129];
+        byte[] pngHeader = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        pngHeader.CopyTo(oversized, 0);
+        var generator = GeneratorForBody($$"""{"data":[{"b64_json":"{{Convert.ToBase64String(oversized)}}"}]}""");
+
+        var call = async () => await generator.Generate(
+            new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address),
+            TestKeys.Generate(),
+            new ModelImageRequest("A red square.", "picture-model", "1024x1024", 128),
+            TestContext.Current.CancellationToken);
+
+        var failure = (await call.Should().ThrowAsync<ModelProviderException>()).Which;
+        failure.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Message.Should().Contain("larger than this server accepts");
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""[{"b64_json":"AAAA"},{"b64_json":"BBBB"}]""")]
+    public async Task Refuses_a_response_that_does_not_hold_exactly_one_image(string dataJson)
+    {
+        var generator = GeneratorForBody($$"""{"data":{{dataJson}}}""");
+
+        var call = async () => await generator.Generate(
+            new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address),
+            TestKeys.Generate(),
+            new ModelImageRequest("A red square.", "picture-model", "1024x1024", 1024),
+            TestContext.Current.CancellationToken);
+
+        (await call.Should().ThrowAsync<ModelProviderException>())
+            .Which.Failure.Should().Be(ModelFailure.Rejected);
+    }
+
+    [Fact]
+    public async Task Refuses_an_http_response_exceeding_the_wire_cap()
+    {
+        const int MaxBytes = 64;
+        var tooLong = new string('A', (MaxBytes * 2) + 4096 + 100);
+        var generator = GeneratorForBody($$"""{"data":[{"b64_json":"{{tooLong}}"}]}""");
+
+        var call = async () => await generator.Generate(
+            new ModelEndpoint(OpenAICompatibleProvider.ConnectionKind, CompatibleRig.Address),
+            TestKeys.Generate(),
+            new ModelImageRequest("A red square.", "picture-model", "1024x1024", MaxBytes),
+            TestContext.Current.CancellationToken);
+
+        var failure = (await call.Should().ThrowAsync<ModelProviderException>()).Which;
+        failure.Failure.Should().Be(ModelFailure.Rejected);
+        failure.Message.Should().Contain("larger than this server accepts");
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private static OpenAICompatibleProvider GeneratorForBody(string bodyJson) =>
+        new(new FixtureHttpClientFactory(new RecordedHandler(RecordedFixture.Parse(
+            $$"""
+            {
+              "provenance": "hand-written",
+              "note": "Boundary validation case",
+              "exchanges": [{
+                "method": "POST",
+                "path": "/images/generations",
+                "body": {{bodyJson}}
+              }]
+            }
+            """))));
 
     #endregion
 

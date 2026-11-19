@@ -42,12 +42,15 @@ internal static class VeniceModelCatalog
         };
     }
 
-    private static ModelCapabilities ToCapabilities(JsonElement model, JsonElement spec, JsonElement capabilities) =>
-        new()
+    private static ModelCapabilities ToCapabilities(JsonElement model, JsonElement spec, JsonElement capabilities)
+    {
+        var isImage = string.Equals(ReadString(model, "type"), "image", StringComparison.OrdinalIgnoreCase);
+        return new ModelCapabilities
         {
             ContextTokens = ReadInt(spec, "availableContextTokens") ?? ReadInt(model, "context_length"),
             MaxOutputTokens = ReadInt(spec, "maxCompletionTokens"),
-            ToolCalling = Flag(capabilities, "supportsFunctionCalling"),
+            ToolCalling = !isImage && Flag(capabilities, "supportsFunctionCalling"),
+            Streaming = !isImage,
             Vision = Flag(capabilities, "supportsVision"),
             Reasoning = Flag(capabilities, "supportsReasoning"),
             ReasoningEfforts = Flag(capabilities, "supportsReasoningEffort")
@@ -55,7 +58,9 @@ internal static class VeniceModelCatalog
                 : [],
             StructuredOutput = Flag(capabilities, "supportsResponseSchema"),
             WebSearch = Flag(capabilities, "supportsWebSearch"),
+            ImageGeneration = isImage,
         };
+    }
 
     private static PrivacyMode ReadPrivacy(string? privacy, bool attested) =>
         (privacy, attested) switch

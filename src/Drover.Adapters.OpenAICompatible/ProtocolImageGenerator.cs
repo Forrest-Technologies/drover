@@ -5,6 +5,8 @@ internal sealed class ProtocolImageGenerator(HttpClient client)
 {
     #region Private Fields
 
+    private const decimal MaxReportedCost = 1_000m;
+
     private static readonly byte[] pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     #endregion
@@ -124,7 +126,7 @@ internal sealed class ProtocolImageGenerator(HttpClient client)
 
     private static decimal? ReadCost(JsonElement element) =>
         element.TryGetProperty("cost", out var value) && value.ValueKind is JsonValueKind.Number
-        && value.TryGetDecimal(out var cost) && cost is >= 0 and <= long.MaxValue ? cost : null;
+        && value.TryGetDecimal(out var cost) && cost is >= 0 and <= MaxReportedCost ? cost : null;
 
     private static string? ReadString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String
