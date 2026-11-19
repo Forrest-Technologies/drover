@@ -141,6 +141,7 @@ public static class Conversations
         {
             SentBy = SentBy(message),
             Reasoning = fromPerson ? null : Reasoning(message),
+            Model = fromPerson ? null : message.Model,
             Files = fileAddress is null
                 ? []
                 :

@@ -9,6 +9,7 @@ namespace Drover.Ui.Chat;
 /// <see cref="SentBy"/> says, in words, that a schedule sent the message for the person, who did not type it.
 /// <see cref="RunId"/> is the run that wrote a bot's message; <see cref="EndsReply"/> is true on the last words of a
 /// finished run when the reader can see its usage. <see cref="ActivityRunId"/> links the run's last stored reply to its activity.
+/// <see cref="Model"/> is the model that wrote a bot's stored message, when the server kept it.
 /// </summary>
 public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool Streaming = false, bool Pending = false)
 {
@@ -32,6 +33,8 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
     public bool EndsReply { get; init; }
 
     public Guid? ActivityRunId { get; init; }
+
+    public string? Model { get; init; }
 
     #endregion
 }

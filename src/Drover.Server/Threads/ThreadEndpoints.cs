@@ -21,6 +21,12 @@ public static class ThreadEndpoints
         threads.MapGet("/{threadId:guid}/tool-events", ListToolEvents)
             .WithName("ListToolEvents")
             .WithSummary("The tool events of the thread's runs, as their logs hold them, already redacted, so a client can show past tool calls as it showed them live.");
+        threads.MapGet("/{threadId:guid}/models", GetModels)
+            .WithName("GetConversationModels")
+            .WithSummary("The models the conversation may answer with: the bot's own, the one chosen in its place, and every model it may choose.");
+        threads.MapPut("/{threadId:guid}/model", ChooseModel)
+            .WithName("ChooseConversationModel")
+            .WithSummary("Makes the conversation answer with another of the bot's models from its next run. Null goes back to the bot's own. A model the bot may not use, or one that could cost more than the space allows, is refused.");
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
@@ -52,6 +58,26 @@ public static class ThreadEndpoints
         await threads.GetSummary(threadId, context.RequestAborted) is { } summary
             ? TypedResults.Ok(summary)
             : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ConversationModelChoice>, NotFound>> GetModels(Guid threadId, HttpContext context, ThreadService threads) =>
+        await threads.GetModels(threadId, context.RequestAborted) is { } choice
+            ? TypedResults.Ok(choice)
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ConversationModelChoice>, NotFound, ProblemHttpResult>> ChooseModel(
+        Guid threadId,
+        ChooseModelRequest request,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var outcome = await threads.ChooseModel(threadId, request.Model, context.RequestAborted);
+        return outcome switch
+        {
+            { Choice: { } choice } => TypedResults.Ok(choice),
+            { Problem: { } problem } => TypedResults.Problem(title: problem, statusCode: StatusCodes.Status400BadRequest),
+            _ => TypedResults.NotFound(),
+        };
+    }
 
     private static async Task<Results<Ok<List<MessageResponse>>, NotFound>> ListMessages(
         Guid threadId,

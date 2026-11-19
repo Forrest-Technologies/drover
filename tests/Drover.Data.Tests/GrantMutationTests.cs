@@ -75,7 +75,7 @@ public sealed class GrantMutationTests(PostgresFixture postgres)
         """
         REVOKE UPDATE ON threads FROM drover_app;
         GRANT UPDATE (id, space_id, audience_user_id, bot_id, title, origin, last_activity_at, archived_at, is_main,
-            summary, summary_through_position, summary_updated_at) ON threads TO drover_app
+            summary, summary_through_position, summary_updated_at, model) ON threads TO drover_app
         """,
         "*Table 'threads'*UPDATE*")]
     public async Task Precise_thread_update_grants_are_required(string mutation, string repair, string problem)

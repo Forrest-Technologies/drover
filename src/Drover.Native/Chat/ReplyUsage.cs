@@ -1,8 +1,8 @@
 namespace Drover.Native.Chat;
 
 /// <summary>
-/// What a finished reply used, behind one small control under its words. Read only when asked for: a conversation
-/// with many replies makes no request until a person opens one.
+/// What a finished reply used, behind one small control under its words, after the model that wrote it. Read only
+/// when asked for: a conversation with many replies makes no request until a person opens one.
 /// </summary>
 public sealed class ReplyUsage : StackPanel
 {
@@ -20,6 +20,13 @@ public sealed class ReplyUsage : StackPanel
     };
 
     private readonly Icon mark = new() { VerticalAlignment = VerticalAlignment.Center };
+
+    private readonly TextBlock writtenBy = Styles.Text(null, "DvTextCaption");
+
+    // The words stand in a box as tall as the control beside them, so the two read on one line.
+    private readonly Grid writtenByBox = new() { MinHeight = Targets.Minimum };
+
+    private readonly FlowPanel line = new() { Gap = Tokens.Number("DvSpace3") };
 
     private readonly StackPanel body = new() { Spacing = Tokens.Number("DvSpace1"), HorizontalAlignment = HorizontalAlignment.Left };
 
@@ -39,7 +46,11 @@ public sealed class ReplyUsage : StackPanel
         content.Children.Add(mark);
         toggle.Content = content;
         toggle.Click += async (_, _) => await Toggle();
-        Children.Add(toggle);
+        writtenBy.VerticalAlignment = VerticalAlignment.Center;
+        writtenByBox.Children.Add(writtenBy);
+        line.Children.Add(writtenByBox);
+        line.Children.Add(toggle);
+        Children.Add(line);
         Children.Add(body);
     }
 
@@ -77,6 +88,8 @@ public sealed class ReplyUsage : StackPanel
     private void Show()
     {
         var open = model?.Open ?? false;
+        writtenBy.Text = model?.WrittenBy ?? string.Empty;
+        writtenByBox.Visibility = model?.WrittenBy is null ? Visibility.Collapsed : Visibility.Visible;
         mark.NameOfIcon = open ? IconName.ChevronDown : IconName.ChevronRight;
         mark.Foreground = toggle.CurrentInk;
         AutomationProperties.SetItemStatus(toggle, open ? "Expanded" : "Collapsed");

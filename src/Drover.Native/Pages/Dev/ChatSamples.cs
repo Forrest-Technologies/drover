@@ -16,6 +16,10 @@ internal static class ChatSamples
 
     private static readonly Guid connection = Guid.Parse("00000000-0000-7000-8000-000000000014");
 
+    private static readonly Guid sampleRun = Guid.Parse("00000000-0000-7000-8000-000000000015");
+
+    private static readonly Guid sampleStrongerRun = Guid.Parse("00000000-0000-7000-8000-000000000016");
+
     private static readonly BotSummary[] crew =
     [
         new(lead, "Sample lead bot", "sample-lead", "Sample instructions", connection, "sample-model", "active"),
@@ -60,6 +64,10 @@ internal static class ChatSamples
         [
             Fitting(new MessageList { Model = Reasoned() }),
         ]),
+        new("A reply's model", "Under a finished reply, the model that wrote it, beside what the reply used.", () =>
+        [
+            Fitting(new MessageList { Model = WrittenBy() }),
+        ]),
         new("A reply that failed", "What failed in a sentence, one way forward, and the server's report for whoever needs it.", () =>
         [
             Wide(new FailureLine { Cause = FailureCause.ModelUnreachable, BotName = "Sample lead bot", Reported = "sample_error: A sample report from the server." }),
@@ -82,6 +90,10 @@ internal static class ChatSamples
                     ],
                 },
             }),
+        ]),
+        new("Choosing a conversation's model", "Behind the plus button, beside Attach, when the bot may answer with more than one model.", () =>
+        [
+            Wide(new Composer { Model = ChoosingModel() }),
         ]),
     ];
 
@@ -122,6 +134,46 @@ internal static class ChatSamples
         var list = new MessageListViewModel { BotName = "Sample lead bot", BotHue = BotIdentity.Hue(lead), Messages = messages, Thinking = true };
         list.Update();
         return list;
+    }
+
+    /// <summary>A sample conversation whose replies each name the model that wrote them.</summary>
+    public static MessageListViewModel WrittenBy()
+    {
+        List<ChatMessage> messages =
+        [
+            new("sample-model-question", true, "A sample question for the bot's own model."),
+            new("sample-model-answer", false, "A sample answer.") { RunId = sampleRun, EndsReply = true, Model = "sample-model" },
+            new("sample-stronger-question", true, "A harder sample question."),
+            new("sample-stronger-answer", false, "A sample answer from the stronger model.")
+            {
+                RunId = sampleStrongerRun,
+                EndsReply = true,
+                Model = "sample-stronger-model",
+            },
+        ];
+
+        // A sample: the gallery reads no usage, so a reply says it used nothing.
+        var list = new MessageListViewModel
+        {
+            BotName = "Sample lead bot",
+            BotHue = BotIdentity.Hue(lead),
+            Messages = messages,
+            LoadUsage = runId => Task.FromResult(new RunUsageDetail(runId, "USD", new(null, 0, 0), null)),
+        };
+        list.Update();
+        return list;
+    }
+
+    /// <summary>A sample composer with its options open, offering the bot's own model and one more.</summary>
+    public static ComposerViewModel ChoosingModel()
+    {
+        var composer = new ComposerViewModel { BotName = "Sample lead bot", OptionsOpen = true };
+        composer.ShowModels(new ConversationModelChoice(
+            "sample-model",
+            "Sample model",
+            "sample-stronger-model",
+            [new("sample-model", "Sample model"), new("sample-stronger-model", "Sample stronger model")]));
+        return composer;
     }
 
     #endregion

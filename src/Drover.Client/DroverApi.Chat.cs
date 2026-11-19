@@ -43,6 +43,17 @@ public sealed partial class DroverApi
     public Task<ConversationSummary> GetConversationSummary(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ConversationSummary>($"{Space(spaceId)}/threads/{threadId}/summary", cancellationToken);
 
+    /// <summary>The models the conversation may answer with: the bot's own, the one chosen in its place, and the rest it may choose.</summary>
+    public Task<ConversationModelChoice> GetConversationModels(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<ConversationModelChoice>($"{Space(spaceId)}/threads/{threadId}/models", cancellationToken);
+
+    /// <summary>
+    /// Makes the conversation answer with <paramref name="model"/> from its next run; null goes back to the bot's own.
+    /// A model the bot may not use is refused with the reason.
+    /// </summary>
+    public Task<ConversationModelChoice> ChooseConversationModel(Guid spaceId, Guid threadId, string? model, CancellationToken cancellationToken = default) =>
+        Send<ConversationModelChoice>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/model", new ChooseModelRequest(model), cancellationToken);
+
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 

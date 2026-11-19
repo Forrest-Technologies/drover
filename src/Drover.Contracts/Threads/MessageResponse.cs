@@ -7,6 +7,7 @@ namespace Drover.Contracts.Threads;
 /// <see cref="ScheduleId"/> is set on a message a schedule sent for its author, who did not type it, and
 /// <see cref="ScheduleCron"/> is that schedule's time while the schedule still exists.
 /// <see cref="RunPrincipalUserId"/> is the person the run that wrote the message acts for, when a run wrote it.
+/// <see cref="Model"/> is the model that wrote a bot's reply, when the server kept it.
 /// </summary>
 public sealed record MessageResponse(
     Guid Id,
@@ -20,7 +21,8 @@ public sealed record MessageResponse(
     bool Withheld = false,
     Guid? ScheduleId = null,
     string? ScheduleCron = null,
-    Guid? RunPrincipalUserId = null);
+    Guid? RunPrincipalUserId = null,
+    string? Model = null);
 
 /// <summary>
 /// One part of a message. <see cref="Kind"/> names it (text, reasoning, source, tool_call, tool_result, image, file)

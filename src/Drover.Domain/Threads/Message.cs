@@ -47,6 +47,9 @@ public sealed class Message : ISpaceOwned, IAudienceScoped
 
     public IReadOnlyList<MessagePart> Parts { get; set; } = [];
 
+    /// <summary>The model that wrote a bot's reply. Null on every other message, and on a reply written before this was kept.</summary>
+    public string? Model { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     #endregion

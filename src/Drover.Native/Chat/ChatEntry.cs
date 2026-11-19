@@ -92,6 +92,8 @@ public sealed class ChatEntry : ContentControl
 
     private Guid? usageRun;
 
+    private string? usageModel;
+
     private bool moment;
 
     #endregion
@@ -338,10 +340,10 @@ public sealed class ChatEntry : ContentControl
         var offered = ChatRows.OffersUsage(message, parameters.LoadUsage is not null) ? message.RunId : null;
         usage.Visibility = Shown(offered is not null);
 
-        if (offered != usageRun)
+        if (offered != usageRun || message.Model != usageModel)
         {
-            usageRun = offered;
-            usage.Model = offered is { } runId ? new(runId, parameters.LoadUsage!, Log.For<ReplyUsage>()) : null;
+            (usageRun, usageModel) = (offered, message.Model);
+            usage.Model = offered is { } runId ? new(runId, parameters.LoadUsage!, Log.For<ReplyUsage>(), message.Model) : null;
         }
     }
 

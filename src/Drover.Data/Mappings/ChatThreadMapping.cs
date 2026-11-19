@@ -10,6 +10,7 @@ public sealed class ChatThreadMapping : IEntityTypeConfiguration<ChatThread>
         builder.HasKey(thread => thread.Id);
         builder.Property(thread => thread.Id).ValueGeneratedNever();
         builder.Property(thread => thread.Title).HasMaxLength(500);
+        builder.Property(thread => thread.Model).HasMaxLength(200);
         builder.Property(thread => thread.LastActivityAt).HasDefaultValueSql("now()");
         builder.HasEnumColumn(thread => thread.Origin);
 
