@@ -196,6 +196,12 @@
     <Compile Include="../Shared/Transport/ServerAddress.cs" Link="Transport/ServerAddress.cs" />
   </ItemGroup>
 
+  <!-- The screen checks run inside a build made for them, on a device or a desktop, and nowhere else: a product
+       build never contains them. tests/Drover.Native.UITests starts the build with a test server to talk to. -->
+  <ItemGroup Condition="'$(DroverUiChecks)' == 'true' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'browserwasm'">
+    <Compile Include="../../tests/Drover.Native.UITests/App/*.cs" Link="UiChecks/%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <TrimmerRootAssembly Include="Drover.Contracts" />
     <TrimmerRootAssembly Include="Drover.Client" />
