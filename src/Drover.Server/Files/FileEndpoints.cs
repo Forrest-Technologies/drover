@@ -32,6 +32,9 @@ public static class FileEndpoints
         space.MapGet("/files/{fileId:guid}", Download)
             .WithName("DownloadFile")
             .WithSummary("The file's content, for someone who can see its conversation. download=true asks for it as an attachment.");
+        space.MapGet("/files/{fileId:guid}/native-preview", ReadNativePreview)
+            .WithName("ReadNativeFilePreview")
+            .WithSummary("Bounded, validated content for the native client's Markdown, static image, PDF, and diagram viewers.");
         space.MapPost("/files/{fileId:guid}/preview", MintPreview)
             .WithName("MintFilePreview")
             .WithSummary("Issues one short-lived, single-use address for an authorized HTML file on the isolated preview origin.");
@@ -96,6 +99,24 @@ public static class FileEndpoints
             FileNameStar = found.File.Name,
         }.ToString();
         return TypedResults.Stream(found.Content, contentType);
+    }
+
+    private static async Task<Results<Ok<NativeFilePreview>, NotFound>> ReadNativePreview(
+        Guid fileId,
+        HttpContext context,
+        FileService files)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+        if (await files.Open(fileId, timeout.Token) is not { } found)
+        {
+            return TypedResults.NotFound();
+        }
+
+        await using var content = found.Content;
+        context.Response.Headers.CacheControl = "no-store";
+        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token));
     }
 
     private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(

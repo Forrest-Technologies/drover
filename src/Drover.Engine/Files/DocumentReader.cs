@@ -68,6 +68,66 @@ public static class DocumentReader
         }
     }
 
+    public static NativeFilePreview ReadPdfPreview(byte[] content)
+    {
+        if (content.Length > NativeFilePreview.MaxPdfBytes)
+        {
+            return new(Refusal: NativePreviewRefusal.TooLarge);
+        }
+
+        try
+        {
+            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions { UseLenientParsing = false, SkipMissingFonts = true });
+            var total = document.NumberOfPages;
+            if (total <= 0)
+            {
+                return new(Refusal: NativePreviewRefusal.Malformed);
+            }
+
+            if (total > NativeFilePreview.MaxPdfPages)
+            {
+                return new(Refusal: NativePreviewRefusal.TooLarge);
+            }
+
+            List<NativePdfPage> pages = [];
+            var characters = 0;
+
+            for (var number = 1; number <= total; number++)
+            {
+                var page = document.GetPage(number);
+                var images = page.GetImages().ToArray();
+                if (images.Any(image =>
+                    image.WidthInSamples <= 0
+                    || image.HeightInSamples <= 0
+                    || (long)image.WidthInSamples * image.HeightInSamples > NativeFilePreview.MaxImagePixels
+                    || image.RawMemory.Length > NativeFilePreview.MaxImageBytes))
+                {
+                    return new(Refusal: NativePreviewRefusal.TooLarge);
+                }
+
+                var text = PdfText.ContentOrderTextExtractor.GetText(page).Trim();
+                characters += text.Length;
+                if (characters > NativeFilePreview.MaxPdfCharacters)
+                {
+                    return new(Refusal: NativePreviewRefusal.TooLarge);
+                }
+
+                var picture = text.Length == 0
+                    ? images.OrderByDescending(image => (long)image.WidthInSamples * image.HeightInSamples)
+                        .Select(AsModelPicture)
+                        .FirstOrDefault(found => found is not null)?.Data.ToArray()
+                    : null;
+                pages.Add(new(number, text, picture));
+            }
+
+            return new(Pages: pages);
+        }
+        catch (Exception failed) when (failed is not OutOfMemoryException)
+        {
+            return new(Refusal: failed is not null ? NativePreviewRefusal.Malformed : NativePreviewRefusal.Malformed);
+        }
+    }
+
     #endregion
 
     #region PDF
