@@ -91,6 +91,41 @@ Taking a screenshot of the desktop build on a machine with no display: `xvfb-run
 
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
 
+## Screen checks
+
+Every pull request starts the app on Android, Linux, Windows and macOS and runs one shared set of screen checks:
+the app opens on the connect screen, connects to a test server, signs in, opens the conversation with the test
+bot, sends a message and reads the bot's reply, and goes back to the crew. Every target runs them at phone width,
+so each shows the same controls.
+
+- **In the app.** The checks are in `tests/Drover.Native.UITests/App/`. They are compiled only into a build made
+  for them (`-p:DroverUiChecks=true`, desktop and Android), never into a product build: `App.StartChecks` and
+  `AppServices.AddChecks` are partial methods with no body anywhere else. A check finds each control by its
+  automation id (`AutomationProperties.AutomationId`) and presses it through its automation peer, so renaming or
+  dropping an id fails the step that needs it. The ids in use are `ConnectAddress`, `ConnectSubmit`,
+  `SignInEmail`, `SignInPassword`, `SignInSubmit`, `CrewRow`, `ComposerField`, `ComposerSend`, `MessageList`
+  and `TalkBack`. Each step reports one line, and the last line says whether all of them passed.
+- **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
+  certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
+  makes an account and one bot through the API, starts the app with the server's address, the account, and the
+  certificate's SHA-256 hash, and exits with 0 only when the app reports that every check passed. The app trusts
+  that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
+  port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
+  through the device log under the tag `DroverUiCheck`.
+- **Adding a check.** Add a step to `ScreenChecks`, give each control it uses an automation id in the app, and
+  keep the step working at phone width on every target.
+
+```bash
+# Desktop: build the app with the checks, then run them (Linux needs a display: xvfb-run -a in front)
+dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -p:DroverUiChecks=true -o <folder>
+dotnet run --project tests/Drover.Native.UITests -- desktop <folder>/Drover.Native.dll
+
+# Android: install a build with the checks on the one device adb sees, then run them
+dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -p:DroverUiChecks=true -o <folder>
+adb install -r <folder>/*-Signed.apk
+dotnet run --project tests/Drover.Native.UITests -- android
+```
+
 ## Tokens
 
 `Theme/Tokens.xaml` is the only XAML file that holds raw values. It carries every token of `src/Drover.Ui/wwwroot/tokens.css`, and `TokenParityTests` fails when the two files disagree. The web file stays the specification: a new token is added there first.

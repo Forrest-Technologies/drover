@@ -136,7 +136,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Get-Service -Name 'postgresql*' | Start-Service
+          # The image installs the service disabled.
+          Get-Service -Name 'postgresql*' | Set-Service -StartupType Manual -PassThru | Start-Service
           "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$env:PGPASSWORD" >> $env:GITHUB_ENV
       - name: Start PostgreSQL for the screen checks on macOS
         if: runner.os == 'macOS'
