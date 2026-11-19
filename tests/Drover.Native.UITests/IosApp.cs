@@ -34,7 +34,7 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
             if (!second.Contains("ui-check result: passed"))
             {
                 var firstWithoutResult = first.Where(line =>
-                    !line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal));
+                    !line.StartsWith(IosCheckReport.ResultPrefix, StringComparison.Ordinal));
                 return [.. firstWithoutResult, .. second];
             }
 
@@ -52,6 +52,23 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
 
     private async Task<IReadOnlyList<string>> Launch(IReadOnlyDictionary<string, string> settings, ILogger logger)
     {
+        var container = (await SimctlText("get_app_container", device, Bundle, "data")).Trim();
+        var report = IosCheckReport.File(container);
+        var directory = Path.GetDirectoryName(report);
+        if (directory is not null)
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        if (File.Exists(report))
+        {
+            File.Delete(report);
+        }
+
+        var child = new Dictionary<string, string>(settings)
+        {
+            ["DROVER_UI_CHECK_REPORT"] = report,
+        };
         var start = new ProcessStartInfo("xcrun")
         {
             RedirectStandardOutput = true,
@@ -59,83 +76,83 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
         };
         start.ArgumentList.Add("simctl");
         start.ArgumentList.Add("launch");
-        start.ArgumentList.Add("--console");
         start.ArgumentList.Add("--terminate-running-process");
         start.ArgumentList.Add(device);
         start.ArgumentList.Add(Bundle);
-
-        foreach (var (name, value) in settings)
+        foreach (var (name, value) in child)
         {
             start.Environment[$"SIMCTL_CHILD_{name}"] = value;
         }
 
-        using var app = Process.Start(start) ?? throw new InvalidOperationException("The iOS app did not start.");
-        var result = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var timeout = new CancellationTokenSource(patience);
-        var output = ReadReport(app.StandardOutput, result, logger, timeout.Token);
-        var error = ReadReport(app.StandardError, result, logger, timeout.Token);
-        var drained = Task.WhenAll(output, error);
-        var outcome = "ui-check result: failed";
-
-        try
+        using var launched = Process.Start(start) ?? throw new InvalidOperationException("The iOS app did not start.");
+        var launchOutput = launched.StandardOutput.ReadToEndAsync();
+        var launchError = launched.StandardError.ReadToEndAsync();
+        await launched.WaitForExitAsync();
+        await Task.WhenAll(launchOutput, launchError);
+        if (launched.ExitCode != 0)
         {
-            await Task.WhenAny(result.Task, drained).WaitAsync(timeout.Token);
-            if (result.Task.IsCompletedSuccessfully)
-            {
-                outcome = await result.Task;
-            }
-            else
-            {
-                logger.LogError("The iOS app console closed before it reported a result");
-            }
+            throw new InvalidOperationException($"simctl launch failed with exit code {launched.ExitCode}.");
         }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+
+        var lines = new List<string>();
+        string? outcome = null;
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < patience)
+        {
+            if (File.Exists(report))
+            {
+                try
+                {
+                    lines = [.. IosCheckReport.Read(report)];
+                    outcome = IosCheckReport.Result(lines);
+                    if (outcome is not null)
+                    {
+                        break;
+                    }
+                }
+                catch (IOException exception)
+                {
+                    logger.LogDebug(exception, "The iOS report file was busy.");
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
+
+        await Terminate();
+        if (outcome is null)
         {
             logger.LogError("The iOS app did not report a result within {Minutes} minutes", patience.TotalMinutes);
-        }
-        finally
-        {
-            await Terminate();
-            await drained;
+            outcome = "ui-check result: failed";
         }
 
-        return [.. (await output).Concat(await error), outcome];
+        return
+        [
+            .. lines.Where(line => !line.StartsWith(IosCheckReport.ResultPrefix, StringComparison.Ordinal)),
+            outcome,
+        ];
     }
 
-    private static async Task<IReadOnlyList<string>> ReadReport(
-        StreamReader reader,
-        TaskCompletionSource<string> result,
-        ILogger logger,
-        CancellationToken cancellationToken)
+    private static async Task<string> SimctlText(params string[] arguments)
     {
-        List<string> lines = [];
-        try
+        var start = new ProcessStartInfo("xcrun") { RedirectStandardOutput = true, RedirectStandardError = true };
+        start.ArgumentList.Add("simctl");
+        foreach (var argument in arguments)
         {
-            while (await reader.ReadLineAsync(cancellationToken) is { } line)
-            {
-                var at = line.IndexOf("ui-check", StringComparison.Ordinal);
-                if (at < 0)
-                {
-                    continue;
-                }
-
-                var report = line[at..].TrimEnd();
-                if (report is "ui-check result: passed" or "ui-check result: failed")
-                {
-                    result.TrySetResult(report);
-                }
-                else
-                {
-                    lines.Add(report);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogDebug("The iOS app console stopped after the report deadline");
+            start.ArgumentList.Add(argument);
         }
 
-        return lines;
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("simctl did not start.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        await Task.WhenAll(output, error);
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"simctl {arguments[0]} failed with exit code {process.ExitCode}.");
+        }
+
+        return await output;
     }
 
     private async Task Terminate()

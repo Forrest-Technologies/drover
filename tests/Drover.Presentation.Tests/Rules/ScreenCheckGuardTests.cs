@@ -107,6 +107,38 @@ public sealed partial class ScreenCheckGuardTests
         }
     }
 
+    [Fact]
+    public void The_ios_harness_reads_the_report_in_the_simulator_container()
+    {
+        var container = Path.Combine("devices", "one", "data");
+        IosCheckReport.File(container).Should().Be(Path.Combine(container, "Documents", "ui-check.txt"));
+        IosCheckReport.Result(["ui-check pass: launch"]).Should().BeNull();
+        IosCheckReport.Result(["ui-check pass: launch", "ui-check result: passed"])
+            .Should().Be("ui-check result: passed");
+
+        var folder = Directory.CreateTempSubdirectory("ios-check-report");
+        try
+        {
+            var report = IosCheckReport.File(folder.FullName);
+            Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+            File.WriteAllText(report, "ui-check pass: launch (1 ms)\nui-check result: passed\n");
+            IosCheckReport.Result(IosCheckReport.Read(report)).Should().Be("ui-check result: passed");
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+
+        var harness = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "IosApp.cs"));
+        harness.Should().Contain("get_app_container");
+        harness.Should().Contain("DROVER_UI_CHECK_REPORT");
+        harness.Should().NotContain("\"--console\"");
+    }
+
     #endregion
 
     #region Private Methods
