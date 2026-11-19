@@ -30,6 +30,9 @@ public sealed class Navigator
 
     public bool CanGoForward => position < history.Count - 1;
 
+    /// <summary>The address a step forward goes to, or null at the last entry.</summary>
+    public string? Next => CanGoForward ? history[position + 1] : null;
+
     /// <summary>True when a step back stays in the app: something is open to close, or there is an address to go back to.</summary>
     public bool CanStepBack => closers.Count > 0 || CanGoBack;
 
@@ -44,6 +47,12 @@ public sealed class Navigator
     /// sets it, and answers false to stay where it is and ask the person first.
     /// </summary>
     public Func<string, bool>? Leaving { get; set; }
+
+    /// <summary>
+    /// Asked when the whole app is about to close, such as a browser tab. A screen holding work that would be lost
+    /// sets it and answers true while it holds some, so the person is asked first.
+    /// </summary>
+    public Func<bool>? HoldsWork { get; set; }
 
     #endregion
 
@@ -148,25 +157,38 @@ public sealed class Navigator
     }
 
     /// <summary>
-    /// The browser moved through its own history to an address. The app follows: to the entry before or after when
-    /// the address is there, and otherwise it takes the address as where it now is.
+    /// The browser moved through its own history to an address. The app follows the same way it takes any step: a step
+    /// back to the entry before goes through <see cref="StepBack"/>, so what is open closes first and a screen holding
+    /// work asks first. Any other address goes through <see cref="Leaving"/>, to the entry after when it is there and
+    /// otherwise taken as where the app now is. Returns false when the app stayed, so the browser's address must be put
+    /// back to <see cref="Current"/>.
     /// </summary>
-    public void Arrive(string address)
+    public bool Arrive(string address)
     {
-        if (CanGoBack && history[position - 1] == address)
+        if (address == Current)
         {
-            position--;
-        }
-        else if (CanGoForward && history[position + 1] == address)
-        {
-            position++;
-        }
-        else
-        {
-            history[position] = address;
+            return true;
         }
 
+        if (address == Previous)
+        {
+            StepBack();
+            return Current == address;
+        }
+
+        if (address == Next)
+        {
+            return GoForward();
+        }
+
+        if (Leaving is { } ask && !ask(address))
+        {
+            return false;
+        }
+
+        history[position] = address;
         Announce(address, NavigationKind.Travel);
+        return true;
     }
 
     #endregion

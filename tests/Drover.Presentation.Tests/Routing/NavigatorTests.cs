@@ -109,6 +109,84 @@ public sealed class NavigatorTests
     }
 
     [Fact]
+    public void Browser_back_to_the_entry_before_asks_the_screen_first_and_goes_when_it_agrees()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.NavigateTo(Addresses.Tools);
+        string? asked = null;
+        navigator.Leaving = target =>
+        {
+            asked = target;
+            return true;
+        };
+
+        navigator.Arrive(Addresses.Bots).Should().BeTrue();
+
+        asked.Should().Be(Addresses.Bots);
+        navigator.Current.Should().Be(Addresses.Bots);
+        navigator.Next.Should().Be(Addresses.Tools);
+    }
+
+    [Fact]
+    public void Browser_back_from_a_screen_holding_work_stays_so_the_address_is_put_back()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.NavigateTo(Addresses.Tools);
+        navigator.Leaving = _ => false;
+
+        navigator.Arrive(Addresses.Bots).Should().BeFalse();
+
+        navigator.Current.Should().Be(Addresses.Tools);
+        navigator.Previous.Should().Be(Addresses.Bots);
+        heard.Should().HaveCount(2, "staying does not move the app");
+    }
+
+    [Fact]
+    public void Browser_forward_or_an_address_from_outside_the_history_from_a_screen_holding_work_stays()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.NavigateTo(Addresses.Tools);
+        navigator.GoBack();
+        List<string> asked = [];
+        navigator.Leaving = target =>
+        {
+            asked.Add(target);
+            return false;
+        };
+
+        navigator.Arrive(Addresses.Tools).Should().BeFalse();
+        navigator.Arrive(Addresses.Status).Should().BeFalse();
+
+        asked.Should().Equal(Addresses.Tools, Addresses.Status);
+        navigator.Current.Should().Be(Addresses.Bots);
+        navigator.Next.Should().Be(Addresses.Tools);
+    }
+
+    [Fact]
+    public void Browser_back_with_something_open_closes_it_and_stays()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        var closed = false;
+        navigator.AddCloser(() => closed = true);
+
+        navigator.Arrive(Addresses.Home).Should().BeFalse();
+
+        closed.Should().BeTrue();
+        navigator.Current.Should().Be(Addresses.Bots);
+    }
+
+    [Fact]
+    public void Arriving_where_the_app_already_is_changes_nothing_and_asks_nothing()
+    {
+        navigator.NavigateTo(Addresses.Bots);
+        navigator.Leaving = _ => throw new InvalidOperationException("Nothing should be asked.");
+
+        navigator.Arrive(Addresses.Bots).Should().BeTrue();
+
+        heard.Should().ContainSingle();
+    }
+
+    [Fact]
     public void A_step_back_closes_what_was_opened_last_and_stays_on_the_screen()
     {
         navigator.NavigateTo(Addresses.Bots);
