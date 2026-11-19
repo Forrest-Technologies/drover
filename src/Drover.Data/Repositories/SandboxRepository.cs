@@ -41,6 +41,23 @@ public sealed class SandboxRepository(DroverDbContext db)
                 update => update.SetProperty(sandbox => sandbox.State, SandboxState.Retiring).SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
                 cancellationToken) > 0;
 
+    /// <summary>
+    /// Takes every live sandbox that holds a copied file out of use, due from <paramref name="retireAfter"/>.
+    /// The next use destroys it and makes a new one, so the copy does not outlive a narrowing of who may see it.
+    /// How many were retired.
+    /// </summary>
+    public Task<int> RetireTainted(DateTimeOffset retireAfter, CancellationToken cancellationToken) =>
+        db.Sandboxes
+            .Where(sandbox => sandbox.Tainted
+                && (sandbox.State == SandboxState.Creating
+                    || sandbox.State == SandboxState.Running
+                    || sandbox.State == SandboxState.Paused))
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(sandbox => sandbox.State, SandboxState.Retiring)
+                    .SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
+                cancellationToken);
+
     /// <summary>The owner's retiring sandboxes whose time to be destroyed has come.</summary>
     public async Task<IReadOnlyList<Sandbox>> ListDueForOwner(Guid ownerBotId, DateTimeOffset now, CancellationToken cancellationToken) =>
         await db.Sandboxes.AsNoTracking()

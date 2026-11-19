@@ -441,6 +441,102 @@ public sealed class AttachedFileTests(PostgresServer postgres)
 
     #endregion
 
+    #region A Copy Does Not Outlive A Narrower Audience
+
+    [Fact]
+    public async Task A_file_copied_while_a_personal_space_had_one_member_is_gone_after_a_member_joins()
+    {
+        var sandbox = ListingSandbox();
+        await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
+        var threadId = await world.NewThread();
+        var upload = await world.Upload(threadId, "report.zip", Zip);
+        world.StartHost();
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var path = $"attachments/{upload.File!.Id:N}/report.zip";
+
+        (await world.WaitForStatus(await PostWith(world, threadId, "Keep the report", upload.File.Id), RunStatus.Completed, RunStatus.Failed))
+            .Status.Should().Be(RunStatus.Completed);
+        var before = await control.Run(world.SpaceId, world.UserId, world.BotId, "find .", RunWorld.Token);
+        var member = await world.AddMember(MembershipRole.Admin);
+        var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
+
+        before.Refusal.Should().Be(SandboxControlRefusal.None, before.Problem);
+        before.Value!.Stdout.Should().Contain(path);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("report.zip");
+    }
+
+    [Fact]
+    public async Task A_file_copied_while_a_space_was_personal_is_gone_after_the_space_is_shared()
+    {
+        var sandbox = ListingSandbox();
+        await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
+        var threadId = await world.NewThread();
+        var upload = await world.Upload(threadId, "report.zip", Zip);
+        world.StartHost();
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var path = $"attachments/{upload.File!.Id:N}/report.zip";
+
+        (await world.WaitForStatus(await PostWith(world, threadId, "Keep the report", upload.File.Id), RunStatus.Completed, RunStatus.Failed))
+            .Status.Should().Be(RunStatus.Completed);
+        var before = await control.Run(world.SpaceId, world.UserId, world.BotId, "find .", RunWorld.Token);
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
+        var after = await control.Run(world.SpaceId, world.UserId, world.BotId, "find .", RunWorld.Token);
+
+        before.Value!.Stdout.Should().Contain(path);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("report.zip");
+    }
+
+    [Fact]
+    public async Task A_file_copied_from_a_shared_conversation_is_gone_after_the_conversation_is_made_private()
+    {
+        var sandbox = ListingSandbox();
+        await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
+        var admin = await MakeShared(world);
+        var threadId = await world.NewSharedThread();
+        var upload = await world.Upload(threadId, "report.zip", Zip);
+        world.StartHost();
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+        var path = $"attachments/{upload.File!.Id:N}/report.zip";
+
+        (await world.WaitForStatus(await PostWith(world, threadId, "Keep the report", upload.File.Id), RunStatus.Completed, RunStatus.Failed))
+            .Status.Should().Be(RunStatus.Completed);
+        var before = await control.Run(world.SpaceId, admin, world.BotId, "find .", RunWorld.Token);
+        (await world.WithService<ThreadService, bool>(threads => threads.MakePrivate(threadId, world.UserId, RunWorld.Token))).Should().BeTrue();
+        var after = await control.Run(world.SpaceId, admin, world.BotId, "find .", RunWorld.Token);
+
+        before.Value!.Stdout.Should().Contain(path);
+        (await world.Read(db => db.Threads.AsNoTracking().SingleAsync(thread => thread.Id == threadId, RunWorld.Token))).AudienceUserId.Should().Be(world.UserId);
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().NotContain("report.zip");
+    }
+
+    [Fact]
+    public async Task A_sandbox_that_holds_no_copied_file_stays_when_a_member_joins()
+    {
+        var sandbox = ListingSandbox();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "sandbox_write_file", """{"path":"/home/user/notes.txt","content":"the plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await SandboxWorld(sandbox, script);
+        await world.Grant("sandbox.write_file", GrantEffect.Allow);
+        world.StartHost();
+        var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
+
+        (await world.WaitForStatus(await world.Post(await world.NewThread(), "Write the plan down"), RunStatus.Completed, RunStatus.Failed))
+            .Status.Should().Be(RunStatus.Completed);
+        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeFalse();
+        var member = await world.AddMember(MembershipRole.Admin);
+        var after = await control.Run(world.SpaceId, member, world.BotId, "find .", RunWorld.Token);
+
+        after.Refusal.Should().Be(SandboxControlRefusal.None, after.Problem);
+        after.Value!.Stdout.Should().Contain("/home/user/notes.txt");
+        sandbox.Created.Should().Be(1, "a sandbox that holds no copied file is not replaced");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static IEnumerable<string> TextsOf(ModelChatRequest request) =>
@@ -459,9 +555,15 @@ public sealed class AttachedFileTests(PostgresServer postgres)
     /// <summary>Makes the world's space a shared one with an admin besides its owner. Returns the admin.</summary>
     private static async Task<Guid> MakeShared(RunWorld world)
     {
-        await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
-            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), RunWorld.Token));
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
         return await world.AddMember(MembershipRole.Admin);
+    }
+
+    private static FakeSandboxProvider ListingSandbox()
+    {
+        var sandbox = new FakeSandboxProvider();
+        sandbox.Behaviour = (_, token, _) => Print(string.Join('\n', sandbox.WithToken(token).Files.Keys));
+        return sandbox;
     }
 
     private static async IAsyncEnumerable<CommandOutput> Print(string text)

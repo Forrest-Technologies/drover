@@ -225,28 +225,11 @@ public sealed class RunWorld : IAsyncDisposable
             .Decide(toolCallId, approved, reason, asUser ?? UserId, isSpaceAdmin, Token);
     }
 
-    /// <summary>Another person in the world's space.</summary>
+    /// <summary>Another person in the world's space, through the same join a membership uses.</summary>
     public async Task<Guid> AddMember(MembershipRole role)
     {
-        var memberId = Guid.CreateVersion7();
-
-        // A person's row is theirs to write, so the member joins as themselves.
-        await TransactAs(SpaceId, memberId, services =>
-        {
-            var db = services.GetRequiredService<DroverDbContext>();
-            db.Users.Add(new User
-            {
-                Id = memberId,
-                UserName = $"user-{memberId:N}",
-                NormalizedUserName = $"USER-{memberId:N}".ToUpperInvariant(),
-                Email = $"{memberId:N}@example.test",
-                NormalizedEmail = $"{memberId:N}@EXAMPLE.TEST".ToUpperInvariant(),
-                DisplayName = "Another member",
-            });
-            db.Memberships.Add(new Membership { UserId = memberId, Role = role });
-            return Task.FromResult(true);
-        });
-        return memberId;
+        await using var scope = seeder.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AccountService>().AddMember(SpaceId, role, Token);
     }
 
     /// <summary>A thread every member of the space can see and write in.</summary>

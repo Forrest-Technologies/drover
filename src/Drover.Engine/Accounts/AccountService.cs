@@ -9,6 +9,7 @@ public sealed class AccountService(
     UserManager<User> users,
     IPasswordHasher<User> hasher,
     AccountRepository accounts,
+    SandboxRepository sandboxes,
     TenantScope scope,
     TenantContext tenant,
     ToolCatalog catalog,
@@ -161,6 +162,67 @@ public sealed class AccountService(
         var stamp = user is null ? null : await users.GetSecurityStampAsync(user);
         await work.Commit(cancellationToken);
         return stamp;
+    }
+
+    /// <summary>
+    /// Adds a person to the space. When the space is personal and has one member, every live sandbox that holds a
+    /// copied file is retired in this same transaction, before the new membership is visible: the one person who
+    /// could see those copies is no longer the only person who can reach the sandbox. The new person joins as
+    /// themselves, because a user row is theirs to write. The password is random and is not returned, so this join
+    /// does not sign anyone in.
+    /// </summary>
+    public async Task<Guid> AddMember(Guid spaceId, MembershipRole role, CancellationToken cancellationToken)
+    {
+        var memberId = Guid.CreateVersion7();
+        var email = $"{memberId:N}@example.test";
+        var member = new User
+        {
+            Id = memberId,
+            UserName = $"user-{memberId:N}",
+            NormalizedUserName = $"USER-{memberId:N}".ToUpperInvariant(),
+            Email = email,
+            NormalizedEmail = $"{memberId:N}@EXAMPLE.TEST".ToUpperInvariant(),
+            DisplayName = "Another member",
+        };
+        member.PasswordHash = hasher.HashPassword(member, $"pw-{Convert.ToHexString(RandomNumberGenerator.GetBytes(18))}");
+        tenant.Set(spaceId, memberId);
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await accounts.IsPersonalWithOneMember(spaceId, cancellationToken))
+        {
+            await sandboxes.RetireTainted(time.GetUtcNow(), cancellationToken);
+        }
+
+        accounts.Add(member);
+        accounts.Add(new Membership { SpaceId = spaceId, UserId = memberId, Role = role });
+        await work.Commit(cancellationToken);
+        return memberId;
+    }
+
+    /// <summary>
+    /// Makes a personal space shared. Every live sandbox that holds a copied file is retired in this same
+    /// transaction, before the kind changes: a private conversation in a shared space is not one person's any more.
+    /// False when the caller may not change the space, or the space is not there. Already shared is left as it is.
+    /// </summary>
+    public async Task<bool> MakeShared(Guid spaceId, Guid userId, CancellationToken cancellationToken)
+    {
+        tenant.Set(spaceId, userId);
+        await using var work = await scope.Begin(cancellationToken);
+        var role = await accounts.FindRole(spaceId, userId, cancellationToken);
+
+        if (role is not (MembershipRole.Owner or MembershipRole.Admin))
+        {
+            return false;
+        }
+
+        if (await accounts.GetSpace(spaceId, cancellationToken) is { Kind: SpaceKind.Personal })
+        {
+            await sandboxes.RetireTainted(time.GetUtcNow(), cancellationToken);
+            await accounts.MakeShared(spaceId, cancellationToken);
+        }
+
+        await work.Commit(cancellationToken);
+        return true;
     }
 
     /// <summary>The spaces the signed-in person can pick from. The user comes from the tenant context.</summary>

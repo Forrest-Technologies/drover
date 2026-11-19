@@ -327,8 +327,7 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
             [new ToolCallOutput("c1", "computer_type", """{"text":"the secret plan"}""")],
             [new TextOutput("Done.")]);
         await using var world = await TakeoverWorld(provider, script);
-        await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
-            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), RunWorld.Token));
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
         await world.AddMember(MembershipRole.Admin);
         world.StartHost();
 
