@@ -38,7 +38,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         try
         {
             await Step("launch", Launch);
+#if !DROVER_BROWSER
             await Step("connect", Connect);
+#endif
             await Step("sign in", SignIn);
             await Step("open a conversation", OpenConversation);
             await Step("send a message", SendMessage);
@@ -62,6 +64,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private async Task Launch()
     {
+#if DROVER_BROWSER
+        // A browser is already on the server that served the page. There is no connect screen.
+        await Shown("SignInEmail", startPatience);
+#else
         await Shown("ConnectAddress", startPatience);
 #if !__ANDROID__
         // The native window can attach after the connect control is on screen. A resize before that is ignored,
@@ -76,6 +82,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             window.AppWindow.Resize(new(420, 860));
             return null;
         });
+#endif
 #endif
     }
 
@@ -220,7 +227,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private FrameworkElement? Find(string id) => Roots()
         .SelectMany(root => Descendants(root).Prepend(root))
         .OfType<FrameworkElement>()
-        .FirstOrDefault(element => AutomationProperties.GetAutomationId(element) == id && IsShown(element));
+        .FirstOrDefault(element => AutomationIds.Matches(AutomationProperties.GetAutomationId(element), IsShown(element), id));
 
     private IEnumerable<DependencyObject> Roots()
     {
@@ -311,6 +318,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
 #if __ANDROID__
         Android.Util.Log.Info(Tag, line);
+#elif DROVER_BROWSER
+        // The harness reads the page console. A browser has no report file, and the app logger does not reach it.
+#pragma warning disable RS0030
+        Console.WriteLine(line);
+#pragma warning restore RS0030
 #else
         if (settings.ReportPath is { } path)
         {
@@ -321,10 +333,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     }
 
     // A desktop app closes, which tells the harness the report is complete. Android stays open: the harness reads
-    // the result line from the device log and stops the app itself.
+    // the result line from the device log and stops the app itself. A browser stays open until the harness closes
+    // the page, which it does once this line is on the console.
     private static void Finish()
     {
-#if !__ANDROID__
+#if !__ANDROID__ && !DROVER_BROWSER
         Application.Current.Exit();
 #endif
     }

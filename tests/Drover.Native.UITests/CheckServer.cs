@@ -19,6 +19,9 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
 
     #region Properties
 
+    /// <summary>The published browser client to serve under <c>/native/</c>, when the checks run in a browser.</summary>
+    public string? NativeClientPath { get; set; }
+
     /// <summary>The address the app connects to.</summary>
     public Uri Origin => new(Services.GetRequiredService<IServer>().Features.GetRequiredFeature<IServerAddressesFeature>().Addresses
         .Select(address => new Uri(address))
@@ -50,6 +53,10 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
         builder.UseSetting("DataProtection:KeyPath", Path.Combine(folder, "keys"));
         builder.UseSetting("Files:Path", Path.Combine(folder, "files"));
         builder.UseSetting("Drover:SignInRateLimit:PermitLimit", "1000");
+        if (NativeClientPath is { } native)
+        {
+            builder.UseSetting("NativeClient:Path", native);
+        }
         builder.ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Warning));
         builder.ConfigureServices(services =>
             services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(script)));

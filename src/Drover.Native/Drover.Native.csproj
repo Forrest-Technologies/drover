@@ -73,6 +73,7 @@
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
+    <DefineConstants>$(DefineConstants);DROVER_BROWSER</DefineConstants>
     <!-- A published browser build is served by Drover's own server beside the web client, under this path. A
          development build is served from the root by the development host. -->
     <WasmShellWebAppBasePath Condition="'$(Configuration)' == 'Release'">/native/</WasmShellWebAppBasePath>
@@ -198,7 +199,7 @@
 
   <!-- The screen checks run inside a build made for them, on a device or a desktop, and nowhere else: a product
        build never contains them. tests/Drover.Native.UITests starts the build with a test server to talk to. -->
-  <ItemGroup Condition="'$(DroverUiChecks)' == 'true' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'browserwasm'">
+  <ItemGroup Condition="'$(DroverUiChecks)' == 'true'">
     <Compile Include="../../tests/Drover.Native.UITests/App/*.cs" Link="UiChecks/%(Filename)%(Extension)" />
   </ItemGroup>
 

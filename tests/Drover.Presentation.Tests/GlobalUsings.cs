@@ -28,6 +28,8 @@ global using Drover.Contracts.Rules;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
+global using Drover.Native.Checks;
+global using Drover.Native.UITests;
 global using Drover.Presentation.Drawing;
 global using Drover.Presentation.Platform;
 global using Drover.Presentation.Routing;

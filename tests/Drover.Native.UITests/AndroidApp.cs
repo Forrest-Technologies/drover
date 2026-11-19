@@ -21,31 +21,32 @@ internal sealed class AndroidApp : IAppUnderCheck
 
     public async Task<IReadOnlyList<string>> Run(IReadOnlyDictionary<string, string> settings, ILogger logger)
     {
+        var serial = await ChooseDevice();
         var port = new Uri(settings["DROVER_UI_CHECK_SERVER"]).Port;
-        await Adb("reverse", $"tcp:{port}", $"tcp:{port}");
+        await Adb(serial, "reverse", $"tcp:{port}", $"tcp:{port}");
 
         try
         {
-            await Adb("shell", "am", "force-stop", Package);
-            await Adb("shell", "pm", "clear", Package);
-            await Adb("logcat", "-c");
-            var activity = (await Adb("shell", "cmd", "package", "resolve-activity", "--brief", Package))
+            await Adb(serial, "shell", "am", "force-stop", Package);
+            await Adb(serial, "shell", "pm", "clear", Package);
+            await Adb(serial, "logcat", "-c");
+            var activity = (await Adb(serial, "shell", "cmd", "package", "resolve-activity", "--brief", Package))
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
             string[] start = ["shell", "am", "start", "-W", "-n", activity];
-            await Adb([.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
-            var lines = await ReadReport();
+            await Adb(serial, [.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
+            var lines = await ReadReport(serial);
 
             if (!lines.Any(line => line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal)))
             {
-                logger.LogError("The device log, last lines:\n{Log}", string.Join('\n', (await Adb("logcat", "-d")).Split('\n').TakeLast(300)));
+                logger.LogError("The device log, last lines:\n{Log}", string.Join('\n', (await Adb(serial, "logcat", "-d")).Split('\n').TakeLast(300)));
             }
 
             return lines;
         }
         finally
         {
-            await Adb("shell", "am", "force-stop", Package);
-            await Adb("reverse", "--remove", $"tcp:{port}");
+            await Adb(serial, "shell", "am", "force-stop", Package);
+            await Adb(serial, "reverse", "--remove", $"tcp:{port}");
         }
     }
 
@@ -53,13 +54,27 @@ internal sealed class AndroidApp : IAppUnderCheck
 
     #region Private Methods
 
-    private static async Task<IReadOnlyList<string>> ReadReport()
+    private static async Task<string> ChooseDevice()
+    {
+        var serials = AndroidCheckGuard.Serials(await Adb(null, "devices"));
+        string? version = null;
+        if (serials.Count == 1 && !AndroidCheckGuard.IsEmulator(serials[0]))
+        {
+            version = AndroidCheckGuard.VersionName(await Adb(serials[0], "shell", "dumpsys", "package", Package));
+        }
+
+        return AndroidCheckGuard.Choose(serials, version)
+            ?? throw new InvalidOperationException(
+                "Refusing to clear the app on a device that is not an emulator and not the checks build.");
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadReport(string serial)
     {
         var watch = Stopwatch.StartNew();
 
         while (true)
         {
-            var lines = (await Adb("logcat", "-d", "-v", "raw", "-s", $"{Tag}:I"))
+            var lines = (await Adb(serial, "logcat", "-d", "-v", "raw", "-s", $"{Tag}:I"))
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(line => line.StartsWith("ui-check", StringComparison.Ordinal))
                 .ToList();
@@ -71,6 +86,12 @@ internal sealed class AndroidApp : IAppUnderCheck
 
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
+    }
+
+    private static Task<string> Adb(string? serial, params string[] arguments)
+    {
+        var command = serial is null ? arguments : ["-s", serial, .. arguments];
+        return Adb(command);
     }
 
     private static async Task<string> Adb(params string[] arguments)

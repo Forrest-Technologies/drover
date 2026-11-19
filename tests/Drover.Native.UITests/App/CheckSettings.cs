@@ -5,7 +5,13 @@ namespace Drover.Native.Checks;
 /// bot answers with, and where to report. A desktop reads them from the environment; Android from the extras of the
 /// intent that started the app. When they are missing the app starts as any other build does.
 /// </summary>
-internal sealed record CheckSettings(Uri Server, string Email, string Password, string Certificate, string Reply, string? ReportPath)
+internal sealed record CheckSettings(
+    Uri Server,
+    string Email,
+    string Password,
+    string Certificate,
+    string Reply,
+    string? ReportPath)
 {
     #region Private Fields
 
@@ -32,6 +38,7 @@ internal sealed record CheckSettings(Uri Server, string Email, string Password, 
 
     #endregion
 
+#if !DROVER_BROWSER
     #region Public Methods
 
     /// <summary>
@@ -52,6 +59,7 @@ internal sealed record CheckSettings(Uri Server, string Email, string Password, 
     }
 
     #endregion
+#endif
 
     #region Private Methods
 
@@ -71,6 +79,13 @@ internal sealed record CheckSettings(Uri Server, string Email, string Password, 
     {
 #if __ANDROID__
         var value = (Uno.UI.ContextHelper.Current as Android.App.Activity)?.Intent?.GetStringExtra(name);
+#elif DROVER_BROWSER
+        // The page is served by the test server, so the harness puts the settings in local storage before the
+        // app starts. A browser has no process environment to read. The platform checker does not treat this
+        // build's name as the browser, so the call is marked by hand.
+#pragma warning disable CA1416
+        var value = Browser.ReadStored(name);
+#pragma warning restore CA1416
 #else
         var value = Environment.GetEnvironmentVariable(name);
 #endif

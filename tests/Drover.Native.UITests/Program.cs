@@ -27,7 +27,8 @@ internal static class Program
 
         if (Target(args, folder) is not { } app)
         {
-            logger.LogError("Name the app to check: desktop <path to Drover.Native.dll>, or android");
+            logger.LogError(
+                "Name the app to check: desktop <path to Drover.Native.dll>, android, or browser <path to wwwroot>");
             return 2;
         }
 
@@ -56,6 +57,7 @@ internal static class Program
     {
         ["desktop", var path] => new DesktopApp(Path.GetFullPath(path), folder),
         ["android"] => new AndroidApp(),
+        ["browser", var path] => new BrowserApp(path),
         _ => null,
     };
 
@@ -72,6 +74,11 @@ internal static class Program
         await using var database = await postgres.CreateDatabase();
         using var certificate = TestCertificate.Create();
         await using var server = new CheckServer(database, certificate, folder);
+        if (app is BrowserApp browser)
+        {
+            server.NativeClientPath = browser.WebRoot;
+        }
+
         server.Start();
         var account = await CheckAccount.Create(server, certificate);
         logger.LogInformation("The test server is at {Origin}; starting the app", server.Origin);
