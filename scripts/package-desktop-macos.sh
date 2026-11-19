@@ -51,12 +51,25 @@ cat > "$app/Contents/Info.plist" <<EOF
 EOF
 
 if [[ -n "$signing_identity" ]]; then
+  entitlements="$temp/entitlements.plist"
+  cat > "$entitlements" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+</dict>
+</plist>
+EOF
+
   while IFS= read -r -d '' file; do
-    if file -b "$file" | grep -q 'Mach-O'; then
+    if [[ "$file" != "$app/Contents/MacOS/Drover.Native" ]] && file -b "$file" | grep -q 'Mach-O'; then
       codesign --force --options runtime --timestamp --sign "$signing_identity" "$file"
     fi
   done < <(find "$app/Contents/MacOS" -type f -print0)
-  codesign --force --options runtime --timestamp --sign "$signing_identity" "$app"
+  codesign --force --options runtime --timestamp --entitlements "$entitlements" --sign "$signing_identity" "$app"
+  codesign --display --entitlements - "$app" > "$temp/signed-entitlements.plist"
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.allow-jit' "$temp/signed-entitlements.plist")" == true ]]
   codesign --verify --deep --strict --verbose=2 "$app"
 fi
 

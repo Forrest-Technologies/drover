@@ -32,7 +32,7 @@ try {
     Copy-Item (Join-Path $PublishDirectory "*") $stage -Recurse
     Add-Type -AssemblyName System.Drawing
     $assetDirectory = Join-Path $stage "Assets"
-    New-Item $assetDirectory -ItemType Directory | Out-Null
+    New-Item $assetDirectory -ItemType Directory -Force | Out-Null
     $sourceImage = [System.Drawing.Image]::FromFile((Resolve-Path "src/Shared/Web/icon-512.png"))
     try {
         foreach ($asset in @(
