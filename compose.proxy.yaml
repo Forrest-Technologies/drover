@@ -20,16 +20,12 @@ services:
   drover:
     environment:
       DROVER_PUBLIC_URL: https://${DROVER_DOMAIN:?Set DROVER_DOMAIN to the name people open Drover at}
-      DROVER_PREVIEW_URL: https://${DROVER_PREVIEW_DOMAIN:?Set DROVER_PREVIEW_DOMAIN to a name on a separate site}
       Drover__Proxy__TrustedAddresses__0: ${DROVER_PROXY_ADDRESS:-172.30.80.250}
 
   proxy:
     image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     # Obtains and renews the certificate, redirects HTTP to HTTPS, and sends X-Forwarded-For and X-Forwarded-Proto.
-    command: ["caddy", "run", "--config", "/etc/drover/proxy.conf", "--adapter", "caddyfile"]
-    environment:
-      DROVER_DOMAIN: ${DROVER_DOMAIN}
-      DROVER_PREVIEW_DOMAIN: ${DROVER_PREVIEW_DOMAIN}
+    command: ["caddy", "reverse-proxy", "--from", "${DROVER_DOMAIN}", "--to", "drover:8080"]
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -45,7 +41,6 @@ services:
       default:
         ipv4_address: ${DROVER_PROXY_ADDRESS:-172.30.80.250}
     volumes:
-      - ./proxy.conf:/etc/drover/proxy.conf:ro
       - drover-proxy-data:/data
       - drover-proxy-config:/config
     depends_on:

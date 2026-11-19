@@ -35,8 +35,14 @@ Compose's `.env` file before building to omit the Uno client.
 3. Start both files together:
 
 ```sh
+DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy.yaml up --build
+```
+
+To enable HTML previews, point a second DNS name at the same proxy and add the preview override:
+
+```sh
 DROVER_DOMAIN=drover.example.org DROVER_PREVIEW_DOMAIN=drover-preview.example.net \
-  docker compose -f compose.yaml -f compose.proxy.yaml up --build
+  docker compose -f compose.yaml -f compose.proxy.yaml -f compose.preview.yaml up --build
 ```
 
 Replace both names with names you control. The preview name must be on a separate site, such as `example.net` when
