@@ -64,6 +64,26 @@ public sealed class RulePatternCostTests
     #region In A Run
 
     [Fact]
+    public void The_pattern_measured_at_five_thousand_characters_is_refused_and_is_not_run()
+    {
+        // Measured on main at 1b6a587: 5,000 random characters of '4' and 'a' took 46 seconds and 4.0 GB, and the
+        // call passed. The bound landed in #103. This records it: the pattern is refused, so it is not built, and a
+        // stored copy takes the rule's effect inside a second and 64 MB.
+        RuleValidator.FindProblem("Sample", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(Measured)]).Should().Contain("more than 256 times");
+        RulePatterns.Compile(Measured).Expression.Should().BeNull();
+        var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(Measured)]);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var watch = Stopwatch.StartNew();
+
+        var outcome = RuleEvaluator.Evaluate([rule], new RuleSubject { Checkpoint = RuleCheckpoint.BeforeReply, Text = Random("4a", 5_000, 11), Now = now });
+
+        watch.Elapsed.Should().BeLessThan(bound, "this took 46 seconds");
+        (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated, "this held 4.0 GB");
+        outcome.Should().NotBeNull("a pattern that cannot be run is not let through");
+        RulePatterns.Compile(Measured).Expression.Should().BeNull("a refused pattern keeps no expression");
+    }
+
+    [Fact]
     public void The_measured_pattern_stored_before_it_was_refused_is_not_run_and_takes_the_rules_effect()
     {
         var rule = new ActiveRule(Guid.CreateVersion7(), "Sample rule", RuleCheckpoint.BeforeReply, RuleEffect.Block, [Matches(Measured)]);
