@@ -5,7 +5,7 @@ namespace Drover.Engine.Threads;
 /// Names a person or a bot chose are written so they cannot change the document's shape; the words of the
 /// conversation are written as they were said, because they are Markdown already.
 /// </summary>
-public static partial class ConversationExportFiles
+public static class ConversationExportFiles
 {
     #region Private Fields
 
@@ -14,6 +14,16 @@ public static partial class ConversationExportFiles
     private const long Kilobyte = 1024;
 
     private const long Megabyte = 1024 * Kilobyte;
+
+    private const int MaxSanitizePasses = 4;
+
+    private static readonly MarkdownPipeline neutralizePipeline = new MarkdownPipelineBuilder()
+        .UsePreciseSourceLocation()
+        .UsePipeTables()
+        .UseTaskLists()
+        .UseAutoLinks()
+        .UseEmphasisExtras(EmphasisExtraOptions.Strikethrough)
+        .Build();
 
     #endregion
 
@@ -238,48 +248,70 @@ public static partial class ConversationExportFiles
 
     /// <summary>
     /// Keeps ordinary Markdown syntax intact outside code blocks and inline code spans while neutralizing active HTML,
-    /// remote or inline image embeds, and scriptable link schemes.
+    /// remote or inline image embeds, and scriptable link schemes using Markdig's linear CommonMark parser.
     /// </summary>
-    public static string NeutralizeMarkdown(string text)
+    public static string NeutralizeMarkdown(string text, ILogger? logger = null)
     {
         if (text.Length == 0)
         {
             return text;
         }
 
-        var lines = text.Split('\n');
-        char? fenceChar = null;
-        var fenceLength = 0;
-
-        for (var i = 0; i < lines.Length; i++)
+        if (ExceedsParserNesting(text))
         {
-            var rawLine = lines[i];
-            var hadCarriageReturn = rawLine.EndsWith('\r');
-            var line = hadCarriageReturn ? rawLine[..^1] : rawLine;
-
-            if (fenceChar is { } openChar)
-            {
-                if (IsClosingFence(line, openChar, fenceLength))
-                {
-                    fenceChar = null;
-                    fenceLength = 0;
-                }
-
-                continue;
-            }
-
-            if (TryOpenFence(line, out var newChar, out var newLength))
-            {
-                fenceChar = newChar;
-                fenceLength = newLength;
-                continue;
-            }
-
-            var neutralized = NeutralizeLine(line);
-            lines[i] = hadCarriageReturn ? $"{neutralized}\r" : neutralized;
+            return NeutralizeDeeplyNested(text);
         }
 
-        return string.Join('\n', lines);
+        var current = text;
+
+        for (var pass = 0; pass < MaxSanitizePasses; pass++)
+        {
+            Markdig.Syntax.MarkdownDocument document;
+
+            try
+            {
+                document = Markdig.Markdown.Parse(current, neutralizePipeline);
+            }
+            catch (ArgumentException tooDeep)
+            {
+                (logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance)
+                    .LogWarning(tooDeep, "Markdown export exceeded parser nesting depth and used flat neutralization.");
+                return NeutralizeDeeplyNested(current);
+            }
+
+            Dictionary<int, string> replacements = [];
+
+            foreach (var block in document.Descendants<Block>())
+            {
+                if (block is HtmlBlock html)
+                {
+                    EscapeHtmlAngles(current, html.Span, replacements);
+                }
+                else if (block is LinkReferenceDefinition reference)
+                {
+                    if (!IsSafeLinkUrl(reference.Url)
+                        && reference.Span.Start >= 0
+                        && reference.Span.Start < current.Length
+                        && current[reference.Span.Start] == '[')
+                    {
+                        replacements[reference.Span.Start] = "\\[";
+                    }
+                }
+                else if (block is LeafBlock { Inline: { } root })
+                {
+                    CollectUnsafeInlines(current, root, replacements);
+                }
+            }
+
+            if (replacements.Count == 0)
+            {
+                break;
+            }
+
+            current = ApplySingleCharReplacements(current, replacements);
+        }
+
+        return current;
     }
 
     #endregion
@@ -326,166 +358,218 @@ public static partial class ConversationExportFiles
         _ => string.Create(CultureInfo.InvariantCulture, $"{bytes / (double)Megabyte:0.#} MB"),
     };
 
-    private static string NeutralizeLine(string line)
+    private static void CollectUnsafeInlines(string source, ContainerInline root, Dictionary<int, string> replacements)
     {
-        var output = new StringBuilder(line.Length);
-        var index = 0;
+        Stack<Markdig.Syntax.Inlines.Inline> stack = new();
+        stack.Push(root);
 
-        while (index < line.Length)
+        while (stack.Count > 0)
         {
-            var tick = line.IndexOf('`', index);
+            var node = stack.Pop();
 
-            if (tick < 0)
+            if (node is CodeInline)
             {
-                output.Append(NeutralizeProse(line[index..], index == 0));
-                break;
+                continue;
             }
 
-            if (tick > index)
+            if (node is HtmlInline html)
             {
-                output.Append(NeutralizeProse(line[index..tick], index == 0));
+                EscapeHtmlAngles(source, html.Span, replacements);
+            }
+            else if (node is AutolinkInline auto)
+            {
+                if (!auto.IsEmail
+                    && !IsSafeLinkUrl(auto.Url)
+                    && auto.Span.Start >= 0
+                    && auto.Span.Start < source.Length
+                    && source[auto.Span.Start] == '<')
+                {
+                    replacements[auto.Span.Start] = "&lt;";
+                }
+            }
+            else if (node is LinkInline link)
+            {
+                var targetUrl = link.Url ?? link.Reference?.Url;
+
+                if (link.IsImage)
+                {
+                    if (link.Span.Start >= 0 && link.Span.Start < source.Length && source[link.Span.Start] == '!')
+                    {
+                        replacements[link.Span.Start] = "\\!";
+                    }
+
+                    if (!IsSafeLinkUrl(targetUrl)
+                        && link.Span.Start + 1 >= 0
+                        && link.Span.Start + 1 < source.Length
+                        && source[link.Span.Start + 1] == '[')
+                    {
+                        replacements[link.Span.Start + 1] = "\\[";
+                    }
+                }
+                else if (!IsSafeLinkUrl(targetUrl)
+                    && link.Span.Start >= 0
+                    && link.Span.Start < source.Length
+                    && source[link.Span.Start] == '[')
+                {
+                    replacements[link.Span.Start] = "\\[";
+                }
             }
 
-            var runEnd = tick;
-
-            while (runEnd < line.Length && line[runEnd] == '`')
+            if (node is ContainerInline container)
             {
-                runEnd++;
+                for (var child = container.FirstChild; child is not null; child = child.NextSibling)
+                {
+                    stack.Push(child);
+                }
+            }
+        }
+    }
+
+    private static void EscapeHtmlAngles(string source, SourceSpan span, Dictionary<int, string> replacements)
+    {
+        var start = Math.Max(0, span.Start);
+        var end = Math.Min(source.Length - 1, span.End);
+
+        for (var index = start; index <= end; index++)
+        {
+            if (source[index] == '<')
+            {
+                replacements[index] = "&lt;";
+            }
+        }
+    }
+
+    private static string ApplySingleCharReplacements(string source, Dictionary<int, string> replacements)
+    {
+        var indices = replacements.Keys.Order().ToArray();
+        var output = new StringBuilder(source.Length + (indices.Length * 3));
+        var cursor = 0;
+
+        foreach (var index in indices)
+        {
+            if (index > cursor)
+            {
+                output.Append(source, cursor, index - cursor);
             }
 
-            var fence = line[tick..runEnd];
-            var close = FindClosingBackticks(line, runEnd, fence.Length);
+            output.Append(replacements[index]);
+            cursor = index + 1;
+        }
 
-            if (close >= 0)
-            {
-                var spanEnd = close + fence.Length;
-                output.Append(line, tick, spanEnd - tick);
-                index = spanEnd;
-            }
-            else
-            {
-                output.Append(line, tick, runEnd - tick);
-                index = runEnd;
-            }
+        if (cursor < source.Length)
+        {
+            output.Append(source, cursor, source.Length - cursor);
         }
 
         return output.ToString();
     }
 
-    private static string NeutralizeProse(string prose, bool atLineStart)
+    private static bool IsSafeLinkUrl(string? url)
     {
-        var sanitized = HtmlTagStart().Replace(prose, "&lt;");
-        sanitized = ImageEmbed().Replace(sanitized, "$1\\![");
-        sanitized = UnsafeLink().Replace(sanitized, "$1\\[");
-
-        if (atLineStart)
+        if (string.IsNullOrWhiteSpace(url))
         {
-            sanitized = UnsafeReferenceLink().Replace(sanitized, "$1\\[$2]:");
+            return true;
         }
 
-        return sanitized;
-    }
+        var decoded = WebUtility.HtmlDecode(url);
+        Span<char> buffer = stackalloc char[Math.Min(decoded.Length, 64)];
+        var written = 0;
 
-    private static int FindClosingBackticks(string line, int start, int count)
-    {
-        var index = start;
-
-        while (index < line.Length)
+        foreach (var ch in decoded)
         {
-            var found = line.IndexOf('`', index);
-
-            if (found < 0)
+            if (char.IsWhiteSpace(ch) || char.IsControl(ch))
             {
-                return -1;
+                continue;
             }
 
-            var end = found;
-
-            while (end < line.Length && line[end] == '`')
+            if (ch is '/' or '?' or '#')
             {
-                end++;
+                return true;
             }
 
-            if (end - found == count)
+            if (ch == ':')
             {
-                return found;
+                var scheme = buffer[..written];
+                return scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+                    || scheme.Equals("https", StringComparison.OrdinalIgnoreCase)
+                    || scheme.Equals("mailto", StringComparison.OrdinalIgnoreCase);
             }
 
-            index = end;
+            if (written < buffer.Length)
+            {
+                buffer[written++] = ch;
+            }
         }
 
-        return -1;
-    }
-
-    private static bool TryOpenFence(string line, out char fenceChar, out int length)
-    {
-        fenceChar = default;
-        length = 0;
-        var leadingSpaces = CountLeadingSpaces(line);
-
-        if (leadingSpaces > 3 || leadingSpaces >= line.Length)
-        {
-            return false;
-        }
-
-        var marker = line[leadingSpaces];
-
-        if (marker is not ('`' or '~'))
-        {
-            return false;
-        }
-
-        var count = 0;
-
-        while (leadingSpaces + count < line.Length && line[leadingSpaces + count] == marker)
-        {
-            count++;
-        }
-
-        if (count < 3)
-        {
-            return false;
-        }
-
-        if (marker == '`' && line.AsSpan(leadingSpaces + count).Contains('`'))
-        {
-            return false;
-        }
-
-        fenceChar = marker;
-        length = count;
         return true;
     }
 
-    private static bool IsClosingFence(string line, char fenceChar, int minLength)
+    private static bool ExceedsParserNesting(string source)
     {
-        var leadingSpaces = CountLeadingSpaces(line);
+        var openBrackets = 0;
 
-        if (leadingSpaces > 3 || leadingSpaces >= line.Length)
+        for (var index = 0; index < source.Length; index++)
         {
-            return false;
+            var ch = source[index];
+
+            if (ch == '[')
+            {
+                openBrackets++;
+
+                if (openBrackets > 100)
+                {
+                    return true;
+                }
+            }
+            else if (ch == ']' && openBrackets > 0)
+            {
+                openBrackets--;
+            }
         }
 
-        var count = 0;
-
-        while (leadingSpaces + count < line.Length && line[leadingSpaces + count] == fenceChar)
-        {
-            count++;
-        }
-
-        return count >= minLength && line.AsSpan(leadingSpaces + count).IsWhiteSpace();
+        return false;
     }
 
-    private static int CountLeadingSpaces(string line)
+    private static string NeutralizeDeeplyNested(string source)
     {
-        var count = 0;
+        var output = new StringBuilder(source.Length);
+        var escaped = false;
 
-        while (count < line.Length && line[count] == ' ')
+        for (var index = 0; index < source.Length; index++)
         {
-            count++;
+            var ch = source[index];
+
+            if (escaped)
+            {
+                escaped = false;
+                output.Append(ch);
+                continue;
+            }
+
+            if (ch == '\\')
+            {
+                escaped = true;
+                output.Append(ch);
+            }
+            else if (ch == '<')
+            {
+                output.Append("&lt;");
+            }
+            else if (ch == '[')
+            {
+                output.Append("\\[");
+            }
+            else if (ch == '!' && index + 1 < source.Length && source[index + 1] == '[')
+            {
+                output.Append("\\!");
+            }
+            else
+            {
+                output.Append(ch);
+            }
         }
 
-        return count;
+        return output.ToString();
     }
 
     /// <summary>A name on one line, with every sign that Markdown reads escaped, so it stays plain text.</summary>
@@ -511,18 +595,6 @@ public static partial class ConversationExportFiles
 
     private static string OneLine(string name) =>
         string.Join(' ', name.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-
-    [GeneratedRegex("""<(?=(?:!--|!\[|!\w|\?|/?[A-Za-z][A-Za-z0-9-]*(?::[A-Za-z0-9-]+)*(?:[\s>]|/>|$)))""", RegexOptions.CultureInvariant)]
-    private static partial Regex HtmlTagStart();
-
-    [GeneratedRegex("""(?:^|(?<=[^\\]))((?:\\\\)*)!\[""", RegexOptions.CultureInvariant)]
-    private static partial Regex ImageEmbed();
-
-    [GeneratedRegex("""(?:^|(?<=[^\\]))((?:\\\\)*)\[(?=[^\]\r\n]*\]\(\s*(?:(?:javascript|vbscript|data)\s*:|&#))""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex UnsafeLink();
-
-    [GeneratedRegex("""^(\s{0,3})\[([^\]\r\n]+)\]:(?=\s*(?:(?:javascript|vbscript|data)\s*:|&#))""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex UnsafeReferenceLink();
 
     #endregion
 }

@@ -247,6 +247,8 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
             """<img src="https://evil.test/x.png" onerror="alert(1)">""",
             "![tracker](https://evil.test/pixel.png)",
             "[click](javascript:alert(1))",
+            "[entity](java&#x09;script:alert(1))",
+            "\\`<img src=\"https://evil.test/escaped.png\"> ![tricky](https://evil.test/tricky.png)`",
             "Inline `<span>keep</span>` here.",
             "```html\n<script>keepInFence()</script>\n![keep](https://example.com/a.png)\n```");
         script = new ScriptedModel([new TextOutput(hostile)]);
@@ -258,6 +260,14 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
 
         var md = await (await client.Get(ExportPath(alice.SpaceId, main.Id, "markdown"))).Content.ReadAsStringAsync(Token);
         var export = await GetFor<ConversationExport>(client, ExportPath(alice.SpaceId, main.Id, "json"));
+        var rendered = Markdig.Markdown.ToHtml(
+            md,
+            new MarkdownPipelineBuilder()
+                .UsePipeTables()
+                .UseTaskLists()
+                .UseAutoLinks()
+                .UseEmphasisExtras(EmphasisExtraOptions.Strikethrough)
+                .Build());
 
         md.Should().Contain("Ordinary **bold** and - list and <https://example.com>.");
         md.Should().Contain("&lt;script>alert(1)&lt;/script>");
@@ -266,9 +276,33 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
         md.Should().NotContain("<img ");
         md.Should().Contain(@"\![tracker](https://evil.test/pixel.png)");
         md.Should().Contain(@"\[click](javascript:alert(1))");
+        md.Should().Contain(@"\[entity](java&#x09;script:alert(1))");
         md.Should().Contain("Inline `<span>keep</span>` here.");
         md.Should().Contain("```html\n<script>keepInFence()</script>\n![keep](https://example.com/a.png)\n```");
+        rendered.Should().Contain("<strong>bold</strong>");
+        rendered.Should().NotContain("<script", "raw scripts must never appear in rendered Markdown");
+        rendered.Should().NotContain("<img", "external or inline image tags must never appear in rendered Markdown");
+        rendered.Should().NotContain("href=\"javascript:", "scriptable link URLs must never become clickable links in rendered Markdown");
+        rendered.Should().Contain("&lt;span&gt;keep&lt;/span&gt;");
+        rendered.Should().Contain("&lt;script&gt;keepInFence()&lt;/script&gt;");
         export.Messages[1].Text.Should().Be(hostile, "JSON stays structured without Markdown escaping");
+    }
+
+    [Fact]
+    public void Neutralizing_long_malformed_link_labels_completes_in_linear_time()
+    {
+        var longLabels = $"{string.Concat(Enumerable.Repeat("[unclosed ", 60))}{new string('a', 50_000)}](javascript:alert(1))\n[click](javascript:alert(1))";
+        var deeplyNested = $"{new string('[', 50_000)}text](javascript:alert(1)) <script>alert(1)</script>";
+        var watch = Stopwatch.StartNew();
+
+        var sanitizedLong = Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(longLabels);
+        var sanitizedDeep = Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(deeplyNested);
+
+        watch.Stop();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        sanitizedLong.Should().Contain(@"\[click](javascript:alert(1))");
+        sanitizedDeep.Should().Contain(@"\[text](javascript:alert(1))");
+        sanitizedDeep.Should().NotContain("<script>");
     }
 
     [Fact]

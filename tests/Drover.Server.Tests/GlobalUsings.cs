@@ -87,6 +87,8 @@ global using Drover.Server.Spaces;
 global using Drover.Server.Tests.Support;
 global using Drover.Server.Web;
 global using Drover.Tests.Common;
+global using Markdig;
+global using Markdig.Extensions.EmphasisExtras;
 global using Microsoft.AspNetCore.Builder;
 global using Microsoft.AspNetCore.Hosting;
 global using Microsoft.AspNetCore.Http;
