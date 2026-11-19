@@ -83,7 +83,10 @@ jobs:
             test ! -e "$DROVER_PG_DIR"
           }
           trap cleanup EXIT
-          eval "$(scripts/dev-postgres.sh start)"
+          unset DROVER_TEST_POSTGRES
+          postgres_environment=$(scripts/dev-postgres.sh start)
+          eval "$postgres_environment"
+          test -n "$DROVER_TEST_POSTGRES"
           dotnet test --project tests/Drover.Data.Tests -- --filter-class '*ThreadReadTests'
 
   compose:
