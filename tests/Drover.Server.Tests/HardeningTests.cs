@@ -18,7 +18,7 @@ public sealed class HardeningTests(PostgresServer postgres) : ServerTestBase(pos
         // every directive that can run code stays closed.
         var directives = policy.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         directives.Where(directive => directive.Contains("unsafe-inline")).Should().Equal("style-src 'self' 'unsafe-inline'");
-        directives.Should().Contain("default-src 'self'").And.NotContain(directive => directive.Contains("unsafe-eval'") && !directive.Contains("wasm-unsafe-eval"));
+        directives.Should().Contain("frame-src 'none'").And.Contain("default-src 'self'").And.NotContain(directive => directive.Contains("unsafe-eval'") && !directive.Contains("wasm-unsafe-eval"));
         response.Headers.GetValues("X-Content-Type-Options").Should().ContainSingle("nosniff");
         response.Headers.GetValues("X-Frame-Options").Should().ContainSingle("DENY");
         response.Headers.GetValues("Referrer-Policy").Should().ContainSingle("no-referrer");

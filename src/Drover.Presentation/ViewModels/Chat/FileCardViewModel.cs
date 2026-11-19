@@ -15,6 +15,8 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     private string? previewGrant;
 
+    private int previewGeneration;
+
     #endregion
 
     #region Properties
@@ -176,16 +178,24 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
             return;
         }
 
+        var file = File;
+        var generation = previewGeneration;
         Previewing = true;
         PreviewProblem = null;
         Changed();
 
         try
         {
-            var response = await RequestPreview(File);
+            var response = await RequestPreview(file);
+            if (generation != previewGeneration || File.Id != file.Id)
+            {
+                await RevokeGrant(file, response.Grant);
+                return;
+            }
+
             if (response.Address is { } address
                 && Uri.TryCreate(address, UriKind.Absolute, out var parsed)
-                && parsed.Scheme is "http" or "https"
+                && parsed.Scheme is "https"
                 && response.Grant is { Length: > 0 } grant)
             {
                 PreviewAddress = address;
@@ -199,7 +209,10 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
         catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException)
         {
             logger.LogWarning(exception, "A conversation file preview could not be issued");
-            PreviewProblem = $"Drover could not preview {File.Name}. {Failures.Sentence(exception)} Download is still available.";
+            if (generation == previewGeneration && File.Id == file.Id)
+            {
+                PreviewProblem = $"Drover could not preview {file.Name}. {Failures.Sentence(exception)} Download is still available.";
+            }
         }
         finally
         {
@@ -218,23 +231,12 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
     {
         var file = File;
         var grant = previewGrant;
+        previewGeneration++;
         PreviewAddress = null;
         previewGrant = null;
         Changed();
 
-        if (grant is null || RevokePreview is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await RevokePreview(file, grant);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException)
-        {
-            logger.LogWarning(exception, "An HTML preview grant could not be revoked");
-        }
+        await RevokeGrant(file, grant);
     }
 
     #endregion
@@ -252,6 +254,23 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
     #endregion
 
     #region Private Methods
+
+    private async Task RevokeGrant(SharedFile file, string? grant)
+    {
+        if (grant is null || RevokePreview is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await RevokePreview(file, grant);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException)
+        {
+            logger.LogWarning(exception, "An HTML preview grant could not be revoked");
+        }
+    }
 
     private void Changed() => OnPropertyChanged(string.Empty);
 

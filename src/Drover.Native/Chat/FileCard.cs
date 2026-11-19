@@ -195,9 +195,10 @@ public sealed class FileCard : Grid
     {
         if (File is { } file)
         {
-            if (model.File is { } before && before.Id != file.Id && model.PreviewAddress is not null)
+            if (model.File is { } before && before.Id != file.Id)
             {
                 previewDialog.Open = false;
+                _ = model.ClosePreview();
             }
 
             model.File = file;

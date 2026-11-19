@@ -243,6 +243,41 @@ public sealed class FileComponentTests : IDisposable
         card.Previewing.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_late_grant_is_revoked_against_the_original_card_file(bool replace)
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "/api/files/report", true, start);
+        var card = Card(file);
+        var held = new TaskCompletionSource<FilePreviewResponse>();
+        SharedFile? revoked = null;
+        card.RequestPreview = _ => held.Task;
+        card.RevokePreview = (selected, grant) =>
+        {
+            revoked = selected;
+            grant.Should().Be("hidden");
+            return Task.CompletedTask;
+        };
+
+        var request = card.Preview();
+        if (replace)
+        {
+            card.File = file with { Id = Guid.NewGuid(), Name = "replacement.html" };
+        }
+        else
+        {
+            await card.ClosePreview();
+        }
+
+        held.SetResult(new("https://preview.example/preview/file?grant=hidden", Grant: "hidden"));
+        await request;
+
+        revoked.Should().Be(file);
+        card.PreviewAddress.Should().BeNull();
+        card.Previewing.Should().BeFalse();
+    }
+
     [Fact]
     public void A_person_html_file_is_downloaded_without_a_preview_offer()
     {
