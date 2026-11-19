@@ -4,9 +4,7 @@ public partial class App : Application
 {
     #region Private Fields
 
-    private readonly DiagnosticLog diagnostics = new(PlatformDiagnostics.Store(), TimeProvider.System);
-
-    private readonly AppDescription description = AppDiagnostics.ThisApp();
+    private readonly DiagnosticLog diagnostics = AppDiagnostics.Log;
 
     private ServiceProvider? services;
 
@@ -66,7 +64,7 @@ public partial class App : Application
     public void Restart()
     {
         var before = services;
-        services = AppServices.Build(diagnostics, description);
+        services = AppServices.Build();
         before?.Dispose();
 
         var window = MainWindow ?? throw new InvalidOperationException("The app has no window yet.");

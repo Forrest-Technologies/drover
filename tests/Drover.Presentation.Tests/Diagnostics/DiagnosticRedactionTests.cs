@@ -37,7 +37,7 @@ public sealed class DiagnosticRedactionTests : IDisposable
     public DiagnosticRedactionTests()
     {
         log = new(store, time);
-        factory = LoggerFactory.Create(logging => logging.AddProvider(new DiagnosticLogProvider(log, time)));
+        factory = LoggerFactory.Create(logging => logging.AddProvider(new DiagnosticLogProvider(log, time, new HashSet<string>(["Sample.Dispatcher"]))));
     }
 
     #endregion
@@ -130,6 +130,27 @@ public sealed class DiagnosticRedactionTests : IDisposable
             .And.Contain(typeof(HttpRequestException).FullName);
         ShouldHoldNoSecret(saved);
         ShouldHoldNoSecret(store.All);
+    }
+
+    [Fact]
+    public void An_error_the_platform_caught_unhandled_is_kept_as_a_failure_and_offered()
+    {
+        factory.CreateLogger("Sample.Dispatcher").LogError(Thrown(), "Dispatcher failed");
+        factory.CreateLogger("Sample.Other").LogError(new InvalidOperationException("other"), "Other failed");
+
+        log.TakeFailureOffer().Should().BeTrue();
+        var saved = log.Compose(app);
+        saved.Should().Contain("unhandled failure").And.Contain(typeof(HttpRequestException).FullName);
+        ShouldHoldNoSecret(saved);
+    }
+
+    [Fact]
+    public void A_handled_error_is_logged_but_not_offered()
+    {
+        factory.CreateLogger<DiagnosticRedactionTests>().LogError(Thrown(), "A request failed");
+
+        log.TakeFailureOffer().Should().BeFalse();
+        log.Compose(app).Should().Contain("None recorded.");
     }
 
     [Fact]

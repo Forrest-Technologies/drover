@@ -65,7 +65,6 @@ global using Microsoft.UI.Xaml.Media;
 global using Microsoft.UI.Xaml.Media.Animation;
 global using Microsoft.UI.Xaml.Shapes;
 global using Path = Microsoft.UI.Xaml.Shapes.Path;
-global using RuntimeInformation = System.Runtime.InteropServices.RuntimeInformation;
 global using SkiaSharp;
 global using Timeline = Drover.Native.Controls.Timeline;
 global using Uno.UI.Hosting;
