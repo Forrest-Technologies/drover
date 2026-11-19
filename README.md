@@ -1,4 +1,4 @@
-[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Android preview](#android-preview) · [Roadmap](ROADMAP.md)
+[**Apache License 2.0**](LICENSE) · [Quick start](#quick-start) · [Desktop installers](docs/desktop-installers.md) · [Android preview](#android-preview) · [Roadmap](ROADMAP.md)
 
 # Drover
 
