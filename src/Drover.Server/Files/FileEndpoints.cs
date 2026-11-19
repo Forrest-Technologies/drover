@@ -104,7 +104,8 @@ public static class FileEndpoints
     private static async Task<Results<Ok<NativeFilePreview>, NotFound>> ReadNativePreview(
         Guid fileId,
         HttpContext context,
-        FileService files)
+        FileService files,
+        TimeProvider time)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -117,7 +118,7 @@ public static class FileEndpoints
         await using var content = found.Content;
         context.Response.Headers.CacheControl = "no-store";
         var access = context.GetSpaceAccess();
-        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId));
+        return TypedResults.Ok(await NativePreviewReader.Read(content, timeout.Token, access.UserId, timeProvider: time));
     }
 
     private static async Task<Results<Ok<FilePreviewResponse>, NotFound>> MintPreview(

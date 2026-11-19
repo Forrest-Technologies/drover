@@ -43,6 +43,10 @@ size, never from its name or a client-supplied content type.
   content types are not sniffed, and the app origin is the only allowed frame ancestor.
 - HTML size, native render size, diagram complexity, and render time are bounded. A refusal names the limit and
   leaves Download available.
+- PDF preview caps Flate output inside the parser at 1 MiB per stream. Flate output and unfiltered page
+  content share a 2 MiB document budget. The provider refuses filter chains and Flate predictors, with
+  Download available for those files. The request has a deadline and checks cancellation during screening
+  and decoding and between pages.
 
 Preview content never enters model instructions, tool grants, or the app's trusted interface tree. Widening the
 HTML policy or enabling network access requires a new decision.
