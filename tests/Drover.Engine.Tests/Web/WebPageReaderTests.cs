@@ -223,7 +223,7 @@ public sealed class WebPageReaderTests
             ? OutboundHttp.CreateHandlerWithoutRedirects(policy)
             : OutboundHttp.CreateHandler(policy, (host, _) => Task.FromResult(resolve(host)), isRefused ?? PrivateAddresses.Contains, followRedirects: false);
         return new WebPageReader(
-            new HttpClient(handler),
+            PageClients.Through(handler),
             Options.Create(new DeploymentPolicyOptions { Rules = policy }),
             NullLogger<WebPageReader>.Instance);
     }
