@@ -146,7 +146,16 @@ jobs:
           export DROVER_TIMELINE_FOCUS_CHECK=1
           app="src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll"
           if [[ "$RUNNER_OS" == Linux ]]; then
-            xvfb-run -a dotnet "$app"
+            set +e
+            xvfb-run -a dotnet "$app" >"$RUNNER_TEMP/focus.log" 2>&1
+            code=$?
+            set -e
+            cat "$RUNNER_TEMP/focus.log"
+            # The check can pass and the process can still die while the virtual display tears the window down.
+            if grep -F 'Activity focus check passed.' "$RUNNER_TEMP/focus.log"; then
+              exit 0
+            fi
+            exit "$code"
           else
             dotnet "$app"
           fi

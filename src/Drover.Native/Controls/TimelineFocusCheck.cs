@@ -70,7 +70,7 @@ internal static class TimelineFocusCheck
         catch (Exception exception)
         {
             logger.LogError(exception, "The activity focus check failed.");
-            Environment.Exit(1);
+            NativeStop.Now(1);
         }
     }
 
@@ -94,12 +94,12 @@ internal static class TimelineFocusCheck
             }
 
             logger.LogInformation("Activity focus check passed.");
-            Environment.Exit(0);
+            NativeStop.Now(0);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "The activity focus check failed.");
-            Environment.Exit(1);
+            NativeStop.Now(1);
         }
     }
 
@@ -109,7 +109,7 @@ internal static class TimelineFocusCheck
     private static void Fail(string reason)
     {
         logger.LogError("Activity focus check failed: {Reason}", reason);
-        Environment.Exit(1);
+        NativeStop.Now(1);
     }
 
     #endregion
