@@ -338,7 +338,8 @@ async function checkLeavingWithEdits(page, address) {
     const editorUrl = page.url();
     await instructions.focus();
     await page.keyboard.type('Sample edit. ');
-    await page.waitForTimeout(300);
+    // The draft hears the keystrokes on a later frame. A fixed pause is too short when the phone dock is busy.
+    await page.getByRole('button', { name: 'Save changes', exact: true }).waitFor({ state: 'visible', timeout: 5000 });
 
     await page.goBack();
     await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });

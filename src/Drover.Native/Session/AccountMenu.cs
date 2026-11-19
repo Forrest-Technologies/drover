@@ -14,15 +14,15 @@ public sealed class AccountMenu : Grid
 
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
-    private readonly Dialog updates = new();
+    private readonly Dialog? updates;
 
-    private readonly TextBlock updateDetail = Styles.Text(null, "DvTextParagraph");
+    private readonly TextBlock? updateDetail;
 
-    private readonly Switch updateChecks = new() { Label = "Check for desktop updates" };
+    private readonly Switch? updateChecks;
 
-    private readonly Button checkUpdate = new() { Content = "Check now" };
+    private readonly Button? checkUpdate;
 
-    private readonly Button installUpdate = new() { Content = "Download and restart", Kind = ButtonKind.Primary };
+    private readonly Button? installUpdate;
 
     private bool refreshingUpdates;
 
@@ -33,23 +33,41 @@ public sealed class AccountMenu : Grid
     public AccountMenu()
     {
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
-        updates.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => UpdatesChanged());
-        updateChecks.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => UpdateChecksChanged());
-        checkUpdate.Click += (_, _) => _ = model.CheckUpdates();
-        installUpdate.Click += (_, _) => _ = model.InstallUpdate();
-
-        var updateBody = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
-        updateBody.Children.Add(updateDetail);
-        updateBody.Children.Add(updateChecks);
-        var updateActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
-        updateActions.Children.Add(checkUpdate);
-        updateActions.Children.Add(installUpdate);
-        updates.Body = updateBody;
-        updates.Actions = updateActions;
-
         Children.Add(menu);
         Children.Add(notifications);
-        Children.Add(updates);
+
+        // A build without the update key shows no update controls. The dialog stays out of the tree, including the
+        // phone dock.
+        if (model.ShowsUpdates)
+        {
+            updates = new Dialog();
+            updateDetail = Styles.Text(null, "DvTextParagraph");
+            updateChecks = new Switch { Label = "Check for desktop updates" };
+            checkUpdate = new Button { Content = "Check now" };
+            installUpdate = new Button { Content = model.InstallLabel, Kind = ButtonKind.Primary };
+            updates.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => UpdatesChanged());
+            updateChecks.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => UpdateChecksChanged());
+            checkUpdate.Click += (_, _) => _ = model.CheckUpdates();
+            installUpdate.Click += (_, _) => _ = model.InstallUpdate();
+
+            var updateBody = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
+            updateBody.Children.Add(updateDetail);
+            updateBody.Children.Add(updateChecks);
+            var updateActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+            updateActions.Children.Add(checkUpdate);
+            updateActions.Children.Add(installUpdate);
+            updates.Body = updateBody;
+            updates.Actions = updateActions;
+            Children.Add(updates);
+        }
+        else
+        {
+            updates = null;
+            updateDetail = null;
+            updateChecks = null;
+            checkUpdate = null;
+            installUpdate = null;
+        }
 
         model.PropertyChanged += (_, _) => Show();
         Unloaded += (_, _) => model.Dispose();
@@ -130,6 +148,12 @@ public sealed class AccountMenu : Grid
 
     private void ShowUpdates()
     {
+        if (updates is null || updateDetail is null || updateChecks is null || checkUpdate is null
+            || installUpdate is null)
+        {
+            return;
+        }
+
         updates.Title = model.UpdatesTitle;
         updateDetail.Text = model.UpdatesDetail;
         refreshingUpdates = true;
@@ -203,7 +227,7 @@ public sealed class AccountMenu : Grid
 
     private void UpdatesChanged()
     {
-        if (!updates.Open && model.UpdatesOpen)
+        if (updates is not null && !updates.Open && model.UpdatesOpen)
         {
             model.UpdatesOpen = false;
             menu.ReturnFocusToTrigger();
@@ -212,7 +236,7 @@ public sealed class AccountMenu : Grid
 
     private void UpdateChecksChanged()
     {
-        if (!refreshingUpdates)
+        if (!refreshingUpdates && updateChecks is not null)
         {
             model.SetUpdateChecks(updateChecks.Value);
         }
