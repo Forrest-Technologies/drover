@@ -6,8 +6,19 @@ public sealed class ChatThreadSeeder : PlainSeeder<ChatThread>
     {
         ["id"] = Guid.CreateVersion7(),
         ["bot_id"] = seed.Parent("bots"),
+        ["project_id"] = seed.Parent("projects"),
         ["owner_user_id"] = seed.Placement.User,
         ["origin"] = "chat",
+    };
+}
+
+public sealed class ProjectSeeder : PlainSeeder<Project>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+        ["name"] = seed.Unique("project"),
+        ["instructions"] = string.Empty,
     };
 }
 

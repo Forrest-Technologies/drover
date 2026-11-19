@@ -1039,6 +1039,40 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Projects.Project", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .HasMaxLength(32000)
+                        .HasColumnType("character varying(32000)")
+                        .HasColumnName("instructions");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_projects");
+
+                    b.HasAlternateKey("SpaceId", "Id")
+                        .HasName("ak_projects_space_id_id");
+
+                    b.ToTable("projects", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_projects_name", "char_length(btrim(name)) > 0");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Push.BotPushMute", b =>
                 {
                     b.Property<Guid>("SpaceId")
@@ -1877,6 +1911,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_user_id");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
                     b.Property<Guid>("SpaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
@@ -1909,6 +1947,9 @@ namespace Drover.Data.Migrations
 
                     b.HasIndex("SpaceId", "BotId")
                         .HasDatabaseName("ix_threads_space_id_bot_id");
+
+                    b.HasIndex("SpaceId", "ProjectId")
+                        .HasDatabaseName("ix_threads_space_id_project_id");
 
                     b.HasIndex("SpaceId", "BotId", "OwnerUserId")
                         .IsUnique()
@@ -2847,6 +2888,13 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_threads_bots_space_id_bot_id");
+
+                    b.HasOne("Drover.Domain.Projects.Project", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "ProjectId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_threads_projects_space_id_project_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Threads.Message", b =>

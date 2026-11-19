@@ -67,6 +67,7 @@ public static class EngineServiceExtensions
         services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
         services.AddScoped<ThreadService>();
+        services.AddScoped<ProjectService>();
         services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();

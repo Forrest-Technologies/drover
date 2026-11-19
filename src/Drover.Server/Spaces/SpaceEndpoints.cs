@@ -29,6 +29,7 @@ public static class SpaceEndpoints
         root.MapExtensionEndpoints();
         root.MapBotNotifyEndpoints();
         root.MapThreadEndpoints();
+        root.MapProjectEndpoints();
         root.MapFileEndpoints();
         root.MapRunEndpoints();
         root.MapRunStreamEndpoints();

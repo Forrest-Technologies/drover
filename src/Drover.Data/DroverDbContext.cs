@@ -50,6 +50,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<Tool> Tools => Set<Tool>();
 
+    public DbSet<Project> Projects => Set<Project>();
+
     public DbSet<ChatThread> Threads => Set<ChatThread>();
 
     public DbSet<Message> Messages => Set<Message>();

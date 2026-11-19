@@ -33,6 +33,7 @@ public sealed class ChatThreadMapping : IEntityTypeConfiguration<ChatThread>
             "(summary IS NULL) = (summary_through_position IS NULL) AND (summary IS NULL OR is_main)"));
         builder.HasAlternateKey(thread => new { thread.SpaceId, thread.Id, thread.AudienceUserId });
         builder.WithinSpace<ChatThread, Bot>(nameof(ChatThread.BotId));
+        builder.WithinSpace<ChatThread, Project>(nameof(ChatThread.ProjectId));
         builder.ReferencesUser(nameof(ChatThread.OwnerUserId));
     }
 
