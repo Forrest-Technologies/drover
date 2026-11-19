@@ -276,6 +276,29 @@ public sealed class WebPageReaderTests
     }
 
     [Fact]
+    public async Task A_second_read_never_sends_a_cookie_set_by_the_first_read()
+    {
+        List<string> requests = [];
+        using var server = new TestWebServer(request =>
+        {
+            lock (requests)
+            {
+                requests.Add(request);
+            }
+
+            var body = "cookie-isolated";
+            return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nSet-Cookie: drover_session=space-a-secret; Path=/\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n{body}";
+        });
+        var reader = Reader(DeploymentPolicy.SelfHosted, PublicOrInside, OnlyTheTestServerIsPublic);
+
+        await reader.Read(new Uri($"http://public.test:{server.Port}/first"), Token);
+        await reader.Read(new Uri($"http://public.test:{server.Port}/second"), Token);
+
+        requests.Should().HaveCount(2);
+        requests[1].Should().NotContainEquivalentOf("Cookie:");
+    }
+
+    [Fact]
     public void A_page_nested_thousands_of_levels_deep_is_read_without_exhausting_the_stack()
     {
         var html = $"{string.Concat(Enumerable.Repeat("<div>", 50_000))}deep{string.Concat(Enumerable.Repeat("</div>", 50_000))}";
@@ -292,14 +315,15 @@ public sealed class WebPageReaderTests
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     /// <summary>
-    /// A reader as the server makes one: the checked handler without redirects, and no request stating a space's rule.
-    /// With <paramref name="resolve"/>, host names resolve as the test says and <paramref name="isRefused"/> decides.
+    /// A reader as the server makes one: the checked handler without redirects or cookies, and no request stating a
+    /// space's rule. With <paramref name="resolve"/>, host names resolve as the test says and
+    /// <paramref name="isRefused"/> decides.
     /// </summary>
     private static WebPageReader Reader(DeploymentPolicy policy, Func<string, IPAddress[]>? resolve = null, Func<IPAddress, bool>? isRefused = null)
     {
         var handler = resolve is null
             ? OutboundHttp.CreateHandlerWithoutRedirects(policy)
-            : OutboundHttp.CreateHandler(policy, (host, _) => Task.FromResult(resolve(host)), isRefused ?? PrivateAddresses.Contains, followRedirects: false);
+            : OutboundHttp.CreateHandler(policy, (host, _) => Task.FromResult(resolve(host)), isRefused ?? PrivateAddresses.Contains, followRedirects: false, useCookies: false);
         return new WebPageReader(
             PageClients.Through(handler),
             Options.Create(new DeploymentPolicyOptions { Rules = policy }),
