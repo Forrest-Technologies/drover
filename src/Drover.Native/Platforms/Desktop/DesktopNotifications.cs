@@ -72,46 +72,18 @@ internal sealed class DesktopNotifications(
         }
     }
 
-    private async Task Notify(Guid spaceId, long version, UserSignal signal, CancellationToken cancellationToken)
-    {
-        if (LiveNotificationDecision.Kind(signal) is not { } kind || signal.ThreadId is not { } threadId)
-        {
-            return;
-        }
-
-        try
-        {
-            var wake = await api.ReadPushWake(kind, threadId, cancellationToken);
-            if (!IsCurrent(spaceId, version)
-                || wake is null
-                || wake.SpaceId is { } wakeSpaceId && wakeSpaceId != spaceId)
-            {
-                return;
-            }
-
-            var choice = await api.GetBotNotify(spaceId, wake.BotId, cancellationToken);
-            if (IsCurrent(spaceId, version)
-                && LiveNotificationDecision.ShouldShow(
-                    wake,
-                    choice.Notifies,
-                    navigator.Current,
-                    ((App)Application.Current).IsActive))
-            {
-                sink.Show(wake.Body, LiveNotificationDecision.Address(wake), version);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogDebug("Stopped preparing a desktop notification for thread {ThreadId}", threadId);
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(
-                exception,
-                "A desktop notification for thread {ThreadId} could not be prepared",
-                threadId);
-        }
-    }
+    private Task Notify(Guid spaceId, long version, UserSignal signal, CancellationToken cancellationToken) =>
+        LiveNotificationDelivery.Deliver(
+            api,
+            navigator,
+            sink.Show,
+            logger,
+            spaceId,
+            version,
+            signal,
+            () => IsCurrent(spaceId, version),
+            () => ((App)Application.Current).IsActive,
+            cancellationToken);
 
     private void SessionChanged()
     {

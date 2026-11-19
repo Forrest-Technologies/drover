@@ -238,7 +238,7 @@ internal sealed class WindowsSystemNotification : ISystemNotification
         shown.Icon = LoadIcon(nint.Zero, new(32512));
         shown.Tip = "Drover";
         shown.InfoTitle = "Drover";
-        shown.Info = body.Length <= 255 ? body : body[..255];
+        shown.Info = NotificationText.Cut(body, NotificationText.MaxCodeUnits);
         if (!ShellNotifyIcon(Add, ref shown))
         {
             destinations.TryRemove(id, out _);
@@ -693,6 +693,8 @@ internal sealed class LinuxSystemNotification : ISystemNotification
 
     private long sequence;
 
+    private bool? bodyMarkup;
+
     private bool disposed;
 
     #endregion
@@ -815,7 +817,7 @@ internal sealed class LinuxSystemNotification : ISystemNotification
                 return;
             }
 
-            var id = await Notify(body);
+            var id = await Notify(NotificationText.EscapeIfMarkup(body, await BodyMarkup()));
             var old = Remember(id, address, version, shownEpoch);
             await Task.WhenAll(old.Select(CloseQuietly));
         }
@@ -884,6 +886,42 @@ internal sealed class LinuxSystemNotification : ISystemNotification
             selected.Dispose();
             throw;
         }
+    }
+
+    // Read once. A server that does not answer is treated as markup, so a name cannot become a link.
+    private async Task<bool> BodyMarkup()
+    {
+        if (bodyMarkup is { } known)
+        {
+            return known;
+        }
+
+        var markup = true;
+        try
+        {
+            var capabilities = await connection.CallMethodAsync(
+                CapabilitiesRequest(),
+                static (message, _) => message.GetBodyReader().ReadArrayOfString(),
+                this);
+            markup = NotificationText.UsesBodyMarkup(capabilities);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "The notification server did not say whether it reads markup, so the body is escaped");
+        }
+
+        bodyMarkup = markup;
+        return markup;
+    }
+
+    // The writer cannot live across the await, so the request is built before the call.
+    private MessageBuffer CapabilitiesRequest()
+    {
+        using var writer = connection.GetMessageWriter();
+        writer.WriteMethodCallHeader(Destination, Path, Interface, "GetCapabilities", "");
+        return writer.CreateMessage();
     }
 
     private Task<uint> Notify(string body)
