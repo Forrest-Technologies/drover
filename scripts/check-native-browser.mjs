@@ -229,6 +229,9 @@ try {
                 if (name === 'conversation' && !reference) {
                     await checkWorkspacePanels(page, width, theme);
                 }
+                if (name === 'bot-editor' && !reference) {
+                    await checkLeavingWithEdits(page, address);
+                }
                 if (name === 'usage') {
                     const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
                     if (reference) {
@@ -263,6 +266,50 @@ try {
 } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+}
+
+// Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
+async function checkLeavingWithEdits(page, address) {
+    const instructions = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
+    const editorUrl = page.url();
+    await instructions.focus();
+    await page.keyboard.type('Sample edit. ');
+    await page.waitForTimeout(300);
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await page.waitForURL(editorUrl);
+    await page.getByRole('button', { name: 'Stay here', exact: true }).dispatchEvent('click');
+    await leavePrompt.waitFor({ state: 'detached' });
+    assert.equal(page.url(), editorUrl, 'Staying keeps the address of the editor.');
+    assert((await instructions.inputValue()).includes('Sample edit. '), 'Staying keeps the edits.');
+
+    const closing = page.waitForEvent('dialog');
+    await page.evaluate(() => setTimeout(() => location.reload()));
+    const asked = await closing;
+    assert.equal(asked.type(), 'beforeunload');
+    await asked.dismiss();
+    await page.waitForTimeout(300);
+    assert.equal(page.url(), editorUrl, 'Declining the browser prompt keeps the page.');
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await page.getByRole('button', { name: 'Leave', exact: true }).dispatchEvent('click');
+    await page.waitForFunction(() => document.title.startsWith('Bots'), null, { timeout: 15000 });
+    assert(!page.url().endsWith(address), 'Leaving goes to where the person was going.');
+
+    let prompts = 0;
+    const count = dialog => {
+        prompts++;
+        return dialog.accept();
+    };
+    page.on('dialog', count);
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await page.waitForFunction(() => document.title.startsWith('Bots'), null, { timeout: 15000 });
+    page.off('dialog', count);
+    assert.equal(prompts, 0, 'With nothing unsaved, reloading asks nothing.');
 }
 
 async function checkWorkspacePanels(page, width, theme) {
