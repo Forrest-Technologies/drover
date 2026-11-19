@@ -669,6 +669,8 @@ internal sealed class LinuxSystemNotification : ISystemNotification
 
     private static readonly KeyValuePair<string, VariantValue>[] hints = [];
 
+    private static readonly TimeSpan shutdownLimit = TimeSpan.FromSeconds(2);
+
     private readonly Action<string, long> open;
 
     private readonly ILogger logger;
@@ -676,6 +678,8 @@ internal sealed class LinuxSystemNotification : ISystemNotification
     private readonly DBusConnection connection;
 
     private readonly Dictionary<uint, LinuxDestination> destinations = [];
+
+    private readonly HashSet<Task> pending = [];
 
     private readonly object gate = new();
 
@@ -713,15 +717,10 @@ internal sealed class LinuxSystemNotification : ISystemNotification
         long current;
         lock (gate)
         {
-            if (disposed)
-            {
-                return;
-            }
-
             current = epoch;
         }
 
-        _ = Send(body, address, version, current);
+        Track(() => Send(body, address, version, current));
     }
 
     public void Clear()
@@ -736,7 +735,7 @@ internal sealed class LinuxSystemNotification : ISystemNotification
 
         foreach (var id in ids)
         {
-            Close(id);
+            Track(() => CloseQuietly(id));
         }
     }
 
@@ -744,6 +743,8 @@ internal sealed class LinuxSystemNotification : ISystemNotification
     {
         IDisposable? selected;
         IDisposable? closed;
+        Task[] operations;
+        uint[] ids;
         lock (gate)
         {
             if (disposed)
@@ -756,17 +757,53 @@ internal sealed class LinuxSystemNotification : ISystemNotification
             closed = closedObserver;
             actionObserver = null;
             closedObserver = null;
+            operations = [.. pending];
+            ids = [.. destinations.Keys];
+            destinations.Clear();
         }
 
-        Clear();
-        selected?.Dispose();
-        closed?.Dispose();
-        connection.Dispose();
+        _ = ShutDown(operations, ids, selected, closed);
     }
 
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// Starts a bus call that shutting down waits for, so its notification is closed before the connection is.
+    /// Nothing starts once the connection is closing.
+    /// </summary>
+    private void Track(Func<Task> work)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (gate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            pending.Add(completion.Task);
+        }
+
+        _ = RunTracked(work, completion);
+    }
+
+    private async Task RunTracked(Func<Task> work, TaskCompletionSource completion)
+    {
+        try
+        {
+            await work();
+        }
+        finally
+        {
+            completion.TrySetResult();
+            lock (gate)
+            {
+                pending.Remove(completion.Task);
+            }
+        }
+    }
 
     private async Task Send(string body, string address, long version, long shownEpoch)
     {
@@ -775,10 +812,7 @@ internal sealed class LinuxSystemNotification : ISystemNotification
             await EnsureObserving();
             var id = await Notify(body);
             var old = Remember(id, address, version, shownEpoch);
-            foreach (var oldId in old)
-            {
-                Close(oldId);
-            }
+            await Task.WhenAll(old.Select(Close));
         }
         catch (Exception exception)
         {
@@ -865,23 +899,19 @@ internal sealed class LinuxSystemNotification : ISystemNotification
             this);
     }
 
-    private void Close(uint id)
+    private Task Close(uint id)
+    {
+        using var writer = connection.GetMessageWriter();
+        writer.WriteMethodCallHeader(Destination, Path, Interface, "CloseNotification", "u");
+        writer.WriteUInt32(id);
+        return connection.CallMethodAsync(writer.CreateMessage());
+    }
+
+    private async Task CloseQuietly(uint id)
     {
         try
         {
-            using var writer = connection.GetMessageWriter();
-            writer.WriteMethodCallHeader(
-                Destination,
-                Path,
-                Interface,
-                "CloseNotification",
-                "u",
-                MessageFlags.NoReplyExpected);
-            writer.WriteUInt32(id);
-            if (!connection.TrySendMessage(writer.CreateMessage()) && !IsDisposed())
-            {
-                logger.LogDebug("The system could not dismiss a desktop notification");
-            }
+            await Close(id);
         }
         catch (Exception exception)
         {
@@ -934,8 +964,8 @@ internal sealed class LinuxSystemNotification : ISystemNotification
 
         if (signal.Action == DefaultAction && Forget(signal.Id) is { } destination)
         {
-            Close(signal.Id);
-            open(destination.Address, destination.Version);
+            Track(() => CloseQuietly(signal.Id));
+            Open(destination);
         }
     }
 
@@ -963,6 +993,44 @@ internal sealed class LinuxSystemNotification : ISystemNotification
         lock (gate)
         {
             return disposed;
+        }
+    }
+
+    private void Open(LinuxDestination destination)
+    {
+        lock (gate)
+        {
+            if (!disposed)
+            {
+                open(destination.Address, destination.Version);
+            }
+        }
+    }
+
+    private async Task ShutDown(
+        Task[] operations,
+        uint[] ids,
+        IDisposable? selected,
+        IDisposable? closed)
+    {
+        try
+        {
+            var closes = ids.Select(Close);
+            await Task.WhenAll([.. operations, .. closes]).WaitAsync(shutdownLimit);
+        }
+        catch (TimeoutException exception)
+        {
+            logger.LogDebug(exception, "Timed out while dismissing desktop notifications");
+        }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "The system could not dismiss every desktop notification");
+        }
+        finally
+        {
+            selected?.Dispose();
+            closed?.Dispose();
+            connection.Dispose();
         }
     }
 
