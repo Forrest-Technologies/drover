@@ -1,4 +1,5 @@
 global using System;
+global using System.Buffers;
 global using System.Buffers.Binary;
 global using System.Buffers.Text;
 global using System.Collections.Concurrent;

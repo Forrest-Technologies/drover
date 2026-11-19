@@ -12,11 +12,21 @@ public sealed class ConversationExporter(
     MessageRepository messages,
     ToolCallRepository toolCalls,
     BotRepository bots,
+    TenantScope scope,
     TimeProvider time)
 {
     #region Private Fields
 
     private const string FallbackBotName = "Bot";
+
+    private const int PageSize = 200;
+
+    private static readonly Redactor redactor = new([]);
+
+    private static readonly JsonSerializerOptions partJson = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
 
     #endregion
 
@@ -25,82 +35,386 @@ public sealed class ConversationExporter(
     /// <summary>The conversation, or null when the caller may not read the thread.</summary>
     public async Task<ConversationExport?> Export(Guid threadId, CancellationToken cancellationToken)
     {
-        if (await threads.FindThread(threadId, cancellationToken) is not { } thread)
+        if (await ReadMetadata(threadId, cancellationToken) is not { } metadata)
         {
             return null;
         }
 
-        var bot = await bots.FindBot(thread.BotId, cancellationToken);
-        IReadOnlyList<Message> all =
-        [
-            .. await messages.ListMessages(threadId, cancellationToken),
-            .. await messages.ListPendingMessages(threadId, cancellationToken),
-        ];
-        var calls = await ListCalls(all, cancellationToken);
+        List<ExportedMessage> exported = [];
+        int? afterPosition = null;
+
+        while (true)
+        {
+            var page = await messages.ListExportPlacedMessages(threadId, afterPosition, PageSize, cancellationToken);
+
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            exported.AddRange(await BuildPage(threadId, page, cancellationToken));
+
+            if (page.Count < PageSize)
+            {
+                break;
+            }
+
+            afterPosition = page[^1].Position;
+        }
+
+        DateTimeOffset? afterCreatedAt = null;
+        Guid? afterId = null;
+
+        while (true)
+        {
+            var page = await messages.ListExportPendingMessages(threadId, afterCreatedAt, afterId, PageSize, cancellationToken);
+
+            if (page.Count == 0)
+            {
+                break;
+            }
+
+            exported.AddRange(await BuildPage(threadId, page, cancellationToken));
+
+            if (page.Count < PageSize)
+            {
+                break;
+            }
+
+            afterCreatedAt = page[^1].CreatedAt;
+            afterId = page[^1].Id;
+        }
 
         return new ConversationExport(
             ConversationExport.CurrentVersion,
-            thread.Id,
-            thread.BotId,
-            bot?.Name ?? FallbackBotName,
-            thread.Title,
-            thread.IsMain,
-            thread.AudienceUserId == Audience.Everyone,
-            time.GetUtcNow(),
-            [.. all.Where(IsShown).Select(message => ToExported(message, calls)).Where(HasContent)]);
+            metadata.ThreadId,
+            metadata.BotId,
+            metadata.BotName,
+            metadata.Title,
+            metadata.IsMain,
+            metadata.IsShared,
+            metadata.ExportedAt,
+            exported);
+    }
+
+    /// <summary>Opens a short scope to confirm thread access and read export metadata, or returns null when not found.</summary>
+    public async Task<ConversationExportSession?> BeginExport(Guid threadId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await ReadMetadata(threadId, cancellationToken) is not { } metadata)
+        {
+            return null;
+        }
+
+        await work.Commit(cancellationToken);
+        return new ConversationExportSession(metadata);
+    }
+
+    /// <summary>
+    /// Streams the conversation directly to <paramref name="destination"/> in bounded pages, opening a short tenant
+    /// scope per page and closing it before writing bytes so no transaction stays open on the network.
+    /// </summary>
+    public async Task WriteExport(
+        ConversationExportSession session,
+        string format,
+        Stream destination,
+        CancellationToken cancellationToken)
+    {
+        if (format is ExportFormats.Json)
+        {
+            await WriteJson(session.Metadata, destination, cancellationToken);
+        }
+        else
+        {
+            await WriteMarkdown(session.Metadata, destination, cancellationToken);
+        }
+    }
+
+    #endregion
+
+    #region Streaming
+
+    private async Task WriteJson(ConversationExportMetadata metadata, Stream destination, CancellationToken cancellationToken)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        await using var writer = ConversationExportFiles.CreateJsonWriter(buffer);
+        ConversationExportFiles.WriteJsonHeader(writer, metadata, ConversationExport.CurrentVersion);
+        await writer.FlushAsync(cancellationToken);
+        await FlushBuffer(buffer, destination, cancellationToken);
+
+        await ForEachPage(
+            metadata.ThreadId,
+            async page =>
+            {
+                foreach (var message in page)
+                {
+                    ConversationExportFiles.WriteJsonMessage(writer, message);
+                    await writer.FlushAsync(cancellationToken);
+
+                    if (buffer.WrittenCount >= 16 * 1024)
+                    {
+                        await FlushBuffer(buffer, destination, cancellationToken);
+                    }
+                }
+
+                await FlushBuffer(buffer, destination, cancellationToken);
+                await destination.FlushAsync(cancellationToken);
+            },
+            cancellationToken);
+
+        ConversationExportFiles.WriteJsonFooter(writer);
+        await writer.FlushAsync(cancellationToken);
+        await FlushBuffer(buffer, destination, cancellationToken);
+        await destination.FlushAsync(cancellationToken);
+    }
+
+    private async Task WriteMarkdown(ConversationExportMetadata metadata, Stream destination, CancellationToken cancellationToken)
+    {
+        var buffer = new StringWriter();
+        ConversationExportFiles.WriteMarkdownHeader(buffer, metadata, ConversationExport.CurrentVersion);
+        await FlushText(buffer, destination, cancellationToken);
+
+        await ForEachPage(
+            metadata.ThreadId,
+            async page =>
+            {
+                foreach (var message in page)
+                {
+                    ConversationExportFiles.WriteMarkdownMessage(buffer, message, metadata.BotName);
+                    await FlushText(buffer, destination, cancellationToken);
+                }
+
+                await destination.FlushAsync(cancellationToken);
+            },
+            cancellationToken);
+    }
+
+    private static async Task FlushBuffer(ArrayBufferWriter<byte> buffer, Stream destination, CancellationToken cancellationToken)
+    {
+        if (buffer.WrittenCount == 0)
+        {
+            return;
+        }
+
+        await destination.WriteAsync(buffer.WrittenMemory, cancellationToken);
+        buffer.Clear();
+    }
+
+    private static async Task FlushText(StringWriter buffer, Stream destination, CancellationToken cancellationToken)
+    {
+        var content = buffer.GetStringBuilder();
+
+        if (content.Length == 0)
+        {
+            return;
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(content.ToString());
+        content.Clear();
+        await destination.WriteAsync(bytes, cancellationToken);
+    }
+
+    private async Task ForEachPage(
+        Guid threadId,
+        Func<List<ExportedMessage>, Task> onPage,
+        CancellationToken cancellationToken)
+    {
+        int? afterPosition = null;
+
+        while (true)
+        {
+            List<ExportedMessage> page;
+            bool done;
+
+            await using (var work = await scope.Begin(cancellationToken))
+            {
+                var rows = await messages.ListExportPlacedMessages(threadId, afterPosition, PageSize, cancellationToken);
+                page = rows.Count == 0 ? [] : await BuildPage(threadId, rows, cancellationToken);
+                done = rows.Count < PageSize;
+
+                if (rows.Count > 0)
+                {
+                    afterPosition = rows[^1].Position;
+                }
+
+                await work.Commit(cancellationToken);
+            }
+
+            if (page.Count > 0)
+            {
+                await onPage(page);
+            }
+
+            if (done)
+            {
+                break;
+            }
+        }
+
+        DateTimeOffset? afterCreatedAt = null;
+        Guid? afterId = null;
+
+        while (true)
+        {
+            List<ExportedMessage> page;
+            bool done;
+
+            await using (var work = await scope.Begin(cancellationToken))
+            {
+                var rows = await messages.ListExportPendingMessages(threadId, afterCreatedAt, afterId, PageSize, cancellationToken);
+                page = rows.Count == 0 ? [] : await BuildPage(threadId, rows, cancellationToken);
+                done = rows.Count < PageSize;
+
+                if (rows.Count > 0)
+                {
+                    afterCreatedAt = rows[^1].CreatedAt;
+                    afterId = rows[^1].Id;
+                }
+
+                await work.Commit(cancellationToken);
+            }
+
+            if (page.Count > 0)
+            {
+                await onPage(page);
+            }
+
+            if (done)
+            {
+                break;
+            }
+        }
     }
 
     #endregion
 
     #region Private Methods
 
-    private static bool IsShown(Message message) => message.Role is MessageRole.User or MessageRole.Assistant;
+    private async Task<ConversationExportMetadata?> ReadMetadata(Guid threadId, CancellationToken cancellationToken)
+    {
+        if (await threads.FindThread(threadId, cancellationToken) is not { } thread)
+        {
+            return null;
+        }
+
+        var bot = await bots.FindBot(thread.BotId, cancellationToken);
+        var botName = redactor.Redact(bot?.Name ?? FallbackBotName);
+        var title = thread.Title is { Length: > 0 } text ? redactor.Redact(text) : thread.Title;
+        return new ConversationExportMetadata(
+            thread.Id,
+            thread.BotId,
+            botName,
+            title,
+            thread.IsMain,
+            thread.AudienceUserId == Audience.Everyone,
+            time.GetUtcNow());
+    }
+
+    private async Task<List<ExportedMessage>> BuildPage(
+        Guid threadId,
+        List<ExportMessageRow> rows,
+        CancellationToken cancellationToken)
+    {
+        List<(ExportMessageRow Row, List<ProjectedPart> Parts)> parsed = [];
+        HashSet<Guid> askedIds = [];
+
+        foreach (var row in rows)
+        {
+            var parts = JsonSerializer.Deserialize<List<ProjectedPart>>(row.PartsJson, partJson) ?? [];
+            parsed.Add((row, parts));
+
+            foreach (var part in parts)
+            {
+                if (part.Type is "tool_call" && part.ToolCallId is { } id)
+                {
+                    askedIds.Add(id);
+                }
+            }
+        }
+
+        var callRows = askedIds.Count == 0
+            ? []
+            : (await toolCalls.ListExportToolCalls(askedIds, cancellationToken)).ToDictionary(call => call.Id);
+        List<Guid> missingIds = [.. askedIds.Where(id => !callRows.ContainsKey(id))];
+        var fallbackResults = missingIds.Count == 0
+            ? []
+            : await messages.ListToolResultErrors(threadId, missingIds, cancellationToken);
+
+        List<ExportedMessage> exported = [];
+
+        foreach (var (row, parts) in parsed)
+        {
+            var message = ToExported(row, parts, callRows, fallbackResults);
+
+            if (HasContent(message))
+            {
+                exported.Add(message);
+            }
+        }
+
+        return exported;
+    }
 
     private static bool HasContent(ExportedMessage message) =>
         message.Text.Length > 0 || message.ToolCalls.Count > 0 || message.Attachments.Count > 0;
 
-    private static ExportedMessage ToExported(Message message, Dictionary<Guid, ExportedToolCall> calls) =>
-        new(
-            message.Position,
-            message.Role is MessageRole.User ? "user" : "assistant",
-            message.CreatedAt,
-            string.Join("\n\n", message.Parts.OfType<TextPart>().Select(part => part.Text).Where(text => !string.IsNullOrWhiteSpace(text))),
-            [.. message.Parts.OfType<ToolCallPart>().Select(call => calls[call.ToolCallId])],
-            [.. message.Parts.Select(Attachment).OfType<ExportedAttachment>()],
-            message.Position is null,
-            message.Withheld,
-            message.ScheduleId is not null);
-
-    private static ExportedAttachment? Attachment(MessagePart part) => part switch
+    private static ExportedMessage ToExported(
+        ExportMessageRow row,
+        List<ProjectedPart> parts,
+        Dictionary<Guid, ExportToolCallRow> calls,
+        Dictionary<Guid, bool> fallbackResults)
     {
-        ImagePart image => new(image.Name ?? "picture", image.MediaType, image.Size),
-        FilePart file => new(file.Name, file.MediaType, file.Size),
-        _ => null,
-    };
+        var rawText = string.Join(
+            "\n\n",
+            parts
+                .Where(part => part.Type is "text" && !string.IsNullOrWhiteSpace(part.Text))
+                .Select(part => part.Text!));
+        var text = rawText.Length > 0 ? redactor.Redact(rawText) : string.Empty;
 
-    /// <summary>
-    /// Each call in the messages by its id: named as its row names the tool, or as the model did when the row is gone,
-    /// with how it ended as its row says, or else as its result in the thread says.
-    /// </summary>
-    private async Task<Dictionary<Guid, ExportedToolCall>> ListCalls(IReadOnlyList<Message> all, CancellationToken cancellationToken)
-    {
-        var parts = all.SelectMany(message => message.Parts).ToList();
-        var asked = parts.OfType<ToolCallPart>().GroupBy(call => call.ToolCallId).ToDictionary(group => group.Key, group => group.First());
-        var rows = asked.Count == 0
-            ? []
-            : (await toolCalls.ListToolCalls([.. asked.Keys], cancellationToken)).ToDictionary(call => call.Id);
-        var results = parts.OfType<ToolResultPart>()
-            .GroupBy(result => result.ToolCallId)
-            .ToDictionary(group => group.Key, group => group.Last());
+        List<ExportedToolCall> exportedCalls = [];
+        List<ExportedAttachment> attachments = [];
 
-        return asked.ToDictionary(
-            call => call.Key,
-            call => rows.GetValueOrDefault(call.Key) is { } row
-                ? new ExportedToolCall(row.ToolName, Outcome(row, results.GetValueOrDefault(call.Key)))
-                : new ExportedToolCall(call.Value.ToolName, Outcome(null, results.GetValueOrDefault(call.Key))));
+        foreach (var part in parts)
+        {
+            switch (part.Type)
+            {
+                case "tool_call" when part.ToolCallId is { } callId:
+                    if (calls.TryGetValue(callId, out var found))
+                    {
+                        exportedCalls.Add(new(found.ToolName, Outcome(found, null)));
+                    }
+                    else
+                    {
+                        var hasResult = fallbackResults.TryGetValue(callId, out var isError);
+                        exportedCalls.Add(new(part.ToolName ?? string.Empty, Outcome(null, hasResult ? isError : null)));
+                    }
+
+                    break;
+
+                case "image":
+                    attachments.Add(new(redactor.Redact(part.Name ?? "picture"), part.MediaType ?? string.Empty, part.Size ?? 0));
+                    break;
+
+                case "file":
+                    attachments.Add(new(redactor.Redact(part.Name ?? string.Empty), part.MediaType ?? string.Empty, part.Size ?? 0));
+                    break;
+            }
+        }
+
+        return new ExportedMessage(
+            row.Position,
+            row.Role is "user" ? "user" : "assistant",
+            row.CreatedAt,
+            text,
+            exportedCalls,
+            attachments,
+            row.Position is null,
+            row.Withheld,
+            row.ScheduleId is not null);
     }
 
-    private static string Outcome(ToolCall? row, ToolResultPart? result) => row?.Status switch
+    private static string Outcome(ExportToolCallRow? row, bool? fallbackIsError) => row?.Status switch
     {
         ToolCallStatus.Completed => row.IsError ? ExportedToolOutcomes.Failed : ExportedToolOutcomes.Succeeded,
         ToolCallStatus.Failed => ExportedToolOutcomes.Failed,
@@ -108,13 +422,50 @@ public sealed class ConversationExporter(
         ToolCallStatus.Interrupted => ExportedToolOutcomes.Interrupted,
         ToolCallStatus.PendingApproval => ExportedToolOutcomes.AwaitingApproval,
         ToolCallStatus.Approved or ToolCallStatus.Running => ExportedToolOutcomes.Running,
-        _ => result switch
+        _ => fallbackIsError switch
         {
             null => ExportedToolOutcomes.Unknown,
-            { IsError: true } => ExportedToolOutcomes.Failed,
-            _ => ExportedToolOutcomes.Succeeded,
+            true => ExportedToolOutcomes.Failed,
+            false => ExportedToolOutcomes.Succeeded,
         },
     };
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed record ProjectedPart(
+        string Type,
+        string? Text,
+        string? Name,
+        string? MediaType,
+        long? Size,
+        Guid? ToolCallId,
+        string? ToolName);
+
+    #endregion
+}
+
+
+/// <summary>An authorized export's metadata, captured in a short transaction before streaming starts.</summary>
+public sealed class ConversationExportSession
+{
+    #region Constructors
+
+    internal ConversationExportSession(ConversationExportMetadata metadata) => Metadata = metadata;
+
+    #endregion
+
+    #region Properties
+
+    internal ConversationExportMetadata Metadata { get; }
+
+    #endregion
+
+    #region Public Methods
+
+    public string FileName(string format) =>
+        ConversationExportFiles.FileName(Metadata.BotName, Metadata.ExportedAt, format);
 
     #endregion
 }

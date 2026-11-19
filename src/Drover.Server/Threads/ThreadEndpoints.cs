@@ -30,7 +30,8 @@ public static class ThreadEndpoints
         threads.MapPut("/{threadId:guid}/project", SetProject)
             .WithName("SetThreadProject")
             .WithSummary("Moves a conversation into a project of the same space, or out of its project when projectId is null. Only the conversation's owner may move it.");
-        threads.MapGet("/{threadId:guid}/export", ExportConversation)
+
+        space.MapGet("/threads/{threadId:guid}/export", ExportConversation)
             .WithName("ExportConversation")
             .WithSummary("The conversation as a file to keep: format=markdown (the default) or format=json, the versioned ConversationExport. Tool calls are listed by name and outcome, files by name and size.");
 
@@ -178,27 +179,60 @@ public static class ThreadEndpoints
         };
     }
 
-    private static async Task<Results<FileContentHttpResult, NotFound, ProblemHttpResult>> ExportConversation(
+    private static async Task<Results<PushStreamHttpResult, NotFound, ProblemHttpResult>> ExportConversation(
         Guid threadId,
         string? format,
         HttpContext context,
-        ConversationExporter exporter)
+        ConversationExporter exporter,
+        ConversationExportLimiter limiter)
     {
         var chosen = format ?? ExportFormats.Markdown;
+
         if (chosen is not (ExportFormats.Markdown or ExportFormats.Json))
         {
-            return TypedResults.Problem(title: $"format is '{ExportFormats.Markdown}' or '{ExportFormats.Json}'.", statusCode: StatusCodes.Status400BadRequest);
+            return TypedResults.Problem(
+                title: $"format is '{ExportFormats.Markdown}' or '{ExportFormats.Json}'.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (await exporter.Export(threadId, context.RequestAborted) is not { } export)
+        if (limiter.TryAcquire(context.GetSpaceAccess().UserId) is not { } lease)
         {
+            return TypedResults.Problem(
+                title: "Too many conversation exports are running at once. Try again shortly.",
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
+        ConversationExportSession? session;
+
+        try
+        {
+            session = await exporter.BeginExport(threadId, context.RequestAborted);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+
+        if (session is null)
+        {
+            lease.Dispose();
             return TypedResults.NotFound();
         }
 
         context.Response.Headers.CacheControl = "no-store";
-        return chosen is ExportFormats.Json
-            ? TypedResults.File(export.ToJson(), "application/json; charset=utf-8", export.FileName(chosen))
-            : TypedResults.File(export.ToMarkdown(), "text/markdown; charset=utf-8", export.FileName(chosen));
+        context.Response.RegisterForDispose(lease);
+        var contentType = chosen is ExportFormats.Json ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8";
+        return TypedResults.Stream(
+            async output =>
+            {
+                using (lease)
+                {
+                    await exporter.WriteExport(session, chosen, output, context.RequestAborted);
+                }
+            },
+            contentType,
+            session.FileName(chosen));
     }
 
     private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ProblemHttpResult>> PostMessage(

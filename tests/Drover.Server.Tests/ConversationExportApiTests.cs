@@ -205,7 +205,172 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
 
     #endregion
 
+    #region Security & Bounds
+
+    [Fact]
+    public async Task Free_text_and_attachment_names_redact_token_shaped_secrets_in_both_formats()
+    {
+        var userToken = $"ghp_{Convert.ToHexString(RandomNumberGenerator.GetBytes(20))}";
+        var assistantToken = $"sk-{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
+        var fileName = $"key-{Convert.ToHexString(RandomNumberGenerator.GetBytes(8))}.txt";
+        var attachmentToken = $"AKIA{Convert.ToHexString(RandomNumberGenerator.GetBytes(8))}";
+        script = new ScriptedModel([new TextOutput($"Assistant saw {assistantToken}.")]);
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var main = await OpenMain(client, alice.SpaceId, bot.Id);
+        var file = await Upload(client, alice.SpaceId, main.Id, $"{attachmentToken}-{fileName}", "harmless");
+        await Ask(client, alice.SpaceId, main.Id, new SendMessageRequest($"User pasted {userToken}.", FileIds: [file.Id]));
+
+        var jsonResponse = await client.Get(ExportPath(alice.SpaceId, main.Id, "json"));
+        var jsonBody = await jsonResponse.Content.ReadAsStringAsync(Token);
+        var export = JsonSerializer.Deserialize<ConversationExport>(jsonBody, json)!;
+        var mdResponse = await client.Get(ExportPath(alice.SpaceId, main.Id, "markdown"));
+        var mdBody = await mdResponse.Content.ReadAsStringAsync(Token);
+
+        jsonResponse.StatusCode.Should().Be(HttpStatusCode.OK, jsonBody);
+        mdResponse.StatusCode.Should().Be(HttpStatusCode.OK, mdBody);
+        jsonBody.Should().NotContain(userToken).And.NotContain(assistantToken).And.NotContain(attachmentToken);
+        mdBody.Should().NotContain(userToken).And.NotContain(assistantToken).And.NotContain(attachmentToken);
+        export.Messages[0].Text.Should().Contain(Redactor.Mark);
+        export.Messages[0].Attachments[0].Name.Should().Contain(Redactor.Mark);
+        export.Messages[1].Text.Should().Contain(Redactor.Mark);
+        mdBody.Should().Contain(Redactor.Mark);
+    }
+
+    [Fact]
+    public async Task The_markdown_export_neutralizes_active_html_and_embeds_while_keeping_markdown_and_code()
+    {
+        var hostile = string.Join("\n\n",
+            "Ordinary **bold** and - list and <https://example.com>.",
+            "<script>alert(1)</script>",
+            """<img src="https://evil.test/x.png" onerror="alert(1)">""",
+            "![tracker](https://evil.test/pixel.png)",
+            "[click](javascript:alert(1))",
+            "Inline `<span>keep</span>` here.",
+            "```html\n<script>keepInFence()</script>\n![keep](https://example.com/a.png)\n```");
+        script = new ScriptedModel([new TextOutput(hostile)]);
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var main = await OpenMain(client, alice.SpaceId, bot.Id);
+        await Ask(client, alice.SpaceId, main.Id, new SendMessageRequest("Show me an example"));
+
+        var md = await (await client.Get(ExportPath(alice.SpaceId, main.Id, "markdown"))).Content.ReadAsStringAsync(Token);
+        var export = await GetFor<ConversationExport>(client, ExportPath(alice.SpaceId, main.Id, "json"));
+
+        md.Should().Contain("Ordinary **bold** and - list and <https://example.com>.");
+        md.Should().Contain("&lt;script>alert(1)&lt;/script>");
+        md.Should().NotContain("<script>alert(1)");
+        md.Should().Contain("&lt;img src=\"https://evil.test/x.png\"");
+        md.Should().NotContain("<img ");
+        md.Should().Contain(@"\![tracker](https://evil.test/pixel.png)");
+        md.Should().Contain(@"\[click](javascript:alert(1))");
+        md.Should().Contain("Inline `<span>keep</span>` here.");
+        md.Should().Contain("```html\n<script>keepInFence()</script>\n![keep](https://example.com/a.png)\n```");
+        export.Messages[1].Text.Should().Be(hostile, "JSON stays structured without Markdown escaping");
+    }
+
+    [Fact]
+    public async Task A_multi_page_thread_streams_every_placed_and_pending_message_in_order_without_tool_payloads()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var main = await OpenMain(client, alice.SpaceId, bot.Id);
+        await SeedLargeConversation(alice.SpaceId, alice.UserId, bot.Id, main.Id, placedCount: 245, pendingCount: 3);
+
+        var jsonBody = await (await client.Get(ExportPath(alice.SpaceId, main.Id, "json"))).Content.ReadAsStringAsync(Token);
+        var export = JsonSerializer.Deserialize<ConversationExport>(jsonBody, json)!;
+        var mdBody = await (await client.Get(ExportPath(alice.SpaceId, main.Id, "markdown"))).Content.ReadAsStringAsync(Token);
+
+        export.Messages.Should().HaveCount(248);
+        export.Messages.Take(245).Select(message => message.Position).Should().Equal(Enumerable.Range(1, 245).Select(n => (int?)n));
+        export.Messages.Skip(245).Should().OnlyContain(message => message.Pending && message.Position == null);
+        export.Messages[0].Text.Should().Be("Turn 1");
+        export.Messages[244].Text.Should().Be("Turn 245");
+        export.Messages[247].Text.Should().Be("Pending 3");
+        export.Messages[1].ToolCalls.Should().Equal(new ExportedToolCall("time_now", ExportedToolOutcomes.Succeeded));
+        jsonBody.Should().NotContain("HIDDEN_REASONING").And.NotContain("HIDDEN_TOOL_ARG").And.NotContain("HIDDEN_TOOL_RESULT");
+        mdBody.Should().Contain("Turn 1").And.Contain("Turn 245").And.Contain("Pending 3");
+        mdBody.Should().NotContain("HIDDEN_REASONING").And.NotContain("HIDDEN_TOOL_ARG").And.NotContain("HIDDEN_TOOL_RESULT");
+    }
+
+    #endregion
+
     #region Helpers
+
+    private async Task SeedLargeConversation(Guid spaceId, Guid userId, Guid botId, Guid threadId, int placedCount, int pendingCount)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        var thread = await db.Threads.SingleAsync(row => row.Id == threadId, Token);
+        var callId = Guid.CreateVersion7();
+        var started = DateTimeOffset.UtcNow.AddMinutes(-30);
+        Guid? parentId = null;
+
+        for (var i = 1; i <= placedCount; i++)
+        {
+            var id = Guid.CreateVersion7();
+            var isUser = i % 2 == 1;
+            List<MessagePart> parts = i == 2
+                ? [
+                    new TextPart($"Turn {i}"),
+                    new ReasoningPart($"HIDDEN_REASONING_{i}"),
+                    new ToolCallPart(callId, "c1", "time_now", JsonSerializer.SerializeToElement(new { secret = $"HIDDEN_TOOL_ARG_{i}" })),
+                ]
+                : [new TextPart($"Turn {i}"), new ReasoningPart($"HIDDEN_REASONING_{i}")];
+
+            db.Messages.Add(new Message
+            {
+                Id = id,
+                SpaceId = spaceId,
+                AudienceUserId = thread.AudienceUserId,
+                ThreadId = threadId,
+                Position = i,
+                ParentId = parentId,
+                Role = isUser ? MessageRole.User : MessageRole.Assistant,
+                AuthorUserId = isUser ? userId : null,
+                AuthorBotId = isUser ? null : botId,
+                Parts = parts,
+                CreatedAt = started.AddSeconds(i),
+            });
+            parentId = id;
+        }
+
+        db.Messages.Add(new Message
+        {
+            Id = Guid.CreateVersion7(),
+            SpaceId = spaceId,
+            AudienceUserId = thread.AudienceUserId,
+            ThreadId = threadId,
+            Position = placedCount + 1,
+            ParentId = parentId,
+            Role = MessageRole.Tool,
+            Parts = [new ToolResultPart(callId, "c1", false, JsonSerializer.SerializeToElement(new { secret = "HIDDEN_TOOL_RESULT" }))],
+            CreatedAt = started.AddSeconds(placedCount + 1),
+        });
+
+        for (var p = 1; p <= pendingCount; p++)
+        {
+            db.Messages.Add(new Message
+            {
+                Id = Guid.CreateVersion7(),
+                SpaceId = spaceId,
+                AudienceUserId = thread.AudienceUserId,
+                ThreadId = threadId,
+                Position = null,
+                Role = MessageRole.User,
+                AuthorUserId = userId,
+                Parts = [new TextPart($"Pending {p}")],
+                CreatedAt = started.AddSeconds(placedCount + 10 + p),
+            });
+        }
+
+        await work.Commit(Token);
+    }
 
     private static string Space(Guid spaceId) => $"/api/spaces/{spaceId}";
 
@@ -296,6 +461,99 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
         var response = await client.Get(path);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
         return (await response.Content.ReadFromJsonAsync<T>(Token))!;
+    }
+
+    #endregion
+}
+
+public sealed class ConversationExportLimitTests(PostgresServer postgres) : ServerTestBase(postgres)
+{
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>
+    {
+        ["Drover:SignInRateLimit:PermitLimit"] = "1000",
+        ["Drover:ConversationExportLimit:MaxConcurrentPerUser"] = "1",
+        ["Drover:ConversationExportLimit:MaxConcurrentTotal"] = "2",
+    };
+
+    #endregion
+
+    #region Overrides
+
+    protected override void ConfigureServices(IServiceCollection services) =>
+        services.AddSingleton<IModelClientProvider>(_ => new ScriptedModelProvider(new ScriptedModel()));
+
+    #endregion
+
+    #region Concurrency Limits
+
+    [Fact]
+    public async Task Concurrent_exports_past_per_user_or_global_limits_are_refused_with_429_and_slots_release_afterwards()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var carol = await SeedPerson("carol");
+        var asAlice = await SignIn(alice.Email, alice.Password);
+        var asBob = await SignIn(bob.Email, bob.Password);
+        var asCarol = await SignIn(carol.Email, carol.Password);
+        var aliceThread = await CreateMainThread(asAlice, alice.SpaceId);
+        var bobThread = await CreateMainThread(asBob, bob.SpaceId);
+        var carolThread = await CreateMainThread(asCarol, carol.SpaceId);
+        var limiter = Services.GetRequiredService<ConversationExportLimiter>();
+
+        // 1. One active export for Alice blocks another export for Alice (per-user limit = 1) but lets Bob proceed.
+        using (limiter.TryAcquire(alice.UserId) ?? throw new InvalidOperationException("Expected permit for Alice"))
+        {
+            (await asAlice.Get(ExportPath(alice.SpaceId, aliceThread.Id, "json"))).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+            (await asBob.Get(ExportPath(bob.SpaceId, bobThread.Id, "markdown"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // 2. Sequential error and success calls never leak permits.
+        (await asAlice.Get(ExportPath(alice.SpaceId, aliceThread.Id, "pdf"))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await asAlice.Get(ExportPath(alice.SpaceId, Guid.CreateVersion7(), "json"))).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asAlice.Get(ExportPath(alice.SpaceId, aliceThread.Id, "json"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await asAlice.Get(ExportPath(alice.SpaceId, aliceThread.Id, "markdown"))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 3. Two active exports across users saturate the global limit (MaxConcurrentTotal = 2).
+        using (limiter.TryAcquire(alice.UserId) ?? throw new InvalidOperationException("Expected permit for Alice"))
+        using (limiter.TryAcquire(bob.UserId) ?? throw new InvalidOperationException("Expected permit for Bob"))
+        {
+            (await asCarol.Get(ExportPath(carol.SpaceId, carolThread.Id, "json"))).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        }
+
+        (await asCarol.Get(ExportPath(carol.SpaceId, carolThread.Id, "json"))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private static string ExportPath(Guid spaceId, Guid threadId, string format) =>
+        $"/api/spaces/{spaceId}/threads/{threadId}/export?format={format}";
+
+    private async Task<ApiClient> SignIn(string email, string password)
+    {
+        var client = NewClient();
+        (await client.SignIn(email, password)).EnsureSuccessStatusCode();
+        return client;
+    }
+
+    private static async Task<ThreadSummary> CreateMainThread(ApiClient client, Guid spaceId)
+    {
+        var connectionResponse = await client.Post(
+            $"/api/spaces/{spaceId}/model-connections",
+            new CreateModelConnectionRequest(ScriptedModelProvider.ConnectionKind, "Scripted", null, null, "scripted"));
+        connectionResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var connection = (await connectionResponse.Content.ReadFromJsonAsync<ModelConnectionSummary>(Token))!;
+        var botResponse = await client.Post(
+            $"/api/spaces/{spaceId}/bots",
+            new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null));
+        botResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var bot = (await botResponse.Content.ReadFromJsonAsync<BotSummary>(Token))!;
+        var response = await client.Put($"/api/spaces/{spaceId}/bots/{bot.Id}/main-thread");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<ThreadSummary>(Token))!;
     }
 
     #endregion

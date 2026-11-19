@@ -21,6 +21,8 @@ public static class SecurityServiceExtensions
     {
         var previewOrigin = PreviewOrigin.Read(configuration);
         services.Configure<SignInRateLimitOptions>(configuration.GetSection("Drover:SignInRateLimit"));
+        services.Configure<ConversationExportLimitOptions>(configuration.GetSection("Drover:ConversationExportLimit"));
+        services.TryAddSingleton<ConversationExportLimiter>();
         services.AddAuthentication(NativeBearer.SelectForApi).AddCookie(ConfigureSessionCookie).AddNativeBearer();
         services.AddAuthorization();
         services.TryAddSingleton(TimeProvider.System);
