@@ -293,6 +293,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
     {
         BotId = botId;
         navigator.Leaving = ConfirmLeaving;
+        navigator.HoldsWork = HoldsWork;
 
         if (shownBotId != BotId && await session.Load() is not null)
         {
@@ -309,6 +310,11 @@ public sealed partial class BotEditorViewModel : ObservableObject
         if (navigator.Leaving == ConfirmLeaving)
         {
             navigator.Leaving = null;
+        }
+
+        if (navigator.HoldsWork == HoldsWork)
+        {
+            navigator.HoldsWork = null;
         }
     }
 
@@ -515,6 +521,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
         return true;
     }
+
+    /// <summary>True while there are changes not saved that leaving would drop.</summary>
+    public bool HoldsWork() => Dirty && !leaveConfirmed;
 
     public void SetLeaving(bool value)
     {
