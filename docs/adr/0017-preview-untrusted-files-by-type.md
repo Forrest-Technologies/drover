@@ -1,6 +1,6 @@
 # 0017. Preview untrusted files by type
 
-- Status: Proposed. It is accepted when the pull request that carries it merges.
+- Status: Accepted
 - Date: 2026-11-19
 - Source: [issue 298](https://github.com/Forrest-Technologies/drover/issues/298)
 
