@@ -70,6 +70,13 @@ public sealed partial class DroverApi
     public Task<ConversationModelChoice> ChooseConversationModel(Guid spaceId, Guid threadId, string? model, CancellationToken cancellationToken = default) =>
         Send<ConversationModelChoice>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/model", new ChooseModelRequest(model), cancellationToken);
 
+    /// <summary>
+    /// The messages of the caller's conversations whose words match <paramref name="words"/>, best match first. Only
+    /// the threads the caller may read are searched. Blank words, or more than the server allows, are refused.
+    /// </summary>
+    public Task<List<MessageSearchHit>> SearchMessages(Guid spaceId, string words, CancellationToken cancellationToken = default) =>
+        Get<List<MessageSearchHit>>($"{Space(spaceId)}/threads/search?q={Uri.EscapeDataString(words)}", cancellationToken);
+
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 

@@ -13,6 +13,9 @@ public static class ThreadEndpoints
     public static IEndpointRouteBuilder MapThreadEndpoints(this RouteGroupBuilder space)
     {
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
+        threads.MapGet("/search", SearchMessages)
+            .WithName("SearchMessages")
+            .WithSummary("The messages of the caller's conversations whose words match q, best match first, each with a snippet around the match. Only the threads the caller may read are searched.");
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
         threads.MapGet("/{threadId:guid}/summary", GetConversationSummary)
@@ -52,6 +55,14 @@ public static class ThreadEndpoints
     #endregion
 
     #region Endpoints
+
+    private static async Task<Results<Ok<List<MessageSearchHit>>, ProblemHttpResult>> SearchMessages(
+        string? q,
+        HttpContext context,
+        ConversationSearchService search) =>
+        ConversationSearchService.Refusal(q) is { } refusal
+            ? TypedResults.Problem(title: refusal, statusCode: StatusCodes.Status400BadRequest)
+            : TypedResults.Ok(await search.Search(q!, context.RequestAborted));
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>
         await threads.FindThread(threadId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } view
