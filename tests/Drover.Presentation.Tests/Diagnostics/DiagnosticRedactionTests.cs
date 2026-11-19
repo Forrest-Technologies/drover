@@ -56,7 +56,8 @@ public sealed class DiagnosticRedactionTests : IDisposable
             server, token, cookie, sessionId, messageText);
 
         var saved = log.Compose(app);
-        saved.Should().Contain("Signing in to {Server} with {Authorization} and {Cookie} for session {SessionId} said {Text}");
+        saved.Should().Contain(
+            "Signing in to {Server} with {Authorization} and {Cookie} for session {SessionId} said {Text}");
         ShouldHoldNoSecret(saved);
     }
 
@@ -79,7 +80,9 @@ public sealed class DiagnosticRedactionTests : IDisposable
     {
         var logger = factory.CreateLogger<DiagnosticRedactionTests>();
 
-        logger.LogWarning("The server answered {Status} after {Attempts} tries in {Elapsed}", HttpStatusCode.Unauthorized, 3, TimeSpan.FromSeconds(2));
+        logger.LogWarning(
+            "The server answered {Status} after {Attempts} tries in {Elapsed}",
+            HttpStatusCode.Unauthorized, 3, TimeSpan.FromSeconds(2));
 
         log.Compose(app).Should().Contain("Status=Unauthorized Attempts=3 Elapsed=00:00:02");
     }
@@ -145,7 +148,11 @@ public sealed class DiagnosticRedactionTests : IDisposable
 
     private void ShouldHoldNoSecret(string saved)
     {
-        string[] secrets = [token, token["Bearer ".Length..], cookie, sessionId.ToString(), sessionId.ToString("N"), password, server, messageText];
+        string[] secrets =
+        [
+            token, token["Bearer ".Length..], cookie, sessionId.ToString(), sessionId.ToString("N"), password, server,
+            messageText,
+        ];
         foreach (var secret in secrets)
         {
             saved.Should().NotContain(secret);
@@ -162,7 +169,8 @@ public sealed class DiagnosticRedactionTests : IDisposable
             }
             catch (InvalidOperationException inner)
             {
-                throw new HttpRequestException($"POST {server}/api/messages with {token} and {cookie}: {messageText}", inner);
+                throw new HttpRequestException(
+                    $"POST {server}/api/messages with {token} and {cookie}: {messageText}", inner);
             }
         }
         catch (HttpRequestException exception)

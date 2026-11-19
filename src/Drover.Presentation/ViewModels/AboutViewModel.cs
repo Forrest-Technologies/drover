@@ -13,9 +13,11 @@ public sealed partial class AboutViewModel(
 {
     #region Private Fields
 
-    public const string AfterFailure = "Drover stopped after a failure. Save its diagnostic log to attach to a bug report.";
+    public const string AfterFailure =
+        "Drover stopped after a failure. Save its diagnostic log to attach to a bug report.";
 
-    public const string Kept = "Drover keeps a log of its warnings and failures on this device. It never holds message text, names, addresses, passwords or tokens, and nothing sends it anywhere.";
+    public const string Kept =
+        "This device keeps a log of the app's warnings and failures. It never holds message text, names, addresses, passwords or tokens, and nothing sends it anywhere.";
 
     [ObservableProperty]
     private string? notice;
@@ -35,7 +37,9 @@ public sealed partial class AboutViewModel(
 
     #region Public Methods
 
-    /// <summary>Hands the log to the device to save where the person chooses. Choosing nowhere saves nothing and says nothing.</summary>
+    /// <summary>
+    /// Hands the log to the device to save where the person chooses. Choosing nowhere saves nothing and says nothing.
+    /// </summary>
     public async Task SaveDiagnostics(Func<string, string, Task<bool>> save)
     {
         Notice = null;
@@ -49,7 +53,8 @@ public sealed partial class AboutViewModel(
         catch (DeviceCallFailedException exception)
         {
             logger.LogWarning(exception, "The diagnostic log could not be saved");
-            (Notice, NoticeIsProblem) = ("The diagnostic log could not be saved. Try again and choose another place.", true);
+            (Notice, NoticeIsProblem) =
+                ("The diagnostic log could not be saved. Try again and choose another place.", true);
         }
     }
 

@@ -1,6 +1,6 @@
 namespace Drover.Presentation.Diagnostics;
 
-/// <summary>The diagnostic log as text files in one folder of the app's own, which is made when first written to.</summary>
+/// <summary>The diagnostic log as text files in a folder of the app's own, made when first written to.</summary>
 public sealed class DiagnosticFolder(string folder) : IDiagnosticStore
 {
     #region Interface Implementations

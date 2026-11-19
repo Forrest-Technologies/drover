@@ -25,12 +25,17 @@ public sealed class DiagnosticLogProvider(DiagnosticLog log, TimeProvider time) 
 
         public bool IsEnabled(LogLevel logLevel) => logLevel is >= LogLevel.Warning and < LogLevel.None;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
         {
             if (IsEnabled(logLevel))
             {
-                log.Write(DiagnosticEntry.Line(
-                    time.GetUtcNow(), logLevel, category, eventId, state as IReadOnlyList<KeyValuePair<string, object?>>, exception));
+                var values = state as IReadOnlyList<KeyValuePair<string, object?>>;
+                log.Write(DiagnosticEntry.Line(time.GetUtcNow(), logLevel, category, eventId, values, exception));
             }
         }
     }

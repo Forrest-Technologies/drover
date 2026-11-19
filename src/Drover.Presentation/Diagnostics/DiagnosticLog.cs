@@ -46,7 +46,10 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
         }
     }
 
-    /// <summary>A failure nothing handled, which may be the last thing the app does. Written at once.</summary>
+    /// <summary>
+    /// A failure nothing handled, which may be the last thing the app does. Written at once, apart from the log, and
+    /// offered at the next start. The app also logs it, so it appears in the log in its place among the rest.
+    /// </summary>
     public void RecordFailure(Exception exception)
     {
         var failure = Fit(DiagnosticEntry.Failure(time.GetUtcNow(), exception));
@@ -54,7 +57,6 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
         {
             Guarded(() =>
             {
-                Append(failure);
                 store.Write(LastFailure, failure);
                 store.Write(FailureNotOffered, Stamp());
             });
@@ -148,7 +150,8 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
             write();
             return null;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception exception)
+            when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             newerLength = null;
             return exception.GetType().FullName;

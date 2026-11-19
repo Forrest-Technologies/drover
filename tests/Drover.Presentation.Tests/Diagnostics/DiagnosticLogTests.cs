@@ -1,6 +1,6 @@
 namespace Drover.Presentation.Tests.Diagnostics;
 
-/// <summary>The diagnostic log stays under a fixed size, keeps the newest entries, and survives a store that refuses.</summary>
+/// <summary>The diagnostic log stays under a fixed size, keeps the newest entries, and survives a refusing store.</summary>
 public sealed class DiagnosticLogTests : IDisposable
 {
     #region Private Fields
@@ -39,7 +39,8 @@ public sealed class DiagnosticLogTests : IDisposable
         var saved = log.Compose(app);
         saved.Length.Should().BeLessThan((2 * DiagnosticLog.PartLimit) + 1024);
         saved.Should().Contain("entry 04999").And.NotContain("entry 00000");
-        saved.IndexOf("entry 04000", StringComparison.Ordinal).Should().BeLessThan(saved.IndexOf("entry 04999", StringComparison.Ordinal));
+        saved.IndexOf("entry 04000", StringComparison.Ordinal)
+            .Should().BeLessThan(saved.IndexOf("entry 04999", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -78,7 +79,8 @@ public sealed class DiagnosticLogTests : IDisposable
 
         first.RecordFailure(new InvalidOperationException("sample"));
 
-        Directory.GetFiles(folder).Sum(file => new FileInfo(file).Length).Should().BeLessThanOrEqualTo(3 * DiagnosticLog.PartLimit);
+        Directory.GetFiles(folder).Sum(file => new FileInfo(file).Length)
+            .Should().BeLessThanOrEqualTo(3 * DiagnosticLog.PartLimit);
         var next = new DiagnosticLog(new DiagnosticFolder(folder), time);
         next.TakeFailureOffer().Should().BeTrue();
         next.Compose(app).Should().Contain("entry 01499").And.Contain(typeof(InvalidOperationException).FullName);
@@ -104,7 +106,9 @@ public sealed class DiagnosticLogTests : IDisposable
     {
         var saved = new DiagnosticLog(store, time).Compose(app);
 
-        saved.Should().Contain("None recorded.").And.Contain("Nothing logged.").And.Contain("Saved: 2026-11-19T09:30:00Z");
+        saved.Should().Contain("None recorded.")
+            .And.Contain("Nothing logged.")
+            .And.Contain("Saved: 2026-11-19T09:30:00Z");
     }
 
     #endregion

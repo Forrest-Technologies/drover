@@ -69,7 +69,8 @@ public sealed class AboutViewModelTests
         await offer.Action.Run();
 
         saved.Should().ContainSingle().Which.Text.Should().Contain(typeof(InvalidOperationException).FullName);
-        toasts.Toasts.Should().Contain(toast => toast.Kind == ToastKind.Success && toast.Message == "The diagnostic log was handed to this device to save.");
+        toasts.Toasts.Should().Contain(toast =>
+            toast.Kind == ToastKind.Success && toast.Message == "The diagnostic log was handed to this device to save.");
     }
 
     [Fact]

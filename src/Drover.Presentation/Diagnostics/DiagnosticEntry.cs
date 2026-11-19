@@ -52,7 +52,7 @@ public static class DiagnosticEntry
         return line.ToString();
     }
 
-    /// <summary>A failure nothing handled: when it happened and what failed, in the same terms as a log entry.</summary>
+    /// <summary>A failure nothing handled: when it happened and what failed, in the terms of a log entry.</summary>
     public static string Failure(DateTimeOffset at, Exception exception)
     {
         var text = new StringBuilder();
@@ -67,7 +67,10 @@ public static class DiagnosticEntry
 
     // Drover's own templates are written in its code, never built from values (CODE_STYLE.md, Logging), so they carry
     // no data. Another library's message may be built from anything, so only its logger's name is kept.
-    private static void AppendMessage(StringBuilder line, string category, IReadOnlyList<KeyValuePair<string, object?>>? state)
+    private static void AppendMessage(
+        StringBuilder line,
+        string category,
+        IReadOnlyList<KeyValuePair<string, object?>>? state)
     {
         if (!category.StartsWith(DroverCode, StringComparison.Ordinal) || state is null)
         {
@@ -106,7 +109,9 @@ public static class DiagnosticEntry
 
     private static void AppendException(StringBuilder text, Exception exception, int depth)
     {
-        text.Append(CultureInfo.InvariantCulture, $"  {exception.GetType().FullName} (result 0x{exception.HResult:X8})\n");
+        text.Append(
+            CultureInfo.InvariantCulture,
+            $"  {exception.GetType().FullName} (result 0x{exception.HResult:X8})\n");
         AppendFrames(text, exception);
 
         if (depth >= DeepestInner)
@@ -135,7 +140,9 @@ public static class DiagnosticEntry
         foreach (var frame in new System.Diagnostics.StackTrace(exception, fNeedFileInfo: true).GetFrames())
         {
             var method = System.Diagnostics.DiagnosticMethodInfo.Create(frame);
-            var place = method is null ? "(a method the runtime cannot name)" : $"{method.DeclaringTypeName}.{method.Name}";
+            var place = method is null
+                ? "(a method the runtime cannot name)"
+                : $"{method.DeclaringTypeName}.{method.Name}";
             text.Append(CultureInfo.InvariantCulture, $"    at {place}");
 
             if (frame.GetFileName() is { Length: > 0 } file)
@@ -153,7 +160,8 @@ public static class DiagnosticEntry
 
     #region Formatting
 
-    private static string Stamp(DateTimeOffset at) => at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+    private static string Stamp(DateTimeOffset at) =>
+        at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
 
     private static string Level(LogLevel level) => level switch
     {

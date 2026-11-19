@@ -8,10 +8,15 @@ namespace Drover.Native.Shell;
 /// </summary>
 public static class AppServices
 {
-    public static ServiceProvider Build() =>
+    public static ServiceProvider Build(DiagnosticLog diagnostics, AppDescription description) =>
         new ServiceCollection()
-            .AddLogging(logging => logging.SetMinimumLevel(LogLevel.Warning).AddPlatformLog())
+            .AddLogging(logging => logging
+                .SetMinimumLevel(LogLevel.Warning)
+                .AddPlatformLog()
+                .AddDiagnosticLog(diagnostics))
             .AddSingleton(TimeProvider.System)
+            .AddSingleton(diagnostics)
+            .AddSingleton(description)
             .AddSingleton<Navigator>()
             .AddSingleton<SessionState>()
             .AddSingleton<ILiveNotifications, NoLiveNotifications>()
