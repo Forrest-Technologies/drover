@@ -9,15 +9,17 @@ public sealed class FileRepository(DroverDbContext db)
     #region Public Methods
 
     public Task<StoredFile?> FindFile(Guid id, CancellationToken cancellationToken) =>
-        db.Files.AsNoTracking().SingleOrDefaultAsync(file => file.Id == id, cancellationToken);
+        db.Files.AsNoTracking().SingleOrDefaultAsync(
+            file => file.Id == id && file.ProjectId == null, cancellationToken);
 
     /// <summary>The files with these ids that the caller can see, in no particular order.</summary>
     public Task<List<StoredFile>> ListFiles(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
-        db.Files.AsNoTracking().Where(file => ids.Contains(file.Id)).ToListAsync(cancellationToken);
+        db.Files.AsNoTracking().Where(file => ids.Contains(file.Id) && file.ProjectId == null)
+            .ToListAsync(cancellationToken);
 
     /// <summary>As <see cref="ListFiles"/>, tracked, so a change to them is saved when the scope commits.</summary>
     public Task<List<StoredFile>> GetFilesForUpdate(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
-        db.Files.Where(file => ids.Contains(file.Id)).ToListAsync(cancellationToken);
+        db.Files.Where(file => ids.Contains(file.Id) && file.ProjectId == null).ToListAsync(cancellationToken);
 
     /// <summary>Whether a message of the thread the caller can see carries a file.</summary>
     public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
@@ -44,6 +46,19 @@ public sealed class FileRepository(DroverDbContext db)
             .ToListAsync(cancellationToken);
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
+
+    public Task<StoredFile?> FindProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken) =>
+        db.Files.AsNoTracking().SingleOrDefaultAsync(
+            file => file.ProjectId == projectId && file.Id == fileId, cancellationToken);
+
+    public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files.AsNoTracking().Where(file => file.ProjectId == projectId)
+            .OrderByDescending(file => file.CreatedAt).ThenByDescending(file => file.Id).ToListAsync(cancellationToken);
+
+    public Task<int> RemoveProjectFiles(
+        Guid projectId, IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
+        db.Files.Where(file => file.ProjectId == projectId && ids.Contains(file.Id))
+            .ExecuteDeleteAsync(cancellationToken);
 
     public void Add(StoredFile file) => db.Files.Add(file);
 

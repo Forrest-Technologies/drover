@@ -55,13 +55,16 @@ public sealed class SeedRow(
     string table,
     RowPlacement placement,
     IReadOnlyDictionary<string, SeededRow> parents,
-    Func<Task<Guid>> createUser)
+    Func<Task<Guid>> createUser,
+    string? testedParent = null)
 {
     #region Properties
 
     public string Table { get; } = table;
 
     public RowPlacement Placement { get; } = placement;
+
+    public string? TestedParent { get; } = testedParent;
 
     #endregion
 

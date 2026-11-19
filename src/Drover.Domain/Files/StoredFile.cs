@@ -18,7 +18,10 @@ public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 
     public required string StorageKey { get; set; }
 
-    /// <summary>The conversation the file was attached in. Null for a file that belongs to no conversation.</summary>
+    /// <summary>The project that shares the file with the space.</summary>
+    public Guid? ProjectId { get; set; }
+
+    /// <summary>The conversation the file was attached in.</summary>
     public Guid? ThreadId { get; set; }
 
     /// <summary>

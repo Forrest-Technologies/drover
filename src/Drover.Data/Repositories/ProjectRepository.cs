@@ -26,6 +26,9 @@ public sealed class ProjectRepository(DroverDbContext db)
             .Select(thread => thread.Id)
             .ToListAsync(cancellationToken);
 
+    public Task<bool> Exists(Guid id, CancellationToken cancellationToken) =>
+        db.Projects.AnyAsync(project => project.Id == id, cancellationToken);
+
     public async Task<Project?> GetForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.Projects.FromSql($"SELECT * FROM projects WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
             .SingleOrDefault();

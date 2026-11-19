@@ -20,6 +20,13 @@ public sealed class StoredFileMapping : IEntityTypeConfiguration<StoredFile>
 
         // The thread's key carries the audience: a file is seen by exactly the people who see its conversation.
         builder.WithinSpace<StoredFile, ChatThread>(nameof(StoredFile.ThreadId), audience: true);
+        builder.WithinSpace<StoredFile, Project>(nameof(StoredFile.ProjectId));
+        builder.ToTable(table => table.HasCheckConstraint(
+            "ck_files_project_scope",
+            """
+            project_id IS NULL OR (thread_id IS NULL AND message_id IS NULL AND created_by_bot_id IS NULL
+                AND audience_user_id = '00000000-0000-0000-0000-000000000000')
+            """));
         builder.HasIndex(file => new { file.SpaceId, file.MessageId });
         builder.WithinSpace<StoredFile, Bot>(nameof(StoredFile.CreatedByBotId));
         builder.ReferencesUser(nameof(StoredFile.CreatedByUserId));

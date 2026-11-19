@@ -43,7 +43,7 @@ public sealed class BotRepository(DroverDbContext db)
         db.Bots.CountAsync(bot => ids.Contains(bot.Id) && bot.Status != BotStatus.Removed, cancellationToken);
 
     public Task<bool> FileExists(Guid fileId, CancellationToken cancellationToken) =>
-        db.Files.AnyAsync(file => file.Id == fileId, cancellationToken);
+        db.Files.AnyAsync(file => file.Id == fileId && file.ProjectId == null, cancellationToken);
 
     /// <summary>The bot that holds this handle, if it has not been removed.</summary>
     public Task<Bot?> FindBotByHandle(string handle, CancellationToken cancellationToken) =>

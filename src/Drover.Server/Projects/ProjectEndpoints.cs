@@ -11,7 +11,8 @@ public static class ProjectEndpoints
         projects.MapGet("/", ListProjects).WithName("ListProjects");
         projects.MapPost("/", CreateProject).RequireSpaceRole(MembershipRole.Admin).WithName("CreateProject");
         projects.MapPut("/{projectId:guid}", UpdateProject).RequireSpaceRole(MembershipRole.Admin).WithName("UpdateProject");
-        projects.MapDelete("/{projectId:guid}", RemoveProject).RequireSpaceRole(MembershipRole.Admin).WithName("RemoveProject");
+        space.MapDelete("/projects/{projectId:guid}", RemoveProject)
+            .RequireSpaceRole(MembershipRole.Admin).WithName("RemoveProject");
 
         space.MapPut("/threads/{conversationId:guid}/project", SetConversationProject)
             .AddEndpointFilter<TenantScopeFilter>()
@@ -58,8 +59,9 @@ public static class ProjectEndpoints
     private static async Task<Results<NoContent, NotFound>> RemoveProject(
         Guid projectId,
         HttpContext context,
-        ProjectService projects) =>
-        await projects.Remove(projectId, context.GetSpaceAccess().UserId, context.RequestAborted)
+        ProjectService projects,
+        FileService files) =>
+        await files.RemoveProject(projectId, context.GetSpaceAccess().UserId, projects, context.RequestAborted)
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
 

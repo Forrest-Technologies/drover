@@ -7,12 +7,39 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
 
     private ScriptedModelProvider? model;
 
+    private Func<Task>? afterFileSave;
+
+    private string? savedKey;
+
+    #endregion
+
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings =>
+        new Dictionary<string, string?>(base.Settings)
+        {
+            [$"Drover:Policy:Rules:{nameof(DeploymentPolicy.MaxFileBytes)}"] = "1048576",
+            [$"Drover:Policy:Rules:{nameof(DeploymentPolicy.MaxSpaceFileMegabytes)}"] = "1",
+        };
+
     #endregion
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
         services.AddSingleton<IModelClientProvider>(_ => model ??= new ScriptedModelProvider(new ScriptedModel()));
+        var original = services.Last(service => service.ServiceType == typeof(IFileStore));
+        var store = (IFileStore)original.ImplementationInstance!;
+        services.AddSingleton<IFileStore>(new ObservedFileStore(store, async key =>
+        {
+            savedKey = key;
+            if (afterFileSave is { } after)
+            {
+                await after();
+            }
+        }));
+    }
 
     #endregion
 
@@ -82,6 +109,113 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
         { new string('n', Project.MaxNameLength + 1), string.Empty, "Give the project a name" },
         { "Sample", new string('i', Project.MaxInstructionsLength + 1), "Keep the project instructions" },
     };
+
+    #endregion
+
+    #region Files
+
+    [Fact]
+    public async Task Shared_project_files_are_scoped_and_return_quota_once()
+    {
+        var owner = await SeedPerson("owner");
+        var outsider = await SeedPerson("outsider");
+        var member = await SeedMember(owner.SpaceId, "member", MembershipRole.Member);
+        var admin = await SeedMember(owner.SpaceId, "admin", MembershipRole.Admin);
+        var asOwner = await SignIn(owner.Email, owner.Password);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asAdmin = await SignIn(admin.Email, admin.Password);
+        var asOutsider = await SignIn(outsider.Email, outsider.Password);
+        var project = await Send<ProjectResponse>(
+            asOwner.Post(Projects(owner.SpaceId), new ProjectBody("Shared", string.Empty)),
+            HttpStatusCode.Created);
+        var path = $"{Projects(owner.SpaceId)}/{project.Id}/files";
+
+        (await asMember.PostContent($"{path}?name=a.txt", new StringContent("notes")))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var file = await Send<FileResponse>(
+            asAdmin.PostContent($"{path}?name=a.txt", new StringContent("notes")),
+            HttpStatusCode.Created);
+        (await StoredBytes(owner.SpaceId, owner.UserId)).Should().Be(5);
+        (await Send<List<FileResponse>>(asMember.Get(path), HttpStatusCode.OK)).Single().Id.Should().Be(file.Id);
+        var download = await asMember.Get($"{path}/{file.Id}");
+        download.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await download.Content.ReadAsStringAsync(Token)).Should().Be("notes");
+        var foreignPath = $"{Projects(outsider.SpaceId)}/{project.Id}/files";
+        (await asOutsider.Get(foreignPath)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asOutsider.Get($"{foreignPath}/{file.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asMember.Get($"{Space(owner.SpaceId)}/files/{file.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asMember.Delete($"{path}/{file.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await asAdmin.Delete($"{path}/{file.Id}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await asAdmin.Delete($"{path}/{file.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await StoredBytes(owner.SpaceId, owner.UserId)).Should().Be(0);
+
+        var remaining = await Send<FileResponse>(
+            asAdmin.PostContent($"{path}?name=b.txt", new StringContent("other")),
+            HttpStatusCode.Created);
+        var store = Services.GetRequiredService<IFileStore>();
+        var deleted = await asOwner.Delete($"{Projects(owner.SpaceId)}/{project.Id}");
+        deleted.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await StoredBytes(owner.SpaceId, owner.UserId)).Should().Be(0);
+        Guid[] removed = [file.Id, remaining.Id];
+        foreach (var id in removed)
+        {
+            await using var bytes = await store.Open(owner.SpaceId, FileStorageKeys.For(owner.SpaceId, id), Token);
+            bytes.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task Project_upload_checks_size_and_the_shared_space_quota()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignIn(owner.Email, owner.Password);
+        var project = await Send<ProjectResponse>(
+            client.Post(Projects(owner.SpaceId), new ProjectBody("Shared", string.Empty)),
+            HttpStatusCode.Created);
+        var path = $"{Projects(owner.SpaceId)}/{project.Id}/files";
+        var megabyte = 1024 * 1024;
+
+        var oversized = await client.PostContent(path, new ByteArrayContent(new byte[megabyte + 1]));
+        oversized.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        savedKey.Should().BeNull();
+        var full = await Send<FileResponse>(
+            client.PostContent(path, new ByteArrayContent(new byte[megabyte])),
+            HttpStatusCode.Created);
+        var overQuota = await client.PostContent(path, new StringContent("extra"));
+        overQuota.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await overQuota.Content.ReadFromJsonAsync<JsonElement>(Token))
+            .GetProperty("refusal").GetString().Should().Be(FileRefusals.SpaceFull);
+        (await StoredBytes(owner.SpaceId, owner.UserId)).Should().Be(megabyte);
+        (await Send<List<FileResponse>>(client.Get(path), HttpStatusCode.OK)).Single().Id.Should().Be(full.Id);
+    }
+
+    [Fact]
+    public async Task Upload_cleans_saved_bytes_when_the_project_disappears_before_commit()
+    {
+        var owner = await SeedPerson("owner");
+        var client = await SignIn(owner.Email, owner.Password);
+        var project = await Send<ProjectResponse>(
+            client.Post(Projects(owner.SpaceId), new ProjectBody("Shared", string.Empty)),
+            HttpStatusCode.Created);
+        var path = $"{Projects(owner.SpaceId)}/{project.Id}";
+        afterFileSave = async () =>
+        {
+            (await client.Delete(path)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        };
+
+        var upload = await client.PostContent($"{path}/files", new StringContent("notes"));
+
+        upload.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        savedKey.Should().NotBeNull();
+        var store = Services.GetRequiredService<IFileStore>();
+        await using var bytes = await store.Open(owner.SpaceId, savedKey!, Token);
+        bytes.Should().BeNull();
+        (await StoredBytes(owner.SpaceId, owner.UserId)).Should().Be(0);
+    }
+
+    private Task<long> StoredBytes(Guid spaceId, Guid userId) =>
+        InSpace(spaceId, userId, db => db.Spaces.Where(space => space.Id == spaceId)
+            .Select(space => space.StoredFileBytes).SingleAsync(Token));
 
     #endregion
 
@@ -268,6 +402,29 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
 
     private static async Task<string?> Title(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<JsonElement>(Token)).GetProperty("title").GetString();
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class ObservedFileStore(IFileStore store, Func<string, Task> saved) : IFileStore
+    {
+        #region Interface Implementations
+
+        public async Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken)
+        {
+            await store.Save(spaceId, storageKey, content, cancellationToken);
+            await saved(storageKey);
+        }
+
+        public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken) =>
+            store.Open(spaceId, storageKey, cancellationToken);
+
+        public Task Delete(Guid spaceId, string storageKey, CancellationToken cancellationToken) =>
+            store.Delete(spaceId, storageKey, cancellationToken);
+
+        #endregion
+    }
 
     #endregion
 }

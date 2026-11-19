@@ -41,6 +41,54 @@ public sealed class FileUploadClientTests
         failure.Refusal.Should().Be(FileRefusals.TooLarge);
     }
 
+    [Fact]
+    public async Task Project_upload_uses_the_project_route_and_reports_progress()
+    {
+        var space = Guid.NewGuid();
+        var project = Guid.NewGuid();
+        var file = new FileResponse(Guid.NewGuid(), "a b.txt", "text/plain", "text", 3);
+        var progress = new UploadProgress();
+        using var stream = new MemoryStream([1, 2, 3]);
+        using var http = Http(async (request, token) =>
+        {
+            var expected = $"/api/spaces/{space}/projects/{project}/files?name=a%20b.txt";
+            request.RequestUri!.PathAndQuery.Should().Be(expected);
+            (await request.Content!.ReadAsByteArrayAsync(token)).Should().Equal(1, 2, 3);
+            return new HttpResponseMessage(HttpStatusCode.Created) { Content = JsonContent.Create(file) };
+        });
+
+        var uploaded = await new DroverApi(http).UploadProjectFile(
+            space, project, file.Name, stream, 3, progress, TestContext.Current.CancellationToken);
+
+        uploaded.Should().Be(file);
+        progress.Bytes.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Project_upload_preserves_server_refusal_and_honors_cancellation()
+    {
+        using var stream = new MemoryStream([1]);
+        using var cancellation = new CancellationTokenSource();
+        using var http = Http((_, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = JsonContent.Create(new { title = "No room", refusal = FileRefusals.SpaceFull }),
+            });
+        });
+        var api = new DroverApi(http);
+        var space = Guid.NewGuid();
+        var project = Guid.NewGuid();
+        var refusal = await Assert.ThrowsAsync<DroverApiException>(
+            () => api.UploadProjectFile(space, project, "a", stream, 1, cancellationToken: cancellation.Token));
+        refusal.Refusal.Should().Be(FileRefusals.SpaceFull);
+
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => api.UploadProjectFile(space, project, "a", stream, 1, cancellationToken: cancellation.Token));
+    }
+
     #endregion
 
     #region Private Methods
@@ -54,6 +102,21 @@ public sealed class FileUploadClientTests
     #endregion
 
     #region Nested Types
+
+    private sealed class UploadProgress : IProgress<long>
+    {
+        #region Properties
+
+        public long Bytes { get; private set; }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public void Report(long value) => Bytes = value;
+
+        #endregion
+    }
 
     private sealed class UploadHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
         : HttpMessageHandler

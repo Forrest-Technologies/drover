@@ -111,9 +111,11 @@ public sealed class IsolationHarness : IAsyncDisposable
     public async Task<IReadOnlyDictionary<string, object?>> Compose(
         TableUnderTest table,
         RowPlacement placement,
-        IReadOnlyDictionary<string, SeededRow> parents)
+        IReadOnlyDictionary<string, SeededRow> parents,
+        string? testedParent = null)
     {
-        var row = new Dictionary<string, object?>(await table.Seeder.Row(new SeedRow(table.Name, placement, parents, CreateUser)));
+        var seed = new SeedRow(table.Name, placement, parents, CreateUser, testedParent);
+        var row = new Dictionary<string, object?>(await table.Seeder.Row(seed));
 
         if (table.Ownership.IsSpaceOwned)
         {

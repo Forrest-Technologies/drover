@@ -50,7 +50,9 @@ public sealed partial class DroverApi
         long size,
         IProgress<long>? progress = null,
         CancellationToken cancellationToken = default) =>
-        SendFile(spaceId, threadId, name, new ProgressContent(content, size, progress), cancellationToken);
+        SendFile(
+            $"{Space(spaceId)}/threads/{threadId}/files", name, new ProgressContent(content, size, progress),
+            cancellationToken);
 
     /// <summary>Measures and uploads a file whose provider may not know its exact byte length.</summary>
     public async Task<FileResponse> UploadFileWithUnverifiedSize(
@@ -77,7 +79,7 @@ public sealed partial class DroverApi
             };
         }
 
-        return await SendFile(spaceId, threadId, name, body, cancellationToken);
+        return await SendFile($"{Space(spaceId)}/threads/{threadId}/files", name, body, cancellationToken);
     }
 
     /// <summary>Removes a file the caller attached and has not sent.</summary>
@@ -109,14 +111,55 @@ public sealed partial class DroverApi
         return new FileText(new string(buffer, 0, Math.Min(read, maxCharacters)), read > maxCharacters);
     }
 
+    public Task<FileResponse> UploadProjectFile(
+        Guid spaceId,
+        Guid projectId,
+        string name,
+        Stream content,
+        long? size,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        SendFile(
+            ProjectFiles(spaceId, projectId), name, new ProgressContent(content, size, progress), cancellationToken);
+
+    public Task<IReadOnlyList<FileResponse>> ListProjectFiles(
+        Guid spaceId, Guid projectId, CancellationToken cancellationToken = default) =>
+        Get<IReadOnlyList<FileResponse>>(ProjectFiles(spaceId, projectId), cancellationToken);
+
+    /// <summary>Opens an authorized project file response. The caller disposes the response.</summary>
+    public async Task<HttpResponseMessage> OpenProjectFile(
+        Guid spaceId, Guid projectId, Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var response = await http.GetAsync(
+            $"{ProjectFiles(spaceId, projectId)}/{fileId}?download=true",
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        try
+        {
+            await response.ThrowIfRefused(cancellationToken);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    public Task RemoveProjectFile(
+        Guid spaceId, Guid projectId, Guid fileId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{ProjectFiles(spaceId, projectId)}/{fileId}", cancellationToken);
+
     #endregion
 
     #region Private Methods
 
+    private static string ProjectFiles(Guid spaceId, Guid projectId) => $"{Space(spaceId)}/projects/{projectId}/files";
+
     private async Task<FileResponse> SendFile(
-        Guid spaceId, Guid threadId, string name, HttpContent body, CancellationToken cancellationToken)
+        string collection, string name, HttpContent body, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{collection}?name={Uri.EscapeDataString(name)}")
         {
             Content = body,
         };

@@ -15,19 +15,24 @@ public sealed class SandboxSeeder : PlainSeeder<Sandbox>
 
 public sealed class StoredFileSeeder : PlainSeeder<StoredFile>
 {
-    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    protected override Dictionary<string, object?> Columns(SeedRow seed)
     {
-        ["id"] = Guid.CreateVersion7(),
-        ["storage_key"] = seed.Unique("key"),
-        ["thread_id"] = seed.Parent("threads"),
-        ["message_id"] = Guid.CreateVersion7(),
-        ["name"] = "notes.txt",
-        ["content_type"] = "text/plain",
-        ["size"] = 1L,
-        ["sha256"] = new string('0', 64),
-        ["created_by_user_id"] = seed.Placement.User,
-        ["created_by_bot_id"] = seed.Parent("bots"),
-    };
+        var projectFile = seed.TestedParent is "projects";
+        return new()
+        {
+            ["id"] = Guid.CreateVersion7(),
+            ["storage_key"] = seed.Unique("key"),
+            ["project_id"] = projectFile ? seed.Parent("projects") : null,
+            ["thread_id"] = projectFile ? null : seed.Parent("threads"),
+            ["message_id"] = projectFile ? null : Guid.CreateVersion7(),
+            ["name"] = "notes.txt",
+            ["content_type"] = "text/plain",
+            ["size"] = 1L,
+            ["sha256"] = new string('0', 64),
+            ["created_by_user_id"] = seed.Placement.User,
+            ["created_by_bot_id"] = projectFile ? null : seed.Parent("bots"),
+        };
+    }
 }
 
 public sealed class SecretSeeder : PlainSeeder<Secret>

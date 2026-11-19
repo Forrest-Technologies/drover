@@ -39,6 +39,16 @@ public static class FileEndpoints
         space.MapDelete("/files/{fileId:guid}", RemovePending)
             .WithName("RemovePendingFile")
             .WithSummary("Removes a file the caller attached and has not sent. A sent file is kept as long as its message.");
+        var project = space.MapGroup("/projects/{projectId:guid}/files");
+        project.MapGet("/", ListProject).WithName("ListProjectFiles");
+        project.MapGet("/{fileId:guid}", DownloadProject).WithName("DownloadProjectFile");
+        project.MapPost("/", UploadProject)
+            .RequireSpaceRole(MembershipRole.Admin)
+            .WithBodyLimit(rules.MaxFileBytes, declared => FileWords.TooLarge(declared, rules.MaxFileBytes))
+            .WithName("UploadProjectFile");
+        project.MapDelete("/{fileId:guid}", RemoveProjectFile)
+            .RequireSpaceRole(MembershipRole.Admin)
+            .WithName("RemoveProjectFile");
         return space;
     }
 
@@ -58,20 +68,53 @@ public static class FileEndpoints
         var access = context.GetSpaceAccess();
         var upload = await files.Upload(threadId, name, context.Request.Body, context.Request.ContentLength, access.UserId, context.RequestAborted);
 
-        return upload switch
+        return UploadResponse(upload, $"/api/spaces/{access.SpaceId}/files");
+    }
+
+    private static async Task<Results<Created<FileResponse>, NotFound, ProblemHttpResult>> UploadProject(
+        Guid projectId, string? name, HttpContext context, FileService files)
+    {
+        var access = context.GetSpaceAccess();
+        var upload = await files.UploadProject(
+            projectId, name, context.Request.Body, context.Request.ContentLength, access.UserId,
+            context.RequestAborted);
+        return UploadResponse(upload, $"/api/spaces/{access.SpaceId}/projects/{projectId}/files");
+    }
+
+    private static Results<Created<FileResponse>, NotFound, ProblemHttpResult> UploadResponse(
+        FileUpload upload, string collection) =>
+        upload switch
         {
-            { File: { } file } => TypedResults.Created($"/api/spaces/{access.SpaceId}/files/{file.Id}", file.ToResponse()),
+            { File: { } file } => TypedResults.Created($"{collection}/{file.Id}", file.ToResponse()),
             { Problem: FileProblem.NotFound } => TypedResults.NotFound(),
             _ => TypedResults.Problem(
                 title: upload.Detail,
                 statusCode: upload.Refusal is FileRefusals.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status422UnprocessableEntity,
                 extensions: new Dictionary<string, object?> { ["refusal"] = upload.Refusal }),
         };
-    }
 
-    private static async Task<IResult> Download(Guid fileId, bool? download, HttpContext context, FileService files)
+    private static async Task<IResult> Download(Guid fileId, bool? download, HttpContext context, FileService files) =>
+        Serve(await files.Open(fileId, context.RequestAborted), download, context);
+
+    private static async Task<IResult> DownloadProject(
+        Guid projectId, Guid fileId, bool? download, HttpContext context, FileService files) =>
+        Serve(await files.OpenProject(projectId, fileId, context.RequestAborted), download, context);
+
+    private static async Task<Results<Ok<List<FileResponse>>, NotFound>> ListProject(
+        Guid projectId, HttpContext context, FileService files) =>
+        await files.ListProject(projectId, context.RequestAborted) is { } found
+            ? TypedResults.Ok<List<FileResponse>>([.. found.Select(file => file.ToResponse())])
+            : TypedResults.NotFound();
+
+    private static async Task<Results<NoContent, NotFound>> RemoveProjectFile(
+        Guid projectId, Guid fileId, HttpContext context, FileService files) =>
+        await files.RemoveProjectFile(projectId, fileId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+
+    private static IResult Serve(FileDownload? found, bool? download, HttpContext context)
     {
-        if (await files.Open(fileId, context.RequestAborted) is not { } found)
+        if (found is null)
         {
             return TypedResults.NotFound();
         }

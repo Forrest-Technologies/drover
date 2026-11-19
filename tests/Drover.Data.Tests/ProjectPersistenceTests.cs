@@ -74,6 +74,32 @@ public sealed class ProjectPersistenceTests(PostgresFixture postgres)
         (await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)).Should().Be(true);
     }
 
+    [Theory]
+    [InlineData(true, PostgresErrorCodes.ForeignKeyViolation)]
+    [InlineData(false, PostgresErrorCodes.CheckViolation)]
+    public async Task Project_files_require_same_space_and_shared_audience(bool foreignSpace, string sqlState)
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var (_, project) = await SaveSharedThreadAndProject(provider, world);
+        var spaceId = foreignSpace ? world.SpaceB : world.SpaceA;
+        var userId = foreignSpace ? world.UserB1 : world.UserA1;
+
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+        session.Db.Files.Add(new StoredFile
+        {
+            ProjectId = project.Id,
+            AudienceUserId = foreignSpace ? Audience.Everyone : userId,
+            StorageKey = "test",
+            Name = "note.txt",
+            ContentType = "text/plain",
+            Sha256 = new string('a', 64),
+        });
+
+        var thrown = await Assert.ThrowsAsync<DbUpdateException>(() => session.Commit());
+        Assert.Equal(sqlState, Assert.IsType<PostgresException>(thrown.InnerException).SqlState);
+    }
+
     #endregion
 
     #region Private Methods

@@ -20,10 +20,11 @@ public sealed record FileDownload(StoredFile File, Stream Content);
 /// opens short scopes of its own and holds none while bytes move. Reading a thread's rules runs in the scope the
 /// endpoint filter opened.
 /// </summary>
-public sealed class FileService(
+public sealed partial class FileService(
     TenantScope scope,
     TenantContext tenant,
     FileRepository files,
+    ProjectRepository projects,
     ThreadRepository threads,
     BotRepository bots,
     FileAbilityReader abilities,
@@ -93,63 +94,7 @@ public sealed class FileService(
             return prepared.Refusal;
         }
 
-        var clean = CleanName(name);
-        var id = Guid.CreateVersion7();
-        var key = FileStorageKeys.For(SpaceId, id);
-        var inspector = new FileInspector();
-        // A body with no declared length is cut off at the space's room as well as at the file limit, so it never
-        // fills the disk past what the space may hold. Keep reserves the bytes for good once the size is known.
-        var limit = Math.Min(Rules.MaxFileBytes, prepared.Room);
-        await using var metered = new MeteredStream(content, limit, inspector);
-
-        try
-        {
-            await store.Save(SpaceId, key, metered, cancellationToken);
-        }
-        catch (FileTooLargeException tooLarge)
-        {
-            logger.LogInformation(tooLarge, "An upload to thread {ThreadId} went past {MaxBytes} bytes and was refused", threadId, limit);
-            return limit < Rules.MaxFileBytes
-                ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
-                : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
-        }
-
-        var facts = inspector.Finish(clean);
-        var file = new StoredFile
-        {
-            Id = id,
-            StorageKey = key,
-            Name = clean,
-            ContentType = facts.ContentType,
-            Size = metered.BytesRead,
-            Sha256 = metered.FinishHash(),
-            CreatedByUserId = userId,
-            Width = facts.Width,
-            Height = facts.Height,
-            Preview = facts.Preview,
-            CreatedAt = time.GetUtcNow(),
-        };
-
-        FileUpload upload;
-
-        try
-        {
-            upload = FileUses.RefusalFor(facts.Kind, prepared.Abilities) is { } refusal
-                ? Refused(refusal, FileWords.CannotOpen(refusal, prepared.BotName))
-                : await Keep(threadId, file, cancellationToken);
-        }
-        catch (Exception)
-        {
-            await store.Delete(SpaceId, key, CancellationToken.None);
-            throw;
-        }
-
-        if (upload.File is null)
-        {
-            await store.Delete(SpaceId, key, CancellationToken.None);
-        }
-
-        return upload;
+        return await StoreUpload(threadId, false, name, content, userId, prepared, cancellationToken);
     }
 
     /// <summary>
@@ -172,18 +117,7 @@ public sealed class FileService(
             await work.Commit(cancellationToken);
         }
 
-        if (file is null)
-        {
-            return null;
-        }
-
-        if (await store.Open(SpaceId, file.StorageKey, cancellationToken) is not { } content)
-        {
-            logger.LogWarning("File {FileId} has a row and nothing in the file store", fileId);
-            return null;
-        }
-
-        return new FileDownload(file, content);
+        return await OpenStoredFile(file, cancellationToken);
     }
 
     /// <summary>
@@ -226,6 +160,91 @@ public sealed class FileService(
 
     #region Private Methods
 
+    private async Task<FileDownload?> OpenStoredFile(StoredFile? file, CancellationToken cancellationToken)
+    {
+        if (file is null)
+        {
+            return null;
+        }
+
+        if (await store.Open(SpaceId, file.StorageKey, cancellationToken) is not { } content)
+        {
+            logger.LogWarning("File {FileId} has a row and nothing in the file store", file.Id);
+            return null;
+        }
+
+        return new FileDownload(file, content);
+    }
+
+    private async Task<FileUpload> StoreUpload(
+        Guid parentId,
+        bool project,
+        string? name,
+        Stream content,
+        Guid userId,
+        Prepared prepared,
+        CancellationToken cancellationToken)
+    {
+        var clean = CleanName(name);
+        var id = Guid.CreateVersion7();
+        var key = FileStorageKeys.For(SpaceId, id);
+        var inspector = new FileInspector();
+        // A body with no declared length is cut off at the space's room as well as at the file limit, so it never
+        // fills the disk past what the space may hold. Keep reserves the bytes for good once the size is known.
+        var limit = Math.Min(Rules.MaxFileBytes, prepared.Room);
+        await using var metered = new MeteredStream(content, limit, inspector);
+
+        try
+        {
+            await store.Save(SpaceId, key, metered, cancellationToken);
+        }
+        catch (FileTooLargeException tooLarge)
+        {
+            logger.LogInformation(
+                tooLarge, "An upload to {ParentId} went past {MaxBytes} bytes and was refused", parentId, limit);
+            return limit < Rules.MaxFileBytes
+                ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
+                : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
+        }
+
+        FileUpload upload;
+
+        try
+        {
+            var facts = inspector.Finish(clean);
+            var file = new StoredFile
+            {
+                Id = id,
+                StorageKey = key,
+                Name = clean,
+                ContentType = facts.ContentType,
+                Size = metered.BytesRead,
+                Sha256 = metered.FinishHash(),
+                CreatedByUserId = userId,
+                Width = facts.Width,
+                Height = facts.Height,
+                Preview = facts.Preview,
+                CreatedAt = time.GetUtcNow(),
+            };
+
+            upload = prepared.Abilities is { } allowed && FileUses.RefusalFor(facts.Kind, allowed) is { } refusal
+                ? Refused(refusal, FileWords.CannotOpen(refusal, prepared.BotName))
+                : await Keep(parentId, project, file, cancellationToken);
+        }
+        catch (Exception)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+            throw;
+        }
+
+        if (upload.File is null)
+        {
+            await store.Delete(SpaceId, key, CancellationToken.None);
+        }
+
+        return upload;
+    }
+
     /// <summary>
     /// The thread, its bot, and what the bot can take, read before any byte is; and an early refusal when the space
     /// cannot take a file of the declared length. Null when the caller cannot see the thread.
@@ -254,13 +273,29 @@ public sealed class FileService(
     /// Stores the row with the thread's audience, as the thread is now, and counts its bytes against the space, in
     /// one transaction. A thread the caller can no longer see takes nothing.
     /// </summary>
-    private async Task<FileUpload> Keep(Guid threadId, StoredFile file, CancellationToken cancellationToken)
+    private async Task<FileUpload> Keep(
+        Guid parentId, bool project, StoredFile file, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
 
-        if (await threads.FindThread(threadId, cancellationToken) is not { } thread)
+        if (project)
         {
-            return new FileUpload(null, FileProblem.NotFound);
+            if (await projects.GetForUpdate(parentId, cancellationToken) is null)
+            {
+                return new FileUpload(null, FileProblem.NotFound);
+            }
+
+            file.ProjectId = parentId;
+        }
+        else
+        {
+            if (await threads.FindThread(parentId, cancellationToken) is not { } thread)
+            {
+                return new FileUpload(null, FileProblem.NotFound);
+            }
+
+            file.ThreadId = thread.Id;
+            file.AudienceUserId = thread.AudienceUserId;
         }
 
         if (!await files.ReserveBytes(SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
@@ -268,11 +303,9 @@ public sealed class FileService(
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
-        file.ThreadId = thread.Id;
-        file.AudienceUserId = thread.AudienceUserId;
         files.Add(file);
         await work.Commit(cancellationToken);
-        logger.LogInformation("File {FileId} of {Size} bytes stored for thread {ThreadId}", file.Id, file.Size, threadId);
+        logger.LogInformation("File {FileId} of {Size} bytes stored for {ParentId}", file.Id, file.Size, parentId);
         return new FileUpload(file);
     }
 
@@ -283,7 +316,7 @@ public sealed class FileService(
     #region Nested Types
 
     /// <summary>What an upload needs before its bytes move. <see cref="Room"/> is how many more bytes the space may hold.</summary>
-    private sealed record Prepared(string BotName, FileAbilities Abilities, long Room, FileUpload? Refusal);
+    private sealed record Prepared(string BotName, FileAbilities? Abilities, long Room, FileUpload? Refusal);
 
     #endregion
 }

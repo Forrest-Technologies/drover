@@ -130,7 +130,8 @@ public static class SpaceChecks
         foreach (var parent in parents)
         {
             var pointing = new Dictionary<string, SeededRow>(own.Parents) { [parent.Name] = other.Parents[parent.Name] };
-            var values = await harness.Compose(table, RowPlacement.Shared(world.SpaceA, world.UserA1), pointing);
+            var values = await harness.Compose(
+                table, RowPlacement.Shared(world.SpaceA, world.UserA1), pointing, testedParent: parent.Name);
             await using var asA = await harness.Open(world.SpaceA, world.UserA1);
 
             await Expect.Refused(
