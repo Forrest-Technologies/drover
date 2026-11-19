@@ -104,7 +104,7 @@ public sealed class WebToolsTests(PostgresServer postgres)
     {
         services.AddSingleton(search);
         services.AddWebSearch();
-        services.AddWebFetch(provider => new HttpClient(OutboundHttp.CreateHandler(
+        services.AddWebFetch(provider => PageClients.Through(OutboundHttp.CreateHandler(
             provider.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules,
             (_, _) => Task.FromResult<IPAddress[]>([IPAddress.Loopback]),
             _ => false,
