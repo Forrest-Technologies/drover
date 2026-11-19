@@ -21,6 +21,8 @@ public static class IconShapes
             """<path d="m4 12 5 5L20 6"/>""",
         [IconName.ChevronDown] =
             """<path d="m6 9 6 6 6-6"/>""",
+        [IconName.ChevronLeft] =
+            """<path d="m15 6-6 6 6 6"/>""",
         [IconName.ChevronRight] =
             """<path d="m9 6 6 6-6 6"/>""",
         [IconName.Close] =

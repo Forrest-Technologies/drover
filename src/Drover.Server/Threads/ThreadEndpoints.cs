@@ -31,6 +31,15 @@ public static class ThreadEndpoints
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
             .WithSummary("Stores the message and returns the run that answers it. While a run is active the message is pending: it steers that run or waits for it to end, as whenBusy says.");
+        space.MapPost("/threads/{threadId:guid}/messages/{messageId:guid}/regenerate", Regenerate)
+            .WithName("RegenerateReply")
+            .WithSummary("Answers again the person's message a bot's reply answers. The reply and everything after it are kept as the earlier version; the new run answers with the conversation's current model. Only the message's author may, while no run works on the thread.");
+        space.MapPost("/threads/{threadId:guid}/messages/{messageId:guid}/edit", EditMessage)
+            .WithName("EditMessage")
+            .WithSummary("Stores a new version of the caller's message in its place and answers it with a new run. The message and everything after it are kept as the earlier version.");
+        space.MapPost("/threads/{threadId:guid}/messages/{messageId:guid}/show", ShowVersion)
+            .WithName("ShowMessageVersion")
+            .WithSummary("Shows this version of its place in the conversation, with what followed it, in place of the version shown. The next run reads the version shown.");
         space.MapPut("/threads/{threadId:guid}/seen", MarkThreadSeen)
             .WithName("MarkThreadSeen")
             .WithSummary("Marks the thread seen by the caller as far as its newest message, on every screen of theirs.");
@@ -91,10 +100,12 @@ public static class ThreadEndpoints
 
         var crons = await threads.ListScheduleCrons(messages, context.RequestAborted);
         var principals = await threads.ListRunPrincipals(messages, context.RequestAborted);
+        var versions = await threads.ListVersions(threadId, context.RequestAborted);
         return TypedResults.Ok(messages
             .Select(message => message.ToResponse(
                 message.ScheduleId is { } scheduleId ? crons.GetValueOrDefault(scheduleId) : null,
-                message.RunId is { } runId && principals.TryGetValue(runId, out var principal) ? principal : null))
+                message.RunId is { } runId && principals.TryGetValue(runId, out var principal) ? principal : null,
+                versions.GetValueOrDefault(message.Id)))
             .ToList());
     }
 
@@ -107,6 +118,42 @@ public static class ThreadEndpoints
         return events is null
             ? TypedResults.NotFound()
             : TypedResults.Ok(events.Select(stored => stored.ToResponse()).ToList());
+    }
+
+    private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ForbidHttpResult, ProblemHttpResult>> Regenerate(
+        Guid threadId,
+        Guid messageId,
+        HttpContext context,
+        RunService runs)
+    {
+        var access = context.GetSpaceAccess();
+        return Started(access, await runs.Regenerate(threadId, messageId, access.UserId, context.RequestAborted));
+    }
+
+    private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ForbidHttpResult, ProblemHttpResult>> EditMessage(
+        Guid threadId,
+        Guid messageId,
+        EditMessageRequest request,
+        HttpContext context,
+        RunService runs)
+    {
+        var access = context.GetSpaceAccess();
+        return Started(access, await runs.Edit(threadId, messageId, request.Text ?? string.Empty, access.UserId, context.RequestAborted));
+    }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> ShowVersion(
+        Guid threadId,
+        Guid messageId,
+        HttpContext context,
+        RunService runs)
+    {
+        var change = await runs.ShowVersion(threadId, messageId, context.GetSpaceAccess().UserId, context.RequestAborted);
+        return change.Outcome switch
+        {
+            VersionOutcome.Shown => TypedResults.NoContent(),
+            VersionOutcome.NotFound => TypedResults.NotFound(),
+            _ => VersionProblem(change),
+        };
     }
 
     private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ProblemHttpResult>> PostMessage(
@@ -133,6 +180,33 @@ public static class ThreadEndpoints
                 new SendMessageResponse(post.Message!.ToResponse(), post.Run.ToSummary())),
         };
     }
+
+    #endregion
+
+    #region Versions
+
+    private static Results<Accepted<SendMessageResponse>, NotFound, ForbidHttpResult, ProblemHttpResult> Started(SpaceAccess access, VersionChange change) =>
+        change.Outcome switch
+        {
+            VersionOutcome.Queued => TypedResults.Accepted(
+                $"/api/spaces/{access.SpaceId}/runs/{change.Run!.Id}",
+                new SendMessageResponse(change.Message!.ToResponse(), change.Run.ToSummary())),
+            VersionOutcome.NotFound => TypedResults.NotFound(),
+            VersionOutcome.Forbidden => TypedResults.Forbid(),
+            _ => VersionProblem(change),
+        };
+
+    private static ProblemHttpResult VersionProblem(VersionChange change) =>
+        change.Outcome switch
+        {
+            VersionOutcome.Busy => TypedResults.Problem(
+                title: "The bot is still working in this conversation. Wait for it to finish, or stop it.",
+                statusCode: StatusCodes.Status409Conflict),
+            VersionOutcome.BotUnavailable => TypedResults.Problem(
+                title: "This bot is paused or removed, so it cannot answer.",
+                statusCode: StatusCodes.Status409Conflict),
+            _ => TypedResults.Problem(title: change.Detail, statusCode: StatusCodes.Status400BadRequest),
+        };
 
     #endregion
 }

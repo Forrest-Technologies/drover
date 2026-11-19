@@ -268,6 +268,9 @@ public sealed class MessageList : Grid
             Takeovers = list.Takeovers,
             ReadWhole = list.ReadWhole,
             LoadUsage = list.LoadUsage,
+            ShowVersion = list.OnShowVersion is null ? null : list.ShowVersion,
+            Regenerate = list.OnRegenerate is null ? null : list.Regenerate,
+            Edit = list.OnEdit is null ? null : list.Edit,
         };
 
         return parameters = now == parameters ? parameters : now;

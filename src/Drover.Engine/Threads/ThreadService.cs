@@ -168,6 +168,10 @@ public sealed class ThreadService(
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
+    /// <summary>The versions of each place in the thread that has more than one, by the id of every version.</summary>
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ListVersions(Guid threadId, CancellationToken cancellationToken) =>
+        messages.ListVersions(threadId, cancellationToken);
+
     /// <summary>The person each run that wrote one of the messages acts for, by run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListRunPrincipals(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
         sent.Any(message => message.RunId is not null)

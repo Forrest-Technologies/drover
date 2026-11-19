@@ -69,6 +69,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool retrying;
 
+    private bool changing;
+
     private bool markedOnOpen;
 
     private bool missing;
@@ -103,6 +105,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.OnRemoveFile = id => Rendered(RemoveFile(id));
         Composer.OnModelChosen = model => Rendered(ChooseModel(model));
         List.OnRetry = () => Rendered(Retry());
+        List.OnShowVersion = messageId => Rendered(ShowVersion(messageId));
+        List.OnRegenerate = replyId => Rendered(Regenerate(replyId));
+        List.OnEdit = (messageId, text) => Rendered(Edit(messageId, text));
         List.Decide = Decide;
         List.Forget = Forget;
         List.ReadWhole = ReadWhole;
@@ -627,6 +632,81 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     #endregion
 
+    #region Versions
+
+    private Task Regenerate(Guid replyId) =>
+        StartVersion(thread => api.RegenerateReply(SpaceId, thread.Id, replyId), "No other reply was asked for.");
+
+    private Task Edit(Guid messageId, string text) =>
+        StartVersion(thread => api.EditMessage(SpaceId, thread.Id, messageId, text), "Your edit was not sent.");
+
+    // A new version is answered by a new run, which is followed like any other. The version left is kept on the
+    // server, so the conversation is read again to show the one that is now shown.
+    private async Task StartVersion(Func<ThreadSummary, Task<SendMessageResponse>> ask, string notDone)
+    {
+        if (changing || thread is null)
+        {
+            return;
+        }
+
+        changing = true;
+        (problem, notice) = (null, null);
+        try
+        {
+            var started = await ask(thread);
+            stored = await api.ListMessages(SpaceId, thread.Id);
+            thread = thread with
+            {
+                ActiveRunId = started.Run.Id,
+                Attention = thread.Attention is { } attention ? attention with { Failed = false, LastFailure = null } : null,
+            };
+            await ThreadChanged(thread);
+            Watch(started.Run.Id);
+            await ReportBusy();
+            ShowNewest();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
+            problem = $"{notDone} {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            changing = false;
+        }
+    }
+
+    // The server shows the other version with what followed it; the conversation is read again to show it.
+    private async Task ShowVersion(Guid messageId)
+    {
+        if (changing || thread is null)
+        {
+            return;
+        }
+
+        changing = true;
+        problem = null;
+        try
+        {
+            await api.ShowMessageVersion(SpaceId, thread.Id, messageId);
+            var said = api.ListMessages(SpaceId, thread.Id);
+            var tools = LoadToolHistory(thread.Id, null);
+            await Task.WhenAll(said, tools);
+            (stored, history, run) = (await said, await tools, run is { IsActive: true } ? run : null);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
+            problem = $"The other version was not shown. {Failures.Sentence(exception)}";
+        }
+        finally
+        {
+            changing = false;
+        }
+    }
+
+    #endregion
+
     #region Attaching Files
 
     private Task<FileText> ReadWhole(SharedFile file) => api.ReadFileText(SpaceId, file.Id, FileWords.MaxShownCharacters);
@@ -983,7 +1063,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             run,
             fileId => api.FileAddress(SpaceId, fileId),
             new Handover(Bot.Name, parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name), parameters.WorkAddress),
-            Reader);
+            Reader)
+        .OfferingVersions(idle: !ReadOnly && !loading && !sending && !changing && !Working && thread is not null);
 
     // What a handler changed is shown when it first waits and again when it is done, as a screen does.
     private async Task Rendered(Task work)
@@ -1034,6 +1115,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.MemoryHref = Addresses.Memory(Bot.Id);
         List.Failure = Failure;
         List.Retrying = retrying;
+        List.Changing = changing;
         List.Moment = parameters.Moment;
         List.Takeovers = Takeovers;
         List.RunAddress = Main ? runId => Addresses.Activity(Bot.Id, runId) : null;

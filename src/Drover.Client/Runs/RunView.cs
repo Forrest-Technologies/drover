@@ -81,6 +81,12 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
     /// <summary>The model that wrote a stored reply, when the server kept it.</summary>
     public string? Model { get; init; }
 
+    /// <summary>
+    /// Every version of the message's place, oldest first, this one among them, when there is more than one: the
+    /// person edited it, or asked for another reply.
+    /// </summary>
+    public IReadOnlyList<Guid>? Versions { get; init; }
+
     public static MessageView From(MessageResponse stored) =>
         new(
             stored.Id,
@@ -96,6 +102,7 @@ public sealed record MessageView(Guid Id, string Role, ImmutableList<PartView> P
             RunId = stored.RunId,
             RunPrincipalUserId = stored.RunPrincipalUserId,
             Model = stored.Model,
+            Versions = stored.Versions,
         };
 }
 

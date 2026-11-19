@@ -85,7 +85,30 @@ public static class Conversations
         }
 
         AddUnplaced(conversation, unplaced, run, handover);
+        PlaceVersions(conversation, shown);
         return LeadToRuns(conversation, shown);
+    }
+
+    /// <summary>
+    /// The conversation with a new version offered where it may be asked for: the person may edit their last message
+    /// and ask for another reply to it, at the reply's last words, while nothing works on the conversation and
+    /// nothing waits to be sent. While something does, the versions shown cannot be switched either.
+    /// </summary>
+    public static IReadOnlyList<ChatMessage> OfferingVersions(this IReadOnlyList<ChatMessage> conversation, bool idle)
+    {
+        var lastAsked = conversation.ToList().FindLastIndex(message => message is { FromPerson: true, Pending: false });
+        var lastReply = conversation.ToList().FindLastIndex(message => message is { FromPerson: false, Streaming: false, Text.Length: > 0 });
+        var free = idle && !conversation.Any(message => message.Pending);
+
+        return
+        [
+            .. conversation.Select((message, index) => message with
+            {
+                MayEdit = free && index == lastAsked && Guid.TryParse(message.Key, out _),
+                MayRegenerate = free && index == lastReply && index > lastAsked && lastAsked >= 0 && Guid.TryParse(message.Key, out _),
+                Versions = message.Versions is { } versions && versions.Enabled != free ? versions with { Enabled = free } : message.Versions,
+            }),
+        ];
     }
 
     /// <summary>Every tool call the conversation shows.</summary>
@@ -169,6 +192,34 @@ public static class Conversations
             .Select(part => SourceLink.From(part.Url, part.Text))
             .OfType<SourceLink>()
             .DistinctBy(source => source.Address);
+
+    // A person's message switches between its own versions. A reply's versions are the first messages of each reply
+    // to the same message, so the switch stands at the end of the reply shown: its last words, or its last message.
+    private static void PlaceVersions(List<ChatMessage> conversation, List<MessageView> shown)
+    {
+        for (var index = 0; index < shown.Count; index++)
+        {
+            if (shown[index] is not { Versions: { } versions } message || VersionSwitch.For(message.Id, versions) is not { } place)
+            {
+                continue;
+            }
+
+            var at = message.Role is PersonRole
+                ? conversation.FindIndex(entry => entry.Key == message.Id.ToString())
+                : EndOfReply(conversation, [.. shown.Skip(index).TakeWhile(each => each.Role is BotRole).Select(each => each.Id.ToString())]);
+
+            if (at >= 0)
+            {
+                conversation[at] = conversation[at] with { Versions = place };
+            }
+        }
+    }
+
+    private static int EndOfReply(List<ChatMessage> conversation, HashSet<string> reply)
+    {
+        var lastWords = conversation.FindLastIndex(entry => reply.Contains(entry.Key) && entry.Text.Length > 0);
+        return lastWords >= 0 ? lastWords : conversation.FindLastIndex(entry => reply.Contains(entry.Key));
+    }
 
     // Each run is reached from its last reply that has words, so a run of many steps is offered once, at its end.
     private static List<ChatMessage> LeadToRuns(List<ChatMessage> conversation, IEnumerable<MessageView> shown)

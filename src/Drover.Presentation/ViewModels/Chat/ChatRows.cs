@@ -126,6 +126,35 @@ public static class ChatRows
 
     #endregion
 
+    #region Versions
+
+    public const string RegenerateLabel = "Write another reply";
+
+    public const string EditLabel = "Edit";
+
+    public const string SendEditLabel = "Send edit";
+
+    public const string CancelEditLabel = "Cancel";
+
+    public const string PreviousVersion = "Show the previous version";
+
+    public const string NextVersion = "Show the next version";
+
+    /// <summary>Where a version stands, as the switch shows it.</summary>
+    public static string VersionLabel(VersionSwitch versions) => $"{versions.Number} of {versions.Count}";
+
+    /// <summary>What the switch is read out as: what has versions, and which one is shown.</summary>
+    public static string VersionName(VersionSwitch versions, bool fromPerson) =>
+        $"{(fromPerson ? "Your message" : "Reply")}, version {versions.Number} of {versions.Count}";
+
+    /// <summary>The field an edit is written in, named for whose message it changes.</summary>
+    public static string EditFieldName(string botName) => $"Edit your message to {botName}";
+
+    /// <summary>Said under the field: the edit takes the message's place and is answered again; nothing is lost.</summary>
+    public static string EditHint(string botName) => $"{botName} answers the edit. The earlier version stays one step back.";
+
+    #endregion
+
     #region Attached Files
 
     /// <summary>A file that cannot go: it was not uploaded, or the server refused it.</summary>

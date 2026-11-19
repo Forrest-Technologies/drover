@@ -84,6 +84,28 @@ public sealed partial class DroverApi
             cancellationToken);
 
     /// <summary>
+    /// Answers again the person's message that <paramref name="replyId"/>, a bot's reply, answers. The reply and what
+    /// followed it are kept as the earlier version. Returns that message and the new run. Throws
+    /// <see cref="DroverApiException"/> with 409 while the bot works on the thread, and 403 for someone else's message.
+    /// </summary>
+    public Task<SendMessageResponse> RegenerateReply(Guid spaceId, Guid threadId, Guid replyId, CancellationToken cancellationToken = default) =>
+        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages/{replyId}/regenerate", null, cancellationToken);
+
+    /// <summary>
+    /// Stores <paramref name="text"/> as a new version of the person's own message and answers it with a new run.
+    /// The message and what followed it are kept as the earlier version.
+    /// </summary>
+    public Task<SendMessageResponse> EditMessage(Guid spaceId, Guid threadId, Guid messageId, string text, CancellationToken cancellationToken = default) =>
+        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages/{messageId}/edit", new EditMessageRequest(text), cancellationToken);
+
+    /// <summary>
+    /// Shows <paramref name="messageId"/>, one of the <see cref="MessageResponse.Versions"/> of its place, with what
+    /// followed it. List the messages again to read the conversation it shows.
+    /// </summary>
+    public Task ShowMessageVersion(Guid spaceId, Guid threadId, Guid messageId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/messages/{messageId}/show", null, cancellationToken);
+
+    /// <summary>
     /// Marks the thread seen by the signed-in person as far as its newest message. Their other screens hear
     /// <see cref="UserSignalKinds.ThreadSeen"/>.
     /// </summary>

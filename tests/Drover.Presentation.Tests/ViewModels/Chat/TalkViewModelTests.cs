@@ -1389,6 +1389,88 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Versions
+
+    [Fact]
+    public async Task Write_another_reply_asks_the_server_follows_the_new_run_and_reads_the_conversation_again()
+    {
+        var question = Said("user", "Sample question");
+        var reply = Said("assistant", "Sample answer") with { Id = replyId, RunId = failedRunId };
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, reply });
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate", new SendMessageResponse(question, Run("queued")), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages.Select(message => (message.MayEdit, message.MayRegenerate)).Should().Equal((true, false), (false, true));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question });
+
+        await Do(() => MainPane.List.Regenerate(replyId));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate").Should().ContainSingle();
+        MainPane.Messages.Select(message => message.Text).Should().Equal(["Sample question"], "the earlier reply is kept on the server, not shown");
+        MainPane.Messages.Should().OnlyContain(message => !message.MayEdit && !message.MayRegenerate, "nothing new is offered while the bot works");
+    }
+
+    [Fact]
+    public async Task An_edit_goes_to_the_server_with_its_words_and_the_new_run_is_followed()
+    {
+        var question = Said("user", "Sample question");
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, Said("assistant", "Sample answer") });
+        var edited = Said("user", "Sample question, edited");
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{question.Id}/edit", new SendMessageResponse(edited, Run("queued")), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { edited with { Versions = [question.Id, edited.Id] } });
+
+        await Do(() => MainPane.List.Edit(question.Id, "  Sample question, edited  "));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{question.Id}/edit").Single().Should().Contain("\"Sample question, edited\"", "the edit is sent trimmed");
+        MainPane.Messages.Single().Versions.Should().Be(new VersionSwitch(2, 2, question.Id, null, Enabled: false));
+    }
+
+    [Fact]
+    public async Task Showing_another_version_asks_the_server_and_shows_the_conversation_it_now_holds()
+    {
+        var question = Said("user", "Sample question");
+        var second = Said("assistant", "Second sample answer") with { Id = replyId };
+        var first = Said("assistant", "First sample answer");
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, second with { Versions = [first.Id, replyId] } });
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{first.Id}/show", HttpStatusCode.NoContent);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages[1].Versions.Should().Be(new VersionSwitch(2, 2, first.Id, null));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, first with { Versions = [first.Id, replyId] } });
+
+        await Do(() => MainPane.List.ShowVersion(first.Id));
+
+        await Until(() => MainPane.Messages[1].Text.Should().Be("First sample answer"));
+        MainPane.Messages[1].Versions.Should().Be(new VersionSwitch(1, 2, null, replyId));
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{first.Id}/show").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Another_reply_the_server_refuses_says_why_and_the_conversation_stays()
+    {
+        var reply = Said("assistant", "Sample answer") with { Id = replyId };
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("user", "Sample question"), reply });
+        Server.Refuse("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate", HttpStatusCode.Conflict, "The bot is still working in this conversation. Wait for it to finish, or stop it.");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Do(() => MainPane.List.Regenerate(replyId));
+
+        await Until(() => MainPane.List.Problem.Should().StartWith("No other reply was asked for. The bot is still working"));
+        MainPane.Messages.Should().HaveCount(2);
+        MainPane.Messages[1].MayRegenerate.Should().BeTrue("the person may ask again once the bot is done");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static ConversationModelChoice Models(string? chosen) =>

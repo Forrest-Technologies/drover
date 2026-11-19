@@ -96,7 +96,7 @@ public sealed class ThreadRepository(DroverDbContext db)
             INSERT INTO thread_reads (space_id, thread_id, audience_user_id, seen_through_position, seen_at)
             VALUES (
               sys.current_space(), {thread.Id}, {userId},
-              COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id}), 0),
+              COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id} AND shelved_at IS NULL), 0),
               {now})
             ON CONFLICT (space_id, thread_id, audience_user_id) DO UPDATE
             SET seen_through_position = GREATEST(thread_reads.seen_through_position, EXCLUDED.seen_through_position),
@@ -137,7 +137,8 @@ public sealed class ThreadRepository(DroverDbContext db)
             .Where(read => ids.Contains(read.ThreadId) && read.AudienceUserId == userId)
             .ToDictionaryAsync(read => read.ThreadId, read => read.SeenAt, cancellationToken);
         var withNew = (await db.Messages.AsNoTracking()
-            .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null)
+            .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null
+                && message.ShelvedAt == null)
             .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
             .Where(message => message.Position > (db.ThreadReads
                 .Where(read => read.ThreadId == message.ThreadId && read.AudienceUserId == userId)

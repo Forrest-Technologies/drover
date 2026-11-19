@@ -1964,6 +1964,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("model");
 
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
                     b.Property<string>("Parts")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -1989,6 +1993,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("schedule_id");
 
+                    b.Property<DateTimeOffset?>("ShelvedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("shelved_at");
+
                     b.Property<Guid>("SpaceId")
                         .HasColumnType("uuid")
                         .HasColumnName("space_id");
@@ -2010,6 +2018,9 @@ namespace Drover.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_messages");
 
+                    b.HasAlternateKey("SpaceId", "Id", "AudienceUserId")
+                        .HasName("ak_messages_space_id_id_audience_user_id");
+
                     b.HasIndex("AuthorUserId")
                         .HasDatabaseName("ix_messages_author_user_id");
 
@@ -2019,12 +2030,16 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "RunId")
                         .HasDatabaseName("ix_messages_space_id_run_id");
 
+                    b.HasIndex("SpaceId", "ParentId", "AudienceUserId")
+                        .HasDatabaseName("ix_messages_space_id_parent_id_audience_user_id");
+
                     b.HasIndex("SpaceId", "ThreadId", "AudienceUserId")
                         .HasDatabaseName("ix_messages_space_id_thread_id_audience_user_id");
 
                     b.HasIndex("SpaceId", "ThreadId", "Position")
                         .IsUnique()
-                        .HasDatabaseName("ix_messages_space_id_thread_id_position");
+                        .HasDatabaseName("ix_messages_space_id_thread_id_position")
+                        .HasFilter("shelved_at IS NULL");
 
                     b.ToTable("messages", null, t =>
                         {
@@ -2885,6 +2900,13 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_messages_runs_space_id_run_id");
+
+                    b.HasOne("Drover.Domain.Threads.Message", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "ParentId", "AudienceUserId")
+                        .HasPrincipalKey("SpaceId", "Id", "AudienceUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_messages_messages_space_id_parent_id_audience_user_id");
 
                     b.HasOne("Drover.Domain.Threads.ChatThread", null)
                         .WithMany()

@@ -10,6 +10,8 @@ namespace Drover.Ui.Chat;
 /// <see cref="RunId"/> is the run that wrote a bot's message; <see cref="EndsReply"/> is true on the last words of a
 /// finished run when the reader can see its usage. <see cref="ActivityRunId"/> links the run's last stored reply to its activity.
 /// <see cref="Model"/> is the model that wrote a bot's stored message, when the server kept it.
+/// <see cref="Versions"/> switches between the versions of a person's message, or of a reply, where there are several.
+/// <see cref="MayEdit"/> and <see cref="MayRegenerate"/> offer a new version of the last message and the last reply.
 /// </summary>
 public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool Streaming = false, bool Pending = false)
 {
@@ -35,6 +37,34 @@ public sealed record ChatMessage(string Key, bool FromPerson, string Text, bool 
     public Guid? ActivityRunId { get; init; }
 
     public string? Model { get; init; }
+
+    public VersionSwitch? Versions { get; init; }
+
+    public bool MayEdit { get; init; }
+
+    public bool MayRegenerate { get; init; }
+
+    #endregion
+}
+
+
+/// <summary>
+/// Where a message or reply stands among the versions of its place: <see cref="Number"/> of <see cref="Count"/>, and
+/// the version before and after it to show instead. <see cref="Enabled"/> is false while the bot works, when the
+/// server would not switch.
+/// </summary>
+public sealed record VersionSwitch(int Number, int Count, Guid? Previous, Guid? Next, bool Enabled = true)
+{
+    #region Public Methods
+
+    /// <summary>The switch for <paramref name="id"/> among <paramref name="versions"/>, or null when it is not one of them.</summary>
+    public static VersionSwitch? For(Guid id, IReadOnlyList<Guid> versions)
+    {
+        var index = versions.ToList().IndexOf(id);
+        return index < 0 || versions.Count < 2
+            ? null
+            : new(index + 1, versions.Count, index > 0 ? versions[index - 1] : null, index < versions.Count - 1 ? versions[index + 1] : null);
+    }
 
     #endregion
 }
