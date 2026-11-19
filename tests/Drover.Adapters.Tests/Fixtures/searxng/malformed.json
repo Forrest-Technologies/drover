@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: a 200 answer that is JSON but not SearXNG's search answer (no results list), as a different service at the configured address might send. No real instance produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 200,
+      "body": { "status": "ok" }
+    }
+  ]
+}

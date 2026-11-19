@@ -70,6 +70,7 @@ global using Drover.Engine.Rules;
 global using Drover.Engine.Runs;
 global using Drover.Engine.Sandboxes;
 global using Drover.Engine.Tools;
+global using Drover.Engine.Web;
 global using Drover.Server.Accounts;
 global using Drover.Server.Health;
 global using Drover.Server.Policy;

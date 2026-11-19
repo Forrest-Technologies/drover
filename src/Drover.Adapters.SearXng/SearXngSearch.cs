@@ -29,7 +29,7 @@ public sealed class SearXngSearch(IHttpClientFactory clients, IOptions<SearXngOp
             using var answer = await ReadAnswer(response.Content, request.MaxResponseBytes, cancellationToken);
             return [.. ReadResults(answer.RootElement).Take(request.MaxResults)];
         }
-        catch (OutboundBlockedException blocked)
+        catch (HttpRequestException failure) when ((failure as OutboundBlockedException ?? failure.InnerException as OutboundBlockedException) is { } blocked)
         {
             throw new WebSearchException(WebSearchFailure.Blocked, blocked.Message, blocked);
         }
