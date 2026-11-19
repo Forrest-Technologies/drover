@@ -43,11 +43,17 @@ internal static partial class Browser
     [JSImport("globalThis.history.back")]
     public static partial void GoBack();
 
+    [JSImport("globalThis.history.forward")]
+    public static partial void GoForward();
+
     [JSImport("globalThis.droverAccessibility.refresh")]
     public static partial void RefreshAccessibility();
 
     [JSImport("globalThis.addEventListener")]
     public static partial void Listen(string eventName, [JSMarshalAs<JSType.Function>] Action handler);
+
+    [JSImport("globalThis.addEventListener")]
+    public static partial void Listen(string eventName, [JSMarshalAs<JSType.Function<JSType.Object>>] Action<JSObject> handler);
 
     public static bool Matches(string mediaQuery)
     {

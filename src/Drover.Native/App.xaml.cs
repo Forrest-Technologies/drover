@@ -56,6 +56,7 @@ public partial class App : Application
         Log.Factory = services.GetRequiredService<ILoggerFactory>();
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Log.Factory;
         Link.Opener = address => navigator.NavigateTo(address);
+        DialogSurface.Navigator = navigator;
         PlatformShell.Start(navigator);
 
         var shell = new ShellView(services, window);
