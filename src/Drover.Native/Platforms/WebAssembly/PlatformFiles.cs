@@ -5,17 +5,20 @@ internal static partial class PlatformFiles
 {
     #region Public Methods
 
-    public static Task<bool> SaveText(string name, string text) => Save(name, text);
+    public static Task<bool> SaveText(string name, string text) => Save(name, text, "application/json");
+
+    /// <summary>Saves text of the given media type under the name, as a download the browser keeps.</summary>
+    public static Task<bool> SaveText(string name, string text, string mediaType) => Save(name, text, mediaType);
 
     #endregion
 
     #region Private Methods
 
-    private static async Task<bool> Save(string name, string text)
+    private static async Task<bool> Save(string name, string text, string mediaType)
     {
         try
         {
-            await Download(name, text);
+            await Download(name, text, mediaType);
             return true;
         }
         catch (JSException exception)
@@ -25,7 +28,7 @@ internal static partial class PlatformFiles
     }
 
     [JSImport("globalThis.droverFiles.download")]
-    private static partial Task Download(string name, string text);
+    private static partial Task Download(string name, string text, string type);
 
     #endregion
 }
