@@ -30,9 +30,14 @@ size, never from its name or a client-supplied content type.
 - Before serving HTML, the server removes scripts, event handlers, forms, active embeds, refresh instructions,
   base addresses, and external or relative resource and navigation addresses. Inline CSS cannot import or address
   another resource. This reduction complements the origin boundary and content policy.
-- A browser uses a sandboxed iframe without same-origin, forms, popups, top navigation, or downloads. A native app
-  uses a WebView with isolated storage and no shared cookie jar, credential store, host bridge, navigation away
-  from the granted document, downloads, or new windows.
+- A browser uses a sandboxed iframe (`sandbox=""`, `credentialless`, `allow=""`, `referrerpolicy="no-referrer"`)
+  without same-origin, forms, popups, top navigation, or downloads. Native desktop and Android targets
+  (`net11.0-desktop`, `net11.0-android`) currently refuse in-app HTML preview before requesting a server grant and
+  fall back to Download or Save, because the shared Uno host does not yet wire a non-persistent WebView controller
+  with guaranteed isolated cookie, cache, and credential storage across Linux, macOS, Windows, and Android. Lifting
+  that refusal on a native target requires a platform-specific non-persistent WebView controller that enforces
+  isolated storage, no shared cookie jar or credential store, no host bridge, no navigation away from the granted
+  document, no downloads, and no new windows, verified by a platform security test.
 - The preview response applies a fixed policy. Its default source, scripts, connections, frames, objects, base
   address, and forms are disabled. Inline styles and embedded image or font data may render. Referrers are disabled,
   content types are not sniffed, and the app origin is the only allowed frame ancestor.

@@ -167,6 +167,16 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task The_application_policy_only_allows_the_configured_preview_frame_origin()
+    {
+        var response = await NewClient().Get("https://app.example.test/api/antiforgery");
+        var policy = response.Headers.GetValues("Content-Security-Policy").Single();
+        policy.Split(';', StringSplitOptions.TrimEntries).Should()
+            .ContainSingle(directive => directive.StartsWith("frame-src"))
+            .Which.Should().Be("frame-src https://preview.other.test");
+    }
+
+    [Fact]
     public async Task Html_preview_is_authorized_once_sanitized_and_served_only_on_the_preview_origin()
     {
         var (owner, spaceId, threadId, botId) = await Conversation("alice");

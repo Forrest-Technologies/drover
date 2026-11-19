@@ -171,6 +171,144 @@ public sealed class FileComponentTests : IDisposable
         card.ShowAllName.Should().Be("Show all of log.txt");
     }
 
+    [Fact]
+    public async Task A_bot_html_file_opens_one_isolated_preview_and_revokes_its_grant_when_closed()
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "/api/files/report", true, start);
+        var requested = 0;
+        string? revoked = null;
+        var card = Card(file);
+        card.RequestPreview = _ =>
+        {
+            requested++;
+            return Task.FromResult(new FilePreviewResponse("https://preview.example/preview/file?grant=hidden", Grant: "hidden"));
+        };
+        card.RevokePreview = (_, grant) =>
+        {
+            revoked = grant;
+            return Task.CompletedTask;
+        };
+
+        await card.Preview();
+
+        card.CanPreview.Should().BeTrue();
+        card.PreviewAddress.Should().Be("https://preview.example/preview/file?grant=hidden");
+        card.PreviewProblem.Should().BeNull();
+        requested.Should().Be(1);
+
+        await card.ClosePreview();
+
+        card.PreviewAddress.Should().BeNull();
+        revoked.Should().Be("hidden");
+    }
+
+    [Fact]
+    public async Task An_unavailable_html_preview_keeps_a_plain_download_fallback()
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "/api/files/report", true, start);
+        var card = Card(file);
+        card.RequestPreview = _ => Task.FromResult(new FilePreviewResponse(null,
+            "HTML preview is unavailable. Download is still available."));
+
+        await card.Preview();
+
+        card.PreviewAddress.Should().BeNull();
+        card.PreviewProblem.Should().Be("HTML preview is unavailable. Download is still available.");
+        card.DownloadName.Should().Be("Download report.html");
+
+        card.RefusePreview();
+        card.PreviewProblem.Should().Be("Preview is not available on this device. Save the file to view it.");
+    }
+
+    [Fact]
+    public async Task A_preview_request_in_progress_ignores_a_second_press()
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "/api/files/report", true, start);
+        var held = new TaskCompletionSource<FilePreviewResponse>();
+        var requested = 0;
+        var card = Card(file);
+        card.RequestPreview = _ =>
+        {
+            requested++;
+            return held.Task;
+        };
+
+        var first = card.Preview();
+        card.PreviewButtonName.Should().Be("Loading a preview of report.html");
+        await card.Preview();
+        held.SetResult(new("https://preview.example/preview/file?grant=hidden", Grant: "hidden"));
+        await first;
+
+        requested.Should().Be(1);
+        card.Previewing.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_late_grant_is_revoked_against_the_original_card_file(bool replace)
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "/api/files/report", true, start);
+        var card = Card(file);
+        var held = new TaskCompletionSource<FilePreviewResponse>();
+        SharedFile? revoked = null;
+        card.RequestPreview = _ => held.Task;
+        card.RevokePreview = (selected, grant) =>
+        {
+            revoked = selected;
+            grant.Should().Be("hidden");
+            return Task.CompletedTask;
+        };
+
+        var request = card.Preview();
+        if (replace)
+        {
+            card.File = file with { Id = Guid.NewGuid(), Name = "replacement.html" };
+        }
+        else
+        {
+            await card.ClosePreview();
+        }
+
+        held.SetResult(new("https://preview.example/preview/file?grant=hidden", Grant: "hidden"));
+        await request;
+
+        revoked.Should().Be(file);
+        card.PreviewAddress.Should().BeNull();
+        card.Previewing.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_person_html_file_is_downloaded_without_a_preview_offer()
+    {
+        var file = new SharedFile(Guid.NewGuid(), "notes.html", "TEXT/HTML", 100, "/api/files/notes", false, start);
+
+        Card(file).CanPreview.Should().BeFalse();
+        Card(file with { FromBot = true }).CanPreview.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("https://app.example.test/preview/file?grant=hidden")]
+    [InlineData("https://preview.example.test/preview/file?grant=hidden")]
+    public async Task An_html_preview_on_the_app_servers_own_site_is_refused_and_revoked(string sameSiteAddress)
+    {
+        var file = new SharedFile(Guid.NewGuid(), "report.html", "text/html", 100, "https://app.example.test/api/spaces/1/files/2", true, start);
+        string? revoked = null;
+        var card = Card(file);
+        card.RequestPreview = _ => Task.FromResult(new FilePreviewResponse(sameSiteAddress, Grant: "hidden"));
+        card.RevokePreview = (_, grant) =>
+        {
+            revoked = grant;
+            return Task.CompletedTask;
+        };
+
+        await card.Preview();
+
+        card.PreviewAddress.Should().BeNull();
+        card.PreviewProblem.Should().Be("Drover could not preview report.html. Download is still available.");
+        revoked.Should().Be("hidden");
+    }
+
     #endregion
 
     #region Files Panel
