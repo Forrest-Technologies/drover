@@ -30,6 +30,9 @@ public static class ThreadEndpoints
         threads.MapPut("/{threadId:guid}/project", SetProject)
             .WithName("SetThreadProject")
             .WithSummary("Moves a conversation into a project of the same space, or out of its project when projectId is null. Only the conversation's owner may move it.");
+        threads.MapGet("/{threadId:guid}/export", ExportConversation)
+            .WithName("ExportConversation")
+            .WithSummary("The conversation as a file to keep: format=markdown (the default) or format=json, the versioned ConversationExport. Tool calls are listed by name and outcome, files by name and size.");
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
@@ -173,6 +176,29 @@ public static class ThreadEndpoints
             VersionOutcome.NotFound => TypedResults.NotFound(),
             _ => VersionProblem(change),
         };
+    }
+
+    private static async Task<Results<FileContentHttpResult, NotFound, ProblemHttpResult>> ExportConversation(
+        Guid threadId,
+        string? format,
+        HttpContext context,
+        ConversationExporter exporter)
+    {
+        var chosen = format ?? ExportFormats.Markdown;
+        if (chosen is not (ExportFormats.Markdown or ExportFormats.Json))
+        {
+            return TypedResults.Problem(title: $"format is '{ExportFormats.Markdown}' or '{ExportFormats.Json}'.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (await exporter.Export(threadId, context.RequestAborted) is not { } export)
+        {
+            return TypedResults.NotFound();
+        }
+
+        context.Response.Headers.CacheControl = "no-store";
+        return chosen is ExportFormats.Json
+            ? TypedResults.File(export.ToJson(), "application/json; charset=utf-8", export.FileName(chosen))
+            : TypedResults.File(export.ToMarkdown(), "text/markdown; charset=utf-8", export.FileName(chosen));
     }
 
     private static async Task<Results<Accepted<SendMessageResponse>, NotFound, ProblemHttpResult>> PostMessage(
