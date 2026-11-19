@@ -72,7 +72,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task The_application_role_may_update_every_column_of_a_thread_except_its_owner()
+    public async Task The_application_role_updates_thread_ownership_and_project_membership_only_through_narrow_paths()
     {
         var rows = await Query(
             """
@@ -82,7 +82,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
             """);
 
         var withoutPrivilege = rows.Where(row => !(bool)row[1]!).Select(row => (string)row[0]!);
-        withoutPrivilege.Should().Equal("owner_user_id");
+        withoutPrivilege.Should().Equal("owner_user_id", "project_id");
     }
 
     #endregion

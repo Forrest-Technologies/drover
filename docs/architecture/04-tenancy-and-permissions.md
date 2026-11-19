@@ -27,6 +27,8 @@ The SQL and the EF Core mechanism in this section were run against PostgreSQL 16
 
 `drover_app` has `SELECT, INSERT, UPDATE, DELETE` on mutable tenant tables. `audit_log` is append-only: only `SELECT, INSERT` are granted. `threads` permits `UPDATE` only on `id`, `space_id`, `audience_user_id`, `bot_id`, `title`, `origin`, `last_activity_at`, `archived_at`, and `is_main`. No tenant table permits `TRUNCATE`. The isolation suite checks these declared grants independently of the catalog, alongside behavioral isolation checks. The role has `EXECUTE` on `sys` functions, and nothing else. It cannot create objects, alter tables, or change policies. Observed: `ALTER TABLE threads DISABLE ROW LEVEL SECURITY` as `drover_app` returns "must be owner of table threads", and `SET ROLE drover_system` returns "permission denied".
 
+`threads.project_id` has no direct update grant. The application updates it through `owned_thread_projects`, a security-barrier view that exposes only rows owned by `sys.current_user_id()`, has a local check option, and grants only `SELECT (id)` and `UPDATE (project_id)`. Forced thread policies still apply to the view owner. Removing a project uses the same-space foreign key's column-specific `ON DELETE SET NULL (project_id)`, so private conversations are cleared without exposing them and `space_id` stays unchanged.
+
 ### Policies
 
 Two helper functions read the transaction's identity. They return null when nothing is set, and a comparison with null is never true, so an unset context sees nothing.
