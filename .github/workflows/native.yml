@@ -117,6 +117,8 @@ jobs:
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
+      - name: Require Xcode 27.2
+        run: xcodebuild -version | grep -F 'Xcode 27.2'
       - name: Install the iOS workload
         run: dotnet workload install ios --version 11.0.100
       - name: Build iOS, warnings are errors
