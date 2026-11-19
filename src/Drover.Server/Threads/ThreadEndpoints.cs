@@ -27,6 +27,9 @@ public static class ThreadEndpoints
         threads.MapPut("/{threadId:guid}/model", ChooseModel)
             .WithName("ChooseConversationModel")
             .WithSummary("Makes the conversation answer with another of the bot's models from its next run. Null goes back to the bot's own. A model the bot may not use, or one that could cost more than the space allows, is refused.");
+        threads.MapPut("/{threadId:guid}/project", SetProject)
+            .WithName("SetThreadProject")
+            .WithSummary("Moves a conversation into a project of the same space, or out of its project when projectId is null. Only the conversation's owner may move it.");
 
         space.MapPost("/threads/{threadId:guid}/messages", PostMessage)
             .WithName("PostMessage")
@@ -54,6 +57,22 @@ public static class ThreadEndpoints
         await threads.FindThread(threadId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } view
             ? TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId, view.Attention))
             : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<ThreadSummary>, NotFound, ForbidHttpResult>> SetProject(
+        Guid threadId,
+        SetThreadProjectRequest request,
+        HttpContext context,
+        ThreadService threads)
+    {
+        var outcome = await threads.SetProject(threadId, request.ProjectId, context.GetSpaceAccess().UserId, context.RequestAborted);
+        return outcome switch
+        {
+            { Outcome: ProjectMembershipOutcome.Updated, Thread: { } view } =>
+                TypedResults.Ok(view.Thread.ToSummary(view.ActiveRunId, view.Attention)),
+            { Outcome: ProjectMembershipOutcome.Forbidden } => TypedResults.Forbid(),
+            _ => TypedResults.NotFound(),
+        };
+    }
 
     private static async Task<Results<NoContent, NotFound>> MarkThreadSeen(Guid threadId, HttpContext context, ThreadService threads) =>
         await threads.MarkSeen(threadId, context.GetSpaceAccess().UserId, context.RequestAborted)

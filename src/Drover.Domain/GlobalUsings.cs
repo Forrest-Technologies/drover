@@ -25,6 +25,7 @@ global using Drover.Domain.Audit;
 global using Drover.Domain.Bots;
 global using Drover.Domain.Files;
 global using Drover.Domain.Models;
+global using Drover.Domain.Projects;
 global using Drover.Domain.Push;
 global using Drover.Domain.Sandboxes;
 global using Drover.Domain.Secrets;

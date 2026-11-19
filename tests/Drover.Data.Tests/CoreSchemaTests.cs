@@ -16,7 +16,7 @@ public sealed class CoreSchemaTests(PostgresFixture postgres)
         string[] space =
         [
             "bots", "bot_ancestors", "bot_sandbox_shares", "bot_schedules", "tool_grants", "model_connections", "model_catalog",
-            "tool_connections", "tools", "runs", "usage_records", "sandboxes", "audit_log",
+            "tool_connections", "tools", "projects", "runs", "usage_records", "sandboxes", "audit_log",
         ];
         string[] withAudience =
         [
