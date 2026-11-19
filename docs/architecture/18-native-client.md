@@ -426,7 +426,13 @@ scrolled to. Leaving for another screen ends it: the streams stop and unsent fil
 
 The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
 `Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
-`BotNotifyMenu`. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
+`BotNotifyMenu`, `ConversationSearch`.
+
+`ConversationSearch` sits above the crew. Enter searches the person's conversations on the server
+(`ConversationSearchViewModel`), and while a search is shown it stands in place of the crew: the messages found, or a
+state that says nothing matched or the search failed, each with its one next step. Escape or the close button clears
+it and puts the crew back. Each result is a link to the message's moment (`Addresses.Moment`), so it opens the main
+conversation or the side chat scrolled to that message, the same way a link to a moment from memory or files does. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
 is kept and told what changed, never made again.
 
 **The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
