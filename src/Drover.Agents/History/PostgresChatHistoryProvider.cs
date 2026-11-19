@@ -50,7 +50,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var (request, history, cutOff, steers, summary) = await run.Database.Transact(
+        var (request, history, cutOff, steers, summary, projectFiles) = await run.Database.Transact(
             async services =>
             {
                 var repository = services.GetRequiredService<MessageRepository>();
@@ -64,7 +64,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                     cancellationToken);
                 var (messages, rerun) = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
                 var waiting = await ListSteering(services.GetRequiredService<MessageRepository>(), cancellationToken);
-                return (reconciled, messages, rerun, waiting, await ReadSummary(repository, cancellationToken));
+                return (reconciled, messages, rerun, waiting, await ReadSummary(repository, cancellationToken), await ReadProjectFiles(services, cancellationToken));
             },
             cancellationToken);
 
@@ -76,15 +76,33 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         var ordered = MessageOrder.ResultsAfterCalls(complete);
         var shown = summary is null ? ordered : MessageOrder.After(ordered, summary.ThroughPosition);
 
-        // Attached files are opened with no transaction open too: copying one into a sandbox waits on the network.
-        var files = await run.Governor.OpenFiles([.. shown.Concat(steers).FileIds()], cancellationToken);
+        // Attached files and the project's current files are opened with no transaction open: copying one into a
+        // sandbox waits on the network. Both go through the same grant path.
+        var attachmentIds = shown.Concat(steers).FileIds();
+        var projectIds = projectFiles?.FileIds ?? [];
+        var files = await run.Governor.OpenFiles([.. attachmentIds.Concat(projectIds).Distinct()], cancellationToken);
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage(files))];
         steering = [.. steered.Select(message => message.MessageId!)];
         context.RequestMessages = [.. request, .. steered];
 
-        return summary is null
-            ? shown.Select(message => message.ToChatMessage(files))
-            : [ToSummaryMessage(summary), .. shown.Select(message => message.ToChatMessage(files))];
+        List<ChatMessage> given = [.. shown.Select(message => message.ToChatMessage(files))];
+
+        if (summary is not null)
+        {
+            given.Insert(0, ToSummaryMessage(summary));
+        }
+
+        if (projectFiles is { } shared)
+        {
+            List<FileForModel> opened = [.. shared.FileIds.Where(files.ContainsKey).Select(id => files[id])];
+
+            if (ProjectFileGrant.ToMessage(shared.Name, opened) is { } sharedFiles)
+            {
+                given.Insert(summary is null ? 0 : 1, sharedFiles);
+            }
+        }
+
+        return given;
     }
 
     protected override async ValueTask StoreChatHistoryAsync(
@@ -147,6 +165,24 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     #endregion
 
     #region Summary
+
+    /// <summary>
+    /// The project the conversation belongs to now, and its file ids, oldest first. Null when it belongs to none.
+    /// Read in the history transaction so a project or file removed since the run loaded is not granted.
+    /// </summary>
+    private async Task<SharedProjectFiles?> ReadProjectFiles(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.Thread.Id, cancellationToken);
+
+        if (thread?.ProjectId is not { } projectId
+            || await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken) is not { } project)
+        {
+            return null;
+        }
+
+        var files = await services.GetRequiredService<FileRepository>().ListProjectFiles(project.Id, cancellationToken);
+        return new SharedProjectFiles(project.Name, [.. files.Select(file => file.Id).Reverse()]);
+    }
 
     /// <summary>
     /// The thread's summary, when this bot's history is to begin with it: the bot compacts by summarization, the
@@ -438,6 +474,9 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
     /// <summary>A main thread's summary and the position of the last message it covers.</summary>
     private sealed record HistorySummary(string Text, int ThroughPosition);
+
+    /// <summary>The project files to grant on this model call, oldest first.</summary>
+    private sealed record SharedProjectFiles(string Name, IReadOnlyList<Guid> FileIds);
 
     #endregion
 }

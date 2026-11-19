@@ -74,6 +74,16 @@ Rules that hold for all three:
 
 A position is unique among the messages shown, not among all of them: an edit takes the position of the message it edits, and another reply the positions of the one before it. The data model allows a new version at any message; the clients offer it at the last message and the last reply.
 
+## Project context on a run
+
+A conversation in a project gives that run two more inputs. Both are read as the run's person, in a tenant transaction, before the run persists context.
+
+The project's instructions are a labeled source beside the bot's own instructions. They are loaded with the bot and the project row. They are not copied into the bot's instructions. They do not add a tool, change the model, or change sandbox access. A conversation in no project is given the bot's instructions exactly as before. The next execution reads the project again, the same way it reads the bot. The text is not stored on the run or in the conversation.
+
+The project's files go through the same grant path as a file attached to a message. The history provider lists the project's current files in the transaction that reads the conversation, then opens those rows after the transaction closes. Their content is untrusted. It is never written into the system instructions. A file the existing checks cannot open is refused in words. A file that is no longer in the project is not granted on the next read. Two bots in one project each keep their own tool grants and their own sandbox. A private conversation stays unreadable to another member who can read the project.
+
+Proof: `ProjectRunContextTests` in `Drover.Engine.Tests`, and `ProjectApiTests.A_private_conversation_in_a_project_stays_unreadable` for the HTTP reads.
+
 ## Workers
 
 `RunWorker` is a hosted service inside `Drover.Server`. It runs the engine's `RunDispatcher`, which executes a fixed number of runs at once (default 8, `Runs:Workers`). One loop claims for all of them, asking for as many runs as it has free workers: every call to `sys.claim_runs` writes an audit row, so an idle server asks once per poll, not once per worker. For each run:

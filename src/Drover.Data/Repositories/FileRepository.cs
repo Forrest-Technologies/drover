@@ -45,6 +45,10 @@ public sealed class FileRepository(DroverDbContext db)
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
 
+    /// <summary>Whether the project has a shared file the caller can see.</summary>
+    public Task<bool> AnyProjectFile(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files.AnyAsync(file => file.ProjectId == projectId, cancellationToken);
+
     /// <summary>The files shared in a project that the caller can see, newest first.</summary>
     public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
         db.Files

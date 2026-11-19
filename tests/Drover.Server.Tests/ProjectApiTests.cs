@@ -146,6 +146,25 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
     }
 
     [Fact]
+    public async Task A_private_conversation_in_a_project_stays_unreadable()
+    {
+        var owner = await SeedPerson("owner");
+        var member = await SeedMember(owner.SpaceId, "member", MembershipRole.Member);
+        var asOwner = await SignIn(owner);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asOwner, owner.SpaceId, "Shared bot");
+        var project = await PostFor<ProjectSummary>(asOwner, $"{Space(owner.SpaceId)}/projects", new CreateProjectRequest("Shared work", "Keep the brief private to the conversation."), HttpStatusCode.Created);
+        var ownerThread = await PostFor<ThreadSummary>(asOwner, $"{Space(owner.SpaceId)}/bots/{bot.Id}/threads", new CreateThreadRequest("Owner private", project.Id), HttpStatusCode.Created);
+        var sent = await PostFor<SendMessageResponse>(asOwner, $"{Space(owner.SpaceId)}/threads/{ownerThread.Id}/messages", new SendMessageRequest("owner-only-phrase"), HttpStatusCode.Accepted);
+
+        (await asMember.Get($"{Space(owner.SpaceId)}/projects/{project.Id}")).StatusCode.Should().Be(HttpStatusCode.OK, "a member can read the project");
+        (await asMember.Get($"{Space(owner.SpaceId)}/threads/{ownerThread.Id}/messages")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asMember.Get($"{Space(owner.SpaceId)}/threads/{ownerThread.Id}/tool-events")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asMember.Get($"{Space(owner.SpaceId)}/runs/{sent.Run.Id}/events?after=0")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asOwner.Get($"{Space(owner.SpaceId)}/threads/{ownerThread.Id}/messages")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Removing_a_project_preserves_every_conversation_and_clears_their_project_id()
     {
         var owner = await SeedPerson("owner");
