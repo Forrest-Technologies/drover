@@ -76,6 +76,7 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.AllowWebTools), "true", "false"),
         new(nameof(DeploymentPolicy.MaxWebPageBytes), "4194304", "1048576"),
         new(nameof(DeploymentPolicy.MaxWebRequestSeconds), "30", "15"),
+        new(nameof(DeploymentPolicy.AllowImageGeneration), "true", "false"),
     ];
 
     /// <summary>

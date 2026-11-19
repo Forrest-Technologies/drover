@@ -605,6 +605,8 @@ public sealed class RunGovernor(
     /// </summary>
     internal static decimal? Cost(ToolModelUsage usage) => usage switch
     {
+        { DirectCost: { } direct } => direct,
+        { HasTokenUsage: false } => null,
         { InputTokens: > 0, Pricing.InputPerMillion: null } or { OutputTokens: > 0, Pricing.OutputPerMillion: null } => null,
         _ => ((usage.InputTokens * (usage.Pricing.InputPerMillion ?? 0)) + (usage.OutputTokens * (usage.Pricing.OutputPerMillion ?? 0))) / 1_000_000m,
     };

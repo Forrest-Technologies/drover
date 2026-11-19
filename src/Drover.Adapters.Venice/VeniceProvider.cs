@@ -4,7 +4,11 @@ namespace Drover.Adapters.Venice;
 /// Venice as a named provider. The address is fixed and only an inference key is needed.
 /// Model discovery needs no key, so the model picker works before the key is saved.
 /// </summary>
-public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleChatClientBuilder createCompatibleClient, ILogger<VeniceProvider> logger) : IModelClientProvider
+public sealed class VeniceProvider(
+    IHttpClientFactory httpClients,
+    CompatibleChatClientBuilder createCompatibleClient,
+    CompatibleImageGenerator generateCompatibleImage,
+    ILogger<VeniceProvider> logger) : IModelClientProvider, IModelImageGenerator
 {
     #region Private Fields
 
@@ -34,6 +38,47 @@ public sealed class VeniceProvider(IHttpClientFactory httpClients, CompatibleCha
         }
 
         return new VeniceChatClient(createCompatibleClient(new ModelEndpoint(ConnectionKind, BaseAddress), apiKey, modelId), modelId, settings);
+    }
+
+    public async Task<ModelImageResult> Generate(
+        ModelEndpoint connection,
+        string? apiKey,
+        ModelImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            throw ModelProviderException.FromStatus((int)HttpStatusCode.Unauthorized);
+        }
+
+        using var models = await Get("models?type=image", null, connection.Limits, cancellationToken);
+        VeniceImageModel imageModel;
+
+        try
+        {
+            imageModel = VeniceImageCatalog.Find(models.RootElement, request.Model)
+                ?? throw ModelProviderException.FromRefusal("The requested image model is not in the provider's current image catalog.");
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        {
+            throw ModelProviderException.FromMalformedResponse();
+        }
+
+        var generated = await generateCompatibleImage(
+            new ModelEndpoint(ConnectionKind, BaseAddress),
+            apiKey,
+            request,
+            cancellationToken);
+        return generated with
+        {
+            Usage = generated.Usage with
+            {
+                Cost = generated.Usage.Cost ?? imageModel.FlatUsd,
+                Currency = generated.Usage.Cost is null && imageModel.FlatUsd is not null
+                    ? "USD"
+                    : generated.Usage.Currency,
+            },
+        };
     }
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(

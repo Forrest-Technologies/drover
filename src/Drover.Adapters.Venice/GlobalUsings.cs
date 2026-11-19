@@ -10,6 +10,7 @@ global using System.Text.Json;
 global using System.Threading;
 global using System.Threading.Tasks;
 global using Drover.Domain.Bots;
+global using Drover.Domain.Images;
 global using Drover.Domain.Models;
 global using Drover.Domain.Policy;
 global using Microsoft.Extensions.DependencyInjection;
