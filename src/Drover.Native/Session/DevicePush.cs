@@ -59,7 +59,7 @@ public sealed class DevicePush : StackPanel
 
         if (!model.Available)
         {
-            Children.Add(new StatusNote { Text = DevicePushViewModel.UnavailableSentence });
+            Children.Add(new StatusNote { Text = model.StatusSentence });
         }
         else if (model.State is { } state)
         {

@@ -64,6 +64,17 @@ public sealed class DevicePushViewModelTests : IDisposable
 
         control.Available.Should().BeFalse();
         DevicePushViewModel.UnavailableSentence.Should().Be("This app cannot turn notifications on yet. Turn them on in the web app, in this same menu.");
+        control.StatusSentence.Should().Be(DevicePushViewModel.UnavailableSentence);
+    }
+
+    [Fact]
+    public void Live_delivery_explains_its_own_limit_without_offering_a_push_switch()
+    {
+        var sentence = "This app can show notifications while it is running. System settings can still silence them.";
+        var control = Make(registration: null, live: new LiveStatus(sentence));
+
+        control.Available.Should().BeFalse();
+        control.StatusSentence.Should().Be(sentence);
     }
 
     #endregion
@@ -348,8 +359,10 @@ public sealed class DevicePushViewModelTests : IDisposable
 
     private DevicePushViewModel Make() => Make(device);
 
-    private DevicePushViewModel Make(IPushRegistration? registration) =>
-        new(server.CreateApi(), session, NullLogger<DevicePushViewModel>.Instance, registration);
+    private DevicePushViewModel Make(IPushRegistration? registration, ILiveNotificationStatus? live = null) =>
+        new(server.CreateApi(), session, NullLogger<DevicePushViewModel>.Instance, registration, live);
+
+    private sealed record LiveStatus(string StatusSentence) : ILiveNotificationStatus;
 
     #endregion
 }

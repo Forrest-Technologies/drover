@@ -59,13 +59,17 @@
        Platforms/Desktop/SystemSecrets.cs. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
     <Using Include="Microsoft.Identity.Client.Extensions.Msal" />
     <Using Include="System.Security.Cryptography" />
     <Using Include="System.Text" />
+    <Using Include="Tmds.DBus.Protocol" />
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
     <Using Include="System.Net.Sockets" />
+    <Using Include="System.Collections.Concurrent" />
+    <Using Include="System.Runtime.InteropServices" />
     <Using Include="Uno.UI.Composition.Drawing" />
     <Using Include="Uno.UI.Composition.Skia" />
     <Using Include="Windows.UI.Text" />

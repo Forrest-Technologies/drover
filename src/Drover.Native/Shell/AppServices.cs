@@ -14,6 +14,7 @@ public static class AppServices
             .AddSingleton(TimeProvider.System)
             .AddSingleton<Navigator>()
             .AddSingleton<SessionState>()
+            .AddSingleton<ILiveNotifications, NoLiveNotifications>()
             .AddSingleton<ToastService>()
             .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
