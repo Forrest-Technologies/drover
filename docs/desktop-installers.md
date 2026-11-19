@@ -12,7 +12,7 @@ Download the DMG for the architecture named in its filename. Open it, then open 
 
 ## Linux
 
-Download the x64 deb and its optional armored signature. Verify the checksum, then install it.
+Download the x64 deb and its checksum. The attestation is the trust anchor. An armored signature in the same directory is optional and does not identify the publisher, because no public key fingerprint is published yet.
 
 ```bash
 sha256sum --check drover-linux-x64-1.2.3-signed.deb.sha256
@@ -23,10 +23,13 @@ The application is available as `drover` and in the desktop application menu. An
 
 ## Verify provenance
 
-Each package has a GitHub artifact attestation. Verify it with the GitHub CLI and the repository name.
+Each package has a GitHub artifact attestation from the release workflow on the version tag. Verify the repository, the signer workflow, and the tag.
 
 ```bash
-gh attestation verify drover-windows-x64-1.2.3-signed.msix --repo Forrest-Technologies/drover
+gh attestation verify drover-windows-x64-1.2.3-signed.msix \
+  --repo Forrest-Technologies/drover \
+  --signer-workflow Forrest-Technologies/drover/.github/workflows/release.yml \
+  --source-ref refs/tags/v1.2.3
 ```
 
 ## Maintainer release setup
@@ -47,6 +50,23 @@ Add these environment secrets when signing material exists.
 
 The Windows certificate subject must be `CN=Forrest Technologies`, which matches the MSIX identity. The macOS certificate must contain a Developer ID Application identity. The Apple notary secrets belong to a dedicated App Store Connect API key. Encode each binary certificate or key file as one base64 string.
 
-Protect the `release` environment so only version tags can deploy and a required reviewer must approve access. Pull request jobs and manual dry runs do not enter it. If a platform's complete secret set is missing on a protected tag, that platform publishes an artifact whose filename says `unsigned`.
+The `release` environment allows deployment only from version tags, and a required reviewer must approve access. Pull request jobs and manual dry runs do not enter it. If a platform's complete secret set is missing on a protected tag, that platform publishes an artifact whose filename says `unsigned`. A partial secret set fails the job.
+
+Recorded from `GET /repos/Forrest-Technologies/drover/environments/release` and its deployment branch policies on 2026-11-19. The required reviewer is unchanged. `can_admins_bypass` remains true.
+
+```json
+{
+  "deployment_branch_policy": {
+    "protected_branches": false,
+    "custom_branch_policies": true
+  },
+  "branch_policies": [
+    {
+      "name": "v*",
+      "type": "tag"
+    }
+  ]
+}
+```
 
 GitHub registers manual dispatch from the workflow on the default branch. Before this workflow is present there, the first branch dry run may not appear in the workflow picker. After registration, choose the intended branch and enter a numeric three-part version. Never create a public test tag.
