@@ -335,9 +335,9 @@ public sealed class MessageList : Grid
         }
 
         var top = entry.TransformToVisual(floor).TransformPoint(new(0, 0)).Y;
-        var middle = top + (entry.ActualHeight / 2) - (scroller.ViewportHeight / 2);
         atFoot = false;
-        scroller.ChangeView(null, Math.Clamp(middle, 0, scroller.ScrollableHeight), null, disableAnimation: true);
+        var offset = MomentViewport.Offset(top, entry.ActualHeight, scroller.ViewportHeight, scroller.ScrollableHeight);
+        scroller.ChangeView(null, offset, null, disableAnimation: true);
         entry.Land();
     }
 

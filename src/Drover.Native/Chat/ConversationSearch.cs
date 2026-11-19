@@ -129,14 +129,15 @@ public sealed class ConversationSearch : StackPanel
     private void Draw()
     {
         var state = model.State;
-        clear.Visibility = Shown(model.IsActive);
-        failed.Visibility = Shown(state is ConversationSearchState.Failed);
+        var screen = ConversationSearchScreen.For(state, model.IsActive);
+        clear.Visibility = Shown(screen.ShowsClear);
+        failed.Visibility = Shown(screen.ShowsFailed);
         failed.Cause = model.Problem ?? ConversationSearchViewModel.FailedTitle;
-        nothing.Visibility = Shown(state is ConversationSearchState.NothingFound);
+        nothing.Visibility = Shown(screen.ShowsNothing);
         nothing.Title = model.NothingTitle;
-        results.Visibility = Shown(state is ConversationSearchState.Found);
+        results.Visibility = Shown(screen.ShowsResults);
         Say(model.Status);
-        ShowHits(state is ConversationSearchState.Found ? model.Hits : []);
+        ShowHits(screen.ShowsResults ? model.Hits : []);
         ActiveChanged?.Invoke();
     }
 

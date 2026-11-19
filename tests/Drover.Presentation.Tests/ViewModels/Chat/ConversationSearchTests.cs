@@ -48,6 +48,7 @@ public sealed class ConversationSearchTests : IDisposable
         await model.Search();
 
         model.State.Should().Be(ConversationSearchState.Found);
+        ConversationSearchScreen.For(model.State, model.IsActive).Should().Be(new ConversationSearchScreen(true, false, false, true));
         model.Searched.Should().Be("lighthouse & paint");
         bench.Server.Addresses.Should().ContainSingle(address => address.StartsWith("POST ")).Which
             .Should().Be($"POST {search}");
@@ -66,6 +67,12 @@ public sealed class ConversationSearchTests : IDisposable
         replied.AccessibleName.Should().Be($"Reply from Marshal in the side chat Errands, {ScheduleWords.Moment(sentAt)}: The lighthouse is done.");
         asked.AccessibleName.Should().StartWith("Message to Marshal in the main conversation, ");
         replied.BotHue.Should().Be(BotIdentity.Hue(botId));
+        ArrowMotion.Next(0, model.Hits.Count, ArrowMotionKey.Next).Should().Be(1);
+        model.Hits[1].AccessibleName.Should().Be(replied.AccessibleName);
+        ArrowMotion.Next(1, model.Hits.Count, ArrowMotionKey.Previous).Should().Be(0);
+        ArrowMotion.Next(1, model.Hits.Count, ArrowMotionKey.Next).Should().Be(1);
+        ArrowMotion.Next(1, model.Hits.Count, ArrowMotionKey.First).Should().Be(0);
+        ArrowMotion.Next(0, model.Hits.Count, ArrowMotionKey.Last).Should().Be(1);
     }
 
     [Fact]
@@ -134,10 +141,14 @@ public sealed class ConversationSearchTests : IDisposable
         ConversationSearchViewModel.NothingCause.Should().Be("No message in your conversations has these words. Try other words, or fewer of them.");
         ConversationSearchViewModel.ClearAction.Should().Be("Clear the search");
         model.Status.Should().BeNull();
+        model.Hits.Should().BeEmpty();
+        ArrowMotion.Next(0, model.Hits.Count, ArrowMotionKey.Next).Should().BeNull();
+        ConversationSearchScreen.For(model.State, model.IsActive).Should().Be(new ConversationSearchScreen(true, false, true, false));
 
         model.Clear();
 
         (model.State, model.IsActive, model.Query, model.Searched).Should().Be((ConversationSearchState.Idle, false, string.Empty, (string?)null));
+        ConversationSearchScreen.For(model.State, model.IsActive).Should().Be(new ConversationSearchScreen(false, false, false, false));
     }
 
     [Fact]
@@ -152,6 +163,7 @@ public sealed class ConversationSearchTests : IDisposable
         model.State.Should().Be(ConversationSearchState.Failed);
         model.Problem.Should().NotBeNullOrWhiteSpace();
         ConversationSearchViewModel.FailedTitle.Should().Be("Drover could not search your conversations");
+        ConversationSearchScreen.For(model.State, model.IsActive).Should().Be(new ConversationSearchScreen(true, true, false, false));
 
         bench.Server.Answer("POST", search, new List<MessageSearchHit>
         {
@@ -225,6 +237,12 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
 
     private static readonly DateTimeOffset sentAt = new(2026, 1, 5, 8, 0, 0, TimeSpan.Zero);
 
+    private const double RowHeight = 80;
+
+    private const double Gap = 16;
+
+    private const double Viewport = 480;
+
     #endregion
 
     #region Public Methods
@@ -236,6 +254,18 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         var main = new ThreadSummary(mainThreadId, botId, null, true, sentAt, null);
         var side = new ThreadSummary(sideThreadId, botId, "Errands", false, sentAt, null);
         var mainHitMessage = new MessageResponse(askedId, mainThreadId, 1, "user", null, [new MessagePartResponse("text") { Text = "Paint the lighthouse." }], sentAt);
+        List<MessageResponse> mainHistory = [mainHitMessage];
+        for (var index = 2; index <= 16; index++)
+        {
+            mainHistory.Add(new MessageResponse(
+                Guid.Parse($"0196f1a0-0000-7000-8000-{index:000000000000}"),
+                mainThreadId,
+                index,
+                index % 2 == 0 ? "assistant" : "user",
+                null,
+                [new MessagePartResponse("text") { Text = $"Later message {index}." }],
+                sentAt));
+        }
         var sideHitMessage = new MessageResponse(repliedId, sideThreadId, 1, "assistant", null, [new MessagePartResponse("text") { Text = "The lighthouse is done." }], sentAt);
 
         Server.Answer("GET", $"{Space}/model-connections", new[]
@@ -246,7 +276,7 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         Server.Answer("GET", $"{Space}/bots/{botId}/threads", new[] { main, side });
         Server.Answer("PUT", $"{Space}/bots/{botId}/main-thread", main);
         Server.Answer("GET", $"{Space}/threads/{mainThreadId}", main);
-        Server.Answer("GET", $"{Space}/threads/{mainThreadId}/messages", new[] { mainHitMessage });
+        Server.Answer("GET", $"{Space}/threads/{mainThreadId}/messages", mainHistory);
         Server.Answer("GET", $"{Space}/threads/{sideThreadId}", side);
         Server.Answer("GET", $"{Space}/threads/{sideThreadId}/messages", new[] { sideHitMessage });
         Server.Answer("POST", $"{Space}/threads/search", new List<MessageSearchHit>
@@ -268,11 +298,54 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         await Go(search.Hits[0].Href);
         await Until(() => Talk.MainPane!.List.Moment.Should().Be(askedId));
         (await Ui.Read(Talk.MainPane!.List.TakeMoment)).Should().Be(askedId);
+        OpenedHitIsInView(Talk.MainPane.List.Messages, askedId).Should().BeTrue();
+        FootHidesOpenedHit(Talk.MainPane.List.Messages, askedId).Should().BeTrue();
 
         await Go(search.Hits[1].Href);
         await Until(() => Talk.SidePane?.List.Moment.Should().Be(repliedId));
         Talk.Side.Should().Be(SideView.Chat);
         (await Ui.Read(Talk.SidePane!.List.TakeMoment)).Should().Be(repliedId);
+    }
+
+    #endregion
+
+    #region Helpers
+
+    // The same offset MessageList applies when a link names a message. Rows are a fixed height, so a long
+    // conversation's foot hides the first message and the moment offset brings it back into the viewport.
+    private static bool OpenedHitIsInView(IReadOnlyList<ChatMessage> messages, Guid hit)
+    {
+        var rows = Rows(messages);
+        var hitRow = rows.Single(row => row.Id == hit);
+        var offset = MomentViewport.Offset(hitRow.Top, hitRow.Height, Viewport, Scrollable(rows));
+        return MomentViewport.Shows(offset, hitRow.Top, hitRow.Height, Viewport);
+    }
+
+    private static bool FootHidesOpenedHit(IReadOnlyList<ChatMessage> messages, Guid hit)
+    {
+        var rows = Rows(messages);
+        var hitRow = rows.Single(row => row.Id == hit);
+        return !MomentViewport.Shows(Scrollable(rows), hitRow.Top, hitRow.Height, Viewport);
+    }
+
+    private static List<(Guid Id, double Top, double Height)> Rows(IReadOnlyList<ChatMessage> messages)
+    {
+        List<(Guid Id, double Top, double Height)> rows = [];
+        foreach (var message in messages)
+        {
+            if (Guid.TryParse(message.Key, out var id))
+            {
+                rows.Add((id, rows.Count * (RowHeight + Gap), RowHeight));
+            }
+        }
+
+        return rows;
+    }
+
+    private static double Scrollable(IReadOnlyList<(Guid Id, double Top, double Height)> rows)
+    {
+        var extent = rows[^1].Top + rows[^1].Height;
+        return Math.Max(0, extent - Viewport);
     }
 
     #endregion
