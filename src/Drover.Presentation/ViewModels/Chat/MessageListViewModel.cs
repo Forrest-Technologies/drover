@@ -78,8 +78,14 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The group's accessible name.</summary>
     public string Name => $"Conversation with {BotName}";
 
-    /// <summary>Nothing was said and nothing is on its way: the bot stands there, with one line on what to do.</summary>
-    public bool IsEmpty => Messages.Count == 0 && !Thinking;
+    /// <summary>True until the conversation has been read: until then nothing is known to be said or not.</summary>
+    public bool Loading { get; set; }
+
+    /// <summary>
+    /// Nothing was said and nothing is on its way: the bot stands there, with one line on what to do. Never while the
+    /// conversation is still being read, so a conversation with messages never says it has none.
+    /// </summary>
+    public bool IsEmpty => !Loading && Messages.Count == 0 && !Thinking;
 
     public string StartHint => $"Nothing said yet. Write to {BotName} below.";
 

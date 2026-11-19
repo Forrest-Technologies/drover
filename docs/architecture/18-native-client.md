@@ -344,7 +344,7 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | Find in page, reader mode, translation, selection across the page | None works. Measured: `window.find("Use the account you made")` is false on `/native/sign-in` and true on `/sign-in`; the words exist only as labels of the semantic tree, which is not drawn. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. At 200 percent (a 640 px wide CSS viewport at twice the pixel ratio) sign-in draws sharp, at the same layout as the web client, with no sideways scroll. The browser's text-size setting has no effect (not re-measured) |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
-| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client; the native build makes the same requests in the same order, and the time is spent between them, in the interpreted runtime. In that time the native screen says "Loading the conversation", then for about two seconds "Nothing said yet" (an open defect: a conversation is made twice on opening), then loads again. Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
+| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client, on a machine loaded by other builds; the time is spent between requests, in the interpreted runtime. Remeasured on 2026-11-19 on an unloaded machine against a Release server, twelve messages, median of five page loads: 2.75 s native and 0.59 s web before the fix below, 2.51 s native and 0.55 s web after it; most of the native time is the runtime's start before the first request. The conversation is made once per opening; what showed "Nothing said yet" on the way was the message list, revealed before it had drawn the loaded messages (see "The conversation workspace") Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
 | Service worker, install, push in a browser | The web client's worker, start script and notification script, shared. Verified in Chromium against Drover's server: the worker installs, stores all 169 shell files with matching hashes, and takes control. A real push delivered to the worker, and the notification tap, are covered by `NativeServiceWorkerTests`; a subscription against a real push service was not made from this machine |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
 | Credential store on desktop | Not implemented by the platform, so the desktop app keeps the sign-in only until it closes |
@@ -377,7 +377,7 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 ### The conversation workspace
 
 `TalkPage` is native. Its logic is in `src/Drover.Presentation/ViewModels/Chat/`, moved from the web client's
-`Talk` page and `ConversationPane` with the same calls, order, messages, and failure handling:
+`Talk` page and `ConversationPane` with the same calls, messages, and failure handling (the order of independent reads differs, below):
 
 | View model | Holds |
 | --- | --- |
@@ -386,6 +386,12 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 | `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
 | `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
 | `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
+
+Opening reads what does not depend on something else at the same time: the model connections and the bots, then
+every bot's threads; the conversation starts loading as soon as the bots are known, beside the question of whether the
+bot has a screen; a conversation's messages and its tool calls are read together; and the conversation is shown before
+the server is told it was seen. Until the conversation has been read the screen says it is loading, never that nothing
+was said.
 
 A run is still the server's: these only watch it and ask. Three seams replace what the web client took from its
 framework:
@@ -550,13 +556,20 @@ Tool and delegation cards appeared as empty frames for seconds before they were 
 Approve and Deny: each card queued its first draw behind the conversation's other work. They are now drawn before
 they are first measured (see "The conversation's pieces").
 
+Opening a conversation took about 10 s in the browser build and showed "Nothing said yet" on the way. The
+conversation was made once, as `TalkViewModelTests` now holds; the empty words came from the message list, which
+was shown before it had drawn the loaded messages, and which said a conversation still being read had nothing in it.
+The list now says nothing about an empty conversation until it has been read, and is drawn before it is shown. The
+reads that do not depend on each other are made together (see "The conversation workspace"). Measured on 2026-11-19
+against a Release server with twelve messages: on the desktop build, moving to the conversation from another screen
+took 136 to 150 ms (five runs; 160 to 181 ms before), and the first conversation after start 244 to 264 ms (480 ms
+before), against 239 to 262 ms for the same move in the web client. The browser build's figure is in the limits table.
+
 Links measured without a role or name in this pass; the browser adapter merged alongside it now gives them the
 link role (see the limits table).
 
-1. Opening a conversation takes about 10 s against the web client's 2 s, and says "Nothing said yet" for about
-   two seconds on the way, because the conversation is made twice.
-2. No password manager semantics (type, autocomplete, form) on sign-in.
-3. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
+1. No password manager semantics (type, autocomplete, form) on sign-in.
+2. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
    sign-in at load).
 
 Interaction smoke on the browser build (Playwright, through the semantic tree and the keyboard): signing in with

@@ -225,6 +225,91 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Opening
+
+    [Fact]
+    public async Task Opening_a_conversation_makes_it_once_and_reads_it_once()
+    {
+        var sandbox = Server.Hold("GET", $"{Space}/bots/{botId}/sandbox");
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        HashSet<ConversationViewModel> made = [];
+        Talk.PropertyChanged += (_, _) =>
+        {
+            if (Talk.MainPane is { } pane)
+            {
+                made.Add(pane);
+            }
+        };
+
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        messages.SetResult();
+        sandbox.SetResult();
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        made.Should().ContainSingle("the screen changes several times while it opens, and keeps the one conversation");
+        Server.Sent("PUT", $"{Space}/bots/{botId}/main-thread").Should().ContainSingle();
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_conversation_starts_loading_before_the_question_of_the_bots_screen_is_answered()
+    {
+        var bots = Server.Hold("GET", $"{Space}/bots");
+        var sandbox = Server.Hold("GET", $"{Space}/bots/{botId}/sandbox");
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Loading));
+
+        bots.SetResult();
+
+        await Until(() => Talk.MainPane!.Messages.Should().HaveCount(2));
+        sandbox.SetResult();
+    }
+
+    [Fact]
+    public async Task A_conversation_with_messages_says_it_is_loading_until_they_arrive_and_never_that_nothing_was_said()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        List<(bool Loading, int Count, bool Empty)> seen = [];
+        ConversationViewModel? followed = null;
+        Talk.PropertyChanged += (_, _) =>
+        {
+            if (Talk.MainPane is { } pane && followed is null)
+            {
+                followed = pane;
+                Record(pane);
+                pane.List.PropertyChanged += (_, _) => Record(pane);
+            }
+        };
+
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        MainPane.Loading.Should().BeTrue();
+        MainPane.List.IsEmpty.Should().BeFalse("nothing is known to be said or not while the conversation is read");
+        messages.SetResult();
+
+        await Until(() => seen.Should().Contain((false, 2, false)));
+        seen.Should().NotContain(state => state.Empty, "the empty state is never shown for a conversation that has messages");
+        seen.Should().NotContain(state => !state.Loading && state.Count == 0, "it says it is loading until the messages are there");
+        seen.Should().Equal(seen.OrderByDescending(state => state.Loading), "loading comes first, then the messages");
+
+        void Record(ConversationViewModel pane) => seen.Add((pane.Loading, pane.List.Messages.Count, pane.List.IsEmpty));
+    }
+
+    [Fact]
+    public async Task A_conversation_with_nothing_said_says_so_once_it_has_been_read()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", Array.Empty<MessageResponse>());
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Loading.Should().BeFalse());
+        await Until(() => MainPane.List.IsEmpty.Should().BeTrue());
+        MainPane.List.StartHint.Should().Be("Nothing said yet. Write to Marshal below.");
+    }
+
+    #endregion
+
     #region Reading
 
     [Fact]
