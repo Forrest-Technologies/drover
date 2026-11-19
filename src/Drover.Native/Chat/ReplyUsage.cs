@@ -23,6 +23,9 @@ public sealed class ReplyUsage : StackPanel
 
     private readonly TextBlock writtenBy = Styles.Text(null, "DvTextCaption");
 
+    // The words stand in a box as tall as the control beside them, so the two read on one line.
+    private readonly Grid writtenByBox = new() { MinHeight = Targets.Minimum };
+
     private readonly FlowPanel line = new() { Gap = Tokens.Number("DvSpace3") };
 
     private readonly StackPanel body = new() { Spacing = Tokens.Number("DvSpace1"), HorizontalAlignment = HorizontalAlignment.Left };
@@ -44,7 +47,8 @@ public sealed class ReplyUsage : StackPanel
         toggle.Content = content;
         toggle.Click += async (_, _) => await Toggle();
         writtenBy.VerticalAlignment = VerticalAlignment.Center;
-        line.Children.Add(writtenBy);
+        writtenByBox.Children.Add(writtenBy);
+        line.Children.Add(writtenByBox);
         line.Children.Add(toggle);
         Children.Add(line);
         Children.Add(body);
@@ -85,7 +89,7 @@ public sealed class ReplyUsage : StackPanel
     {
         var open = model?.Open ?? false;
         writtenBy.Text = model?.WrittenBy ?? string.Empty;
-        writtenBy.Visibility = model?.WrittenBy is null ? Visibility.Collapsed : Visibility.Visible;
+        writtenByBox.Visibility = model?.WrittenBy is null ? Visibility.Collapsed : Visibility.Visible;
         mark.NameOfIcon = open ? IconName.ChevronDown : IconName.ChevronRight;
         mark.Foreground = toggle.CurrentInk;
         AutomationProperties.SetItemStatus(toggle, open ? "Expanded" : "Collapsed");
