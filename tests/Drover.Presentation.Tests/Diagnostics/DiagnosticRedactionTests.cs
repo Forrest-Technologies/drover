@@ -26,6 +26,8 @@ public sealed class DiagnosticRedactionTests : IDisposable
 
     private readonly string password = $"pw-{Guid.NewGuid():N}";
 
+    private readonly string apiKey = $"sk-drover-{Guid.NewGuid():N}";
+
     private readonly string server = $"https://host-{Guid.NewGuid():N}.example.test";
 
     private readonly string messageText = $"Please book the dentist for {Guid.NewGuid():N}";
@@ -51,13 +53,16 @@ public sealed class DiagnosticRedactionTests : IDisposable
     {
         var logger = factory.CreateLogger<DiagnosticRedactionTests>();
 
-        logger.LogWarning(
-            "Signing in to {Server} with {Authorization} and {Cookie} for session {SessionId} said {Text}",
-            server, token, cookie, sessionId, messageText);
+        using (logger.BeginScope(new Dictionary<string, object?> { ["ApiKey"] = apiKey, ["Message"] = messageText }))
+        {
+            logger.LogWarning(
+                "Signing in to {Server} with {Authorization}, {ApiKey} and {Cookie} for session {SessionId} said {Text}",
+                server, token, apiKey, cookie, sessionId, messageText);
+        }
 
         var saved = log.Compose(app);
         saved.Should().Contain(
-            "Signing in to {Server} with {Authorization} and {Cookie} for session {SessionId} said {Text}");
+            "Signing in to {Server} with {Authorization}, {ApiKey} and {Cookie} for session {SessionId} said {Text}");
         ShouldHoldNoSecret(saved);
     }
 
@@ -171,8 +176,8 @@ public sealed class DiagnosticRedactionTests : IDisposable
     {
         string[] secrets =
         [
-            token, token["Bearer ".Length..], cookie, sessionId.ToString(), sessionId.ToString("N"), password, server,
-            messageText,
+            token, token["Bearer ".Length..], cookie, sessionId.ToString(), sessionId.ToString("N"), password, apiKey,
+            server, messageText,
         ];
         foreach (var secret in secrets)
         {
