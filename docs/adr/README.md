@@ -30,3 +30,4 @@ One short file per decision that would be expensive to reverse or that an agent 
 | [0013](0013-track-the-newest-generally-available-dotnet.md) | Track the newest generally available .NET once MAUI supports it | Accepted |
 | [0015](0015-one-native-client.md) | One native client for web, Android, and desktop | Proposed in its pull request; supersedes 0008, and 0003 where they conflict, once merged |
 | [0016](0016-projects-group-conversations-and-share-context.md) | Projects group conversations and share instructions and files | Accepted |
+| [0017](0017-preview-untrusted-files-by-type.md) | Preview untrusted files by type | Proposed |
