@@ -1,6 +1,6 @@
 # 0017. Preview untrusted files by type
 
-- Status: Accepted
+- Status: Proposed. It is accepted when the pull request that carries it merges.
 - Date: 2026-11-19
 - Source: [issue 298](https://github.com/Forrest-Technologies/drover/issues/298)
 
@@ -24,8 +24,8 @@ size, never from its name or a client-supplied content type.
   control. Opening the link is a person's explicit navigation outside the preview. This settles
   [issue 44](https://github.com/Forrest-Technologies/drover/issues/44) without allowing output to phone home.
 - HTML never renders in the app origin. After the normal file access check, the server issues a short-lived,
-  single-use preview grant bound to that file version. A separate configured preview origin serves the HTML. That
-  origin receives no app cookies and sets none. A missing preview origin leaves Download available and explains
+  single-use preview grant bound to that file version. A separate configured preview origin on a separate registrable domain serves the HTML. The operator must keep that origin cookieless.
+  The preview service rejects requests carrying cookies and sets none. A missing preview origin leaves Download available and explains
   what the operator must configure.
 - Before serving HTML, the server removes scripts, event handlers, forms, active embeds, refresh instructions,
   base addresses, and external or relative resource and navigation addresses. Inline CSS cannot import or address
@@ -55,7 +55,7 @@ HTML policy or enabling network access requires a new decision.
 
 ## Consequences
 
-Operators who want HTML preview need a second HTTPS origin. HTML stays static, offline, and isolated. Native
+Operators who want HTML preview need a separate HTTPS site. HTML stays static, offline, and isolated. Native
 formats remain searchable and accessible through platform controls. Preview grants and renderer limits need
 security tests on every target, and file downloads remain the fallback for unsupported or refused content.
 
