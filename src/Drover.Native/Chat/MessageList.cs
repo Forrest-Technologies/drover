@@ -67,6 +67,7 @@ public sealed class MessageList : Grid
 
     public MessageList()
     {
+        AutomationProperties.SetAutomationId(scroller, "MessageList");
         BuildStart();
         BuildThinking();
         failure.Retry += async (_, _) => await (model?.Retry() ?? Task.CompletedTask);
