@@ -14,6 +14,18 @@ public sealed class AccountMenu : Grid
 
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
+    private readonly Dialog updates = new();
+
+    private readonly TextBlock updateDetail = Styles.Text(null, "DvTextParagraph");
+
+    private readonly Switch updateChecks = new() { Label = "Check for desktop updates" };
+
+    private readonly Button checkUpdate = new() { Content = "Check now" };
+
+    private readonly Button installUpdate = new() { Content = "Download and restart", Kind = ButtonKind.Primary };
+
+    private bool refreshingUpdates;
+
     #endregion
 
     #region Constructors
@@ -21,8 +33,23 @@ public sealed class AccountMenu : Grid
     public AccountMenu()
     {
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
+        updates.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => UpdatesChanged());
+        updateChecks.RegisterPropertyChangedCallback(Switch.ValueProperty, (_, _) => UpdateChecksChanged());
+        checkUpdate.Click += (_, _) => _ = model.CheckUpdates();
+        installUpdate.Click += (_, _) => _ = model.InstallUpdate();
+
+        var updateBody = new StackPanel { Spacing = Tokens.Number("DvSpace4") };
+        updateBody.Children.Add(updateDetail);
+        updateBody.Children.Add(updateChecks);
+        var updateActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2") };
+        updateActions.Children.Add(checkUpdate);
+        updateActions.Children.Add(installUpdate);
+        updates.Body = updateBody;
+        updates.Actions = updateActions;
+
         Children.Add(menu);
         Children.Add(notifications);
+        Children.Add(updates);
 
         model.PropertyChanged += (_, _) => Show();
         Unloaded += (_, _) => model.Dispose();
@@ -54,6 +81,7 @@ public sealed class AccountMenu : Grid
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
         ShowNotifications();
+        ShowUpdates();
 
         if (Compact)
         {
@@ -69,6 +97,10 @@ public sealed class AccountMenu : Grid
         menu.Items.Add(Item("Models", () => model.Open(Addresses.Models)));
         menu.Items.Add(Item("Extensions", () => model.Open(Addresses.Extensions)));
         menu.Items.Add(Item("Notifications", model.OpenNotifications));
+        if (model.ShowsUpdates)
+        {
+            menu.Items.Add(Item(model.UpdatesLabel, model.OpenUpdates));
+        }
 
         // Everyone reads usage: a member reads their own runs, an owner or admin the whole space.
         menu.Items.Add(Item("Usage", () => model.Open(Addresses.Usage)));
@@ -94,6 +126,19 @@ public sealed class AccountMenu : Grid
         {
             notifications.Body = null;
         }
+    }
+
+    private void ShowUpdates()
+    {
+        updates.Title = model.UpdatesTitle;
+        updateDetail.Text = model.UpdatesDetail;
+        refreshingUpdates = true;
+        updateChecks.Value = model.UpdateChecksEnabled;
+        refreshingUpdates = false;
+        checkUpdate.IsEnabled = model.CanCheckUpdates;
+        installUpdate.IsEnabled = model.CanInstallUpdate;
+        installUpdate.Visibility = model.CanInstallUpdate ? Visibility.Visible : Visibility.Collapsed;
+        updates.Open = model.UpdatesOpen;
     }
 
     // In the dock the menu's button is one of four equal cells: no surface, no line, the icon over the word.
@@ -152,6 +197,23 @@ public sealed class AccountMenu : Grid
         {
             model.NotificationsOpen = false;
             menu.ReturnFocusToTrigger();
+        }
+    }
+
+    private void UpdatesChanged()
+    {
+        if (!updates.Open && model.UpdatesOpen)
+        {
+            model.UpdatesOpen = false;
+            menu.ReturnFocusToTrigger();
+        }
+    }
+
+    private void UpdateChecksChanged()
+    {
+        if (!refreshingUpdates)
+        {
+            model.SetUpdateChecks(updateChecks.Value);
         }
     }
 

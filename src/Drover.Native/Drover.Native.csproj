@@ -58,7 +58,20 @@
     <Using Include="Uno.UI.Composition.Drawing" />
     <Using Include="Uno.UI.Composition.Skia" />
     <Using Include="Windows.UI.Text" />
+    <Using Include="System.Reflection" />
+    <Using Include="System.Runtime.InteropServices" />
+    <Using Include="NetSparkleUpdater" />
+    <Using Include="NetSparkleUpdater.AppCastHandlers" />
+    <Using Include="NetSparkleUpdater.Enums" />
+    <Using Include="NetSparkleUpdater.SignatureVerifiers" />
     <EmbeddedResource Include="Assets/Fonts/Inter-Regular.ttf" LogicalName="Drover.Native.FallbackInter.ttf" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DroverUpdatePublicKey</_Parameter1>
+      <_Parameter2>$(DroverUpdatePublicKey)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
@@ -194,6 +207,11 @@
     <ProjectReference Include="..\Drover.Client\Drover.Client.csproj" />
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
     <ProjectReference Include="..\Drover.Presentation\Drover.Presentation.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
   </ItemGroup>
 
   <!-- The SDK adds two packages to every app that are not open source: its packaging helper, under an end-user
