@@ -97,9 +97,9 @@ public static class MessageParts
 
         yield return new TextContent(given.Text);
 
-        if (given is { Image: { } image, MediaType: { } mediaType })
+        foreach (var image in given.Images ?? [])
         {
-            yield return new DataContent(image, mediaType);
+            yield return new DataContent(image.Data, image.MediaType);
         }
     }
 

@@ -710,6 +710,11 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("preview");
 
+                    b.Property<string>("ReadingNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("reading_note");
+
                     b.Property<string>("Sha256")
                         .IsRequired()
                         .HasMaxLength(64)

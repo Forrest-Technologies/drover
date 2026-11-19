@@ -83,7 +83,34 @@ public sealed class FileInspectorTests
 
     [Fact]
     public void A_nul_byte_makes_it_another_kind_whatever_the_name_says() =>
-        Inspect([0x25, 0x50, 0x44, 0x46, 0x00, 0x01], "report.pdf").Should().Be(new FileFacts(FileKind.Other, "application/pdf"));
+        Inspect([0x25, 0x50, 0x44, 0x46, 0x00, 0x01], "report.pdf").Should().Be(new FileFacts(FileKind.Other, "application/octet-stream"));
+
+    [Theory]
+    [InlineData("report.pdf")]
+    [InlineData("report.bin")]
+    public void A_pdf_is_a_document_by_its_header_whatever_its_name(string name) =>
+        Inspect([.. "%PDF-1.7\n"u8, 0, 1], name).Should().Be(new FileFacts(FileKind.Document, DocumentTypes.Pdf));
+
+    [Fact]
+    public void A_pdf_that_is_all_text_is_still_a_document() =>
+        Inspect("%PDF-1.4\n1 0 obj << >> endobj\n%%EOF"u8.ToArray(), "plain.pdf").Kind.Should().Be(FileKind.Document);
+
+    [Theory]
+    [InlineData("lease.docx", DocumentTypes.Word)]
+    [InlineData("BUDGET.XLSX", DocumentTypes.Excel)]
+    [InlineData("review.pptx", DocumentTypes.PowerPoint)]
+    public void A_zip_archive_named_as_an_office_document_is_one(string name, string contentType) =>
+        Inspect([0x50, 0x4B, 0x03, 0x04, 0, 0, 0xFF], name).Should().Be(new FileFacts(FileKind.Document, contentType));
+
+    [Theory]
+    [InlineData("archive.zip", "application/zip")]
+    [InlineData("old.doc", "application/octet-stream")]
+    public void A_zip_archive_with_another_name_is_another_kind(string name, string contentType) =>
+        Inspect([0x50, 0x4B, 0x03, 0x04, 0, 0, 0xFF], name).Should().Be(new FileFacts(FileKind.Other, contentType));
+
+    [Fact]
+    public void A_name_ending_in_docx_does_not_make_other_bytes_a_document() =>
+        Inspect([0x00, 0x01, 0x02], "lease.docx").Should().Be(new FileFacts(FileKind.Other, "application/octet-stream"));
 
     [Fact]
     public void A_file_cut_inside_a_character_is_not_text() =>
@@ -94,7 +121,11 @@ public sealed class FileInspectorTests
     [InlineData("image/svg+xml", FileKind.Other)]
     [InlineData("text/plain", FileKind.Text)]
     [InlineData("application/yaml", FileKind.Text)]
-    [InlineData("application/pdf", FileKind.Other)]
+    [InlineData("application/pdf", FileKind.Document)]
+    [InlineData(DocumentTypes.Word, FileKind.Document)]
+    [InlineData(DocumentTypes.Excel, FileKind.Document)]
+    [InlineData(DocumentTypes.PowerPoint, FileKind.Document)]
+    [InlineData("application/zip", FileKind.Other)]
     public void A_content_type_belongs_to_one_kind(string contentType, FileKind kind) =>
         FileInspector.KindOf(contentType).Should().Be(kind);
 

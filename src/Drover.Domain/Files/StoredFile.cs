@@ -48,6 +48,12 @@ public sealed class StoredFile : ISpaceOwned, IAudienceScoped
     /// <summary>A text file's first lines, for the conversation to show.</summary>
     public string? Preview { get; set; }
 
+    /// <summary>
+    /// Under a document a person attached, the note that a bot reads less than all of it, and why: cut at a bound,
+    /// no text, or not readable. Null when a bot reads all of it, and for every other kind of file.
+    /// </summary>
+    public string? ReadingNote { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     #endregion

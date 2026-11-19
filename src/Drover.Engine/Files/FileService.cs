@@ -134,6 +134,11 @@ public sealed class FileService(
 
         try
         {
+            if (facts.Kind is FileKind.Document)
+            {
+                file.ReadingNote = await ReadingNote(file, prepared.Abilities.ModelReadsImages, cancellationToken);
+            }
+
             upload = FileUses.RefusalFor(facts.Kind, prepared.Abilities) is { } refusal
                 ? Refused(refusal, FileWords.CannotOpen(refusal, prepared.BotName))
                 : await Keep(threadId, file, cancellationToken);
@@ -225,6 +230,36 @@ public sealed class FileService(
     #endregion
 
     #region Private Methods
+
+    /// <summary>
+    /// Reads a document once, within the limits a run reads it with, so the person sees under it when a bot will read
+    /// less than all of it. No scope is open: the bytes come back from the file store.
+    /// </summary>
+    private async Task<string?> ReadingNote(StoredFile file, bool modelReadsImages, CancellationToken cancellationToken)
+    {
+        await using var content = await store.Open(SpaceId, file.StorageKey, cancellationToken);
+
+        if (content is null)
+        {
+            return null;
+        }
+
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, cancellationToken);
+
+        try
+        {
+            var limits = new DocumentLimits(Rules.MaxDocumentPages, RunFiles.MaxTextCharacters, 0);
+            var read = DocumentReader.Read(copy.ToArray(), file.ContentType, limits);
+            return DocumentWords.ForPerson(read, RunFiles.MaxTextCharacters, modelReadsImages);
+        }
+        catch (DocumentUnreadableException unreadable)
+        {
+            // The parser's own message may quote the file, so only the kind of failure is logged.
+            logger.LogInformation("Document {FileId} could not be read: {Failure}", file.Id, unreadable.InnerException?.GetType().Name);
+            return DocumentWords.Unreadable(unreadable.Message);
+        }
+    }
 
     /// <summary>
     /// The thread, its bot, and what the bot can take, read before any byte is; and an early refusal when the space

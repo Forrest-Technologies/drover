@@ -14,6 +14,7 @@ public sealed class StoredFileMapping : IEntityTypeConfiguration<StoredFile>
         builder.Property(file => file.ContentType).HasMaxLength(200);
         builder.Property(file => file.Sha256).HasMaxLength(64);
         builder.Property(file => file.Preview).HasMaxLength(1000);
+        builder.Property(file => file.ReadingNote).HasMaxLength(300);
         builder.Property(file => file.CreatedAt).HasDefaultValueSql("now()");
         builder.ToTable(table => table.HasCheckConstraint("ck_files_size", "size >= 0"));
         builder.ToTable(table => table.HasCheckConstraint("ck_files_picture_size", "(width IS NULL) = (height IS NULL) AND (width IS NULL OR (width > 0 AND height > 0))"));

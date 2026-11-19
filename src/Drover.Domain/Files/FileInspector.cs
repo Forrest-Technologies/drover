@@ -5,9 +5,11 @@ public sealed record FileFacts(FileKind Kind, string ContentType, int? Width = n
 
 /// <summary>
 /// Reads a file as it streams past, once, and says what it is. A picture is a PNG, JPEG, GIF, or WebP whose header
-/// gives its size; text is UTF-8 with no NUL byte anywhere in it. The content type is chosen here from that, and from
-/// the name's extension only to tell kinds of text apart, so a content type always names the kind it belongs to
-/// (<see cref="KindOf"/>). Nothing here trusts what the browser said the file was.
+/// gives its size; text is UTF-8 with no NUL byte anywhere in it; a document is a PDF by its header, or a Word, Excel,
+/// or PowerPoint file, which is a zip archive by its header and told apart by the name's extension. The content type
+/// is chosen here from that, and from the name's extension only to tell kinds of text and of office document apart, so
+/// a content type always names the kind it belongs to (<see cref="KindOf"/>). Nothing here trusts what the browser
+/// said the file was.
 /// </summary>
 public sealed class FileInspector
 {
@@ -36,13 +38,17 @@ public sealed class FileInspector
         [".htm"] = "text/html",
     };
 
+    private static readonly Dictionary<string, string> officeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".docx"] = DocumentTypes.Word,
+        [".xlsx"] = DocumentTypes.Excel,
+        [".pptx"] = DocumentTypes.PowerPoint,
+    };
+
     private static readonly Dictionary<string, string> otherTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        [".pdf"] = "application/pdf",
         [".zip"] = "application/zip",
         [".gz"] = "application/gzip",
-        [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         [".mp3"] = "audio/mpeg",
         [".mp4"] = "video/mp4",
     };
@@ -92,6 +98,12 @@ public sealed class FileInspector
 
         var extension = Path.GetExtension(name);
 
+        // Before text: a PDF may be all ASCII, and is still a PDF.
+        if (FindDocument(start, extension) is { } document)
+        {
+            return new FileFacts(FileKind.Document, document);
+        }
+
         if (isText && IsUtf8([], flush: true))
         {
             return new FileFacts(FileKind.Text, textTypes.GetValueOrDefault(extension, "text/plain"), Preview: PreviewOf(start));
@@ -104,6 +116,7 @@ public sealed class FileInspector
     public static FileKind KindOf(string contentType) =>
         imageTypes.Contains(contentType) ? FileKind.Image
         : contentType.StartsWith("text/", StringComparison.Ordinal) || textLikeTypes.Contains(contentType) ? FileKind.Text
+        : DocumentTypes.All.Contains(contentType) ? FileKind.Document
         : FileKind.Other;
 
     #endregion
@@ -151,6 +164,18 @@ public sealed class FileInspector
         preview = preview.Length > PreviewCharacters ? preview[..PreviewCharacters] : preview;
         return preview.TrimEnd('�').TrimEnd();
     }
+
+    #endregion
+
+    #region Documents
+
+    /// <summary>A PDF by its header, whatever its name; an office file is a zip archive with the extension of one.</summary>
+    private static string? FindDocument(ReadOnlySpan<byte> start, string extension) => start switch
+    {
+        [0x25, 0x50, 0x44, 0x46, 0x2D, ..] => DocumentTypes.Pdf,
+        [0x50, 0x4B, 0x03, 0x04, ..] => officeTypes.GetValueOrDefault(extension),
+        _ => null,
+    };
 
     #endregion
 

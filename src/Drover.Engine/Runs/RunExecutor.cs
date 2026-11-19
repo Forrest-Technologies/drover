@@ -481,6 +481,7 @@ public sealed partial class RunExecutor(
             loaded.Bot!.Id,
             loaded.ModelSeesImages,
             hasSandbox,
+            deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
             session.Taint,

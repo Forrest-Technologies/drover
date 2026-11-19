@@ -68,16 +68,16 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var sandbox = new FakeSandboxProvider();
         await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
         var threadId = await world.NewSharedThread();
-        byte[] pdf = [.. "%PDF-1.7\n"u8, 0, 1, 2, 3];
-        var upload = await world.Upload(threadId, "report.pdf", pdf);
+        var archive = Zip;
+        var upload = await world.Upload(threadId, "report.zip", archive);
         upload.File.Should().NotBeNull(upload.Detail);
         world.StartHost();
 
         var runId = await PostWith(world, threadId, "Read the report", upload.File!.Id);
 
         (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        var path = $"attachments/{upload.File.Id:N}/report.pdf";
-        sandbox.Only().Files[path].Should().Equal(pdf);
+        var path = $"attachments/{upload.File.Id:N}/report.zip";
+        sandbox.Only().Files[path].Should().Equal(archive);
         TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains($"in your sandbox at {path}", StringComparison.Ordinal));
     }
 
@@ -103,13 +103,13 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var sandbox = new FakeSandboxProvider();
         await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
         var threadId = await world.NewThread();
-        var upload = await world.Upload(threadId, "report.pdf", Pdf);
+        var upload = await world.Upload(threadId, "report.zip", Zip);
         world.StartHost();
 
         var runId = await PostWith(world, threadId, "Read the report", upload.File!.Id);
 
         (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        sandbox.Only().Files.Should().ContainKey($"attachments/{upload.File.Id:N}/report.pdf", "only its one member can reach the sandbox");
+        sandbox.Only().Files.Should().ContainKey($"attachments/{upload.File.Id:N}/report.zip", "only its one member can reach the sandbox");
     }
 
     [Fact]
@@ -119,13 +119,13 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         await MakeShared(world);
         var threadId = await world.NewThread();
 
-        var pdf = await world.Upload(threadId, "report.pdf", Pdf);
+        var archive = await world.Upload(threadId, "report.zip", Zip);
         var picture = await world.Upload(threadId, "chart.png", TestPng.Make(4, 4));
         var rules = await world.Transact(services => services.GetRequiredService<FileService>().GetRules(threadId, RunWorld.Token));
 
-        pdf.Problem.Should().Be(FileProblem.Refused);
-        pdf.Refusal.Should().Be(FileRefusals.PrivateConversation);
-        pdf.Detail.Should().Be("This conversation is private, and others in this space can reach Helper's sandbox, so this file cannot go there.");
+        archive.Problem.Should().Be(FileProblem.Refused);
+        archive.Refusal.Should().Be(FileRefusals.PrivateConversation);
+        archive.Detail.Should().Be("This conversation is private, and others in this space can reach Helper's sandbox, so this file cannot go there.");
         picture.Refusal.Should().Be(FileRefusals.PrivateConversation, "the model cannot read pictures, so only the sandbox could take it");
         rules!.HasSandbox.Should().BeFalse("nothing goes to the sandbox from this conversation");
         (await world.Read(db => db.Files.CountAsync(RunWorld.Token))).Should().Be(0);
@@ -142,8 +142,8 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var privateThread = await world.NewThread();
         var sharedThread = await world.NewSharedThread();
         var notes = await world.Upload(privateThread, "notes.txt", "private notes"u8.ToArray());
-        var refused = await world.Upload(privateThread, "private.pdf", Pdf);
-        var report = await world.Upload(sharedThread, "report.pdf", Pdf);
+        var refused = await world.Upload(privateThread, "private.zip", Zip);
+        var report = await world.Upload(sharedThread, "report.zip", Zip);
         world.StartHost();
         var control = world.Hosts[0].Services.GetRequiredService<SandboxControlService>();
 
@@ -156,8 +156,8 @@ public sealed class AttachedFileTests(PostgresServer postgres)
 
         refused.Refusal.Should().Be(FileRefusals.PrivateConversation);
         TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("private notes", StringComparison.Ordinal), "the bot still reads the text");
-        afterPrivate.Value!.Stdout.Should().NotContain("notes.txt").And.NotContain("private.pdf");
-        afterShared.Value!.Stdout.Should().Contain($"attachments/{report.File.Id:N}/report.pdf");
+        afterPrivate.Value!.Stdout.Should().NotContain("notes.txt").And.NotContain("private.zip");
+        afterShared.Value!.Stdout.Should().Contain($"attachments/{report.File.Id:N}/report.zip");
     }
 
     [Fact]
@@ -166,13 +166,13 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var sandbox = new FakeSandboxProvider();
         await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
         var threadId = await world.NewThread();
-        var upload = await world.Upload(threadId, "report.pdf", Pdf);
+        var upload = await world.Upload(threadId, "report.zip", Zip);
         var runId = await PostWith(world, threadId, "Keep the report", upload.File!.Id);
         await world.AddMember(MembershipRole.Member);
         world.StartHost();
 
         (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        var later = await world.Upload(threadId, "later.pdf", Pdf);
+        var later = await world.Upload(threadId, "later.zip", Zip);
 
         sandbox.Created.Should().Be(0, "a personal space with two members is not one person's any more");
         TextsOf(world.Model.Requests[0]).Should().Contain(text => text.Contains("this conversation is private", StringComparison.Ordinal));
@@ -186,7 +186,7 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         await using var world = await SandboxWorld(sandbox, new ScriptedModel([new TextOutput("Got it.")]));
         await MakeShared(world);
         var threadId = await world.NewSharedThread();
-        var upload = await world.Upload(threadId, "report.pdf", Pdf);
+        var upload = await world.Upload(threadId, "report.zip", Zip);
         var runId = await PostWith(world, threadId, "Keep the report", upload.File!.Id);
 
         // The database carries a thread's audience to its files.
@@ -282,7 +282,7 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         await using var world = await SandboxWorld(sandbox, script);
         await world.Grant("sandbox.run", GrantEffect.Allow);
         var threadId = await world.NewSharedThread();
-        var upload = await world.Upload(threadId, "report.pdf", [.. "%PDF-1.7\n"u8, 0, 1, 2, 3]);
+        var upload = await world.Upload(threadId, "report.zip", Zip);
         world.StartHost();
 
         var first = await PostWith(world, threadId, "Keep the report", upload.File!.Id);
@@ -453,7 +453,8 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         return post.Run!.Id;
     }
 
-    private static byte[] Pdf => [.. "%PDF-1.7\n"u8, 0, 1, 2, 3];
+    /// <summary>A zip archive: a kind a bot opens only in its sandbox.</summary>
+    private static byte[] Zip => [0x50, 0x4B, 0x03, 0x04, 0, 0, 0xFF];
 
     /// <summary>Makes the world's space a shared one with an admin besides its owner. Returns the admin.</summary>
     private static async Task<Guid> MakeShared(RunWorld world)

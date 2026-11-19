@@ -140,6 +140,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSpaceFileMegabytes = 1024;
 
+    public const int SelfHostedMaxDocumentPages = 500;
+
+    public const int HostedMaxDocumentPages = 100;
+
     public const int DelegationDepth = 5;
 
     public const int RunsPerDelegationTree = 50;
@@ -248,6 +252,13 @@ public sealed record DeploymentPolicy
     /// private ones included. A file that would take the space past it is refused when it is uploaded.
     /// </summary>
     public int MaxSpaceFileMegabytes { get; init; } = SelfHostedMaxSpaceFileMegabytes;
+
+    /// <summary>
+    /// The most pages of a PDF document, slides of a presentation, or sheets of a workbook the server reads for a bot.
+    /// The server reads an attached document itself, on its own processor, so this bounds what one file costs it.
+    /// </summary>
+    public int MaxDocumentPages { get; init; } = SelfHostedMaxDocumentPages;
+
     /// <summary>
     /// How many levels below the run a person started a chain of delegations may reach. A space may only lower it.
     /// Each level is another bot working, and a chain is where a runaway loop spends money.
@@ -507,6 +518,11 @@ public sealed record DeploymentPolicy
             policy => policy.MaxSpaceFileMegabytes,
             HostedMaxSpaceFileMegabytes,
             Enforcement.Now("FileService, on every upload, against the space's stored total")),
+        PolicyRule.Limit(
+            nameof(MaxDocumentPages),
+            policy => policy.MaxDocumentPages,
+            HostedMaxDocumentPages,
+            Enforcement.Now("FileService on upload and RunFiles on every run, when a document's text is read")),
         PolicyRule.Limit(
             nameof(MaxDelegationDepth),
             policy => policy.MaxDelegationDepth,
