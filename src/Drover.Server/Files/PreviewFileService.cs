@@ -48,7 +48,7 @@ public sealed class PreviewFileService(
             return new(null, "HTML preview is busy. Download is still available.");
         }
 
-        return new(new Uri(origin.Preview, $"preview/file?grant={Uri.EscapeDataString(token)}").ToString());
+        return new(new Uri(origin.Preview, $"preview/file?grant={Uri.EscapeDataString(token)}").ToString(), Grant: token);
     }
 
     public async Task<string?> Take(string token, CancellationToken cancellationToken)

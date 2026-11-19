@@ -35,6 +35,9 @@ public static class FileEndpoints
         space.MapPost("/files/{fileId:guid}/preview", MintPreview)
             .WithName("MintFilePreview")
             .WithSummary("Issues one short-lived, single-use address for an authorized HTML file on the isolated preview origin.");
+        space.MapPost("/files/{fileId:guid}/preview/revoke", RevokePreview)
+            .WithName("RevokeFilePreview")
+            .WithSummary("Closes an outstanding HTML preview grant issued to the caller.");
         space.MapGet("/bots/{botId:guid}/files", ListExchanged)
             .AddEndpointFilter<TenantScopeFilter>()
             .WithName("ListExchangedFiles")
@@ -104,6 +107,13 @@ public static class FileEndpoints
         return await previews.Mint(access.SpaceId, access.UserId, fileId, context.RequestAborted) is { } response
             ? TypedResults.Ok(response)
             : TypedResults.NotFound();
+    }
+
+    private static NoContent RevokePreview(Guid fileId, FilePreviewRevokeRequest request, HttpContext context, PreviewGrantStore grants)
+    {
+        var access = context.GetSpaceAccess();
+        grants.Revoke(request.Grant, access.SpaceId, access.UserId, fileId);
+        return TypedResults.NoContent();
     }
 
     private static async Task<Results<Ok<IReadOnlyList<ExchangedFileResponse>>, NotFound>> ListExchanged(Guid botId, HttpContext context, FileService files) =>

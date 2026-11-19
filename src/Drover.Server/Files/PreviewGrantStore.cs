@@ -59,6 +59,24 @@ public sealed class PreviewGrantStore(TimeProvider time)
         }
     }
 
+    public void Revoke(string? token, Guid spaceId, Guid userId, Guid fileId)
+    {
+        if (token is not { Length: 64 } || !token.All(Uri.IsHexDigit))
+        {
+            return;
+        }
+
+        var hash = Hash(token);
+        lock (sync)
+        {
+            if (grants.TryGetValue(hash, out var grant)
+                && (grant.SpaceId, grant.UserId, grant.FileId) == (spaceId, userId, fileId))
+            {
+                grants.Remove(hash);
+            }
+        }
+    }
+
     #endregion
 
     #region Private Methods

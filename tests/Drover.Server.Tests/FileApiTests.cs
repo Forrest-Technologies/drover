@@ -244,6 +244,27 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task Only_the_recipient_can_revoke_an_outstanding_preview_grant()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, "report.html", Body("<h1>Report</h1>"));
+        var path = $"{Space(spaceId)}/files/{file.Id}/preview";
+        var member = await SeedMember(spaceId, "bob", MembershipRole.Admin);
+        var otherClient = await SignIn(member.Email, member.Password);
+        var issued = (await (await client.Post(path)).Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!;
+
+        (await otherClient.Post($"{path}/revoke", new FilePreviewRevokeRequest(issued.Grant!)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await NewClient().Get(issued.Address!)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var replacement = (await (await client.Post(path)).Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!;
+        (await client.Post($"{path}/revoke", new FilePreviewRevokeRequest(replacement.Grant!)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await NewClient().Get(replacement.Address!)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Removing_membership_revokes_an_outstanding_preview_grant()
     {
         var (client, spaceId, threadId, botId) = await Conversation("alice");
