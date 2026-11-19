@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: a reverse proxy in front of a SearXNG instance that is down answers 502 Bad Gateway. No real instance produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 502,
+      "body": {}
+    }
+  ]
+}

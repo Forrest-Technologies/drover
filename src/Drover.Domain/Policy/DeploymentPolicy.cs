@@ -166,6 +166,14 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxMemoryCharactersPerPerson = 8000;
 
+    public const int SelfHostedMaxWebPageBytes = 4 * 1024 * 1024;
+
+    public const int HostedMaxWebPageBytes = 1024 * 1024;
+
+    public const int SelfHostedMaxWebRequestSeconds = 30;
+
+    public const int HostedMaxWebRequestSeconds = 15;
+
     #endregion
 
     #region Presets
@@ -405,6 +413,22 @@ public sealed record DeploymentPolicy
     /// </summary>
     public int MaxMemoryCharactersPerPerson { get; init; } = SelfHostedMaxMemoryCharactersPerPerson;
 
+    /// <summary>
+    /// A bot granted the web tools may search the web and read a page by its address. Off in the hosted preset: every
+    /// search and every page is a request from the operator's server, on the operator's address, made for a stranger.
+    /// Off, neither tool is offered to a model and a call of one is refused in words naming this rule.
+    /// </summary>
+    public bool AllowWebTools { get; init; } = true;
+
+    /// <summary>
+    /// The most bytes Drover reads of one web page a bot asks for, or of one answer from the search service. A larger
+    /// answer is refused for a search and cut for a page, and the bot is told which.
+    /// </summary>
+    public int MaxWebPageBytes { get; init; } = SelfHostedMaxWebPageBytes;
+
+    /// <summary>The most seconds one search or one page read may take, redirects included, before it is given up.</summary>
+    public int MaxWebRequestSeconds { get; init; } = SelfHostedMaxWebRequestSeconds;
+
     #endregion
 
     #region Rule Table
@@ -641,6 +665,20 @@ public sealed record DeploymentPolicy
             policy => policy.MaxMemoryCharactersPerPerson,
             HostedMaxMemoryCharactersPerPerson,
             Enforcement.Now("MemoryService, on every note saved or changed and on every recall; BotService, when a bot is saved")),
+        PolicyRule.Permission(
+            nameof(AllowWebTools),
+            policy => policy.AllowWebTools,
+            Enforcement.Now("RunExecutor, which offers no web tool, and every web.search and web.fetch call")),
+        PolicyRule.Limit(
+            nameof(MaxWebPageBytes),
+            policy => policy.MaxWebPageBytes,
+            HostedMaxWebPageBytes,
+            Enforcement.Now("Every web.fetch page and every web.search answer")),
+        PolicyRule.Limit(
+            nameof(MaxWebRequestSeconds),
+            policy => policy.MaxWebRequestSeconds,
+            HostedMaxWebRequestSeconds,
+            Enforcement.Now("Every web.fetch and web.search call")),
     ];
 
     #endregion

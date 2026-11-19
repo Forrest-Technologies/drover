@@ -119,6 +119,8 @@ services:
       # Sandboxes (optional): put an E2B API key in ./secrets/e2b_api_key, readable by uid 1654, then uncomment this
       # line, the secrets entry below, and the top-level secrets at the end. The key is held in memory only.
       # Drover__Sandbox__E2B__ApiKeyFile: /run/drover-sandbox/e2b_api_key
+      # Web search (optional): the address of a SearXNG instance with JSON output on (search.formats lists json).
+      # Drover__WebSearch__SearXng__BaseUrl: http://searxng:8080/
     # secrets:
     #   - source: e2b_api_key
     #     target: /run/drover-sandbox/e2b_api_key

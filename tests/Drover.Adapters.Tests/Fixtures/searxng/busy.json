@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: SearXNG's limiter answers 429 Too Many Requests when a client asks too often. No real instance produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 429,
+      "body": {}
+    }
+  ]
+}

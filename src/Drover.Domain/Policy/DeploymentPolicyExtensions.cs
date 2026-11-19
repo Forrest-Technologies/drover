@@ -32,7 +32,8 @@ public static class DeploymentPolicyExtensions
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
             .WithBoundedConversationSummaries()
-            .WithBoundedMemory();
+            .WithBoundedMemory()
+            .WithoutWebTools();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -137,6 +138,14 @@ public static class DeploymentPolicyExtensions
         {
             MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
             MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
+        };
+
+    public static DeploymentPolicy WithoutWebTools(this DeploymentPolicy policy) =>
+        policy with
+        {
+            AllowWebTools = false,
+            MaxWebPageBytes = DeploymentPolicy.HostedMaxWebPageBytes,
+            MaxWebRequestSeconds = DeploymentPolicy.HostedMaxWebRequestSeconds,
         };
 
     #endregion

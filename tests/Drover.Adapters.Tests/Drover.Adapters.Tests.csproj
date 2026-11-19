@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.LocalFiles\Drover.Adapters.LocalFiles.csproj" />
     <ProjectReference Include="..\..\src\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
+    <ProjectReference Include="..\..\src\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
     <ProjectReference Include="..\..\src\Drover.Data\Drover.Data.csproj" />
     <ProjectReference Include="..\..\src\Drover.Agents\Drover.Agents.csproj" />
     <ProjectReference Include="..\..\src\Drover.Domain\Drover.Domain.csproj" />

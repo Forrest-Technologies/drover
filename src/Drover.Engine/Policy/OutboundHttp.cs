@@ -27,28 +27,52 @@ public static class OutboundHttp
         return request;
     }
 
+    /// <summary>
+    /// States that this request goes to an address the operator configured for the whole server, such as its search
+    /// service, so it may reach a private address whenever the deployment allows private addresses. Never for an
+    /// address a space, a person, or a bot supplied: those carry the space's value with <see cref="ForSpace"/>.
+    /// </summary>
+    public static HttpRequestMessage ForOperatorAddress(this HttpRequestMessage request)
+    {
+        request.Options.Set(allowPrivateAddresses, true);
+        return request;
+    }
+
     public static HttpMessageHandler CreateHandler(DeploymentPolicy policy) =>
         CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains);
 
     /// <summary>
-    /// The same handler for a client that must never follow a redirect: one whose requests carry a credential in a
-    /// header of the caller's choosing, which a redirect would hand to whatever host the answer names.
+    /// The same handler for a client that must never follow a redirect or store cookies: one whose requests carry
+    /// a credential in a header of the caller's choosing or read untrusted sites across spaces, so neither a redirect
+    /// nor a prior cookie may leak across requests or origins.
     /// </summary>
     public static HttpMessageHandler CreateHandlerWithoutRedirects(DeploymentPolicy policy) =>
-        CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains, followRedirects: false);
+        CreateHandler(policy, Dns.GetHostAddressesAsync, PrivateAddresses.Contains, followRedirects: false, useCookies: false);
 
     /// <summary>The same handler with its address lookup and its test for a refused address supplied by the caller.</summary>
     public static HttpMessageHandler CreateHandler(
         DeploymentPolicy policy,
         Func<string, CancellationToken, Task<IPAddress[]>> resolve,
         Func<IPAddress, bool> isRefused,
-        bool followRedirects = true)
+        bool followRedirects = true,
+        bool useCookies = true)
     {
-        var guarded = new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), UseProxy = false, AllowAutoRedirect = followRedirects };
+        var guarded = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            UseProxy = false,
+            AllowAutoRedirect = followRedirects,
+            UseCookies = useCookies,
+        };
         guarded.ConnectCallback = (context, cancellationToken) =>
             ConnectToCheckedAddress(context, resolve, isRefused, cancellationToken);
         var open = policy.AllowPrivateAddresses
-            ? new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = followRedirects }
+            ? new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                AllowAutoRedirect = followRedirects,
+                UseCookies = useCookies,
+            }
             : null;
         return new RoutingHandler(guarded, open);
     }

@@ -1,0 +1,54 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from SearXNG's documented search API (GET /search with format=json, docs.searxng.org dev/search_api) and its JSON result fields (url, title, content, engine, score). No real instance produced this. The third result has a magnet address, as a file-sharing engine returns, which the adapter must leave out.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 200,
+      "body": {
+        "query": "barn report 7f3a",
+        "number_of_results": 0,
+        "results": [
+          {
+            "url": "https://farm.example/reports/barn",
+            "title": "Barn report for the season",
+            "content": "How many bales the barn holds, and when the hay came in.",
+            "engine": "engine-a",
+            "parsed_url": ["https", "farm.example", "/reports/barn", "", "", ""],
+            "engines": ["engine-a", "engine-b"],
+            "positions": [1, 2],
+            "score": 4.0,
+            "category": "general"
+          },
+          {
+            "url": "http://almanac.example/hay",
+            "title": "Hay and straw almanac",
+            "content": "A yearly guide to storing hay.",
+            "engine": "engine-b",
+            "parsed_url": ["http", "almanac.example", "/hay", "", "", ""],
+            "engines": ["engine-b"],
+            "positions": [3],
+            "score": 1.0,
+            "category": "general"
+          },
+          {
+            "url": "magnet:?xt=urn:btih:0000000000000000000000000000000000000000",
+            "title": "barn report archive",
+            "content": "",
+            "engine": "engine-files",
+            "engines": ["engine-files"],
+            "positions": [1],
+            "score": 0.5,
+            "category": "files"
+          }
+        ],
+        "answers": [],
+        "corrections": [],
+        "infoboxes": [],
+        "suggestions": [],
+        "unresponsive_engines": []
+      }
+    }
+  ]
+}
