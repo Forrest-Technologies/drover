@@ -37,12 +37,20 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         try
         {
-            await Step("launch", Launch);
-            await Step("connect", Connect);
-            await Step("sign in", SignIn);
-            await Step("open a conversation", OpenConversation);
-            await Step("send a message", SendMessage);
-            await Step("back", Back);
+            if (settings.ChecksRestart)
+            {
+                await Step("restore sign-in", RestoreSignIn);
+            }
+            else
+            {
+                await Step("launch", Launch);
+                await Step("connect", Connect);
+                await Step("sign in", SignIn);
+                await Step("open a conversation", OpenConversation);
+                await Step("send a message", SendMessage);
+                await Step("back", Back);
+            }
+
             passed = true;
         }
         catch (CheckFailedException failure)
@@ -63,7 +71,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private async Task Launch()
     {
         await Shown("ConnectAddress", startPatience);
-#if !__ANDROID__
+#if !__ANDROID__ && !__IOS__
         // The native window can attach after the connect control is on screen. A resize before that is ignored,
         // and the host then stays at its first width, so ask again until the content is at phone width.
         await Until("a window at phone width", () =>
@@ -77,6 +85,15 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             return null;
         });
 #endif
+    }
+
+    private async Task RestoreSignIn()
+    {
+        await Shown("CrewRow", startPatience);
+        if (Find("SignInEmail") is not null)
+        {
+            throw new CheckFailedException("the saved sign-in was not restored");
+        }
     }
 
     private async Task Connect()
@@ -352,11 +369,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         logger.LogWarning("{Line}", line);
     }
 
-    // A desktop app closes, which tells the harness the report is complete. Android stays open: the harness reads
-    // the result line from the device log and stops the app itself.
+    // A desktop app closes, which tells the harness the report is complete. Android and iOS stay open: the harness
+    // reads the result and stops the app itself.
     private static void Finish()
     {
-#if !__ANDROID__
+#if !__ANDROID__ && !__IOS__
         Application.Current.Exit();
 #endif
     }

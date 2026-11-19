@@ -38,6 +38,7 @@ src/Drover.Native/
   Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table
   Platforms/Desktop/       Program.cs, files out, the desktop credential store
   Platforms/Android/       application, activity, manifest
+  Platforms/iOS/           entry point, manifest, keychain entitlement, safe areas
   Assets/Fonts/            Inter and JetBrains Mono, with their licenses
 ```
 
@@ -48,7 +49,7 @@ src/Drover.Native/
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
 | Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. Linux, Windows and macOS start in CI and pass the [screen checks](#screen-checks) |
 | Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21. The API 35 emulator checks text editing and passes the [screen checks](#screen-checks). |
-| iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
+| iOS | `net11.0-ios` | Hosted macOS builds the simulator app and runs the shared screen checks. The second launch verifies that the saved sign-in is restored from the system credential store. |
 
 Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by the upstream [migration guide](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/doc/articles/migrating-to-uno-7/project-setup.md#mac-catalyst-is-removed).
 
@@ -59,6 +60,7 @@ Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by th
 dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -warnaserror
 dotnet build src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -warnaserror     # needs: dotnet workload install wasm-tools
 dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -warnaserror         # needs the Android SDK
+dotnet build src/Drover.Native -f net11.0-ios -p:DroverNativeTargetFrameworks=net11.0-ios -p:DroverEnableApple=true -p:RuntimeIdentifier=iossimulator-arm64 -p:CodesignKey=- -warnaserror
 
 # Run on desktop
 dotnet run --project src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop
@@ -93,7 +95,7 @@ The pictures taken for this work are in `docs/screenshots/native-foundation/`, n
 
 ## Screen checks
 
-Every pull request starts the app on Android, Linux, Windows and macOS and runs one shared set of screen checks:
+Every pull request starts the app on Android, iOS, Linux, Windows and macOS and runs one shared set of screen checks:
 the app opens on the connect screen, connects to a test server, signs in, opens the conversation with the test
 bot, sends a message and reads the bot's reply, and goes back to the crew. Every target runs them at phone width,
 so each shows the same controls.
@@ -112,9 +114,11 @@ so each shows the same controls.
   that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
   port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
   through the device log under the tag `DroverUiCheck`.
-- **Shipping build guard.** After building the shipping Android and desktop targets without `-p:DroverUiChecks=true`,
+- **Shipping build guard.** After building the shipping Android, iOS, and desktop targets without `-p:DroverUiChecks=true`,
   `.github/workflows/native.yml` scans the compiled `Drover.Native.dll` for UTF-8 metadata names that only exist in
   the checks build (`ScreenChecks`, `CheckSettings`, `TryGetIsolatedText`) and fails if any match.
+- **iOS restart.** The simulator runs the same screen flow, closes the app, and opens the installed app again.
+  The second run passes only when the server choice and sign-in from the first run restore and the crew appears.
 - **Adding a check.** Add a step to `ScreenChecks`, give each control it uses an automation id in the app, and
   keep the step working at phone width on every target.
 
@@ -555,7 +559,7 @@ The Docker publish caps the managed heap, skips the optional XAML resource-trimm
 and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
-`.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
+`.github/workflows/native.yml` builds Android on hosted Linux, iOS on hosted macOS, desktop on hosted Linux, Windows and macOS, and publishes the browser head. The iOS job builds for a simulator with warnings as errors, passes the shared screen checks, and relaunches the installed app to verify its saved sign-in. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. Production iOS signing,
 packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
 registration and notifications, and shares in are built on Android from the shell's own code and compile in the
 APK (its manifest was read back: receivers, the file provider, the return scheme, the share targets), but were not

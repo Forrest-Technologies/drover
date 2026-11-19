@@ -3,7 +3,8 @@ namespace Drover.Native.UITests;
 /// <summary>
 /// Runs the native screen checks against a build of the app made for them:
 /// <c>dotnet run --project tests/Drover.Native.UITests -- desktop path/to/Drover.Native.dll</c>, or
-/// <c>-- android</c> for the build installed on the one device adb sees. It starts PostgreSQL (the server named by
+/// <c>-- android</c> for the build installed on the one Android device, or <c>-- ios</c> with an app and simulator.
+/// It starts PostgreSQL (the server named by
 /// <c>DROVER_TEST_POSTGRES</c>, or a container), the real server on a loopback HTTPS port, and an account with one
 /// bot, then the app, and exits with 0 only when the app reports that every check passed.
 /// </summary>
@@ -28,7 +29,7 @@ internal static class Program
         if (Target(args, folder) is not { } app)
         {
             logger.LogError(
-                "Name the app to check: desktop <path to Drover.Native.dll>, or android");
+                "Name the app to check: desktop <path to Drover.Native.dll>, android, or ios <app> <device>");
             return 2;
         }
 
@@ -57,6 +58,7 @@ internal static class Program
     {
         ["desktop", var path] => new DesktopApp(Path.GetFullPath(path), folder),
         ["android"] => new AndroidApp(),
+        ["ios", var path, var device] => new IosApp(Path.GetFullPath(path), device),
         _ => null,
     };
 
