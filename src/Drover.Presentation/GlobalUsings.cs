@@ -31,6 +31,7 @@ global using Drover.Contracts.Runs;
 global using Drover.Contracts.Status;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
+global using Drover.Presentation.Diagnostics;
 global using Drover.Presentation.Drawing;
 global using Drover.Presentation.Platform;
 global using Drover.Presentation.Routing;
