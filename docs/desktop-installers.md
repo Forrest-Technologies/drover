@@ -44,6 +44,11 @@ Add these environment secrets when signing material exists.
 * `APPLE_NOTARY_ISSUER_ID`
 * `LINUX_GPG_PRIVATE_KEY_BASE64`
 * `LINUX_GPG_PASSPHRASE`
+* `UPDATE_SIGNING_PRIVATE_KEY`
+
+Add the matching Ed25519 public value as the repository variable `UPDATE_SIGNING_PUBLIC_KEY`. It is public by
+design and is embedded in packaged desktop builds. The private update key stays in the protected environment and
+signs the automatic update feed. See [desktop update verification](desktop-updates.md).
 
 The Windows certificate subject must be `CN=Forrest Technologies`, which matches the MSIX identity. The macOS certificate must contain a Developer ID Application identity. The Apple notary secrets belong to a dedicated App Store Connect API key. Encode each binary certificate or key file as one base64 string.
 
