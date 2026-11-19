@@ -20,6 +20,14 @@ internal static class ChatSamples
 
     private static readonly Guid sampleStrongerRun = Guid.Parse("00000000-0000-7000-8000-000000000016");
 
+    private static readonly Guid sampleQuestion = Guid.Parse("00000000-0000-7000-8000-000000000017");
+
+    private static readonly Guid sampleEdited = Guid.Parse("00000000-0000-7000-8000-000000000018");
+
+    private static readonly Guid sampleSecondReply = Guid.Parse("00000000-0000-7000-8000-000000000019");
+
+    private static readonly Guid sampleThirdReply = Guid.Parse("00000000-0000-7000-8000-00000000001a");
+
     private static readonly BotSummary[] crew =
     [
         new(lead, "Sample lead bot", "sample-lead", "Sample instructions", connection, "sample-model", "active"),
@@ -67,6 +75,10 @@ internal static class ChatSamples
         new("A reply's model", "Under a finished reply, the model that wrote it, beside what the reply used.", () =>
         [
             Fitting(new MessageList { Model = WrittenBy() }),
+        ]),
+        new("Versions of a message and a reply", "The person may edit their last message or ask for another reply. Earlier versions stay one step away, and the switch says which one is shown.", () =>
+        [
+            Fitting(new MessageList { Model = Versions() }),
         ]),
         new("A reply that failed", "What failed in a sentence, one way forward, and the server's report for whoever needs it.", () =>
         [
@@ -159,6 +171,36 @@ internal static class ChatSamples
             BotHue = BotIdentity.Hue(lead),
             Messages = messages,
             LoadUsage = runId => Task.FromResult(new RunUsageDetail(runId, "USD", new(null, 0, 0), null)),
+        };
+        list.Update();
+        return list;
+    }
+
+    /// <summary>A sample conversation whose last message was edited once and whose reply was asked for three times.</summary>
+    public static MessageListViewModel Versions()
+    {
+        List<ChatMessage> messages =
+        [
+            new(sampleEdited.ToString(), true, "A sample question, edited.") { Versions = new(2, 2, sampleQuestion, null), MayEdit = true },
+            new(sampleThirdReply.ToString(), false, "A sample answer, the third one asked for.")
+            {
+                RunId = sampleRun,
+                EndsReply = true,
+                Model = "sample-model",
+                Versions = new(3, 3, sampleSecondReply, null),
+                MayRegenerate = true,
+            },
+        ];
+
+        // A sample: the gallery sends nothing, so switching, editing, and asking again change nothing here.
+        var list = new MessageListViewModel
+        {
+            BotName = "Sample lead bot",
+            BotHue = BotIdentity.Hue(lead),
+            Messages = messages,
+            OnShowVersion = _ => Task.CompletedTask,
+            OnRegenerate = _ => Task.CompletedTask,
+            OnEdit = (_, _) => Task.CompletedTask,
         };
         list.Update();
         return list;

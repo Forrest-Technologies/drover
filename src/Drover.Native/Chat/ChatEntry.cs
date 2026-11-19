@@ -37,6 +37,15 @@ public sealed record ChatEntryParameters(string BotName, int BotHue)
     /// <summary>Reads what a finished reply's run used. Without it, the reply shows no usage.</summary>
     public Func<Guid, Task<RunUsageDetail>>? LoadUsage { get; init; }
 
+    /// <summary>Shows another version of a place in the conversation. Without it, no message switches versions.</summary>
+    public Func<Guid, Task>? ShowVersion { get; init; }
+
+    /// <summary>Asks for another reply, by the id of the reply. Without it, no reply offers one.</summary>
+    public Func<Guid, Task>? Regenerate { get; init; }
+
+    /// <summary>Sends an edit of a person's message, by its id. Without it, no message offers an edit.</summary>
+    public Func<Guid, string, Task>? Edit { get; init; }
+
     #endregion
 }
 
@@ -83,6 +92,18 @@ public sealed class ChatEntry : ContentControl
     private readonly TextBlock pending = Styles.Text(null, "DvTextCaption");
 
     private readonly ReplyUsage usage = new();
+
+    private readonly MessageVersions versions = new();
+
+    private readonly StackPanel editor = new() { Spacing = Tokens.Number("DvSpace2") };
+
+    private readonly TextArea edit = new() { Rows = 3 };
+
+    private readonly Button sendEdit = new() { Kind = ButtonKind.Primary, Content = ChatRows.SendEditLabel };
+
+    private readonly Button cancelEdit = new() { Kind = ButtonKind.Quiet, Content = ChatRows.CancelEditLabel };
+
+    private bool editing;
 
     private ChatEntryShape? shape;
 
@@ -132,6 +153,22 @@ public sealed class ChatEntry : ContentControl
         AutomationProperties.SetAccessibilityView(writing, AccessibilityView.Raw);
         run.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightBody"];
         run.HorizontalAlignment = HorizontalAlignment.Right;
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Tokens.Number("DvSpace2"), HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(cancelEdit);
+        buttons.Children.Add(sendEdit);
+        editor.Children.Add(edit);
+        editor.Children.Add(buttons);
+        editor.KeyDown += (_, args) =>
+        {
+            if (args.Key is Windows.System.VirtualKey.Escape)
+            {
+                args.Handled = true;
+                StopEditing();
+            }
+        };
+        sendEdit.Click += async (_, _) => await SendEdit();
+        cancelEdit.Click += (_, _) => StopEditing();
 
         GotFocus += (_, _) => Paint();
         LostFocus += (_, _) => Paint();
@@ -188,12 +225,12 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted)
     {
-        Detach(words, reasoning, sources, tools, files, usage, bubble, sentBy, pending, plate, name, writing, run);
+        Detach(words, reasoning, sources, tools, files, usage, versions, editor, bubble, sentBy, pending, plate, name, writing, run);
 
         return wanted switch
         {
-            ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, sentBy, files, pending),
-            ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files),
+            ChatEntryShape.Person => Column(HorizontalAlignment.Right, bubble, editor, sentBy, files, pending, versions),
+            ChatEntryShape.Tools => Column(HorizontalAlignment.Stretch, tools, sources, files, versions),
             ChatEntryShape.Compact => Column(HorizontalAlignment.Stretch, reasoning, words, sources, tools, files),
             _ => Spoken(),
         };
@@ -213,7 +250,7 @@ public sealed class ChatEntry : ContentControl
         from.Children.Add(writing);
         from.Children.Add(run);
 
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, usage);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, usage, versions);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -286,7 +323,11 @@ public sealed class ChatEntry : ContentControl
     private void Describe(ChatMessage message, ChatEntryParameters parameters)
     {
         said.Text = message.Text;
-        bubble.Visibility = Shown(message.FromPerson && message.Text.Length > 0);
+        editing = editing && message.MayEdit;
+        bubble.Visibility = Shown(message.FromPerson && message.Text.Length > 0 && !editing);
+        editor.Visibility = Shown(editing);
+        edit.Label = ChatRows.EditFieldName(parameters.BotName);
+        edit.Hint = ChatRows.EditHint(parameters.BotName);
         sentBy.Text = message.SentBy ?? string.Empty;
         sentBy.Visibility = Shown(message.SentBy is not null);
         pending.Text = ChatRows.Pending(parameters.BotName);
@@ -333,6 +374,59 @@ public sealed class ChatEntry : ContentControl
         files.Visibility = Shown(message.Files.Count > 0);
 
         ShowUsage(message, parameters);
+        ShowVersions(message, parameters);
+    }
+
+    private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)
+    {
+        versions.ShowVersion = parameters.ShowVersion;
+        versions.OnAct = (message.FromPerson ? parameters.Edit is not null : parameters.Regenerate is not null) ? () => Act() : null;
+        versions.Show(message);
+        versions.Visibility = Shown(versions.HasAny && !editing);
+    }
+
+    // A person's message opens its edit in place of its words; a reply asks for another at once.
+    private async Task Act()
+    {
+        if (shown is not { } message || with is not { } parameters || !Guid.TryParse(message.Key, out var id))
+        {
+            return;
+        }
+
+        if (!message.FromPerson)
+        {
+            await (parameters.Regenerate?.Invoke(id) ?? Task.CompletedTask);
+            return;
+        }
+
+        editing = true;
+        edit.Value = message.Text;
+        Describe(message, parameters);
+        Pieces.FocusWhenShown(edit, edit.TakeFocus);
+    }
+
+    private async Task SendEdit()
+    {
+        if (shown is not { } message || with?.Edit is not { } send || !Guid.TryParse(message.Key, out var id) || string.IsNullOrWhiteSpace(edit.Value))
+        {
+            return;
+        }
+
+        editing = false;
+        Describe(message, with);
+        await send(id, edit.Value);
+    }
+
+    private void StopEditing()
+    {
+        if (shown is not { } message || with is null)
+        {
+            return;
+        }
+
+        editing = false;
+        Describe(message, with);
+        Pieces.FocusWhenShown(versions, versions.TakeFocus);
     }
 
     private void ShowUsage(ChatMessage message, ChatEntryParameters parameters)
