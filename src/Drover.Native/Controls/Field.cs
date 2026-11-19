@@ -219,7 +219,7 @@ public sealed class Field : StackPanel
             {
                 Template = (ControlTemplate)Styles.Dictionary["DvPasswordBoxTemplate"],
                 Password = Value,
-                InputScope = Scope(InputScopeNameValue.Password),
+                InputScope = Scope(DesktopScope()),
             };
             box.PasswordChanged += (_, _) => Take(box.Password);
             return box;
@@ -229,12 +229,7 @@ public sealed class Field : StackPanel
         {
             Template = Styles.Template("DvTextBoxTemplate"),
             Text = Value,
-            InputScope = Scope(Type switch
-            {
-                "email" => InputScopeNameValue.EmailSmtpAddress,
-                "url" => InputScopeNameValue.Url,
-                _ => InputScopeNameValue.Default,
-            }),
+            InputScope = Scope(DesktopScope()),
             IsSpellCheckEnabled = Type is not ("url" or "email"),
         };
         text.TextChanged += (_, _) => Take(text.Text);
@@ -258,6 +253,14 @@ public sealed class Field : StackPanel
     // What the text is, for the keyboard and for the system: the one hint a desktop platform takes.
     private static InputScope Scope(InputScopeNameValue name) => new() { Names = { new InputScopeName(name) } };
 
+    private InputScopeNameValue DesktopScope() => FieldInput.DesktopScope(Type) switch
+    {
+        "Password" => InputScopeNameValue.Password,
+        "EmailSmtpAddress" => InputScopeNameValue.EmailSmtpAddress,
+        "Url" => InputScopeNameValue.Url,
+        _ => InputScopeNameValue.Default,
+    };
+
 #if ANDROID
     // Android's autofill service reads hints from a real field only, so a field it may fill is one. An address is one
     // too, so input methods compose it as they do elsewhere.
@@ -265,12 +268,16 @@ public sealed class Field : StackPanel
     {
         const Android.Text.InputTypes PlainText = Android.Text.InputTypes.ClassText;
         const Android.Text.InputTypes NoSuggestions = Android.Text.InputTypes.TextFlagNoSuggestions;
-        return (Type, Autofill) switch
+        if (Type is "url")
         {
-            ("url", _) => new(PlainText | Android.Text.InputTypes.TextVariationUri | NoSuggestions),
-            ("password", "current-password") => new(PlainText | Android.Text.InputTypes.TextVariationPassword, "password"),
-            ("password", "new-password") => new(PlainText | Android.Text.InputTypes.TextVariationPassword, "newPassword"),
-            (_, "username") => new(PlainText | Android.Text.InputTypes.TextVariationEmailAddress | NoSuggestions, "username"),
+            return new(PlainText | Android.Text.InputTypes.TextVariationUri | NoSuggestions);
+        }
+
+        var hint = FieldInput.AndroidHint(Type, Autofill);
+        return hint switch
+        {
+            "password" or "newPassword" => new(PlainText | Android.Text.InputTypes.TextVariationPassword, hint),
+            "username" => new(PlainText | Android.Text.InputTypes.TextVariationEmailAddress | NoSuggestions, hint),
             _ => null,
         };
     }
@@ -278,6 +285,7 @@ public sealed class Field : StackPanel
 
     private void Take(string text)
     {
+        text = FieldInput.Within(text, MaxLength);
         if (Value != text)
         {
             Value = text;
