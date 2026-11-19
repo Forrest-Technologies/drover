@@ -42,11 +42,45 @@ public sealed partial class ScreenCheckGuardTests
         project.Should().Contain("""<ItemGroup Condition="'$(DroverUiChecks)' == 'true'">""");
         project.Should().NotContain("DroverUiChecks)' == 'true' and");
         checks.Should().Contain("#if DROVER_BROWSER");
+        checks.Should().Contain("DispatcherQueue.CreateTimer()");
+        checks.Should().NotContain("Task.Delay");
         foreach (var id in wanted)
         {
             native.Should().Contain($"\"{id}\"", $"{id} is a control the screen checks press");
             AutomationIds.Matches(null, shown: true, id).Should().BeFalse();
         }
+    }
+
+    [Fact]
+    public void The_browser_harness_reads_the_lines_the_page_records()
+    {
+        var channel = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "App",
+            "PageCheckChannel.cs"));
+        var settings = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "App",
+            "CheckSettings.cs"));
+        var report = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "App",
+            "ScreenChecks.cs"));
+        var script = File.ReadAllText(Path.Combine(Repository.Root, "scripts", "check-native-screens.mjs"));
+
+        channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckRead\")]");
+        channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckWrite\")]");
+        settings.Should().Contain("PageCheckChannel.Read(name)");
+        report.Should().Contain("PageCheckChannel.Write(line)");
+        script.Should().Contain("globalThis.droverUiCheckRead = name => localStorage.getItem(name)");
+        script.Should().Contain("globalThis.droverUiCheckLines");
+        script.Should().Contain("globalThis.droverUiCheckWrite");
     }
 
     #endregion

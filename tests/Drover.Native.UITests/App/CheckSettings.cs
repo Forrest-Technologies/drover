@@ -80,12 +80,9 @@ internal sealed record CheckSettings(
 #if __ANDROID__
         var value = (Uno.UI.ContextHelper.Current as Android.App.Activity)?.Intent?.GetStringExtra(name);
 #elif DROVER_BROWSER
-        // The page is served by the test server, so the harness puts the settings in local storage before the
-        // app starts. A browser has no process environment to read. The platform checker does not treat this
-        // build's name as the browser, so the call is marked by hand.
-#pragma warning disable CA1416
-        var value = Browser.ReadStored(name);
-#pragma warning restore CA1416
+        // The page is served by the test server. The harness puts the settings in local storage and installs the
+        // function that reads them, before the app starts. A browser has no process environment to read.
+        var value = PageCheckChannel.Read(name);
 #else
         var value = Environment.GetEnvironmentVariable(name);
 #endif

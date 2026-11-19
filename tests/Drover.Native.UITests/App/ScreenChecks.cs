@@ -198,25 +198,48 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         invoker.Invoke();
     }
 
-    private static async Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
+    // The next look is a dispatcher tick, not a delay. On a browser a delay started while the window is opening
+    // never resumes, so a check that waited that way never reported.
+    private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
         where T : class
     {
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-
-        while (true)
+        if (probe() is { } already)
         {
-            if (probe() is { } found)
-            {
-                return found;
-            }
-
-            if (watch.Elapsed > (wait ?? patience))
-            {
-                throw new CheckFailedException($"waited {(wait ?? patience).TotalSeconds:0} s for {what}");
-            }
-
-            await Task.Delay(poll);
+            return Task.FromResult(already);
         }
+
+        var found = new TaskCompletionSource<T>();
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var limit = wait ?? patience;
+        var timer = window.DispatcherQueue.CreateTimer();
+        timer.Interval = poll;
+        timer.IsRepeating = true;
+        timer.Tick += (_, _) =>
+        {
+            try
+            {
+                if (probe() is { } hit)
+                {
+                    timer.Stop();
+                    found.TrySetResult(hit);
+                    return;
+                }
+
+                if (watch.Elapsed > limit)
+                {
+                    timer.Stop();
+                    found.TrySetException(new CheckFailedException($"waited {limit.TotalSeconds:0} s for {what}"));
+                }
+            }
+            catch (Exception exception)
+            {
+                timer.Stop();
+                logger.LogError(exception, "The screen checks could not look at the page.");
+                found.TrySetException(exception);
+            }
+        };
+        timer.Start();
+        return found.Task;
     }
 
     #endregion
@@ -319,10 +342,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 #if __ANDROID__
         Android.Util.Log.Info(Tag, line);
 #elif DROVER_BROWSER
-        // The harness reads the page console. A browser has no report file, and the app logger does not reach it.
-#pragma warning disable RS0030
-        Console.WriteLine(line);
-#pragma warning restore RS0030
+        // The harness polls the lines the page records. A browser has no report file, and the app logger does not
+        // reach the page.
+        PageCheckChannel.Write(line);
 #else
         if (settings.ReportPath is { } path)
         {
