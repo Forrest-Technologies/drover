@@ -26,4 +26,5 @@ global using Drover.Domain.Sandboxes;
 global using Drover.Domain.Secrets;
 global using Drover.Domain.Threads;
 global using Drover.Domain.Tools;
+global using Drover.Domain.Web;
 global using Xunit;

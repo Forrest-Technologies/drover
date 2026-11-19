@@ -211,6 +211,18 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
     }
 
     [Fact]
+    public void The_web_rules_decide_whether_the_web_tools_are_offered_and_bound_each_read()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.AllowWebTools.Should().Be(Setting(nameof(DeploymentPolicy.AllowWebTools)) == "true");
+        rules.MaxWebPageBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxWebPageBytes)));
+        rules.MaxWebRequestSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxWebRequestSeconds)));
+        Services.GetServices<BuiltinTool>().Select(tool => tool.Name).Should().Contain(WebTools.FetchName, "every server can read a page")
+            .And.NotContain(WebTools.SearchName, "no search service is configured");
+    }
+
+    [Fact]
     public void The_file_rules_bound_one_file_one_message_and_one_spaces_total()
     {
         var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
