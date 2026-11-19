@@ -8,7 +8,8 @@ public sealed partial class Talk(
     DroverApi api,
     SessionState session,
     NavigationManager navigation,
-    ILogger<Talk> logger) : IDisposable
+    IJSRuntime js,
+    ILogger<Talk> logger) : IAsyncDisposable
 {
     #region Private Fields
 
@@ -27,6 +28,8 @@ public sealed partial class Talk(
     private const string MemorySide = "memory";
 
     private const string MomentPrefix = "#message-";
+
+    private const string ModulePath = "./_content/Drover.Ui/Pages/Talk.razor.js";
 
     private const string NewSideChat = "new";
 
@@ -68,6 +71,22 @@ public sealed partial class Talk(
     private bool focusRailClose;
 
     private ElementReference railClose;
+
+    private ElementReference rail;
+
+    private ElementReference mainHeader;
+
+    // The rail last given its Escape key. A rail that closes and opens again is a new element and is given it again.
+    private string? railWithKeys;
+
+    // The rail was closed from the keyboard: once it is gone, the focus goes back to the way that opened it.
+    private bool focusRailOpener;
+
+    private SideView? railOpener;
+
+    private Task<IJSObjectReference>? module;
+
+    private DotNetObjectReference<Talk>? self;
 
     // A request for the person at the bot's screen: the one waiting in the main conversation, the one the person took
     // over (from a side chat too, which the screen replaces), and the one they handed back while its events were on
@@ -297,10 +316,44 @@ public sealed partial class Talk(
 
     #region Public Methods
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        listening?.Cancel();
-        listening?.Dispose();
+        if (listening is not null)
+        {
+            await listening.CancelAsync();
+            listening.Dispose();
+        }
+
+        if (module is not null)
+        {
+            try
+            {
+                await (await module).DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                logger.LogDebug("The page was gone before the {Screen} screen's script was released", nameof(Talk));
+            }
+        }
+
+        self?.Dispose();
+    }
+
+    /// <summary>
+    /// Closes what is beside the conversation, as Escape does, and sends the focus back to the way that opened it
+    /// once the rail is gone. Called by the page's script.
+    /// </summary>
+    [JSInvokable]
+    public Task CloseRailFromKeyboard()
+    {
+        if (!CanShowRail || Shown is not { } bot)
+        {
+            return Task.CompletedTask;
+        }
+
+        (railOpener, focusRailOpener) = (Side.Way(), true);
+        navigation.NavigateTo(Addresses.Talk(bot.Id));
+        return Task.CompletedTask;
     }
 
     #endregion
@@ -400,6 +453,19 @@ public sealed partial class Talk(
         {
             focusRailClose = false;
             await railClose.FocusAsync();
+        }
+
+        if (CanShowRail && rail.Id is { } railId && railId != railWithKeys)
+        {
+            railWithKeys = railId;
+            self ??= DotNetObjectReference.Create(this);
+            await Script("attach", rail, self);
+        }
+
+        if (focusRailOpener && Side is SideView.Closed && Shown is { } bot)
+        {
+            focusRailOpener = false;
+            await Script("focusOpener", mainHeader, railOpener is { } way ? WayAddress(way, bot.Id) : null);
         }
     }
 
@@ -618,6 +684,31 @@ public sealed partial class Talk(
             logger.LogWarning(exception, "The crew could not be read again on the {Screen} screen", nameof(Talk));
         }
     }
+
+
+    private async Task Script(string function, params object?[] arguments)
+    {
+        try
+        {
+            module ??= js.InvokeAsync<IJSObjectReference>("import", ModulePath).AsTask();
+            await (await module).InvokeVoidAsync(function, arguments);
+        }
+        catch (JSException exception)
+        {
+            logger.LogWarning(exception, "The {Screen} screen's script did not run {Function}", nameof(Talk), function);
+        }
+    }
+
+    // The address of each way in the conversation's header, which is also how the page's script finds its link.
+    private static string WayAddress(SideView way, Guid botId) => way switch
+    {
+        SideView.Activity => Addresses.Activity(botId),
+        SideView.Summary => Addresses.Summary(botId),
+        SideView.Memory => Addresses.Memory(botId),
+        SideView.Screen => Addresses.Screen(botId),
+        SideView.Files => Addresses.Files(botId),
+        _ => Addresses.SideChats(botId),
+    };
 
     #endregion
 }

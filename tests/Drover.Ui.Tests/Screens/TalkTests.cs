@@ -22,6 +22,8 @@ public sealed class TalkTests : ScreenTest
 
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
+    private const string TalkScript = "./_content/Drover.Ui/Pages/Talk.razor.js";
+
     private readonly FakeTimeProvider time = new();
 
     #endregion
@@ -656,6 +658,61 @@ public sealed class TalkTests : ScreenTest
 
         page.WaitForAssertion(() => page.Find("aside .dv-markdown").TextContent.Trim().Should().Be("Sample summary, rewritten."));
         page.WaitForAssertion(() => page.FindAll("nav[aria-label=Crew] a.dv-crew-bot").Should().HaveCount(2, "a bot the lead made shows up without a reload"));
+    }
+
+    #endregion
+
+    #region Escape
+
+    [Fact]
+    public async Task Escape_closes_the_summary_and_the_focus_goes_back_to_the_link_that_opened_it()
+    {
+        var module = JSInterop.SetupModule(TalkScript);
+        var page = RenderSummary();
+        page.WaitForAssertion(() => page.Find("aside").GetAttribute("aria-label").Should().Be("Summary of the conversation with Marshal"));
+        page.WaitForAssertion(() => module.VerifyInvoke("attach").Arguments[1].Should().BeOfType<DotNetObjectReference<Talk>>());
+
+        await page.InvokeAsync(page.Instance.CloseRailFromKeyboard);
+
+        Address.Should().Be($"talk/{botId}");
+        page.Render(parameters => parameters.Add(talk => talk.Rail, null));
+        page.WaitForAssertion(() => module.VerifyInvoke("focusOpener").Arguments[1].Should().Be($"/talk/{botId}/summary"));
+        page.FindAll("aside").Should().BeEmpty();
+        var way = page.Find($"nav[aria-label='Beside the conversation'] a[href='/talk/{botId}/summary']");
+        way.TextContent.Trim().Should().Be("Summary", "the link the focus goes back to is named for what it opens");
+        way.HasAttribute("aria-current").Should().BeFalse("the summary is closed");
+    }
+
+    [Fact]
+    public async Task Escape_in_a_side_chat_closes_the_rail_and_the_focus_goes_back_to_the_side_chats_link()
+    {
+        var module = JSInterop.SetupModule(TalkScript);
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null), Side });
+        Server.Answer("GET", $"{space}/threads/{sideId}", Side);
+        Server.Answer("GET", $"{space}/threads/{sideId}/messages", new[] { Said("user", "Sample aside") });
+        var page = RenderSide(sideId.ToString());
+        page.WaitForAssertion(() => page.Find("aside h1").TextContent.Should().Be("Sample side chat"));
+
+        await page.InvokeAsync(page.Instance.CloseRailFromKeyboard);
+
+        Address.Should().Be($"talk/{botId}", "Escape closes the rail, not only the side chat");
+        page.Render(parameters => parameters.Add(talk => talk.SideChat, null));
+        page.WaitForAssertion(() => module.VerifyInvoke("focusOpener").Arguments[1].Should().Be($"/talk/{botId}/side"));
+        page.FindAll("aside").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Escape_with_nothing_beside_the_conversation_does_nothing()
+    {
+        var module = JSInterop.SetupModule(TalkScript);
+        var page = RenderMain();
+        page.WaitForAssertion(() => page.FindAll("main article").Should().HaveCount(2));
+
+        await page.InvokeAsync(page.Instance.CloseRailFromKeyboard);
+
+        Address.Should().Be($"talk/{botId}");
+        module.Invocations.Should().NotContain(call => call.Identifier == "focusOpener");
+        module.Invocations.Should().NotContain(call => call.Identifier == "attach", "there is no rail to give the key to");
     }
 
     #endregion
