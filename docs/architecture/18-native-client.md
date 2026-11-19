@@ -233,6 +233,7 @@ Differences from the web client in these pieces, each seen in the pictures in `d
 | `FileCard` on a device | "Save" and "Share" show when the app registers an `IFileDelivery`. None is registered yet, so a device shows "Download", which opens the file's address outside the app, where the person is not signed in. In a browser "Download" asks the server for the file as one to keep |
 | `ActivityPanel` | Details under a node are kept across redraws, but an element inside them loses the focus when a live run's next event redraws the timeline |
 | State badge in a card's title | Regular weight. On the web it takes the title's weight |
+| A reply's reasoning and sources | Only this client shows them. A reply's reasoning is a closed `ReplyReasoning` section above its words, with the live edge while it arrives; a reply whose reasoning arrives before any words speaks from the bot's head and says "Thinking", in place of the list's own thinking line (`MessageListViewModel.ShowsThinking`). Its sources are a `ReplySources` list under the words: each the source's title as a link that opens outside the app, and the site beside it. The web client keeps its thinking line and shows neither |
 
 ## The shell
 
