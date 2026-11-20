@@ -100,7 +100,7 @@ public sealed class ProjectPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         if (route.GuidParameter("ProjectId") is not { } projectId)
         {

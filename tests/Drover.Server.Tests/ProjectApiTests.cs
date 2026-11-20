@@ -156,6 +156,18 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
     }
 
     [Fact]
+    public async Task File_rules_are_hidden_from_people_outside_the_space()
+    {
+        var owner = await SeedPerson("rules-owner");
+        var stranger = await SeedPerson("rules-stranger");
+        var asStranger = await SignIn(stranger);
+
+        var response = await asStranger.Get($"{Space(owner.SpaceId)}/files/rules");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task A_private_conversation_in_a_project_stays_unreadable()
     {
         var owner = await SeedPerson("owner");
