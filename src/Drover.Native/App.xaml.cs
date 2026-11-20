@@ -36,6 +36,9 @@ public partial class App : Application
                     exception);
             }
         };
+#if DROVER_UNREACHABLE_CHECK
+        UnreachableOpenCheck.WatchUnhandled(this);
+#endif
 
         InitializeComponent();
         Resources.MergedDictionaries.Add(Tokens.Dictionary);

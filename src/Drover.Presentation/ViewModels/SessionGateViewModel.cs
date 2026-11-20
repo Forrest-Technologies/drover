@@ -81,6 +81,17 @@ public sealed partial class SessionGateViewModel(
         {
             State = GateState.Unreachable;
         }
+        else if (State is GateState.Unreachable)
+        {
+            if (session.Current is not null)
+            {
+                State = GateState.SignedIn;
+            }
+            else
+            {
+                _ = Check();
+            }
+        }
     }
 
     #endregion

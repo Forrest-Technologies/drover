@@ -1,9 +1,9 @@
 namespace Drover.Native.Shell;
 
 /// <summary>
-/// Proves a deep link opened while the server is down shows the unreachable gate and does not close the app.
-/// Desktop starts the app with <c>DROVER_UNREACHABLE_OPEN_CHECK=1</c>. Android starts it with the
-/// <c>drover.unreachable_open</c> extra. Any other start never calls this.
+/// Proves a deep link opened while the server is down catches the open failure, shows the unreachable gate, and raises
+/// no unhandled error. Desktop starts the app with <c>DROVER_UNREACHABLE_OPEN_CHECK=1</c>. Android starts it with the
+/// <c>drover.unreachable_open</c> extra. Any other start is not compiled with this type.
 /// </summary>
 internal static class UnreachableOpenCheck
 {
@@ -24,7 +24,11 @@ internal static class UnreachableOpenCheck
 
     private static bool prepared;
 
+    private static bool watchingUnhandled;
+
     private static int step;
+
+    private static int caughtOpens;
 
     private static DateTimeOffset deadline;
 
@@ -54,9 +58,23 @@ internal static class UnreachableOpenCheck
         }
     }
 
+    /// <summary>Hooks unhandled-exception listeners on the application and domain before any screen opens.</summary>
+    public static void WatchUnhandled(Application app)
+    {
+        if (watchingUnhandled)
+        {
+            return;
+        }
+
+        watchingUnhandled = true;
+        app.UnhandledException += (_, failure) => OnUnhandled("Application.UnhandledException", failure.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, failure) =>
+            OnUnhandled("AppDomain.UnhandledException", failure.ExceptionObject as Exception);
+    }
+
     /// <summary>
-    /// Points the new services at a server that refuses the connection, and asks the shell to open the first deep
-    /// link. A normal start does nothing.
+    /// Arms the log listener, points the new services at a server that refuses the connection, and asks the shell to
+    /// open the first deep link. A normal start does nothing.
     /// </summary>
     public static void Prepare(IServiceProvider services)
     {
@@ -66,6 +84,7 @@ internal static class UnreachableOpenCheck
         }
 
         prepared = true;
+        services.GetRequiredService<ILoggerFactory>().AddProvider(new CheckLogProvider());
 #if DROVER_BROWSER
         // A browser has no device shell and no saved server. This check runs on desktop and Android.
         _ = services;
@@ -109,6 +128,17 @@ internal static class UnreachableOpenCheck
 
     #region Private Methods
 
+    private static void OnUnhandled(string source, Exception? exception)
+    {
+        if (!armed)
+        {
+            return;
+        }
+
+        var detail = exception is null ? "unknown error" : $"{exception.GetType().Name}: {exception.Message}";
+        Fail($"{source} raised {detail}");
+    }
+
     private static async Task Watch()
     {
         var started = DateTimeOffset.UtcNow;
@@ -120,7 +150,7 @@ internal static class UnreachableOpenCheck
 
         if (Volatile.Read(ref finished) == 0)
         {
-            Fail($"The check did not finish within 90 seconds. Opened: {Opened()}.");
+            Fail($"The check did not finish within 90 seconds. Opened: {Opened()}. Caught opens: {Volatile.Read(ref caughtOpens)}.");
         }
     }
 
@@ -128,14 +158,21 @@ internal static class UnreachableOpenCheck
     {
         try
         {
+            if (Volatile.Read(ref finished) != 0)
+            {
+                return;
+            }
+
             if (DateTimeOffset.UtcNow > deadline)
             {
-                Fail($"The {steps[step].Page.Name} screen did not show the unreachable gate. Opened: {Opened()}.");
+                Fail($"The {steps[step].Page.Name} screen did not show the caught unreachable gate. Opened: {Opened()}. Caught opens: {Volatile.Read(ref caughtOpens)}.");
                 return;
             }
 
             var expected = steps[step];
-            if (!seen.Contains(expected.Page) || window?.Content is not DependencyObject root)
+            if (!seen.Contains(expected.Page)
+                || Volatile.Read(ref caughtOpens) < step + 1
+                || window?.Content is not DependencyObject root)
             {
                 return;
             }
@@ -148,6 +185,13 @@ internal static class UnreachableOpenCheck
             step++;
             if (step == steps.Length)
             {
+                var totalCaught = Volatile.Read(ref caughtOpens);
+                if (totalCaught != steps.Length)
+                {
+                    Fail($"Expected {steps.Length} caught screen opens, saw {totalCaught}.");
+                    return;
+                }
+
                 Pass();
                 return;
             }
@@ -157,15 +201,11 @@ internal static class UnreachableOpenCheck
         }
         catch (Exception exception)
         {
-            if (Interlocked.Exchange(ref finished, 1) != 0)
-            {
-                return;
-            }
-
-            var logger = Log.Factory.CreateLogger(nameof(UnreachableOpenCheck));
-            logger.LogError(exception, "The unreachable open check failed");
-            Write("Unreachable open check failed");
-            NativeStop.Now(1);
+            Log.Factory.CreateLogger(nameof(UnreachableOpenCheck)).LogError(
+                exception,
+                "The unreachable open check threw {ExceptionType}",
+                exception.GetType().Name);
+            Fail($"The unreachable open check threw {exception.GetType().Name}: {exception.Message}");
         }
     }
 
@@ -181,7 +221,7 @@ internal static class UnreachableOpenCheck
             "Unreachable open check passed for {Screens}",
             screens);
         Write($"Unreachable open check passed for {screens}");
-        NativeStop.Now(0);
+        Exit(0);
     }
 
     private static void Fail(string reason)
@@ -195,8 +235,21 @@ internal static class UnreachableOpenCheck
             "Unreachable open check failed: {Reason}",
             reason);
         Write($"Unreachable open check failed: {reason}");
-        NativeStop.Now(1);
+        Exit(1);
     }
+
+    private static void Exit(int code)
+    {
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS() || OperatingSystem.IsAndroid())
+        {
+            ExitImmediately(code);
+        }
+
+        Environment.Exit(code);
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "_exit")]
+    private static extern void ExitImmediately(int code);
 
     private static string Opened() => seen.Count == 0 ? "none" : string.Join(", ", seen.Select(page => page.Name));
 
@@ -247,6 +300,64 @@ internal static class UnreachableOpenCheck
         return root is null ? null : System.IO.Path.Combine(root, "unreachable-open.txt");
     }
 #endif
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class CheckLogProvider : ILoggerProvider
+    {
+        #region Interface Implementations
+
+        public ILogger CreateLogger(string categoryName) => new CheckLogger(categoryName);
+
+        public void Dispose()
+        {
+        }
+
+        #endregion
+    }
+
+    private sealed class CheckLogger(string categoryName) : ILogger
+    {
+        #region Interface Implementations
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => armed && logLevel >= LogLevel.Warning;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (!armed)
+            {
+                return;
+            }
+
+            if (logLevel >= LogLevel.Error
+                && (categoryName.StartsWith("Uno.UI.Dispatching.NativeDispatcher", StringComparison.Ordinal)
+                    || categoryName == typeof(App).FullName))
+            {
+                Fail($"Error logged by {categoryName}: {formatter(state, exception)}");
+                return;
+            }
+
+            if (logLevel == LogLevel.Warning
+                && formatter(state, exception).StartsWith(
+                    "A screen could not reach the server while it opened",
+                    StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref caughtOpens);
+            }
+        }
+
+        #endregion
+    }
 
     #endregion
 }

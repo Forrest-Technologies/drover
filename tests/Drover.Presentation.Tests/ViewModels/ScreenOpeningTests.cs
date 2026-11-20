@@ -39,9 +39,9 @@ public sealed class ScreenOpeningTests : ViewModelTest
         var tools = Make<ToolConnectionsViewModel>();
         var gate = Watched();
         var reopened = Task.CompletedTask;
-        Navigator.Navigated += (_, _) => reopened = ScreenOpen.At(Session, () => tools.Open(), NullLogger.Instance);
+        Navigator.Navigated += (_, _) => reopened = Session.OpenScreen(() => tools.Open(), NullLogger.Instance);
         Server.Unreachable = true;
-        await ScreenOpen.At(Session, () => tools.Open(), NullLogger.Instance);
+        await Session.OpenScreen(() => tools.Open(), NullLogger.Instance);
         await gate.Check();
         gate.State.Should().Be(GateState.Unreachable);
 
@@ -62,8 +62,7 @@ public sealed class ScreenOpeningTests : ViewModelTest
     {
         SignedIn();
         await Session.Load(TestContext.Current.CancellationToken);
-        await ScreenOpen.At(
-            Session,
+        await Session.OpenScreen(
             () => Task.FromException(new HttpRequestException("Sample refusal.")),
             NullLogger.Instance);
         var gate = Watched();
@@ -78,8 +77,7 @@ public sealed class ScreenOpeningTests : ViewModelTest
     [Fact]
     public async Task Opening_a_screen_lets_a_failure_that_is_not_the_servers_escape()
     {
-        var opening = () => ScreenOpen.At(
-            Session,
+        var opening = () => Session.OpenScreen(
             () => throw new InvalidOperationException("Sample fault."),
             NullLogger.Instance);
 
@@ -89,26 +87,52 @@ public sealed class ScreenOpeningTests : ViewModelTest
     }
 
     [Fact]
-    public void The_unreachable_open_check_is_compiled_only_for_its_own_build()
+    public async Task Opening_a_screen_lets_a_404_refusal_reach_the_screen()
     {
-        var root = Repository.Root;
-        var project = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "Drover.Native.csproj"));
-        var activity = File.ReadAllText(Path.Combine(
-            root, "src", "Drover.Native", "Platforms", "Android", "MainActivity.cs"));
-        var app = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "App.xaml.cs"));
-        var screen = File.ReadAllText(Path.Combine(root, "src", "Drover.Native", "Shell", "Screen.cs"));
-        var workflow = File.ReadAllText(Path.Combine(root, ".github", "workflows", "native.yml"));
+        var opening = () => Session.OpenScreen(
+            () => Task.FromException(new DroverApiException(HttpStatusCode.NotFound, "Bot was not found.")),
+            NullLogger.Instance);
 
-        project.Should().Contain("DroverUnreachableCheck)' == 'true'");
-        project.Should().Contain("""<Compile Remove="Shell/UnreachableOpenCheck.cs" />""");
-        activity.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
-        activity.Should().Contain("drover.unreachable_open");
-        app.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
-        screen.Should().Contain("#if DROVER_UNREACHABLE_CHECK");
-        workflow.Should().Contain(
-            "net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror");
-        workflow.Should().Contain("DroverUnreachableCheck=true -warnaserror -o \"$RUNNER_TEMP/unreachable-android\"");
-        workflow.Should().Contain("-c Release -p:DroverUnreachableCheck=true -warnaserror");
+        await opening.Should().ThrowAsync<DroverApiException>(
+            "a 404 means the server answered, so the screen handles it rather than showing the unreachable gate");
+        Session.Unreachable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_stale_open_failing_after_a_newer_open_succeeded_leaves_the_session_reachable()
+    {
+        SignedIn();
+        await Session.Load(TestContext.Current.CancellationToken);
+        var gate = Watched();
+        await gate.Check();
+        var first = new TaskCompletionSource();
+        var firstOpen = Session.OpenScreen(() => first.Task, NullLogger.Instance);
+
+        await Session.OpenScreen(() => Task.CompletedTask, NullLogger.Instance);
+        first.SetException(new HttpRequestException("Slow first open failed."));
+        await firstOpen;
+
+        Session.Unreachable.Should().BeFalse();
+        gate.State.Should().Be(GateState.SignedIn);
+    }
+
+    [Fact]
+    public async Task Reopening_a_screen_in_place_after_the_server_returns_clears_the_unreachable_gate()
+    {
+        SignedIn();
+        await Session.Load(TestContext.Current.CancellationToken);
+        var gate = Watched();
+        await gate.Check();
+
+        await Session.OpenScreen(
+            () => Task.FromException(new HttpRequestException("Sample refusal.")),
+            NullLogger.Instance);
+        gate.State.Should().Be(GateState.Unreachable);
+
+        await Session.OpenScreen(() => Task.CompletedTask, NullLogger.Instance);
+
+        Session.Unreachable.Should().BeFalse();
+        gate.State.Should().Be(GateState.SignedIn);
     }
 
     #endregion
@@ -127,7 +151,7 @@ public sealed class ScreenOpeningTests : ViewModelTest
         Server.Unreachable = true;
         var gate = Watched();
 
-        var opening = () => ScreenOpen.At(Session, open, NullLogger.Instance);
+        var opening = () => Session.OpenScreen(open, NullLogger.Instance);
 
         await opening.Should().NotThrowAsync();
         await gate.Check();

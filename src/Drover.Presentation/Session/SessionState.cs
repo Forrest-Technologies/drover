@@ -9,6 +9,8 @@ public sealed class SessionState(DroverApi api)
 
     private bool loaded;
 
+    private long openGeneration;
+
     #endregion
 
     #region Properties
@@ -57,15 +59,22 @@ public sealed class SessionState(DroverApi api)
     /// </summary>
     public async Task OpenScreen(Func<Task> open, ILogger logger)
     {
+        var generation = Interlocked.Increment(ref openGeneration);
         SetUnreachable(false);
         try
         {
             await open();
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (Exception exception) when (Failures.IsUnreachable(exception))
         {
-            logger.LogWarning(exception, "A screen could not reach the server while it opened");
-            SetUnreachable(true);
+            logger.LogWarning(
+                "A screen could not reach the server while it opened ({ExceptionType}, {StatusCode})",
+                exception.GetType().Name,
+                StatusCodeOf(exception));
+            if (Volatile.Read(ref openGeneration) == generation)
+            {
+                SetUnreachable(true);
+            }
         }
     }
 
@@ -86,6 +95,13 @@ public sealed class SessionState(DroverApi api)
     #endregion
 
     #region Private Methods
+
+    private static int? StatusCodeOf(Exception exception) => exception switch
+    {
+        DroverApiException refusal => (int)refusal.StatusCode,
+        HttpRequestException { StatusCode: { } status } => (int)status,
+        _ => null,
+    };
 
     private void SetUnreachable(bool unreachable)
     {
