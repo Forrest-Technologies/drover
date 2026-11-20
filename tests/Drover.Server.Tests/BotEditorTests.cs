@@ -133,6 +133,37 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         saved.Should().Match<BotDetail>(found => found.Name == "Renamed" && found.Handle == bot.Handle && found.Instructions == bot.Instructions && found.Model == bot.Model);
     }
 
+    [Fact]
+    public async Task A_handle_the_name_made_follows_a_rename_and_the_server_keeps_it_unique()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var first = await CreateBot(client, alice.SpaceId, "New bot");
+        var second = await CreateBot(client, alice.SpaceId, "New bot");
+        var handSet = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = (BotSummary bot) => $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Rename(string name, string handle) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+
+        first.Handle.Should().Be("new-bot");
+        second.Handle.Should().Be("new-bot-2", "the server adds a number to keep a handle unique");
+
+        // The second "New bot" is renamed to "Writer": its numbered handle follows.
+        var writer = await PutFor<BotDetail>(client, route(second), Rename("Writer", BotHandles.Stem("Writer")));
+        writer.Handle.Should().Be("writer");
+
+        // Another bot is renamed to a name whose handle is taken: the handle follows and the server numbers it.
+        var other = await PutFor<BotDetail>(client, route(first), Rename("Writer", BotHandles.Stem("Writer")));
+        other.Handle.Should().Be("writer-2");
+
+        // A handle a person chose stays when the name changes, and one that is taken is refused, not renumbered.
+        await PutFor<BotDetail>(client, route(handSet), Rename("Scout", "my-scout"));
+        var renamed = await PutFor<BotDetail>(client, route(handSet), Rename("Scout the second", null!));
+        renamed.Handle.Should().Be("my-scout");
+        var taken = await client.Put(route(handSet), Rename("Scout the second", "writer"));
+        taken.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     [Theory]
     [MemberData(nameof(RefusedEdits))]
     public async Task An_edit_that_does_not_hold_is_refused_in_words_and_nothing_changes(string what, UpdateBotRequest edit, string expected)

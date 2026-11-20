@@ -63,6 +63,50 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void A_numbered_handle_the_server_made_follows_a_rename_and_a_chosen_one_does_not()
+    {
+        var second = new BotDraft { Name = "New bot", Handle = "new-bot-2" };
+        var chosen = new BotDraft { Name = "New bot", Handle = "new-bot-help" };
+        var emptyName = new BotDraft { Name = "!!!", Handle = "bot-3" };
+        var notYetMade = new BotDraft();
+
+        second.Rename("Writer");
+        chosen.Rename("Writer");
+        emptyName.Rename("Scout");
+        notYetMade.Rename("Writer");
+
+        second.Handle.Should().Be("writer");
+        chosen.Handle.Should().Be("new-bot-help", "a handle that is not the name's with a number was chosen by someone");
+        emptyName.Handle.Should().Be("scout", "a name with no letter or digit makes the handle bot, which can be numbered too");
+        notYetMade.Handle.Should().Be("writer", "nothing has been chosen yet");
+    }
+
+    [Theory]
+    [InlineData("A  B", "a-b")]
+    [InlineData("A B", "a-b")]
+    [InlineData("  A - B!  ", "a-b")]
+    [InlineData("Scout the 2nd!", "scout-the-2nd")]
+    [InlineData("!!!", "bot")]
+    public void The_server_and_the_client_make_the_same_handle_from_a_name(string name, string handle)
+    {
+        BotHandles.Stem(name).Should().Be(handle);
+    }
+
+    [Theory]
+    [InlineData("new-bot", "New bot", true)]
+    [InlineData("new-bot-2", "New bot", true)]
+    [InlineData("new-bot-12", "New bot", true)]
+    [InlineData("new-bot-1", "New bot", false)]
+    [InlineData("new-bot-0", "New bot", false)]
+    [InlineData("new-bot-x", "New bot", false)]
+    [InlineData("new-bot-2-3", "New bot", false)]
+    [InlineData("helper", "New bot", false)]
+    [InlineData("new-bots", "New bot", false)]
+    [InlineData("", "New bot", true)]
+    public void A_handle_follows_a_name_only_when_the_name_made_it(string handle, string name, bool follows) =>
+        BotHandles.Follows(handle, name).Should().Be(follows);
+
+    [Fact]
     public void Settings_the_chosen_model_lacks_are_cleared_and_an_unknown_model_keeps_them()
     {
         var draft = new BotDraft { ReasoningEffort = "high", WebSearch = "on", StructuredOutput = true };
