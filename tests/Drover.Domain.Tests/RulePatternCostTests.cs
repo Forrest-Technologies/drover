@@ -79,6 +79,8 @@ public sealed class RulePatternCostTests
 
         watch.Elapsed.Should().BeLessThan(bound, "this took 46 seconds");
         (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated, "this held 4.0 GB");
+        outcome?.Effect.Should().Be(RuleEffect.Block, "a pattern that cannot be run takes the rule's own effect, so it is not let through");
+        outcome?.Rule.Should().Be(rule, "the outcome is the stored rule's");
         outcome.Should().NotBeNull("a pattern that cannot be run is not let through");
         RulePatterns.Compile(Measured).Expression.Should().BeNull("a refused pattern keeps no expression");
     }
@@ -94,6 +96,7 @@ public sealed class RulePatternCostTests
 
         watch.Elapsed.Should().BeLessThan(bound, "this took 17 seconds");
         (GC.GetAllocatedBytesForCurrentThread() - before).Should().BeLessThan(MostAllocated, "this held 1.8 GB");
+        outcome?.Effect.Should().Be(RuleEffect.Block, "a pattern that cannot be run takes the rule's own effect: the call passed before");
         outcome.Should().NotBeNull("a pattern that cannot be run is not let through: the call passed before");
     }
 
