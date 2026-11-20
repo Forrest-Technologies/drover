@@ -25,6 +25,8 @@ Ordered by how much damage each could do to the plan.
 
 ### 1. Blazor WebAssembly for the web, not server-side interactivity
 
+Settled on 2026-11-20: the web client and the Android shell were retired, and the browser runs the native client's WebAssembly build ([18-native-client.md](18-native-client.md)). Its first load is larger still; that is a limit tracked there. What follows is the original reasoning.
+
 Chosen because the MAUI shell forces an API-backed path anyway, and one path is simpler than two. The cost is a multi-megabyte first load and slower cold start on a weak phone browser.
 
 Would change my mind: the owner finds first load on mobile browsers unacceptable in daily use. Then add static server rendering for the sign-in and setup screens only, keeping interactive screens on WebAssembly. Going to server-side interactivity for everything would mean maintaining two data paths, which I would resist.
@@ -77,7 +79,7 @@ See [11-phase-0-plan.md](11-phase-0-plan.md). With the framework's approval supp
 
 ## Things I checked and found no reason to change
 
-- **Markdig.** Handles partial input acceptably for streaming, runs in WebAssembly and the MAUI web view unchanged, and is safe with raw HTML disabled plus a sanitizer pass.
+- **Markdig.** Handles partial input acceptably for streaming, runs in the native client on every target unchanged, and is safe with raw HTML disabled plus a sanitizer pass.
 - **PostgreSQL only.** Row-level security, job claiming with `SKIP LOCKED`, `LISTEN/NOTIFY`, partitioning, and vectors all come from the one database.
 - **One server process.** Workers, scheduler, API, and static files in one container. The run engine's lease design already allows a second instance later without changes.
 - **`.slnx`.** Works across the SDK, the build, formatting, CodeQL, and Dependabot.

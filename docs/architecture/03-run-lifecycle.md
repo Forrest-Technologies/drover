@@ -247,7 +247,7 @@ Both streams belong to the session that opened them. Before each write, a stream
 
 `Drover.Client` holds the other end: `DroverApi.WatchRun` reads the stream, reconnects with backoff (half a second, doubling to ten) and the last number it saw, and drops anything at or below that number, so a caller sees every event once and in order. `RunReducer.Apply` turns the events into the `RunView` a screen renders; the events of a run that a call handed work to go into a `DelegationView` under that call, so one stream gives the whole tree. It is a pure function and ignores an event it has already applied, so any prefix of a log followed by the rest ends in the same view as the whole log at once.
 
-Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the MAUI `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
+Why Server-Sent Events and not a socket library: resume from a cursor is the built-in behavior of the protocol, it is plain HTTP for every proxy and for the native apps' `HttpClient`, and ASP.NET Core and `System.Net.ServerSentEvents` support both ends on .NET 10 and later with no extra package.
 
 ### Past tool calls
 

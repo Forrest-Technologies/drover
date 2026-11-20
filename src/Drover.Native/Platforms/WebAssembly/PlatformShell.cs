@@ -13,7 +13,7 @@ internal static class PlatformShell
 
     private const string BasePathVariable = "UNO_BOOTSTRAP_WEBAPP_BASE_PATH";
 
-    // The folder the app is served from, without a trailing slash: "/native", or nothing when it is at the root.
+    // The folder the app is served from, without a trailing slash: nothing at the root, where Drover serves it.
     private static readonly string basePath = (Environment.GetEnvironmentVariable(BasePathVariable) ?? "/").TrimEnd('/');
 
     // The address the browser shows, so a step the app takes itself through history can be matched in the browser.
@@ -29,7 +29,7 @@ internal static class PlatformShell
 
     #region Properties
 
-    /// <summary>The path the app is served under, with its trailing slash: "/native/", or "/" at the root.</summary>
+    /// <summary>The path the app is served under, with its trailing slash: "/" at the root.</summary>
     public static string ClientPath => $"{basePath}/";
 
     #endregion
@@ -81,7 +81,7 @@ internal static class PlatformShell
     /// <summary>Rebuilds the semantic tree once the shell is attached, after the platform's early activation.</summary>
     public static void Shown() => Browser.RefreshAccessibility();
 
-    /// <summary>The address of a screen in the web app, which is served from the root of the same origin.</summary>
+    /// <summary>The address of a screen in the browser client, served from the root of the same origin.</summary>
     public static string? WebAddress(IServiceProvider services, string address) => $"{Browser.Origin}{address}";
 
     #endregion

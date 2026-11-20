@@ -1,29 +1,33 @@
 namespace Drover.Presentation.Tests.Routing;
 
 /// <summary>
-/// The native client's table of screens, read from its source, held against the web client's pages: every address
-/// the web client has a page at opens a screen in the native client, written the same way.
+/// The native client's table of screens, read from its source. Every address the retired web client had a page at
+/// still opens a screen, written the same way, and so does every address the product writes. A new screen may add
+/// an address; none of these may go.
 /// </summary>
 public sealed partial class NativeScreensTests
 {
     #region Private Fields
 
-    private static readonly string[] onlyOnTheWeb = ["/dev/starters"];
+    // The page addresses of the web client when it was retired on 2026-11-20, but its gallery of starter pieces.
+    // People kept links to these; each must keep opening a screen.
+    private static readonly string[] retiredWebClientPages =
+    [
+        "/", "/bots", "/bots/{BotId:guid}", "/bots/{BotId:guid}/sandbox", "/dev/gallery", "/extensions",
+        "/extensions/edit", "/models", "/setup", "/setup/bot", "/setup/model", "/share", "/sign-in", "/status",
+        "/talk/{BotId:guid}", "/talk/{BotId:guid}/activity/{ActivityRunId:guid}", "/talk/{BotId:guid}/side/{SideChat}",
+        "/talk/{BotId:guid}/work/{WorkBotId:guid}/{WorkThreadId:guid}", "/talk/{BotId:guid}/{Rail}",
+        "/threads/{FormerThreadId:guid}", "/tools", "/usage",
+    ];
 
     #endregion
 
     #region Public Methods
 
     [Fact]
-    public void Every_address_the_web_client_has_a_page_at_opens_a_native_screen()
+    public void Every_address_the_retired_web_client_had_a_page_at_opens_a_native_screen()
     {
-        var web = Directory.EnumerateFiles(Path.Combine(Repository.Root, "src", "Drover.Ui"), "*.razor", SearchOption.AllDirectories)
-            .SelectMany(file => PageDirective().Matches(File.ReadAllText(file)).Select(match => match.Groups[1].Value))
-            .Except(onlyOnTheWeb)
-            .ToList();
-
-        web.Should().NotBeEmpty();
-        NativePatterns().Should().BeEquivalentTo(web, "an address is a promise: a link someone kept must open in either client");
+        NativePatterns().Should().Contain(retiredWebClientPages, "an address is a promise: a link someone kept must open");
     }
 
     [Fact]
@@ -60,11 +64,6 @@ public sealed partial class NativeScreensTests
     private static List<string> NativePatterns() =>
         [.. Pattern().Matches(File.ReadAllText(Path.Combine(Repository.NativeFolder, "Shell", "Screens.cs")))
             .Select(match => match.Groups[1].Value)];
-
-    [GeneratedRegex("""
-        @page\s+"([^"]+)"
-        """, RegexOptions.IgnorePatternWhitespace)]
-    private static partial Regex PageDirective();
 
     // A pattern is a quoted string that starts with a slash, inside the table.
     [GeneratedRegex("""

@@ -23,8 +23,10 @@ Where a section below covers an untested part, it says so.
 docker compose logs drover
 ```
 
-The image serves Uno at `/native/` and the existing web client at `/`. Set `DROVER_BUILD_NATIVE=false` in
-Compose's `.env` file before building to omit the Uno client.
+The image serves the browser client at `/`. Until 2026-11-20 it was served at `/native/`; that address now sends the
+browser to the same address at `/`. An app installed from `/native/` opens `/`, outside the folder it was installed
+for, so it may show an address bar; installing it again from `/` gives it its own window. `DROVER_BUILD_NATIVE` no
+longer exists: the image always includes the browser client.
 
 ## Reaching Drover from other devices
 

@@ -109,8 +109,8 @@ With a proxy of your own: set `DROVER_PUBLIC_URL` to the address people open, an
 The image is built on the self-hoster's machine, so the build must fit a modest VPS. Design choices that keep it down:
 
 - Multi-stage Dockerfile: SDK image to build, the ASP.NET runtime image to run. Only the published output is copied.
-- The Docker build compiles `Drover.Server` and its references only. Tests, analyzers' tests, the AppHost, and the MAUI shell are not in the build context's project graph.
-- No ahead-of-time compilation of the WebAssembly client, so no extra workload download. The client is trimmed.
+- The Docker build compiles `Drover.Server` and its references, and the browser target of `Drover.Native`, which it copies into the server's web root. Tests, analyzers' tests, the AppHost, and the desktop and Android targets are not in the build.
+- No ahead-of-time compilation of the WebAssembly client. The client is trimmed. Its build needs the `wasm-tools` workload and `python3`, which the build stage installs.
 - No Node, no CSS build tool.
 - Restore is a separate layer keyed on `Directory.Packages.props` and the project files, so a rebuild after a small change skips it. (There are no lock files.)
 - The build server and parallelism are limited inside the Dockerfile (`-maxcpucount:1`, shared compilation off) to cap peak memory at the cost of some time.
@@ -184,7 +184,7 @@ The VAPID key pair belongs to the whole server, not to a space: a browser holds 
 | Signing out turns the device off first, so the next person on that browser is never woken for the last one's bots. Turning a device on when the browser already holds a subscription that is not this person's ends it and makes a new one: the old address stops working, and its push service reports it gone, which deletes the other person's row. One address belongs to one person at a time without any lookup across people. | `AccountMenu`, `DevicePush` |
 | Push requests use the checked outbound client and never follow a redirect. They never say they may reach a private address, so one is refused in every deployment. | `PushServiceExtensions` |
 
-The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>"}`. The service worker (`src/Shared/Web/push-worker.js`, loaded by both workers, and by the native client's browser build under `/native/`, where a notification opens `/native/talk/...`) asks `GET /api/push/wake?kind=&thread=` with the person's own cookie, which looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. A thread the person cannot see, or a request without a sign-in, gets nothing, and the worker shows only "Something changed. Open Drover to see it." Tapping a notification takes an open Drover window to that conversation, or opens one.
+The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","thread":"<id>"}`. The service worker (`src/Shared/Web/push-worker.js`, loaded by the published worker of the browser client at `/`) asks `GET /api/push/wake?kind=&thread=` with the person's own cookie, which looks for the thread in each of the person's spaces, as that person, and answers the bot's name and a sentence. A thread the person cannot see, or a request without a sign-in, gets nothing, and the worker shows only "Something changed. Open Drover to see it." Tapping a notification takes an open Drover window to that conversation, or opens one.
 
 ### Android client
 
@@ -193,7 +193,7 @@ The Android client receives encrypted wake-ups from an installed UnifiedPush dis
 
 UnifiedPush stays. Alternatives were checked (the app holding its own connection in a foreground service, publishing to a notification app's topics, Google's push service directly, web push inside the app's web view) and none is a better open option: each either costs battery and a permanent notification, does not wake the Drover app, needs the publisher's credentials and a relay, or is not supported by the Android web view (verified).
 
-What changes is how the app speaks it. There is no .NET or MAUI binding for the official connector, and the connector pulls in a Kotlin runtime and a crypto library. The protocol itself is small, so Drover implements it directly in the Android platform project:
+What changes is how the app speaks it. There is no .NET binding for the official connector, and the connector pulls in a Kotlin runtime and a crypto library. The protocol itself is small, so Drover implements it directly in the Android platform project:
 
 | Piece | What it is |
 | --- | --- |
@@ -202,7 +202,7 @@ What changes is how the app speaks it. There is no .NET or MAUI binding for the 
 | Distributor choice | One activity call that lets the user pick among installed distributors |
 | Decryption | The Web Push payload, using the platform's elliptic-curve and AES-GCM primitives. No extra library. |
 
-A few hundred lines of C#, in `src/Shared/Android`, behind `IPushRegistration`, compiled into both the Android shell (`Drover.App`) and the native client's Android build (`Drover.Native`). One other .NET app is known to do the same, which shows it is feasible.
+A few hundred lines of C#, in `src/Shared/Android`, behind `IPushRegistration`, compiled into the native client's Android build (`Drover.Native`). It was written for the Android shell retired on 2026-11-20. One other .NET app is known to do the same, which shows it is feasible.
 
 The app picks a path at run time, in this order:
 
@@ -240,4 +240,4 @@ On the Drover server it is one more `IPushChannel` that posts to the relay. A se
 
 ### Client registration
 
-`IPushRegistration` in `Drover.Presentation` has a web implementation (`BrowserPushRegistration` in `Drover.Web` and in the native browser build, both over `src/Shared/Web/push.js`: the service worker and the Push API) and the Android one above, shared by the Android shell and the native Android build. The native client and the Android code report a platform failure as `DeviceCallFailedException`; the web client's Blazor control still catches the browser's own `JSException`. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain. The control is "Notifications" in the account menu. On an iPhone or iPad outside the Home Screen web app, it says the web app must be added to the Home Screen first.
+`IPushRegistration` in `Drover.Presentation` has a web implementation (`BrowserPushRegistration` in the native browser build, over `src/Shared/Web/push.js`: the service worker and the Push API) and the Android one above. Both report a platform failure as `DeviceCallFailedException`. It asks for permission only after the user turns notifications on, never at first launch, and explains what the notification will and will not contain. The control is "Notifications" in the account menu. On an iPhone or iPad outside the Home Screen web app, it says the web app must be added to the Home Screen first.

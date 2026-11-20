@@ -73,7 +73,7 @@ public sealed class ToolSignIns(
     /// Starts a sign-in for the person, to their own credential or, where one sign-in serves the space, to the
     /// space's. Returns when the tool server has said where the person must go, or when it turned out that no
     /// sign-in is needed, or that none is possible. <paramref name="returnTo"/> says where the browser must come back
-    /// to, as <see cref="SignInReturn.Read"/> reads it; null is the web client.
+    /// to, as <see cref="SignInReturn.Read"/> reads it; null is the browser client at the root.
     /// </summary>
     public async Task<SignInStart> Begin(Guid spaceId, Guid userId, Guid connectionId, string? returnTo, CancellationToken cancellationToken)
     {

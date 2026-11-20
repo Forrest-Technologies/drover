@@ -81,9 +81,7 @@ var app = builder.Build();
 app.UseTrustedProxies();
 app.UseSecurityHeaders();
 app.UseCookiePolicy();
-app.UseBlazorFrameworkFiles();
-var nativeClient = app.UseNativeClientFiles();
-app.UseStaticFiles();
+var client = app.UseNativeClientFiles();
 app.UseRouting();
 app.UseRequestLimits();
 app.UseRateLimiter();
@@ -110,8 +108,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
 app.MapHealthChecks("/health/ready");
-app.MapNativeClientPages(nativeClient);
-app.MapFallbackToFile("index.html");
+app.MapNativeClientPages(client);
 
 await app.RunAsync();
 

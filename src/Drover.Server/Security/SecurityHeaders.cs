@@ -2,9 +2,10 @@ namespace Drover.Server.Security;
 
 /// <summary>
 /// The headers every response carries. The content security policy allows no inline script and no remote origin;
-/// <c>wasm-unsafe-eval</c> is there because Blazor WebAssembly requires it. Inline styles and embedded fonts are
-/// allowed because browser extensions draw their own interface inside the page with them, and a policy that
-/// forbids them leaves that interface spilled over Drover's as unstyled text. Drover itself uses neither.
+/// <c>wasm-unsafe-eval</c> is there because the browser client's runtime is WebAssembly and requires it. Inline
+/// styles and embedded fonts are allowed because browser extensions draw their own interface inside the page with
+/// them, and a policy that forbids them leaves that interface spilled over Drover's as unstyled text. Drover itself
+/// uses neither.
 /// </summary>
 public static class SecurityHeaders
 {
@@ -64,7 +65,7 @@ public static class SecurityHeaders
                 }
                 else if (!context.Request.Path.StartsWithSegments("/health"))
                 {
-                    // The web client's files and pages. The server states the policy for each, whatever the file
+                    // The browser client's files and pages. The server states the policy for each, whatever the file
                     // middleware chose, so nothing in front of it adds a longer one.
                     headers.CacheControl = ClientFileCaching.For(context.Request.Path);
                 }

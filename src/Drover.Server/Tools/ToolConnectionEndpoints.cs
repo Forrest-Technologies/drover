@@ -152,8 +152,9 @@ public static class ToolConnectionEndpoints
             return TypedResults.Forbid();
         }
 
-        // The web client sends no body. Another client names where the browser comes back to: a native app its own
-        // scheme or listener, the native client's browser build its path. Only addresses this server knows are taken.
+        // A request with no body comes back to the browser client at the root. Otherwise the client names where the
+        // browser comes back to: a native app its own scheme or listener, the browser build its path. Only addresses
+        // this server knows are taken.
         var request = context.Request.HasJsonContentType() && context.Request.ContentLength is not 0
             ? await context.Request.ReadFromJsonAsync<BeginToolSignInRequest>(context.RequestAborted)
             : null;
