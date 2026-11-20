@@ -84,6 +84,13 @@ public sealed class SharedFileApiTests(PostgresServer postgres) : ServerTestBase
         (await Read<List<ExchangedFileResponse>>(await admin.Get($"{Space(spaceId)}/bots/{botId}/files")))
             .Should().BeEmpty("an admin cannot see a member's private conversation, so none of its files");
         (await admin.Get($"{Space(spaceId)}/files/{listed[1].File.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var previewPath = $"{Space(spaceId)}/files/{notes.Id}/native-preview";
+        var preview = await client.Get(previewPath);
+        preview.Headers.CacheControl!.NoStore.Should().BeTrue();
+        (await Read<NativeFilePreview>(preview)).Markdown.Should().Be("my notes");
+        (await admin.Get(previewPath)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Get($"{Space(strangerSpace)}/files/{notes.Id}/native-preview"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await stranger.Get($"{Space(spaceId)}/bots/{botId}/files")).StatusCode.Should().Be(HttpStatusCode.NotFound, "the stranger is not a member");
         (await stranger.Get($"{Space(strangerSpace)}/bots/{botId}/files")).StatusCode.Should().Be(HttpStatusCode.NotFound, "the bot is not in the stranger's space");
     }
