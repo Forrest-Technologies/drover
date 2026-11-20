@@ -23,6 +23,12 @@ public class FakePushRegistration : IPushRegistration
     /// <summary>The next check fails as a platform call does.</summary>
     public bool FailNextCheck { get; set; }
 
+    /// <summary>What moving the browser client to the root left on this device.</summary>
+    public MovedSubscription Moved { get; set; }
+
+    /// <summary>How many times the device was asked whether moving left anything.</summary>
+    public int MovedAsked { get; private set; }
+
     #endregion
 
     #region Interface Implementations
@@ -63,6 +69,18 @@ public class FakePushRegistration : IPushRegistration
 
         Endpoint = null;
         return Task.FromResult(ended);
+    }
+
+    public Task<MovedSubscription> FindMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        MovedAsked++;
+        return Task.FromResult(Moved);
+    }
+
+    public Task ForgetMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        Moved = MovedSubscription.None;
+        return Task.CompletedTask;
     }
 
     #endregion

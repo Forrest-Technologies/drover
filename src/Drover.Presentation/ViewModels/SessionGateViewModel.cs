@@ -2,10 +2,14 @@ namespace Drover.Presentation.ViewModels;
 
 /// <summary>
 /// Lets a signed-in person through to the screen behind it. Anyone else is sent to sign in, or to setup on a new
-/// server, and a server that does not answer is said in words with a way to try again.
+/// server, and a server that does not answer is said in words with a way to try again. Once a person is through,
+/// notifications they had on at the client's former address are taken up again (<see cref="MovedNotifications"/>).
 /// </summary>
 public sealed partial class SessionGateViewModel(
-    SessionState session, Navigator navigator, ILogger<SessionGateViewModel> logger) : ObservableObject
+    SessionState session,
+    Navigator navigator,
+    ILogger<SessionGateViewModel> logger,
+    MovedNotifications? movedNotifications = null) : ObservableObject
 {
     #region Private Fields
 
@@ -39,6 +43,11 @@ public sealed partial class SessionGateViewModel(
             else
             {
                 State = GateState.SignedIn;
+
+                if (movedNotifications is not null)
+                {
+                    await movedNotifications.Resume();
+                }
             }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))

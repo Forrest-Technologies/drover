@@ -19,6 +19,7 @@ public static class AppServices
             .AddSingleton<ExtensionHandoff>()
             .AddSingleton<ThemeModel>()
             .AddSingleton<ShareInbox>()
+            .AddSingleton<MovedNotifications>()
             .AddPlatform()
             .BuildServiceProvider();
 }

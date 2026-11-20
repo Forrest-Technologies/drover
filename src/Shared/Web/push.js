@@ -39,6 +39,26 @@ export async function subscribe(publicKey) {
     return { endpoint: json.endpoint, publicKey: json.keys.p256dh, authSecret: json.keys.auth };
 }
 
+// The note the retired worker of the client's former address, /native/, leaves when it ends a subscription
+// (retired-native-worker.js in the server). The client at the root takes it up again (MovedNotifications).
+const movedNote = "drover-push-moved";
+
+// "none" without the note; otherwise whether the browser still allows notifications, so the client at the root can
+// subscribe without asking.
+export async function moved() {
+    if (!("caches" in self) || !await caches.has(movedNote)) {
+        return "none";
+    }
+
+    return "Notification" in window && Notification.permission === "granted" ? "permission-kept" : "permission-lost";
+}
+
+export async function forgetMove() {
+    if ("caches" in self) {
+        await caches.delete(movedNote);
+    }
+}
+
 export async function unsubscribe() {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();

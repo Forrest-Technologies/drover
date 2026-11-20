@@ -16,6 +16,18 @@ public sealed record DevicePushCheck(DevicePushSupport Support, string? Endpoint
 
 
 /// <summary>
+/// Whether this device had notifications on at the address the browser client was served under before it moved to
+/// the root on 2026-11-20, and whether the permission it gave then still stands. Moving ended that subscription.
+/// </summary>
+public enum MovedSubscription
+{
+    None,
+    PermissionKept,
+    PermissionLost,
+}
+
+
+/// <summary>
 /// The platform's side of notifications: the web implementation uses the service worker and the Push API, a native
 /// shell its own. Permission is asked only in <see cref="Subscribe"/>, which runs when the person turns
 /// notifications on, never at launch.
@@ -29,6 +41,13 @@ public interface IPushRegistration
 
     /// <summary>Ends the device's subscription. Returns the address it had, or null when it had none.</summary>
     Task<string?> Unsubscribe(CancellationToken cancellationToken = default);
+
+    /// <summary>A subscription ended when the browser client moved. Only a browser ever had one.</summary>
+    Task<MovedSubscription> FindMovedSubscription(CancellationToken cancellationToken = default) =>
+        Task.FromResult(MovedSubscription.None);
+
+    /// <summary>Forgets the subscription that moving ended, once it is taken up again or cannot be.</summary>
+    Task ForgetMovedSubscription(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 
