@@ -55,6 +55,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
     // Set when both steps are done and the editor is going to the bot, so a second Save on the same draft does nothing.
     private bool madeAndOpened;
 
+    // The bots that were there before the create was sent, and whether its outcome is not known: the request was sent
+    // and no answer came back (the connection dropped, it timed out, or the server failed), so the bot may have been
+    // made. The next Save looks for it before it sends another create, so a lost answer does not make a second bot.
+    private HashSet<Guid>? knownBeforeCreate;
+
+    private bool createUncertain;
+
     private bool leaveConfirmed;
 
     #endregion
@@ -167,6 +174,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
     public static string Back => "Bots";
 
     public const string NewBotName = "New bot";
+
+    public const string AmbiguousCreate = "Drover could not tell whether this bot was made. Look in the list of bots before making it again.";
 
     public const string MadeButNotSet = "The bot was made, but its settings are not saved yet.";
 
@@ -378,7 +387,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
             return;
         }
 
-        (IsNew, newParentId, madeBotId, madeAndOpened, BotId, shownBotId, leaveConfirmed) = (true, parentBotId, null, false, Guid.Empty, null, false);
+        (IsNew, newParentId, madeBotId, madeAndOpened, knownBeforeCreate, createUncertain, BotId, shownBotId, leaveConfirmed) =
+            (true, parentBotId, null, false, null, false, Guid.Empty, null, false);
         await LoadNew();
     }
 
@@ -816,7 +826,14 @@ public sealed partial class BotEditorViewModel : ObservableObject
             {
                 if (madeBotId is null)
                 {
-                    var made = await api.CreateBot(SpaceId, new(Draft.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId));
+                    var made = await MakeOnce();
+
+                    if (made is null)
+                    {
+                        SaveProblem = AmbiguousCreate;
+                        return;
+                    }
+
                     madeBotId = made.Id;
 
                     // The server made the handle from the name, numbered if taken. That is not a choice of the person's.
@@ -838,6 +855,52 @@ public sealed partial class BotEditorViewModel : ObservableObject
         Saving = false;
         Notify();
     }
+
+    // Sends the create, once. When an earlier try ended without an answer, the bot may exist already, so it is looked
+    // for first: the one bot that was not there before and says what this draft says is the one that was made, and
+    // nothing is sent. Two such bots cannot be told apart, so the person is asked to look rather than a third made.
+    private async Task<BotSummary?> MakeOnce()
+    {
+        if (createUncertain)
+        {
+            var found = (await api.ListBots(SpaceId)).Where(Matches).ToList();
+
+            if (found.Count > 1)
+            {
+                return null;
+            }
+
+            if (found.Count == 1)
+            {
+                createUncertain = false;
+                return found[0];
+            }
+        }
+
+        knownBeforeCreate = [.. (await api.ListBots(SpaceId)).Select(other => other.Id)];
+        createUncertain = true;
+
+        try
+        {
+            return await api.CreateBot(SpaceId, new(Draft!.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId));
+        }
+        catch (DroverApiException refused) when (refused.StatusCode < HttpStatusCode.InternalServerError)
+        {
+            // The server answered that it did not make the bot. Without an answer, or with a failure of its own, it may have.
+            logger.LogInformation(refused, "The server refused to make a bot on the {Screen} screen", nameof(BotEditorViewModel));
+            createUncertain = false;
+            throw;
+        }
+    }
+
+    private bool Matches(BotSummary other) =>
+        knownBeforeCreate is { } known
+        && !known.Contains(other.Id)
+        && other.Name == Draft!.Name
+        && other.Instructions == Draft.Instructions
+        && other.ModelConnectionId == Draft.ModelConnectionId
+        && other.Model == Draft.Model
+        && other.ParentBotId == newParentId;
 
     private static BotDetail NewBotDetail(Guid connectionId, string model) => new(
         Guid.Empty,

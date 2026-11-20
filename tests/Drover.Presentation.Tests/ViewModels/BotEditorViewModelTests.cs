@@ -729,6 +729,83 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_create_whose_answer_was_lost_is_found_again_and_not_made_a_second_time()
+    {
+        var existing = BotSummaryOf(botId, "Marshal");
+        var committed = Made("writer") with { Name = "Writer", Instructions = "Write briefly." };
+        Server.Answer("GET", $"{space}/bots", new[] { existing });
+        Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped after the server committed."));
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer", Handle = "writer" });
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+        editor.Edit(draft => draft.Instructions = "Write briefly.");
+
+        await editor.Save();
+
+        editor.SaveProblem.Should().NotBeNullOrWhiteSpace("the person is told the save failed");
+        editor.IsMade.Should().BeFalse("the id of the bot was never heard");
+        Navigator.Current.Should().Be(Addresses.Home);
+
+        // The server did commit the create: the bot is in the list now. The next Save finds it instead of sending another.
+        Server.Answer("GET", $"{space}/bots", new[] { existing, committed });
+        await editor.Save();
+
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle("a committed create whose answer was lost is not sent again");
+        Navigator.Current.Should().Be(Addresses.Bot(madeId));
+        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Which.Should().Contain("Write briefly.");
+    }
+
+    [Fact]
+    public async Task A_create_whose_answer_was_lost_and_that_did_not_commit_is_sent_again_once()
+    {
+        Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped before the server saw it."));
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        await editor.Save();
+
+        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId });
+        await editor.Save();
+        await editor.Save();
+
+        Server.Sent("POST", $"{space}/bots").Should().HaveCount(2, "one try that never reached the server and one that did");
+        Navigator.Current.Should().Be(Addresses.Bot(madeId));
+    }
+
+    [Fact]
+    public async Task Two_bots_that_could_be_the_lost_one_are_not_guessed_between_and_no_third_is_made()
+    {
+        var one = Made("new-bot") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1") };
+        var two = Made("new-bot-2") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a2") };
+        Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped."));
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        await editor.Save();
+        Server.Answer("GET", $"{space}/bots", new[] { one, two });
+
+        await editor.Save();
+
+        editor.SaveProblem.Should().Be(BotEditorViewModel.AmbiguousCreate);
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle();
+        Navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public async Task A_create_the_server_refused_is_not_looked_for_because_it_was_not_made()
+    {
+        Server.Refuse("POST", $"{space}/bots", HttpStatusCode.Conflict, "This space holds at most 1 bot.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+
+        await editor.Save();
+        await editor.Save();
+
+        Server.Sent("POST", $"{space}/bots").Should().HaveCount(2, "a refusal is an answer: the person may try again");
+        editor.SaveProblem.Should().Be("This space holds at most 1 bot.");
+    }
+
+    [Fact]
     public async Task A_handle_the_server_made_for_a_new_bot_is_not_a_choice_so_the_draft_keeps_following_the_name()
     {
         Server.Answer("POST", $"{space}/bots", Made("writer-2"), HttpStatusCode.Created);
