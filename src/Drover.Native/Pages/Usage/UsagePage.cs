@@ -9,6 +9,14 @@ public sealed class UsagePage : Screen
 
     private readonly UsagePageViewModel model = Make<UsagePageViewModel>();
 
+    // The heading and the period are kept while the page shows another bot or period, so the focus stays in the
+    // period control; only what follows them is drawn again.
+    private readonly SegmentedControl period = new() { Label = "Period", Options = UsagePageViewModel.Periods };
+
+    private readonly StackPanel content = new() { Spacing = Tokens.Number("DvSpace5") };
+
+    private FocusLine? runsTitle;
+
     #endregion
 
     #region Constructors
@@ -16,6 +24,18 @@ public sealed class UsagePage : Screen
     public UsagePage()
     {
         Content = layout;
+        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
+        header.Children.Add(PageParts.Title("Usage"));
+        period.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
+        {
+            if (period.Value is { } chosen && chosen != model.Period)
+            {
+                model.ChoosePeriod(chosen);
+            }
+        });
+        header.Children.Add(period);
+        layout.Body.Add(header);
+        layout.Body.Add(content);
         Refresh();
     }
 
@@ -24,6 +44,9 @@ public sealed class UsagePage : Screen
     #region Properties
 
     public override string Title => "Usage · Drover";
+
+    /// <summary>Choosing a bot or a period changes the query only, so the page stays and its view model knows what changed.</summary>
+    protected override bool StaysOpenWhenQueryChanges => true;
 
     #endregion
 
@@ -35,24 +58,19 @@ public sealed class UsagePage : Screen
         model.Bot = Guid.TryParse(route.QueryValue("bot"), out var bot) ? bot : null;
         await model.Open();
         Refresh();
+
+        if (model.TakeRunsFocus() && runsTitle is { } title)
+        {
+            Pieces.FocusWhenShown(title, title.TakeFocus);
+        }
     }
 
     private void Refresh()
     {
-        var body = layout.Body;
+        period.Value = model.Period;
+        runsTitle = null;
+        var body = content.Children;
         body.Clear();
-        var header = new FlexPanel { Gap = Tokens.Number("DvSpace3"), Justify = FlexJustify.SpaceBetween };
-        header.Children.Add(PageParts.Title("Usage"));
-        var period = new SegmentedControl { Label = "Period", Options = UsagePageViewModel.Periods, Value = model.Period };
-        period.RegisterPropertyChangedCallback(SegmentedControl.ValueProperty, (_, _) =>
-        {
-            if (period.Value is { } chosen && chosen != model.Period)
-            {
-                model.ChoosePeriod(chosen);
-            }
-        });
-        header.Children.Add(period);
-        body.Add(header);
         if (!model.IsAdmin)
         {
             body.Add(Styles.Text("Only the runs that acted for you. An owner or admin sees the whole space.", "DvTextSecondary"));
@@ -78,11 +96,11 @@ public sealed class UsagePage : Screen
     {
         if (model.NothingRan)
         {
-            layout.Body.Add(Styles.Text(UsagePageViewModel.NoBotRan, "DvTextSecondary"));
+            content.Children.Add(Styles.Text(UsagePageViewModel.NoBotRan, "DvTextSecondary"));
             return;
         }
 
-        layout.Body.Add(new UsageTable(model.Caption, model.Rows));
+        content.Children.Add(new UsageTable(model.Caption, model.Rows));
     }
 
     private void ShowRuns()
@@ -92,21 +110,26 @@ public sealed class UsagePage : Screen
             return;
         }
 
-        var title = Styles.Text(Drover.Ui.Usage.UsageWords.RunsTitle(bot.BotName, model.Period), "DvTextH2");
-        layout.Body.Add(title);
+        // The heading the focus moves to when a bot is chosen. It is not a stop on the way through the page.
+        var title = new FocusLine();
+        title.Words.Style = (Style)Styles.Dictionary["DvTextH2"];
+        title.Say(Drover.Ui.Usage.UsageWords.RunsTitle(bot.BotName, model.Period));
+        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level2);
+        runsTitle = title;
+        content.Children.Add(title);
         if (model.RunsProblem is { } problem)
         {
-            layout.Body.Add(Failed("Drover could not list the runs", problem, model.LoadRuns));
+            content.Children.Add(Failed("Drover could not list the runs", problem, model.LoadRuns));
         }
         else if (model.Runs is not { } runs)
         {
-            layout.Body.Add(PageParts.Waiting("Finding the runs that cost the most."));
+            content.Children.Add(PageParts.Waiting("Finding the runs that cost the most."));
         }
         else
         {
             if (runs.Runs.Count == 0)
             {
-                layout.Body.Add(Styles.Text(Drover.Ui.Usage.UsageWords.NoRuns(bot.BotName, model.Period), "DvTextSecondary"));
+                content.Children.Add(Styles.Text(Drover.Ui.Usage.UsageWords.NoRuns(bot.BotName, model.Period), "DvTextSecondary"));
             }
 
             foreach (var run in runs.Runs)
@@ -120,12 +143,12 @@ public sealed class UsagePage : Screen
                     row.Children.Add(Styles.Text(leftOut, "DvTextSecondary"));
                 }
 
-                layout.Body.Add(row);
+                content.Children.Add(row);
             }
 
             if (runs.Unopened is { } unopened)
             {
-                layout.Body.Add(Styles.Text(Drover.Ui.Usage.UsageWords.Unopened(unopened, runs.Currency, afterListed: runs.Runs.Count > 0), "DvTextSecondary"));
+                content.Children.Add(Styles.Text(Drover.Ui.Usage.UsageWords.Unopened(unopened, runs.Currency, afterListed: runs.Runs.Count > 0), "DvTextSecondary"));
             }
         }
     }

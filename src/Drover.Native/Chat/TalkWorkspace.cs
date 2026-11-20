@@ -119,6 +119,11 @@ internal sealed class TalkWorkspace : Grid
 
     private bool focusClose;
 
+    // The rail was closed from the keyboard: the focus goes back to the way that opened it, once it is drawn.
+    private bool focusOpener;
+
+    private SideView? openerWay;
+
     #endregion
 
     #region Constructors
@@ -154,6 +159,12 @@ internal sealed class TalkWorkspace : Grid
             focusClose = true;
             QueueDraw();
         };
+        model.RailOpenerFocusRequested += way =>
+        {
+            (focusOpener, openerWay) = (true, way);
+            QueueDraw();
+        };
+        railBox.KeyDown += CloseRailOnEscape;
         SizeChanged += (_, _) => Fit();
         this.WhenShownOrRethemed(Paint);
         Draw();
@@ -373,6 +384,13 @@ internal sealed class TalkWorkspace : Grid
         {
             focusClose = false;
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, railUp.TakeFocus);
+        }
+
+        if (focusOpener)
+        {
+            focusOpener = false;
+            var way = openerWay;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => FocusOpener(way));
         }
     }
 
@@ -640,6 +658,64 @@ internal sealed class TalkWorkspace : Grid
         content.HorizontalAlignment = HorizontalAlignment.Center;
         content.VerticalAlignment = VerticalAlignment.Center;
         return new() { Child = content, Padding = new(Tokens.Number("DvSpace4")) };
+    }
+
+    #endregion
+
+    #region Keyboard
+
+    // Escape closes what is beside the conversation. A key something inside took for itself, as a dialog does, or a
+    // composer with text inside the rail, is left alone; other rail fields and a menu's list do not count as a draft.
+    private void CloseRailOnEscape(object sender, KeyRoutedEventArgs key)
+    {
+        if (key.Key is not VirtualKey.Escape || key.Handled || InComposerWithContent(key))
+        {
+            return;
+        }
+
+        if (model.CloseRailFromKeyboard())
+        {
+            key.Handled = true;
+        }
+    }
+
+    private bool InComposerWithContent(KeyRoutedEventArgs key)
+    {
+        var current = (XamlRoot is { } root ? FocusManager.GetFocusedElement(root) as DependencyObject : null)
+            ?? key.OriginalSource as DependencyObject;
+        var hasContent = false;
+        while (current is not null)
+        {
+            switch (current)
+            {
+                case TextBox box when box.Text.Length > 0:
+                case PasswordBox password when password.Password.Length > 0:
+                    hasContent = true;
+                    break;
+                case Composer:
+                    return hasContent;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
+    // The way that opened the rail: its link in the header where the header shows the links, and otherwise the
+    // conversation's menu, which holds the same ways on a phone and is the nearest control for work handed on.
+    private void FocusOpener(SideView? way)
+    {
+        var opener = menu?.Trigger;
+        if (way is { } side && besideScroll.Visibility is Visibility.Visible && ways[side].Visibility is Visibility.Visible)
+        {
+            opener = ways[side];
+        }
+
+        if (opener is not null)
+        {
+            Pieces.FocusWhenShown(opener, opener.TakeFocus);
+        }
     }
 
     #endregion

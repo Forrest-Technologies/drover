@@ -150,6 +150,8 @@ public sealed partial class ConversationPane(
     [Parameter]
     public EventCallback<Takeover?> OnTakeoverChanged { get; set; }
 
+    internal bool HasDraft => composer?.HasDraft ?? draft.Items.Count > 0;
+
     // What a request for a person at the bot's screen needs from this conversation and the page around it.
     private ScreenTakeovers Takeovers => new(HeldCallId, ScreenAccess, ScreenSetupHref, OpenScreen, HandBack);
 

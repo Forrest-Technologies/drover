@@ -43,7 +43,8 @@ public sealed class ActivityPanel : Grid
 
     private readonly Timeline timeline = new() { EmptyText = ActivityPanelViewModel.EmptyTimeline };
 
-    // A node's details are kept while the timeline is drawn again, so an answer on its way stays on its way.
+    // A node's details are kept while the timeline is drawn again, so an answer on its way stays on its way and a
+    // control in them keeps the focus. The timeline moves them when it shows them somewhere else.
     private readonly Dictionary<Guid, RunMomentDetail> details = [];
 
     private bool? headOnOneRow;
@@ -265,7 +266,7 @@ public sealed class ActivityPanel : Grid
 
         (detail.Tree, detail.Moment, detail.BotName, detail.Results, detail.Decide) = (tree, moment, model.NameOf(node.Lane), model.Results, model.Decide);
         detail.ChildName = node.BranchLane is { } lane ? model.NameOf(lane) : string.Empty;
-        return Pieces.Detached(detail);
+        return detail;
     }
 
     // The details of a run that is no longer shown are let go.
