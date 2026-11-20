@@ -80,8 +80,11 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         // into a sandbox waits on the network, while project files are read directly and never copied into a sandbox.
         var attachmentIds = shown.Concat(steers).FileIds();
         var files = await run.Governor.OpenFiles([.. attachmentIds], cancellationToken);
-        var projectOpened = projectFiles is { FileIds.Count: > 0 } selected
-            ? await run.Governor.OpenProjectFiles(selected.ProjectId, selected.FileIds, cancellationToken)
+        var projectOpened = run.Execution.Project is { } pinnedProject
+            ? await run.Governor.OpenProjectFiles(
+                projectFiles?.ProjectId ?? pinnedProject.Id,
+                projectFiles?.FileIds ?? [],
+                cancellationToken)
             : new Dictionary<Guid, FileForModel>();
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage(files))];
         steering = [.. steered.Select(message => message.MessageId!)];

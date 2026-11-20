@@ -37,8 +37,12 @@ public sealed class RunFiles(
 
     private readonly ConcurrentDictionary<Guid, FileForModel> given = new();
 
-    /// <summary>Project pictures retained only within this run after their bounded first read.</summary>
-    private readonly ConcurrentDictionary<Guid, FileForModel> projectPictures = new();
+    private readonly ConcurrentDictionary<Guid, ProjectStableResult> projectStable = new();
+
+    /// <summary>Project pictures retained only for the current selection, within one call's image bounds.</summary>
+    private readonly ConcurrentDictionary<Guid, ProjectPictureCache> projectPictures = new();
+
+    private Guid? retainedProjectId;
 
     #endregion
 
@@ -73,7 +77,7 @@ public sealed class RunFiles(
 
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), forProject: false, cancellationToken);
+            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), cancellationToken);
         }
 
         return opened;
@@ -90,6 +94,7 @@ public sealed class RunFiles(
         CancellationToken cancellationToken)
     {
         Dictionary<Guid, FileForModel> opened = [];
+        RetainProjectPictures(projectId, fileIds);
 
         if (fileIds.Count == 0)
         {
@@ -120,33 +125,45 @@ public sealed class RunFiles(
 
         foreach (var file in rows)
         {
-            if (projectPictures.TryGetValue(file.Id, out var cachedPicture))
+            if (projectPictures.TryGetValue(file.Id, out var cached))
             {
-                if (!TryMeasureImages(cachedPicture, out var cachedImages, out var cachedBytes, out var cachedDecoded)
-                    || !budget.CanFitImages(cachedImages, cachedBytes, cachedDecoded)
-                    || (anyKept && cachedPicture.Text.Length + 1 > budget.RemainingCharacters))
+                if (cached.BudgetLimited && budget.HasMoreImageCapacityThan(cached.Allowance))
                 {
-                    break;
+                    projectPictures.TryRemove(file.Id, out _);
                 }
+                else
+                {
+                    if (TryMeasureImages(cached.File, out var cachedImages, out var cachedBytes, out var cachedDecoded)
+                        && budget.CanFitImages(cachedImages, cachedBytes, cachedDecoded))
+                    {
+                        await taint();
 
-                await taint();
-                opened[file.Id] = cachedPicture;
-                budget.Consume(cachedPicture.Text.Length + 1, cachedImages, cachedBytes, cachedDecoded);
-                anyKept = true;
-                continue;
+                        if (!TryAddProjectFile(opened, budget, cached.File, ref anyKept, cachedImages, cachedBytes, cachedDecoded))
+                        {
+                            break;
+                        }
+                    }
+                    else if (!TryAddProjectFile(opened, budget, ProjectImageAllowanceNote(file), ref anyKept))
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
             }
 
-            if (given.TryGetValue(file.Id, out var known))
+            if (projectStable.TryGetValue(file.Id, out var known))
             {
-                if (anyKept && known.Text.Length + 1 > budget.RemainingCharacters)
+                if (known.Taints)
+                {
+                    await taint();
+                }
+
+                if (!TryAddProjectFile(opened, budget, known.File, ref anyKept))
                 {
                     break;
                 }
 
-                await taint();
-                opened[file.Id] = known;
-                budget.ConsumeText(known.Text.Length + 1);
-                anyKept = true;
                 continue;
             }
 
@@ -155,18 +172,16 @@ public sealed class RunFiles(
 
             if (use is FileUse.None)
             {
-                var refused = Note(file, FileUses.RefusalFor(kind, directOnly) is FileRefusals.ModelCannotReadImages
+                var refused = ProjectNote(file, FileUses.RefusalFor(kind, directOnly) is FileRefusals.ModelCannotReadImages
                     ? "this bot's model cannot read pictures and project files are not copied into a sandbox, so it cannot open it"
                     : "project files are not copied into a sandbox, so it cannot open it");
+                projectStable[file.Id] = new(refused, Taints: false);
 
-                if (anyKept && refused.Text.Length + 1 > budget.RemainingCharacters)
+                if (!TryAddProjectFile(opened, budget, refused, ref anyKept))
                 {
                     break;
                 }
 
-                opened[file.Id] = refused;
-                budget.ConsumeText(refused.Text.Length + 1);
-                anyKept = true;
                 continue;
             }
 
@@ -178,17 +193,14 @@ public sealed class RunFiles(
             if (use is FileUse.Text)
             {
                 await taint();
-                var textResult = await Text(file, cancellationToken);
+                var textResult = await ProjectText(file, cancellationToken);
+                projectStable[file.Id] = new(textResult, Taints: true);
 
-                if (anyKept && textResult.Text.Length + 1 > budget.RemainingCharacters)
+                if (!TryAddProjectFile(opened, budget, textResult, ref anyKept))
                 {
                     break;
                 }
 
-                opened[file.Id] = textResult;
-                given[file.Id] = textResult;
-                budget.ConsumeText(textResult.Text.Length + 1);
-                anyKept = true;
                 continue;
             }
 
@@ -198,20 +210,52 @@ public sealed class RunFiles(
                 {
                     if (!FitsSingleImage(knownWidth, knownHeight, file.Size))
                     {
+                        var tooLarge = ProjectImageTooLargeNote(file);
+                        projectStable[file.Id] = new(tooLarge, Taints: false);
+
+                        if (!TryAddProjectFile(opened, budget, tooLarge, ref anyKept))
+                        {
+                            break;
+                        }
+
                         continue;
                     }
 
                     if (!budget.CanFitImage(file.Size, (long)knownWidth * knownHeight * 4L))
                     {
-                        break;
+                        if (!TryAddProjectFile(opened, budget, ProjectImageAllowanceNote(file), ref anyKept))
+                        {
+                            break;
+                        }
+
+                        continue;
                     }
                 }
                 else if (file.Size > ProjectFileLimits.MaxImageBytes)
                 {
+                    var tooLarge = ProjectImageTooLargeNote(file);
+                    projectStable[file.Id] = new(tooLarge, Taints: false);
+
+                    if (!TryAddProjectFile(opened, budget, tooLarge, ref anyKept))
+                    {
+                        break;
+                    }
+
                     continue;
                 }
 
-                var picture = await Picture(file, cancellationToken);
+                if (!budget.CanFitImage(file.Size, 0))
+                {
+                    if (!TryAddProjectFile(opened, budget, ProjectImageAllowanceNote(file), ref anyKept))
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                await taint();
+                var picture = await ProjectPicture(file, cancellationToken);
 
                 if (picture.Images is [{ } image])
                 {
@@ -226,11 +270,27 @@ public sealed class RunFiles(
 
                     if (!hasSize)
                     {
+                        var unreadable = ProjectNote(file, "its picture dimensions could not be read safely");
+                        projectStable[file.Id] = new(unreadable, Taints: true);
+
+                        if (!TryAddProjectFile(opened, budget, unreadable, ref anyKept))
+                        {
+                            break;
+                        }
+
                         continue;
                     }
 
                     if (!FitsSingleImage(width, height, image.Data.Length))
                     {
+                        var tooLarge = ProjectImageTooLargeNote(file);
+                        projectStable[file.Id] = new(tooLarge, Taints: true);
+
+                        if (!TryAddProjectFile(opened, budget, tooLarge, ref anyKept))
+                        {
+                            break;
+                        }
+
                         continue;
                     }
 
@@ -238,31 +298,30 @@ public sealed class RunFiles(
 
                     if (!budget.CanFitImage(image.Data.Length, decoded))
                     {
-                        break;
+                        if (!TryAddProjectFile(opened, budget, ProjectImageAllowanceNote(file), ref anyKept))
+                        {
+                            break;
+                        }
+
+                        continue;
                     }
 
-                    if (anyKept && picture.Text.Length + 1 > budget.RemainingCharacters)
+                    if (!TryAddProjectFile(opened, budget, picture, ref anyKept, 1, image.Data.Length, decoded))
                     {
                         break;
                     }
 
-                    await taint();
-                    opened[file.Id] = picture;
-                    projectPictures[file.Id] = picture;
-                    budget.Consume(picture.Text.Length + 1, 1, image.Data.Length, decoded);
-                    anyKept = true;
+                    RetainOpenedProjectPictures(opened);
+                    projectPictures[file.Id] = new ProjectPictureCache(picture, ProjectImageAllowance.Full, BudgetLimited: false);
                 }
                 else
                 {
-                    if (anyKept && picture.Text.Length + 1 > budget.RemainingCharacters)
+                    projectStable[file.Id] = new(picture, Taints: false);
+
+                    if (!TryAddProjectFile(opened, budget, picture, ref anyKept))
                     {
                         break;
                     }
-
-                    await taint();
-                    opened[file.Id] = picture;
-                    budget.ConsumeText(picture.Text.Length + 1);
-                    anyKept = true;
                 }
 
                 continue;
@@ -272,26 +331,48 @@ public sealed class RunFiles(
             {
                 if (file.Size < 0 || file.Size > ProjectFileLimits.MaxStoredBytes)
                 {
-                    continue;
-                }
+                    var tooLarge = ProjectNote(file, "it is too large to show in one model call");
+                    projectStable[file.Id] = new(tooLarge, Taints: false);
 
-                if (await ReadAll(file, cancellationToken) is not { } bytes)
-                {
-                    await taint();
-                    var missing = Missing(file);
-
-                    if (anyKept && missing.Text.Length + 1 > budget.RemainingCharacters)
+                    if (!TryAddProjectFile(opened, budget, tooLarge, ref anyKept))
                     {
                         break;
                     }
 
-                    opened[file.Id] = missing;
-                    budget.ConsumeText(missing.Text.Length + 1);
-                    anyKept = true;
+                    continue;
+                }
+
+                if (modelReadsImages
+                    && file.ReadingNote is "It has no text a bot can read."
+                    && (budget.RemainingImages == 0
+                        || budget.RemainingImageBytes == 0
+                        || budget.RemainingDecodedImageBytes == 0))
+                {
+                    if (!TryAddProjectFile(opened, budget, ProjectImageAllowanceNote(file), ref anyKept))
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                await taint();
+
+                if (await ReadAll(file, cancellationToken) is not { } bytes)
+                {
+                    var missing = ProjectMissing(file);
+                    projectStable[file.Id] = new(missing, Taints: false);
+
+                    if (!TryAddProjectFile(opened, budget, missing, ref anyKept))
+                    {
+                        break;
+                    }
+
                     continue;
                 }
 
                 var imageCap = modelReadsImages ? Math.Min(MaxPageImages, budget.RemainingImages) : 0;
+                var allowance = budget.ImageAllowance;
                 DocumentLimits limits = new(
                     maxDocumentPages,
                     MaxTextCharacters,
@@ -306,77 +387,78 @@ public sealed class RunFiles(
 
                 if (read is null)
                 {
-                    await taint();
-                    var note = Note(file, $"it could not be read: {unreadable}");
+                    var note = ProjectNote(file, $"it could not be read: {unreadable}");
+                    projectStable[file.Id] = new(note, Taints: true);
 
-                    if (anyKept && note.Text.Length + 1 > budget.RemainingCharacters)
+                    if (!TryAddProjectFile(opened, budget, note, ref anyKept))
                     {
                         break;
                     }
 
-                    opened[file.Id] = note;
-                    budget.ConsumeText(note.Text.Length + 1);
-                    anyKept = true;
                     continue;
                 }
 
                 if (!read.HasText && modelReadsImages)
                 {
-                    if (budget.RemainingImages <= 0)
+                    if (read.PageImages.Count == 0)
                     {
-                        break;
-                    }
+                        var noPictures = read.ImagesExceedSingleLimits
+                            ? ProjectNote(file, "its page pictures are too large to show in one model call")
+                            : read.ImagesRejected || imageCap == 0
+                                ? ProjectImageAllowanceNote(file)
+                                : new FileForModel(file.Id, DocumentWords.WithoutProjectText(file.Name, file.ContentType, read));
 
-                    if (read.ImagesRejected)
-                    {
-                        if (read.ImagesExceedSingleLimits || !anyKept)
+                        if (read.ImagesExceedSingleLimits || !read.ImagesRejected && imageCap > 0)
                         {
-                            continue;
+                            projectStable[file.Id] = new(noPictures, Taints: true);
                         }
 
-                        break;
+                        if (!TryAddProjectFile(opened, budget, noPictures, ref anyKept))
+                        {
+                            break;
+                        }
+
+                        continue;
                     }
 
-                    if (budget.RemainingImages < MaxPageImages
-                        && read.PageImages.Count == budget.RemainingImages
-                        && read.Total > budget.RemainingImages)
-                    {
-                        break;
-                    }
-
-                    var docImages = new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read), read.PageImages);
-
-                    if (anyKept && docImages.Text.Length + 1 > budget.RemainingCharacters)
-                    {
-                        break;
-                    }
-
+                    var docImages = new FileForModel(
+                        file.Id,
+                        DocumentWords.WithoutProjectText(file.Name, file.ContentType, read),
+                        read.PageImages);
                     var encodedBytes = read.PageImages.Sum(image => (long)image.Data.Length);
-                    await taint();
-                    opened[file.Id] = docImages;
-                    projectPictures[file.Id] = docImages;
-                    budget.Consume(docImages.Text.Length + 1, read.PageImages.Count, encodedBytes, read.PageImageDecodedBytes);
-                    anyKept = true;
+
+                    if (!TryAddProjectFile(
+                        opened,
+                        budget,
+                        docImages,
+                        ref anyKept,
+                        read.PageImages.Count,
+                        encodedBytes,
+                        read.PageImageDecodedBytes))
+                    {
+                        break;
+                    }
+
+                    var budgetLimited = read.ImagesRejected && !read.ImagesExceedSingleLimits
+                        || read.PageImages.Count == imageCap && imageCap < Math.Min(read.Read, MaxPageImages);
+                    RetainOpenedProjectPictures(opened);
+                    projectPictures[file.Id] = new ProjectPictureCache(docImages, allowance, budgetLimited);
                     continue;
                 }
 
                 var docText = read.HasText
-                    ? new FileForModel(file.Id, DocumentWords.ForModel(file.Name, file.ContentType, read, MaxTextCharacters))
-                    : new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read));
+                    ? new FileForModel(file.Id, DocumentWords.ForProject(file.Name, file.ContentType, read, MaxTextCharacters))
+                    : new FileForModel(file.Id, DocumentWords.WithoutProjectText(file.Name, file.ContentType, read));
+                projectStable[file.Id] = new(docText, Taints: true);
 
-                if (anyKept && docText.Text.Length + 1 > budget.RemainingCharacters)
+                if (!TryAddProjectFile(opened, budget, docText, ref anyKept))
                 {
                     break;
                 }
-
-                await taint();
-                opened[file.Id] = docText;
-                given[file.Id] = docText;
-                budget.ConsumeText(docText.Text.Length + 1);
-                anyKept = true;
             }
         }
 
+        RetainOpenedProjectPictures(opened);
         return opened;
     }
 
@@ -388,7 +470,7 @@ public sealed class RunFiles(
     #region Private Methods
 
     /// <summary>A picture is read each time it is given, so its bytes are not held for the whole run. So are pictures of pages.</summary>
-    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, bool forProject, CancellationToken cancellationToken)
+    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
         {
@@ -409,13 +491,11 @@ public sealed class RunFiles(
             FileUse.Text => await Text(file, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
-            _ => Note(file, (forProject, FileUses.RefusalFor(kind, can)) switch
+            _ => Note(file, FileUses.RefusalFor(kind, can) switch
             {
-                (true, FileRefusals.ModelCannotReadImages) => "this bot's model cannot read pictures and project files are not copied into a sandbox, so it cannot open it",
-                (true, _) => "project files are not copied into a sandbox, so it cannot open it",
-                (false, FileRefusals.PrivateConversation) => "this conversation is private and others in this space can reach your sandbox, so it was not put there and you cannot open it",
-                (false, FileRefusals.ModelCannotReadImages) => "this bot's model cannot read pictures and it has no sandbox, so it cannot open it",
-                (false, _) => "this bot has no sandbox to open it in, so it cannot open it",
+                FileRefusals.PrivateConversation => "this conversation is private and others in this space can reach your sandbox, so it was not put there and you cannot open it",
+                FileRefusals.ModelCannotReadImages => "this bot's model cannot read pictures and it has no sandbox, so it cannot open it",
+                _ => "this bot has no sandbox to open it in, so it cannot open it",
             }),
         };
 
@@ -441,6 +521,23 @@ public sealed class RunFiles(
         return new FileForModel(
             file.Id,
             $"[The person attached a picture, {file.Name}, {file.Width} by {file.Height} pixels:]",
+            [new ToolImage(copy.ToArray(), file.ContentType)]);
+    }
+
+    private async Task<FileForModel> ProjectPicture(StoredFile file, CancellationToken cancellationToken)
+    {
+        await using var content = await store.Open(tenant.SpaceId, file.StorageKey, cancellationToken);
+
+        if (content is null)
+        {
+            return ProjectMissing(file);
+        }
+
+        using var copy = new MemoryStream();
+        await content.CopyToAsync(copy, cancellationToken);
+        return new FileForModel(
+            file.Id,
+            $"[The project shares a picture, {file.Name}, {file.Width} by {file.Height} pixels:]",
             [new ToolImage(copy.ToArray(), file.ContentType)]);
     }
 
@@ -490,6 +587,26 @@ public sealed class RunFiles(
             ? $"[{file.Name} continues. Only its first {MaxTextCharacters} characters are shown.]"
             : $"[End of {file.Name}.]";
         return new FileForModel(file.Id, $"[The person attached {file.Name}. Its content follows.]\n{text}\n{ending}");
+    }
+
+    private async Task<FileForModel> ProjectText(StoredFile file, CancellationToken cancellationToken)
+    {
+        await using var content = await store.Open(tenant.SpaceId, file.StorageKey, cancellationToken);
+
+        if (content is null)
+        {
+            return ProjectMissing(file);
+        }
+
+        using var reader = new StreamReader(content, Encoding.UTF8);
+        var buffer = new char[MaxTextCharacters];
+        var read = await reader.ReadBlockAsync(buffer, cancellationToken);
+        var cut = reader.Peek() >= 0;
+        var text = new string(buffer, 0, read);
+        var ending = cut
+            ? $"[{file.Name} continues. Only its first {MaxTextCharacters} characters are shown.]"
+            : $"[End of {file.Name}.]";
+        return new FileForModel(file.Id, $"[The project shares {file.Name}. Its content follows.]\n{text}\n{ending}");
     }
 
     private (DocumentContent? Read, string? Unreadable) ReadDocument(StoredFile file, byte[] bytes, bool modelReadsImages) =>
@@ -559,8 +676,83 @@ public sealed class RunFiles(
         return Note(file, "it could not be found on the server");
     }
 
+    private FileForModel ProjectMissing(StoredFile file)
+    {
+        logger.LogWarning("Project file {FileId} has a row and nothing in the file store", file.Id);
+        return ProjectNote(file, "it could not be found on the server");
+    }
+
     private static FileForModel Note(StoredFile file, string why) =>
         new(file.Id, $"[The person attached {file.Name} ({file.ContentType}, {FileWords.Size(file.Size)}), but {why}.]");
+
+    private static FileForModel ProjectNote(StoredFile file, string why) =>
+        new(file.Id, $"[The project shares {file.Name} ({file.ContentType}, {FileWords.Size(file.Size)}), but {why}.]");
+
+    private static FileForModel ProjectImageTooLargeNote(StoredFile file) =>
+        ProjectNote(file, "its picture is too large to show in one model call");
+
+    private static FileForModel ProjectImageAllowanceNote(StoredFile file) =>
+        ProjectNote(file, "it could not be shown because the image allowance for this model call was already used");
+
+    private void RetainProjectPictures(Guid projectId, IReadOnlyCollection<Guid> fileIds)
+    {
+        if (retainedProjectId != projectId)
+        {
+            projectPictures.Clear();
+            retainedProjectId = projectId;
+        }
+
+        HashSet<Guid> selected = [.. fileIds];
+
+        foreach (var fileId in projectPictures.Keys)
+        {
+            if (!selected.Contains(fileId))
+            {
+                projectPictures.TryRemove(fileId, out _);
+            }
+        }
+    }
+
+    private void RetainOpenedProjectPictures(IReadOnlyDictionary<Guid, FileForModel> opened)
+    {
+        HashSet<Guid> retained =
+        [
+            .. opened
+                .Where(pair => pair.Value.Images is { Count: > 0 })
+                .Select(pair => pair.Key),
+        ];
+
+        foreach (var fileId in projectPictures.Keys)
+        {
+            if (!retained.Contains(fileId))
+            {
+                projectPictures.TryRemove(fileId, out _);
+            }
+        }
+    }
+
+    private static bool TryAddProjectFile(
+        Dictionary<Guid, FileForModel> opened,
+        ProjectCallBudget budget,
+        FileForModel file,
+        ref bool anyKept,
+        int images = 0,
+        long encodedBytes = 0,
+        long decodedBytes = 0)
+    {
+        var characters = file.Text.Length + 1;
+
+        if (anyKept && characters > budget.RemainingCharacters
+            || !budget.CanFitImages(images, encodedBytes, decodedBytes))
+        {
+            return false;
+        }
+
+        opened[file.FileId] = file;
+        budget.Consume(characters, images, encodedBytes, decodedBytes);
+        anyKept = true;
+        return true;
+    }
 
     private static bool FitsSingleImage(int width, int height, long encodedBytes)
     {
@@ -610,6 +802,25 @@ public sealed class RunFiles(
 
     #region Nested Types
 
+    private sealed record ProjectStableResult(FileForModel File, bool Taints);
+
+    private sealed record ProjectPictureCache(
+        FileForModel File,
+        ProjectImageAllowance Allowance,
+        bool BudgetLimited);
+
+    private readonly record struct ProjectImageAllowance(int Images, long EncodedBytes, long DecodedBytes)
+    {
+        #region Properties
+
+        public static ProjectImageAllowance Full => new(
+            ProjectFileLimits.MaxImages,
+            ProjectFileLimits.MaxImageBytes,
+            ProjectFileLimits.MaxDecodedImageBytes);
+
+        #endregion
+    }
+
     private sealed class ProjectCallBudget
     {
         #region Properties
@@ -622,6 +833,8 @@ public sealed class RunFiles(
 
         public long RemainingDecodedImageBytes { get; private set; } = ProjectFileLimits.MaxDecodedImageBytes;
 
+        public ProjectImageAllowance ImageAllowance => new(RemainingImages, RemainingImageBytes, RemainingDecodedImageBytes);
+
         #endregion
 
         #region Public Methods
@@ -633,6 +846,11 @@ public sealed class RunFiles(
             images <= RemainingImages
             && encodedBytes <= RemainingImageBytes
             && decodedBytes <= RemainingDecodedImageBytes;
+
+        public bool HasMoreImageCapacityThan(ProjectImageAllowance allowance) =>
+            RemainingImages > allowance.Images
+            || RemainingImageBytes > allowance.EncodedBytes
+            || RemainingDecodedImageBytes > allowance.DecodedBytes;
 
         public void ConsumeText(int characters) =>
             RemainingCharacters = Math.Max(0, RemainingCharacters - Math.Max(0, characters));

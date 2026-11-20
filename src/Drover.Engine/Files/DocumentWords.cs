@@ -12,6 +12,10 @@ public static class DocumentWords
     public static string ForModel(string name, string contentType, DocumentContent read, int maxCharacters) =>
         $"[The person attached {name}, {Describe(contentType, read)}. Its text follows.]\n{read.Text}\n{Ending(name, read, maxCharacters)}";
 
+    /// <summary>The project-shared form of <see cref="ForModel"/>.</summary>
+    public static string ForProject(string name, string contentType, DocumentContent read, int maxCharacters) =>
+        $"[The project shares {name}, {Describe(contentType, read)}. Its text follows.]\n{read.Text}\n{Ending(name, read, maxCharacters)}";
+
     /// <summary>What a model is told of a document with no text: that its pages follow as pictures, or that there is nothing to read.</summary>
     public static string WithoutText(string name, string contentType, DocumentContent read) => read.PageImages.Count switch
     {
@@ -19,6 +23,15 @@ public static class DocumentWords
         var shown when shown < read.Total =>
             $"[The person attached {name}, {Describe(contentType, read)}. It has no text, so pictures of its pages follow, from the first. Only {shown} of its {read.Total} pages are shown.]",
         _ => $"[The person attached {name}, {Describe(contentType, read)}. It has no text, so pictures of its pages follow, from the first.]",
+    };
+
+    /// <summary>The project-shared form of <see cref="WithoutText"/>.</summary>
+    public static string WithoutProjectText(string name, string contentType, DocumentContent read) => read.PageImages.Count switch
+    {
+        0 => $"[The project shares {name}, {Describe(contentType, read)}, but it has no text, and no picture of its pages could be given to you.]",
+        var shown when shown < read.Total =>
+            $"[The project shares {name}, {Describe(contentType, read)}. It has no text, so pictures of its pages follow, from the first. Only {shown} of its {read.Total} pages are shown.]",
+        _ => $"[The project shares {name}, {Describe(contentType, read)}. It has no text, so pictures of its pages follow, from the first.]",
     };
 
     /// <summary>

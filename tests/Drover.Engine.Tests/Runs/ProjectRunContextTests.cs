@@ -305,6 +305,106 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task Real_phone_photos_exhaust_the_call_budget_without_hiding_older_project_text()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Field notes", "");
+        var notes = (await Upload(world, project.Id, "notes.txt", "older-project-details")).File!;
+        var first = (await Upload(world, project.Id, "first.jpg", TestDocuments.Jpeg(4_032, 3_024, 1))).File!;
+        var second = (await Upload(world, project.Id, "second.jpg", TestDocuments.Jpeg(4_032, 3_024, 2))).File!;
+        var files = DirectProjectFiles(world);
+
+        var opened = await files.OpenProject(project.Id, [notes.Id, first.Id, second.Id], RunWorld.Token);
+
+        opened[second.Id].Images.Should().ContainSingle();
+        opened[first.Id].Images.Should().BeNullOrEmpty();
+        opened[first.Id].Text.Should().Contain("project shares").And.Contain("image allowance for this model call");
+        opened[notes.Id].Text.Should().Contain("older-project-details").And.NotContain("The person attached");
+    }
+
+    [Fact]
+    public async Task A_high_resolution_scan_keeps_the_pages_that_fit_and_is_cached_for_the_run()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Scans", "");
+        var pdf = TestDocuments.ScannedPdf(
+            TestDocuments.Jpeg(2_550, 3_300, 1),
+            TestDocuments.Jpeg(2_550, 3_300, 2));
+        var file = (await Upload(world, project.Id, "scan.pdf", pdf)).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+
+        first[file.Id].Images.Should().ContainSingle();
+        first[file.Id].Text.Should().Contain("Only 1 of its 2 pages are shown");
+        second[file.Id].Images.Should().ContainSingle();
+        (world.Files.Opened - openedBeforeRun).Should().Be(1, "the bounded partial scan is retained for later calls in this run");
+    }
+
+    [Fact]
+    public async Task An_intrinsically_oversized_project_photo_gets_a_stable_project_note_without_opening_bytes()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Photos", "");
+        var file = (await Upload(world, project.Id, "oversized.jpg", TestDocuments.Jpeg(5_712, 4_284, 1))).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+
+        first[file.Id].Images.Should().BeNullOrEmpty();
+        first[file.Id].Text.Should().Contain("project shares").And.Contain("too large to show");
+        second[file.Id].Text.Should().Be(first[file.Id].Text);
+        (world.Files.Opened - openedBeforeRun).Should().Be(0, "stored dimensions prove the intrinsic rejection before bytes are opened");
+    }
+
+    [Fact]
+    public async Task A_project_pdf_that_exceeds_the_decode_budget_is_not_reopened_each_model_step()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Reports", "");
+        var raw = TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(64 * 1024 * 1024));
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [raw, raw, raw]);
+        var file = (await Upload(world, project.Id, "crafted.pdf", pdf)).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+
+        first[file.Id].Text.Should().Contain("project shares").And.Contain("could not be read");
+        second[file.Id].Text.Should().Be(first[file.Id].Text);
+        (world.Files.Opened - openedBeforeRun).Should().Be(1, "a stable decode refusal is retained as text without retaining decoded bytes");
+    }
+
+    [Fact]
+    public async Task Project_picture_retention_tracks_only_the_current_selection_and_empty_selection_clears_it()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Changing photos", "");
+        var first = (await Upload(world, project.Id, "first.jpg", TestDocuments.Jpeg(4_032, 3_024, 1))).File!;
+        var second = (await Upload(world, project.Id, "second.jpg", TestDocuments.Jpeg(4_032, 3_024, 2))).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Images.Should().ContainSingle();
+        (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Images.Should().ContainSingle();
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Images.Should().ContainSingle();
+        (await files.OpenProject(project.Id, [], RunWorld.Token)).Should().BeEmpty();
+        (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Images.Should().ContainSingle();
+
+        (world.Files.Opened - openedBeforeRun).Should().Be(4, "A to B to A and an empty selection evict image bytes no longer selected");
+    }
+
+    [Fact]
     public async Task Project_file_grant_enforces_character_cap_and_states_how_many_files_were_left_out()
     {
         var script = new ScriptedModel([new TextOutput("Bounded.")]);
@@ -482,6 +582,21 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
         return await scope.ServiceProvider.GetRequiredService<FileService>()
             .UploadForProject(projectId, name, new MemoryStream(bytes), bytes.Length, world.UserId, RunWorld.Token);
+    }
+
+    private static RunFiles DirectProjectFiles(RunWorld world)
+    {
+        var scopes = world.Hosts[0].Services.GetRequiredService<IServiceScopeFactory>();
+        return new RunFiles(
+            new RunTenant(scopes, world.SpaceId, world.UserId),
+            world.BotId,
+            modelReadsImages: true,
+            hasSandbox: false,
+            maxDocumentPages: 50,
+            world.Files,
+            sandboxes: null,
+            () => Task.CompletedTask,
+            NullLogger<RunFiles>.Instance);
     }
 
     private static async Task<bool> RemoveFile(RunWorld world, Guid projectId, Guid fileId)
