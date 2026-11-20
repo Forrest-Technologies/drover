@@ -70,6 +70,8 @@ public static partial class ToolCards
             phase = ToolPhase.Failed;
         }
 
+        // The result is shown decoded: as JSON, the tabs and line breaks inside its strings would read as escapes.
+        var shown = ToolResults.Shown(toolName, resultText, arguments);
         var card = new ToolCard(
             call.ToolCallId,
             phase,
@@ -78,10 +80,12 @@ public static partial class ToolCards
             summary,
             Pretty(arguments),
             CoversAll(arguments, summary),
-            resultText.Length == 0 ? null : resultText,
+            shown?.Text,
             exitCode,
-            call.Pieces.Count == 0 && command is { } returned ? CommandOutput(returned) : call.Pieces)
+            call.Pieces.Count == 0 && toolName == "sandbox.run" ? ToolResults.CommandOutput(resultText) : call.Pieces)
         {
+            ResultLanguage = shown?.Language,
+            ResultLength = resultText.Length,
             CommandError = commandError,
             Facts = FactsOf(toolName, arguments, call.Details),
             Takeover = TakeoverOf(call, arguments, resultText),
@@ -347,22 +351,6 @@ public static partial class ToolCards
     private static string OneLine(string text) => WhiteSpace().Replace(text, " ").Trim();
 
     private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, indented);
-
-    private static ImmutableList<ToolOutputPiece> CommandOutput(JsonElement result)
-    {
-        var pieces = ImmutableList.CreateBuilder<ToolOutputPiece>();
-
-        foreach (var stream in new[] { "stdout", "stderr" })
-        {
-            if (result.TryGetProperty(stream, out var value)
-                && value.ValueKind is JsonValueKind.String && value.GetString() is { Length: > 0 } text)
-            {
-                pieces.Add(new ToolOutputPiece(stream, text));
-            }
-        }
-
-        return pieces.ToImmutable();
-    }
 
     private static int? ExitCodeIn(string result) =>
         ExitCode().Match(result) is { Success: true } found

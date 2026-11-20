@@ -336,7 +336,7 @@ public sealed class ToolCallCard : Grid
 
             if (model.Card.Result is { } text)
             {
-                result.Children.Add(Code(text));
+                result.Children.Add(Code(text, model.Card.ResultLanguage));
             }
 
             body.Children.Add(result);
