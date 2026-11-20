@@ -74,6 +74,11 @@
     <Using Include="Tmds.DBus.Protocol" />
   </ItemGroup>
 
+  <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <!-- Keep cookies in the handler's own container. The secure session is restored through the device store. -->
+    <UseNativeHttpHandler>false</UseNativeHttpHandler>
+  </PropertyGroup>
+
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'desktop'">
     <Using Include="System.Net.Sockets" />
     <Using Include="System.Collections.Concurrent" />

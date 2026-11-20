@@ -36,6 +36,8 @@ public sealed class FileInspector
         [".yml"] = "application/yaml",
         [".html"] = "text/html",
         [".htm"] = "text/html",
+        [".mmd"] = "text/vnd.mermaid",
+        [".mermaid"] = "text/vnd.mermaid",
     };
 
     private static readonly Dictionary<string, string> officeTypes = new(StringComparer.OrdinalIgnoreCase)

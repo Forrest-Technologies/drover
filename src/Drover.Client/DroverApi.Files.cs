@@ -59,6 +59,19 @@ public sealed partial class DroverApi
             cancellationToken);
     }
 
+    /// <summary>
+    /// Reads bounded, validated content for the native client's Markdown, static image, PDF, and diagram viewers.
+    /// </summary>
+    public Task<NativeFilePreview> ReadNativePreview(string address, CancellationToken cancellationToken = default)
+    {
+        if (!TryConversationFile(address, out var spaceId, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        return Get<NativeFilePreview>($"{Space(spaceId)}/files/{fileId}/native-preview", cancellationToken);
+    }
+
     /// <summary>What the thread's bot can take and the server's file limits, so the composer can refuse before uploading.</summary>
     public Task<AttachmentRules> GetAttachmentRules(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<AttachmentRules>($"{Space(spaceId)}/threads/{threadId}/attachment-rules", cancellationToken);

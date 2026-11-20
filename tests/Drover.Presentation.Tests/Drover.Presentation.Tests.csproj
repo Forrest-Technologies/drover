@@ -32,6 +32,7 @@
     <Compile Include="..\Drover.Ui.Tests\Chat\ConversationsTests.cs" Link="ViewModels\Chat\ConversationsTests.cs" />
     <Compile Include="..\Drover.Ui.Tests\Chat\SentenceAnnouncerTests.cs" Link="ViewModels\Chat\SentenceAnnouncerTests.cs" />
     <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
+    <Compile Include="..\Drover.Native.UITests\IosCheckReport.cs" Link="Rules\IosCheckReport.cs" />
     <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
   </ItemGroup>
 

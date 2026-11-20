@@ -30,6 +30,8 @@ internal sealed record CheckSettings(
 
     public const string RunIdName = "DROVER_UI_CHECK_RUN";
 
+    public const string RestartName = "DROVER_UI_CHECK_RESTART";
+
     private static readonly Lazy<CheckSettings?> current = new(Read);
 
     #endregion
@@ -38,6 +40,9 @@ internal sealed record CheckSettings(
 
     /// <summary>The settings this run was started with, or null when the app was not started for the checks.</summary>
     public static CheckSettings? Current => current.Value;
+
+    public bool ChecksRestart =>
+        string.Equals(Value(RestartName), "true", StringComparison.OrdinalIgnoreCase);
 
     #endregion
 

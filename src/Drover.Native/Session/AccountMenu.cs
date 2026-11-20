@@ -1,8 +1,8 @@
 namespace Drover.Native.Session;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, and signing out. In the bar it carries the
-/// person's name; compact, in a phone's dock, it is an icon over the word "Account".
+/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. In the bar it
+/// carries the person's name; compact, in a phone's dock, it is an icon over the word "Account".
 /// </summary>
 public sealed class AccountMenu : Grid
 {
@@ -26,6 +26,8 @@ public sealed class AccountMenu : Grid
 
     private bool refreshingUpdates;
 
+    private readonly Dialog about = new() { Title = "About Drover" };
+
     #endregion
 
     #region Constructors
@@ -33,8 +35,10 @@ public sealed class AccountMenu : Grid
     public AccountMenu()
     {
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
+        about.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AboutChanged());
         Children.Add(menu);
         Children.Add(notifications);
+        Children.Add(about);
 
         // A build without the update key shows no update controls. The dialog stays out of the tree, including the
         // phone dock.
@@ -100,6 +104,7 @@ public sealed class AccountMenu : Grid
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
         ShowNotifications();
         ShowUpdates();
+        ShowAbout();
 
         if (Compact)
         {
@@ -127,6 +132,7 @@ public sealed class AccountMenu : Grid
             menu.Items.Add(Item("Status", () => model.Open(Addresses.Status)));
         }
 
+        menu.Items.Add(Item("About Drover", model.OpenAbout));
         menu.Items.Add(Item("Sign out", () => _ = model.SignOut()));
     }
 
@@ -164,6 +170,22 @@ public sealed class AccountMenu : Grid
         installUpdate.IsEnabled = model.CanInstallUpdate;
         installUpdate.Visibility = model.CanInstallUpdate ? Visibility.Visible : Visibility.Collapsed;
         updates.Open = model.UpdatesOpen;
+    }
+
+    // Made each time it opens, so a notice from the last save is not shown again.
+    private void ShowAbout()
+    {
+        if (model.AboutOpen && !about.Open)
+        {
+            about.Body = new AboutDrover();
+        }
+
+        about.Open = model.AboutOpen;
+
+        if (!model.AboutOpen)
+        {
+            about.Body = null;
+        }
     }
 
     // In the dock the menu's button is one of four equal cells: no surface, no line, the icon over the word.
@@ -230,6 +252,15 @@ public sealed class AccountMenu : Grid
         if (updates is not null && !updates.Open && model.UpdatesOpen)
         {
             model.UpdatesOpen = false;
+            menu.ReturnFocusToTrigger();
+        }
+    }
+
+    private void AboutChanged()
+    {
+        if (!about.Open && model.AboutOpen)
+        {
+            model.AboutOpen = false;
             menu.ReturnFocusToTrigger();
         }
     }

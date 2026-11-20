@@ -37,12 +37,20 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
         try
         {
-            await Step("launch", Launch);
-            await Step("connect", Connect);
-            await Step("sign in", SignIn);
-            await Step("open a conversation", OpenConversation);
-            await Step("send a message", SendMessage);
-            await Step("back", Back);
+            if (settings.ChecksRestart)
+            {
+                await Step("restore sign-in", RestoreSignIn);
+            }
+            else
+            {
+                await Step("launch", Launch);
+                await Step("connect", Connect);
+                await Step("sign in", SignIn);
+                await Step("open a conversation", OpenConversation);
+                await Step("send a message", SendMessage);
+                await Step("back", Back);
+            }
+
             passed = true;
         }
         catch (CheckFailedException failure)
@@ -63,9 +71,12 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private async Task Launch()
     {
         await Shown("ConnectAddress", startPatience);
-#if !__ANDROID__
+#if !__ANDROID__ && !__IOS__
         // The native window can attach after the connect control is on screen. A resize before that is ignored,
-        // and the host then stays at its first width, so ask again until the content is at phone width.
+        // and the host then stays at its first width, so ask again at a measured pace until the content is at
+        // phone width without thrashing the macOS window surface.
+        var resizedAt = TimeSpan.MinValue;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         await Until("a window at phone width", () =>
         {
             if (Width() is > 0 and < 560)
@@ -73,17 +84,43 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 return window.Content;
             }
 
-            window.AppWindow.Resize(new(420, 860));
+            if (resizedAt == TimeSpan.MinValue || watch.Elapsed - resizedAt >= TimeSpan.FromSeconds(1))
+            {
+                window.AppWindow.Resize(new(420, 860));
+                resizedAt = watch.Elapsed;
+            }
+
             return null;
-        });
+        }, startPatience);
 #endif
+    }
+
+    private async Task RestoreSignIn()
+    {
+        await Shown("CrewRow", startPatience);
+        if (Find("SignInEmail") is not null)
+        {
+            throw new CheckFailedException("the saved sign-in was not restored");
+        }
+
+        var services = ((App)Application.Current).Services;
+        await services.GetRequiredService<NativeSession>().Clear(settings.Server, signedOutAccess: null);
+        services.GetRequiredService<ServerAddress>().Forget();
     }
 
     private async Task Connect()
     {
         await Type("ConnectAddress", settings.Server.AbsoluteUri);
         await Press("ConnectSubmit");
-        await Shown("SignInEmail");
+        try
+        {
+            await Shown("SignInEmail");
+        }
+        catch (CheckFailedException failure)
+            when (Find("ConnectProblem") is StatusNote { Text: { Length: > 0 } problem })
+        {
+            throw new CheckFailedException(problem, failure);
+        }
     }
 
     private async Task SignIn()
@@ -352,11 +389,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         logger.LogWarning("{Line}", line);
     }
 
-    // A desktop app closes, which tells the harness the report is complete. Android stays open: the harness reads
-    // the result line from the device log and stops the app itself.
+    // A desktop app closes, which tells the harness the report is complete. Android and iOS stay open: the harness
+    // reads the result and stops the app itself.
     private static void Finish()
     {
-#if !__ANDROID__
+#if !__ANDROID__ && !__IOS__
         Application.Current.Exit();
 #endif
     }

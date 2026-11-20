@@ -5,6 +5,12 @@ public sealed class DocumentReaderTests
 {
     #region Private Fields
 
+    /// <summary>The most one Flate stream may unpack to when a document is read.</summary>
+    private const int ReadingStreamBytes = 64 * 1024 * 1024;
+
+    /// <summary>Group 4 data for eight all white rows: one bit each, then the end of block marker.</summary>
+    private static readonly byte[] faxOfEightWhiteRows = [0xFF, 0x00, 0x10, 0x01];
+
     private static readonly DocumentLimits roomy = new(MaxPages: 50, MaxCharacters: 10_000, MaxPageImages: 10);
 
     #endregion
@@ -115,6 +121,116 @@ public sealed class DocumentReaderTests
         var reading = () => DocumentReader.Read(damaged, contentType, roomy);
 
         reading.Should().Throw<DocumentUnreadableException>().WithMessage("it is damaged, or not the kind of file its name says");
+    }
+
+    [Fact]
+    public void A_pdf_stream_that_unpacks_past_the_reading_budget_is_unreadable_not_unpacked()
+    {
+        var bomb = TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(ReadingStreamBytes + 1));
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [bomb]);
+        pdf.Length.Should().BeLessThan(1024 * 1024);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_pdf_whose_streams_together_unpack_past_the_reading_budget_is_unreadable()
+    {
+        var raw = TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(ReadingStreamBytes));
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [raw, raw, raw]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_run_length_stream_that_could_unpack_past_the_reading_budget_is_unreadable_before_it_is_unpacked()
+    {
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /RunLengthDecode", [TestDocuments.RunLengthRuns(1024 * 1024)]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_ccitt_stream_that_names_a_picture_past_the_reading_budget_is_unreadable_before_it_is_unpacked()
+    {
+        var filter = "/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 /Rows 100000 >>";
+        var pdf = TestDocuments.ContentStreamPdf(filter, [[1, 2, 3, 4]]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Theory]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 8 >> /Height 8")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 8 /Rows 0 >> /Height 8")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 8 >> /H 8")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 /Rows 100000 >> /Height 8")]
+    public void A_small_fax_stream_is_read_when_its_height_is_on_the_image_or_wins_over_the_row_count(string filter)
+    {
+        var pdf = TestDocuments.ContentStreamPdf(filter, [faxOfEightWhiteRows]);
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        read.Read.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 >> /Height 100000")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 >> /H 100000")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 /Rows 100000 >>")]
+    [InlineData("/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 /Rows 8 >> /Height 100000")]
+    public void A_fax_stream_whose_size_the_decoder_would_allocate_past_the_budget_is_unreadable_however_it_is_named(string filter)
+    {
+        var pdf = TestDocuments.ContentStreamPdf(filter, [faxOfEightWhiteRows]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void An_ascii85_stream_that_could_unpack_past_the_reading_budget_is_unreadable()
+    {
+        var pdf = TestDocuments.ContentStreamPdf(
+            "/Filter /ASCII85Decode", [[.. Enumerable.Repeat((byte)'z', (ReadingStreamBytes / 4) + 1), .. "~>"u8]]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_run_length_stream_that_stays_small_is_read_though_its_worst_case_is_large()
+    {
+        var pdf = TestDocuments.ContentStreamPdf(
+            "/Filter /RunLengthDecode",
+            [TestDocuments.RunLengthLiterals(300_000), TestDocuments.RunLengthLiterals(300_000), TestDocuments.RunLengthLiterals(300_000)]);
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        read.Read.Should().Be(1);
+    }
+
+    [Fact]
+    public void A_pdf_stream_with_a_chain_of_filters_is_still_read()
+    {
+        var packed = TestDocuments.Ascii85(TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(64)));
+        var pdf = TestDocuments.ContentStreamPdf("/Filter [/ASCII85Decode /FlateDecode]", [packed]);
+
+        DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy).Text.Should().Contain("Safe content");
+    }
+
+    [Fact]
+    public void A_pdf_with_a_predicted_cross_reference_stream_is_still_read()
+    {
+        DocumentReader.Read(TestDocuments.XrefStreamPdf(), DocumentTypes.Pdf, roomy).Text.Should().Contain("Safe content");
     }
 
     [Fact]
