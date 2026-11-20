@@ -39,8 +39,6 @@ public static class DocumentReader
 
     private static readonly OpenXmlPackaging.OpenSettings officeSettings = new() { MaxCharactersInPart = MaxCharactersInPart };
 
-    private static readonly Pdf.ParsingOptions pdfSettings = new() { UseLenientParsing = true, SkipMissingFonts = true };
-
     #endregion
 
     #region Public Methods
@@ -75,7 +73,7 @@ public static class DocumentReader
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        var filters = new PdfPreviewFilters(cancellationToken);
+        var filters = new PdfPreviewFilters(PdfDecodeBudget.Preview, cancellationToken);
         try
         {
             if (PdfPreviewGuard.ScreenStructure(content, cancellationToken) is { } preflightRefusal)
@@ -161,7 +159,31 @@ public static class DocumentReader
 
     private static DocumentContent ReadPdf(byte[] content, DocumentLimits limits)
     {
-        using var document = Pdf.PdfDocument.Open(content, pdfSettings);
+        var filters = new PdfPreviewFilters(PdfDecodeBudget.Reading, CancellationToken.None);
+        try
+        {
+            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
+            {
+                UseLenientParsing = true,
+                SkipMissingFonts = true,
+                FilterProvider = filters,
+            });
+
+            var result = ReadPdfPages(document, limits);
+            return filters.Refusal is null ? result : throw UnpackedTooFar();
+        }
+        catch (Exception failed) when (failed is not (DocumentUnreadableException or OutOfMemoryException)
+            && filters.Refusal is not null)
+        {
+            throw UnpackedTooFar(failed);
+        }
+    }
+
+    private static DocumentUnreadableException UnpackedTooFar(Exception? inner = null) =>
+        new("it unpacks to more than the server will read", inner);
+
+    private static DocumentContent ReadPdfPages(Pdf.PdfDocument document, DocumentLimits limits)
+    {
         var total = document.NumberOfPages;
         var collected = new Collected(limits.MaxCharacters);
         var read = 0;

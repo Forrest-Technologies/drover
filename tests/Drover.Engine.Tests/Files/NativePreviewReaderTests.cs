@@ -123,8 +123,8 @@ public sealed class NativePreviewReaderTests
     [Fact]
     public async Task Refuses_pdf_when_the_parser_exceeds_its_per_stream_decode_budget()
     {
-        var content = PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes + 1);
-        var result = await Read(ContentStreamPdf("/Filter /FlateDecode", [CompressPdfCommands(content)]));
+        var content = TestDocuments.PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes + 1);
+        var result = await Read(TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [TestDocuments.CompressPdfCommands(content)]));
 
         result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
         result.Pages.Should().BeNull();
@@ -133,9 +133,9 @@ public sealed class NativePreviewReaderTests
     [Fact]
     public async Task Refuses_pdf_when_separate_streams_exceed_the_shared_decode_budget()
     {
-        var content = PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes);
-        var compressed = CompressPdfCommands(content);
-        var result = await Read(ContentStreamPdf("/Filter /FlateDecode", [compressed, compressed, compressed]));
+        var content = TestDocuments.PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes);
+        var compressed = TestDocuments.CompressPdfCommands(content);
+        var result = await Read(TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [compressed, compressed, compressed]));
 
         result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
         result.Pages.Should().BeNull();
@@ -149,18 +149,148 @@ public sealed class NativePreviewReaderTests
     public async Task Reads_small_flate_streams_using_the_parsers_filter_lookup(
         string filter, string streamNewline, string afterDictionary)
     {
-        var compressed = CompressPdfCommands(PdfCommands(64));
-        var result = await Read(ContentStreamPdf(filter, [compressed], streamNewline, afterDictionary));
+        var compressed = TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(64));
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [compressed], streamNewline, afterDictionary));
+
+        result.Refusal.Should().BeNull();
+        result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+    }
+
+    [Theory]
+    [InlineData("/Filter /FlateDecode", "\n", "")]
+    [InlineData("/F /Fl", "\n", "")]
+    [InlineData("/Filter 5 0 R", "\n", "")]
+    [InlineData("/Filter /FlateDecode", "\r", "")]
+    [InlineData("/Filter /FlateDecode", "\n", " % dictionary comment\n")]
+    public async Task Refuses_an_over_limit_flate_stream_however_the_filter_is_written(
+        string filter, string streamNewline, string afterDictionary)
+    {
+        var compressed = TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes + 1));
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [compressed], streamNewline, afterDictionary));
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Refuses_an_over_limit_flate_stream_with_literal_stream_end_text_in_its_bytes()
+    {
+        var compressed = TestDocuments.FlateWithLiteralStreamEnd(
+            TestDocuments.PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes + 1));
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [compressed]);
+
+        Encoding.Latin1.GetString(pdf).Should().Contain("% endstream");
+        var result = await Read(pdf);
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Reads_a_small_flate_stream_with_literal_stream_end_text_in_its_bytes()
+    {
+        var compressed = TestDocuments.FlateWithLiteralStreamEnd(TestDocuments.PdfCommands(64));
+        var result = await Read(TestDocuments.ContentStreamPdf("/Filter /FlateDecode", [compressed]));
+
+        result.Refusal.Should().BeNull();
+        result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+    }
+
+    [Theory]
+    [InlineData("/Filter /LZWDecode", "lzw")]
+    [InlineData("/Filter /ASCII85Decode", "ascii85")]
+    [InlineData("/Filter [/ASCII85Decode /FlateDecode]", "ascii85-flate")]
+    [InlineData("/Filter [/FlateDecode /FlateDecode]", "flate-flate")]
+    public async Task Refuses_filters_and_filter_chains_a_preview_does_not_need(string filter, string encoding)
+    {
+        var commands = TestDocuments.PdfCommands(64);
+        var stream = encoding switch
+        {
+            "lzw" => TestDocuments.Lzw(commands),
+            "ascii85" => TestDocuments.Ascii85(commands),
+            "ascii85-flate" => TestDocuments.Ascii85(TestDocuments.CompressPdfCommands(commands)),
+            "flate-flate" => TestDocuments.CompressPdfCommands(TestDocuments.CompressPdfCommands(commands)),
+            _ => TestDocuments.CompressPdfCommands(commands),
+        };
+
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [stream]));
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        result.Pages.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task Reads_a_flate_stream_with_each_png_row_predictor(byte tag)
+    {
+        var predicted = TestDocuments.PngPredicted(TestDocuments.PdfCommands(64), 8, tag);
+        var filter = "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 8 >>";
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [TestDocuments.CompressPdfCommands(predicted)]));
 
         result.Refusal.Should().BeNull();
         result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
     }
 
     [Fact]
+    public async Task Reads_a_flate_stream_with_the_tiff_predictor()
+    {
+        var predicted = TestDocuments.TiffPredicted(TestDocuments.PdfCommands(64), 8);
+        var filter = "/Filter /FlateDecode /DecodeParms << /Predictor 2 /Columns 8 >>";
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [TestDocuments.CompressPdfCommands(predicted)]));
+
+        result.Refusal.Should().BeNull();
+        result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+    }
+
+    [Fact]
+    public async Task Reads_a_pdf_whose_cross_reference_stream_uses_a_predictor()
+    {
+        var result = await Read(TestDocuments.XrefStreamPdf());
+
+        result.Refusal.Should().BeNull();
+        result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
+    }
+
+    [Fact]
+    public async Task Refuses_a_predicted_flate_stream_that_unpacks_past_the_per_stream_budget()
+    {
+        var raw = TestDocuments.PdfCommands(NativeFilePreview.MaxPdfDecodedStreamBytes);
+        var predicted = TestDocuments.PngPredicted(raw, 1024, 2);
+        var filter = "/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 1024 >>";
+
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [TestDocuments.CompressPdfCommands(predicted)]));
+
+        result.Refusal.Should().Be(NativePreviewRefusal.TooLarge);
+        result.Pages.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("/Predictor 7 /Columns 8", NativePreviewRefusal.TooComplex)]
+    [InlineData("/Predictor 12 /Columns 8 /Colors 0", NativePreviewRefusal.Malformed)]
+    [InlineData("/Predictor 12 /Columns 8 /BitsPerComponent 3", NativePreviewRefusal.Malformed)]
+    [InlineData("/Predictor 12 /Columns 6", NativePreviewRefusal.Malformed)]
+    [InlineData("/Predictor 12 /Columns 2000000000", NativePreviewRefusal.Malformed)]
+    [InlineData("/Predictor 2 /Columns 8 /BitsPerComponent 4", NativePreviewRefusal.TooComplex)]
+    public async Task Refuses_a_predictor_it_cannot_decode_within_bounds(string parameters, NativePreviewRefusal expected)
+    {
+        var predicted = TestDocuments.PngPredicted(TestDocuments.PdfCommands(64), 8, 2);
+        var filter = $"/Filter /FlateDecode /DecodeParms << {parameters} >>";
+
+        var result = await Read(TestDocuments.ContentStreamPdf(filter, [TestDocuments.CompressPdfCommands(predicted)]));
+
+        result.Refusal.Should().Be(expected);
+        result.Pages.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Reads_literal_stream_end_text_as_data_inside_a_stream()
     {
         var content = Encoding.ASCII.GetBytes("% a literal endstream in a comment\nBT /F1 12 Tf (Safe content) Tj ET\n");
-        var result = await Read(ContentStreamPdf(string.Empty, [content]));
+        var result = await Read(TestDocuments.ContentStreamPdf(string.Empty, [content]));
 
         result.Refusal.Should().BeNull();
         result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
@@ -201,6 +331,87 @@ public sealed class NativePreviewReaderTests
 
         result.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
         result.Pages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Gives_the_server_slot_back_when_a_parse_misses_its_deadline_though_the_parse_keeps_running()
+    {
+        var pdf = TestDocuments.Pdf("Page one");
+        using var stuck = new ManualResetEventSlim(false);
+        using var bothParsing = new Barrier(2);
+        try
+        {
+            using var first = new MemoryStream(pdf);
+            var missed = await NativePreviewReader.Read(
+                first, CancellationToken.None, Guid.NewGuid(), TimeSpan.FromMilliseconds(40), () => stuck.Wait(TimeSpan.FromSeconds(10)));
+
+            missed.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+
+            var both = await Task.WhenAll(
+                ReadWhileParsingTogether(pdf, bothParsing),
+                ReadWhileParsingTogether(pdf, bothParsing));
+
+            both.Should().OnlyContain(result => result.Refusal == null && result.Pages != null);
+        }
+        finally
+        {
+            stuck.Set();
+            await WaitUntilPreviewsAreAccepted(pdf);
+        }
+    }
+
+    [Fact]
+    public async Task Starts_no_new_parse_while_two_parses_that_missed_their_deadline_are_still_running()
+    {
+        var pdf = TestDocuments.Pdf("Page one");
+        using var stuck = new ManualResetEventSlim(false);
+        var started = false;
+        try
+        {
+            for (var run = 0; run < 2; run++)
+            {
+                using var content = new MemoryStream(pdf);
+                var missed = await NativePreviewReader.Read(
+                    content, CancellationToken.None, Guid.NewGuid(), TimeSpan.FromMilliseconds(40), () => stuck.Wait(TimeSpan.FromSeconds(10)));
+                missed.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+            }
+
+            using var third = new MemoryStream(pdf);
+            var refused = await NativePreviewReader.Read(
+                third, CancellationToken.None, Guid.NewGuid(), TimeSpan.FromSeconds(2), () => started = true);
+
+            refused.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+            started.Should().BeFalse();
+        }
+        finally
+        {
+            stuck.Set();
+            await WaitUntilPreviewsAreAccepted(pdf);
+        }
+    }
+
+    [Fact]
+    public async Task Keeps_one_users_slot_until_their_parse_that_missed_its_deadline_ends()
+    {
+        var pdf = TestDocuments.Pdf("Page one");
+        var user = Guid.NewGuid();
+        using var stuck = new ManualResetEventSlim(false);
+        try
+        {
+            using var first = new MemoryStream(pdf);
+            await NativePreviewReader.Read(
+                first, CancellationToken.None, user, TimeSpan.FromMilliseconds(40), () => stuck.Wait(TimeSpan.FromSeconds(10)));
+
+            using var second = new MemoryStream(pdf);
+            var again = await NativePreviewReader.Read(second, CancellationToken.None, user, TimeSpan.FromSeconds(2));
+
+            again.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
+        }
+        finally
+        {
+            stuck.Set();
+            await WaitUntilPreviewsAreAccepted(pdf);
+        }
     }
 
     [Fact]
@@ -318,72 +529,32 @@ public sealed class NativePreviewReaderTests
 
     #region Private Methods
 
-    private static byte[] PdfCommands(int length)
+    private static async Task<NativeFilePreview> ReadWhileParsingTogether(byte[] pdf, Barrier bothParsing)
     {
-        var bytes = new byte[length];
-        Array.Fill(bytes, (byte)' ');
-        "BT /F1 12 Tf (Safe content) Tj ET\n"u8.CopyTo(bytes);
-        return bytes;
+        using var content = new MemoryStream(pdf);
+        var together = false;
+        var result = await NativePreviewReader.Read(
+            content,
+            CancellationToken.None,
+            Guid.NewGuid(),
+            TimeSpan.FromSeconds(10),
+            () => together = bothParsing.SignalAndWait(TimeSpan.FromSeconds(3)));
+
+        return together ? result : new(Refusal: NativePreviewRefusal.TooComplex);
     }
 
-    private static byte[] CompressPdfCommands(byte[] content)
+    private static async Task WaitUntilPreviewsAreAccepted(byte[] pdf)
     {
-        using var compressed = new MemoryStream();
-        using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        for (var attempt = 0; attempt < 200; attempt++)
         {
-            zlib.Write(content);
-        }
+            using var content = new MemoryStream(pdf);
+            var result = await NativePreviewReader.Read(content, CancellationToken.None, Guid.NewGuid());
+            if (result.Refusal is null)
+            {
+                return;
+            }
 
-        return compressed.ToArray();
-    }
-
-    private static byte[] ContentStreamPdf(
-        string filter, byte[][] streams, string streamNewline = "\n", string afterDictionary = "")
-    {
-        using var pdf = new MemoryStream();
-        List<long> offsets = [];
-        var references = string.Join(' ', Enumerable.Range(6, streams.Length).Select(id => $"{id} 0 R"));
-        Write("%PDF-1.7\n");
-        WriteObject("<< /Type /Catalog /Pages 2 0 R >>");
-        WriteObject("<< /Type /Pages /Count 1 /Kids [3 0 R] >>");
-        WriteObject(
-            $"""
-            << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
-               /Contents [{references}] /Resources << /Font << /F1 4 0 R >> >> >>
-            """);
-        WriteObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-        WriteObject("/FlateDecode");
-
-        foreach (var stream in streams)
-        {
-            StartObject();
-            Write($"<< {filter} /Length {stream.Length} >>{afterDictionary}\nstream{streamNewline}");
-            pdf.Write(stream);
-            Write("\nendstream\nendobj\n");
-        }
-
-        var xref = pdf.Position;
-        Write($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
-        foreach (var offset in offsets)
-        {
-            Write($"{offset:D10} 00000 n \n");
-        }
-
-        Write($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
-        return pdf.ToArray();
-
-        void Write(string text) => pdf.Write(Encoding.ASCII.GetBytes(text));
-
-        void StartObject()
-        {
-            offsets.Add(pdf.Position);
-            Write($"{offsets.Count} 0 obj\n");
-        }
-
-        void WriteObject(string value)
-        {
-            StartObject();
-            Write($"{value}\nendobj\n");
+            await Task.Delay(20);
         }
     }
 

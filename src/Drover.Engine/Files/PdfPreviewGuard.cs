@@ -10,6 +10,9 @@ public static partial class PdfPreviewGuard
 
     private const int MaxPagesInteriorNodes = 4;
 
+    /// <summary>How many parses that missed their deadline may still be running before new ones are refused.</summary>
+    private const int MaxAbandonedParses = 2;
+
     private static readonly TimeSpan defaultDeadline = TimeSpan.FromSeconds(2);
 
     private static readonly TimeSpan gateWaitTimeout = TimeSpan.FromMilliseconds(250);
@@ -21,6 +24,8 @@ public static partial class PdfPreviewGuard
         NativeFilePreview.MaxConcurrentPdfPreviews);
 
     private static readonly ConcurrentDictionary<Guid, UserPdfBudget> userBudgets = new();
+
+    private static int abandonedParses;
 
     #endregion
 
@@ -37,6 +42,11 @@ public static partial class PdfPreviewGuard
         if (content.Length > NativeFilePreview.MaxPdfBytes)
         {
             return new(Refusal: NativePreviewRefusal.TooLarge);
+        }
+
+        if (Volatile.Read(ref abandonedParses) >= MaxAbandonedParses)
+        {
+            return new(Refusal: NativePreviewRefusal.TooComplex);
         }
 
         var time = timeProvider ?? TimeProvider.System;
@@ -66,7 +76,8 @@ public static partial class PdfPreviewGuard
 
         using var parseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var parseToken = parseCancellation.Token;
-        var parseTask = Task.Run(
+        var hold = new ParseHold(userId);
+        var parseTask = Task.Factory.StartNew(
             () =>
             {
                 try
@@ -76,14 +87,21 @@ public static partial class PdfPreviewGuard
                 }
                 finally
                 {
-                    ReleaseUserSlot(userId);
-                    globalGate.Release();
+                    hold.Finish();
                 }
-            });
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
         var elapsed = Task.Delay(effectiveDeadline, time, parseToken);
         var completed = await Task.WhenAny(parseTask, elapsed);
         await parseCancellation.CancelAsync();
+        if (completed != parseTask)
+        {
+            hold.Abandon();
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         return completed == parseTask ? await parseTask : new(Refusal: NativePreviewRefusal.TooComplex);
     }
@@ -579,6 +597,56 @@ public static partial class PdfPreviewGuard
     #endregion
 
     #region Nested Types
+
+    /// <summary>
+    /// A server slot held by one parse. The parser cannot be stopped from outside: a slow page keeps running after its
+    /// deadline. So the slot is given back when the deadline passes, and the parse is counted as abandoned until its
+    /// thread ends. Past <see cref="MaxAbandonedParses"/> of them no new parse starts, which bounds the work a hostile
+    /// file can leave running. The user's own slot stays held until the thread ends, so one person cannot leave more
+    /// than one parse running.
+    /// </summary>
+    private sealed class ParseHold(Guid userId)
+    {
+        #region Private Fields
+
+        private const int Running = 0;
+
+        private const int Finished = 1;
+
+        private const int Abandoned = 2;
+
+        private int state = Running;
+
+        #endregion
+
+        #region Public Methods
+
+        /// <summary>The deadline passed, or the caller left, and the parse is still running.</summary>
+        public void Abandon()
+        {
+            if (Interlocked.CompareExchange(ref state, Abandoned, Running) == Running)
+            {
+                Interlocked.Increment(ref abandonedParses);
+                globalGate.Release();
+            }
+        }
+
+        /// <summary>The parse thread ended.</summary>
+        public void Finish()
+        {
+            ReleaseUserSlot(userId);
+            if (Interlocked.Exchange(ref state, Finished) == Abandoned)
+            {
+                Interlocked.Decrement(ref abandonedParses);
+            }
+            else
+            {
+                globalGate.Release();
+            }
+        }
+
+        #endregion
+    }
 
     private sealed class UserPdfBudget
     {

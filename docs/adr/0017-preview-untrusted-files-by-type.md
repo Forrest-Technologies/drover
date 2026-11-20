@@ -44,9 +44,20 @@ size, never from its name or a client-supplied content type.
 - HTML size, native render size, diagram complexity, and render time are bounded. A refusal names the limit and
   leaves Download available.
 - PDF preview caps Flate output inside the parser at 1 MiB per stream. Flate output and unfiltered page
-  content share a 2 MiB document budget. The provider refuses filter chains and Flate predictors, with
-  Download available for those files. The request has a deadline and checks cancellation during screening
-  and decoding and between pages.
+  content share a 2 MiB document budget. The cap covers the row predictor too: PNG and TIFF predictors are
+  undone in place, so their output is never larger than the bounded input, and a predictor that cannot be
+  decoded within that bound is refused. This keeps ordinary cross reference streams readable. The provider
+  refuses filter chains and filters other than Flate and DCT, with Download available for those files. The
+  request has a deadline and checks cancellation during screening and decoding and between pages.
+- The parser cannot be stopped from outside, so a page that never reaches a cancellation check keeps running
+  after the deadline. The server slot is given back when the deadline passes and the parse is counted as
+  abandoned until its thread ends; at two abandoned parses no new parse starts. The user's own slot stays held
+  until the thread ends, so one person cannot leave more than one parse running. A hard stop needs the parse in
+  a child process with a time and memory limit.
+- Reading a PDF's text for search and attachments (`DocumentReader.Read`) uses the same provider with wider
+  bounds (64 MiB per stream, 128 MiB per document), so no PDF read path decodes without a cap. Chains of
+  ASCII85, ASCIIHex, RunLength, CCITT, JBIG2 and JPX filters stay readable there. LZW is refused because its
+  output cannot be bounded.
 
 Preview content never enters model instructions, tool grants, or the app's trusted interface tree. Widening the
 HTML policy or enabling network access requires a new decision.
