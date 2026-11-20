@@ -25,6 +25,7 @@ public enum IconName
     Pause,
     Play,
     Plus,
+    Project,
     Remove,
     Search,
     Send,

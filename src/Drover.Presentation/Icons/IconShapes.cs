@@ -51,6 +51,8 @@ public static class IconShapes
             """<path d="m7 4 12 8-12 8z"/>""",
         [IconName.Plus] =
             """<path d="M5 12h14"/><path d="M12 5v14"/>""",
+        [IconName.Project] =
+            """<path d="M3 7l3-3h4l2 2h9v11l-3 3H3z"/>""",
         [IconName.Remove] =
             """<path d="M4 6h16"/><path d="m6 6 1 15h10l1-15"/><path d="M9 6V3h6v3"/><path d="M10 11v6"/><path d="M14 11v6"/>""",
         [IconName.Search] =

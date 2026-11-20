@@ -18,6 +18,10 @@ public sealed partial class DroverApi
 
     #region Threads And Messages
 
+    /// <summary>The caller's own unarchived threads across bots in the space, newest activity first.</summary>
+    public Task<List<ThreadSummary>> ListOwnedThreads(Guid spaceId, CancellationToken cancellationToken = default) =>
+        Get<List<ThreadSummary>>($"{Space(spaceId)}/threads", cancellationToken);
+
     /// <summary>The caller's threads with one bot, newest activity first.</summary>
     public Task<List<ThreadSummary>> ListThreads(Guid spaceId, Guid botId, CancellationToken cancellationToken = default) =>
         Get<List<ThreadSummary>>($"{Space(spaceId)}/bots/{botId}/threads", cancellationToken);

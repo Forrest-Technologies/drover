@@ -10,7 +10,7 @@ public sealed class PhoneNav : Grid
     private readonly NavLink[] links =
     [
         new("Chats", Addresses.Home, matchesWhole: true, IconName.Conversation),
-        new("Projects", Addresses.Projects, icon: IconName.Attach),
+        new("Projects", Addresses.Projects, icon: IconName.Project),
         new("Bots", Addresses.Bots, icon: IconName.Crew),
         new("Tools", Addresses.Tools, icon: IconName.Settings),
     ];

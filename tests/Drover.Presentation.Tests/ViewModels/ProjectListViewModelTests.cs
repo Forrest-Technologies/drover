@@ -153,6 +153,56 @@ public sealed class ProjectListViewModelTests : ViewModelTest
         list.LoadProblem.Should().Be("Only a member of the space can read its projects.");
     }
 
+    [Fact]
+    public async Task An_unreachable_server_when_opening_reports_failure_without_throwing()
+    {
+        Server.Unreachable = true;
+        var list = Make<ProjectListViewModel>();
+
+        await list.Open();
+
+        list.State.Should().Be(ProjectListState.Failed);
+        list.LoadProblem.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Errors_keep_server_problem_titles_and_raw_exceptions_out_of_logs()
+    {
+        SignedIn();
+        const string SecretTitle = "Secret-server-title-only-for-ui";
+        Server.Refuse("GET", $"{space}/projects", HttpStatusCode.Forbidden, SecretTitle);
+        var log = new RecordingLogger<ProjectListViewModel>();
+        var list = new ProjectListViewModel(Server.CreateApi(), Session, Navigator, log);
+
+        await list.Open();
+
+        list.LoadProblem.Should().Be(SecretTitle);
+        log.Entries.Should().NotBeEmpty();
+        log.Entries.Should().OnlyContain(entry => entry.Exception == null && !entry.Message.Contains(SecretTitle, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Typed_draft_name_survives_reload_and_failed_create_until_created()
+    {
+        Answer(role: "owner", projects: [Weekly]);
+        Server.Refuse("POST", $"{space}/projects", HttpStatusCode.BadRequest, "Give the project a name.");
+        var list = Make<ProjectListViewModel>();
+        await list.Open();
+
+        list.UpdateDraftName("Q1 launch");
+        await list.Load();
+        await list.Create();
+
+        list.DraftName.Should().Be("Q1 launch");
+        list.Problem.Should().Be("Give the project a name.");
+
+        Server.Answer("POST", $"{space}/projects", Weekly);
+        await list.Create();
+
+        list.DraftName.Should().BeEmpty();
+        Navigator.Current.Should().Be(Addresses.Project(projectId));
+    }
+
     #endregion
 
     #region Helpers
@@ -163,6 +213,31 @@ public sealed class ProjectListViewModelTests : ViewModelTest
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [Person.Spaces[0] with { Role = role }] });
         Server.Answer("GET", $"{space}/projects", projects);
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        #region Properties
+
+        public List<(Exception? Exception, string Message)> Entries { get; } = [];
+
+        #endregion
+
+        #region Public Methods
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((exception, formatter(state, exception)));
+
+        #endregion
     }
 
     #endregion
