@@ -17,6 +17,8 @@
 
     <ApplicationTitle>Drover</ApplicationTitle>
     <ApplicationId>com.forresttechnologies.drover.client</ApplicationId>
+    <!-- The checks build installs beside the regular app, so clearing it cannot erase a signed-in copy. -->
+    <ApplicationId Condition="'$(DroverUiChecks)' == 'true'">com.forresttechnologies.drover.checks</ApplicationId>
     <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
     <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
     <!-- The development server's targets switch the version attribute off in Debug so hot reload sees a stable
@@ -217,6 +219,12 @@
     <Compile Include="../Shared/Transport/NativeSession.cs" Link="Transport/NativeSession.cs" />
     <Compile Include="../Shared/Transport/NativeSessionTokens.cs" Link="Transport/NativeSessionTokens.cs" />
     <Compile Include="../Shared/Transport/ServerAddress.cs" Link="Transport/ServerAddress.cs" />
+  </ItemGroup>
+
+  <!-- The screen checks run inside a build made for them, on a device or a desktop, and nowhere else: a product
+       build never contains them. tests/Drover.Native.UITests starts the build with a test server to talk to. -->
+  <ItemGroup Condition="'$(DroverUiChecks)' == 'true'">
+    <Compile Include="../../tests/Drover.Native.UITests/App/*.cs" Link="UiChecks/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

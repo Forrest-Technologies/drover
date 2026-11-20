@@ -52,6 +52,8 @@ public sealed class EngineHost : IAsyncDisposable
         }
 
         services.AddDroverAgents(execution => new ModelChatClientBridge(execution.Model!));
+        // Accounts, including a membership join, are the server's services. A join retires a tainted sandbox.
+        services.AddDroverEngine();
         replaceServices?.Invoke(services);
         provider = services.BuildServiceProvider();
     }

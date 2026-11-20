@@ -11,18 +11,21 @@
     <TextBlock Style="{StaticResource DvTextSecondary}" Text="Use the account you made on this server." />
     <StackPanel Spacing="{StaticResource DvSpace4}">
       <dv:Field x:Name="Email"
+                AutomationProperties.AutomationId="SignInEmail"
                 Label="Email"
                 Type="email"
                 Value="{x:Bind Model.Email, Mode=TwoWay}"
                 Disabled="{x:Bind Model.Busy, Mode=OneWay}"
                 Submitted="Submit" />
-      <dv:Field Label="Password"
+      <dv:Field AutomationProperties.AutomationId="SignInPassword"
+                Label="Password"
                 Type="password"
                 Value="{x:Bind Model.Password, Mode=TwoWay}"
                 Disabled="{x:Bind Model.Busy, Mode=OneWay}"
                 Submitted="Submit" />
       <dv:StatusNote Kind="Danger" Text="{x:Bind Model.Problem, Mode=OneWay}" />
-      <dv:Button Kind="Primary"
+      <dv:Button AutomationProperties.AutomationId="SignInSubmit"
+                 Kind="Primary"
                  HorizontalAlignment="Stretch"
                  Content="{x:Bind Model.SubmitLabel, Mode=OneWay}"
                  Command="{x:Bind Model.SubmitCommand}" />

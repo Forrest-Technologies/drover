@@ -31,6 +31,8 @@
     <!-- What a conversation is made of, and what is read out of it, is tested once and runs in both suites. -->
     <Compile Include="..\Drover.Ui.Tests\Chat\ConversationsTests.cs" Link="ViewModels\Chat\ConversationsTests.cs" />
     <Compile Include="..\Drover.Ui.Tests\Chat\SentenceAnnouncerTests.cs" Link="ViewModels\Chat\SentenceAnnouncerTests.cs" />
+    <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
+    <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
   </ItemGroup>
 
   <!-- The event logs recorded from a real server are the ones the web client's tests read: linked, not copied. -->
