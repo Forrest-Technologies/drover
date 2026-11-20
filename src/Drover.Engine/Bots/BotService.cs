@@ -22,8 +22,6 @@ public sealed class BotService(
 
     public const int MaxNameLength = 200;
 
-    private const int MaxHandleLength = 100;
-
     public const int MaxDescriptionLength = 2_000;
 
     public const int MaxInstructionsLength = 32_000;
@@ -124,7 +122,7 @@ public sealed class BotService(
         var bot = new Bot
         {
             Name = name.Trim(),
-            Handle = await FindFreeHandle(name, cancellationToken),
+            Handle = await FindFreeHandle(name, null, cancellationToken),
             DescriptionForBots = description,
             Instructions = instructions,
             ModelConnectionId = connection.Id,
@@ -151,6 +149,22 @@ public sealed class BotService(
             return BotChange.NotFound;
         }
 
+        // A handle the old name made follows the new name. The client says so when the handle it sends is the new
+        // name's, not one a person chose, and it may be taken by another bot: the server then adds a number as it does
+        // for a new bot. A handle a person chose is used as it came, and a taken one is refused.
+        // What is stored decides before the spelling does: a handle a person set is never the name's, whatever it is
+        // spelled like.
+        if (edit.HandleFollowsName is true
+            && !bot.HandleChosen
+            && edit.Handle != bot.Handle
+            && edit.Name.Trim() != bot.Name
+            && BotHandles.Follows(bot.Handle, bot.Name)
+            && edit.Handle == BotHandles.Stem(edit.Name)
+            && await bots.HandleExists(edit.Handle, bot.Id, cancellationToken))
+        {
+            edit = edit with { Handle = await FindFreeHandle(edit.Name, bot.Id, cancellationToken) };
+        }
+
         if (await FindProblem(bot, edit, cancellationToken) is { } problem)
         {
             return new BotChange(null, problem);
@@ -168,6 +182,14 @@ public sealed class BotService(
         }
 
         bot.Name = edit.Name.Trim();
+        // A choice is recorded and never undone by an update: a client that says the handle is the name's cannot take
+        // a handle a person set back to following the name.
+        bot.HandleChosen = edit.HandleFollowsName switch
+        {
+            true => bot.HandleChosen,
+            false => true,
+            null => bot.HandleChosen || edit.Handle != bot.Handle,
+        };
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
         bot.DescriptionForBots = edit.DescriptionForBots;
@@ -217,7 +239,7 @@ public sealed class BotService(
         var copy = new Bot
         {
             Name = name,
-            Handle = await FindFreeHandle(name, cancellationToken),
+            Handle = await FindFreeHandle(name, null, cancellationToken),
             Avatar = source.Avatar,
             DescriptionForBots = source.DescriptionForBots,
             Instructions = source.Instructions,
@@ -514,13 +536,13 @@ public sealed class BotService(
     private async Task<string?> FindHandleProblem(Bot bot, BotEdit edit, CancellationToken cancellationToken)
     {
         var handle = edit.Handle;
-        var wellFormed = handle.Length is > 0 and <= MaxHandleLength
+        var wellFormed = handle.Length is > 0 and <= BotHandles.MaxLength
             && handle.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '-')
             && handle[0] != '-' && handle[^1] != '-';
 
         if (!wellFormed)
         {
-            return $"A handle is up to {MaxHandleLength} lower-case letters, digits, and hyphens, and starts and ends with a letter or digit.";
+            return $"A handle is up to {BotHandles.MaxLength} lower-case letters, digits, and hyphens, and starts and ends with a letter or digit.";
         }
 
         return handle != bot.Handle && await bots.HandleExists(handle, bot.Id, cancellationToken)
@@ -899,20 +921,25 @@ public sealed class BotService(
         return granted;
     }
 
-    private async Task<string> FindFreeHandle(string name, CancellationToken cancellationToken)
+    // The handle a name makes, with a number added while another bot holds it. A bot being renamed does not count
+    // against itself.
+    private async Task<string> FindFreeHandle(string name, Guid? exceptBotId, CancellationToken cancellationToken)
     {
-        var slug = new string([.. name.Trim().ToLowerInvariant().Select(character => char.IsAsciiLetterOrDigit(character) ? character : '-')])
-            .Trim('-');
-        var stem = slug.Length == 0 ? "bot" : slug[..Math.Min(slug.Length, MaxHandleLength - 8)].Trim('-');
+        var stem = BotHandles.Stem(name);
         var handle = stem;
 
-        for (var suffix = 2; await bots.HandleExists(handle, cancellationToken); suffix++)
+        for (var suffix = 2; await HandleTaken(handle, exceptBotId, cancellationToken); suffix++)
         {
             handle = $"{stem}-{suffix}";
         }
 
         return handle;
     }
+
+    private Task<bool> HandleTaken(string handle, Guid? exceptBotId, CancellationToken cancellationToken) =>
+        exceptBotId is { } id
+            ? bots.HandleExists(handle, id, cancellationToken)
+            : bots.HandleExists(handle, cancellationToken);
 
     #endregion
 }

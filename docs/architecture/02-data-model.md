@@ -59,13 +59,15 @@ Phase 0 creates one user and their personal space, through the same tables. Shar
 
 | Table | Class | Key columns |
 | --- | --- | --- |
-| `bots` | Space-owned | `id`, `parent_bot_id null`, `name`, `handle`, `avatar jsonb`, `description_for_bots`, `instructions`, `model_connection_id`, `model`, `model_settings jsonb`, `memory_settings jsonb`, `sandbox_policy`, `sandbox_settings jsonb`, `status`, `depth`, `build_limits jsonb`, `run_limits jsonb`, `created_by_user_id null`, `created_by_bot_id null` |
+| `bots` | Space-owned | `id`, `parent_bot_id null`, `name`, `handle`, `handle_chosen`, `avatar jsonb`, `description_for_bots`, `instructions`, `model_connection_id`, `model`, `model_settings jsonb`, `memory_settings jsonb`, `sandbox_policy`, `sandbox_settings jsonb`, `status`, `depth`, `build_limits jsonb`, `run_limits jsonb`, `created_by_user_id null`, `created_by_bot_id null` |
 | `bot_ancestors` | Space-owned | `ancestor_bot_id`, `descendant_bot_id`, `distance` |
 | `bot_sandbox_shares` | Space-owned | `bot_id`, `shared_with_bot_id` |
 | `bot_schedules` | Space-owned | `bot_id`, `owner_user_id`, `cron`, `time_zone`, `prompt`, `thread_mode`, `enabled`, `next_run_at`, `last_run_id null`, `last_run_at null`, `last_outcome null` |
 | `tool_grants` | Space-owned | `bot_id`, `tool_id`, `effect`, `review_state`, `granted_by_user_id null`, `granted_by_bot_id null` |
 | `bot_rules` | Space-owned | `id`, `bot_id`, `name`, `enabled`, `position`, `checkpoint`, `effect`, `conditions jsonb`, `created_by_user_id null` |
 | `extension_installs` | Space-owned | `id`, `package_id`, `name`, `description`, `content_hash`, `package jsonb`, `bot_id null`, `tool_connection_id null`, `installed_by_user_id`, `installed_at` |
+
+`bots.handle_chosen` records that a person set the handle, so it never follows a rename of the bot, whatever it is spelled like. The server sets it: from `UpdateBotRequest.HandleFollowsName` when the client says, else when the handle changed, and an update never clears it. It is false for a handle the name made (with or without the number added to keep it unique) and for every bot made before the column was added, which are judged by the spelling of the handle. The column is added with a default, so existing rows are not rewritten.
 
 Notes:
 
@@ -175,10 +177,14 @@ Notes:
 | `pending_file_deletions` | Space-owned | `id`, `project_id`, `storage_key`, `size`, `cleanup_claim_until null`, `created_at` |
 | `pending_upload_deletions` | Space-owned with an audience | `id` (the removed file id), `audience_user_id`, `cleanup_claim_until null`, `created_at` |
 | `secrets` | Space-owned with an audience | `id`, `audience_user_id`, `kind`, `ciphertext bytea`, `created_by_user_id`, `created_at`, `last_used_at` |
+| `sandbox_secrets` | Space-owned | `id`, `name`, `description`, `mode`, `hosts text[]`, `allow_in_query`, `allow_in_body`, `scope`, `project_id null`, `secret_id`, `created_by_user_id`, `created_at`, `rotated_by_user_id null`, `rotated_at null`, `last_used_at null` |
+| `sandbox_secret_bots` | Space-owned | `sandbox_secret_id`, `bot_id`, `name` |
 | `memories` | Space-owned with an audience | `id`, `audience_user_id`, `bot_id`, `text`, `written_by_bot_id null`, `written_by_user_id null`, `source_thread_id null`, `source_message_id null`, `tainted`, `created_at`, `updated_at` |
 | `audit_log` | Space-owned, insert and select only | `id`, `actor_kind`, `actor_id`, `action`, `target_kind`, `target_id`, `data jsonb`, `created_at` |
 | `sys.audit` | Global, in schema `sys`, outside the model | One row per call of a cross-tenant function: `function_name`, `caller`, `called_at`, `row_count`. Created by the migration, written only by the `sys` functions. The application role has no privilege on it, and no entity maps it. |
 | `data_protection_keys` | Global, no app-role table access outside the key ring store | Key ring when stored in the database |
+
+`sandbox_secrets` holds credentials a person gives bots for their sandboxes; the value is in `secrets` (kind `sandbox_environment`), named by the plain column `secret_id`. `mode` is `brokered` or `raw`, `scope` is `space`, `bots` or `project`; see [08-auth-and-secrets.md](08-auth-and-secrets.md#sandbox-secrets).
 
 `sandboxes.state` is `creating`, `running`, `paused`, `retiring`, or `destroyed`.
 

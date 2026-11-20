@@ -38,6 +38,7 @@ public static class SpaceEndpoints
 
         // A bot's sandbox waits on the provider, so its controls open their own short scopes.
         root.MapSandboxEndpoints();
+        root.MapSandboxSecretEndpoints();
         return api;
     }
 

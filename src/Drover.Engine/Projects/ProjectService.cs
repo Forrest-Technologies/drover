@@ -22,6 +22,7 @@ public sealed class ProjectService(
     ProjectRepository projects,
     FileRepository files,
     IFileStore store,
+    SandboxSecretService sandboxSecrets,
     AuditLog audit,
     TimeProvider time,
     ILogger<ProjectService> logger)
@@ -125,6 +126,7 @@ public sealed class ProjectService(
                 await files.StageProjectFileDeletion(projectFiles, now, claimUntil, cancellationToken);
                 deletions = [.. projectFiles.Select(file => new StoredDeletion(file.Id))];
                 await projects.ClearThreadsForProject(project.Id, cancellationToken);
+                await sandboxSecrets.RemoveForProject(project.Id, actor, cancellationToken);
                 projects.Remove(project);
                 audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);
                 await work.Commit(cancellationToken);

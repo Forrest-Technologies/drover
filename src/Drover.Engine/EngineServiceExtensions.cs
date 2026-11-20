@@ -68,6 +68,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ScheduleFiring>();
         services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
+        services.AddScoped<SandboxSecretService>();
         services.AddScoped<ThreadService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<ConversationModels>();
