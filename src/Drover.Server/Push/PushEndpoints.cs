@@ -28,7 +28,7 @@ public static class PushEndpoints
             .WithBodyLimit(RequestLimits.Account)
             .WithName("TestPushDevice");
         push.MapGet("/wake", GetWakeText).WithName("GetPushWakeText")
-            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see. A browser sends its own subscription address in the Push-Endpoint header, and is answered only while the signed-in person holds a subscription for it (403 otherwise).");
+            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see. A browser sends its own subscription address in the Push-Endpoint header and the person the wake was sent for in the user query value: it is answered only while the signed-in person holds a subscription for that address (403 otherwise) and is that person (409 otherwise).");
         return api;
     }
 
@@ -82,17 +82,27 @@ public static class PushEndpoints
         };
 
     // A browser that was left subscribed by one person is woken for that person's runs. The worker names the
-    // subscription that woke it, in a header so the address, which anyone holding it may push to, is not in a URL or
-    // a log line. Only the person who holds a subscription for it is answered, so the next person on the browser is
-    // told nothing of the last one's bots. The Android app and the desktop's live signal ask without a subscription
-    // address: each checks for itself that the account is the one it was registered for.
+    // subscription it holds, in a header so the address, which anyone holding it may push to, is not in a URL or a log
+    // line, and the person the wake was sent for, which the wake itself carries. Only that person is answered, and
+    // only while they hold a subscription for that address. So the next person on the browser is told nothing of the
+    // last one's bots, and neither is the next person when a wake for the last one was already queued as they
+    // switched. The two refusals differ: 409 says the wake is for someone else (nothing is shown, the browser's own
+    // subscription is the signed-in person's and is kept), 403 says the signed-in person holds no subscription for
+    // this address (nothing is shown, and the worker ends it). The Android app and the desktop's live signal ask
+    // without either: each checks for itself that the account is the one it was registered for.
     private static async Task<Results<Ok<PushWakeText>, NotFound, StatusCodeHttpResult>> GetWakeText(
         string kind,
         Guid thread,
+        Guid? user,
         HttpContext context,
         PushService push)
     {
         var userId = context.User.GetUserId();
+
+        if (user is { } intended && intended != userId)
+        {
+            return TypedResults.StatusCode(StatusCodes.Status409Conflict);
+        }
 
         // A header that is there but blank names no subscription, so it is not one the person holds.
         if (context.Request.Headers.TryGetValue(PushEndpointHeader, out var named)

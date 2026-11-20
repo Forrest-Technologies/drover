@@ -164,6 +164,34 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task A_wake_sent_for_one_person_is_never_described_to_another_even_on_the_others_own_subscription()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        await ShareWithTheSpace(alice.SpaceId, alice.UserId, thread.Id);
+        var aliceDevice = Device("https://push.example/alices-browser");
+        var memberDevice = Device("https://push.example/members-browser-after-the-switch");
+        (await asAlice.Put("/api/push/device", aliceDevice)).EnsureSuccessStatusCode();
+        (await asMember.Put("/api/push/device", memberDevice)).EnsureSuccessStatusCode();
+        var forAlice = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
+
+        // The member's browser holds the member's own subscription, and the thread is shared with them, but the wake
+        // was sent for alice: it was queued before the browser changed hands.
+        var queued = await asMember.Get(forAlice, PushEndpoints.PushEndpointHeader, memberDevice.Endpoint);
+        var forTheSubscriber = await asAlice.Get(forAlice, PushEndpoints.PushEndpointHeader, aliceDevice.Endpoint);
+        var forTheMember = await asMember.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}&user={member.UserId}", PushEndpoints.PushEndpointHeader, memberDevice.Endpoint);
+
+        queued.StatusCode.Should().Be(HttpStatusCode.Conflict, "the wake was sent for someone else");
+        (await queued.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+        forTheSubscriber.StatusCode.Should().Be(HttpStatusCode.OK);
+        forTheMember.StatusCode.Should().Be(HttpStatusCode.OK, "a wake sent for the member is described to the member");
+    }
+
+    [Fact]
     public async Task A_person_who_turned_the_same_browser_on_is_answered_and_the_first_person_still_is()
     {
         var alice = await SeedPerson("alice");
@@ -271,6 +299,18 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         }
 
         #endregion
+    }
+
+    /// <summary>Shares the thread with every member of the space, as its owner would.</summary>
+    private async Task ShareWithTheSpace(Guid spaceId, Guid ownerId, Guid threadId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, ownerId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        await db.Threads.Where(found => found.Id == threadId)
+            .ExecuteUpdateAsync(set => set.SetProperty(found => found.AudienceUserId, Audience.Everyone), Token);
+        await work.Commit(Token);
     }
 
     private static PushDeviceRequest Device(string endpoint)
