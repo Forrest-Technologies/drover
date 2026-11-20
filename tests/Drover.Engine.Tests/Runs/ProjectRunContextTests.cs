@@ -340,7 +340,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         var second = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
 
         first[file.Id].Images.Should().ContainSingle();
-        first[file.Id].Text.Should().Contain("Only 1 of its 2 pages are shown");
+        first[file.Id].Text.Should().Contain("Only 1 of its 2 pages is shown");
         second[file.Id].Images.Should().ContainSingle();
         (world.Files.Opened - openedBeforeRun).Should().Be(1, "the bounded partial scan is retained for later calls in this run");
     }
@@ -402,6 +402,126 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Images.Should().ContainSingle();
 
         (world.Files.Opened - openedBeforeRun).Should().Be(4, "A to B to A and an empty selection evict image bytes no longer selected");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Project_scan_limits_use_the_embedded_picture_header_not_only_the_pdf_dictionary(bool zeroHeaderHeight)
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Mismatched scans", "");
+        var pdf = TestDocuments.ScannedPdfWithDeclaredImageSize(
+            actualWidth: 8_000,
+            actualHeight: 6_000,
+            declaredWidth: 1_200,
+            declaredHeight: 1_600,
+            zeroHeaderHeight: zeroHeaderHeight);
+        var file = (await Upload(world, project.Id, "mismatch.pdf", pdf)).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [file.Id], RunWorld.Token);
+
+        first[file.Id].Images.Should().BeNullOrEmpty();
+        second[file.Id].Images.Should().BeNullOrEmpty();
+        first[file.Id].Text.Should().Be(second[file.Id].Text)
+            .And.Contain("project shares")
+            .And.NotContain("image allowance for this model call");
+        (world.Files.Opened - openedBeforeRun).Should().Be(1, "the intrinsic result is stable across model steps");
+    }
+
+    [Fact]
+    public async Task A_partial_scan_cache_expands_when_a_later_call_has_more_image_capacity()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Expanding scan", "");
+        var pages = Enumerable.Range(0, 24).Select(index => TestDocuments.Jpeg(512, 512, (byte)index)).ToArray();
+        var scan = (await Upload(world, project.Id, "scan.pdf", TestDocuments.ScannedPdfWithBlankPage(3, pages))).File!;
+        List<StoredFile> photos = [];
+
+        for (var index = 0; index < 15; index++)
+        {
+            photos.Add((await Upload(world, project.Id, $"newer-{index:D2}.jpg", TestDocuments.Jpeg(32, 32, (byte)index))).File!);
+        }
+
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [scan.Id, .. photos.Select(file => file.Id)], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [scan.Id], RunWorld.Token);
+
+        first[scan.Id].Images.Should().HaveCount(4, "five slots include one page without a convertible picture");
+        first[scan.Id].Text.Should().Contain("Only 4 of its 25 pages are shown");
+        second[scan.Id].Images.Should().HaveCount(19, "twenty slots include the same page without a convertible picture");
+        second[scan.Id].Text.Should().Contain("Only 19 of its 25 pages are shown");
+        (world.Files.Opened - openedBeforeRun).Should().Be(17, "the scan is reopened once when later capacity can reveal more pages");
+    }
+
+    [Fact]
+    public async Task An_empty_project_document_is_not_mislabeled_when_newer_pictures_use_the_image_count()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Empty document", "");
+        var document = (await Upload(world, project.Id, "empty.docx", TestDocuments.Docx())).File!;
+        List<StoredFile> photos = [];
+
+        for (var index = 0; index < ProjectFileLimits.MaxImages; index++)
+        {
+            photos.Add((await Upload(world, project.Id, $"newer-{index:D2}.jpg", TestDocuments.Jpeg(4, 4, (byte)index))).File!);
+        }
+
+        var files = DirectProjectFiles(world);
+
+        var opened = await files.OpenProject(project.Id, [document.Id, .. photos.Select(file => file.Id)], RunWorld.Token);
+
+        opened[document.Id].Images.Should().BeNullOrEmpty();
+        opened[document.Id].Text.Should().Contain("has no text").And.NotContain("image allowance for this model call");
+    }
+
+    [Fact]
+    public async Task Stable_project_text_is_evicted_when_the_selection_changes()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Changing text", "");
+        var first = (await Upload(world, project.Id, "first.txt", "first-content")).File!;
+        var second = (await Upload(world, project.Id, "second.txt", "second-content")).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should().Contain("first-content");
+        (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Text.Should().Contain("second-content");
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should().Contain("first-content");
+
+        (world.Files.Opened - openedBeforeRun).Should().Be(3, "A to B to A evicts stable text outside the current selection");
+    }
+
+    [Fact]
+    public async Task Cached_and_stable_project_rows_taint_every_time_they_are_selected()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Tainted photos", "");
+        var oversized = (await Upload(world, project.Id, "oversized.jpg", TestDocuments.Jpeg(5_712, 4_284, 1))).File!;
+        var accepted = (await Upload(world, project.Id, "accepted.jpg", TestDocuments.Jpeg(512, 512, 2))).File!;
+        var taints = 0;
+        var files = DirectProjectFiles(
+            world,
+            () =>
+            {
+                taints++;
+                return Task.CompletedTask;
+            });
+
+        await files.OpenProject(project.Id, [oversized.Id, accepted.Id], RunWorld.Token);
+        await files.OpenProject(project.Id, [oversized.Id, accepted.Id], RunWorld.Token);
+
+        taints.Should().Be(4, "each selected project row taints, including a cached picture and a stable intrinsic note");
     }
 
     [Fact]
@@ -584,7 +704,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
             .UploadForProject(projectId, name, new MemoryStream(bytes), bytes.Length, world.UserId, RunWorld.Token);
     }
 
-    private static RunFiles DirectProjectFiles(RunWorld world)
+    private static RunFiles DirectProjectFiles(RunWorld world, Func<Task>? taint = null)
     {
         var scopes = world.Hosts[0].Services.GetRequiredService<IServiceScopeFactory>();
         return new RunFiles(
@@ -595,7 +715,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
             maxDocumentPages: 50,
             world.Files,
             sandboxes: null,
-            () => Task.CompletedTask,
+            taint ?? (() => Task.CompletedTask),
             NullLogger<RunFiles>.Instance);
     }
 

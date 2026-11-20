@@ -258,10 +258,26 @@ public static class DocumentReader
                     break;
                 }
 
+                if (image.RawMemory.Span is [0xFF, 0xD8, 0xFF, ..]
+                    && !HasMatchingImageDimensions(image.RawMemory.Span, image.WidthInSamples, image.HeightInSamples))
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
                 var pixels = (long)image.WidthInSamples * image.HeightInSamples;
+
+                if (pixels > limits.MaxImagePixels || pixels > long.MaxValue / 4L)
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
                 var decoded = pixels * 4L;
 
-                if (pixels > limits.MaxImagePixels || decoded > limits.SingleImageDecodedCap)
+                if (decoded > limits.SingleImageDecodedCap)
                 {
                     rejected = true;
                     exceedsSingle = true;
@@ -294,6 +310,13 @@ public static class DocumentReader
                     continue;
                 }
 
+                if (!HasMatchingImageDimensions(picture.Data.Span, image.WidthInSamples, image.HeightInSamples))
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
                 if (picture.Data.Length > limits.SingleImageByteCap)
                 {
                     rejected = true;
@@ -321,6 +344,11 @@ public static class DocumentReader
 
         return (pictures, totalDecodedBytes, rejected, exceedsSingle);
     }
+
+    private static bool HasMatchingImageDimensions(ReadOnlySpan<byte> content, int width, int height) =>
+        FileInspector.TryReadImageDimensions(content, out var actualWidth, out var actualHeight)
+        && actualWidth == width
+        && actualHeight == height;
 
     /// <summary>A JPEG as it is stored, since a model reads JPEG; anything else as PNG when it can be decoded.</summary>
     private static ToolImage? AsModelPicture(Pdf.Content.IPdfImage image)
