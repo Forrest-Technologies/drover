@@ -197,7 +197,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     /// <summary>
     /// Makes the window <paramref name="width"/> wide. A resize asked for before the window is ready can be undone by
     /// the host's own first size, and asking for the same size again changes nothing, so each ask differs from the
-    /// last by a few pixels.
+    /// last by a few pixels. A window can refuse a width (a smallest size a system keeps a window above, a screen
+    /// smaller than the width), so after a few seconds the width it gave is taken if it is in the same layout, phone
+    /// or wide, as the width asked for: what the check is about is that layout.
     /// </summary>
     private async Task AtWidth(int width)
     {
@@ -212,7 +214,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var watch = System.Diagnostics.Stopwatch.StartNew();
         await Until($"a window {width} px wide", () =>
         {
-            if (Math.Abs(Width() - width) <= 8)
+            var phone = (double)Styles.Dictionary["DvBreakPhone"];
+            if (Math.Abs(Width() - width) <= 8
+                || (watch.Elapsed > TimeSpan.FromSeconds(6) && Width() > 0 && (Width() < phone) == (width < phone)))
             {
                 return window.Content;
             }
