@@ -31,7 +31,7 @@ public sealed class StatusPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         await model.Open();
         opening = false;

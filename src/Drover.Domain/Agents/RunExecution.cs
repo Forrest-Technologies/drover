@@ -31,6 +31,12 @@ public sealed record RunExecution
     /// </summary>
     public RecalledMemory? Memory { get; init; }
 
+    /// <summary>
+    /// The project this conversation belongs to, read with the bot. Null when the conversation is in no project, or
+    /// that project is gone. Its instructions are a separate source and grant nothing by themselves.
+    /// </summary>
+    public ProjectBrief? Project { get; init; }
+
     /// <summary>Answers to whatever the run was waiting on.</summary>
     public IReadOnlyList<PendingResponse> Responses { get; init; } = [];
 

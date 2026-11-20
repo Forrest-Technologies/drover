@@ -442,7 +442,7 @@ else
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSection));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -470,7 +470,7 @@ else
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSection));
-            tryProblem = Failures.Sentence(exception);
+            tryProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

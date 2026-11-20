@@ -15,19 +15,92 @@ public sealed class SandboxSeeder : PlainSeeder<Sandbox>
 
 public sealed class StoredFileSeeder : PlainSeeder<StoredFile>
 {
+    protected override Dictionary<string, object?> Columns(SeedRow seed)
+    {
+        var columns = new Dictionary<string, object?>
+        {
+            ["id"] = Guid.CreateVersion7(),
+            ["storage_key"] = seed.Unique("key"),
+            ["name"] = "notes.txt",
+            ["content_type"] = "text/plain",
+            ["size"] = 1L,
+            ["sha256"] = new string('0', 64),
+            ["created_by_user_id"] = seed.Placement.User,
+            ["created_by_bot_id"] = seed.Parent("bots"),
+        };
+
+        if (seed.ParentSpaceId("projects") is { } projectSpace && projectSpace != seed.Placement.SpaceId)
+        {
+            columns["project_id"] = seed.Parent("projects");
+        }
+        else
+        {
+            columns["thread_id"] = seed.Parent("threads");
+            columns["message_id"] = Guid.CreateVersion7();
+        }
+
+        return columns;
+    }
+}
+
+public sealed class FileByteReservationSeeder : PlainSeeder<FileByteReservation>
+{
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
     {
         ["id"] = Guid.CreateVersion7(),
-        ["storage_key"] = seed.Unique("key"),
-        ["thread_id"] = seed.Parent("threads"),
-        ["message_id"] = Guid.CreateVersion7(),
-        ["name"] = "notes.txt",
-        ["content_type"] = "text/plain",
-        ["size"] = 1L,
-        ["sha256"] = new string('0', 64),
-        ["created_by_user_id"] = seed.Placement.User,
-        ["created_by_bot_id"] = seed.Parent("bots"),
+        ["bytes"] = 1L,
     };
+}
+
+public sealed class PendingFileDeletionSeeder : PlainSeeder<PendingFileDeletion>
+{
+    protected override Dictionary<string, object?> Columns(SeedRow seed)
+    {
+        var id = Guid.CreateVersion7();
+        return new()
+        {
+            ["id"] = id,
+            ["project_id"] = Guid.CreateVersion7(),
+            ["storage_key"] = FileStorageKeys.For(seed.Placement.SpaceId!.Value, id),
+            ["size"] = 1L,
+        };
+    }
+}
+
+
+public sealed class PendingUploadDeletionSeeder : PlainSeeder<PendingUploadDeletion>
+
+{
+    #region Public Methods
+
+    public override async Task<IReadOnlyDictionary<string, object?>> Insert(
+        IsolationHarness harness,
+        TenantSession session,
+        TableUnderTest table,
+        RowPlacement placement,
+        IReadOnlyDictionary<string, object?> values)
+    {
+        _ = values;
+        var files = harness.Table("files");
+        var source = await harness.Seed(files, placement);
+        await session.Execute(
+            "UPDATE files SET message_id = NULL, created_by_bot_id = NULL WHERE id = @id",
+            ("id", source.Key["id"]));
+        var deleted = await harness.DeleteRow(session, files, source);
+        Expect.That(deleted == 1, "Deleting the source upload did not create a pending upload deletion.");
+        return source.Key;
+    }
+
+    #endregion
+
+    #region Protected Methods
+
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+    };
+
+    #endregion
 }
 
 public sealed class SecretSeeder : PlainSeeder<Secret>

@@ -134,7 +134,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private async Task OpenConversation()
     {
         await Press("CrewRow");
-        await Shown("ComposerField");
+        // The composer is visible while its conversation loads, but a person cannot type until it is enabled.
+        await Until("ComposerField to be enabled", () =>
+            Find("ComposerField") is TextBox { IsEnabled: true } field ? field : null);
     }
 
     private async Task SendMessage()

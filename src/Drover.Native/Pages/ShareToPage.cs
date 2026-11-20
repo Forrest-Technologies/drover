@@ -38,7 +38,7 @@ public sealed class ShareToPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route) => await While(model.Open());
+    protected override Task Opened(RouteMatch<Type> route) => While(model.Open());
 
     private async Task While(Task work)
     {

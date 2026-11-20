@@ -62,6 +62,18 @@ public sealed class TalkTests : ScreenTest
     #region Not Ready
 
     [Fact]
+    public void An_unreachable_conversation_keeps_the_server_check_as_its_next_step()
+    {
+        Server.Fail("GET", $"{space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        var page = Render<Talk>();
+
+        page.WaitForAssertion(() => page.Find("main .dv-messages [role=alert]").TextContent.Trim()
+            .Should().Be("Drover could not reach its server. Check that the server is running."));
+    }
+
+
+    [Fact]
     public void With_no_model_the_workspace_says_so_and_links_to_connecting_one()
     {
         Server.Answer("GET", $"{space}/model-connections", Array.Empty<ModelConnectionSummary>());

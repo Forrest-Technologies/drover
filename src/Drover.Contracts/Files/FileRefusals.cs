@@ -17,6 +17,9 @@ public static class FileRefusals
     /// <summary>The space would hold more than the server's <c>MaxSpaceFileMegabytes</c>.</summary>
     public const string SpaceFull = "space_full";
 
+    /// <summary>The upload took longer than the server keeps an uncommitted byte reservation alive.</summary>
+    public const string UploadExpired = "upload_expired";
+
     /// <summary>A picture, for a bot whose model cannot read pictures and that has no sandbox.</summary>
     public const string ModelCannotReadImages = "model_cannot_read_images";
 

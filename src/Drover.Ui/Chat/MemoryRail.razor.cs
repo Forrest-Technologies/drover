@@ -164,10 +164,10 @@ public sealed partial class MemoryRail(
 
     // Said once while it stands: toasts stay until dismissed, so a server that stays away does not stack them.
     private static string StaleWarning(Exception exception) =>
-        $"The notes could not be read again, so they may be out of date. {Failures.Sentence(exception)}";
+        $"The notes could not be read again, so they may be out of date. {Failures.Sentence(exception, "Check that the server is running.")}";
 
     private static string SentenceFor(Exception exception) =>
-        exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception);
+        exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception, "Check that the server is running.");
 
     #endregion
 }

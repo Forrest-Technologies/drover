@@ -100,6 +100,22 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void A_handle_the_server_says_was_chosen_never_follows_even_when_it_is_spelled_like_one_the_name_made()
+    {
+        // new-bot-2 on a bot named New bot, set by a person in an earlier session and stored as chosen.
+        var chosen = BotDraft.From(Stored("New bot", "new-bot-2") with { HandleChosen = true });
+        var made = BotDraft.From(Stored("New bot", "new-bot-2"));
+
+        chosen.HandleChosen.Should().BeTrue();
+        chosen.Rename("Writer");
+        made.Rename("Writer");
+
+        chosen.Handle.Should().Be("new-bot-2", "the choice survives a fresh editor session");
+        made.Handle.Should().Be("writer", "a bot whose handle the name made still follows it");
+        chosen.ToRequest().Handle.Should().Be("new-bot-2");
+    }
+
+    [Fact]
     public void A_handle_from_the_server_was_not_chosen_here_and_a_rename_after_a_choice_in_the_same_editor_still_keeps_it()
     {
         var read = BotDraft.From(Stored("New bot", "new-bot-2"));

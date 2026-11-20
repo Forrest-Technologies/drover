@@ -404,7 +404,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which
             .Should().Contain("\"handleFollowsName\":true", "the handle is the one the name made, so the server may number it");
 
-        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout-2" });
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout-2", HandleChosen = true });
         editor.Edit(draft => draft.Handle = "scout-2");
         await editor.Save();
         editor.Rename("Author");

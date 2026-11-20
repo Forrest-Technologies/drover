@@ -122,6 +122,34 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task A_freshly_tested_connections_catalog_opens_with_its_models_without_a_refresh()
+    {
+        Drover.Contracts.Models.ModelCatalogResponse[] catalog =
+        [
+            new(
+                "sample-model",
+                "Sample model",
+                new(null, null, true, true, false, false, [], false, false),
+                new(1m, 2m, null, "usd"),
+                "private",
+                ["default"],
+                "available",
+                DateTimeOffset.UnixEpoch),
+        ];
+        server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        server.Answer("POST", $"{space}/model-connections/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", catalog);
+        var model = Models();
+        await model.Open();
+
+        await model.Test(Connection);
+        await model.ShowCatalog(Connection);
+
+        model.Catalog.Should().BeEquivalentTo(catalog);
+        server.Sent("POST", $"{space}/model-connections/{connectionId}/models/refresh").Should().BeEmpty("a passing test stocks the catalog; the page presses no refresh");
+    }
+
+    [Fact]
     public async Task A_refused_connection_action_reports_only_on_its_own_row()
     {
         server.Answer("GET", $"{space}/model-connections", new[] { Connection });

@@ -22,6 +22,9 @@ public static class FileWords
     public static string SpaceFull(int maxMegabytes) =>
         $"This space keeps at most {maxMegabytes} MB of files, and this one would take it past that.";
 
+    public static string UploadExpired(TimeSpan lifetime) =>
+        $"This upload took longer than {(int)Math.Round(lifetime.TotalMinutes)} minutes and expired before it finished.";
+
     public static string TooMany(int maxFiles) => $"A message carries at most {maxFiles} files on this server.";
 
     public static string CannotOpen(string refusal, string botName) => refusal switch

@@ -332,6 +332,45 @@ public sealed class RunStreamTests(PostgresServer postgres) : ServerTestBase(pos
         spaceId.Should().Be(Person.SpaceId);
     }
 
+    [Fact]
+    public async Task An_app_off_screen_holds_no_signal_stream_so_its_person_is_no_longer_watching_and_can_be_woken()
+    {
+        Person = await SeedPerson("alice");
+        var client = NewClient();
+        (await client.SignIn(Person.Email, Person.Password)).EnsureSuccessStatusCode();
+        using var presence = new StreamPresence();
+        var api = new DroverApi(NewRelay(client), presence);
+        var hub = Services.GetRequiredService<UserSignalHub>();
+        List<UserSignal> signals = [];
+        var drops = 0;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        var watching = Task.Run(async () =>
+        {
+            await foreach (var signal in api.WatchSignals(Person.SpaceId, _ => Interlocked.Increment(ref drops), stop.Token))
+            {
+                lock (signals)
+                {
+                    signals.Add(signal);
+                }
+            }
+        }, Token);
+        await Until(() => hub.IsWatched(Person.SpaceId, Person.UserId));
+
+        presence.Hide();
+
+        // Push is sent only to a person with no live stream open: the server now wakes the phone instead.
+        await Until(() => !hub.IsWatched(Person.SpaceId, Person.UserId));
+        Volatile.Read(ref drops).Should().Be(0, "leaving the screen is not a dropped connection");
+
+        presence.Show();
+
+        await Until(() => hub.IsWatched(Person.SpaceId, Person.UserId)
+            && Snapshot(signals).Any(signal => signal.Kind == UserSignalKinds.Reconnected));
+        await stop.CancelAsync();
+        await Task.WhenAny(watching);
+        Volatile.Read(ref drops).Should().Be(0);
+    }
+
     #endregion
 
     #region Helpers

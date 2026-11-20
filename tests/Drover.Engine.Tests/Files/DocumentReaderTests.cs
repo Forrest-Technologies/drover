@@ -70,6 +70,57 @@ public sealed class DocumentReaderTests
     }
 
     [Fact]
+    public void Scanned_pdf_pictures_stop_before_crossing_combined_decoded_byte_bounds()
+    {
+        var pdf = TestDocuments.ScannedPdf(
+            TestDocuments.Jpeg(2_048, 2_048, 1),
+            TestDocuments.Jpeg(2_048, 2_048, 2));
+        var limits = roomy with
+        {
+            MaxDecodedImageBytes = 16L * 1024 * 1024,
+            SingleImageDecodedCap = 64L * 1024 * 1024,
+        };
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, limits);
+
+        read.PageImages.Should().ContainSingle();
+        read.PageImageDecodedBytes.Should().Be(16L * 1024 * 1024);
+        read.ImagesRejected.Should().BeTrue();
+        read.ImagesExceedSingleLimits.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Scanned_pdf_pictures_over_the_dimension_bound_are_rejected_before_extraction()
+    {
+        var pdf = TestDocuments.ScannedPdf(TestDocuments.Jpeg(4_097, 4, 1));
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy with { MaxImageDimension = 4_096 });
+
+        read.PageImages.Should().BeEmpty();
+        read.ImagesRejected.Should().BeTrue();
+        read.ImagesExceedSingleLimits.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Scanned_pdf_picture_headers_must_be_readable_and_match_the_pdf_dictionary(bool zeroHeaderHeight)
+    {
+        var pdf = TestDocuments.ScannedPdfWithDeclaredImageSize(
+            actualWidth: 8_000,
+            actualHeight: 6_000,
+            declaredWidth: 1_200,
+            declaredHeight: 1_600,
+            zeroHeaderHeight: zeroHeaderHeight);
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        read.PageImages.Should().BeEmpty();
+        read.ImagesRejected.Should().BeTrue();
+        read.ImagesExceedSingleLimits.Should().BeTrue();
+    }
+
+    [Fact]
     public void A_word_document_is_read_paragraph_by_paragraph()
     {
         var read = DocumentReader.Read(TestDocuments.Docx("Lease agreement", "Rent is due on the first."), DocumentTypes.Word, roomy);

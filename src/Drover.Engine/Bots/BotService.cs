@@ -151,7 +151,10 @@ public sealed class BotService(
         // A handle the old name made follows the new name. The client says so when the handle it sends is the new
         // name's, not one a person chose, and it may be taken by another bot: the server then adds a number as it does
         // for a new bot. A handle a person chose is used as it came, and a taken one is refused.
-        if (edit.HandleFollowsName
+        // What is stored decides before the spelling does: a handle a person set is never the name's, whatever it is
+        // spelled like.
+        if (edit.HandleFollowsName is true
+            && !bot.HandleChosen
             && edit.Handle != bot.Handle
             && edit.Name.Trim() != bot.Name
             && BotHandles.Follows(bot.Handle, bot.Name)
@@ -178,6 +181,14 @@ public sealed class BotService(
         }
 
         bot.Name = edit.Name.Trim();
+        // A choice is recorded and never undone by an update: a client that says the handle is the name's cannot take
+        // a handle a person set back to following the name.
+        bot.HandleChosen = edit.HandleFollowsName switch
+        {
+            true => bot.HandleChosen,
+            false => true,
+            null => bot.HandleChosen || edit.Handle != bot.Handle,
+        };
         bot.Handle = edit.Handle;
         bot.Avatar = edit.Avatar;
         bot.DescriptionForBots = edit.DescriptionForBots;

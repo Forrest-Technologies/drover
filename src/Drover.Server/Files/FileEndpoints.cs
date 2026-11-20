@@ -48,6 +48,22 @@ public static class FileEndpoints
         space.MapDelete("/files/{fileId:guid}", RemovePending)
             .WithName("RemovePendingFile")
             .WithSummary("Removes a file the caller attached and has not sent. A sent file is kept as long as its message.");
+        space.MapGet("/projects/{projectId:guid}/files", ListProjectFiles)
+            .AddEndpointFilter<TenantScopeFilter>()
+            .WithName("ListProjectFiles")
+            .WithSummary("The files shared in a project, newest first.");
+        space.MapPost("/projects/{projectId:guid}/files", UploadProjectFile)
+            .RequireSpaceRole(MembershipRole.Admin)
+            .WithBodyLimit(rules.MaxFileBytes, declared => FileWords.TooLarge(declared, rules.MaxFileBytes))
+            .WithName("UploadProjectFile")
+            .WithSummary("Stores the request body as a shared file in a project. The name is in the query.");
+        space.MapGet("/projects/{projectId:guid}/files/{fileId:guid}", DownloadProjectFile)
+            .WithName("DownloadProjectFile")
+            .WithSummary("A shared project file's content. download=true asks for it as an attachment.");
+        space.MapDelete("/projects/{projectId:guid}/files/{fileId:guid}", RemoveProjectFile)
+            .RequireSpaceRole(MembershipRole.Admin)
+            .WithName("RemoveProjectFile")
+            .WithSummary("Removes a shared file from a project and gives its bytes back to the space.");
         return space;
     }
 
@@ -71,35 +87,67 @@ public static class FileEndpoints
         {
             { File: { } file } => TypedResults.Created($"/api/spaces/{access.SpaceId}/files/{file.Id}", file.ToResponse()),
             { Problem: FileProblem.NotFound } => TypedResults.NotFound(),
-            _ => TypedResults.Problem(
-                title: upload.Detail,
-                statusCode: upload.Refusal is FileRefusals.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status422UnprocessableEntity,
-                extensions: new Dictionary<string, object?> { ["refusal"] = upload.Refusal }),
+            _ => UploadProblem(upload),
         };
     }
 
-    private static async Task<IResult> Download(Guid fileId, bool? download, HttpContext context, FileService files)
+    private static async Task<Results<Created<ProjectFileResponse>, NotFound, ProblemHttpResult>> UploadProjectFile(
+        Guid projectId,
+        string? name,
+        HttpContext context,
+        FileService files)
     {
-        if (await files.Open(fileId, context.RequestAborted) is not { } found)
-        {
-            return TypedResults.NotFound();
-        }
+        var access = context.GetSpaceAccess();
+        var upload = await files.UploadForProject(
+            projectId,
+            name,
+            context.Request.Body,
+            context.Request.ContentLength,
+            access.UserId,
+            context.RequestAborted);
 
-        var (contentType, inline) = FileInspector.KindOf(found.File.ContentType) switch
+        return upload switch
         {
-            FileKind.Image => (found.File.ContentType, download is not true),
-            FileKind.Text => ("text/plain; charset=utf-8", download is not true),
-            _ => ("application/octet-stream", false),
+            { File: { } file } => TypedResults.Created(
+                $"/api/spaces/{access.SpaceId}/projects/{projectId}/files/{file.Id}",
+                file.ToProjectFileResponse()),
+            { Problem: FileProblem.NotFound } => TypedResults.NotFound(),
+            _ => UploadProblem(upload),
         };
-        var headers = context.Response.Headers;
-        headers.ContentSecurityPolicy = DownloadPolicy;
-        headers["Cross-Origin-Resource-Policy"] = "same-origin";
-        headers.ContentDisposition = new ContentDispositionHeaderValue(inline ? "inline" : "attachment")
-        {
-            FileNameStar = found.File.Name,
-        }.ToString();
-        return TypedResults.Stream(found.Content, contentType);
     }
+
+    private static async Task<IResult> Download(Guid fileId, bool? download, HttpContext context, FileService files) =>
+        await files.Open(fileId, context.RequestAborted) is { } found
+            ? ServeDownload(found, download, context)
+            : TypedResults.NotFound();
+
+    private static async Task<IResult> DownloadProjectFile(Guid projectId, Guid fileId, bool? download, HttpContext context, FileService files) =>
+        await files.OpenForProject(projectId, fileId, context.RequestAborted) is { } found
+            ? ServeDownload(found, download, context)
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<IReadOnlyList<ProjectFileResponse>>, NotFound>> ListProjectFiles(
+        Guid projectId,
+        HttpContext context,
+        FileService files) =>
+        await files.ListProjectFiles(projectId, context.RequestAborted) is { } stored
+            ? TypedResults.Ok<IReadOnlyList<ProjectFileResponse>>([.. stored.Select(file => file.ToProjectFileResponse())])
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<IReadOnlyList<ExchangedFileResponse>>, NotFound>> ListExchanged(Guid botId, HttpContext context, FileService files) =>
+        await files.ListExchanged(botId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } exchanged
+            ? TypedResults.Ok<IReadOnlyList<ExchangedFileResponse>>([.. exchanged.Select(found => found.ToResponse())])
+            : TypedResults.NotFound();
+
+    private static async Task<Results<NoContent, NotFound>> RemovePending(Guid fileId, HttpContext context, FileService files) =>
+        await files.RemovePending(fileId, context.GetSpaceAccess().UserId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
+
+    private static async Task<Results<NoContent, NotFound>> RemoveProjectFile(Guid projectId, Guid fileId, HttpContext context, FileService files) =>
+        await files.RemoveProjectFile(projectId, fileId, context.RequestAborted)
+            ? TypedResults.NoContent()
+            : TypedResults.NotFound();
 
     private static async Task<Results<Ok<NativeFilePreview>, NotFound>> ReadNativePreview(
         Guid fileId,
@@ -139,15 +187,33 @@ public static class FileEndpoints
         return TypedResults.NoContent();
     }
 
-    private static async Task<Results<Ok<IReadOnlyList<ExchangedFileResponse>>, NotFound>> ListExchanged(Guid botId, HttpContext context, FileService files) =>
-        await files.ListExchanged(botId, context.GetSpaceAccess().UserId, context.RequestAborted) is { } exchanged
-            ? TypedResults.Ok<IReadOnlyList<ExchangedFileResponse>>([.. exchanged.Select(found => found.ToResponse())])
-            : TypedResults.NotFound();
+    #endregion
 
-    private static async Task<Results<NoContent, NotFound>> RemovePending(Guid fileId, HttpContext context, FileService files) =>
-        await files.RemovePending(fileId, context.GetSpaceAccess().UserId, context.RequestAborted)
-            ? TypedResults.NoContent()
-            : TypedResults.NotFound();
+    #region Private Helpers
+
+    private static ProblemHttpResult UploadProblem(FileUpload upload) =>
+        TypedResults.Problem(
+            title: upload.Detail,
+            statusCode: upload.Refusal is FileRefusals.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status422UnprocessableEntity,
+            extensions: new Dictionary<string, object?> { ["refusal"] = upload.Refusal });
+
+    private static FileStreamHttpResult ServeDownload(FileDownload found, bool? download, HttpContext context)
+    {
+        var (contentType, inline) = FileInspector.KindOf(found.File.ContentType) switch
+        {
+            FileKind.Image => (found.File.ContentType, download is not true),
+            FileKind.Text => ("text/plain; charset=utf-8", download is not true),
+            _ => ("application/octet-stream", false),
+        };
+        var headers = context.Response.Headers;
+        headers.ContentSecurityPolicy = DownloadPolicy;
+        headers["Cross-Origin-Resource-Policy"] = "same-origin";
+        headers.ContentDisposition = new ContentDispositionHeaderValue(inline ? "inline" : "attachment")
+        {
+            FileNameStar = found.File.Name,
+        }.ToString();
+        return TypedResults.Stream(found.Content, contentType);
+    }
 
     #endregion
 }

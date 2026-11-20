@@ -8,7 +8,10 @@ namespace Drover.Domain.Files;
 /// </summary>
 public interface IFileStore
 {
-    /// <summary>Writes the content under the key, replacing what was there. Nothing is left behind when it fails.</summary>
+    /// <summary>
+    /// Writes the content under the key, replacing what was there. Nothing is left behind when it fails. Reads
+    /// <paramref name="content"/> asynchronously with <see cref="Stream.ReadAsync(Memory{byte}, CancellationToken)"/> only.
+    /// </summary>
     Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken);
 
     /// <summary>The content, for the caller to dispose. Null when nothing is stored under the key.</summary>

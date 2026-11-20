@@ -22,6 +22,18 @@ public abstract class TableSeeder
     /// </summary>
     public abstract Task<IReadOnlyDictionary<string, object?>> Row(SeedRow seed);
 
+    /// <summary>
+    /// Inserts the row used by positive isolation controls. Most tables use a direct insert. A table whose rows are
+    /// produced only by another table's trigger can override this and exercise that production path.
+    /// </summary>
+    public virtual Task<IReadOnlyDictionary<string, object?>> Insert(
+        IsolationHarness harness,
+        TenantSession session,
+        TableUnderTest table,
+        RowPlacement placement,
+        IReadOnlyDictionary<string, object?> values) =>
+        harness.Insert(session, table, values);
+
     #endregion
 }
 
@@ -75,6 +87,10 @@ public sealed class SeedRow(
         parents.TryGetValue(parentTable, out var parent)
             ? parent.Key[column]
             : throw new InvalidOperationException($"'{Table}' has no parent row in '{parentTable}'.");
+
+    /// <summary>The space id of the seeded parent row in <paramref name="parentTable"/>, or null when unplaced.</summary>
+    public Guid? ParentSpaceId(string parentTable) =>
+        parents.TryGetValue(parentTable, out var parent) ? parent.Placement.SpaceId : null;
 
     /// <summary>A new user who exists in the database, for a row that needs one of its own.</summary>
     public Task<Guid> CreateUser() => createUser();

@@ -20,8 +20,12 @@ public sealed record BotEdit(
     BuildLimits BuildLimits,
     RunLimits RunLimits)
 {
-    /// <summary>The handle is the one the new name makes, not one a person chose, so the service may number it.</summary>
-    public bool HandleFollowsName { get; init; }
+    /// <summary>
+    /// Whether the handle is the one the name makes (true), one a person chose (false), or the request did not say
+    /// (null): then a handle that changed is a choice, and one that did not keeps what is stored. A bot's handle once
+    /// chosen stays chosen.
+    /// </summary>
+    public bool? HandleFollowsName { get; init; }
 }
 
 /// <summary>

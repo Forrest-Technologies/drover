@@ -2,7 +2,7 @@ namespace Drover.Native.Session;
 
 /// <summary>
 /// Shows what is behind it only to a signed-in person. Anyone else is sent to sign in, or to setup on a new
-/// server. A server that does not answer is said in words, with a way to try again.
+/// server. A server that does not answer, here or on the screen behind it, is said in words, with a way to try again.
 /// </summary>
 [Microsoft.UI.Xaml.Markup.ContentProperty(Name = nameof(Body))]
 public sealed class SessionGate : Grid
@@ -20,7 +20,12 @@ public sealed class SessionGate : Grid
     public SessionGate()
     {
         model.PropertyChanged += (_, _) => Show();
-        Loaded += async (_, _) => await model.Check();
+        Loaded += async (_, _) =>
+        {
+            model.Watch();
+            await model.Check();
+        };
+        Unloaded += (_, _) => model.Unwatch();
         Show();
     }
 
@@ -59,7 +64,7 @@ public sealed class SessionGate : Grid
                     Title = SessionGateViewModel.UnreachableTitle,
                     Cause = SessionGateViewModel.UnreachableCause,
                     ActionLabel = "Try again",
-                    ActionCommand = model.CheckCommand,
+                    ActionCommand = model.TryAgainCommand,
                 });
                 column.Children.Add(new ServerChoice());
                 Children.Add(Centered(column));
