@@ -9,8 +9,10 @@ public sealed class AccountService(
     UserManager<User> users,
     IPasswordHasher<User> hasher,
     AccountRepository accounts,
+    SandboxRepository sandboxes,
     TenantScope scope,
     TenantContext tenant,
+    IServiceScopeFactory scopes,
     ToolCatalog catalog,
     IOptions<IdentityOptions> identity,
     TimeProvider time)
@@ -161,6 +163,89 @@ public sealed class AccountService(
         var stamp = user is null ? null : await users.GetSecurityStampAsync(user);
         await work.Commit(cancellationToken);
         return stamp;
+    }
+
+    /// <summary>
+    /// Adds a person to the space, when <paramref name="actorUserId"/> is an owner or an admin of it. Null when they
+    /// are not. When the space is personal and has one member, every live sandbox is retired in this same
+    /// transaction, before the new membership is visible: the one person who could see a private write is no longer
+    /// the only person who can reach the sandbox. The retirement holds the space's copy fence, so a copy still in
+    /// flight re-checks the audience before it writes. The new person joins as themselves, because a user row is
+    /// theirs to write. The password is random and is not returned, so this join does not sign anyone in.
+    /// </summary>
+    public async Task<Guid?> AddMember(Guid spaceId, Guid actorUserId, MembershipRole role, CancellationToken cancellationToken)
+    {
+        if (!await ActorMayAddAMember(spaceId, actorUserId, cancellationToken))
+        {
+            return null;
+        }
+
+        var memberId = Guid.CreateVersion7();
+        var email = $"{memberId:N}@example.test";
+        var member = new User
+        {
+            Id = memberId,
+            UserName = $"user-{memberId:N}",
+            NormalizedUserName = $"USER-{memberId:N}".ToUpperInvariant(),
+            Email = email,
+            NormalizedEmail = $"{memberId:N}@EXAMPLE.TEST".ToUpperInvariant(),
+            DisplayName = "Another member",
+        };
+        member.PasswordHash = hasher.HashPassword(member, $"pw-{Convert.ToHexString(RandomNumberGenerator.GetBytes(18))}");
+        tenant.Set(spaceId, memberId);
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await accounts.IsPersonalWithOneMember(spaceId, cancellationToken))
+        {
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
+        }
+
+        accounts.Add(member);
+        accounts.Add(new Membership { SpaceId = spaceId, UserId = memberId, Role = role });
+        await work.Commit(cancellationToken);
+        return memberId;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="actorUserId"/> may add a member of <paramref name="spaceId"/>. The check uses its own
+    /// scope, because the join that follows writes the new person's user row and the tenant context cannot change user.
+    /// </summary>
+    private async Task<bool> ActorMayAddAMember(Guid spaceId, Guid actorUserId, CancellationToken cancellationToken)
+    {
+        await using var actor = scopes.CreateAsyncScope();
+        var services = actor.ServiceProvider;
+        services.GetRequiredService<TenantContext>().Set(spaceId, actorUserId);
+        await using var work = await services.GetRequiredService<TenantScope>().Begin(cancellationToken);
+        var role = await services.GetRequiredService<AccountRepository>().FindRole(spaceId, actorUserId, cancellationToken);
+        await work.Commit(cancellationToken);
+        return role is MembershipRole.Owner or MembershipRole.Admin;
+    }
+
+    /// <summary>
+    /// Makes a personal space shared. Every live sandbox is retired in this same transaction, before the kind
+    /// changes: a private conversation in a shared space is not one person's any more. The retirement holds the
+    /// space's copy fence, so a copy still in flight re-checks the audience before it writes. False when the caller
+    /// may not change the space, or the space is not there. Already shared is left as it is.
+    /// </summary>
+    public async Task<bool> MakeShared(Guid spaceId, Guid userId, CancellationToken cancellationToken)
+    {
+        tenant.Set(spaceId, userId);
+        await using var work = await scope.Begin(cancellationToken);
+        var role = await accounts.FindRole(spaceId, userId, cancellationToken);
+
+        if (role is not (MembershipRole.Owner or MembershipRole.Admin))
+        {
+            return false;
+        }
+
+        if (await accounts.GetSpace(spaceId, cancellationToken) is { Kind: SpaceKind.Personal })
+        {
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
+            await accounts.MakeShared(spaceId, cancellationToken);
+        }
+
+        await work.Commit(cancellationToken);
+        return true;
     }
 
     /// <summary>The spaces the signed-in person can pick from. The user comes from the tenant context.</summary>

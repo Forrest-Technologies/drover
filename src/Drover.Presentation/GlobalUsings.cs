@@ -1,5 +1,6 @@
 global using System;
 global using System.Buffers.Binary;
+global using System.Collections.Concurrent;
 global using System.Collections.Generic;
 global using System.Collections.Immutable;
 global using System.Globalization;
@@ -31,6 +32,7 @@ global using Drover.Contracts.Runs;
 global using Drover.Contracts.Status;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;
+global using Drover.Presentation.Diagnostics;
 global using Drover.Presentation.Drawing;
 global using Drover.Presentation.Platform;
 global using Drover.Presentation.Routing;

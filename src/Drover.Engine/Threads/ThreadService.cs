@@ -32,6 +32,7 @@ public sealed class ThreadService(
     TenantScope scope,
     UserSignalHub signals,
     ConversationModels models,
+    SandboxRepository sandboxes,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -174,6 +175,38 @@ public sealed class ThreadService(
 
         thread.ProjectId = projectId;
         return new(ProjectMembershipOutcome.Updated, await WithAttention(thread, userId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Makes a shared thread private to its owner. Every live sandbox is retired in this same transaction, before
+    /// the audience narrows: a copy was allowed because the whole space could see the conversation, and that is no
+    /// longer true. Nothing on the sandbox says which conversation wrote it, so every live sandbox of the space is
+    /// retired. The retirement holds the space's copy fence, so a copy still in flight re-checks the audience before
+    /// it writes. False when the caller is not the owner, or the thread is not there. A thread that is already
+    /// private is left as it is.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var thread = await threads.FindThread(threadId, cancellationToken);
+
+        if (thread is null || thread.OwnerUserId != userId)
+        {
+            return false;
+        }
+
+        if (thread.AudienceUserId == Audience.Everyone)
+        {
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
+
+            if (!await threads.MakePrivate(threadId, userId, cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        await work.Commit(cancellationToken);
+        return true;
     }
 
     /// <summary>

@@ -260,6 +260,7 @@ internal sealed class TalkWorkspace : Grid
 
         mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
         mainHeaderRow.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        AutomationProperties.SetAutomationId(back, "TalkBack");
         FrameworkElement[] parts = [back, head, title, paused, more];
         foreach (var part in parts)
         {

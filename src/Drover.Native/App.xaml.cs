@@ -4,6 +4,8 @@ public partial class App : Application
 {
     #region Private Fields
 
+    private readonly DiagnosticLog diagnostics = AppDiagnostics.Log;
+
     private ServiceProvider? services;
 
     #endregion
@@ -13,11 +15,27 @@ public partial class App : Application
     public App()
     {
         // Until the services exist, a failure to start still has somewhere to be written.
-        Log.Factory = LoggerFactory.Create(logging => logging.AddPlatformLog());
+        Log.Factory = LoggerFactory.Create(logging => logging.AddPlatformLog().AddDiagnosticLog(diagnostics));
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Log.Factory;
         Uno.UI.Adapter.Microsoft.Extensions.Logging.LoggingAdapter.Initialize();
-        UnhandledException += (_, failure) =>
-            Log.For<App>().LogError(failure.Exception, "Something in the interface failed and was not handled");
+        // Each failure is kept apart first, so the next start can offer it even if the app stops before the line
+        // reaches the log. Only a fixed crash event goes to the platform logger, never the raw exception message.
+        UnhandledException += (_, failure) => diagnostics.ReportUnhandled(
+            Log.For<App>(),
+            LogLevel.Error,
+            new EventId(1, "InterfaceUnhandled"),
+            failure.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, failure) =>
+        {
+            if (failure.ExceptionObject is Exception exception)
+            {
+                diagnostics.ReportUnhandled(
+                    Log.For<App>(),
+                    LogLevel.Critical,
+                    new EventId(2, "ProcessUnhandled"),
+                    exception);
+            }
+        };
 
         InitializeComponent();
         Resources.MergedDictionaries.Add(Tokens.Dictionary);
@@ -81,13 +99,23 @@ public partial class App : Application
                 IsActive = activated.WindowActivationState is not WindowActivationState.Deactivated;
             Restart();
             MainWindow.Activate();
+            ActivatorUtilities.CreateInstance<AboutViewModel>(Services).OfferAfterFailure(PlatformFiles.SaveLog);
+            StartChecks(MainWindow);
         }
         catch (Exception exception)
         {
-            Log.For<App>().LogCritical(exception, "The app could not start");
+            diagnostics.ReportUnhandled(
+                Log.For<App>(),
+                LogLevel.Critical,
+                new EventId(3, "LaunchFailed"),
+                exception);
             throw;
         }
     }
+
+    // A build made for the screen checks (tests/Drover.Native.UITests) runs them here. Any other build has no body
+    // for this, so the call is not compiled.
+    partial void StartChecks(Window window);
 
     #endregion
 }

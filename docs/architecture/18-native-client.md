@@ -38,6 +38,7 @@ src/Drover.Native/
   Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table
   Platforms/Desktop/       Program.cs, files out, the desktop credential store
   Platforms/Android/       application, activity, manifest
+  Platforms/iOS/           entry point, manifest, keychain entitlement, safe areas
   Assets/Fonts/            Inter and JetBrains Mono, with their licenses
 ```
 
@@ -46,9 +47,9 @@ src/Drover.Native/
 | Target | Framework | State |
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
-| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. macOS and Windows build in CI |
-| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21. The API 35 emulator checks text editing. |
-| iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
+| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. Linux, Windows and macOS start in CI and pass the [screen checks](#screen-checks) |
+| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21. The API 35 emulator checks text editing and passes the [screen checks](#screen-checks). |
+| iOS | `net11.0-ios` | Hosted macOS builds the simulator app and runs the shared screen checks. The second launch verifies that the saved sign-in is restored from the system credential store. |
 
 Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by the upstream [migration guide](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/doc/articles/migrating-to-uno-7/project-setup.md#mac-catalyst-is-removed).
 
@@ -59,6 +60,7 @@ Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by th
 dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -warnaserror
 dotnet build src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -warnaserror     # needs: dotnet workload install wasm-tools
 dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -warnaserror         # needs the Android SDK
+dotnet build src/Drover.Native -f net11.0-ios -p:DroverNativeTargetFrameworks=net11.0-ios -p:DroverEnableApple=true -p:RuntimeIdentifier=iossimulator-arm64 -p:CodesignKey=- -warnaserror
 
 # Run on desktop
 dotnet run --project src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop
@@ -90,6 +92,46 @@ Taking a screenshot of the browser build: serve the published `wwwroot` under `/
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`.
 
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
+
+## Screen checks
+
+Every pull request starts the app on Android, iOS, Linux, Windows and macOS and runs one shared set of screen checks:
+the app opens on the connect screen, connects to a test server, signs in, opens the conversation with the test
+bot, sends a message and reads the bot's reply, and goes back to the crew. Every target runs them at phone width,
+so each shows the same controls.
+
+- **In the app.** The checks are in `tests/Drover.Native.UITests/App/`. They are compiled only into a build made
+  for them (`-p:DroverUiChecks=true`, desktop and Android), never into a product build: `App.StartChecks` and
+  `AppServices.AddChecks` are partial methods with no body anywhere else. A check finds each control by its
+  automation id (`AutomationProperties.AutomationId`) and presses it through its automation peer, so renaming or
+  dropping an id fails the step that needs it. The ids in use are `ConnectAddress`, `ConnectSubmit`,
+  `SignInEmail`, `SignInPassword`, `SignInSubmit`, `CrewRow`, `ComposerField`, `ComposerSend`, `MessageList`
+  and `TalkBack`. Each step reports one line, and the last line says whether all of them passed.
+- **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
+  certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
+  makes an account and one bot through the API, starts the app with the server's address, the account, and the
+  certificate's SHA-256 hash, and exits with 0 only when the app reports that every check passed. The app trusts
+  that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
+  port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
+  through the device log under the tag `DroverUiCheck`.
+- **Shipping build guard.** After building the shipping Android, iOS, and desktop targets without `-p:DroverUiChecks=true`,
+  `.github/workflows/native.yml` scans the compiled `Drover.Native.dll` for UTF-8 metadata names that only exist in
+  the checks build (`ScreenChecks`, `CheckSettings`, `TryGetIsolatedText`) and fails if any match.
+- **iOS restart.** The simulator runs the same screen flow, closes the app, and opens the installed app again.
+  The second run passes only when the server choice and sign-in from the first run restore and the crew appears.
+- **Adding a check.** Add a step to `ScreenChecks`, give each control it uses an automation id in the app, and
+  keep the step working at phone width on every target.
+
+```bash
+# Desktop: build the app with the checks, then run them (Linux needs a display: xvfb-run -a in front)
+dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -p:DroverUiChecks=true -o <folder>
+dotnet run --project tests/Drover.Native.UITests -- desktop <folder>/Drover.Native.dll
+
+# Android: install a build with the checks on the one device adb sees, then run them
+dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -p:DroverUiChecks=true -o <folder>
+adb install -r <folder>/*-Signed.apk
+dotnet run --project tests/Drover.Native.UITests -- android
+```
 
 ## Tokens
 
@@ -225,6 +267,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 - **A line that takes the place of a button** is a `FocusLine`: it can be given the focus and is not a stop on the way through the page, as an element with a tab index of minus one is on the web.
 - **A status** is a text block with a live setting whose automation peer raises `LiveRegionChanged` when its words change (`Pieces.SayWhenShown`, `StatusNote`). That is the native form of a region marked as a status or an alert.
 - **The gallery reads from a sample server.** The panels that load from the server are shown with their real view models, which ask `Pages/Dev/SampleServer.cs` inside the app. Nothing leaves the app.
+- **Native file previews stay inside native controls.** `FileCard` hosts `NativeFilePreviewControl` (`NativeFilePreviewViewModel`) for files other than bot HTML. The server's `/api/spaces/{spaceId}/files/{fileId}/native-preview` endpoint inspects the stored bytes within tight size, page, and pixel caps and returns bounded Markdown text, static PNG or JPEG bytes, extracted PDF pages, a parsed flowchart node-and-edge model, or a refusal code. Markdown is parsed by `FileMarkdown` with raw HTML disabled, node count and depth capped, and remote images converted into external links whose target address is visible; fenced `flowchart` and `graph` blocks draw as native node-and-edge cards. Static images decode through Skia (`SKCodec`) only after single-frame PNG or JPEG format and pixel dimensions (`1 MiB`, `4,000,000` pixels) are verified. PDFs extract up to 10 pages and 16 KiB of text or bounded page images and step through pages with keyboard-focusable Previous page and Next page buttons. Closing a preview or replacing the file clears all decoded bitmaps, pages, and diagram controls and keeps Download available.
 
 Differences from the web client in these pieces, each seen in the pictures in `docs/screenshots/native-chat-pieces`:
 
@@ -246,12 +289,13 @@ Differences from the web client in these pieces, each seen in the pictures in `d
 - **Back on a device.** Android's Back asks the navigator for one step back (`Navigator.StepBack`). An open dialog or sheet closes first, then an open rail (into its conversation, leaving no step behind), then the app goes to the address before, through `Leaving`, so the bot editor still asks before it drops changes. With nothing open and no address before, Android leaves the app. Something new that opens over a screen and should close on Back registers with `Navigator.AddCloser` while it is open. `Platforms/Android/BackButton.cs` listens to the system only while `CanStepBack` is true, because from Android 16 listening alone decides whether the app takes Back. `scripts/check-native-android-back.py` checks Back on the first screen in the emulator; the other steps are covered by the navigator's tests, because the emulator has no server.
 - **In a browser** the address bar and the browser's history follow the navigator, and the browser's back and forward buttons move the app, so every address is a link that can be opened, reloaded, and shared. The browser's Back arrives through `Navigator.Arrive`, which takes the same step as a device's Back (`StepBack`): an open dialog closes first, and a screen holding work asks first through `Leaving`. When the app stays, `Platforms/WebAssembly/PlatformShell.cs` puts the address bar back. A step the app takes through its own history, such as leaving the bot editor by going back, moves the browser's history the same way. Closing or reloading the tab asks the browser to confirm while `Navigator.HoldsWork` answers true; the bot editor sets it while changes are not saved. `scripts/check-native-browser.mjs` checks both on the bot editor.
 - **Layouts.** A screen's root element is its layout: `EntryLayout` for sign-in and setup, `WorkLayout` for a screen of the workspace. `WorkLayout` holds the `SessionGate`, the bar, and below 560 pixels the dock. Children are stacked in the layout's column.
+- **Diagnostic log.** The app keeps a log of its warnings and failures on the device, so a person can attach it to a bug report. Nothing sends it anywhere. It is written through the app's logging (`DiagnosticLogProvider`, added in `Shell/AppDiagnostics.cs`), and `DiagnosticEntry` keeps only an allow-list: time, level, logger name, event number, the message template of Drover's own code, values that cannot hold text (numbers, flags, durations, times, named choices), and for an exception its type, result code and frames read from the runtime, with source files named without their folders. Formatted messages, text values, ids, exception messages and other libraries' messages are never written. The log is two parts of at most 64 K characters each (`DiagnosticLog`); the last failure nothing handled is kept apart. On a desktop or a phone it is text files under the app's local data folder (`Drover/diagnostics`); in a browser, local storage entries named `drover.diagnostics*`. A failure nothing handled is one the app's or the runtime's unhandled-exception events report, or an error the platform's dispatcher logs after catching it (`Uno.UI.Dispatching.NativeDispatcher`, which on desktop and in a browser catches what an interface callback throws). The next start shows a toast that offers "Save diagnostics", once per failure. "About Drover" in the account menu shows the version and platform and saves the log at any time, through the same save paths as an extension (`PlatformFiles.SaveLog`: the system's save dialog on a device, a download in a browser).
 
 ## Transport and security
 
 Unchanged from the clients this one replaces, because it compiles the same source.
 
-- **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. The only thing in local storage is the theme choice. A tool server's sign-in started here names the path the build is served under (`AppSignInReturn`), so the browser comes back to `/native/` on the connection, not to the web client.
+- **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. Local storage holds the theme choice and the diagnostic log (below), which keeps nothing secret. A tool server's sign-in started here names the path the build is served under (`AppSignInReturn`), so the browser comes back to `/native/` on the connection, not to the web client.
 - **On a device:** `AppRequests` sends requests only to the HTTPS origin the person chose, follows no redirects, and keeps cookies in memory. `ServerAddress` keeps the address in plain settings. `NativeSession` keeps the sign-in that outlives the app through `ISecureStorage`: on a phone, the platform's credential store (`DeviceSecrets`); on a desktop, the operating system's (`DesktopSecrets` over `SystemSecrets`): the login Keychain on macOS, the Secret Service on Linux, and on Windows a file under local application data that only the person's Windows account can decrypt (DPAPI). Each key is its own entry, and signing out removes it. When the computer has no store the app can use (a Linux machine with no Secret Service), or the store fails, the app logs one warning and keeps the sign-in only until it closes. No secret is written to a plain file or the log. `tests/Drover.Native.Desktop.Tests` runs the store against the real one of the computer it is on; the desktop workflow runs it on each system, on Linux under a test Secret Service. A tool server's sign-in comes back into the desktop app through `DesktopSignInReturn`, a listener on `127.0.0.1` at a port the system gives it, started the first time a sign-in asks for it. It holds at most a few incomplete connections and refuses any more at once. It reads one request, hands a well-formed ticket to the tools screen through `IncomingNavigation`, and answers with a page that loads nothing ([06-mcp.md](06-mcp.md), "Coming back into a native app"). The same test project covers it.
 - **Content security policy.** The published browser build runs under the policy `SecurityHeaders` sends, with nothing added. The platform's font fallback, which would fetch Noto fonts from another site for a character Inter lacks, is switched off in `Platforms/WebAssembly/Program.cs` (`SkiaBackend.CreateFontProvider(enableFallback: false)`): the policy refused every such fetch anyway, with an error in the console for each. The platform's runtime evaluates five small expressions as script at startup, which the policy forbids. `Platforms/WebAssembly/WasmScripts/NoEval.js` answers exactly those five with functions and passes anything else to the browser's own `eval`, which the policy refuses. So a new expression fails loudly instead of being allowed. After any SDK upgrade, and after first using a platform feature (clipboard, launcher, file picker, share), run the published build under the policy and read the console.
 - **Calling the browser.** Use `[JSImport]` on a browser function, as `Platforms/WebAssembly/Browser.cs` does. Never `WebAssemblyRuntime.InvokeJS`: it is `eval`. A shared script module is imported with `JSHost.ImportAsync` relative to `_framework`, as `PageCookies` (`cookies.js`) and `BrowserPushRegistration` (`push.js`) do.
@@ -522,8 +566,11 @@ The Docker publish caps the managed heap, skips the optional XAML resource-trimm
 and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
-`.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
-packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
+`.github/workflows/native.yml` builds Android on hosted Linux, iOS on hosted macOS, and desktop on hosted Linux,
+Windows and macOS. It also publishes the browser head. The iOS job builds for a simulator with warnings as errors,
+runs the shared screen checks, and relaunches the installed app to verify its saved sign-in. CI uploads a
+development-signed Android APK and the browser publish as artifacts. Production iOS signing, packaging, and real
+provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
 registration and notifications, and shares in are built on Android from the shell's own code and compile in the
 APK (its manifest was read back: receivers, the file provider, the return scheme, the share targets), but were not
 run on a device. `ConnectViewModel` still

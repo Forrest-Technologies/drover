@@ -1,11 +1,17 @@
 namespace Drover.Native.Platform;
 
-/// <summary>Save text through the platform picker, without choosing a path on the person's behalf.</summary>
+/// <summary>
+/// Save an extension or the diagnostic log through the platform picker, without choosing a path on the person's
+/// behalf.
+/// </summary>
 internal static class PlatformFiles
 {
     #region Public Methods
 
-    public static Task<bool> SaveText(string name, string text) => Save(name, "JSON file", ".json", text);
+    public static Task<bool> SaveText(string name, string text) => Save(name, text, "JSON file", ".json");
+
+    public static Task<bool> SaveLog(string name, string text) =>
+        Save(System.IO.Path.GetFileNameWithoutExtension(name), text, "Text file", ".txt");
 
     /// <summary>
     /// Saves text under the name, offering the name's extension as its only type, named for its media type. The
@@ -20,14 +26,14 @@ internal static class PlatformFiles
             "application/json" => "JSON file",
             _ => "Text file",
         };
-        return Save(System.IO.Path.GetFileNameWithoutExtension(name), typeName, extension, text);
+        return Save(System.IO.Path.GetFileNameWithoutExtension(name), text, typeName, extension);
     }
 
     #endregion
 
     #region Private Methods
 
-    private static async Task<bool> Save(string suggestedName, string typeName, string extension, string text)
+    private static async Task<bool> Save(string suggestedName, string text, string typeName, string extension)
     {
         try
         {

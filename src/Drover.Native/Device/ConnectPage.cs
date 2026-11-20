@@ -32,6 +32,9 @@ public sealed class ConnectPage : Screen
         layout.Body.Add(form);
         Content = layout;
 
+        AutomationProperties.SetAutomationId(address, "ConnectAddress");
+        AutomationProperties.SetAutomationId(connect, "ConnectSubmit");
+        AutomationProperties.SetAutomationId(problem, "ConnectProblem");
         connect.Command = model.ConnectCommand;
         address.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.Address = address.Value);
         address.Submitted += (_, _) => model.ConnectCommand.Execute(null);
