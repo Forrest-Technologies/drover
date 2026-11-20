@@ -268,6 +268,15 @@ dotnet_diagnostic.RS0030.severity = none
 [src/Drover.Native/{Device,Platforms/WebAssembly}/PlatformServices.cs]
 dotnet_diagnostic.RS0030.severity = none
 
+# A build made for the screen checks trusts the one certificate its harness made, beside what the platform trusts.
+# It is compiled only into that build, never into a product build.
+[tests/Drover.Native.UITests/App/CheckSettings.cs]
+dotnet_diagnostic.RS0030.severity = none
+
+# The screen-check harness starts the app under check and adb, and talks only to the test server it runs itself.
+[tests/Drover.Native.UITests/*.cs]
+dotnet_diagnostic.RS0030.severity = none
+
 # The native client's browser files are compiled only into its browser build. The platform checker does not know
 # that build's framework name (browserwasm) as "browser", so it would flag every call into the browser.
 [src/Drover.Native/Platforms/WebAssembly/*.cs]

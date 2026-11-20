@@ -74,6 +74,8 @@ public sealed class Composer : Grid
         Labelled(stop, IconName.Stop, "Stop");
         Labelled(send, IconName.Send, "Send");
         AutomationProperties.SetName(options, "Message options");
+        AutomationProperties.SetAutomationId(field, "ComposerField");
+        AutomationProperties.SetAutomationId(send, "ComposerSend");
         options.Children.Add(attach);
         options.Children.Add(modelPick);
 

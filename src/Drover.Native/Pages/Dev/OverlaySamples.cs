@@ -40,7 +40,16 @@ public static class OverlaySamples
         var error = new Button { Content = "Show an error toast" };
         error.Click += (_, _) => toasts.Show("The sample connection could not be reached. Check the address.", ToastKind.Error);
 
-        return [openDialog, openSheet, menu, tooltip, error, dialog, sheet];
+        // The real About dialog of the account menu. It shows this build's own version and platform.
+        var about = new Dialog { Title = "About Drover" };
+        var openAbout = new Button { Content = "Open About" };
+        openAbout.Click += (_, _) =>
+        {
+            about.Body = new AboutDrover();
+            about.Open = true;
+        };
+
+        return [openDialog, openSheet, menu, tooltip, error, openAbout, dialog, sheet, about];
     }
 
     private static MenuItem Item(string label, Action choose)

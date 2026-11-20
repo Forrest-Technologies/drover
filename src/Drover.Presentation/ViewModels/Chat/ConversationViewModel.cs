@@ -128,6 +128,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     public bool ReadOnly => parameters.ReadOnly;
 
+    /// <summary>The conversation's thread once it has one: a side chat has none until its first message.</summary>
+    public Guid? ThreadId => thread?.Id;
+
     /// <summary>The messages, the bot thinking, and how the last reply ended.</summary>
     public MessageListViewModel List { get; } = new();
 

@@ -661,6 +661,81 @@ namespace Drover.Data.Migrations
                     b.ToTable("extension_installs", (string)null);
                 });
 
+            modelBuilder.Entity("Drover.Domain.Files.FileByteReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("bytes");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_file_byte_reservations");
+
+                    b.ToTable("file_byte_reservations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_file_byte_reservations_bytes", "bytes > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Drover.Domain.Files.PendingFileDeletion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("CleanupClaimUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cleanup_claim_until");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("storage_key");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pending_file_deletions");
+
+                    b.HasIndex("SpaceId", "ProjectId")
+                        .HasDatabaseName("ix_pending_file_deletions_space_id_project_id");
+
+                    b.ToTable("pending_file_deletions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_pending_file_deletions_size", "size >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Files.StoredFile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -710,6 +785,10 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("preview");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
                     b.Property<string>("ReadingNote")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)")
@@ -758,9 +837,16 @@ namespace Drover.Data.Migrations
                     b.HasIndex("SpaceId", "ThreadId", "AudienceUserId")
                         .HasDatabaseName("ix_files_space_id_thread_id_audience_user_id");
 
+                    b.HasIndex("SpaceId", "ProjectId", "CreatedAt", "Id")
+                        .HasDatabaseName("ix_files_space_id_project_id_created_at_id");
+
                     b.ToTable("files", null, t =>
                         {
+                            t.HasCheckConstraint("ck_files_owner", "thread_id IS NULL OR project_id IS NULL");
+
                             t.HasCheckConstraint("ck_files_picture_size", "(width IS NULL) = (height IS NULL) AND (width IS NULL OR (width > 0 AND height > 0))");
+
+                            t.HasCheckConstraint("ck_files_project_audience", "project_id IS NULL OR (message_id IS NULL AND audience_user_id = sys.everyone())");
 
                             t.HasCheckConstraint("ck_files_size", "size >= 0");
                         });
@@ -2604,6 +2690,13 @@ namespace Drover.Data.Migrations
                         .HasPrincipalKey("SpaceId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_files_bots_space_id_created_by_bot_id");
+
+                    b.HasOne("Drover.Domain.Projects.Project", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "ProjectId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_files_projects_space_id_project_id");
 
                     b.HasOne("Drover.Domain.Threads.ChatThread", null)
                         .WithMany()

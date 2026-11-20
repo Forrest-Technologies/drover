@@ -10,6 +10,7 @@
     <PackageReference Include="AngleSharp" />
     <PackageReference Include="Cronos" />
     <PackageReference Include="DocumentFormat.OpenXml" />
+    <PackageReference Include="Markdig" />
     <PackageReference Include="PdfPig" />
   </ItemGroup>
 </Project>
