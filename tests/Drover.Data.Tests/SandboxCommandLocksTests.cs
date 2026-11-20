@@ -29,10 +29,10 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
 
         await Task.Delay(shortWait, TestContext.Current.CancellationToken);
         second.IsCompleted.Should().BeFalse("the first command still holds the sandbox");
-        (await Backends(name)).Should().Be(1, "a waiter queues in the process and opens no session");
+        (await Backends(name, 1)).Should().Be(1, "a waiter queues in the process and opens no session");
         await first.DisposeAsync();
         await using var taken = await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        (await Backends(name)).Should().Be(1);
+        (await Backends(name, 1)).Should().Be(1);
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
         var extra = async () => await locks.Hold(space, sandbox, TestContext.Current.CancellationToken);
 
         await extra.Should().ThrowAsync<SandboxBusyException>().WithMessage("Too many commands are waiting*");
-        (await Backends(name)).Should().Be(1, "one session for the holder and none for the three waiters or the refused caller");
+        (await Backends(name, 1)).Should().Be(1, "one session for the holder and none for the three waiters or the refused caller");
 
         foreach (var queued in waiting)
         {
@@ -72,7 +72,7 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
         await third.Should().ThrowAsync<SandboxBusyException>();
         await using var other = await locks.Hold(Guid.NewGuid(), Guid.NewGuid(), TestContext.Current.CancellationToken);
 
-        (await Backends(name)).Should().Be(3);
+        (await Backends(name, 3)).Should().Be(3);
     }
 
     [Fact]
@@ -92,14 +92,14 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
             await refused.Should().ThrowAsync<SandboxBusyException>();
         }
 
-        (await Backends(name)).Should().Be(3);
+        (await Backends(name, 3)).Should().Be(3);
 
         foreach (var gate in gates)
         {
             await gate.DisposeAsync();
         }
 
-        (await Backends(name)).Should().Be(0);
+        (await Backends(name, 0)).Should().Be(0);
     }
 
     [Fact]
@@ -260,7 +260,23 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
             Microsoft.Extensions.Logging.Abstractions.NullLogger<SandboxCommandLocks>.Instance,
             limits);
 
-    private async Task<long> Backends(string applicationName)
+    /// <summary>
+    /// The backends the application has open. A backend whose client closed it leaves the list a moment later, so this
+    /// waits for the count to reach <paramref name="expected"/> and returns what it last saw.
+    /// </summary>
+    private async Task<long> Backends(string applicationName, long expected)
+    {
+        var seen = await CountBackends(applicationName);
+        for (var attempt = 0; attempt < 50 && seen != expected; attempt++)
+        {
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+            seen = await CountBackends(applicationName);
+        }
+
+        return seen;
+    }
+
+    private async Task<long> CountBackends(string applicationName)
     {
         await using var connection = new NpgsqlConnection(postgres.AdminConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
