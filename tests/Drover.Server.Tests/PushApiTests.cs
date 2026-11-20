@@ -107,6 +107,76 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task A_new_subscription_takes_the_place_of_the_persons_previous_one_in_one_request()
+    {
+        var alice = await SignIn(await SeedPerson("alice"));
+        var previous = Device("https://push.example/sample-native");
+        var next = Device("https://push.example/sample-root");
+        (await alice.Put("/api/push/device", previous)).EnsureSuccessStatusCode();
+
+        var response = await alice.Post("/api/push/device/move", new MovePushDeviceRequest(previous.Endpoint, next));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await IsOn(alice, next.Endpoint)).Should().BeTrue();
+        (await IsOn(alice, previous.Endpoint)).Should().BeFalse("the previous subscription ended with the move");
+    }
+
+    [Fact]
+    public async Task A_previous_subscription_another_account_held_is_never_moved_and_nothing_is_written()
+    {
+        // The case a browser's shared sign-in makes possible: alice had the old subscription, and the request that
+        // writes the new one arrives signed in as bob.
+        var alice = await SignIn(await SeedPerson("alice"));
+        var bob = await SignIn(await SeedPerson("bob"));
+        var previous = Device("https://push.example/sample-native");
+        var next = Device("https://push.example/sample-root");
+        (await alice.Put("/api/push/device", previous)).EnsureSuccessStatusCode();
+
+        var response = await bob.Post("/api/push/device/move", new MovePushDeviceRequest(previous.Endpoint, next));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound, "the request learns nothing about whose it was");
+        (await IsOn(bob, next.Endpoint)).Should().BeFalse("bob is given nothing");
+        (await IsOn(alice, next.Endpoint)).Should().BeFalse();
+        (await IsOn(alice, previous.Endpoint)).Should().BeTrue("alice's subscription is untouched");
+    }
+
+    [Fact]
+    public async Task A_move_from_a_subscription_nobody_has_writes_nothing()
+    {
+        var alice = await SignIn(await SeedPerson("alice"));
+        var next = Device("https://push.example/sample-root");
+
+        var response = await alice.Post("/api/push/device/move", new MovePushDeviceRequest("https://push.example/sample-unknown", next));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await IsOn(alice, next.Endpoint)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_move_to_something_that_is_not_a_push_subscription_is_refused_and_keeps_the_previous_one()
+    {
+        var alice = await SignIn(await SeedPerson("alice"));
+        var previous = Device("https://push.example/sample-native");
+        (await alice.Put("/api/push/device", previous)).EnsureSuccessStatusCode();
+
+        var response = await alice.Post("/api/push/device/move",
+            new MovePushDeviceRequest(previous.Endpoint, new PushDeviceRequest("http://10.0.0.5/push", "short", "short")));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await IsOn(alice, previous.Endpoint)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_move_without_the_antiforgery_token_or_a_sign_in_is_refused()
+    {
+        var alice = await SignIn(await SeedPerson("alice"));
+        var move = new MovePushDeviceRequest("https://push.example/sample-native", Device("https://push.example/sample-root"));
+
+        (await alice.PostWithoutToken("/api/push/device/move", move)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await NewClient().PostWithoutToken("/api/push/device/move", move)).StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task Something_that_is_not_a_push_subscription_is_refused_with_a_sentence()
     {
         var alice = await SignIn(await SeedPerson("alice"));

@@ -2,9 +2,10 @@ namespace Drover.Presentation.Tests.Session;
 
 /// <summary>
 /// Notifications a browser had on at the client's former address, /native/, are taken up again at the root the first
-/// time a person is signed in: only when the server says the ended subscription was that person's, and without asking
-/// when the browser still allows them. Every other outcome says where to turn notifications on; a server or browser
-/// that fails keeps the note for the next start; and it never runs twice. The device and the server are stand-ins;
+/// time a person is signed in: only when the server, in the one request that writes it, finds the ended subscription
+/// was that person's, and without asking when the browser still allows them. Another account's subscription at the
+/// root is never ended. Every other outcome says where to turn notifications on; a server or browser that fails keeps
+/// the note for the next start; and it never runs twice. The device and the server are stand-ins;
 /// every key and address is a sample.
 /// </summary>
 public sealed class MovedNotificationsTests : IDisposable
@@ -46,15 +47,15 @@ public sealed class MovedNotificationsTests : IDisposable
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
         server.Answer("POST", "/api/push/device/state", on);
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
-        server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.NoContent);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
 
-        server.Sent("POST", "/api/push/device/state").First().Should().Contain("sample-moved",
-            "the server is asked whether the subscription the move ended was this person's");
         device.AskedWith.Should().Be(SampleKey);
-        server.Requests.Should().Contain(request => request.Method == "PUT" && request.Path == "/api/push/device"
-            && request.Body.Contains("sample-root"));
+        server.Sent("POST", "/api/push/device/move").Should().ContainSingle().Which.Should()
+            .Contain("sample-moved", "the server checks the old subscription in the request that writes the new one")
+            .And.Contain("sample-root");
+        server.Requests.Should().NotContain(request => request.Method == "PUT", "nothing is registered outside that one request");
         toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.Resumed);
         device.Moved.Should().Be(MovedSubscription.None, "the note is forgotten once taken up");
     }
@@ -77,20 +78,61 @@ public sealed class MovedNotificationsTests : IDisposable
     }
 
     [Fact]
-    public async Task Someone_elses_subscription_on_the_device_is_ended_first_as_turning_notifications_on_does()
+    public async Task Another_accounts_active_subscription_at_the_root_is_never_ended_and_the_person_is_told_how_to_choose()
     {
         device.Moved = MovedSubscription.PermissionKept;
         device.Endpoint = "https://push.example.test/sample-other";
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
         server.AnswerInTurn("POST", "/api/push/device/state", on, off);
-        server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
 
-        device.Unsubscribed.Should().Equal("https://push.example.test/sample-other");
-        device.Endpoint.Should().Be("https://push.example.test/sample-root");
-        toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.Resumed);
+        device.Unsubscribed.Should().BeEmpty("only the person can choose to replace another account's notifications");
+        device.Endpoint.Should().Be("https://push.example.test/sample-other");
+        device.AskedWith.Should().BeNull();
+        server.Requests.Should().NotContain(request => request.Path == "/api/push/device/move" || request.Method == "PUT");
+        var toast = toasts.Toasts.Should().ContainSingle().Which;
+        toast.Message.Should().Be(MovedNotifications.HeldByAnother);
+        toast.Kind.Should().Be(ToastKind.Warning);
+        device.Moved.Should().Be(MovedSubscription.None);
+    }
+
+    [Fact]
+    public async Task An_account_that_changed_before_the_restore_is_refused_by_the_server_and_nothing_is_left_subscribed()
+    {
+        // The lookup was answered for the person who had the old subscription; by the time of the write another
+        // account is signed in, so the server, checking again under that account, finds the old one is not theirs.
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.NotFound);
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Unsubscribed.Should().Equal("https://push.example.test/sample-root");
+        device.Endpoint.Should().BeNull();
+        server.Requests.Should().NotContain(request => request.Method == "PUT");
+        ShowsTurnOnAgain();
+        device.Moved.Should().Be(MovedSubscription.None);
+    }
+
+    [Fact]
+    public async Task A_restore_the_server_did_not_answer_ends_the_new_subscription_and_keeps_the_note()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.InternalServerError);
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Unsubscribed.Should().Equal("https://push.example.test/sample-root");
+        device.Endpoint.Should().BeNull("a later start must not take it for another account's");
+        device.Moved.Should().Be(MovedSubscription.PermissionKept);
+        toasts.Toasts.Should().BeEmpty();
     }
 
     [Fact]
@@ -122,7 +164,7 @@ public sealed class MovedNotificationsTests : IDisposable
         toasts.Toasts.Should().BeEmpty();
 
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
-        server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.NoContent);
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
         await moved.Resume(Xunit.TestContext.Current.CancellationToken);
 
