@@ -177,7 +177,6 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
     [InlineData("/native?tool-sign-in=connected&connection=sample", "/?tool-sign-in=connected&connection=sample")]
     [InlineData("/native/?tool-sign-in=connected&connection=sample", "/?tool-sign-in=connected&connection=sample")]
     [InlineData("/native/manifest.webmanifest", "/manifest.webmanifest")]
-    [InlineData("/native/a%20b", "/a%20b")]
     [InlineData("/NATIVE/sign-in", "/sign-in")]
     public async Task The_address_the_client_was_served_under_sends_the_browser_to_the_same_address_at_the_root(
         string path, string location)
@@ -190,11 +189,30 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
     }
 
     [Theory]
-    [InlineData("/native//elsewhere.example/sign-in", "/elsewhere.example/sign-in")]
-    [InlineData("/native/%5Celsewhere.example", "/elsewhere.example")]
-    [InlineData("/native/%5C%5Celsewhere.example", "/elsewhere.example")]
-    [InlineData("/native/%2F%2Felsewhere.example", "/%2F%2Felsewhere.example")]
-    public async Task The_retired_address_never_sends_the_browser_to_another_host(string path, string location)
+    [InlineData("/native//elsewhere.example/sign-in")]
+    [InlineData("/native//elsewhere.example/sign-in?from=link")]
+    [InlineData("/native/%5Celsewhere.example")]
+    [InlineData("/native/%5C%5Celsewhere.example")]
+    [InlineData("/native/%2F%2Felsewhere.example")]
+    [InlineData("/native/%2F%5Celsewhere.example?next=x")]
+    [InlineData("/native/https:%2F%2Felsewhere.example")]
+    [InlineData("/native/elsewhere.example%40drover.example")]
+    [InlineData("/native/%09%2F%2Felsewhere.example")]
+    [InlineData("/native/a%20b")]
+    [InlineData("/native/sign-in/")]
+    public async Task An_address_that_is_not_plain_path_segments_is_sent_to_the_root_alone(string path)
+    {
+        var response = await NewClient().Get(path);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.OriginalString.Should().Be("/");
+    }
+
+    [Theory]
+    [InlineData("/native/sign-in?next=//elsewhere.example", "/sign-in?next=//elsewhere.example")]
+    [InlineData("/native?next=%2F%2Felsewhere.example", "/?next=%2F%2Felsewhere.example")]
+    [InlineData("/native/talk/0196f1a0-0000-7000-8000-000000000004/side/new", "/talk/0196f1a0-0000-7000-8000-000000000004/side/new")]
+    public async Task A_query_can_never_take_the_browser_to_another_host(string path, string location)
     {
         var response = await NewClient().Get(path);
 
