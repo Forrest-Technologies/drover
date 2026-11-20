@@ -43,6 +43,17 @@ public sealed class FakeServer : HttpMessageHandler
         return this;
     }
 
+    /// <summary>Answers the address with each body in turn, then with the last one for every later request.</summary>
+    public FakeServer AnswerInTurn<T>(string method, string path, params T[] bodies)
+    {
+        var next = new Queue<T>(bodies);
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(next.Count > 1 ? next.Dequeue() : next.Peek(), options: json),
+        };
+        return this;
+    }
+
     public FakeServer Answer(string method, string path, HttpStatusCode status)
     {
         answers[$"{method} {path}"] = () => new(status);

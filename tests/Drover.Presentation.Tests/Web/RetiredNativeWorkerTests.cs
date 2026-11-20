@@ -27,6 +27,7 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
     // Put before the retiring worker when the old worker held a subscription: a sample one, which records that it ended.
     private const string SampleSubscription = """
         Object.defineProperty(self.registration.pushManager, "getSubscription", { value: async () => ({
+            endpoint: "https://push.example.test/sample-moved",
             unsubscribe: async () => { await caches.open("test-unsubscribed"); return true; },
         }) });
 
@@ -94,10 +95,12 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
 
         (await page.EvaluateAsync<string[]>("async () => await caches.keys()")).Should().Contain([MovedNote, "test-unsubscribed"]);
         (await Moved()).Should().Be("permission-kept", "the browser still allows notifications, so nothing needs asking");
+        (await MovedEndpoint()).Should().Be("https://push.example.test/sample-moved", "the server is asked whose it was");
 
         await page.EvaluateAsync("async () => (await import('/push.js')).forgetMove()");
 
         (await Moved()).Should().Be("none");
+        (await MovedEndpoint()).Should().BeNull();
     }
 
     [Fact]
@@ -189,6 +192,9 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
 
     /// <summary>What the client at the root reads from push.js about a subscription the move ended.</summary>
     private Task<string> Moved() => page.EvaluateAsync<string>("async () => (await import('/push.js')).moved()");
+
+    private Task<string?> MovedEndpoint() =>
+        page.EvaluateAsync<string?>("async () => (await import('/push.js')).movedEndpoint()");
 
     private static async Task WaitFor(Func<Task<bool>> done)
     {

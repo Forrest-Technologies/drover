@@ -2,9 +2,10 @@ namespace Drover.Presentation.Tests.Session;
 
 /// <summary>
 /// Notifications a browser had on at the client's former address, /native/, are taken up again at the root the first
-/// time a person is signed in: without asking when the browser still allows them, with a toast that says where to
-/// turn them on when it does not, and never twice. The device and the server are stand-ins; every key and address is
-/// a sample.
+/// time a person is signed in: only when the server says the ended subscription was that person's, and without asking
+/// when the browser still allows them. Every other outcome says where to turn notifications on; a server or browser
+/// that fails keeps the note for the next start; and it never runs twice. The device and the server are stand-ins;
+/// every key and address is a sample.
 /// </summary>
 public sealed class MovedNotificationsTests : IDisposable
 {
@@ -17,6 +18,10 @@ public sealed class MovedNotificationsTests : IDisposable
     private readonly FakePushRegistration device = new();
 
     private readonly ToastService toasts = new(TimeProvider.System);
+
+    private static readonly PushDeviceState on = new(true);
+
+    private static readonly PushDeviceState off = new(false);
 
     #endregion
 
@@ -39,11 +44,14 @@ public sealed class MovedNotificationsTests : IDisposable
     {
         device.Moved = MovedSubscription.PermissionKept;
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
         server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
 
+        server.Sent("POST", "/api/push/device/state").First().Should().Contain("sample-moved",
+            "the server is asked whether the subscription the move ended was this person's");
         device.AskedWith.Should().Be(SampleKey);
         server.Requests.Should().Contain(request => request.Method == "PUT" && request.Path == "/api/push/device"
             && request.Body.Contains("sample-root"));
@@ -75,7 +83,7 @@ public sealed class MovedNotificationsTests : IDisposable
         device.Endpoint = "https://push.example.test/sample-other";
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
-        server.Answer("POST", "/api/push/device/state", new PushDeviceState(false));
+        server.AnswerInTurn("POST", "/api/push/device/state", on, off);
         server.Answer("PUT", "/api/push/device", HttpStatusCode.NoContent);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
@@ -104,6 +112,7 @@ public sealed class MovedNotificationsTests : IDisposable
     public async Task A_server_that_cannot_be_reached_keeps_the_note_for_the_next_start()
     {
         device.Moved = MovedSubscription.PermissionKept;
+        server.Answer("POST", "/api/push/device/state", on);
         server.Answer("GET", "/api/push/key", HttpStatusCode.InternalServerError);
         var moved = Make();
 
@@ -119,6 +128,67 @@ public sealed class MovedNotificationsTests : IDisposable
 
         device.Moved.Should().Be(MovedSubscription.None);
         toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.Resumed);
+    }
+
+    [Fact]
+    public async Task A_subscription_another_account_held_is_never_taken_up_for_the_person_signed_in_now()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", off);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.AskedWith.Should().BeNull("only the person who had notifications on gets them back without choosing to");
+        server.Requests.Should().NotContain(request => request.Method == "PUT");
+        ShowsTurnOnAgain();
+        device.Moved.Should().Be(MovedSubscription.None);
+    }
+
+    [Fact]
+    public async Task A_note_without_an_address_is_never_taken_up()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.MovedEndpoint = null;
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        server.Requests.Should().BeEmpty();
+        device.AskedWith.Should().BeNull();
+        ShowsTurnOnAgain();
+    }
+
+    [Theory]
+    [InlineData("no key")]
+    [InlineData("device unavailable")]
+    [InlineData("no subscription")]
+    public async Task A_subscription_that_could_not_be_made_again_says_where_to_turn_notifications_on(string cause)
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Support = cause is "device unavailable" ? DevicePushSupport.NotSupported : DevicePushSupport.Available;
+        device.Subscription = null;
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(cause is "no key" ? null : SampleKey));
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        server.Requests.Should().NotContain(request => request.Method == "PUT");
+        ShowsTurnOnAgain();
+        device.Moved.Should().Be(MovedSubscription.None, "the person was told, so the note is not needed again");
+    }
+
+    [Fact]
+    public async Task A_browser_call_that_fails_keeps_the_note_and_says_nothing_yet()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.FailNextCheck = true;
+        server.Answer("POST", "/api/push/device/state", on);
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Moved.Should().Be(MovedSubscription.PermissionKept);
+        toasts.Toasts.Should().BeEmpty();
     }
 
     [Fact]
@@ -154,6 +224,13 @@ public sealed class MovedNotificationsTests : IDisposable
     #endregion
 
     #region Private Methods
+
+    private void ShowsTurnOnAgain()
+    {
+        var toast = toasts.Toasts.Should().ContainSingle().Which;
+        toast.Message.Should().Be(MovedNotifications.TurnOnAgain);
+        toast.Kind.Should().Be(ToastKind.Warning);
+    }
 
     private MovedNotifications Make() =>
         new(server.CreateApi(), toasts, NullLogger<MovedNotifications>.Instance, device);

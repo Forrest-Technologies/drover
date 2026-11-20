@@ -3,10 +3,13 @@ namespace Drover.Ui.Session;
 /// <summary>
 /// Takes up again the notifications a browser had on at the client's former address, <c>/native/</c>. The server
 /// retires the worker that held them (<c>retired-native-worker.js</c>), which ends its subscription and leaves a note
-/// that it did. The first time a person is signed in after that, this subscribes the client at the root in its place,
-/// when the browser still allows notifications for Drover: the browser asks nothing, because permission was given
-/// before. When it no longer allows them, a toast says notifications are off and where to turn them on again. Either
-/// way the note is forgotten, unless the server could not be reached, and then the next start tries again.
+/// with the subscription's push service address. The first time a person is signed in after that, this asks the
+/// server whether that address was that person's. Only then, and only when the browser still allows notifications for
+/// Drover, does it subscribe the client at the root in its place without asking. In every other case (the
+/// subscription was someone else's or the server no longer knows it, the browser no longer allows notifications, the
+/// server has no key, or the browser made no subscription) a toast says notifications are off and where to turn them
+/// on. The note is then forgotten. A server that cannot be reached, or a browser call that fails, keeps the note, and
+/// the next start tries again.
 /// </summary>
 public sealed class MovedNotifications(
     DroverApi api,
@@ -46,20 +49,16 @@ public sealed class MovedNotifications(
         {
             var moved = await registration.FindMovedSubscription(cancellationToken);
 
-            if (moved is MovedSubscription.None)
+            if (moved.State is MovedSubscription.None)
             {
                 return;
             }
 
-            if (moved is MovedSubscription.PermissionKept && await TakeUp(registration, cancellationToken))
-            {
-                toasts.Show(Resumed);
-            }
-            else if (moved is MovedSubscription.PermissionLost)
-            {
-                toasts.Show(TurnOnAgain, ToastKind.Warning);
-            }
+            var outcome = moved.State is MovedSubscription.PermissionKept && await WasThisPersons(moved.Endpoint, cancellationToken)
+                ? await TakeUp(registration, cancellationToken)
+                : TakeUpOutcome.NotTakenUp;
 
+            Tell(outcome);
             await registration.ForgetMovedSubscription(cancellationToken);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -69,7 +68,7 @@ public sealed class MovedNotifications(
         }
         catch (DeviceCallFailedException exception)
         {
-            logger.LogWarning(exception, "The browser failed while notifications from the former address were taken up");
+            logger.LogWarning(exception, "The browser failed while notifications from the former address were taken up; the next start tries again");
         }
     }
 
@@ -78,25 +77,31 @@ public sealed class MovedNotifications(
     #region Private Methods
 
     /// <summary>
-    /// Subscribes this client for the person, as turning notifications on does, without asking: the browser already
-    /// allows them. True when a new subscription was made; false when one was already on for this person, or the
-    /// server has no key to subscribe with.
+    /// Whether the server woke the signed-in person at the subscription the move ended. A subscription another
+    /// account on this browser held is never taken up for this one.
     /// </summary>
-    private async Task<bool> TakeUp(IPushRegistration device, CancellationToken cancellationToken)
+    private async Task<bool> WasThisPersons(string? endpoint, CancellationToken cancellationToken) =>
+        endpoint is not null && (await api.GetPushDeviceState(endpoint, cancellationToken)).On;
+
+    /// <summary>
+    /// Subscribes this client for the person, as turning notifications on does, without asking: the browser already
+    /// allows them. The person already on at the root keeps that subscription.
+    /// </summary>
+    private async Task<TakeUpOutcome> TakeUp(IPushRegistration device, CancellationToken cancellationToken)
     {
         var check = await device.Check(cancellationToken);
         var publicKey = (await api.GetPushKey(cancellationToken)).PublicKey;
 
         if (check.Support is not DevicePushSupport.Available || publicKey is null)
         {
-            return false;
+            return TakeUpOutcome.NotTakenUp;
         }
 
         if (check.Endpoint is { } endpoint)
         {
             if ((await api.GetPushDeviceState(endpoint, cancellationToken)).On)
             {
-                return false;
+                return TakeUpOutcome.AlreadyOn;
             }
 
             // Someone else's subscription on this device, as turning notifications on finds it: ended first.
@@ -105,11 +110,37 @@ public sealed class MovedNotifications(
 
         if (await device.Subscribe(publicKey, cancellationToken) is not { } subscription)
         {
-            return false;
+            return TakeUpOutcome.NotTakenUp;
         }
 
         await api.TurnOnPush(subscription, cancellationToken);
-        return true;
+        return TakeUpOutcome.TakenUp;
+    }
+
+    private void Tell(TakeUpOutcome outcome)
+    {
+        switch (outcome)
+        {
+            case TakeUpOutcome.TakenUp:
+                toasts.Show(Resumed);
+                break;
+            case TakeUpOutcome.NotTakenUp:
+                toasts.Show(TurnOnAgain, ToastKind.Warning);
+                break;
+            case TakeUpOutcome.AlreadyOn:
+                break;
+        }
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    private enum TakeUpOutcome
+    {
+        TakenUp,
+        AlreadyOn,
+        NotTakenUp,
     }
 
     #endregion

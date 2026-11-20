@@ -4,14 +4,17 @@
 // unregisters itself, and moves the pages it controlled to the same address at the root. It answers no request.
 //
 // Unregistering ends the old worker's push subscription. When there was one, it first leaves a note (a cache named
-// drover-push-moved, which no worker of the client removes), and the client at the root subscribes in its place the
-// next time the person is signed in, without asking when the browser still allows notifications, and otherwise says
-// they are off and where to turn them on (MovedNotifications).
+// drover-push-moved, which no worker of the client removes) holding the subscription's push service address. The
+// client at the root asks the server whether that address was the signed-in person's, and only then subscribes in
+// its place without asking; otherwise it says notifications are off and where to turn them on (MovedNotifications).
 //
 // The start page of an app installed from /native/ is the server's moving page (retired-native-page.html), which an
 // installed app must stay on for a moment so the browser can read its new manifest. That page moves itself to the
 // root, so this worker leaves it alone.
 const movedNote = "drover-push-moved";
+
+// The note's one entry, at a path from the root, so the worker under /native/ and a page at the root name the same one.
+const movedEntry = "/drover-push-moved";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => event.waitUntil(retire()));
@@ -37,7 +40,7 @@ async function handOverNotifications() {
             return;
         }
 
-        await (await caches.open(movedNote)).put("moved", new Response(""));
+        await (await caches.open(movedNote)).put(movedEntry, new Response(subscription.endpoint ?? ""));
         await subscription.unsubscribe();
     } catch {
         // Nothing more can be done from here. Unregistering ends the subscription in any case.

@@ -26,6 +26,9 @@ public class FakePushRegistration : IPushRegistration
     /// <summary>What moving the browser client to the root left on this device.</summary>
     public MovedSubscription Moved { get; set; }
 
+    /// <summary>The push service address of the subscription the move ended.</summary>
+    public string? MovedEndpoint { get; set; } = "https://push.example.test/sample-moved";
+
     /// <summary>How many times the device was asked whether moving left anything.</summary>
     public int MovedAsked { get; private set; }
 
@@ -71,10 +74,10 @@ public class FakePushRegistration : IPushRegistration
         return Task.FromResult(ended);
     }
 
-    public Task<MovedSubscription> FindMovedSubscription(CancellationToken cancellationToken = default)
+    public Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default)
     {
         MovedAsked++;
-        return Task.FromResult(Moved);
+        return Task.FromResult(new MovedPush(Moved, Moved is MovedSubscription.None ? null : MovedEndpoint));
     }
 
     public Task ForgetMovedSubscription(CancellationToken cancellationToken = default)

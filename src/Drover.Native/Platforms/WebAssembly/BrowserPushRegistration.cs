@@ -49,13 +49,17 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
     public Task<string?> Unsubscribe(CancellationToken cancellationToken = default) =>
         Call(UnsubscribeWith, "unsubscribe");
 
-    public async Task<MovedSubscription> FindMovedSubscription(CancellationToken cancellationToken = default) =>
-        await Call(MovedWith, "moved") switch
+    public async Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default)
+    {
+        var state = await Call(MovedWith, "moved") switch
         {
             "permission-kept" => MovedSubscription.PermissionKept,
             "permission-lost" => MovedSubscription.PermissionLost,
             _ => MovedSubscription.None,
         };
+
+        return new MovedPush(state, state is MovedSubscription.None ? null : await Call(MovedEndpointWith, "movedEndpoint"));
+    }
 
     public Task ForgetMovedSubscription(CancellationToken cancellationToken = default) =>
         Call(async () =>
@@ -93,6 +97,9 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
 
     [JSImport("moved", Module)]
     private static partial Task<string> MovedWith();
+
+    [JSImport("movedEndpoint", Module)]
+    private static partial Task<string?> MovedEndpointWith();
 
     [JSImport("forgetMove", Module)]
     private static partial Task ForgetMoveWith();

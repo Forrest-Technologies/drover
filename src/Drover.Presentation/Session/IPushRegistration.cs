@@ -27,6 +27,10 @@ public enum MovedSubscription
 }
 
 
+/// <summary>What moving left on this device, and the push service address of the subscription it ended, if known.</summary>
+public sealed record MovedPush(MovedSubscription State, string? Endpoint = null);
+
+
 /// <summary>
 /// The platform's side of notifications: the web implementation uses the service worker and the Push API, a native
 /// shell its own. Permission is asked only in <see cref="Subscribe"/>, which runs when the person turns
@@ -43,8 +47,8 @@ public interface IPushRegistration
     Task<string?> Unsubscribe(CancellationToken cancellationToken = default);
 
     /// <summary>A subscription ended when the browser client moved. Only a browser ever had one.</summary>
-    Task<MovedSubscription> FindMovedSubscription(CancellationToken cancellationToken = default) =>
-        Task.FromResult(MovedSubscription.None);
+    Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new MovedPush(MovedSubscription.None));
 
     /// <summary>Forgets the subscription that moving ended, once it is taken up again or cannot be.</summary>
     Task ForgetMovedSubscription(CancellationToken cancellationToken = default) => Task.CompletedTask;

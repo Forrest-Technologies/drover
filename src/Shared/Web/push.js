@@ -43,6 +43,9 @@ export async function subscribe(publicKey) {
 // (retired-native-worker.js in the server). The client at the root takes it up again (MovedNotifications).
 const movedNote = "drover-push-moved";
 
+// Its one entry, at a path from the root, as the retired worker writes it.
+const movedEntry = "/drover-push-moved";
+
 // "none" without the note; otherwise whether the browser still allows notifications, so the client at the root can
 // subscribe without asking.
 export async function moved() {
@@ -51,6 +54,17 @@ export async function moved() {
     }
 
     return "Notification" in window && Notification.permission === "granted" ? "permission-kept" : "permission-lost";
+}
+
+// The push service address of the subscription the move ended, so the client can ask the server whose it was.
+export async function movedEndpoint() {
+    if (!("caches" in self)) {
+        return null;
+    }
+
+    const note = await (await caches.open(movedNote)).match(movedEntry);
+    const endpoint = note === undefined ? "" : await note.text();
+    return endpoint === "" ? null : endpoint;
 }
 
 export async function forgetMove() {
