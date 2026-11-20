@@ -94,6 +94,7 @@ User-owned tables (`user_sessions`, `push_subscriptions`) use `user_id = sys.cur
 | `audit_log` | Space match; `drover_app` has no `UPDATE` or `DELETE` privilege |
 | `files` | The space and audience policies. A project file is shared, so audience alone would let every member write it. Trigger `trg_files_project_insert / trg_files_project_update / trg_files_project_delete` allows a project-file insert, update, or delete only for an owner or admin, and on delete it returns the file's quota and inserts `pending_file_deletions`. |
 | `pending_file_deletions` | Space match (`IsolateBySpace`) with `UPDATE` limited to `(id, cleanup_claim_until)`. Trigger `trg_pending_file_deletions_access` restricts inserts, updates, and deletes to owners, admins, and `drover_system`, requires `storage_key` on insert to match `{space_id}/{id}`, and forbids modifying anything except `cleanup_claim_until`. |
+| `file_byte_reservations` | Space match (`IsolateBySpace`). Trigger `trg_file_byte_reservations_access` restricts writes to owners, admins, and `drover_system`, rejects visible stored or pending file identities, and prevents identity changes. Expired holds are reclaimed only on administrator project-upload paths; member attachment uploads leave them charged until that cleanup. |
 
 In C# the helpers are extensions on `MigrationBuilder`, following the guide's preference for extension builders. They live in `Drover.Data.Tenancy`, not in the `Migrations` folder, because `.editorconfig` treats that folder as generated code:
 

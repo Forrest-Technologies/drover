@@ -133,7 +133,11 @@ public sealed class FileRepository(DroverDbContext db)
     /// Drops the hold and returns the bytes that the stored file did not use. Reports whether the hold completed,
     /// did not cover <paramref name="actualBytes"/>, or had already expired.
     /// </summary>
-    public async Task<HoldCompletion> CompleteHold(Guid spaceId, Guid id, long actualBytes, CancellationToken cancellationToken)
+    public async Task<HoldCompletion> CompleteHold(
+        Guid spaceId,
+        Guid id,
+        long actualBytes,
+        CancellationToken cancellationToken)
     {
         var hold = await db.FileByteReservations
             .AsNoTracking()
@@ -146,7 +150,9 @@ public sealed class FileRepository(DroverDbContext db)
             return HoldCompletion.Expired;
         }
 
-        var removed = await db.FileByteReservations.Where(row => row.Id == id && row.SpaceId == spaceId).ExecuteDeleteAsync(cancellationToken);
+        var removed = await db.FileByteReservations
+            .Where(row => row.Id == id && row.SpaceId == spaceId)
+            .ExecuteDeleteAsync(cancellationToken);
 
         if (removed == 0)
         {
@@ -170,9 +176,16 @@ public sealed class FileRepository(DroverDbContext db)
     }
 
     /// <summary>Renews an active reservation's activity timestamp. False when the reservation already expired.</summary>
-    public async Task<bool> RenewHold(Guid spaceId, Guid holdId, DateTimeOffset touchedAt, CancellationToken cancellationToken) =>
+    public async Task<bool> RenewHold(
+        Guid spaceId,
+        Guid holdId,
+        DateTimeOffset touchedAt,
+        CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE file_byte_reservations SET created_at = {touchedAt} WHERE id = {holdId} AND space_id = {spaceId}",
+            $"""
+            UPDATE file_byte_reservations SET created_at = {touchedAt}
+            WHERE id = {holdId} AND space_id = {spaceId}
+            """,
             cancellationToken) == 1;
 
     /// <summary>
@@ -198,7 +211,10 @@ public sealed class FileRepository(DroverDbContext db)
         }
 
         var updated = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes}, created_at = {touchedAt} WHERE id = {holdId} AND space_id = {spaceId}",
+            $"""
+            UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes}, created_at = {touchedAt}
+            WHERE id = {holdId} AND space_id = {spaceId}
+            """,
             cancellationToken);
 
         if (updated == 0)
@@ -211,14 +227,20 @@ public sealed class FileRepository(DroverDbContext db)
     }
 
     /// <summary>
-    /// Drops holds created at or before <paramref name="olderThan"/> and returns unattached bytes to the space,
-    /// skipping any row locked by an active upload and never returning or crediting ids that already belong to stored
-    /// or deleted files.
+    /// Drops project-upload holds last renewed at or before <paramref name="olderThan"/> and returns held bytes.
+    /// Runs only on administrator project-upload paths, skips locked holds, and protects visible stored or queued files.
     /// </summary>
-    public async Task<IReadOnlyList<Guid>> ReleaseExpiredHolds(Guid spaceId, DateTimeOffset olderThan, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Guid>> ReleaseExpiredHolds(
+        Guid spaceId,
+        DateTimeOffset olderThan,
+        CancellationToken cancellationToken)
     {
         var expired = await db.FileByteReservations
-            .FromSql($"SELECT * FROM file_byte_reservations WHERE space_id = {spaceId} AND created_at <= {olderThan} FOR UPDATE SKIP LOCKED")
+            .FromSql($"""
+                SELECT * FROM file_byte_reservations
+                WHERE space_id = {spaceId} AND created_at <= {olderThan}
+                FOR UPDATE SKIP LOCKED
+                """)
             .ToListAsync(cancellationToken);
 
         if (expired.Count == 0)
@@ -247,20 +269,7 @@ public sealed class FileRepository(DroverDbContext db)
 
         if (release > 0)
         {
-            var committedBytes = await db.Files
-                .AsNoTracking()
-                .Where(file => file.SpaceId == spaceId)
-                .Select(file => (long?)file.Size)
-                .SumAsync(cancellationToken) ?? 0L;
-            await db.Spaces
-                .Where(space => space.Id == spaceId)
-                .ExecuteUpdateAsync(
-                    set => set.SetProperty(
-                        space => space.StoredFileBytes,
-                        space => (space.StoredFileBytes > release ? space.StoredFileBytes - release : 0L) < committedBytes
-                            ? committedBytes
-                            : (space.StoredFileBytes > release ? space.StoredFileBytes - release : 0L)),
-                    cancellationToken);
+            await ReleaseBytes(spaceId, release, cancellationToken);
         }
 
         return [.. unattached.Select(hold => hold.Id)];

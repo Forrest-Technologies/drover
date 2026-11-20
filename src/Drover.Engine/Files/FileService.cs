@@ -511,10 +511,8 @@ public sealed class FileService(
         }
 
         var can = await abilities.Read(bot, thread, cancellationToken);
-        var expired = await files.ReleaseExpiredHolds(SpaceId, time.GetUtcNow() - HoldLifetime, cancellationToken);
         var stored = await files.GetStoredBytes(SpaceId, cancellationToken);
         await work.Commit(cancellationToken);
-        await DeleteExpiredStaging(expired);
 
         var room = Math.Max(0, MaxSpaceBytes - stored);
         return declaredLength > room
@@ -555,12 +553,9 @@ public sealed class FileService(
             return new FileUpload(null, FileProblem.NotFound);
         }
 
-        var expired = await files.ReleaseExpiredHolds(SpaceId, time.GetUtcNow() - HoldLifetime, cancellationToken);
-
         if (!await files.ReserveBytes(SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
         {
             await work.Commit(cancellationToken);
-            await DeleteExpiredStaging(expired);
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
@@ -568,7 +563,6 @@ public sealed class FileService(
         file.AudienceUserId = thread.AudienceUserId;
         files.Add(file);
         await work.Commit(cancellationToken);
-        await DeleteExpiredStaging(expired);
         logger.LogInformation("File {FileId} of {Size} bytes stored for thread {ThreadId}", file.Id, file.Size, threadId);
         return new FileUpload(file);
     }

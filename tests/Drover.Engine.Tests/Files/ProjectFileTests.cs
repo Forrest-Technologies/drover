@@ -294,6 +294,47 @@ public sealed class ProjectFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_member_can_attach_a_file_while_an_expired_project_reservation_awaits_admin_cleanup()
+    {
+        var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+            services.AddSingleton<TimeProvider>(clock));
+        var project = await CreateProject(world, "Abandoned");
+        var member = await world.AddMember(MembershipRole.Member);
+        var threadId = await world.TransactAs(world.SpaceId, member, async services =>
+            (await services.GetRequiredService<ThreadService>()
+                .Create(world.BotId, null, member, RunWorld.Token))!.Id);
+        await world.Transact(async services =>
+        {
+            var hold = await services.GetRequiredService<FileRepository>().TryHold(
+                world.SpaceId,
+                Guid.CreateVersion7(),
+                64,
+                1024 * 1024,
+                clock.GetUtcNow() - FileService.HoldLifetime - TimeSpan.FromMinutes(1),
+                RunWorld.Token);
+            hold.Should().NotBeNull();
+            return true;
+        });
+
+        await using var content = new MemoryStream("notes"u8.ToArray());
+        var upload = await world.WithServiceAs<FileService, FileUpload>(member, service =>
+            service.Upload(threadId, "notes.txt", content, 5, member, RunWorld.Token));
+
+        upload.File.Should().NotBeNull(upload.Detail);
+        upload.File!.ThreadId.Should().Be(threadId);
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(1);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
+            .Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token))).Should().Be(69);
+
+        var ownerUpload = await UploadProjectFile(world, project.Id, "shared.txt", "shared"u8.ToArray());
+        ownerUpload.File.Should().NotBeNull(ownerUpload.Detail);
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
+            .Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token))).Should().Be(11);
+    }
+
+    [Fact]
     public async Task An_abandoned_reservation_past_hold_lifetime_is_reclaimed_by_a_later_upload()
     {
         var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
