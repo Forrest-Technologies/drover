@@ -12,6 +12,9 @@ internal static partial class PlatformFiles
 
     public static Task<bool> SaveLog(string name, string text) => Save(name, text, "text/plain;charset=utf-8");
 
+    /// <summary>Saves text of the given media type under the name, as a download the browser keeps.</summary>
+    public static Task<bool> SaveText(string name, string text, string mediaType) => Save(name, text, $"{mediaType};charset=utf-8");
+
     #endregion
 
     #region Private Methods
