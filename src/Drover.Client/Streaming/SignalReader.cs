@@ -33,7 +33,8 @@ public sealed class SignalReader(HttpClient http, string path, StreamPresence? p
                 }
             }
 
-            if (presence is { IsShown: false })
+            // The connection says why it ended, because the app may be back on screen by now.
+            if (presence is not null && (connection.EndedByPause || !presence.IsShown))
             {
                 await presence.WhenShown(cancellationToken);
                 backoff.Reset();

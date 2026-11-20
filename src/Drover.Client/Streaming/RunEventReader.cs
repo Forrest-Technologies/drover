@@ -58,7 +58,8 @@ public sealed class RunEventReader(
             }
 
             // Leaving the screen is not a drop: connect again as soon as the app is back, without waiting out a backoff.
-            if (presence is { IsShown: false })
+            // The connection says why it ended, because the app may be back on screen by now.
+            if (connection.EndedByPause || presence is { IsShown: false })
             {
                 backoff.Reset();
                 continue;
