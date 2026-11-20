@@ -98,7 +98,13 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         {
             List<FileForModel> opened = [.. shared.FileIds.Where(projectOpened.ContainsKey).Select(id => projectOpened[id])];
 
-            if (ProjectFileGrant.ToMessage(shared.Name, opened, shared.OmittedCount) is { } sharedFiles)
+            var unavailable = shared.FileIds.Count - opened.Count;
+
+            if (ProjectFileGrant.ToMessage(
+                shared.Name,
+                opened,
+                shared.OmittedCount + unavailable,
+                shared.OversizedCount) is { } sharedFiles)
             {
                 given.Insert(summary is null ? 0 : 1, sharedFiles);
             }
@@ -181,9 +187,18 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
             return null;
         }
 
-        var files = await services.GetRequiredService<FileRepository>().ListProjectFiles(project.Id, cancellationToken);
+        var files = await services.GetRequiredService<FileRepository>().ListProjectFileWindow(
+            project.Id,
+            ProjectFileLimits.CandidateLimit,
+            ProjectFileLimits.MaxStoredBytes,
+            cancellationToken);
         var selection = ProjectFileGrant.SelectForOpen(files);
-        return new SharedProjectFiles(project.Id, project.Name, selection.FileIds, selection.OmittedCount);
+        return new SharedProjectFiles(
+            project.Id,
+            project.Name,
+            selection.FileIds,
+            selection.OmittedCount,
+            selection.OversizedCount);
     }
 
     /// <summary>
@@ -478,7 +493,12 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     private sealed record HistorySummary(string Text, int ThroughPosition);
 
     /// <summary>The project files selected to grant on this model call, oldest first.</summary>
-    private sealed record SharedProjectFiles(Guid ProjectId, string Name, IReadOnlyList<Guid> FileIds, int OmittedCount);
+    private sealed record SharedProjectFiles(
+        Guid ProjectId,
+        string Name,
+        IReadOnlyList<Guid> FileIds,
+        int OmittedCount,
+        int OversizedCount);
 
     #endregion
 }

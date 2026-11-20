@@ -1,14 +1,35 @@
 namespace Drover.Engine.Files;
 
-/// <summary>How much of a document is read: its pages (slides, sheets), its characters, and pictures of a scanned PDF's pages.</summary>
-public sealed record DocumentLimits(int MaxPages, int MaxCharacters, int MaxPageImages);
+/// <summary>
+/// How much of a document is read: its pages (slides, sheets), its characters, pictures of a scanned PDF's pages,
+/// and per-call image byte and dimension bounds.
+/// </summary>
+public sealed record DocumentLimits(
+    int MaxPages,
+    int MaxCharacters,
+    int MaxPageImages,
+    long MaxImageBytes = long.MaxValue,
+    long MaxDecodedImageBytes = long.MaxValue,
+    int MaxImageDimension = int.MaxValue,
+    long MaxImagePixels = long.MaxValue,
+    long SingleImageByteCap = long.MaxValue,
+    long SingleImageDecodedCap = long.MaxValue);
 
 /// <summary>
 /// What was read of a document: its text; <see cref="Read"/> of its <see cref="Total"/> pages, slides, or sheets
 /// (<see cref="Unit"/>, null for a Word document, which has no pages until it is laid out); whether the text was cut
-/// at the character bound; and, for a PDF with no text, the pictures its pages carry.
+/// at the character bound; and, for a PDF with no text, the pictures its pages carry and their decoded footprint.
 /// </summary>
-public sealed record DocumentContent(string Text, string? Unit, int Read, int Total, bool TextCut, IReadOnlyList<ToolImage> PageImages)
+public sealed record DocumentContent(
+    string Text,
+    string? Unit,
+    int Read,
+    int Total,
+    bool TextCut,
+    IReadOnlyList<ToolImage> PageImages,
+    long PageImageDecodedBytes = 0,
+    bool ImagesRejected = false,
+    bool ImagesExceedSingleLimits = false)
 {
     #region Properties
 
@@ -199,32 +220,106 @@ public static class DocumentReader
             }
         }
 
-        var pictures = collected.IsEmpty ? PagePictures(document, Math.Min(read, limits.MaxPageImages)) : [];
-        return new DocumentContent(collected.Text, "pages", read, total, collected.Full, pictures);
+        if (!collected.IsEmpty || limits.MaxPageImages <= 0)
+        {
+            return new DocumentContent(collected.Text, "pages", read, total, collected.Full, []);
+        }
+
+        var (pictures, decodedBytes, rejected, exceedsSingle) = PagePictures(document, Math.Min(read, limits.MaxPageImages), limits);
+        return new DocumentContent(collected.Text, "pages", read, total, collected.Full, pictures, decodedBytes, rejected, exceedsSingle);
     }
 
     /// <summary>
     /// The picture each of the first pages carries, the largest where there are several: a scanned page is one
-    /// picture. Nothing is drawn; a page whose picture is in a form a model cannot take is left out.
+    /// picture. Nothing is drawn; dimensions and decoded byte bounds are checked before extracting PNG bytes.
     /// </summary>
-    private static List<ToolImage> PagePictures(Pdf.PdfDocument document, int pages)
+    private static (List<ToolImage> Pictures, long DecodedBytes, bool Rejected, bool ExceedsSingle) PagePictures(
+        Pdf.PdfDocument document,
+        int pages,
+        DocumentLimits limits)
     {
         List<ToolImage> pictures = [];
+        var totalImageBytes = 0L;
+        var totalDecodedBytes = 0L;
+        var rejected = false;
+        var exceedsSingle = false;
 
         for (var number = 1; number <= pages; number++)
         {
-            var largest = document.GetPage(number).GetImages()
-                .OrderByDescending(image => (long)image.WidthInSamples * image.HeightInSamples)
-                .Select(AsModelPicture)
-                .FirstOrDefault(picture => picture is not null);
-
-            if (largest is not null)
+            foreach (var image in document.GetPage(number).GetImages()
+                .OrderByDescending(image => (long)image.WidthInSamples * image.HeightInSamples))
             {
-                pictures.Add(largest);
+                if (image.WidthInSamples <= 0 || image.HeightInSamples <= 0
+                    || image.WidthInSamples > limits.MaxImageDimension
+                    || image.HeightInSamples > limits.MaxImageDimension)
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
+                var pixels = (long)image.WidthInSamples * image.HeightInSamples;
+                var decoded = pixels * 4L;
+
+                if (pixels > limits.MaxImagePixels || decoded > limits.SingleImageDecodedCap)
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
+                if (totalDecodedBytes + decoded > limits.MaxDecodedImageBytes)
+                {
+                    rejected = true;
+                    break;
+                }
+
+                if (image.RawMemory.Span is [0xFF, 0xD8, 0xFF, ..] && image.RawMemory.Length > limits.SingleImageByteCap)
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
+                if (image.RawMemory.Span is [0xFF, 0xD8, 0xFF, ..] && totalImageBytes + image.RawMemory.Length > limits.MaxImageBytes)
+                {
+                    rejected = true;
+                    break;
+                }
+
+                var picture = AsModelPicture(image);
+
+                if (picture is null)
+                {
+                    continue;
+                }
+
+                if (picture.Data.Length > limits.SingleImageByteCap)
+                {
+                    rejected = true;
+                    exceedsSingle = true;
+                    break;
+                }
+
+                if (totalImageBytes + picture.Data.Length > limits.MaxImageBytes)
+                {
+                    rejected = true;
+                    break;
+                }
+
+                pictures.Add(picture);
+                totalImageBytes += picture.Data.Length;
+                totalDecodedBytes += decoded;
+                break;
+            }
+
+            if (rejected)
+            {
+                break;
             }
         }
 
-        return pictures;
+        return (pictures, totalDecodedBytes, rejected, exceedsSingle);
     }
 
     /// <summary>A JPEG as it is stored, since a model reads JPEG; anything else as PNG when it can be decoded.</summary>

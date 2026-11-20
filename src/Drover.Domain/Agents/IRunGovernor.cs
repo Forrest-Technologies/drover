@@ -79,5 +79,6 @@ public interface IRunGovernor
         Guid projectId,
         IReadOnlyCollection<Guid> fileIds,
         CancellationToken cancellationToken) =>
-        OpenFiles(fileIds, cancellationToken);
+        Task.FromResult<IReadOnlyDictionary<Guid, FileForModel>>(
+            System.Collections.Immutable.ImmutableDictionary<Guid, FileForModel>.Empty);
 }

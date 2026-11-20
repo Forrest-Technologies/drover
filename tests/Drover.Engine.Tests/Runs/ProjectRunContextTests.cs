@@ -16,6 +16,16 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
     #region Instructions And Files
 
     [Fact]
+    public async Task A_governor_without_a_project_file_reader_grants_nothing()
+    {
+        IRunGovernor governor = new ScriptedGovernor(new ScriptedTools());
+
+        var opened = await governor.OpenProjectFiles(Guid.CreateVersion7(), [Guid.CreateVersion7()], RunWorld.Token);
+
+        opened.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_run_outside_a_project_keeps_the_bots_instructions()
     {
         var script = new ScriptedModel([new TextOutput("Done.")]);
@@ -211,7 +221,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         await using var countWorld = await RunWorld.Create(postgres, countScript);
         countWorld.StartHost();
         var countProject = await CreateProject(countWorld, "ManyFiles", "");
-        var totalForCount = ProjectFileGrant.MaxFiles + 3;
+        var totalForCount = ProjectFileLimits.CandidateLimit + 3;
 
         for (var i = 0; i < totalForCount; i++)
         {
@@ -224,8 +234,17 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
 
         countWorld.Files.Opened.Should().Be(ProjectFileGrant.MaxFiles, "files past MaxFiles are omitted before store.Open is called");
         var countBody = TextOf(countWorld.Model.Requests.Should().ContainSingle().Subject);
-        countBody.Should().Contain("3 files were not shown");
+        countBody.Should().Contain($"{totalForCount - ProjectFileGrant.MaxFiles} files were not shown");
         countBody.Should().NotContain("entry-00").And.Contain($"entry-{totalForCount - 1:D2}");
+
+        var window = await countWorld.Transact(services => services.GetRequiredService<FileRepository>()
+            .ListProjectFileWindow(
+                countProject.Id,
+                ProjectFileLimits.CandidateLimit,
+                ProjectFileLimits.MaxStoredBytes,
+                RunWorld.Token));
+        window.TotalCount.Should().Be(totalForCount);
+        window.Candidates.Should().HaveCount(ProjectFileLimits.CandidateLimit, "the query materializes only its bounded lightweight window");
 
         var byteScript = new ScriptedModel([new TextOutput("Images bounded.")]);
         await using var byteWorld = await RunWorld.Create(postgres, byteScript);
@@ -241,13 +260,48 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
             await Upload(byteWorld, byteProject.Id, $"shot-{i}.png", largePng);
         }
 
+        var tooLarge = new byte[ProjectFileLimits.MaxStoredBytes + 1];
+        pngHead.CopyTo(tooLarge, 0);
+        await Upload(byteWorld, byteProject.Id, "too-large.png", tooLarge);
+
         var byteThread = await ThreadIn(byteWorld, byteWorld.BotId, byteProject.Id);
         var byteRun = await byteWorld.Post(byteThread!.Id, "Inspect images");
         (await byteWorld.WaitForStatus(byteRun, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
 
         byteWorld.Files.Opened.Should().Be(2, "3 x 4 MiB exceeds MaxBytes (10 MiB), so the oldest image is skipped before store.Open");
         byteWorld.Model.ImagesSeen.Should().ContainSingle().Which.Should().HaveCount(2);
-        TextOf(byteWorld.Model.Requests[0]).Should().Contain("1 file was not shown");
+        TextOf(byteWorld.Model.Requests[0])
+            .Should().Contain("1 file was not shown because it was too large for one model call")
+            .And.Contain("1 more file was not shown because the project shares more files than one model call is given");
+    }
+
+    [Fact]
+    public async Task Image_only_project_documents_share_one_image_budget_and_are_not_read_again_in_the_same_run()
+    {
+        var tools = new TestTools().Add("test.lookup", ToolSensitivity.Read);
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "test_lookup")],
+            [new TextOutput("Images checked.")]);
+        await using var world = await RunWorld.Create(postgres, script, tools);
+        await SetVision(world, true);
+        world.StartHost();
+        var project = await CreateProject(world, "Scans", "");
+        var firstPages = Enumerable.Range(0, 10).Select(index => TestDocuments.Jpeg(512, 512, (byte)index)).ToArray();
+        var secondPages = Enumerable.Range(10, 10).Select(index => TestDocuments.Jpeg(512, 512, (byte)index)).ToArray();
+        await Upload(world, project.Id, "first.pdf", TestDocuments.ScannedPdf(firstPages));
+        await Upload(world, project.Id, "second.pdf", TestDocuments.ScannedPdf(secondPages));
+        var openedBeforeRun = world.Files.Opened;
+        var thread = await ThreadIn(world, world.BotId, project.Id);
+
+        var runId = await world.Post(thread!.Id, "Inspect scans.");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        world.Model.ImagesSeen.Select(images => images.Count).Should().Equal(
+            ProjectFileLimits.MaxImages,
+            ProjectFileLimits.MaxImages);
+        (world.Files.Opened - openedBeforeRun).Should().Be(
+            2,
+            "bounded project pictures are retained for later model calls in the same run");
     }
 
     [Fact]

@@ -114,6 +114,21 @@ public sealed class FileInspector
         return new FileFacts(FileKind.Other, otherTypes.GetValueOrDefault(extension, "application/octet-stream"));
     }
 
+    /// <summary>Reads pixel dimensions from a PNG, JPEG, GIF, or WebP header without decoding pixel data.</summary>
+    public static bool TryReadImageDimensions(ReadOnlySpan<byte> bytes, out int width, out int height)
+    {
+        if (FindImageSize(bytes) is (int w, int h) && w > 0 && h > 0)
+        {
+            width = w;
+            height = h;
+            return true;
+        }
+
+        width = 0;
+        height = 0;
+        return false;
+    }
+
     /// <summary>The kind a content type the inspector chose belongs to.</summary>
     public static FileKind KindOf(string contentType) =>
         imageTypes.Contains(contentType) ? FileKind.Image
@@ -183,18 +198,28 @@ public sealed class FileInspector
 
     #region Pictures
 
+    private static (int, int)? FindImageSize(ReadOnlySpan<byte> start) => start switch
+    {
+        [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => PngSize(start),
+        [0xFF, 0xD8, 0xFF, ..] => JpegSize(start),
+        [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => GifSize(start),
+        [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => WebpSize(start),
+        _ => null,
+    };
+
     private static FileFacts? FindImage(ReadOnlySpan<byte> start)
     {
-        var found = start switch
+        var type = start switch
         {
-            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => ("image/png", PngSize(start)),
-            [0xFF, 0xD8, 0xFF, ..] => ("image/jpeg", JpegSize(start)),
-            [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => ("image/gif", GifSize(start)),
-            [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => ("image/webp", WebpSize(start)),
-            _ => (null, null),
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => "image/png",
+            [0xFF, 0xD8, 0xFF, ..] => "image/jpeg",
+            [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => "image/gif",
+            [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => "image/webp",
+            _ => null,
         };
 
-        return found is (string type, ({ } width, { } height))
+        return type is not null
+            && FindImageSize(start) is ({ } width, { } height)
             && width is > 0 and <= LargestSide && height is > 0 and <= LargestSide
             ? new FileFacts(FileKind.Image, type, width, height)
             : null;

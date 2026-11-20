@@ -37,6 +37,9 @@ public sealed class RunFiles(
 
     private readonly ConcurrentDictionary<Guid, FileForModel> given = new();
 
+    /// <summary>Project pictures retained only within this run after their bounded first read.</summary>
+    private readonly ConcurrentDictionary<Guid, FileForModel> projectPictures = new();
+
     #endregion
 
     #region Public Methods
@@ -77,7 +80,9 @@ public sealed class RunFiles(
     }
 
     /// <summary>
-    /// Opens shared files belonging to <paramref name="projectId"/> for the model without touching any sandbox.
+    /// Opens shared files belonging to <paramref name="projectId"/> newest-first without touching any sandbox,
+    /// enforcing per-call character, image count, encoded byte, decoded pixel byte, and dimension bounds as each file
+    /// is read so discarded outputs are never retained.
     /// </summary>
     public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenProject(
         Guid projectId,
@@ -91,18 +96,285 @@ public sealed class RunFiles(
             return opened;
         }
 
+        Dictionary<Guid, int> rank = [];
+        var order = 0;
+
+        foreach (var id in fileIds)
+        {
+            rank[id] = order++;
+        }
+
         var rows = await tenant.Transact(
             async services =>
             {
                 var files = await services.GetRequiredService<FileRepository>().ListFiles(fileIds, cancellationToken);
-                return files.Where(file => file.ProjectId == projectId).ToList();
+                return files
+                    .Where(file => file.ProjectId == projectId)
+                    .OrderByDescending(file => rank.GetValueOrDefault(file.Id, -1))
+                    .ToList();
             },
             cancellationToken);
         FileAbilities directOnly = new(modelReadsImages, HasSandbox: false, AudienceCoversSandbox: false);
+        var budget = new ProjectCallBudget();
+        var anyKept = false;
 
         foreach (var file in rows)
         {
-            opened[file.Id] = await Give(file, directOnly, forProject: true, cancellationToken);
+            if (projectPictures.TryGetValue(file.Id, out var cachedPicture))
+            {
+                if (!TryMeasureImages(cachedPicture, out var cachedImages, out var cachedBytes, out var cachedDecoded)
+                    || !budget.CanFitImages(cachedImages, cachedBytes, cachedDecoded)
+                    || (anyKept && cachedPicture.Text.Length + 1 > budget.RemainingCharacters))
+                {
+                    break;
+                }
+
+                await taint();
+                opened[file.Id] = cachedPicture;
+                budget.Consume(cachedPicture.Text.Length + 1, cachedImages, cachedBytes, cachedDecoded);
+                anyKept = true;
+                continue;
+            }
+
+            if (given.TryGetValue(file.Id, out var known))
+            {
+                if (anyKept && known.Text.Length + 1 > budget.RemainingCharacters)
+                {
+                    break;
+                }
+
+                await taint();
+                opened[file.Id] = known;
+                budget.ConsumeText(known.Text.Length + 1);
+                anyKept = true;
+                continue;
+            }
+
+            var kind = FileInspector.KindOf(file.ContentType);
+            var use = FileUses.For(kind, directOnly);
+
+            if (use is FileUse.None)
+            {
+                var refused = Note(file, FileUses.RefusalFor(kind, directOnly) is FileRefusals.ModelCannotReadImages
+                    ? "this bot's model cannot read pictures and project files are not copied into a sandbox, so it cannot open it"
+                    : "project files are not copied into a sandbox, so it cannot open it");
+
+                if (anyKept && refused.Text.Length + 1 > budget.RemainingCharacters)
+                {
+                    break;
+                }
+
+                opened[file.Id] = refused;
+                budget.ConsumeText(refused.Text.Length + 1);
+                anyKept = true;
+                continue;
+            }
+
+            if (anyKept && budget.RemainingCharacters <= 0)
+            {
+                break;
+            }
+
+            if (use is FileUse.Text)
+            {
+                await taint();
+                var textResult = await Text(file, cancellationToken);
+
+                if (anyKept && textResult.Text.Length + 1 > budget.RemainingCharacters)
+                {
+                    break;
+                }
+
+                opened[file.Id] = textResult;
+                given[file.Id] = textResult;
+                budget.ConsumeText(textResult.Text.Length + 1);
+                anyKept = true;
+                continue;
+            }
+
+            if (use is FileUse.Image)
+            {
+                if (file.Width is > 0 and var knownWidth && file.Height is > 0 and var knownHeight)
+                {
+                    if (!FitsSingleImage(knownWidth, knownHeight, file.Size))
+                    {
+                        continue;
+                    }
+
+                    if (!budget.CanFitImage(file.Size, (long)knownWidth * knownHeight * 4L))
+                    {
+                        break;
+                    }
+                }
+                else if (file.Size > ProjectFileLimits.MaxImageBytes)
+                {
+                    continue;
+                }
+
+                var picture = await Picture(file, cancellationToken);
+
+                if (picture.Images is [{ } image])
+                {
+                    var hasSize = FileInspector.TryReadImageDimensions(image.Data.Span, out var width, out var height);
+
+                    if (!hasSize && file.Width is > 0 and var storedW && file.Height is > 0 and var storedH)
+                    {
+                        width = storedW;
+                        height = storedH;
+                        hasSize = true;
+                    }
+
+                    if (!hasSize)
+                    {
+                        continue;
+                    }
+
+                    if (!FitsSingleImage(width, height, image.Data.Length))
+                    {
+                        continue;
+                    }
+
+                    var decoded = (long)width * height * 4L;
+
+                    if (!budget.CanFitImage(image.Data.Length, decoded))
+                    {
+                        break;
+                    }
+
+                    if (anyKept && picture.Text.Length + 1 > budget.RemainingCharacters)
+                    {
+                        break;
+                    }
+
+                    await taint();
+                    opened[file.Id] = picture;
+                    projectPictures[file.Id] = picture;
+                    budget.Consume(picture.Text.Length + 1, 1, image.Data.Length, decoded);
+                    anyKept = true;
+                }
+                else
+                {
+                    if (anyKept && picture.Text.Length + 1 > budget.RemainingCharacters)
+                    {
+                        break;
+                    }
+
+                    await taint();
+                    opened[file.Id] = picture;
+                    budget.ConsumeText(picture.Text.Length + 1);
+                    anyKept = true;
+                }
+
+                continue;
+            }
+
+            if (use is FileUse.Document)
+            {
+                if (file.Size < 0 || file.Size > ProjectFileLimits.MaxStoredBytes)
+                {
+                    continue;
+                }
+
+                if (await ReadAll(file, cancellationToken) is not { } bytes)
+                {
+                    await taint();
+                    var missing = Missing(file);
+
+                    if (anyKept && missing.Text.Length + 1 > budget.RemainingCharacters)
+                    {
+                        break;
+                    }
+
+                    opened[file.Id] = missing;
+                    budget.ConsumeText(missing.Text.Length + 1);
+                    anyKept = true;
+                    continue;
+                }
+
+                var imageCap = modelReadsImages ? Math.Min(MaxPageImages, budget.RemainingImages) : 0;
+                DocumentLimits limits = new(
+                    maxDocumentPages,
+                    MaxTextCharacters,
+                    imageCap,
+                    budget.RemainingImageBytes,
+                    budget.RemainingDecodedImageBytes,
+                    ProjectFileLimits.MaxImageDimension,
+                    ProjectFileLimits.MaxImagePixels,
+                    ProjectFileLimits.MaxImageBytes,
+                    ProjectFileLimits.MaxDecodedImageBytes);
+                var (read, unreadable) = ReadDocument(file, bytes, limits);
+
+                if (read is null)
+                {
+                    await taint();
+                    var note = Note(file, $"it could not be read: {unreadable}");
+
+                    if (anyKept && note.Text.Length + 1 > budget.RemainingCharacters)
+                    {
+                        break;
+                    }
+
+                    opened[file.Id] = note;
+                    budget.ConsumeText(note.Text.Length + 1);
+                    anyKept = true;
+                    continue;
+                }
+
+                if (!read.HasText && modelReadsImages)
+                {
+                    if (budget.RemainingImages <= 0)
+                    {
+                        break;
+                    }
+
+                    if (read.ImagesRejected)
+                    {
+                        if (read.ImagesExceedSingleLimits || !anyKept)
+                        {
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    if (budget.RemainingImages < MaxPageImages
+                        && read.PageImages.Count == budget.RemainingImages
+                        && read.Total > budget.RemainingImages)
+                    {
+                        break;
+                    }
+
+                    var docImages = new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read), read.PageImages);
+
+                    if (anyKept && docImages.Text.Length + 1 > budget.RemainingCharacters)
+                    {
+                        break;
+                    }
+
+                    var encodedBytes = read.PageImages.Sum(image => (long)image.Data.Length);
+                    await taint();
+                    opened[file.Id] = docImages;
+                    projectPictures[file.Id] = docImages;
+                    budget.Consume(docImages.Text.Length + 1, read.PageImages.Count, encodedBytes, read.PageImageDecodedBytes);
+                    anyKept = true;
+                    continue;
+                }
+
+                var docText = read.HasText
+                    ? new FileForModel(file.Id, DocumentWords.ForModel(file.Name, file.ContentType, read, MaxTextCharacters))
+                    : new FileForModel(file.Id, DocumentWords.WithoutText(file.Name, file.ContentType, read));
+
+                if (anyKept && docText.Text.Length + 1 > budget.RemainingCharacters)
+                {
+                    break;
+                }
+
+                await taint();
+                opened[file.Id] = docText;
+                given[file.Id] = docText;
+                budget.ConsumeText(docText.Text.Length + 1);
+                anyKept = true;
+            }
         }
 
         return opened;
@@ -220,10 +492,11 @@ public sealed class RunFiles(
         return new FileForModel(file.Id, $"[The person attached {file.Name}. Its content follows.]\n{text}\n{ending}");
     }
 
-    private (DocumentContent? Read, string? Unreadable) ReadDocument(StoredFile file, byte[] bytes, bool modelReadsImages)
-    {
-        var limits = new DocumentLimits(maxDocumentPages, MaxTextCharacters, modelReadsImages ? MaxPageImages : 0);
+    private (DocumentContent? Read, string? Unreadable) ReadDocument(StoredFile file, byte[] bytes, bool modelReadsImages) =>
+        ReadDocument(file, bytes, new DocumentLimits(maxDocumentPages, MaxTextCharacters, modelReadsImages ? MaxPageImages : 0));
 
+    private (DocumentContent? Read, string? Unreadable) ReadDocument(StoredFile file, byte[] bytes, DocumentLimits limits)
+    {
         try
         {
             return (DocumentReader.Read(bytes, file.ContentType, limits), null);
@@ -288,6 +561,92 @@ public sealed class RunFiles(
 
     private static FileForModel Note(StoredFile file, string why) =>
         new(file.Id, $"[The person attached {file.Name} ({file.ContentType}, {FileWords.Size(file.Size)}), but {why}.]");
+
+    private static bool FitsSingleImage(int width, int height, long encodedBytes)
+    {
+        if (width <= 0 || height <= 0
+            || width > ProjectFileLimits.MaxImageDimension
+            || height > ProjectFileLimits.MaxImageDimension)
+        {
+            return false;
+        }
+
+        var pixels = (long)width * height;
+        var decoded = pixels * 4L;
+        return pixels <= ProjectFileLimits.MaxImagePixels
+            && decoded <= ProjectFileLimits.MaxDecodedImageBytes
+            && encodedBytes <= ProjectFileLimits.MaxImageBytes;
+    }
+
+    private static bool TryMeasureImages(
+        FileForModel file,
+        out int count,
+        out long encodedBytes,
+        out long decodedBytes)
+    {
+        count = 0;
+        encodedBytes = 0;
+        decodedBytes = 0;
+
+        foreach (var image in file.Images ?? [])
+        {
+            if (!FileInspector.TryReadImageDimensions(image.Data.Span, out var width, out var height)
+                || !FitsSingleImage(width, height, image.Data.Length))
+            {
+                return false;
+            }
+
+            count++;
+            encodedBytes += image.Data.Length;
+            decodedBytes += (long)width * height * 4L;
+        }
+
+        return count <= ProjectFileLimits.MaxImages
+            && encodedBytes <= ProjectFileLimits.MaxImageBytes
+            && decodedBytes <= ProjectFileLimits.MaxDecodedImageBytes;
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    private sealed class ProjectCallBudget
+    {
+        #region Properties
+
+        public int RemainingCharacters { get; private set; } = ProjectFileLimits.MaxCharacters;
+
+        public int RemainingImages { get; private set; } = ProjectFileLimits.MaxImages;
+
+        public long RemainingImageBytes { get; private set; } = ProjectFileLimits.MaxImageBytes;
+
+        public long RemainingDecodedImageBytes { get; private set; } = ProjectFileLimits.MaxDecodedImageBytes;
+
+        #endregion
+
+        #region Public Methods
+
+        public bool CanFitImage(long encodedBytes, long decodedBytes) =>
+            CanFitImages(1, encodedBytes, decodedBytes);
+
+        public bool CanFitImages(int images, long encodedBytes, long decodedBytes) =>
+            images <= RemainingImages
+            && encodedBytes <= RemainingImageBytes
+            && decodedBytes <= RemainingDecodedImageBytes;
+
+        public void ConsumeText(int characters) =>
+            RemainingCharacters = Math.Max(0, RemainingCharacters - Math.Max(0, characters));
+
+        public void Consume(int characters, int images, long encodedBytes, long decodedBytes)
+        {
+            ConsumeText(characters);
+            RemainingImages = Math.Max(0, RemainingImages - Math.Max(0, images));
+            RemainingImageBytes = Math.Max(0, RemainingImageBytes - Math.Max(0, encodedBytes));
+            RemainingDecodedImageBytes = Math.Max(0, RemainingDecodedImageBytes - Math.Max(0, decodedBytes));
+        }
+
+        #endregion
+    }
 
     #endregion
 }
