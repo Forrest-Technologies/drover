@@ -103,6 +103,8 @@ internal sealed class TalkWorkspace : Grid
 
     private readonly TalkViewModel model;
 
+    private readonly ConversationSaver saver = Pieces.Make<ConversationSaver>();
+
     private BotNotifyMenu? menu;
 
     private Guid? menuBot;
@@ -475,7 +477,12 @@ internal sealed class TalkWorkspace : Grid
         }
 
         (menuBot, menuItems) = (shown.Id, items);
-        menu.Items = [.. wanted.Select(Item)];
+        menu.Items =
+        [
+            .. wanted.Select(Item),
+            SaveItem(ConversationSaver.MarkdownLabel, ExportFormats.Markdown),
+            SaveItem(ConversationSaver.JsonLabel, ExportFormats.Json),
+        ];
         menu.Bot = shown;
     }
 
@@ -483,6 +490,14 @@ internal sealed class TalkWorkspace : Grid
     {
         var item = new MenuItem { Content = way.Label };
         item.Selected += (_, _) => model.OpenSide(way.Address);
+        return item;
+    }
+
+    // Saves the main conversation shown when the item is chosen, through the platform's own way of saving a file.
+    private MenuItem SaveItem(string label, string format)
+    {
+        var item = new MenuItem { Content = label };
+        item.Selected += async (_, _) => await saver.Save(model.MainPane?.ThreadId, format, PlatformFiles.SaveText);
         return item;
     }
 
