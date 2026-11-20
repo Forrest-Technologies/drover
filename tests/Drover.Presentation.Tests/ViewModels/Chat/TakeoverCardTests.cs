@@ -127,7 +127,7 @@ public sealed class TakeoverCardTests
         card.State.Should().Be("Sample bot is waiting");
         card.Press(Step(card, "I'm done"));
         card.Sending = true;
-        card.Problem = "Your answer was not sent. Drover could not reach its server. Check that it is running.";
+        card.Problem = "Your answer was not sent. Drover could not reach its server.";
         card.ParametersSet();
 
         card.Sending.Should().BeTrue("every button is off while an answer is on its way");

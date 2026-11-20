@@ -79,7 +79,7 @@ public sealed class SetupViewModelTests : IDisposable
         server.Unreachable = true;
         var model = Account();
         await model.Open();
-        model.Problem.Should().Be(Failures.Unreachable);
+        model.Problem.Should().Be("Drover could not reach its server.");
         server.Unreachable = false;
         server.Answer("GET", "/api/setup", new SetupStatus(true));
 

@@ -474,7 +474,7 @@ public sealed class TalkTests : ScreenTest
         Server.TimeOut("GET", $"{space}/bots/{botId}/sandbox");
         var page = RenderScreen();
         page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Drover could not load the screen"));
-        page.Find("aside h2 + p").TextContent.Should().Be(Failures.TooSlow);
+        page.Find("aside h2 + p").TextContent.Should().Be("Drover's server did not answer in time.");
         page.FindAll("aside button").Should().Contain(button => button.TextContent.Trim() == "Try again");
 
         Server.Answer("GET", $"{space}/bots/{botId}/sandbox", ScreenStatus(desktop: true) with { State = "paused" });
@@ -525,7 +525,7 @@ public sealed class TalkTests : ScreenTest
         var page = RenderScreen();
 
         page.WaitForAssertion(() => page.Find("aside h2").TextContent.Should().Be("Drover could not load the screen"));
-        page.Find("aside h2 + p").TextContent.Should().Be(Failures.Unreadable);
+        page.Find("aside h2 + p").TextContent.Should().Be("Drover's server sent an answer this page could not read.");
         page.FindAll("aside button").Should().Contain(button => button.TextContent.Trim() == "Try again");
     }
 

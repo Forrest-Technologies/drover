@@ -56,7 +56,7 @@ public sealed class DroverApiTests : IDisposable
     [Fact]
     public void A_server_that_cannot_be_reached_is_said_in_words()
     {
-        Failures.Sentence(new HttpRequestException("connection refused")).Should().Be(Failures.Unreachable);
+        Failures.Sentence(new HttpRequestException("connection refused")).Should().Be("Drover could not reach its server.");
     }
 
     [Fact]

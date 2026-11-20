@@ -41,7 +41,7 @@ public sealed class SessionGateTests : ScreenTest
         Server.Unreachable = true;
         var gate = RenderGate();
         gate.WaitForAssertion(() => gate.Find("h2").TextContent.Should().Be("The server did not answer"));
-        gate.Find(".dv-empty-cause").TextContent.Should().Be(Failures.Unreachable);
+        gate.Find(".dv-empty-cause").TextContent.Should().Be("Drover could not reach its server.");
 
         Server.Unreachable = false;
         SignedIn();
