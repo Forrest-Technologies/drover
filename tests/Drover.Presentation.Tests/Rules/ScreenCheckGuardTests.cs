@@ -134,9 +134,32 @@ public sealed partial class ScreenCheckGuardTests
             "tests",
             "Drover.Native.UITests",
             "IosApp.cs"));
+        var iosServices = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "src",
+            "Drover.Native",
+            "Platforms",
+            "iOS",
+            "IosServices.cs"));
+        var deviceSecrets = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "src",
+            "Drover.Native",
+            "Device",
+            "DeviceSecrets.cs"));
+        var checks = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "App",
+            "ScreenChecks.cs"));
         harness.Should().Contain("get_app_container");
         harness.Should().Contain("DROVER_UI_CHECK_REPORT");
         harness.Should().NotContain("\"--console\"");
+        iosServices.Should().Contain("AddSingleton<ISecureStorage, DeviceSecrets>");
+        deviceSecrets.Should().Contain("AfterFirstUnlockThisDeviceOnly");
+        checks.Should().Contain("GetRequiredService<NativeSession>().Clear");
+        checks.Should().Contain("GetRequiredService<ServerAddress>().Forget");
     }
 
     #endregion

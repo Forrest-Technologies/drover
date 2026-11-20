@@ -73,7 +73,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Shown("ConnectAddress", startPatience);
 #if !__ANDROID__ && !__IOS__
         // The native window can attach after the connect control is on screen. A resize before that is ignored,
-        // and the host then stays at its first width, so ask again until the content is at phone width.
+        // and the host then stays at its first width, so ask again at a measured pace until the content is at
+        // phone width without thrashing the macOS window surface.
+        var resizedAt = TimeSpan.MinValue;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         await Until("a window at phone width", () =>
         {
             if (Width() is > 0 and < 560)
@@ -81,9 +84,14 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 return window.Content;
             }
 
-            window.AppWindow.Resize(new(420, 860));
+            if (resizedAt == TimeSpan.MinValue || watch.Elapsed - resizedAt >= TimeSpan.FromSeconds(1))
+            {
+                window.AppWindow.Resize(new(420, 860));
+                resizedAt = watch.Elapsed;
+            }
+
             return null;
-        });
+        }, startPatience);
 #endif
     }
 
@@ -94,6 +102,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         {
             throw new CheckFailedException("the saved sign-in was not restored");
         }
+
+        var services = ((App)Application.Current).Services;
+        await services.GetRequiredService<NativeSession>().Clear(settings.Server, signedOutAccess: null);
+        services.GetRequiredService<ServerAddress>().Forget();
     }
 
     private async Task Connect()

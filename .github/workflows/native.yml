@@ -104,6 +104,7 @@ jobs:
 
   ios:
     name: iOS
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: xcode-27
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
@@ -122,14 +123,20 @@ jobs:
       - name: Install the iOS workload
         run: dotnet workload install ios --version 11.0.100
       - name: Build iOS, warnings are errors
-        run: >-
-          dotnet build src/Drover.Native -f net11.0-ios
-          -p:DroverNativeTargetFrameworks=net11.0-ios
-          -p:DroverEnableApple=true
-          -p:RuntimeIdentifier=iossimulator-arm64
-          -p:CodesignKey=-
-          -c Release
-          -warnaserror
+        run: |
+          dotnet build src/Drover.Native -f net11.0-ios \
+            -p:DroverNativeTargetFrameworks=net11.0-ios \
+            -p:DroverEnableApple=true \
+            -p:RuntimeIdentifier=iossimulator-arm64 \
+            -p:CodesignKey=- \
+            -c Release \
+            -warnaserror
+          dll="$(find src/Drover.Native/bin/Release/net11.0-ios -type f -name 'Drover.Native.dll' -print -quit)"
+          test -n "$dll"
+          if grep -a -q DROVER_UI_CHECK_REPORT "$dll"; then
+            echo "DROVER_UI_CHECK_REPORT must not be compiled into the shipping iOS binary"
+            exit 1
+          fi
       - name: Build the screen checks and an iOS build made for them
         run: |
           dotnet build tests/Drover.Native.UITests -c Release -warnaserror

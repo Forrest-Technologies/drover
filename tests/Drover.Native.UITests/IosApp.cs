@@ -123,6 +123,12 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
         if (outcome is null)
         {
             logger.LogError("The iOS app did not report a result within {Minutes} minutes", patience.TotalMinutes);
+            var recent = await SimctlLogs();
+            if (!string.IsNullOrWhiteSpace(recent))
+            {
+                logger.LogError("Recent iOS simulator logs for Drover.Native:{NewLine}{Logs}", Environment.NewLine, recent);
+            }
+
             outcome = "ui-check result: failed";
         }
 
@@ -131,6 +137,45 @@ internal sealed class IosApp(string path, string device) : IAppUnderCheck
             .. lines.Where(line => !line.StartsWith(IosCheckReport.ResultPrefix, StringComparison.Ordinal)),
             outcome,
         ];
+    }
+
+    private async Task<string> SimctlLogs()
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var start = new ProcessStartInfo("xcrun") { RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add("simctl");
+            start.ArgumentList.Add("spawn");
+            start.ArgumentList.Add(device);
+            start.ArgumentList.Add("log");
+            start.ArgumentList.Add("show");
+            start.ArgumentList.Add("--last");
+            start.ArgumentList.Add("5m");
+            start.ArgumentList.Add("--predicate");
+            start.ArgumentList.Add("process == \"Drover.Native\"");
+            start.ArgumentList.Add("--style");
+            start.ArgumentList.Add("compact");
+
+            using var process = Process.Start(start);
+            if (process is null)
+            {
+                return string.Empty;
+            }
+
+            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var error = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            var text = await output;
+            var stderr = await error;
+            var combined = string.IsNullOrWhiteSpace(text) ? stderr : text;
+            var tail = combined.Split('\n', StringSplitOptions.RemoveEmptyEntries).TakeLast(80);
+            return string.Join(Environment.NewLine, tail);
+        }
+        catch (Exception exception)
+        {
+            return $"Could not read simulator logs: {exception.Message}";
+        }
     }
 
     private static async Task<string> SimctlText(params string[] arguments)
