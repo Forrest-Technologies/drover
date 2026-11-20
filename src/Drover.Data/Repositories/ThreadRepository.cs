@@ -3,7 +3,7 @@ namespace Drover.Data.Repositories;
 /// <summary>
 /// What one thread holds for one person: their newest root run in it (the run a message started, never a run another
 /// bot handed work to), whether a call anywhere in that run's tree still waits for an approval, when they last opened
-/// the thread, and whether a bot said something in a run of theirs after the last message they saw.
+/// the thread, and whether a root run of theirs said something after the last message they saw.
 /// </summary>
 public sealed record ThreadFacts(Run? NewestRun, bool ApprovalOpen, DateTimeOffset? SeenAt, bool HasNew);
 
@@ -107,8 +107,9 @@ public sealed class ThreadRepository(DroverDbContext db)
     /// <summary>
     /// What each of the threads holds for the person, from their own runs and their own marker only. Runs have no
     /// audience, so another member's runs in a shared thread are visible here; they are left out by name. A run
-    /// another bot handed work to is part of its root's tree: its approvals count for the root's thread, and its
-    /// failure is the parent's to deal with, so it never stands as a thread's newest run.
+    /// another bot handed work to is part of its root's tree: its approvals count for the root's thread, its
+    /// failure is the parent's to deal with, and its replies are read there as the root's answer, so it never
+    /// stands as a thread's newest run and its words never count as new.
     /// </summary>
     public async Task<Dictionary<Guid, ThreadFacts>> ListFacts(
         IReadOnlyCollection<Guid> threadIds,
@@ -139,7 +140,7 @@ public sealed class ThreadRepository(DroverDbContext db)
         var withNew = (await db.Messages.AsNoTracking()
             .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null
                 && message.ShelvedAt == null)
-            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
+            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId && run.ParentRunId == null))
             .Where(message => message.Position > (db.ThreadReads
                 .Where(read => read.ThreadId == message.ThreadId && read.AudienceUserId == userId)
                 .Select(read => (int?)read.SeenThroughPosition)

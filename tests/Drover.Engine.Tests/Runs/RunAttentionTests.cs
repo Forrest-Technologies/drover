@@ -182,6 +182,37 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_delegation_two_levels_down_makes_only_the_root_bot_read_new()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var middleId = await world.NewBotBeneath(world.BotId, "Middle");
+        var bottomId = await world.NewBotBeneath(middleId, "Bottom");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.GrantTo(middleId, DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", middleId, "Ask Bottom.")],
+            [Delegate("d2", bottomId, "Say hello.")],
+            [new TextOutput("Hello from Bottom.")],
+            [new TextOutput("Bottom said hello.")],
+            [new TextOutput("Middle reports that Bottom said hello.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+        var rootId = await world.Post(threadId, "Go down the chain.");
+        (await world.WaitForStatus(rootId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        var tree = await world.ReadTree(rootId);
+        var middle = tree.Single(run => run.BotId == middleId);
+        var bottom = tree.Single(run => run.BotId == bottomId);
+
+        var root = await AttentionOf(world, threadId, world.UserId);
+        var middlesThread = await AttentionOf(world, middle.ThreadId, world.UserId);
+        var bottomsThread = await AttentionOf(world, bottom.ThreadId, world.UserId);
+
+        root.Should().Be(new ThreadAttention(false, false, true, null), "the root's own answer reached the person's thread, so the root bot reads New");
+        middlesThread.Should().Be(new ThreadAttention(false, false, false, null), "the person never talks in a delegated thread: its replies reach them as the root's answer");
+        bottomsThread.Should().Be(new ThreadAttention(false, false, false, null));
+    }
+
+    [Fact]
     public async Task A_failed_child_its_parent_recovered_from_makes_no_bot_read_failed()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel());
