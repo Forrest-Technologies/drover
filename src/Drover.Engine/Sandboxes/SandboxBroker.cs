@@ -72,14 +72,7 @@ public sealed class SandboxBroker(
     /// </summary>
     public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
 
-    /// <summary>
-    /// Runs after a clean command has passed its taint check and before that command is admitted for the provider.
-    /// A test holds the command open here so another run can mark the sandbox in between. Production leaves it unset.
-    /// </summary>
-    public Func<CancellationToken, Task>? BeforeCommand { get; set; }
-
     #endregion
-
 
     #region Public Methods
 
@@ -97,14 +90,6 @@ public sealed class SandboxBroker(
         return await RunCommand(caller, environment, command, workingDirectory, timeout, call.Output, cancellationToken);
     }
 
-    /// <summary>
-    /// Whether a sandbox this bot can run a command in is already marked tainted: its own, or one a named share lets
-    /// it enter. No sandbox is made and the provider is not called. A command names one of these, so a tainted one
-    /// among them is tainted state the next command could start.
-    /// </summary>
-    public Task<bool> ACommandWouldUseATaintedSandbox(RunTenant tenant, Guid botId, CancellationToken cancellationToken) =>
-        tenant.Transact(services => ACommandWouldUseATaintedSandbox(services, botId, cancellationToken), cancellationToken);
-
     private async Task<SandboxCommandResult> RunCommand(
         SandboxCaller caller,
         string? environment,
@@ -117,12 +102,6 @@ public sealed class SandboxBroker(
         var limit = CommandLimit(timeout);
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
         await AuthorizeLiveWrite(caller, cancellationToken);
-        await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
-
-        if (caller.Call is { } waiting && !waiting.IsTainted() && BeforeCommand is { } pause)
-        {
-            await pause(cancellationToken);
-        }
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -139,9 +118,6 @@ public sealed class SandboxBroker(
 
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            await RefuseCleanRunInATaintedSandbox(caller, lease, cancellationToken);
-            await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
-
             try
             {
                 await foreach (var piece in provider.Run(lease.Handle, request, cancellationToken))
@@ -205,7 +181,6 @@ public sealed class SandboxBroker(
         {
             await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
             {
-                await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
                 await using var stream = new MemoryStream(bytes, writable: false);
                 await provider.WriteFile(lease.Handle, path, stream, cancellationToken);
             }
@@ -223,8 +198,8 @@ public sealed class SandboxBroker(
     /// Puts a file a person attached into the bot's own sandbox, made on first use, for the bot to work on. Not a tool
     /// call: the server does it while it builds what the model reads, for a bot whose grants let it use a sandbox. The
     /// same file size limit binds it as a bot's own writes. The file's audience is read again under the space's copy
-    /// fence, in the same transaction as the tainted mark, and the provider is called only when everyone who can reach
-    /// the sandbox can still see it. Refusals are <see cref="BuiltinToolException"/>.
+    /// fence, in the same transaction as the check that the sandbox is still there, and the provider is called only
+    /// when everyone who can reach the sandbox can still see it. Refusals are <see cref="BuiltinToolException"/>.
     /// </summary>
     public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, Guid fileId, CancellationToken cancellationToken)
     {
@@ -377,7 +352,6 @@ public sealed class SandboxBroker(
         await AuthorizeLiveWrite(caller, cancellationToken);
         await using (await HoldCommands(caller, lease.SandboxId, cancellationToken))
         {
-            await MarkTaintedWhenTheRunIs(caller, lease, cancellationToken);
             await RunOnScreen(lease, action, doing, cancellationToken);
         }
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
@@ -741,48 +715,6 @@ public sealed class SandboxBroker(
         return new SandboxTarget(caller.Tenant.SpaceId, owner, row, token, retired);
     }
 
-    /// <summary>Whether <paramref name="botId"/> can start a command in a live sandbox that is already tainted.</summary>
-    private static async Task<bool> ACommandWouldUseATaintedSandbox(IServiceProvider services, Guid botId, CancellationToken cancellationToken)
-    {
-        var bots = services.GetRequiredService<BotRepository>();
-        var bot = await bots.FindBot(botId, cancellationToken);
-
-        if (bot is null or { Status: BotStatus.Removed } || bot.SandboxPolicy is SandboxPolicy.None)
-        {
-            return false;
-        }
-
-        var sandboxes = services.GetRequiredService<SandboxRepository>();
-        var callerOwner = SandboxGroups.OwnerOf(botId, await bots.ListSandboxPath(botId, cancellationToken));
-
-        if (await sandboxes.FindLiveForOwner(callerOwner, cancellationToken) is { Tainted: true })
-        {
-            return true;
-        }
-
-        foreach (var sharedOwnerId in await bots.ListOwnersSharingWith(botId, cancellationToken))
-        {
-            if (await bots.FindBot(sharedOwnerId, cancellationToken) is not { Status: not BotStatus.Removed, SandboxPolicy: SandboxPolicy.Named } owner)
-            {
-                continue;
-            }
-
-            var shares = await bots.ListSandboxShares(owner.Id, cancellationToken);
-
-            if (!SandboxGroups.MayEnter(botId, callerOwner, owner.Id, owner.SandboxPolicy, shares))
-            {
-                continue;
-            }
-
-            if (await sandboxes.FindLiveForOwner(owner.Id, cancellationToken) is { Tainted: true })
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /// <summary>The owner of the sandbox another bot's handle names, when the caller may work in it.</summary>
     private static async Task<Bot> FindNamedOwner(BotRepository bots, Bot caller, Guid callerOwner, string environment, CancellationToken cancellationToken)
     {
@@ -974,8 +906,8 @@ public sealed class SandboxBroker(
 
     /// <summary>
     /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
-    /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network, or
-    /// from one marked tainted (<see cref="AuthorizeCopy"/>), taints the run.
+    /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network is
+    /// recorded on the run as read from an untrusted source; the record changes no grant.
     /// </summary>
     private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
@@ -992,7 +924,6 @@ public sealed class SandboxBroker(
         }
 
         var now = time.GetUtcNow();
-        var tainted = false;
         await caller.Tenant.Transact(
             async services =>
             {
@@ -1001,7 +932,6 @@ public sealed class SandboxBroker(
                     MarkRunning(row);
                     row.LastUsedAt = now;
                     row.ExpiresAt = now + lease.Idle;
-                    tainted = row.Tainted;
                 }
 
                 if (caller.Call is { } call)
@@ -1011,8 +941,8 @@ public sealed class SandboxBroker(
             },
             cancellationToken);
 
-        // A person reading their bot's sandbox is in no run, so there is nothing to taint.
-        if (readsSandbox && (tainted || lease.Network.Access is not NetworkAccess.Off) && caller.Call is { } reading)
+        // A person reading their bot's sandbox is in no run, so there is nothing to record.
+        if (readsSandbox && lease.Network.Access is not NetworkAccess.Off && caller.Call is { } reading)
         {
             await reading.Taint();
         }
@@ -1089,9 +1019,9 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// Re-reads who may see <paramref name="fileId"/> and marks the sandbox, under the space's copy fence, before the
-    /// provider is called. A narrowing of that audience holds the same fence until the change is committed, so this
-    /// either sees the narrower audience and writes nothing, or marks a sandbox that the narrowing then retires.
+    /// Re-reads who may see <paramref name="fileId"/>, under the space's copy fence, before the provider is called. A
+    /// narrowing of that audience holds the same fence until the change is committed, so this either sees the
+    /// narrower audience and writes nothing, or copies onto a sandbox that the narrowing then retires.
     /// </summary>
     private static async Task AuthorizeCopy(SandboxCaller caller, SandboxLease lease, Guid fileId, CancellationToken cancellationToken)
     {
@@ -1113,20 +1043,18 @@ public sealed class SandboxBroker(
                     throw new BuiltinToolException(ClosedConversationSentence);
                 }
 
-                if (await sandboxes.GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                if (await sandboxes.GetSandboxForUpdate(lease.SandboxId, cancellationToken) is null)
                 {
                     throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
                 }
-
-                row.Tainted = true;
             },
             cancellationToken);
     }
 
     /// <summary>
     /// Takes the sandbox's command lock. The wait is bounded and costs no database session; the lock is held on one
-    /// session, with no tenant transaction open, until the provider call returns. A tainted write takes the same lock,
-    /// so it cannot mark the row or change the sandbox while this command is admitted. When too many commands hold or
+    /// session, with no tenant transaction open, until the provider call returns. A write takes the same lock, so it
+    /// cannot change the sandbox while a command is admitted. When too many commands hold or
     /// wait for sandboxes, this is refused with a sentence the model or the person can read.
     /// </summary>
     private async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
@@ -1138,73 +1066,6 @@ public sealed class SandboxBroker(
         catch (SandboxBusyException busy)
         {
             throw new BuiltinToolException(busy.Message);
-        }
-    }
-
-    /// <summary>
-    /// A clean run's agent was built before this check, so an allow grant would start the shell. The selected
-    /// sandbox is read again here. The row lock ends with this transaction. The command lock, taken after this
-    /// returns, is what keeps a tainted write from landing before the provider starts the shell. When the row is
-    /// tainted, the run is tainted and the command is not started: the agent is built again, and the command asks.
-    /// A person's own controls have no call and still run.
-    /// </summary>
-    private static async Task RefuseCleanRunInATaintedSandbox(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
-    {
-        if (caller.Call is not { } call || call.IsTainted())
-        {
-            return;
-        }
-
-        var tainted = await caller.Tenant.Transact(
-            async services =>
-                await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is { Tainted: true },
-            cancellationToken);
-
-        if (!tainted)
-        {
-            return;
-        }
-
-        await call.Taint();
-        throw new BuiltinToolException("This sandbox was marked tainted while the run was in flight, so the command was not started.");
-    }
-
-    /// <summary>
-    /// A tainted run persists the text it read. Mark the sandbox before the provider is called, the same way an
-    /// attached file does, so a later clean run that reads it is tainted even when the network is off. A read does
-    /// not mark it. A person's own controls have no call and do not mark it.
-    /// </summary>
-    private static async Task MarkTaintedWhenTheRunIs(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
-    {
-        if (caller.Call?.IsTainted() == true)
-        {
-            await MarkTainted(caller, lease, cancellationToken);
-        }
-    }
-
-    /// <summary>
-    /// Marks the sandbox as holding text that must not reach a clean run untainted, for good, in its own committed
-    /// transaction before the provider is called: a write that is cancelled or fails after the provider took it still
-    /// leaves the mark. A sandbox whose row is gone is not written to, since nothing could carry the mark.
-    /// </summary>
-    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
-    {
-        var marked = await caller.Tenant.Transact(
-            async services =>
-            {
-                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
-                {
-                    return false;
-                }
-
-                row.Tainted = true;
-                return true;
-            },
-            cancellationToken);
-
-        if (!marked)
-        {
-            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
         }
     }
 

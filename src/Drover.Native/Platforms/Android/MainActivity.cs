@@ -27,6 +27,12 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
     /// </summary>
     public const string SignInReturnScheme = "com.forresttechnologies.drover.client";
 
+    /// <summary>
+    /// Whether this screen is in front, for the live streams. One for the process: the services are made again when the
+    /// person changes server, and the screen's state outlives that.
+    /// </summary>
+    internal static readonly StreamPresence Streams = new();
+
     #endregion
 
     #region Public Methods
@@ -87,6 +93,13 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 
     protected override void OnCreate(Bundle? bundle)
     {
+#if DROVER_UNREACHABLE_CHECK
+        if (Intent?.GetBooleanExtra("drover.unreachable_open", false) == true)
+        {
+            UnreachableOpenCheck.Arm();
+        }
+#endif
+
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);
 
@@ -101,10 +114,19 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
     protected override void OnStart()
     {
         base.OnStart();
+        Streams.Show();
         if (Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content: ShellView shell })
         {
             UpdateSystemBars(shell);
         }
+    }
+
+    // Out of sight the app holds no live stream open. Android keeps a stopped app's process, and its connections, for a
+    // long time; the server counts an open stream as the person watching and would send no push while it lasts.
+    protected override void OnStop()
+    {
+        Streams.Hide();
+        base.OnStop();
     }
 
     protected override void OnNewIntent(Intent? intent)

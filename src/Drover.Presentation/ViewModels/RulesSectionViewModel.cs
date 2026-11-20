@@ -310,7 +310,7 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSectionViewModel));
-            TryProblem = Failures.Sentence(exception);
+            TryProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -351,7 +351,7 @@ public sealed class RulesSectionViewModel(BotEditorViewModel editor, DroverApi a
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(RulesSectionViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

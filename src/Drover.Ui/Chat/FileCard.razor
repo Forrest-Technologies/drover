@@ -159,7 +159,7 @@
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            problem = $"Drover could not load the rest of {File.Name}. {Failures.Sentence(exception)}";
+            problem = $"Drover could not load the rest of {File.Name}. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {

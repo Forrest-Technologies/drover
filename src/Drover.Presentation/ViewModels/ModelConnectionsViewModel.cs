@@ -176,7 +176,7 @@ public sealed partial class ModelConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            AddProblem = Failures.Sentence(exception);
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -190,6 +190,27 @@ public sealed partial class ModelConnectionsViewModel(
             ShownCatalog = connection.Id;
             Catalog = null;
             Catalog = await api.ListModels(SpaceId, connection.Id);
+        });
+
+    /// <summary>
+    /// Whether a person may say a model of this connection reads pictures. Only a compatible endpoint takes it: it
+    /// lists models and nothing about them. A provider that reports its own capabilities offers no toggle.
+    /// </summary>
+    public bool CanMarkVision(ModelConnectionSummary connection) => CanEdit && connection.Kind == CompatibleKind;
+
+    public static string VisionLabel(ModelCatalogResponse entry) => $"{entry.DisplayName} reads pictures";
+
+    /// <summary>Says, for a model whose reading of pictures nobody can change here, what the catalog says.</summary>
+    public static string? VisionWords(ModelCatalogResponse entry) => entry.Capabilities.Vision ? "reads pictures" : null;
+
+    public Task SetVision(ModelConnectionSummary connection, ModelCatalogResponse entry, bool readsImages) =>
+        Change(connection, async () =>
+        {
+            var changed = await api.SetModelVision(SpaceId, connection.Id, new(entry.Model, readsImages));
+            Catalog = [.. (Catalog ?? []).Select(row => row.Model == changed.Model ? changed : row)];
+            Say(false, readsImages
+                ? $"{entry.DisplayName} is marked as reading pictures. Pictures attached for a bot that uses it go to it as pictures."
+                : $"{entry.DisplayName} is no longer marked as reading pictures.");
         });
 
     public Task RefreshCatalog(ModelConnectionSummary connection) =>
@@ -230,7 +251,7 @@ public sealed partial class ModelConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            problems[connection.Id] = Failures.Sentence(exception);
+            problems[connection.Id] = Failures.Sentence(exception, "Check that the server is running.");
             Notice = null;
         }
         finally

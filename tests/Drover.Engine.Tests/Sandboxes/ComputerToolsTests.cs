@@ -115,7 +115,7 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
 
     #endregion
 
-    #region Taint
+    #region Allow Means Allow
 
     [Theory]
     [InlineData(NetworkAccess.Off, false)]
@@ -152,7 +152,7 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
     [Theory]
     [InlineData("computer_click", """{"x":10,"y":20}""")]
     [InlineData("computer_type", """{"text":"keep this"}""")]
-    public async Task An_action_a_tainted_run_takes_marks_the_screen_so_a_later_clean_run_that_looks_is_tainted_with_the_network_off(
+    public async Task An_action_on_an_allow_grant_runs_without_asking_after_the_run_read_untrusted_text_and_leaves_the_screen_unmarked(
         string tool, string arguments)
     {
         var provider = DesktopProvider();
@@ -167,39 +167,17 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
         world.StartHost();
 
         var actor = await world.Post(await world.NewThread(), "Read the page and act on it");
-        await SandboxBrokerTests.ApproveTheWrite(world, actor);
-        var acted = await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Failed);
+        var acted = await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Waiting, RunStatus.Failed);
 
-        acted.Status.Should().Be(RunStatus.Completed, acted.Error?.Message);
-        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeTrue(
-            "the run had read untrusted text before it acted on the screen");
+        acted.Status.Should().Be(RunStatus.Completed, "an allowed action runs whatever the run read");
+        acted.Tainted.Should().BeTrue("the run read an untrusted page, which is recorded");
+        (await world.ReadToolCalls(actor)).Should().NotContain(call => call.Status == ToolCallStatus.PendingApproval);
 
         var looker = await world.Post(await world.NewThread(), "What is on the screen?");
         var clean = await world.WaitForStatus(looker, RunStatus.Completed, RunStatus.Failed);
 
         clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
-        clean.Tainted.Should().BeTrue("a tainted run acted on this screen, and the network being off does not make it trusted");
-    }
-
-    [Fact]
-    public async Task An_action_a_clean_run_takes_does_not_mark_the_screen_so_a_later_run_that_looks_stays_clean()
-    {
-        var provider = DesktopProvider();
-        var script = new ScriptedModel(
-            [new ToolCallOutput("c1", "computer_click", """{"x":10,"y":20}""")],
-            [new TextOutput("Clicked.")],
-            [new ToolCallOutput("c2", "computer_screenshot")],
-            [new TextOutput("Seen.")]);
-        await using var world = await ComputerWorld(provider, script, network: NetworkAccess.Off);
-        world.StartHost();
-
-        var actor = await world.Post(await world.NewThread(), "Click");
-        (await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
-        var looker = await world.Post(await world.NewThread(), "Look");
-        var clean = await world.WaitForStatus(looker, RunStatus.Completed, RunStatus.Failed);
-
-        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeFalse();
-        clean.Tainted.Should().BeFalse();
+        clean.Tainted.Should().BeFalse("with the network off, looking at the screen reads nothing from outside");
     }
 
     #endregion

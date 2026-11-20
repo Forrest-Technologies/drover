@@ -11,6 +11,9 @@ public sealed record ConnectionChange(ModelConnection? Connection, string? Probl
     public static ConnectionChange Invalid(string problem) => new(null, problem);
 }
 
+/// <summary>What marking a model as reading pictures came to: the changed catalog row, or a sentence for the admin.</summary>
+public sealed record ModelVisionChange(ModelCatalogEntry? Entry, string? Problem);
+
 /// <summary>A test or a refresh that reached, or tried to reach, the provider.</summary>
 public sealed record ProviderCheck<T>(T? Result, ModelFailure? Failure, string Message, ModelConnection Connection);
 
@@ -131,6 +134,33 @@ public sealed class ModelConnectionService(
         connection.Balance = null;
         connection.LastCheckedAt = null;
         return new ConnectionChange(connection, null);
+    }
+
+    /// <summary>
+    /// Records that a space admin says a model of a compatible connection reads pictures, or clears that. Only a
+    /// compatible endpoint takes it: a provider that reports its own capabilities keeps its own value. Null when the
+    /// connection or the model is not in this space's catalog; a sentence when the connection's kind takes no mark.
+    /// </summary>
+    public async Task<ModelVisionChange?> SetVision(Guid connectionId, string model, bool readsImages, CancellationToken cancellationToken)
+    {
+        if (await connections.FindConnection(connectionId, cancellationToken) is not { } connection)
+        {
+            return null;
+        }
+
+        if (connection.Kind != ModelConnectionKinds.Compatible)
+        {
+            return new ModelVisionChange(null, "Only the models of a compatible endpoint can be marked as reading pictures. This provider reports its own.");
+        }
+
+        if (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken) is not { } entry)
+        {
+            return null;
+        }
+
+        entry.Capabilities = entry.Capabilities with { Vision = readsImages, VisionSetByOperator = readsImages };
+        logger.LogInformation("Model connection {ConnectionId} marked a model as reading pictures: {ReadsImages}", connectionId, readsImages);
+        return new ModelVisionChange(entry, null);
     }
 
     #endregion
@@ -369,7 +399,7 @@ public sealed class ModelConnectionService(
             return;
         }
 
-        var existing = await connections.GetCatalog(connection.Id, cancellationToken);
+        var existing = await connections.GetCatalogForUpdate(connection.Id, cancellationToken);
 
         foreach (var entry in CatalogUpsert.Apply(connection.Id, existing, models, time.GetUtcNow()))
         {

@@ -1,7 +1,7 @@
 namespace Drover.Data.Tests;
 
 /// <summary>
-/// The lock that keeps a command and a tainted write from using one sandbox at once, and the bounds that keep it from
+/// The lock that keeps a command and a write from using one sandbox at once, and the bounds that keep it from
 /// costing the server its database sessions: waiters queue in the process and hold no session, and the sessions that
 /// are held are few, whatever a caller asks for.
 /// </summary>

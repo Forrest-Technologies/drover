@@ -120,7 +120,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AccountMenuViewModel));
-            toasts.Show($"You are still signed in. {Failures.Sentence(exception)}", ToastKind.Error);
+            toasts.Show($"You are still signed in. {Failures.Sentence(exception, "Check that the server is running.")}", ToastKind.Error);
         }
     }
 

@@ -111,7 +111,7 @@ public static class DeploymentPolicyExtensions
         policy with { SpaceQuotas = QuotaMode.SetByOperator };
 
     public static DeploymentPolicy WithSpacesUnableToLoosen(this DeploymentPolicy policy) =>
-        policy with { SpaceMayDisableTaintedRunEscalation = false, SpaceMayAutoLoadRemoteImages = false };
+        policy with { SpaceMayAutoLoadRemoteImages = false };
 
     public static DeploymentPolicy WithProtectedKeyRing(this DeploymentPolicy policy) =>
         policy with { KeyRingProtection = KeyRingProtection.CertificateOrKeyService };

@@ -2,9 +2,10 @@ namespace Drover.Client;
 
 /// <summary>
 /// The typed client for Drover's API. Every screen goes through it, in the browser and in the app shell alike, so
-/// there is one data path. The calls live in partial files by area; this file holds what they share.
+/// there is one data path. The calls live in partial files by area; this file holds what they share. A host that knows
+/// when it leaves the screen hands in a <see cref="StreamPresence"/>, and the live streams close while it is away.
 /// </summary>
-public sealed partial class DroverApi(HttpClient http)
+public sealed partial class DroverApi(HttpClient http, StreamPresence? presence = null)
 {
     #region Private Fields
 

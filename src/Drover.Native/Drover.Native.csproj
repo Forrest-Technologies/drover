@@ -104,6 +104,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- The offline deep-link check replaces the chosen server and then exits. A shipping build leaves it out. -->
+  <PropertyGroup Condition="'$(DroverUnreachableCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_UNREACHABLE_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverUnreachableCheck)' != 'true'">
+    <Compile Remove="Shell/UnreachableOpenCheck.cs" />
+  </ItemGroup>
+
   <!-- How requests reach the server. In a browser: the same-origin handler the web client uses. On a device: the
        handler and session the Android shell uses. Each is one source, compiled into both apps. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
@@ -179,6 +188,23 @@
 
   <!-- Holds what another app shared until a conversation takes it: the web client's, with this app's file type. -->
   <ItemGroup>
+  </ItemGroup>
+
+  <!-- Push with no distributor app installed: an embedded distributor over the phone's own platform push service. It
+       needs no project or key of Drover's: it hands the app a standard Web Push endpoint, which the server signs for
+       with its own VAPID key as it does for every device. The library ships an optional relay for apps that pass no
+       VAPID key; Drover passes its own, so the relay is never used and the distributor talks to the platform push
+       service directly. Apache-2.0, no proprietary library; its Kotlin runtime and
+       coroutines already come with the platform's Android packages. DroverEmbeddedPush=false leaves it out, for a
+       build that must not use that service; such a build needs a distributor app. The build's check of its Java
+       dependencies stops on a package reference the platform's SDK adds without a version, so it is off for this one
+       library: its two dependencies, the Kotlin runtime 2.1 or later and coroutines, are already in the app at 2.4 and
+       1.11 through the platform's Android packages. -->
+  <PropertyGroup>
+    <DroverEmbeddedPush Condition="'$(DroverEmbeddedPush)' == ''">true</DroverEmbeddedPush>
+  </PropertyGroup>
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' And '$(DroverEmbeddedPush)' == 'true'">
+    <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0" Bind="false" VerifyDependencies="false" />
   </ItemGroup>
 
   <!-- The Android shell's notifications over UnifiedPush, shares in, files out, and what Android hands the activity:
