@@ -337,6 +337,16 @@ public sealed class BotSandboxViewModelTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task An_unreachable_picture_gives_only_the_automatic_retry_as_its_next_step()
+    {
+        Answer(Status("running"));
+        server.Fail("POST", $"{sandbox}/screen", new HttpRequestException("connection refused"));
+        await Open();
+
+        await Eventually(() => Screen.ScreenProblem.Should().Be("Drover could not reach its server. The screen is tried again shortly."));
+    }
+
+    [Fact]
     public async Task A_picture_that_takes_too_long_says_so_and_the_screen_keeps_refreshing()
     {
         Answer(Status("running"));

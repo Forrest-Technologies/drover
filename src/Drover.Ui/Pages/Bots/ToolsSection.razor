@@ -192,7 +192,7 @@ else
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSection));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
             version++;
         }
         finally
@@ -216,13 +216,13 @@ else
         catch (DroverApiException changedAgain) when (changedAgain.StatusCode is HttpStatusCode.Conflict)
         {
             // The tool changed while it was being read: show what it says now, so the next yes is to that.
-            problem = Failures.Sentence(changedAgain);
+            problem = Failures.Sentence(changedAgain, "Check that the server is running.");
             await OnToolsChanged.InvokeAsync(await Api.ListBotTools(SpaceId, BotId));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSection));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

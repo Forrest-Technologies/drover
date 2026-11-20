@@ -225,7 +225,7 @@ public sealed class ActivityPanelViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ActivityPanelViewModel));
-            return Failures.Sentence(exception);
+            return Failures.Sentence(exception, "Check that the server is running.");
         }
     }
 
@@ -284,7 +284,7 @@ public sealed class ActivityPanelViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception) && Tree?.RootRunId == rootRunId)
         {
             logger.LogWarning(exception, "Watching run {RunId} failed in the {Screen}", rootRunId, nameof(ActivityPanelViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
             watchFailed = true;
             Changed();
         }

@@ -360,7 +360,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"Your message was not sent. {Failures.Sentence(exception)}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -403,7 +403,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
+            problem = $"The reply was not stopped. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -438,7 +438,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            return $"Your answer was not sent. {Failures.Sentence(exception)}";
+            return $"Your answer was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -471,7 +471,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception)}");
+            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception, "Check that the server is running.")}");
         }
     }
 
@@ -485,7 +485,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception), ToastKind.Error);
+            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
         }
     }
 
@@ -521,7 +521,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+            problem = $"It was not tried again. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -567,7 +567,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"The files were not attached. {Failures.Sentence(exception)}";
+            problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
             return;
         }
 
