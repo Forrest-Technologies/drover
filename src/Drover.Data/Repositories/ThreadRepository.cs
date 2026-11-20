@@ -157,7 +157,7 @@ public sealed class ThreadRepository(DroverDbContext db)
         var withNew = (await db.Messages.AsNoTracking()
             .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null
                 && message.ShelvedAt == null)
-            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
+            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId && run.ParentRunId == null))
             .Where(message => message.Position > (db.ThreadReads
                 .Where(read => read.ThreadId == message.ThreadId && read.AudienceUserId == userId)
                 .Select(read => (int?)read.SeenThroughPosition)
