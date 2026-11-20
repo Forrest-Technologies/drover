@@ -188,7 +188,7 @@ The wake-up payload is `{"kind":"run.finished"|"run.failed"|"approval.waiting","
 
 ### Android client
 
-The Android client receives encrypted wake-ups from an installed UnifiedPush distributor. It uses the signed-in account for wake text and inline replies, and only offers replies to finished runs. The test action sends a wake-up to the current account’s registered endpoint through the same outbound policy as a run notification. The app opens Android settings for troubleshooting and leaves the battery setting to the user.
+The Android client receives encrypted wake-ups through a UnifiedPush distributor: one the person installed, or the one embedded in the app over the phone's platform push service (path 2 below). It never relies on a connection of its own surviving in the background: the live streams close when the app leaves the screen (`StreamPresence` in `Drover.Client`), because the server sends no push while the person has a live stream open (`PushNotifier`), and open again, from where they were, when it comes back. Every wake-up is sent with high urgency, because a phone in deep idle holds a normal one until its next maintenance window. It uses the signed-in account for wake text and inline replies, and only offers replies to finished runs. The test action sends a wake-up to the current account’s registered endpoint through the same outbound policy as a run notification. The app opens Android settings for troubleshooting and leaves the battery setting to the user.
 
 
 UnifiedPush stays. Alternatives were checked (the app holding its own connection in a foreground service, publishing to a notification app's topics, Google's push service directly, web push inside the app's web view) and none is a better open option: each either costs battery and a permanent notification, does not wake the Drover app, needs the publisher's credentials and a relay, or is not supported by the Android web view (verified).
@@ -212,11 +212,11 @@ The app picks a path at run time, in this order:
 | 2 | **Embedded distributor over the phone's built-in push transport** | No distributor installed, and Google Play services is present | None | Transport only. No Google account, no Firebase project, no proprietary library: it registers a standard Web Push endpoint using the server's own VAPID key (verified in the distributor's documentation). |
 | 3 | **In-app connection** with a foreground service | Neither of the above, and the user opts in | A permanent notification and a battery exemption | No |
 
-Path 2 is the important find: most Android phones get working push with zero setup, and the server still needs only its Web Push adapter. It is an Apache-2.0 library added as an unbound Android archive with one manifest entry. A build flag leaves it out for a strictly Google-free build.
+Path 2 is the important find: most Android phones get working push with zero setup, and the server still needs only its Web Push adapter. It is an Apache-2.0 library (`org.unifiedpush.android:embedded-fcm-distributor` 3.1.0) added to the native Android build as an unbound Maven artifact: its manifest brings its own receivers, the app's connector finds it as a distributor in its own package, and no project file, key, or account of Drover's is involved. `DroverEmbeddedPush=false` leaves it out for a build that must not use the platform service. A distributor app the person installed always wins over the embedded one; with neither, or with the embedded one on a phone without the platform service, the app says a distributor is needed.
 
 If no path is available, the app says so in plain words and offers a one-tap link to install a distributor.
 
-Order of work in Phase 1: path 1 first (pure C#, no dependency), then path 2 (prototype early, since "unbound archive with no C# calls" is inferred from documentation, not yet tried). Path 3 is built only if users ask.
+Paths 1 and 2 are built. Path 3 is built only if users ask.
 
 ### iPhone before the Apple account exists
 
