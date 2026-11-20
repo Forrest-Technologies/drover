@@ -361,6 +361,18 @@ A screen is one `.razor` file with a `@code` block or a `.razor.cs`. Moving it m
 - **APIs that are not implemented** fail the build as `Uno0001`. That is how `PasswordVault` on desktop and `Timeline.AutoReverse` were found. Treat the error as the answer, not as something to suppress.
 - **A generic helper that makes a view model** must carry `[DynamicallyAccessedMembers(PublicConstructors)]` on its type parameter, as `Screen.Make` and `Pieces.Make` do. Without it the trimmed browser build drops the constructor and the view model fails with `CtorNotLocated` only in a Release publish.
 - **Read a field's text when Enter arrives**, not the view model's copy: in a browser the change event for the last letters can come after the key. `Field` and `Composer` do this.
+- **Browser semantic text selection stays with its field.** Uno 7.0.65 creates semantic inputs with field ids in
+  [`SemanticElements.ts`](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/SemanticElements.ts),
+  but its shared hidden input keeps pending selection state in
+  [`BrowserInvisibleTextBoxViewExtension.ts`](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/BrowserInvisibleTextBoxViewExtension.ts).
+  On a slow host, the document selection handler can apply one field's pending caret to the next semantic field.
+  `WasmScripts/Accessibility.js` recognizes only those semantic input ids and clears the shared restore. Before C#
+  binds the platform function, it transparently wraps `SemanticElements.updateTextBoxValue` and records only the
+  normalized range and direction for each element. A matching `select` event is a managed echo and is ignored. A
+  different range from the currently focused semantic field goes through the runtime's existing managed export.
+  The shared hidden input and unrelated page inputs keep the runtime handler. No field text is stored or logged.
+  `scripts/check-native-text-selection.mjs` executes the shipped adapter against stale, backward, late-field,
+  unrelated, repeated-focus, late-initialization, and throwing-export cases.
 - **The development build logs a failed connection to a development server** on every start. It is the hot reload client looking for an editor, and it is not in a release build.
 - **Starting is slow in a development browser build**: about fifteen seconds in headless Chromium, three for a published build.
 
