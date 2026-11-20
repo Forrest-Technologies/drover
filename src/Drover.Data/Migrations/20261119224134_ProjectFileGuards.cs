@@ -182,12 +182,59 @@ namespace Drover.Data.Migrations
                   BEFORE INSERT OR UPDATE OR DELETE ON public.pending_file_deletions
                   FOR EACH ROW
                   EXECUTE FUNCTION public.enforce_pending_file_deletion_access();
+
+                CREATE FUNCTION public.enforce_file_byte_reservation_access()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                SET search_path = pg_catalog, public, pg_temp
+                AS $function$
+                BEGIN
+                  IF current_user <> 'drover_system' AND NOT EXISTS (
+                    SELECT 1
+                    FROM public.memberships AS member
+                    WHERE member.space_id = sys.current_space()
+                      AND member.user_id = sys.current_user_id()
+                      AND member.role IN ('owner', 'admin')) THEN
+                    RAISE EXCEPTION 'Only space owners and admins may change file byte reservations.'
+                      USING ERRCODE = 'insufficient_privilege';
+                  END IF;
+
+                  IF TG_OP = 'INSERT' THEN
+                    IF EXISTS (SELECT 1 FROM public.files AS f WHERE f.id = NEW.id)
+                      OR EXISTS (SELECT 1 FROM public.pending_file_deletions AS d WHERE d.id = NEW.id) THEN
+                      RAISE EXCEPTION 'File byte reservation id cannot match a stored or deleted file.'
+                        USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                    RETURN NEW;
+                  END IF;
+
+                  IF TG_OP = 'UPDATE' THEN
+                    IF NEW.id IS DISTINCT FROM OLD.id
+                      OR NEW.space_id IS DISTINCT FROM OLD.space_id THEN
+                      RAISE EXCEPTION 'File byte reservation identity cannot change.'
+                        USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                    RETURN NEW;
+                  END IF;
+
+                  RETURN OLD;
+                END;
+                $function$;
+
+                REVOKE ALL ON FUNCTION public.enforce_file_byte_reservation_access() FROM PUBLIC;
+
+                CREATE TRIGGER trg_file_byte_reservations_access
+                  BEFORE INSERT OR UPDATE OR DELETE ON public.file_byte_reservations
+                  FOR EACH ROW
+                  EXECUTE FUNCTION public.enforce_file_byte_reservation_access();
                 """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DROP TRIGGER trg_file_byte_reservations_access ON public.file_byte_reservations;");
+            migrationBuilder.Sql("DROP FUNCTION public.enforce_file_byte_reservation_access();");
             migrationBuilder.Sql("DROP TRIGGER trg_pending_file_deletions_access ON public.pending_file_deletions;");
             migrationBuilder.Sql("DROP FUNCTION public.enforce_pending_file_deletion_access();");
             migrationBuilder.Sql("DROP TRIGGER trg_files_project_delete ON public.files;");

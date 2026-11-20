@@ -425,6 +425,114 @@ public sealed class FileRowTests(PostgresFixture postgres)
         }
     }
 
+    [Fact]
+    public async Task A_member_cannot_write_file_byte_reservations_and_owners_cannot_forge_existing_file_ids()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        Guid existingFileId;
+        Guid deletedFileId;
+        Guid reservationId;
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var project = new Project { Name = "Reservation Guards" };
+            asOwner.Db.Projects.Add(project);
+            await asOwner.Db.SaveChangesAsync(Token);
+
+            existingFileId = Guid.CreateVersion7();
+            deletedFileId = Guid.CreateVersion7();
+            asOwner.Db.Files.Add(new StoredFile
+            {
+                Id = existingFileId,
+                AudienceUserId = Audience.Everyone,
+                ProjectId = project.Id,
+                StorageKey = FileStorageKeys.For(world.SpaceA, existingFileId),
+                Name = "kept.txt",
+                ContentType = "text/plain",
+                Size = 10,
+                Sha256 = new string('4', 64),
+                CreatedByUserId = world.UserA1,
+            });
+            asOwner.Db.Files.Add(new StoredFile
+            {
+                Id = deletedFileId,
+                AudienceUserId = Audience.Everyone,
+                ProjectId = project.Id,
+                StorageKey = FileStorageKeys.For(world.SpaceA, deletedFileId),
+                Name = "gone.txt",
+                ContentType = "text/plain",
+                Size = 12,
+                Sha256 = new string('5', 64),
+                CreatedByUserId = world.UserA1,
+            });
+            await asOwner.Db.SaveChangesAsync(Token);
+            await asOwner.Execute("DELETE FROM files WHERE id = @id", ("id", deletedFileId));
+
+            reservationId = Guid.CreateVersion7();
+            asOwner.Db.FileByteReservations.Add(new FileByteReservation
+            {
+                Id = reservationId,
+                Bytes = 64,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await asOwner.Db.SaveChangesAsync(Token);
+            await asOwner.Commit();
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var memberInsert = () => asMember.Execute(
+                "INSERT INTO file_byte_reservations (id, space_id, bytes) VALUES (@id, @space, 64)",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceA));
+            (await memberInsert.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var memberUpdate = () => asMember.Execute(
+                "UPDATE file_byte_reservations SET bytes = 1 WHERE id = @id",
+                ("id", reservationId));
+            (await memberUpdate.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var memberDelete = () => asMember.Execute(
+                "DELETE FROM file_byte_reservations WHERE id = @id",
+                ("id", reservationId));
+            (await memberDelete.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var collideExisting = () => asOwner.Execute(
+                "INSERT INTO file_byte_reservations (id, space_id, bytes) VALUES (@id, @space, 64)",
+                ("id", existingFileId),
+                ("space", world.SpaceA));
+            (await collideExisting.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var collideDeleted = () => asOwner.Execute(
+                "INSERT INTO file_byte_reservations (id, space_id, bytes) VALUES (@id, @space, 64)",
+                ("id", deletedFileId),
+                ("space", world.SpaceA));
+            (await collideDeleted.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var mutateId = () => asOwner.Execute(
+                "UPDATE file_byte_reservations SET id = @other WHERE id = @id",
+                ("id", reservationId),
+                ("other", Guid.CreateVersion7()));
+            (await mutateId.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+    }
+
     #endregion
 
     #region Private Methods

@@ -46,6 +46,9 @@ public sealed class FileService(
     /// <summary>How long an uncommitted project-upload byte reservation stays valid before a later request reclaims it.</summary>
     public static readonly TimeSpan HoldLifetime = TimeSpan.FromMinutes(15);
 
+    /// <summary>How often an active project upload renews its byte reservation while streaming.</summary>
+    public static readonly TimeSpan HoldRenewInterval = TimeSpan.FromMinutes(5);
+
     private static readonly TimeSpan cleanupTimeout = TimeSpan.FromSeconds(15);
 
     #endregion
@@ -222,14 +225,20 @@ public sealed class FileService(
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
-        var holdBox = new HoldBox(initialHold);
+        var holdBox = new HoldBox(initialHold, time.GetUtcNow());
         var clean = CleanName(name);
         var key = FileStorageKeys.For(SpaceId, id);
         var inspector = new FileInspector();
         var streamLimit = chunked ? Rules.MaxFileBytes : initialHold.Bytes;
-        await using var source = chunked
-            ? new SteppedUploadStream(content, Rules.MaxFileBytes, holdBox, ExtendProjectHold, projectId)
-            : content;
+        await using var source = new ProjectUploadStream(
+            content,
+            chunked,
+            streamLimit,
+            holdBox,
+            time,
+            ExtendProjectHold,
+            RenewProjectHold,
+            projectId);
         await using var metered = new MeteredStream(source, streamLimit, inspector);
 
         try
@@ -613,7 +622,28 @@ public sealed class FileService(
 
         await work.Commit(cancellationToken);
         holdBox.Hold = current with { Bytes = current.Bytes + added };
+        holdBox.LastTouchedAt = touchedAt;
         return holdBox.Hold.Bytes;
+    }
+
+    private async Task RenewProjectHold(Guid projectId, HoldBox holdBox, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+
+        if (await projects.FindProject(projectId, cancellationToken) is null)
+        {
+            throw new ProjectMissingException();
+        }
+
+        var touchedAt = time.GetUtcNow();
+
+        if (!await files.RenewHold(SpaceId, holdBox.Hold.Id, touchedAt, cancellationToken))
+        {
+            throw new ProjectUploadExpiredException();
+        }
+
+        await work.Commit(cancellationToken);
+        holdBox.LastTouchedAt = touchedAt;
     }
 
     private async Task<HoldAttempt> HoldProjectBytes(Guid projectId, Guid fileId, long bytes, CancellationToken cancellationToken)
@@ -701,17 +731,18 @@ public sealed class FileService(
             return new FileUpload(null, FileProblem.NotFound);
         }
 
-        if (file.Size > hold.Bytes)
-        {
-            await files.ReleaseHold(SpaceId, hold.Id, hold.Bytes, cancellationToken);
-            await work.Commit(cancellationToken);
-            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
-        }
+        var completion = await files.CompleteHold(SpaceId, hold.Id, file.Size, cancellationToken);
 
-        if (!await files.CompleteHold(SpaceId, hold.Id, hold.Bytes, file.Size, cancellationToken))
+        if (completion is HoldCompletion.Expired)
         {
             await work.Commit(cancellationToken);
             return Refused(FileRefusals.UploadExpired, FileWords.UploadExpired(HoldLifetime));
+        }
+
+        if (completion is HoldCompletion.SpaceFull)
+        {
+            await work.Commit(cancellationToken);
+            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
         file.ProjectId = projectId;
@@ -742,11 +773,13 @@ public sealed class FileService(
         public static HoldAttempt Full { get; } = new(null, false);
     }
 
-    private sealed class HoldBox(ByteHold hold)
+    private sealed class HoldBox(ByteHold hold, DateTimeOffset touchedAt)
     {
         #region Properties
 
         public ByteHold Hold { get; set; } = hold;
+
+        public DateTimeOffset LastTouchedAt { get; set; } = touchedAt;
 
         #endregion
     }
@@ -757,11 +790,14 @@ public sealed class FileService(
 
     private sealed class ProjectMissingException() : IOException("The project could not be found.");
 
-    private sealed class SteppedUploadStream(
+    private sealed class ProjectUploadStream(
         Stream inner,
+        bool chunked,
         long maxFileBytes,
         HoldBox holdBox,
+        TimeProvider time,
         Func<Guid, HoldBox, long, CancellationToken, Task<long>> extendHold,
+        Func<Guid, HoldBox, CancellationToken, Task> renewHold,
         Guid projectId) : Stream
     {
         #region Private Fields
@@ -815,9 +851,13 @@ public sealed class FileService(
                 throw new FileTooLargeException();
             }
 
-            if (bytesRead > holdBox.Hold.Bytes)
+            if (chunked && bytesRead > holdBox.Hold.Bytes)
             {
                 await extendHold(projectId, holdBox, bytesRead, cancellationToken);
+            }
+            else if (time.GetUtcNow() - holdBox.LastTouchedAt >= HoldRenewInterval)
+            {
+                await renewHold(projectId, holdBox, cancellationToken);
             }
 
             return read;
@@ -854,9 +894,10 @@ public sealed class FileService(
                 throw new FileTooLargeException();
             }
 
-            if (bytesRead > holdBox.Hold.Bytes)
+            if ((chunked && bytesRead > holdBox.Hold.Bytes)
+                || time.GetUtcNow() - holdBox.LastTouchedAt >= HoldRenewInterval)
             {
-                throw new NotSupportedException("Chunked project uploads require asynchronous stream reading.");
+                throw new NotSupportedException("Project uploads require asynchronous stream reading.");
             }
         }
 

@@ -419,6 +419,72 @@ public sealed class ProjectFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_known_length_upload_that_keeps_streaming_renews_its_hold_past_hold_lifetime()
+    {
+        var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
+        var stepped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slowStore = new CoordinatedStore();
+        slowStore.Arm(stepped, finish);
+
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.AddSingleton<IFileStore>(slowStore);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 4 },
+            }));
+        });
+        var project = await CreateProject(world, "SlowKnownLength");
+        var payload = new byte[4096];
+
+        // Advance 10 minutes at byte 2048 so RenewHold updates created_at at +10m; then advance another 10 minutes
+        // after Save finishes reading (20m total > 15m HoldLifetime, 10m since touch) while a concurrent upload sweeps.
+        var uploadStream = new SlowStepStream(payload, 2048, clock, TimeSpan.FromMinutes(10));
+        var upload = UploadProjectFile(world, project.Id, "declared-slow.bin", uploadStream, declaredLength: payload.Length, cancellationToken: RunWorld.Token);
+        await stepped.Task.WaitAsync(RunWorld.Token);
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var concurrent = await UploadProjectFile(world, project.Id, "other.bin", new byte[128]);
+        concurrent.File.Should().NotBeNull(concurrent.Detail);
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(1, "renewed known-length hold must not be reaped");
+
+        finish.SetResult();
+        var completed = await upload;
+        completed.File.Should().NotBeNull(completed.Detail);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(payload.Length + 128);
+    }
+
+    [Fact]
+    public async Task A_known_length_upload_stops_mid_stream_when_its_hold_already_expired()
+    {
+        var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+            services.AddSingleton<TimeProvider>(clock));
+        var project = await CreateProject(world, "ReapedMidStream");
+        var gateEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gateContinue = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stream = new GatedAfterFirstChunkStream(new byte[4096], 1024, gateEntered, gateContinue);
+
+        var stalled = UploadProjectFile(world, project.Id, "stalled-declared.bin", stream, declaredLength: 4096, cancellationToken: RunWorld.Token);
+        await gateEntered.Task.WaitAsync(RunWorld.Token);
+
+        clock.Advance(FileService.HoldLifetime + TimeSpan.FromMinutes(1));
+        var reaper = await UploadProjectFile(world, project.Id, "reaper.bin", new byte[64]);
+        reaper.File.Should().NotBeNull(reaper.Detail);
+
+        gateContinue.SetResult();
+        var result = await stalled;
+        result.File.Should().BeNull();
+        result.Problem.Should().Be(FileProblem.Refused);
+        result.Refusal.Should().Be(FileRefusals.UploadExpired);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(64);
+    }
+
+    [Fact]
     public async Task Cancelling_the_request_during_project_file_deletion_still_finishes_pending_cleanup()
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
@@ -934,6 +1000,79 @@ public sealed class ProjectFileTests(PostgresServer postgres)
             content.AsMemory(position, toCopy).CopyTo(buffer);
             position += toCopy;
             return ValueTask.FromResult(toCopy);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        #endregion
+    }
+
+    private sealed class GatedAfterFirstChunkStream(
+        byte[] content,
+        int firstChunk,
+        TaskCompletionSource entered,
+        TaskCompletionSource release) : Stream
+    {
+        #region Private Fields
+
+        private int position;
+
+        private bool gated;
+
+        #endregion
+
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => content.Length;
+
+        public override long Position
+        {
+            get => position;
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Overrides
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (position >= content.Length)
+            {
+                return 0;
+            }
+
+            if (!gated && position >= firstChunk)
+            {
+                gated = true;
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            }
+
+            var cap = !gated ? Math.Min(buffer.Length, firstChunk - position) : buffer.Length;
+            var toCopy = Math.Min(content.Length - position, cap);
+            content.AsMemory(position, toCopy).CopyTo(buffer);
+            position += toCopy;
+            return toCopy;
         }
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
