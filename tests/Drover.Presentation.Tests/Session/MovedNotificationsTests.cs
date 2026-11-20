@@ -20,6 +20,10 @@ public sealed class MovedNotificationsTests : IDisposable
 
     private readonly ToastService toasts = new(TimeProvider.System);
 
+    private const string SampleRoot = "https://push.example.test/sample-root";
+
+    private const string SampleOther = "https://push.example.test/sample-other";
+
     private static readonly PushDeviceState on = new(true);
 
     private static readonly PushDeviceState off = new(false);
@@ -84,7 +88,9 @@ public sealed class MovedNotificationsTests : IDisposable
         device.Endpoint = "https://push.example.test/sample-other";
         device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
-        server.AnswerInTurn("POST", "/api/push/device/state", on, off);
+
+        // The subscription at the root is asked about first, and it is not this person's.
+        server.Answer("POST", "/api/push/device/state", off);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
 
@@ -119,20 +125,106 @@ public sealed class MovedNotificationsTests : IDisposable
     }
 
     [Fact]
-    public async Task A_restore_the_server_did_not_answer_ends_the_new_subscription_and_keeps_the_note()
+    public async Task A_restore_whose_answer_was_lost_keeps_the_new_subscription_and_the_note_for_the_next_start()
     {
         device.Moved = MovedSubscription.PermissionKept;
-        device.Subscription = new("https://push.example.test/sample-root", "sample-key", "sample-auth");
+        device.Subscription = new(SampleRoot, "sample-key", "sample-auth");
         server.Answer("POST", "/api/push/device/state", on);
         server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
         server.Answer("POST", "/api/push/device/move", HttpStatusCode.InternalServerError);
 
         await Make().Resume(Xunit.TestContext.Current.CancellationToken);
 
-        device.Unsubscribed.Should().Equal("https://push.example.test/sample-root");
-        device.Endpoint.Should().BeNull("a later start must not take it for another account's");
+        device.Unsubscribed.Should().BeEmpty("the server may have taken it, and the previous subscription may be gone");
+        device.Endpoint.Should().Be(SampleRoot);
+        device.MoveCandidate.Should().Be(SampleRoot, "the next start must know this subscription is this attempt's");
         device.Moved.Should().Be(MovedSubscription.PermissionKept);
         toasts.Toasts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_move_the_server_took_though_its_answer_was_lost_is_kept_at_the_next_start()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new(SampleRoot, "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.InternalServerError);
+        var moved = Make();
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        // The server had written it: the previous subscription is gone, and the new one is this person's.
+        server.Requests.Clear();
+        server.AnswerInTurn("POST", "/api/push/device/state", on);
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        server.Sent("POST", "/api/push/device/state").Should().ContainSingle().Which.Should().Contain("sample-root");
+        server.Requests.Should().NotContain(request => request.Path == "/api/push/device/move");
+        device.Unsubscribed.Should().BeEmpty();
+        device.Endpoint.Should().Be(SampleRoot);
+        toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.Resumed);
+        device.Moved.Should().Be(MovedSubscription.None);
+    }
+
+    [Fact]
+    public async Task A_move_the_server_did_not_take_is_ended_and_made_again_at_the_next_start()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new(SampleRoot, "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.InternalServerError);
+        var moved = Make();
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        // The server had not written it: the new subscription is nobody's, and the previous one is still this person's.
+        server.AnswerInTurn("POST", "/api/push/device/state", off, on);
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.NoContent);
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Unsubscribed.Should().Equal(SampleRoot);
+        server.Sent("POST", "/api/push/device/move").Should().HaveCount(2);
+        device.Endpoint.Should().Be(SampleRoot);
+        toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.Resumed);
+        device.Moved.Should().Be(MovedSubscription.None);
+    }
+
+    [Fact]
+    public async Task A_refused_move_never_ends_a_subscription_another_account_made_meanwhile()
+    {
+        // Another tab, signed in as another account, turned notifications on while this attempt waited for the server.
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new(SampleRoot, "sample-key", "sample-auth");
+        device.AfterSubscribe = () => device.Endpoint = SampleOther;
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.NotFound);
+
+        await Make().Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Unsubscribed.Should().BeEmpty("only the subscription this attempt made may be ended");
+        device.Endpoint.Should().Be(SampleOther);
+        ShowsTurnOnAgain();
+    }
+
+    [Fact]
+    public async Task A_subscription_another_account_made_after_a_lost_answer_is_never_ended_at_the_next_start()
+    {
+        device.Moved = MovedSubscription.PermissionKept;
+        device.Subscription = new(SampleRoot, "sample-key", "sample-auth");
+        server.Answer("POST", "/api/push/device/state", on);
+        server.Answer("GET", "/api/push/key", new PushKeyResponse(SampleKey));
+        server.Answer("POST", "/api/push/device/move", HttpStatusCode.InternalServerError);
+        var moved = Make();
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Endpoint = SampleOther;
+        server.Answer("POST", "/api/push/device/state", off);
+        await moved.Resume(Xunit.TestContext.Current.CancellationToken);
+
+        device.Unsubscribed.Should().BeEmpty();
+        device.Endpoint.Should().Be(SampleOther);
+        toasts.Toasts.Should().ContainSingle().Which.Message.Should().Be(MovedNotifications.HeldByAnother);
     }
 
     [Fact]

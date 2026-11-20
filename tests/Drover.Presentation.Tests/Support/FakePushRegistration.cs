@@ -32,6 +32,12 @@ public class FakePushRegistration : IPushRegistration
     /// <summary>How many times the device was asked whether moving left anything.</summary>
     public int MovedAsked { get; private set; }
 
+    /// <summary>The subscription an attempt to take up the moved one made, kept with the note.</summary>
+    public string? MoveCandidate { get; set; }
+
+    /// <summary>What happens on the device right after it subscribes, such as another tab replacing the subscription.</summary>
+    public Action? AfterSubscribe { get; set; }
+
     #endregion
 
     #region Interface Implementations
@@ -58,6 +64,7 @@ public class FakePushRegistration : IPushRegistration
         }
 
         Endpoint = Subscription.Endpoint;
+        AfterSubscribe?.Invoke();
         return Task.FromResult<PushDeviceRequest?>(Subscription);
     }
 
@@ -77,14 +84,26 @@ public class FakePushRegistration : IPushRegistration
     public Task<MovedPush> FindMovedSubscription(CancellationToken cancellationToken = default)
     {
         MovedAsked++;
-        return Task.FromResult(new MovedPush(Moved, Moved is MovedSubscription.None ? null : MovedEndpoint));
+        return Task.FromResult(Moved is MovedSubscription.None
+            ? new MovedPush(Moved)
+            : new MovedPush(Moved, MovedEndpoint, MoveCandidate));
     }
 
     public Task ForgetMovedSubscription(CancellationToken cancellationToken = default)
     {
         Moved = MovedSubscription.None;
+        MoveCandidate = null;
         return Task.CompletedTask;
     }
+
+    public Task RememberMoveCandidate(string endpoint, CancellationToken cancellationToken = default)
+    {
+        MoveCandidate = endpoint;
+        return Task.CompletedTask;
+    }
+
+    public async Task<bool> UnsubscribeOnly(string endpoint, CancellationToken cancellationToken = default) =>
+        Endpoint == endpoint && await Unsubscribe(cancellationToken) is not null;
 
     #endregion
 }

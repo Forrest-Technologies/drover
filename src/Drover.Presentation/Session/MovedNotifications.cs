@@ -16,6 +16,11 @@ namespace Drover.Ui.Session;
 /// then forgotten. A server that cannot be reached, or a browser call that fails, keeps the note, and the next start
 /// tries again.
 /// </para>
+/// <para>
+/// The new subscription is kept with the note before the server is asked. When the server's answer is lost, nothing
+/// is ended: the next start asks the server whose that subscription is, keeps it if the move was taken, and ends it
+/// and tries again if not. A subscription is only ever ended while it is still the one this attempt made.
+/// </para>
 /// </summary>
 public sealed class MovedNotifications(
     DroverApi api,
@@ -63,9 +68,8 @@ public sealed class MovedNotifications(
                 return;
             }
 
-            var outcome = moved is { State: MovedSubscription.PermissionKept, Endpoint: { } previous }
-                && await WasThisPersons(previous, cancellationToken)
-                ? await TakeUp(registration, previous, cancellationToken)
+            var outcome = moved.State is MovedSubscription.PermissionKept
+                ? await TakeUp(registration, moved, cancellationToken)
                 : TakeUpOutcome.NotTakenUp;
 
             Tell(outcome);
@@ -94,25 +98,42 @@ public sealed class MovedNotifications(
         (await api.GetPushDeviceState(endpoint, cancellationToken)).On;
 
     /// <summary>
-    /// Subscribes this client without asking (the browser already allows notifications) and has the server put the
-    /// new subscription in the place of <paramref name="previous"/>. A subscription the client already holds is left
-    /// alone: kept when it is this person's, and never ended when it is another account's.
+    /// Settles what an earlier attempt left, then subscribes this client without asking (the browser already allows
+    /// notifications) and has the server put the new subscription in the place of the moved one.
+    /// <list type="bullet">
+    /// <item>A subscription the client holds that is this person's is kept. It is the one an earlier attempt made when
+    /// the server took it but its answer was lost; otherwise the person had already turned notifications on.</item>
+    /// <item>The earlier attempt's own subscription, which the server did not take, is ended, and the attempt is made
+    /// again.</item>
+    /// <item>Any other subscription is another account's, and is never ended.</item>
+    /// </list>
     /// </summary>
-    private async Task<TakeUpOutcome> TakeUp(IPushRegistration device, string previous, CancellationToken cancellationToken)
+    private async Task<TakeUpOutcome> TakeUp(IPushRegistration device, MovedPush moved, CancellationToken cancellationToken)
     {
         var check = await device.Check(cancellationToken);
-        var publicKey = (await api.GetPushKey(cancellationToken)).PublicKey;
+
+        if (check.Endpoint is { } current)
+        {
+            if ((await api.GetPushDeviceState(current, cancellationToken)).On)
+            {
+                return current == moved.Candidate ? TakeUpOutcome.TakenUp : TakeUpOutcome.AlreadyOn;
+            }
+
+            if (current != moved.Candidate)
+            {
+                return TakeUpOutcome.HeldByAnother;
+            }
+
+            await device.UnsubscribeOnly(current, cancellationToken);
+        }
+
+        var publicKey = moved.Endpoint is { } previous && await WasThisPersons(previous, cancellationToken)
+            ? (await api.GetPushKey(cancellationToken)).PublicKey
+            : null;
 
         if (check.Support is not DevicePushSupport.Available || publicKey is null)
         {
             return TakeUpOutcome.NotTakenUp;
-        }
-
-        if (check.Endpoint is { } endpoint)
-        {
-            return (await api.GetPushDeviceState(endpoint, cancellationToken)).On
-                ? TakeUpOutcome.AlreadyOn
-                : TakeUpOutcome.HeldByAnother;
         }
 
         if (await device.Subscribe(publicKey, cancellationToken) is not { } subscription)
@@ -120,43 +141,39 @@ public sealed class MovedNotifications(
             return TakeUpOutcome.NotTakenUp;
         }
 
-        if (await MoveOrEnd(device, previous, subscription, cancellationToken))
-        {
-            return TakeUpOutcome.TakenUp;
-        }
-
-        return TakeUpOutcome.NotTakenUp;
+        return await Move(device, moved.Endpoint!, subscription, cancellationToken);
     }
 
     /// <summary>
-    /// Has the server take the new subscription in the place of the old one. One the server refuses, or did not
-    /// answer for, is ended at once, so the browser never holds a subscription that wakes nobody, and that a later
-    /// start would take for another account's.
+    /// Has the server take the new subscription in the place of the old one. The new one is kept with the note first,
+    /// so when the server's answer is lost the subscription stays, and the next start asks whose it is before it ends
+    /// anything. One the server refused is ended, and only while it is still the device's: never one another account
+    /// made in the meantime.
     /// </summary>
-    private async Task<bool> MoveOrEnd(
+    private async Task<TakeUpOutcome> Move(
         IPushRegistration device,
         string previous,
         PushDeviceRequest subscription,
         CancellationToken cancellationToken)
     {
-        bool moved;
-
         try
         {
-            moved = await api.MovePush(previous, subscription, cancellationToken);
+            await device.RememberMoveCandidate(subscription.Endpoint, cancellationToken);
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (DeviceCallFailedException)
         {
-            await device.Unsubscribe(cancellationToken);
+            // Not kept, so a later start could not tell it is this attempt's: it is ended now instead.
+            await device.UnsubscribeOnly(subscription.Endpoint, cancellationToken);
             throw;
         }
 
-        if (!moved)
+        if (await api.MovePush(previous, subscription, cancellationToken))
         {
-            await device.Unsubscribe(cancellationToken);
+            return TakeUpOutcome.TakenUp;
         }
 
-        return moved;
+        await device.UnsubscribeOnly(subscription.Endpoint, cancellationToken);
+        return TakeUpOutcome.NotTakenUp;
     }
 
     private void Tell(TakeUpOutcome outcome)

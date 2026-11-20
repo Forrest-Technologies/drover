@@ -37,6 +37,20 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
 
     private const string MovingPage = "<!DOCTYPE html><title>Moving</title>";
 
+    // Registers a worker for the page at the root and gives its registration a sample subscription another account
+    // made: ending it is recorded instead of reaching a push service.
+    private const string SampleRootSubscription = """
+        async () => {
+            await navigator.serviceWorker.register('/root-worker.js');
+            const registration = await navigator.serviceWorker.ready;
+            window.ended = [];
+            Object.defineProperty(registration.pushManager, 'getSubscription', { value: async () => ({
+                endpoint: 'https://push.example.test/sample-other',
+                unsubscribe: async () => { window.ended.push('sample-other'); return true; },
+            }) });
+        }
+        """;
+
     private const string RootShell = "<!DOCTYPE html><title>Client at the root</title>";
 
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000b1");
@@ -104,6 +118,36 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_candidate_is_kept_with_the_note_and_forgotten_with_it()
+    {
+        subscribed = true;
+        await Retire();
+
+        (await PushCall<string?>("moveCandidate()")).Should().BeNull();
+        await PushCall<bool>("rememberMoveCandidate('https://push.example.test/sample-root').then(() => true)");
+
+        (await PushCall<string?>("moveCandidate()")).Should().Be("https://push.example.test/sample-root");
+        (await MovedEndpoint()).Should().Be("https://push.example.test/sample-moved");
+
+        await page.EvaluateAsync("async () => (await import('/push.js')).forgetMove()");
+
+        (await PushCall<string?>("moveCandidate()")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Only_the_subscription_at_the_named_address_is_ended()
+    {
+        await Retire();
+        await page.EvaluateAsync(SampleRootSubscription);
+
+        (await PushCall<bool>("unsubscribeOnly('https://push.example.test/sample-root')")).Should().BeFalse();
+        (await page.EvaluateAsync<string[]>("() => window.ended")).Should().BeEmpty("another account's subscription is left alone");
+
+        (await PushCall<bool>("unsubscribeOnly('https://push.example.test/sample-other')")).Should().BeTrue();
+        (await page.EvaluateAsync<string[]>("() => window.ended")).Should().Equal("sample-other");
+    }
+
+    [Fact]
     public async Task A_browser_that_no_longer_allows_notifications_is_told_so_instead_of_asked()
     {
         subscribed = true;
@@ -143,6 +187,7 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
             app.MapGet("/native/register.js", () => Results.Content("navigator.serviceWorker.register('/native/service-worker.js');", "text/javascript"));
             app.MapGet("/native/service-worker.js", async () => Results.Content(retired ? await RetiringWorker() : OldWorker, "text/javascript"));
             app.MapGet("/talk/{bot}", () => Results.Content(RootShell, "text/html"));
+            app.MapGet("/root-worker.js", () => Results.Content("self.addEventListener('fetch', () => { });", "text/javascript"));
             app.MapGet("/push.js", async () => Results.Content(
                 await File.ReadAllTextAsync(Path.Combine(Repository.Root, "src", "Shared", "Web", "push.js")), "text/javascript"));
         });
@@ -192,6 +237,9 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
 
     /// <summary>What the client at the root reads from push.js about a subscription the move ended.</summary>
     private Task<string> Moved() => page.EvaluateAsync<string>("async () => (await import('/push.js')).moved()");
+
+    private Task<T> PushCall<T>(string call) =>
+        page.EvaluateAsync<T>($"async () => (await import('/push.js')).{call}");
 
     private Task<string?> MovedEndpoint() =>
         page.EvaluateAsync<string?>("async () => (await import('/push.js')).movedEndpoint()");

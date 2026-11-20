@@ -46,6 +46,9 @@ const movedNote = "drover-push-moved";
 // Its one entry, at a path from the root, as the retired worker writes it.
 const movedEntry = "/drover-push-moved";
 
+// The subscription an attempt to take the moved one up made, kept until the server's answer about it is known.
+const candidateEntry = "/drover-push-candidate";
+
 // "none" without the note; otherwise whether the browser still allows notifications, so the client at the root can
 // subscribe without asking.
 export async function moved() {
@@ -57,14 +60,38 @@ export async function moved() {
 }
 
 // The push service address of the subscription the move ended, so the client can ask the server whose it was.
-export async function movedEndpoint() {
+export function movedEndpoint() {
+    return readNote(movedEntry);
+}
+
+export function moveCandidate() {
+    return readNote(candidateEntry);
+}
+
+export async function rememberMoveCandidate(endpoint) {
+    await (await caches.open(movedNote)).put(candidateEntry, new Response(endpoint));
+}
+
+// Ends the subscription only while it is the one at this address. One another account made since is left alone.
+export async function unsubscribeOnly(endpoint) {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (subscription === null || subscription.endpoint !== endpoint) {
+        return false;
+    }
+
+    return await subscription.unsubscribe();
+}
+
+async function readNote(entry) {
     if (!("caches" in self)) {
         return null;
     }
 
-    const note = await (await caches.open(movedNote)).match(movedEntry);
-    const endpoint = note === undefined ? "" : await note.text();
-    return endpoint === "" ? null : endpoint;
+    const note = await (await caches.open(movedNote)).match(entry);
+    const text = note === undefined ? "" : await note.text();
+    return text === "" ? null : text;
 }
 
 export async function forgetMove() {

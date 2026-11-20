@@ -27,8 +27,11 @@ public enum MovedSubscription
 }
 
 
-/// <summary>What moving left on this device, and the push service address of the subscription it ended, if known.</summary>
-public sealed record MovedPush(MovedSubscription State, string? Endpoint = null);
+/// <summary>
+/// What moving left on this device: the push service address of the subscription it ended, if known, and the address
+/// of the subscription an earlier attempt made to take its place, if that attempt's outcome is not known yet.
+/// </summary>
+public sealed record MovedPush(MovedSubscription State, string? Endpoint = null, string? Candidate = null);
 
 
 /// <summary>
@@ -52,6 +55,16 @@ public interface IPushRegistration
 
     /// <summary>Forgets the subscription that moving ended, once it is taken up again or cannot be.</summary>
     Task ForgetMovedSubscription(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    /// <summary>Keeps, with the note, the address of the subscription made to take the moved one's place.</summary>
+    Task RememberMoveCandidate(string endpoint, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    /// <summary>
+    /// Ends the device's subscription only while it is the one at <paramref name="endpoint"/>. False when the device
+    /// holds another, which is left alone: it may be one another account made since.
+    /// </summary>
+    async Task<bool> UnsubscribeOnly(string endpoint, CancellationToken cancellationToken = default) =>
+        (await Check(cancellationToken)).Endpoint == endpoint && await Unsubscribe(cancellationToken) is not null;
 }
 
 

@@ -58,8 +58,23 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
             _ => MovedSubscription.None,
         };
 
-        return new MovedPush(state, state is MovedSubscription.None ? null : await Call(MovedEndpointWith, "movedEndpoint"));
+        if (state is MovedSubscription.None)
+        {
+            return new MovedPush(state);
+        }
+
+        return new MovedPush(state, await Call(MovedEndpointWith, "movedEndpoint"), await Call(MoveCandidateWith, "moveCandidate"));
     }
+
+    public Task RememberMoveCandidate(string endpoint, CancellationToken cancellationToken = default) =>
+        Call(async () =>
+        {
+            await RememberMoveCandidateWith(endpoint);
+            return true;
+        }, "rememberMoveCandidate");
+
+    public Task<bool> UnsubscribeOnly(string endpoint, CancellationToken cancellationToken = default) =>
+        Call(() => UnsubscribeOnlyWith(endpoint), "unsubscribeOnly");
 
     public Task ForgetMovedSubscription(CancellationToken cancellationToken = default) =>
         Call(async () =>
@@ -100,6 +115,15 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
 
     [JSImport("movedEndpoint", Module)]
     private static partial Task<string?> MovedEndpointWith();
+
+    [JSImport("moveCandidate", Module)]
+    private static partial Task<string?> MoveCandidateWith();
+
+    [JSImport("rememberMoveCandidate", Module)]
+    private static partial Task RememberMoveCandidateWith(string endpoint);
+
+    [JSImport("unsubscribeOnly", Module)]
+    private static partial Task<bool> UnsubscribeOnlyWith(string endpoint);
 
     [JSImport("forgetMove", Module)]
     private static partial Task ForgetMoveWith();
