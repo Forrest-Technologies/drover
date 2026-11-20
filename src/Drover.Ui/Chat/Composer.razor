@@ -108,6 +108,8 @@
     [Parameter]
     public EventCallback OnCancel { get; set; }
 
+    internal bool HasDraft => text.Length > 0 || Attachments.Count > 0;
+
     private bool HasSomething => !string.IsNullOrWhiteSpace(text) || Attachments.Count > 0;
 
     // Send waits until every file is uploaded, and a file that cannot go holds the message until it is taken off.

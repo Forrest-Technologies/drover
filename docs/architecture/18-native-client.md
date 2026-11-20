@@ -275,7 +275,6 @@ Differences from the web client in these pieces, each seen in the pictures in `d
 | --- | --- |
 | Output of a tool | Error output is tagged `stderr: ` in the error color. The web draws the tag in an outlined box, which text here cannot hold |
 | `FileCard` on a device | "Save" and "Share" show when the app registers an `IFileDelivery`. None is registered yet, so a device shows "Download", which opens the file's address outside the app, where the person is not signed in. In a browser "Download" asks the server for the file as one to keep. For a bot-shared HTML file, the browser target opens the server's single-use preview grant in a sandboxed, credentialless iframe (`HtmlPreview`), whereas desktop and Android targets refuse in-app HTML preview before requesting a grant and leave Download or Save as the fallback (ADR 0017) |
-| `ActivityPanel` | Details under a node are kept across redraws, but an element inside them loses the focus when a live run's next event redraws the timeline |
 | State badge in a card's title | Regular weight. On the web it takes the title's weight |
 | A conversation's model | Only this client offers it. When the bot may answer with more than one model, the row behind the composer's plus button has a `Select` named "Model for this conversation" beside Attach: the bot's own model first, then the others the server allows. A choice the server refuses is said in a toast and the choice goes back. A finished reply's usage line starts with "Written by" and the model that wrote it, when the server kept it |
 | A reply's reasoning and sources | Only this client shows them. A reply's reasoning is a closed `ReplyReasoning` section above its words, with the live edge while it arrives; a reply whose reasoning arrives before any words speaks from the bot's head and says "Thinking", in place of the list's own thinking line (`MessageListViewModel.ShowsThinking`). Its sources are a `ReplySources` list under the words: each the source's title as a link that opens outside the app, and the site beside it. The web client keeps its thinking line and shows neither |
@@ -463,6 +462,14 @@ Left and Right move it in 16-pixel steps. The workspace keeps those widths while
 panels, and limits them to leave room for the conversation. The header uses the remaining conversation width to
 place the panel links beside the title or on one compact row below it. On a phone the links are in the bot menu.
 
+Escape anywhere inside an open rail closes it, as its close control does, and the focus goes back to the way that
+opened it: its link in the header, or the bot menu where the header shows no links (a phone, and handed work, which
+opens from its card). A key a dialog or a menu inside the rail takes for itself closes that first, and a composer
+holding text or attached files inside the rail keeps the key so a draft is never dropped. Non-composer fields inside
+the native rail do not count as drafts, so Escape still closes the rail from them.
+`TalkViewModel.CloseRailFromKeyboard` is the one path, so a device's Back that closes a rail can call it too. The web
+client does the same in `Talk.razor.js`.
+
 The page keeps the workspace while the app moves between this screen's addresses. A change of query or fragment
 goes through the shell's `StaysOpenWhenQueryChanges`. A change of path makes a new page, as for any screen, and the
 new page takes the workspace from the old one, with its conversations, what was written, and where the reader had
@@ -471,7 +478,9 @@ scrolled to. Leaving for another screen ends it: the streams stop and unsent fil
 The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
 `Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
 `BotNotifyMenu`. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
-is kept and told what changed, never made again.
+is kept and told what changed, never made again. A new child is put in at its place and only a kept child the list
+moved is taken out, so a child that holds the focus keeps it. The activity timeline keeps its nodes and their open
+details by event the same way, so a node or a control in its details keeps the focus while a live run's events arrive.
 
 **The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
 message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
@@ -492,6 +501,7 @@ Known differences of this screen from the web client:
 | Area | Difference |
 | --- | --- |
 | Arrow keys | The crew and the side chats also move the focus with the arrow keys, Home, and End. The web client has Tab alone |
+| Escape with text in non-composer rail fields | In the native client only a non-empty `Composer` (or composer attachments) keeps Escape from closing the rail; in the web client (`Talk.razor.js`), any non-empty field inside the rail keeps the key |
 | Pasting and dropping files | Written against the platform's clipboard and drag events. Not exercised: the display used for verification has no clipboard manager or file manager |
 | File chooser | The platform's own. Not exercised under the virtual display |
 | Enter while composing with an input method | The web client leaves Enter to the input method. The platform does not say that a composition is under way |
@@ -629,7 +639,7 @@ Enter, sending with Enter and watching the reply stream, Stop, Try again on a fa
 call, opening each rail and closing it with its close button, making a side chat from `/side/new`, browser back
 and forward, back after opening a rail, a deep link straight to each rail, and Tab, Shift+Tab, Enter through the main
 flows all worked. Reload on a rail's deep link failed before the memory rail was fixed and was not run again after.
-Escape does not close a rail in either client. In the crew, the arrow keys did not move the focus in the browser
+Escape closes an open rail in both clients and returns the focus to the way that opened it (see Escape above). In the crew, the arrow keys did not move the focus in the browser
 (they do on desktop), and Tab order passes through the page body between some controls.
 
 ### Linux desktop startup

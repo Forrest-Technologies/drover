@@ -128,39 +128,64 @@ public sealed class RunMomentDetail : StackPanel
             return;
         }
 
-        Children.Clear();
+        List<UIElement> next = [];
         if (model.Facts.Count > 0)
         {
-            Children.Add(Facts());
+            next.Add(Facts());
         }
 
         switch (model.Kind)
         {
             case RunMomentKind.Step:
-                DrawStep();
+                DrawStep(next);
                 break;
             case RunMomentKind.Tool when model.Card is { } card:
-                DrawTool(card);
+                DrawTool(next, card);
                 break;
             case RunMomentKind.Approval:
-                DrawApproval();
+                DrawApproval(next);
                 break;
             case RunMomentKind.Delegation:
-                Children.Add(model.HandedTask is { Length: > 0 } task
+                next.Add(model.HandedTask is { Length: > 0 } task
                     ? Pieces.Part(model.DelegationTitle, Said(task))
                     : Pieces.Part(model.DelegationTitle));
                 break;
             case RunMomentKind.Answer:
-                Children.Add(Pieces.Part(model.AnswerTitle, model.AnswerText is { } answer ? Said(answer) : Quiet(model.AnswerQuiet)));
+                next.Add(Pieces.Part(model.AnswerTitle, model.AnswerText is { } answer ? Said(answer) : Quiet(model.AnswerQuiet)));
                 break;
             case RunMomentKind.Rule:
-                Children.Add(Styles.Text(model.RuleSentence));
+                next.Add(Styles.Text(model.RuleSentence));
                 if (model.RuleWhy is { } why)
                 {
-                    Children.Add(Quiet(why));
+                    next.Add(Quiet(why));
                 }
 
                 break;
+        }
+
+        ShowOnly(next);
+    }
+
+    // Direct children that keep state or focus (such as answers) stay in Children when still shown.
+    private void ShowOnly(List<UIElement> wanted)
+    {
+        for (var index = Children.Count - 1; index >= 0; index--)
+        {
+            if (!wanted.Contains(Children[index]))
+            {
+                Children.RemoveAt(index);
+            }
+        }
+
+        for (var index = 0; index < wanted.Count; index++)
+        {
+            if (index < Children.Count && ReferenceEquals(Children[index], wanted[index]))
+            {
+                continue;
+            }
+
+            Children.Remove(wanted[index]);
+            Children.Insert(index, wanted[index]);
         }
     }
 
@@ -181,38 +206,38 @@ public sealed class RunMomentDetail : StackPanel
         return facts;
     }
 
-    private void DrawStep()
+    private void DrawStep(List<UIElement> next)
     {
         if (model.StepText is { } text)
         {
-            Children.Add(Said(text, model.StepStreaming));
+            next.Add(Said(text, model.StepStreaming));
         }
         else
         {
-            Children.Add(Quiet(model.StepQuiet));
+            next.Add(Quiet(model.StepQuiet));
         }
     }
 
-    private void DrawTool(ToolCard card)
+    private void DrawTool(List<UIElement> next, ToolCard card)
     {
         if (model.IsCommand)
         {
             output.Label = RunMomentDetailViewModel.TerminalName;
             output.Show(RunMomentDetailViewModel.Prompt, model.CommandLine, card.Output);
-            Children.Add(Pieces.Part(RunMomentDetailViewModel.CommandTitle, Pieces.Detached(output)));
+            next.Add(Pieces.Part(RunMomentDetailViewModel.CommandTitle, Pieces.Detached(output)));
         }
         else
         {
             if (model.ShowsArguments)
             {
-                Children.Add(Pieces.Part(RunMomentDetailViewModel.ArgumentsTitle, new CodeBlock { Code = card.Arguments }));
+                next.Add(Pieces.Part(RunMomentDetailViewModel.ArgumentsTitle, new CodeBlock { Code = card.Arguments }));
             }
 
             if (model.ShowsOutput)
             {
                 output.Label = RunMomentDetailViewModel.OutputTitle;
                 output.Show(null, null, card.Output);
-                Children.Add(Pieces.Part(RunMomentDetailViewModel.OutputTitle, Pieces.Detached(output)));
+                next.Add(Pieces.Part(RunMomentDetailViewModel.OutputTitle, Pieces.Detached(output)));
             }
         }
 
@@ -234,29 +259,29 @@ public sealed class RunMomentDetail : StackPanel
                 result.Children.Add(Quiet(RunMomentDetailViewModel.CutNote));
             }
 
-            Children.Add(result);
+            next.Add(result);
         }
 
         if (model.ShowsQuiet)
         {
-            Children.Add(Quiet(RunMomentDetailViewModel.Quiet));
+            next.Add(Quiet(RunMomentDetailViewModel.Quiet));
         }
     }
 
-    private void DrawApproval()
+    private void DrawApproval(List<UIElement> next)
     {
         question.Text = model.Asks ? model.Question : model.Answered;
-        Children.Add(Pieces.Detached(question));
+        next.Add(question);
 
         if (model.Card is { } asked)
         {
             if (asked.Facts.Count > 0)
             {
-                Children.Add(Pieces.Facts(asked.Facts));
+                next.Add(Pieces.Facts(asked.Facts));
             }
             else if (model.ApprovalShowsArguments)
             {
-                Children.Add(new CodeBlock { Code = asked.Arguments, CodeLanguage = RunMomentDetailViewModel.ArgumentsTitle });
+                next.Add(new CodeBlock { Code = asked.Arguments, CodeLanguage = RunMomentDetailViewModel.ArgumentsTitle });
             }
         }
 
@@ -270,8 +295,8 @@ public sealed class RunMomentDetail : StackPanel
         AutomationProperties.SetFullDescription(deny, model.Question);
         approve.IsEnabled = deny.IsEnabled = !model.Deciding;
         problem.Text = model.Problem;
-        Children.Add(Pieces.Detached(answers));
-        Children.Add(Pieces.Detached(problem));
+        next.Add(answers);
+        next.Add(problem);
     }
 
     // The one view is kept, so text still arriving fades in where it lands instead of the whole reply blinking.

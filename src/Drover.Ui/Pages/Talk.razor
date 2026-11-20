@@ -56,7 +56,7 @@
             }
             else if (FormerThreadId is null)
             {
-                <header class="dv-shell-main-header">
+                <header class="dv-shell-main-header" @ref="mainHeader">
                     <a class="dv-shell-back" href="@Addresses.Home" aria-label="Back to the crew">
                         <Icon Name="IconName.ArrowLeft" Size="20" />
                     </a>
@@ -112,7 +112,7 @@
         </main>
         @if (CanShowRail && Shown is not null)
         {
-            <aside class="dv-shell-rail" aria-label="@RailName">
+            <aside @ref="rail" class="dv-shell-rail" aria-label="@RailName">
                 <header class="dv-shell-rail-header">
                     @if (Side is SideView.List or SideView.Summary or SideView.Memory or SideView.Screen or SideView.Files or SideView.Work or SideView.Activity)
                     {
@@ -179,7 +179,7 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
+                    <ConversationPane @ref="sidePane" @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
                                       Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="SideHandoffsChanged"
                                       ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" />
                 }

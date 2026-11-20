@@ -40,7 +40,7 @@ internal static class Keyed
 
         if (!unchanged)
         {
-            Place(panel, items, key, make, kept, start, end);
+            Place(panel, items, key, make, kept, start, tail);
         }
 
         for (var index = 0; index < items.Count; index++)
@@ -49,8 +49,9 @@ internal static class Keyed
         }
     }
 
-    // What is already in place stays in place: only what follows the first difference is taken out and put back in
-    // order, which for a conversation that grows at its end is nothing but the new message.
+    // What is still listed stays where it is: children whose key is gone are taken out, a new child is put in at its
+    // place, and only a kept child that the list moved is taken out and put back. A child that stays in place keeps
+    // the focus, so a list that grows at its end, or gains an item in its middle, never takes it from the person.
     private static void Place<TItem, TChild>(
         Panel panel,
         IReadOnlyList<TItem> items,
@@ -58,30 +59,38 @@ internal static class Keyed
         Func<TItem, TChild> make,
         Dictionary<string, TChild> kept,
         int start,
-        int end)
+        int tail)
         where TChild : FrameworkElement
     {
-        var same = 0;
-        while (same < items.Count && start + same < end && panel.Children[start + same] is TChild { Tag: string name } && name == key(items[same]))
+        HashSet<string> listed = [.. items.Select(key)];
+        for (var index = panel.Children.Count - tail - 1; index >= start; index--)
         {
-            same++;
+            if (panel.Children[index] is not TChild { Tag: string name } || !listed.Contains(name))
+            {
+                panel.Children.RemoveAt(index);
+            }
         }
 
-        for (var index = end - 1; index >= start + same; index--)
-        {
-            panel.Children.RemoveAt(index);
-        }
-
-        for (var index = same; index < items.Count; index++)
+        for (var index = 0; index < items.Count; index++)
         {
             var name = key(items[index]);
-            if (!kept.TryGetValue(name, out var child))
+            var at = start + index;
+            if (at < panel.Children.Count - tail && panel.Children[at] is TChild { Tag: string placed } && placed == name)
+            {
+                continue;
+            }
+
+            if (kept.TryGetValue(name, out var child))
+            {
+                panel.Children.Remove(child);
+            }
+            else
             {
                 child = make(items[index]);
                 child.Tag = name;
             }
 
-            panel.Children.Insert(start + index, child);
+            panel.Children.Insert(at, child);
         }
     }
 }
