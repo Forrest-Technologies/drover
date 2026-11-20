@@ -107,6 +107,48 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task Test_wakes_are_limited_for_each_person_whatever_address_they_come_from()
+    {
+        var limit = DeploymentPolicy.SelfHostedMaxPushTestsPerMinute;
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var device = Device("https://push.example/sample-phone");
+        var asAlice = NewClient("203.0.113.10");
+        (await asAlice.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+
+        for (var attempt = 0; attempt < limit; attempt++)
+        {
+            (await asAlice.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        }
+
+        (await asAlice.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode
+            .Should().Be(HttpStatusCode.TooManyRequests, "the limit is on the person");
+        var fromElsewhere = NewClient("198.51.100.77");
+        (await fromElsewhere.SignIn(alice.Email, alice.Password)).EnsureSuccessStatusCode();
+        (await fromElsewhere.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode
+            .Should().Be(HttpStatusCode.TooManyRequests, "another address does not give the same person a new allowance");
+        channel.Wakes.Should().HaveCount(limit, "the refused requests sent nothing");
+
+        var asBob = NewClient("203.0.113.10");
+        (await asBob.SignIn(bob.Email, bob.Password)).EnsureSuccessStatusCode();
+        (await asBob.Post("/api/push/device/test", new PushDeviceQuery(device.Endpoint))).StatusCode
+            .Should().Be(HttpStatusCode.NotFound, "another person at the same address is not limited by alice's tests: the device is not theirs, which is the answer, not a refusal");
+    }
+
+    [Fact]
+    public async Task A_test_wake_asked_for_without_signing_in_is_refused_before_it_costs_anyone_an_allowance()
+    {
+        var anonymous = NewClient("203.0.113.10");
+
+        for (var attempt = 0; attempt < DeploymentPolicy.SelfHostedMaxPushTestsPerMinute + 2; attempt++)
+        {
+            (await anonymous.Post("/api/push/device/test", new PushDeviceQuery("https://push.example/anything"))).StatusCode
+                .Should().Be(HttpStatusCode.Unauthorized);
+        }
+    }
+
+    [Fact]
     public async Task Something_that_is_not_a_push_subscription_is_refused_with_a_sentence()
     {
         var alice = await SignIn(await SeedPerson("alice"));

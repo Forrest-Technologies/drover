@@ -174,6 +174,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxWebRequestSeconds = 15;
 
+    public const int SelfHostedMaxPushTestsPerMinute = 5;
+
+    public const int HostedMaxPushTestsPerMinute = 3;
+
     #endregion
 
     #region Presets
@@ -435,6 +439,12 @@ public sealed record DeploymentPolicy
     /// </summary>
     public bool AllowImageGeneration { get; init; } = true;
 
+    /// <summary>
+    /// How many test notifications one signed-in person may ask for in a minute. Each is a signed request the server
+    /// makes to an address the person registered, so a shared server bounds how many strangers can have it make.
+    /// </summary>
+    public int MaxPushTestsPerMinute { get; init; } = SelfHostedMaxPushTestsPerMinute;
+
     #endregion
 
     #region Rule Table
@@ -689,6 +699,11 @@ public sealed record DeploymentPolicy
             nameof(AllowImageGeneration),
             policy => policy.AllowImageGeneration,
             Enforcement.Now("RunExecutor, which offers no image.create tool, and every image.create call")),
+        PolicyRule.Limit(
+            nameof(MaxPushTestsPerMinute),
+            policy => policy.MaxPushTestsPerMinute,
+            HostedMaxPushTestsPerMinute,
+            Enforcement.Now("The test notification endpoint's rate limit, kept for each signed-in person")),
     ];
 
     #endregion
