@@ -88,49 +88,26 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             return;
         }
 
-        bool InstallFailed(InstallUpdateFailureReason reason, string? path)
-        {
-            Change(State with
-            {
-                Phase = DesktopUpdatePhase.Failed,
-                Problem = reason is InstallUpdateFailureReason.InvalidSignature
-                    ? UpdatePackageTrust.SignatureProblem
-                    : "Drover could not open the downloaded installer.",
-            });
-            return false;
-        }
-
-        updater.InstallUpdateFailed += InstallFailed;
+        var item = available;
+        var active = updater;
 
         try
         {
-            Change(State with { Phase = DesktopUpdatePhase.Downloading, Problem = null });
-            var path = await UpdatePackageTrust.Download(updater, available, downloadLimit);
-            var package = await File.ReadAllBytesAsync(path);
-            var decision = UpdatePackageTrust.Decide(
+            var result = await UpdateInstall.Run(
+                new SparkleInstaller(active, item),
+                () => UpdatePackageTrust.Download(active, item, downloadLimit),
                 publicKey,
-                available.DownloadSignature,
-                package,
+                item.DownloadSignature,
                 UpdatePackageTrust.CurrentHost,
-                path,
-                State with { Version = available.Version });
-            if (!decision.StartInstaller)
-            {
-                Change(decision.State);
-                return;
-            }
-
-            Change(decision.State);
-            await updater.InstallUpdate(available, path);
+                State with { Version = item.Version },
+                Change,
+                () => ((App)Application.Current).MainWindow?.Close());
+            Change(result);
         }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "The signed desktop update could not be installed");
             Change(State with { Phase = DesktopUpdatePhase.Failed, Problem = UpdateProblem(exception) });
-        }
-        finally
-        {
-            updater.InstallUpdateFailed -= InstallFailed;
         }
     }
 
@@ -165,29 +142,20 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
             }
 
             available = result.Status is UpdateStatus.UpdateAvailable ? result.Updates.FirstOrDefault() : null;
-            var offered = available?.Version;
-            if (UpdatePackageTrust.IsOlderThanSeen(settings.Read(UpdatePackageTrust.FeedSettingName), offered))
+            var verdict = UpdatePackageTrust.AcceptFeed(
+                settings,
+                DesktopUpdateChannel.FromVersion(installedVersion),
+                available?.Version);
+            if (verdict.NotSaved is not null)
             {
-                available = null;
-                Change(State with
-                {
-                    Phase = DesktopUpdatePhase.Failed,
-                    Version = null,
-                    Problem = UpdatePackageTrust.StaleProblem,
-                });
-                return;
+                logger.LogWarning(verdict.NotSaved, "The newest verified update feed could not be saved");
             }
 
-            if (!string.IsNullOrWhiteSpace(offered))
+            if (!verdict.Accepted)
             {
-                try
-                {
-                    settings.Write(UpdatePackageTrust.FeedSettingName, offered);
-                }
-                catch (Exception exception)
-                {
-                    logger.LogWarning(exception, "The newest verified update feed could not be saved");
-                }
+                available = null;
+                Change(UpdatePackageTrust.AfterStaleFeed(State, reportFailure));
+                return;
             }
 
             Change(UpdatePackageTrust.AfterCheck(
@@ -213,8 +181,7 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
         publicKey,
         typeof(App).Assembly.Location,
         UpdatePackageTrust.DownloadDirectory(),
-        installedVersion,
-        () => ((App)Application.Current).MainWindow?.Close());
+        installedVersion);
 
     private async Task<string> FindFeed()
     {

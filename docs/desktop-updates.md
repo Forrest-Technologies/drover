@@ -9,7 +9,9 @@ environment, and replace `UPDATE_SIGNING_PUBLIC_KEY`. Publish new installers. An
 public key and will not accept a feed signed by the new key, so it needs a new package from the release page. Announce
 that outside the update feed. A signed feed cannot tell a client to trust a key the client does not already have, and
 the feed has no expiry. Ship a newer signed release instead of trying to recall an older file. The app remembers
-the newest release version in a signed feed it has verified and refuses a later feed that offers an older version.
+the newest release version in a signed feed it has verified, one record for each release channel, and refuses a later
+feed that offers an older version in the same channel. A manual check reports a stale feed. An automatic check offers
+nothing and shows nothing.
 A feed this install has never verified is still accepted, including one that is not the newest release published,
 because the app has no other copy of a later version. Losing the key still cannot make an already trusted feed expire.
 
@@ -36,3 +38,23 @@ stable package. Debian packages use `~preview.N`, which has the same order.
 Repeat the install step on Windows and macOS. On Linux, confirm the signature check and that Drover shows the checked
 local file instead of starting a privileged installer. Use only preview tags for this verification. Linux has no trusted
 privileged install yet, so it stays manual.
+
+## What the install step does on each system
+
+Drover hands a package to the operating system installer only after its own signature check passes. The update library
+checks the file again, starts the installer, and only then asks Drover to close its window. A failed start leaves the
+window open and shows the problem. Two limits follow from the library, and neither has been run on a real machine yet:
+
+- On macOS the signed file is a disk image. The library opens it and closes Drover, and it does not relaunch for a disk
+  image, so the person drags the new app into place and opens it. This is an installer handoff, not an in-place update.
+- On Windows the signed file is an MSIX package. The library runs the file by path after Drover exits. If the machine
+  does not trust the package, the installer can fail after Drover has closed, and the relaunch step can start the old version.
+
+The tests drive this decision through a recording installer: an install starts only for a verified package on Windows and
+macOS, a failed start leaves the window open, and the window closes only after the installer started.
+
+## Run record
+
+Record each manual run in the pull request or the release notes: the date, the operating system, the two package file
+names, the installed version, the version offered, and what happened at each step above. No run has been recorded for the
+current head.

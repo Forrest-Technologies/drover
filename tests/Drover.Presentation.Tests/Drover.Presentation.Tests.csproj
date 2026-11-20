@@ -23,6 +23,7 @@
   <!-- The stand-ins and the contrast arithmetic are the ones the web client's tests use: one source, two suites. -->
   <ItemGroup>
     <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdatePackageTrust.cs" Link="Platform\UpdatePackageTrust.cs" />
+    <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdateInstall.cs" Link="Platform\UpdateInstall.cs" />
     <Compile Include="..\Drover.Ui.Tests\Support\FakeServer.cs" Link="Support\FakeServer.cs" />
     <Compile Include="..\Drover.Ui.Tests\Support\LiveEvents.cs" Link="Support\LiveEvents.cs" />
     <Compile Include="..\Drover.Ui.Tests\Support\FakeServerChoice.cs" Link="Support\FakeServerChoice.cs" />

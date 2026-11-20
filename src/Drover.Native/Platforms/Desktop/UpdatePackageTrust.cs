@@ -29,9 +29,44 @@ internal static class UpdatePackageTrust
 
     public const string SignatureProblem = "The downloaded update did not have a valid signature.";
 
-    public const string FeedSettingName = "drover-update-feed";
-
     public const string StaleProblem = "This signed feed is older than one this installation has already verified.";
+
+    /// <summary>The setting that holds the newest verified feed version for one release channel.</summary>
+    public static string FeedSettingName(string channel) => $"drover-update-feed-{channel}";
+
+    /// <summary>
+    /// Checks the version a verified feed offers against the newest one this install has verified for the same
+    /// channel. An older offer is refused and the record is left alone. A newer offer is recorded, and a record
+    /// that cannot be saved is returned but does not refuse the offer.
+    /// </summary>
+    public static FeedVerdict AcceptFeed(IDeviceSettings settings, string channel, string? offered)
+    {
+        var name = FeedSettingName(channel);
+        if (IsOlderThanSeen(settings.Read(name), offered))
+        {
+            return new FeedVerdict(false, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(offered))
+        {
+            return new FeedVerdict(true, null);
+        }
+
+        try
+        {
+            settings.Write(name, offered);
+            return new FeedVerdict(true, null);
+        }
+        catch (Exception exception)
+        {
+            return new FeedVerdict(true, exception);
+        }
+    }
+
+    /// <summary>A stale feed is shown only for a manual check. An automatic check offers nothing and says nothing.</summary>
+    public static DesktopUpdateState AfterStaleFeed(DesktopUpdateState state, bool manual) => manual
+        ? state with { Phase = DesktopUpdatePhase.Failed, Version = null, Problem = StaleProblem }
+        : state with { Phase = DesktopUpdatePhase.Idle, Version = null, Problem = null };
 
     /// <summary>
     /// True when <paramref name="offered"/> is older than a signed feed this install has already verified.
@@ -66,8 +101,7 @@ internal static class UpdatePackageTrust
         string? publicKey,
         string referenceAssembly,
         string downloadDirectory,
-        string installedVersion,
-        CloseApplication? closeApplication)
+        string installedVersion)
     {
         var built = new SparkleUpdater(feed, CreateVerifier(publicKey), referenceAssembly)
         {
@@ -77,11 +111,6 @@ internal static class UpdatePackageTrust
             UserInteractionMode = UserInteractionMode.DownloadNoInstall,
             TmpDownloadFilePath = PrepareDownloadDirectory(downloadDirectory),
         };
-        if (closeApplication is not null)
-        {
-            built.CloseApplication += closeApplication;
-        }
-
         if (DesktopUpdateChannel.FromVersion(installedVersion) is "preview")
         {
             built.AppCastHelper.AppCastFilter = new ChannelAppCastFilter
@@ -277,3 +306,7 @@ internal static class UpdatePackageTrust
 
 /// <summary>Whether the downloaded package may be handed to an installer.</summary>
 internal readonly record struct DownloadDecision(DesktopUpdateState State, bool StartInstaller);
+
+
+/// <summary>Whether a verified feed may be used, and why its version could not be recorded if it could not.</summary>
+internal readonly record struct FeedVerdict(bool Accepted, Exception? NotSaved);

@@ -204,8 +204,7 @@ public sealed class DesktopUpdateTests
             publicKey,
             typeof(UpdatePackageTrust).Assembly.Location,
             directory,
-            "1.0.0",
-            null);
+            "1.0.0");
         updater.RelaunchAfterUpdate.Should().BeTrue();
         updater.TmpDownloadFilePath.Should().Be(directory);
 
@@ -251,8 +250,7 @@ public sealed class DesktopUpdateTests
             publicKey,
             typeof(UpdatePackageTrust).Assembly.Location,
             directory,
-            "1.0.0-preview.1",
-            null);
+            "1.0.0-preview.1");
         var filter = updater.AppCastHelper.AppCastFilter.Should().BeOfType<ChannelAppCastFilter>().Subject;
         filter.ChannelSearchNames.Should().Contain("preview");
 
@@ -286,6 +284,218 @@ public sealed class DesktopUpdateTests
             }
         }
 
+        Directory.Delete(directory, true);
+    }
+
+    [Fact]
+    public void The_newest_verified_version_is_kept_for_each_release_channel()
+    {
+        var settings = new MemorySettings();
+        var stable = UpdatePackageTrust.FeedSettingName("stable");
+        var preview = UpdatePackageTrust.FeedSettingName("preview");
+
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.4.0").Should().Be(new FeedVerdict(true, null));
+        settings.Values[stable].Should().Be("1.4.0");
+
+        // An older signed offer is refused and does not lower the record.
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.3.0").Accepted.Should().BeFalse();
+        settings.Values[stable].Should().Be("1.4.0");
+
+        // A preview install has its own record, so an older preview is not judged against stable.
+        UpdatePackageTrust.AcceptFeed(settings, "preview", "1.3.0-preview.1").Accepted.Should().BeTrue();
+        settings.Values[preview].Should().Be("1.3.0-preview.1");
+
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.5.0").Accepted.Should().BeTrue();
+        settings.Values[stable].Should().Be("1.5.0");
+
+        // No offer leaves the record alone.
+        UpdatePackageTrust.AcceptFeed(settings, "stable", null).Accepted.Should().BeTrue();
+        settings.Values[stable].Should().Be("1.5.0");
+    }
+
+    [Fact]
+    public void A_record_that_cannot_be_saved_does_not_refuse_a_newer_offer()
+    {
+        var settings = new MemorySettings();
+
+        var verdict = UpdatePackageTrust.AcceptFeed(new ReadOnlySettings(settings), "stable", "1.5.0");
+
+        verdict.Accepted.Should().BeTrue();
+        verdict.NotSaved.Should().NotBeNull();
+        settings.Values.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_stale_feed_is_shown_for_a_manual_check_and_not_for_an_automatic_one()
+    {
+        var state = new DesktopUpdateState(true, true, DesktopUpdatePhase.Checking);
+
+        var manual = UpdatePackageTrust.AfterStaleFeed(state, true);
+        manual.Phase.Should().Be(DesktopUpdatePhase.Failed);
+        manual.Problem.Should().Be(UpdatePackageTrust.StaleProblem);
+        manual.Version.Should().BeNull();
+
+        var automatic = UpdatePackageTrust.AfterStaleFeed(state, false);
+        automatic.Phase.Should().Be(DesktopUpdatePhase.Idle);
+        automatic.Problem.Should().BeNull();
+        automatic.Version.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("windows")]
+    [InlineData("mac")]
+    public async Task A_verified_package_starts_the_installer_and_the_window_closes_after_it(string hostName)
+    {
+        var host = hostName is "windows" ? UpdateHost.Windows : UpdateHost.Mac;
+        using var package = await SignedPackage($"{nameof(A_verified_package_starts_the_installer_and_the_window_closes_after_it)}{hostName}");
+        var events = new List<string>();
+        var installer = new RecordingInstaller(events, null);
+        var shown = new List<DesktopUpdatePhase>();
+
+        var state = await UpdateInstall.Run(
+            installer,
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            host,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            value => shown.Add(value.Phase),
+            () => events.Add("closed"));
+
+        events.Should().Equal("started", "closed");
+        installer.Paths.Should().Equal(package.Path);
+        shown.Should().Equal(DesktopUpdatePhase.Downloading, DesktopUpdatePhase.Installing);
+        state.Phase.Should().Be(DesktopUpdatePhase.Installing);
+    }
+
+    [Fact]
+    public async Task A_failed_installer_leaves_the_window_open_and_shows_the_problem()
+    {
+        using var package = await SignedPackage(nameof(A_failed_installer_leaves_the_window_open_and_shows_the_problem));
+        var events = new List<string>();
+        var installer = new RecordingInstaller(events, InstallUpdateFailureReason.CouldNotBuildInstallerCommand);
+
+        var state = await UpdateInstall.Run(
+            installer,
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Windows,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            _ => { },
+            () => events.Add("closed"));
+
+        events.Should().Equal("attempted");
+        state.Phase.Should().Be(DesktopUpdatePhase.Failed);
+        state.Problem.Should().Be(UpdateInstall.InstallerProblem);
+
+        var refused = await UpdateInstall.Run(
+            new RecordingInstaller(events, InstallUpdateFailureReason.InvalidSignature),
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Mac,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            _ => { },
+            () => events.Add("closed"));
+
+        events.Should().Equal("attempted", "attempted");
+        refused.Problem.Should().Be(UpdatePackageTrust.SignatureProblem);
+    }
+
+    [Theory]
+    [InlineData("windows")]
+    [InlineData("mac")]
+    [InlineData("linux")]
+    public async Task A_package_that_fails_verification_never_reaches_the_installer(string hostName)
+    {
+        var host = hostName switch
+        {
+            "windows" => UpdateHost.Windows,
+            "mac" => UpdateHost.Mac,
+            _ => UpdateHost.Linux,
+        };
+        using var package = await SignedPackage($"{nameof(A_package_that_fails_verification_never_reaches_the_installer)}{hostName}");
+        await File.AppendAllTextAsync(package.Path, "changed", TestContext.Current.CancellationToken);
+        var events = new List<string>();
+
+        var state = await UpdateInstall.Run(
+            new RecordingInstaller(events, null),
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            host,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            _ => { },
+            () => events.Add("closed"));
+
+        events.Should().BeEmpty();
+        state.Phase.Should().Be(DesktopUpdatePhase.Failed);
+        state.Problem.Should().Be(UpdatePackageTrust.SignatureProblem);
+    }
+
+    [Fact]
+    public async Task Linux_keeps_the_verified_package_and_never_starts_an_installer()
+    {
+        using var package = await SignedPackage(nameof(Linux_keeps_the_verified_package_and_never_starts_an_installer));
+        var events = new List<string>();
+
+        var state = await UpdateInstall.Run(
+            new RecordingInstaller(events, null),
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Linux,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            _ => { },
+            () => events.Add("closed"));
+
+        events.Should().BeEmpty();
+        state.Phase.Should().Be(DesktopUpdatePhase.Manual);
+        state.VerifiedPackage.Should().Be(package.Path);
+    }
+
+    [Fact]
+    public async Task A_failed_download_never_reaches_the_installer()
+    {
+        var events = new List<string>();
+        var act = () => UpdateInstall.Run(
+            new RecordingInstaller(events, null),
+            () => throw new InvalidDataException("The download failed."),
+            "unused",
+            "unused",
+            UpdateHost.Windows,
+            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            _ => { },
+            () => events.Add("closed"));
+
+        await act.Should().ThrowAsync<InvalidDataException>();
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_library_installer_refuses_a_changed_package_before_anything_starts()
+    {
+        var (publicKey, privateKey) = Key(nameof(The_library_installer_refuses_a_changed_package_before_anything_starts));
+        var original = Encoding.UTF8.GetBytes("sample desktop package");
+        var directory = Path.Combine(Path.GetTempPath(), $"drover-installer-{Guid.NewGuid():N}");
+        using var updater = UpdatePackageTrust.CreateUpdater(
+            "https://github.com/Forrest-Technologies/drover/releases/latest/download/appcast-linux.xml",
+            publicKey,
+            typeof(UpdatePackageTrust).Assembly.Location,
+            directory,
+            "1.0.0");
+        var item = new AppCastItem { Version = "2.0.0", DownloadSignature = Sign(original, privateKey) };
+        var changed = original.ToArray();
+        changed[^1] ^= 1;
+        var path = Path.Combine(directory, "package.bin");
+        await File.WriteAllBytesAsync(path, changed, TestContext.Current.CancellationToken);
+        var closed = false;
+
+        var failure = await new SparkleInstaller(updater, item).Start(path, () => closed = true);
+
+        failure.Should().Be(InstallUpdateFailureReason.InvalidSignature);
+        closed.Should().BeFalse();
         Directory.Delete(directory, true);
     }
 
@@ -330,6 +540,15 @@ public sealed class DesktopUpdateTests
             server.CreateApi(),
             NullLogger<AccountMenuViewModel>.Instance,
             updates);
+    }
+
+    private static async Task<SignedFile> SignedPackage(string name)
+    {
+        var (publicKey, privateKey) = Key(name);
+        var package = Encoding.UTF8.GetBytes($"sample desktop package {name}");
+        var path = Path.Combine(Path.GetTempPath(), $"drover-signed-{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(path, package, TestContext.Current.CancellationToken);
+        return new SignedFile(path, publicKey, Sign(package, privateKey));
     }
 
     private static (string PublicKey, byte[] PrivateKey) Key(string name)
@@ -472,3 +691,50 @@ file sealed class FeedHost : IAsyncDisposable
     #endregion
 }
 
+
+
+/// <summary>A package on disk with the key and signature that verify it.</summary>
+internal sealed record SignedFile(string Path, string PublicKey, string Signature) : IDisposable
+{
+    public void Dispose() => File.Delete(Path);
+}
+
+
+/// <summary>An installer that records what the update flow asked of it.</summary>
+file sealed class RecordingInstaller(List<string> events, InstallUpdateFailureReason? failure) : IUpdateInstaller
+{
+    #region Properties
+
+    public List<string> Paths { get; } = [];
+
+    #endregion
+
+    #region Interface Implementations
+
+    public Task<InstallUpdateFailureReason?> Start(string path, Action closeApplication)
+    {
+        Paths.Add(path);
+        if (failure is not null)
+        {
+            events.Add("attempted");
+            return Task.FromResult(failure);
+        }
+
+        events.Add("started");
+        closeApplication();
+        return Task.FromResult<InstallUpdateFailureReason?>(null);
+    }
+
+    #endregion
+}
+
+
+/// <summary>Settings that can be read but not changed.</summary>
+file sealed class ReadOnlySettings(IDeviceSettings inner) : IDeviceSettings
+{
+    public string? Read(string name) => inner.Read(name);
+
+    public void Write(string name, string value) => throw new InvalidOperationException("Sample: storage is read only.");
+
+    public void Remove(string name) => throw new InvalidOperationException("Sample: storage is read only.");
+}
