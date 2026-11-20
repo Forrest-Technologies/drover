@@ -12,8 +12,15 @@ internal sealed class CheckServer(TestDatabase database, X509Certificate2 certif
 
     public const string Reply = "Hello from the check bot.";
 
-    // The app sends one message. The rest are spare, in case the engine asks the model for anything else.
-    private static readonly ScriptedModel script = new([.. Enumerable.Repeat<IReadOnlyList<ModelOutput>>([new TextOutput(Reply)], 8)]);
+    // The app sends one message and gets its reply. The second turn holds its run in progress until the run is
+    // stopped, so the composer shows Stop for as long as a check needs to look at it. The rest are spare, in case
+    // the engine asks the model for anything else.
+    private static readonly ScriptedModel script = new(
+    [
+        [new TextOutput(Reply)],
+        [new PauseOutput()],
+        .. Enumerable.Repeat<IReadOnlyList<ModelOutput>>([new TextOutput(Reply)], 8),
+    ]);
 
     #endregion
 
