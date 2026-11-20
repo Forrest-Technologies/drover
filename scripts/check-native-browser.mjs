@@ -738,7 +738,12 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     });
 
     await page.waitForFunction(() => document.querySelector('iframe[title="Preview of report.html"]') !== null);
-    const frame = page.frames().find(candidate => candidate.url() === `${previewOrigin}/preview/file?grant=sample-grant`);
+    const frameUrl = `${previewOrigin}/preview/file?grant=sample-grant`;
+    const frame = page.frames().find(candidate => candidate.url() === frameUrl)
+        ?? await page.waitForEvent('framenavigated', {
+            predicate: candidate => candidate.url() === frameUrl,
+            timeout: 5000,
+        });
     assert(frame, 'Expected the sandboxed preview iframe to navigate to the second origin.');
     await frame.locator('#preview-heading').waitFor({ state: 'attached', timeout: 5000 });
     assert.equal(await frame.locator('#preview-heading').innerText(), 'Quarterly report');
