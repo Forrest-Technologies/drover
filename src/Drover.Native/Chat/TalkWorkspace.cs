@@ -659,14 +659,38 @@ internal sealed class TalkWorkspace : Grid
 
     #region Keyboard
 
-    // Escape closes what is beside the conversation. A key something inside took for itself, as a dialog does, is
-    // left alone; a menu's list is not inside the rail at all.
+    // Escape closes what is beside the conversation. A key something inside took for itself, as a dialog does, or a
+    // text field with content inside the rail, is left alone; a menu's list is not inside the rail at all.
     private void CloseRailOnEscape(object sender, KeyRoutedEventArgs key)
     {
-        if (key.Key is VirtualKey.Escape && !key.Handled && model.CloseRailFromKeyboard())
+        if (key.Key is not VirtualKey.Escape || key.Handled || InTextFieldWithContent(key))
+        {
+            return;
+        }
+
+        if (model.CloseRailFromKeyboard())
         {
             key.Handled = true;
         }
+    }
+
+    private bool InTextFieldWithContent(KeyRoutedEventArgs key)
+    {
+        var current = (XamlRoot is { } root ? FocusManager.GetFocusedElement(root) as DependencyObject : null)
+            ?? key.OriginalSource as DependencyObject;
+        while (current is not null)
+        {
+            switch (current)
+            {
+                case TextBox box when box.Text.Length > 0:
+                case PasswordBox password when password.Password.Length > 0:
+                    return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
     }
 
     // The way that opened the rail: its link in the header where the header shows the links, and otherwise the

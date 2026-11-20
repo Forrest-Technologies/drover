@@ -76,6 +76,8 @@ public sealed partial class Talk(
 
     private ElementReference mainHeader;
 
+    private ConversationPane? sidePane;
+
     // The rail last given its Escape key. A rail that closes and opens again is a new element and is given it again.
     private string? railWithKeys;
 
@@ -346,7 +348,7 @@ public sealed partial class Talk(
     [JSInvokable]
     public Task CloseRailFromKeyboard()
     {
-        if (!CanShowRail || Shown is not { } bot)
+        if (!CanShowRail || Shown is not { } bot || (Side is SideView.New or SideView.Chat && sidePane?.HasDraft == true))
         {
             return Task.CompletedTask;
         }

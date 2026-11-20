@@ -564,21 +564,4 @@ public sealed class Timeline : StackPanel
     }
 
     #endregion
-
-    #region Focus Check
-
-    /// <summary>Opens one node without moving focus, for the check that a later event leaves that focus where it is.</summary>
-    internal void OpenForCheck(Guid id)
-    {
-        (selected, opened, moveFocus) = (id, id, false);
-        Draw();
-    }
-
-    /// <summary>The details shown under a node, when that node is open.</summary>
-    internal UIElement? DetailForCheck(Guid id) =>
-        detailBoxes.TryGetValue(id, out var box) && box.Child is ContentPresenter presenter
-            ? presenter.Content as UIElement
-            : null;
-
-    #endregion
 }

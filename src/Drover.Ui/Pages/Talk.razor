@@ -179,7 +179,7 @@
                 }
                 else
                 {
-                    <ConversationPane @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
+                    <ConversationPane @ref="sidePane" @key="sideKey" Bot="Shown" ThreadId="ThreadId" Moment="Moment" OnThreadStarted="SideChatStarted" OnThreadChanged="Remember" OnBusyChanged="SideBusyChanged"
                                       Crew="bots!" WorkAddress="WorkAddress" OnHandoffsChanged="SideHandoffsChanged"
                                       ScreenAccess="screenAccess" ScreenSetupHref="@screenSetupHref" OnOpenScreen="ScreenTakenOver" />
                 }

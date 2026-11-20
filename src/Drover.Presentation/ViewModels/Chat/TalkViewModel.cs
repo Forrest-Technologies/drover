@@ -419,13 +419,13 @@ public sealed class TalkViewModel(
 
     /// <summary>
     /// Closes what is beside the conversation, as Escape does, and asks for the focus to go back to the way that
-    /// opened it. False when nothing is open beside it, so the key is left to whatever else wants it. A device's
-    /// Back that closes the rail can call this too: what is open is read from the address, so either way leaves the
-    /// screen in the same state.
+    /// opened it. False when nothing is open beside it or a side chat holds a draft, so the key is left to whatever
+    /// else wants it. A device's Back that closes the rail can call this too: what is open is read from the address,
+    /// so either way leaves the screen in the same state.
     /// </summary>
     public bool CloseRailFromKeyboard()
     {
-        if (!CanShowRail || Shown is not { } bot)
+        if (!CanShowRail || Shown is not { } bot || HasRailDraft)
         {
             return false;
         }
@@ -434,6 +434,11 @@ public sealed class TalkViewModel(
         navigator.NavigateTo(Addresses.Talk(bot.Id));
         return true;
     }
+
+    private bool HasRailDraft =>
+        Side is SideView.New or SideView.Chat
+        && SidePane?.Composer is { } composer
+        && (composer.Text.Length > 0 || composer.Attachments.Count > 0);
 
     /// <summary>The controls the person used are gone, so the focus goes to the screen's close control, the one way on.</summary>
     public void HandedBack(Guid toolCallId)

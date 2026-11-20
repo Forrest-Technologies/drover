@@ -670,6 +670,55 @@ public sealed class TalkViewModelTests : WorkspaceTest
         openers.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_a_draft_keeps_the_rail_and_the_draft()
+    {
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SidePane.Should().NotBeNull());
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = true;
+        await Do(() =>
+        {
+            Talk.SidePane!.Composer.Text = "Half-written side chat message";
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Address.Should().Be($"talk/{botId}/side/new");
+        Talk.Side.Should().Be(SideView.New);
+        Talk.SidePane!.Composer.Text.Should().Be("Half-written side chat message");
+        openers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_an_attached_file_keeps_the_rail_and_the_file()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/bots/{botId}/threads", Side with { Title = null }, HttpStatusCode.Created);
+        Server.Answer("GET", $"{Space}/threads/{sideId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        Server.Answer("POST", $"{Space}/threads/{sideId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SidePane.Should().NotBeNull());
+
+        await Attach(() => Talk.SidePane!, new SamplePickedFile("notes.txt", "one"));
+        await Until(() => Talk.SidePane!.Composer.Attachments.Should().ContainSingle());
+
+        var closed = true;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Talk.SidePane!.Composer.Attachments.Should().ContainSingle();
+        Talk.CanShowRail.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData(SideView.Summary, SideView.Summary)]
     [InlineData(SideView.Chat, SideView.List)]

@@ -715,6 +715,48 @@ public sealed class TalkTests : ScreenTest
         module.Invocations.Should().NotContain(call => call.Identifier == "attach", "there is no rail to give the key to");
     }
 
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_a_draft_keeps_the_rail_and_the_draft()
+    {
+        var module = JSInterop.SetupModule(TalkScript);
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null), Side });
+        Server.Answer("GET", $"{space}/threads/{sideId}", Side);
+        Server.Answer("GET", $"{space}/threads/{sideId}/messages", new[] { Said("user", "Sample aside") });
+        var page = RenderSide(sideId.ToString());
+        page.WaitForAssertion(() => page.Find("aside h1").TextContent.Should().Be("Sample side chat"));
+
+        await page.Find("aside textarea").InputAsync(new ChangeEventArgs { Value = "Half-written side chat message" });
+        await page.InvokeAsync(page.Instance.CloseRailFromKeyboard);
+
+        Address.Should().Be($"talk/{botId}/side/{sideId}");
+        page.FindAll("aside").Should().ContainSingle();
+        page.Find("aside textarea").GetAttribute("value").Should().Be("Half-written side chat message");
+        module.Invocations.Should().NotContain(call => call.Identifier == "focusOpener");
+    }
+
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_an_attached_file_keeps_the_rail()
+    {
+        var fileId = Guid.CreateVersion7();
+        JSInterop.SetupModule(TalkScript);
+        AttachmentsAllowed();
+        Server.Answer("GET", $"{space}/bots/{botId}/threads", new[] { Thread(null), Side });
+        Server.Answer("GET", $"{space}/threads/{sideId}", Side);
+        Server.Answer("GET", $"{space}/threads/{sideId}/messages", new[] { Said("user", "Sample aside") });
+        Server.Answer("GET", $"{space}/threads/{sideId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        Server.Answer("POST", $"{space}/threads/{sideId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        var page = RenderSide(sideId.ToString());
+        page.WaitForAssertion(() => page.Find("aside h1").TextContent.Should().Be("Sample side chat"));
+
+        page.FindComponents<InputFile>()[^1].UploadFiles(InputFileContent.CreateFromText("one", "notes.txt"));
+        page.WaitForAssertion(() => page.Find("aside .dv-attached-status").TextContent.Should().Be("3 bytes"));
+
+        await page.InvokeAsync(page.Instance.CloseRailFromKeyboard);
+
+        Address.Should().Be($"talk/{botId}/side/{sideId}");
+        page.FindAll("aside .dv-attached-file").Should().ContainSingle();
+    }
+
     #endregion
 
     #region Side Chats
