@@ -133,6 +133,85 @@ public sealed class DiagnosticLogTests : IDisposable
     }
 
     [Fact]
+    public async Task Overlapping_writers_stay_within_the_part_limit()
+    {
+        var cancellation = TestContext.Current.CancellationToken;
+        var memoryFirst = new DiagnosticLog(store, time);
+        var memorySecond = new DiagnosticLog(store, time);
+        store.Write("diagnostics", new string('a', DiagnosticLog.PartLimit - 60));
+
+        using var memoryStart = new Barrier(2);
+        await Task.WhenAll(
+            Task.Run(() => WriteBurst(memoryFirst, memoryStart, "m1", 1500), cancellation),
+            Task.Run(() => WriteBurst(memorySecond, memoryStart, "m2", 1500), cancellation));
+
+        store.Texts.Values.Should().OnlyContain(part => part.Length <= DiagnosticLog.PartLimit);
+        store.Texts.Values.Sum(part => part.Length).Should().BeLessThanOrEqualTo(2 * DiagnosticLog.PartLimit);
+        memoryFirst.Compose(app).Should().NotContain("Some entries could not be kept");
+        memorySecond.Compose(app).Should().NotContain("Some entries could not be kept");
+
+        var diskFirstStore = new DiagnosticFolder(folder);
+        var diskSecondStore = new DiagnosticFolder(folder);
+        diskFirstStore.Write("diagnostics", new string('b', DiagnosticLog.PartLimit - 60));
+        var diskFirst = new DiagnosticLog(diskFirstStore, time);
+        var diskSecond = new DiagnosticLog(diskSecondStore, time);
+
+        using var diskStart = new Barrier(2);
+        await Task.WhenAll(
+            Task.Run(() => WriteBurst(diskFirst, diskStart, "d1", 1000), cancellation),
+            Task.Run(() => WriteBurst(diskSecond, diskStart, "d2", 1000), cancellation));
+
+        var files = Directory.GetFiles(folder);
+        files.Should().OnlyContain(file => new FileInfo(file).Length <= DiagnosticLog.PartLimit);
+        files.Sum(file => new FileInfo(file).Length).Should().BeLessThanOrEqualTo(2 * DiagnosticLog.PartLimit);
+        diskFirst.Compose(app).Should().NotContain("Some entries could not be kept");
+        diskSecond.Compose(app).Should().NotContain("Some entries could not be kept");
+
+        diskFirstStore.Write("direct", new string('c', DiagnosticLog.PartLimit - 10));
+        using var directStart = new Barrier(2);
+        await Task.WhenAll(
+            Task.Run(() =>
+            {
+                directStart.SignalAndWait(cancellation);
+                diskFirstStore.Append("direct", new string('1', 20));
+            }, cancellation),
+            Task.Run(() =>
+            {
+                directStart.SignalAndWait(cancellation);
+                diskSecondStore.Append("direct", new string('2', 20));
+            }, cancellation));
+
+        diskFirstStore.Read("direct")!.Length.Should().BeLessThanOrEqualTo(DiagnosticLog.PartLimit);
+    }
+
+    [Fact]
+    public async Task Folder_storage_waits_for_external_process_lock_before_writing()
+    {
+        var cancellation = TestContext.Current.CancellationToken;
+        Directory.CreateDirectory(folder);
+        var lockPath = Path.Combine(folder, ".lock");
+        var folderStore = new DiagnosticFolder(folder);
+        using var started = new ManualResetEventSlim(false);
+        Task writeTask;
+
+        using (var externalLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            writeTask = Task.Run(() =>
+            {
+                started.Set();
+                folderStore.Write("diagnostics", "after-lock\n");
+            }, cancellation);
+
+            started.Wait(TimeSpan.FromSeconds(5), cancellation).Should().BeTrue();
+            await Task.Delay(50, cancellation);
+            writeTask.IsCompleted.Should().BeFalse();
+        }
+
+        await writeTask;
+        folderStore.Read("diagnostics").Should().Be("after-lock\n");
+    }
+
+    [Fact]
     public void An_empty_log_says_so()
     {
         var saved = new DiagnosticLog(store, time).Compose(app);
@@ -145,6 +224,15 @@ public sealed class DiagnosticLogTests : IDisposable
     #endregion
 
     #region Private Methods
+
+    private static void WriteBurst(DiagnosticLog log, Barrier start, string writer, int count)
+    {
+        start.SignalAndWait();
+        for (var entry = 0; entry < count; entry++)
+        {
+            log.Write($"{writer} {entry:D5} {new string('x', 80)}\n");
+        }
+    }
 
     private static Exception Nested(int depth)
     {

@@ -13,5 +13,7 @@ public interface IDiagnosticStore
 
     void Append(string name, string text);
 
+    void Append(string name, string olderName, string text, int limit);
+
     void Remove(string name);
 }

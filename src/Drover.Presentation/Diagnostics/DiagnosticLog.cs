@@ -125,18 +125,7 @@ public sealed class DiagnosticLog(IDiagnosticStore store, TimeProvider time)
 
     #region Private Methods
 
-    private void Append(string entry)
-    {
-        var current = store.Read(Newer) ?? string.Empty;
-        if (current.Length + entry.Length > PartLimit)
-        {
-            store.Write(Older, Tail(current) ?? string.Empty);
-            store.Write(Newer, entry);
-            return;
-        }
-
-        store.Append(Newer, entry);
-    }
+    private void Append(string entry) => store.Append(Newer, Older, entry, PartLimit);
 
     private static string? Tail(string? text) =>
         text is { Length: > PartLimit } ? text[^PartLimit..] : text;

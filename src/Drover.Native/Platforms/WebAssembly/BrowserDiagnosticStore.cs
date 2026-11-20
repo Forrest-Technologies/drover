@@ -23,6 +23,19 @@ internal sealed class BrowserDiagnosticStore : IDiagnosticStore
         Write(name, combined.Length <= DiagnosticLog.PartLimit ? combined : combined[^DiagnosticLog.PartLimit..]);
     }
 
+    public void Append(string name, string olderName, string text, int limit)
+    {
+        var current = Read(name) ?? string.Empty;
+        if (current.Length + text.Length > limit)
+        {
+            Write(olderName, current.Length <= limit ? current : current[^limit..]);
+            Write(name, text.Length <= limit ? text : text[^limit..]);
+            return;
+        }
+
+        Append(name, text);
+    }
+
     public void Remove(string name) => Guarded<object?>(() =>
     {
         Browser.Forget(Key(name));
