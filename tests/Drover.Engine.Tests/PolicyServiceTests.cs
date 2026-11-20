@@ -34,8 +34,8 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         var selfHosted = await Effective(DeploymentPolicy.SelfHosted, space);
         var hosted = await Effective(DeploymentPolicy.Hosted, space);
 
-        selfHosted.Should().Be(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
-        hosted.Should().Be(new EffectivePolicy(AllowPrivateAddresses: false, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+        selfHosted.Should().Be(new EffectivePolicy(AllowPrivateAddresses: true, AutoLoadRemoteImages: false));
+        hosted.Should().Be(new EffectivePolicy(AllowPrivateAddresses: false, AutoLoadRemoteImages: false));
     }
 
     [Fact]
@@ -56,18 +56,6 @@ public sealed class PolicyServiceTests(PostgresServer postgres) : IAsyncLifetime
         var effective = await Effective(DeploymentPolicy.Hosted, space);
 
         effective.AllowPrivateAddresses.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task A_space_can_turn_off_tainted_run_escalation_only_where_the_deployment_lets_it()
-    {
-        var space = await SeedSpace(new SpaceSettings { TaintedRunEscalation = false });
-
-        var selfHosted = await Effective(DeploymentPolicy.SelfHosted, space);
-        var hosted = await Effective(DeploymentPolicy.Hosted, space);
-
-        selfHosted.TaintedRunEscalation.Should().BeFalse();
-        hosted.TaintedRunEscalation.Should().BeTrue();
     }
 
     [Fact]

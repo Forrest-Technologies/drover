@@ -59,7 +59,6 @@ public static class PolicyMatrix
         new(nameof(DeploymentPolicy.RequireTermsAcceptance), "false", "true"),
         new(nameof(DeploymentPolicy.RequireSetupCode), "true", "true"),
         new(nameof(DeploymentPolicy.SpaceQuotas), "Unlimited", "SetByOperator"),
-        new(nameof(DeploymentPolicy.SpaceMayDisableTaintedRunEscalation), "true", "false"),
         new(nameof(DeploymentPolicy.SpaceMayAutoLoadRemoteImages), "true", "false"),
         new(nameof(DeploymentPolicy.KeyRingProtection), "FilePermissions", "CertificateOrKeyService"),
         new(nameof(DeploymentPolicy.AllowMigrationCredentialInServer), "true", "false"),

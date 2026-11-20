@@ -29,7 +29,6 @@ public sealed class PolicyService(IOptions<DeploymentPolicyOptions> options, Acc
     public EffectivePolicy Narrow(SpaceSettings space) =>
         new(
             AllowPrivateAddresses: Deployment.AllowPrivateAddresses && space.AllowPrivateAddresses != false,
-            TaintedRunEscalation: !(Deployment.SpaceMayDisableTaintedRunEscalation && space.TaintedRunEscalation == false),
             AutoLoadRemoteImages: Deployment.SpaceMayAutoLoadRemoteImages && space.AutoLoadRemoteImages == true);
 
     /// <summary>The most bots the space may hold that have not been removed: the deployment's cap, or the space's own if lower.</summary>
