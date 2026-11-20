@@ -269,37 +269,52 @@ public sealed class SandboxControlTests(PostgresServer postgres)
     [Fact]
     public async Task Screens_asked_for_while_one_is_being_taken_share_it()
     {
-        var taking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        const int Requests = 5;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var provider = DesktopProvider(async cancellationToken =>
-        {
-            taking.TrySetResult();
-            await release.Task.WaitAsync(cancellationToken);
-        });
+        var provider = DesktopProvider(async cancellationToken => await release.Task.WaitAsync(cancellationToken));
         await using var world = await ControlWorld(provider, desktop: true);
         var control = Control(world);
+        var joined = 0;
+        var allJoined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        control.ScreenRequested = () =>
+        {
+            if (Interlocked.Increment(ref joined) == Requests)
+            {
+                allJoined.TrySetResult();
+            }
+        };
 
-        var services = world.Hosts[^1].Services;
-        var broker = services.GetRequiredService<SandboxBroker>();
-        var tenant = services.GetRequiredService<RunScopes>().For(world.SpaceId, world.UserId);
-        var caller = new SandboxCaller(tenant, world.BotId);
-        var key = (world.SpaceId, world.BotId, true);
-        var first = control.SharedScreenshot(broker, caller, key, RunWorld.Token);
-        Task<SandboxScreenshot>[] others;
+        // All five go through the public entry point, which builds the key and the caller itself. The provider holds
+        // the one screenshot until every request has joined it, so none can arrive after it is done and start another.
+        var requests = Enumerable.Range(0, Requests)
+            .Select(_ => control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token))
+            .ToArray();
         try
         {
-            await taking.Task.WaitAsync(RunWorld.Token);
-            others = [.. Enumerable.Range(0, 4).Select(_ => control.SharedScreenshot(broker, caller, key, RunWorld.Token))];
+            await allJoined.Task.WaitAsync(TimeSpan.FromSeconds(30), RunWorld.Token);
         }
         finally
         {
             release.TrySetResult();
         }
 
-        var shots = await Task.WhenAll([first, .. others]);
+        var shots = await Task.WhenAll(requests);
 
-        shots.Should().OnlyContain(shot => shot.Png.SequenceEqual(png));
-        provider.Commands.Count(command => command.Program == "scrot").Should().Be(1);
+        shots.Should().OnlyContain(shot => shot.Refusal == SandboxControlRefusal.None && shot.Value!.Png.SequenceEqual(png));
+        provider.Commands.Count(command => command.Program == "scrot").Should().Be(1, "five requests that met share one screenshot");
+    }
+
+    [Fact]
+    public async Task A_screen_asked_for_after_the_shared_one_is_done_takes_a_new_one()
+    {
+        var provider = DesktopProvider();
+        await using var world = await ControlWorld(provider, desktop: true);
+        var control = Control(world);
+
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+        (await control.Screen(world.SpaceId, world.UserId, world.BotId, RunWorld.Token)).Refusal.Should().Be(SandboxControlRefusal.None);
+
+        provider.Commands.Count(command => command.Program == "scrot").Should().Be(2, "nothing is kept to share once a screenshot is done");
     }
 
     [Fact]
