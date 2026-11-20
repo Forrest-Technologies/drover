@@ -1,7 +1,7 @@
 // Ordinary browser APIs, loaded as a script under the same CSP as the app. No eval or inline script.
 globalThis.droverFiles = {
-    async download(name, text) {
-        const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    async download(name, text, type) {
+        const blob = new Blob([text], { type });
         const address = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = address;

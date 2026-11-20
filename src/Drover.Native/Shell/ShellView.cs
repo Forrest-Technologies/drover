@@ -31,7 +31,7 @@ public sealed class ShellView : Grid
 
         Children.Add(frame);
         Children.Add(new ToastHost { Model = ActivatorUtilities.CreateInstance<ToastHostViewModel>(services) });
-#if ANDROID
+#if ANDROID || __IOS__
         // Keep the window background under the system bars and the controls inside their visible bounds.
         SafeArea.Attach(this);
 #endif

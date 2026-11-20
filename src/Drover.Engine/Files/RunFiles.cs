@@ -7,7 +7,7 @@ namespace Drover.Engine.Files;
 /// and goes in the same way, from at most <paramref name="maxDocumentPages"/> of its pages, and a PDF with no text
 /// goes to a model that reads pictures as the pictures of its first pages; anything else is copied into the bot's
 /// sandbox, once a run, and the model is told where, as a document is too when the bot has a sandbox it may use, but only from a conversation everyone who can reach the sandbox can see, checked when the rows
-/// are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>). Nothing here holds a
+/// are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>) and again when the copy is written. Nothing here holds a
 /// transaction while it reads a file or copies one. A file is text from outside Drover, so a run given one, its
 /// content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
 /// </summary>
@@ -232,7 +232,7 @@ public sealed class RunFiles(
 
         try
         {
-            await sandboxes.PutFile(new SandboxCaller(tenant, botId), path, content, file.Size, cancellationToken);
+            await sandboxes.PutFile(new SandboxCaller(tenant, botId), path, content, file.Size, file.Id, cancellationToken);
         }
         catch (BuiltinToolException refused)
         {

@@ -39,8 +39,6 @@ public static class DocumentReader
 
     private static readonly OpenXmlPackaging.OpenSettings officeSettings = new() { MaxCharactersInPart = MaxCharactersInPart };
 
-    private static readonly Pdf.ParsingOptions pdfSettings = new() { UseLenientParsing = true, SkipMissingFonts = true };
-
     #endregion
 
     #region Public Methods
@@ -68,13 +66,124 @@ public static class DocumentReader
         }
     }
 
+    public static NativeFilePreview ReadPdfPreview(byte[] content, CancellationToken cancellationToken = default)
+    {
+        if (content.Length > NativeFilePreview.MaxPdfBytes)
+        {
+            return new(Refusal: NativePreviewRefusal.TooLarge);
+        }
+
+        var filters = new PdfPreviewFilters(PdfDecodeBudget.Preview, cancellationToken);
+        try
+        {
+            if (PdfPreviewGuard.ScreenStructure(content, cancellationToken) is { } preflightRefusal)
+            {
+                return new(Refusal: preflightRefusal);
+            }
+
+            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
+            {
+                UseLenientParsing = false,
+                SkipMissingFonts = true,
+                FilterProvider = filters,
+            });
+            cancellationToken.ThrowIfCancellationRequested();
+            var total = document.NumberOfPages;
+            if (total <= 0)
+            {
+                return new(Refusal: NativePreviewRefusal.Malformed);
+            }
+
+            if (total > NativeFilePreview.MaxPdfPages)
+            {
+                return new(Refusal: NativePreviewRefusal.TooLarge);
+            }
+
+            document.AddPageFactory<PdfTokens.DictionaryToken>(new PdfPreviewPageDictionary());
+            List<NativePdfPage> pages = [];
+            var characters = 0;
+
+            for (var number = 1; number <= total; number++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var dictionary = document.GetPage<PdfTokens.DictionaryToken>(number);
+                filters.ReserveRawPageContents(document.Structure, dictionary);
+                var page = document.GetPage(number);
+                var images = page.GetImages().Take(NativeFilePreview.MaxPdfPageImages + 1).ToArray();
+                if (images.Length > NativeFilePreview.MaxPdfPageImages)
+                {
+                    return new(Refusal: NativePreviewRefusal.TooComplex);
+                }
+
+                if (images.Any(image =>
+                    image.WidthInSamples <= 0
+                    || image.HeightInSamples <= 0
+                    || (long)image.WidthInSamples * image.HeightInSamples > NativeFilePreview.MaxImagePixels
+                    || image.RawMemory.Length > NativeFilePreview.MaxImageBytes))
+                {
+                    return new(Refusal: NativePreviewRefusal.TooLarge);
+                }
+
+                var text = PdfText.ContentOrderTextExtractor.GetText(page).Trim();
+                characters += text.Length;
+                if (characters > NativeFilePreview.MaxPdfCharacters)
+                {
+                    return new(Refusal: NativePreviewRefusal.TooLarge);
+                }
+
+                var picture = text.Length == 0
+                    ? images.OrderByDescending(image => (long)image.WidthInSamples * image.HeightInSamples)
+                        .Select(AsModelPicture)
+                        .FirstOrDefault(found => found is not null)?.Data.ToArray()
+                    : null;
+                pages.Add(new(number, text, picture));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return filters.Refusal is { } refusal ? new(Refusal: refusal) : new(Pages: pages);
+        }
+        catch (Exception failed) when (failed is not OutOfMemoryException)
+        {
+            return new(Refusal: filters.Refusal ?? failed switch
+            {
+                RegexMatchTimeoutException or OperationCanceledException or NotSupportedException =>
+                    NativePreviewRefusal.TooComplex,
+                _ => NativePreviewRefusal.Malformed,
+            });
+        }
+    }
+
     #endregion
 
     #region PDF
 
     private static DocumentContent ReadPdf(byte[] content, DocumentLimits limits)
     {
-        using var document = Pdf.PdfDocument.Open(content, pdfSettings);
+        var filters = new PdfPreviewFilters(PdfDecodeBudget.Reading, CancellationToken.None);
+        try
+        {
+            using var document = Pdf.PdfDocument.Open(content, new Pdf.ParsingOptions
+            {
+                UseLenientParsing = true,
+                SkipMissingFonts = true,
+                FilterProvider = filters,
+            });
+
+            var result = ReadPdfPages(document, limits);
+            return filters.Refusal is null ? result : throw UnpackedTooFar();
+        }
+        catch (Exception failed) when (failed is not (DocumentUnreadableException or OutOfMemoryException)
+            && filters.Refusal is not null)
+        {
+            throw UnpackedTooFar(failed);
+        }
+    }
+
+    private static DocumentUnreadableException UnpackedTooFar(Exception? inner = null) =>
+        new("it unpacks to more than the server will read", inner);
+
+    private static DocumentContent ReadPdfPages(Pdf.PdfDocument document, DocumentLimits limits)
+    {
         var total = document.NumberOfPages;
         var collected = new Collected(limits.MaxCharacters);
         var read = 0;
@@ -314,4 +423,14 @@ public static class DocumentReader
     }
 
     #endregion
+}
+
+
+file sealed class PdfPreviewPageDictionary : Pdf.Content.IPageFactory<PdfTokens.DictionaryToken>
+{
+    public PdfTokens.DictionaryToken Create(
+        int number,
+        PdfTokens.DictionaryToken dictionary,
+        Pdf.Content.PageTreeMembers pageTreeMembers,
+        Pdf.Outline.Destinations.NamedDestinations namedDestinations) => dictionary;
 }

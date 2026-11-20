@@ -139,6 +139,9 @@ public sealed class SandboxKeySettingTests
         services.AddSingleton<SandboxAvailability>();
         // The server always has a file store; sharing a sandbox file needs it. Nothing here writes to it.
         services.AddSingleton<IFileStore>(new LocalFileStore(Path.Combine(Path.GetTempPath(), $"drover-files-{Guid.NewGuid():N}")));
+        // The server's data registration provides the command locks; nothing here opens a connection through them.
+        services.AddSingleton(provider => new SandboxCommandLocks(
+            "Host=unused", provider.GetRequiredService<ILogger<SandboxCommandLocks>>()));
         services.AddDroverSandboxes(configuration, policy ?? DeploymentPolicy.SelfHosted);
         return services.BuildServiceProvider();
     }

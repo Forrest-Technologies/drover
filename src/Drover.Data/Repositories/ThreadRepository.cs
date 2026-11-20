@@ -17,6 +17,15 @@ public sealed class ThreadRepository(DroverDbContext db)
 
     public void Add(ChatThread thread) => db.Threads.Add(thread);
 
+    /// <summary>
+    /// Makes a shared thread private to its owner. Child rows follow, because their foreign key updates with this
+    /// one. False when the thread is missing or already private.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid ownerUserId, CancellationToken cancellationToken) =>
+        await db.Threads
+            .Where(thread => thread.Id == threadId && thread.OwnerUserId == ownerUserId && thread.AudienceUserId == Audience.Everyone)
+            .ExecuteUpdateAsync(set => set.SetProperty(thread => thread.AudienceUserId, ownerUserId), cancellationToken) == 1;
+
     public Task<ChatThread?> FindThread(Guid id, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking().SingleOrDefaultAsync(thread => thread.Id == id, cancellationToken);
 

@@ -223,6 +223,7 @@ public sealed class CrewList : Grid
             link.MinHeight = Tokens.Number("DvTargetTouch");
             link.Padding = Tokens.Space("DvSpace3", "DvSpace1");
             ArrowKeyZone.SetIsItem(link, true);
+            AutomationProperties.SetAutomationId(link, "CrewRow");
 
             // The wire lies over the connector beside this row and no further.
             wires.Margin = new(-(Tokens.Number("DvSpace2") + Tokens.Number("DvBorder")), 0, 0, 0);
