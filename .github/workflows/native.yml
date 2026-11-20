@@ -44,8 +44,8 @@ jobs:
           dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
           dll=src/Drover.Native/bin/Release/net11.0-android/Drover.Native.dll
           test -f "$dll"
-          if grep -a -q DROVER_UI_CHECK_REPORT "$dll"; then
-            echo "DROVER_UI_CHECK_REPORT must not be compiled into the shipping Android binary"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText' "$dll"; then
+            echo "Screen-check hooks must not be compiled into the shipping Android binary"
             exit 1
           fi
       - name: Build the screen checks and an Android build made for them
@@ -125,8 +125,8 @@ jobs:
           dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
           dll=src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll
           test -f "$dll"
-          if grep -a -q DROVER_UI_CHECK_REPORT "$dll"; then
-            echo "DROVER_UI_CHECK_REPORT must not be compiled into the shipping desktop binary"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText' "$dll"; then
+            echo "Screen-check hooks must not be compiled into the shipping desktop binary"
             exit 1
           fi
       - name: Install the Linux display test tools

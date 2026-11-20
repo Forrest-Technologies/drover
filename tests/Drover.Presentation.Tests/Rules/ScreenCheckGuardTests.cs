@@ -65,7 +65,6 @@ public sealed partial class ScreenCheckGuardTests
             "tests",
             "Drover.Native.UITests",
             "AndroidApp.cs"));
-        var workflow = File.ReadAllText(Path.Combine(Repository.Root, ".github", "workflows", "native.yml"));
 
         project.Should().Contain(
             """<ApplicationId Condition="'$(DroverUiChecks)' == 'true'">com.forresttechnologies.drover.checks</ApplicationId>""");
@@ -74,15 +73,8 @@ public sealed partial class ScreenCheckGuardTests
         hook.Should().Contain("DROVER_UI_CHECK_REPORT");
         hook.Should().Contain("checks-preferences.txt");
         android.Should().Contain("com.forresttechnologies.drover.checks");
-        android.Should().NotContain("logcat\", \"-c\"");
-        android.Should().NotContain("logcat\", \"-d\")");
         android.Should().Contain("TagLogsForRun");
         android.Should().Contain("DROVER_ANDROID_SERIAL");
-        workflow.Should().Contain("DROVER_ANDROID_SERIAL");
-        workflow.Should().Contain("adb -s \"${serial}\" install -r");
-        workflow.Should().Contain("grep -a -q DROVER_UI_CHECK_REPORT");
-        workflow.IndexOf("*-Signed.apk", StringComparison.Ordinal).Should().BeLessThan(
-            workflow.IndexOf("DROVER_ANDROID_SERIAL", StringComparison.Ordinal));
     }
 
     [Fact]

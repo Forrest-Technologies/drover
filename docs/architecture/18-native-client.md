@@ -112,6 +112,9 @@ so each shows the same controls.
   that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
   port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
   through the device log under the tag `DroverUiCheck`.
+- **Shipping build guard.** After building the shipping Android and desktop targets without `-p:DroverUiChecks=true`,
+  `.github/workflows/native.yml` scans the compiled `Drover.Native.dll` for UTF-8 metadata names that only exist in
+  the checks build (`ScreenChecks`, `CheckSettings`, `TryGetIsolatedText`) and fails if any match.
 - **Adding a check.** Add a step to `ScreenChecks`, give each control it uses an automation id in the app, and
   keep the step working at phone width on every target.
 
