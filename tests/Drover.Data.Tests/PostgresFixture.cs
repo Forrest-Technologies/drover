@@ -5,7 +5,7 @@ namespace Drover.Data.Tests;
 /// superuser connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It makes
 /// a database of its own, bootstraps the roles with passwords generated for this run, applies the migrations as
 /// <c>drover_owner</c>, and hands out connections as <c>drover_app</c>. Roles belong to the server, not the
-/// database, so two test runs against one server at the same time would reset each other's passwords.
+/// database, so a server-wide lease keeps assemblies launched together from resetting one another's passwords.
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
@@ -22,6 +22,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     private readonly Lazy<Task<string>> scratchTemplate;
 
     private PostgreSqlContainer? container;
+
+    private PostgresRoleLease? roleLease;
 
     private string? scratchTemplateName;
 
@@ -50,9 +52,19 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         elapsed.Start();
         serverConnection = [with(await FindServer())];
-        await CreateDatabase();
-        await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
-        await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);
+        roleLease = await PostgresRoleLease.Acquire(serverConnection.ConnectionString);
+
+        try
+        {
+            await CreateDatabase();
+            await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
+            await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);
+        }
+        catch
+        {
+            await ReleaseRoleLease();
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -66,6 +78,8 @@ public sealed class PostgresFixture : IAsyncLifetime
         {
             await new NpgsqlCommand($"DROP DATABASE IF EXISTS {scratchTemplateName} WITH (FORCE)", connection).ExecuteNonQueryAsync();
         }
+
+        await ReleaseRoleLease();
 
         if (container is not null)
         {
@@ -199,6 +213,17 @@ public sealed class PostgresFixture : IAsyncLifetime
             var line = $"Isolation suite (Drover.Data.Tests, with database setup): {elapsed.Elapsed.TotalSeconds:F1} s";
             File.AppendAllText(summary, $"{line}{Environment.NewLine}");
         }
+    }
+
+    private async Task ReleaseRoleLease()
+    {
+        if (roleLease is null)
+        {
+            return;
+        }
+
+        await roleLease.DisposeAsync();
+        roleLease = null;
     }
 
     private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));

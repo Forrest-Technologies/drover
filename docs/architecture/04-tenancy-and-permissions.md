@@ -245,7 +245,7 @@ Billing, when the hosted service needs it, reads `usage_records` through one mor
 
 ### Isolation test suite
 
-`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). It makes a database of its own, runs `DatabaseBootstrap` with passwords generated for the run, applies migrations as `drover_owner`, and connects as `drover_app`. Roles belong to the server, so two runs against one server at once would reset each other's passwords.
+`tests/Drover.Data.Tests`, run against a real PostgreSQL. The fixture starts a container, or uses the server named by `DROVER_TEST_POSTGRES` when that is set, so the suite also runs where Docker is not available (`scripts/dev-postgres.sh`). It makes a database of its own, runs `DatabaseBootstrap` with passwords generated for the run, applies migrations as `drover_owner`, and connects as `drover_app`. Roles belong to the server, so test assemblies launched together take a server-wide advisory lease before changing their passwords and hold it until their connections close.
 
 The class of each table comes from the EF Core model: `ISpaceOwned` (with `IAudienceScoped` for an audience), `IUserOwned`, or a line in `src/Drover.Data/GlobalTables.manifest`. `spaces` and `users` are global: their policies are special cases written out in the first migration and covered by `SpecialPolicyTests`. `__EFMigrationsHistory` is global with no entity, and the app role has no privilege on it. The Identity child tables are subclasses (`UserClaim`, `UserLogin`, `UserToken`) so that they can carry `IUserOwned`.
 
