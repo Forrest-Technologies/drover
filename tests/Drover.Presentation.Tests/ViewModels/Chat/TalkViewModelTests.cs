@@ -325,6 +325,30 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Reading
 
     [Fact]
+    public async Task A_dropped_run_stream_says_it_is_reconnecting_and_stops_saying_so_once_through_even_with_nothing_new()
+    {
+        Main(Thread(runId));
+        var first = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await first.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await first.Send(Event(2, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_approval", null, 1, null)));
+        await Until(() => MainPane.Waiting.Should().BeTrue());
+
+        // The run waits on the person, so the stream that comes back has nothing to send.
+        Server.Stream($"{Space}/runs/{runId}/events");
+        var dropped = false;
+        MainPane.PropertyChanged += (_, _) => dropped |= MainPane.Notice == "The connection dropped. Reconnecting.";
+        await first.End();
+
+        await Until(() =>
+        {
+            dropped.Should().BeTrue("the screen says the connection dropped while it is away");
+            Server.Addresses.Count(address => address.StartsWith($"GET {Space}/runs/{runId}/events", StringComparison.Ordinal)).Should().Be(2);
+            MainPane.Notice.Should().BeNull("the stream is through again");
+        });
+    }
+
+    [Fact]
     public async Task The_start_page_lists_the_crew_as_a_tree_and_opens_the_leads_main_conversation()
     {
         Server.Answer("GET", $"{Space}/bots", new[] { Marshal, Helper });

@@ -715,7 +715,7 @@ public sealed partial class ConversationPane(
         var tree = RunView.Start(rootRunId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 tree = RunReducer.Apply(tree, change);
                 (run, reconnecting) = (tree.Find(runId) ?? run, null);
@@ -769,7 +769,7 @@ public sealed partial class ConversationPane(
         var view = RunView.Start(runId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
@@ -813,6 +813,17 @@ public sealed partial class ConversationPane(
         logger.LogInformation(cause, "The event stream dropped and is being reconnected");
         reconnecting = "The connection dropped. Reconnecting.";
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    // The reader calls this each time it is through again. A quiet run sends nothing after a reconnect, so the notice
+    // goes now instead of with the next event.
+    private void ConnectionRestored()
+    {
+        if (reconnecting is not null)
+        {
+            reconnecting = null;
+            _ = InvokeAsync(StateHasChanged);
+        }
     }
 
     #endregion
