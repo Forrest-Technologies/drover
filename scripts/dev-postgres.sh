@@ -20,11 +20,16 @@ find_bin() {
   fi
   local candidate
   if command -v brew >/dev/null 2>&1; then
-    candidate="$(brew --prefix postgresql@17 2>/dev/null || true)"
-    if [ -x "$candidate/bin/pg_ctl" ]; then
-      echo "$candidate/bin"
-      return
-    fi
+    # postgresql@N formulae are keg-only, so their tools are not on PATH. The
+    # helper supports PostgreSQL 16 or later, so accept any installed version.
+    local formula
+    for formula in postgresql@16 postgresql@17 postgresql@18; do
+      candidate="$(brew --prefix "$formula" 2>/dev/null || true)"
+      if [ -x "$candidate/bin/pg_ctl" ]; then
+        echo "$candidate/bin"
+        return
+      fi
+    done
   fi
   candidate="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
   if [ -z "$candidate" ]; then
