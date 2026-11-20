@@ -549,7 +549,7 @@ public sealed partial class RunExecutor(
 
         await TaintFromNotes(session, loaded);
         await TaintFromFiles(session, loaded);
-        await TaintFromSandbox(session, loaded);
+        await TaintFromSandbox(session, loaded, stopping);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -781,7 +781,7 @@ public sealed partial class RunExecutor(
     /// by reading it. When a sandbox this bot can run a command in is already tainted, the run is tainted before its
     /// agent is built, so an allow grant asks and the provider is not called until a person approves.
     /// </summary>
-    private async Task TaintFromSandbox(RunSession session, LoadedRun loaded)
+    private async Task TaintFromSandbox(RunSession session, LoadedRun loaded, CancellationToken stopping)
     {
         if (session.Tainted || sandboxBrokers.FirstOrDefault() is not { } broker || loaded.Bot is not { } bot)
         {
@@ -797,7 +797,7 @@ public sealed partial class RunExecutor(
             return;
         }
 
-        if (await broker.ACommandWouldUseATaintedSandbox(session.Tenant, bot.Id, CancellationToken.None))
+        if (await broker.ACommandWouldUseATaintedSandbox(session.Tenant, bot.Id, stopping))
         {
             await session.Taint();
         }

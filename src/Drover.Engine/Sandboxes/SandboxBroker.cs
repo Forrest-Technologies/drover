@@ -35,6 +35,7 @@ public sealed class SandboxBroker(
     ISandboxProvider provider,
     IOptions<DeploymentPolicyOptions> deployment,
     IOptions<RunOptions> runOptions,
+    SandboxCommandLocks commandLocks,
     TimeProvider time,
     ILogger<SandboxBroker> logger)
 {
@@ -1123,19 +1124,21 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// Takes the sandbox's command lock on its own connection. No tenant transaction stays open while that lock is
-    /// waited on or held. A tainted write takes the same lock, so it cannot mark the row or change the sandbox
-    /// while this command is admitted.
+    /// Takes the sandbox's command lock. The wait is bounded and costs no database session; the lock is held on one
+    /// session, with no tenant transaction open, until the provider call returns. A tainted write takes the same lock,
+    /// so it cannot mark the row or change the sandbox while this command is admitted. When too many commands hold or
+    /// wait for sandboxes, this is refused with a sentence the model or the person can read.
     /// </summary>
-    private static async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
+    private async Task<SandboxCommandGate> HoldCommands(SandboxCaller caller, Guid sandboxId, CancellationToken cancellationToken)
     {
-        SandboxCommandGate? gate = null;
-        await caller.Tenant.InScope(async services =>
+        try
         {
-            gate = await services.GetRequiredService<SandboxRepository>().HoldCommands(sandboxId, cancellationToken);
-        });
-
-        return gate ?? throw new InvalidOperationException("The command lock was not taken.");
+            return await commandLocks.Hold(caller.Tenant.SpaceId, sandboxId, cancellationToken);
+        }
+        catch (SandboxBusyException busy)
+        {
+            throw new BuiltinToolException(busy.Message);
+        }
     }
 
     /// <summary>

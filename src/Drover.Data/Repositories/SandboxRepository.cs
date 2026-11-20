@@ -11,10 +11,6 @@ public sealed class SandboxRepository(DroverDbContext db)
     // Mixed into the advisory lock key so a copy fence cannot collide with another lock on the same space.
     private const long CopyLockSeed = 0x44524F56_45520007;
 
-    // A different key from the copy fence: one sandbox's command admission, held on its own connection until the
-    // provider call returns. 0x08 is not used by another lock.
-    private const long CommandLockSeed = 0x44524F56_45520008;
-
     #endregion
 
     #region Public Methods
@@ -51,42 +47,6 @@ public sealed class SandboxRepository(DroverDbContext db)
             .ExecuteUpdateAsync(
                 update => update.SetProperty(sandbox => sandbox.State, SandboxState.Retiring).SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
                 cancellationToken) > 0;
-
-    /// <summary>
-    /// Takes the lock a command holds until the provider returns, and a tainted write holds while it marks the row
-    /// and changes the sandbox. The lock is on its own connection, with pooling off, so it outlives the caller's
-    /// scope and dies with the connection if the caller does not release it. The caller disposes the gate when the
-    /// provider call is over.
-    /// </summary>
-    public async Task<SandboxCommandGate> HoldCommands(Guid sandboxId, CancellationToken cancellationToken)
-    {
-        var connectionString = db.Database.GetConnectionString()
-            ?? throw new InvalidOperationException("The database connection is not configured.");
-        var connection = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(connectionString) { Pooling = false }.ConnectionString);
-
-        try
-        {
-            await connection.OpenAsync(cancellationToken);
-        }
-        catch
-        {
-            await connection.DisposeAsync();
-            throw;
-        }
-
-        var gate = new SandboxCommandGate(connection, sandboxId, CommandLockSeed);
-
-        try
-        {
-            await gate.Lock(cancellationToken);
-            return gate;
-        }
-        catch
-        {
-            await gate.DisposeAsync();
-            throw;
-        }
-    }
 
     /// <summary>
     /// Makes a copy into a sandbox and a narrowing of who may see one take turns, until this transaction ends.
