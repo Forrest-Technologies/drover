@@ -155,6 +155,68 @@ public sealed class SandboxCommandLocksTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task A_cancelled_wait_for_the_database_lock_gives_back_its_room_once_and_unrelated_holders_keep_theirs()
+    {
+        var name = AppName();
+        var other = Locks(AppName());
+        var locks = Locks(name, new SandboxCommandLimits { MaxHeld = 2, MaxHeldPerSpace = 2 });
+        var space = Guid.NewGuid();
+        var contested = Guid.NewGuid();
+        await using var elsewhere = await other.Hold(Guid.NewGuid(), contested, TestContext.Current.CancellationToken);
+        await using var unrelated = await locks.Hold(space, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        using var cancel = new CancellationTokenSource();
+        var blocked = locks.Hold(space, contested, cancel.Token);
+        await Task.Delay(shortWait, TestContext.Current.CancellationToken);
+        blocked.IsCompleted.Should().BeFalse("another process holds the database lock");
+
+        await cancel.CancelAsync();
+        await blocked.Invoking(task => task).Should().ThrowAsync<OperationCanceledException>();
+
+        await using var second = await locks.Hold(space, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        var third = async () => await locks.Hold(space, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        await third.Should().ThrowAsync<SandboxBusyException>("two rooms are held, the unrelated holder's and the new one");
+    }
+
+    [Fact]
+    public async Task A_failed_connection_reports_its_own_error_every_time_and_never_corrupts_the_counts()
+    {
+        var locks = new SandboxCommandLocks(
+            "Host=127.0.0.1;Port=1;Timeout=1;Username=x;Password=x",
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SandboxCommandLocks>.Instance,
+            new SandboxCommandLimits { MaxHeld = 1, MaxHeldPerSpace = 1 });
+        var space = Guid.NewGuid();
+        var sandbox = Guid.NewGuid();
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var failing = async () => await locks.Hold(space, sandbox, TestContext.Current.CancellationToken);
+
+            (await failing.Should().ThrowAsync<Exception>()).Which.Should().BeAssignableTo<NpgsqlException>();
+        }
+    }
+
+    [Fact]
+    public async Task A_waiter_queued_behind_a_refused_one_gets_its_turn_and_is_refused_for_the_same_reason()
+    {
+        var locks = Locks(AppName(), new SandboxCommandLimits { MaxHeldPerSpace = 1, WaitForTurn = TimeSpan.FromSeconds(8) });
+        var full = Guid.NewGuid();
+        var sandbox = Guid.NewGuid();
+        await using var atQuota = await locks.Hold(full, Guid.NewGuid(), TestContext.Current.CancellationToken);
+        var holder = await locks.Hold(Guid.NewGuid(), sandbox, TestContext.Current.CancellationToken);
+        var first = locks.Hold(full, sandbox, TestContext.Current.CancellationToken);
+        var successor = locks.Hold(full, sandbox, TestContext.Current.CancellationToken);
+        await Task.Delay(shortWait, TestContext.Current.CancellationToken);
+
+        await holder.DisposeAsync();
+
+        await first.Invoking(task => task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<SandboxBusyException>().WithMessage("The server is running as many*");
+        await successor.Invoking(task => task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken))
+            .Should().ThrowAsync<SandboxBusyException>().WithMessage("The server is running as many*");
+        await using var after = await locks.Hold(Guid.NewGuid(), sandbox, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Disposing_a_gate_twice_gives_back_its_room_once()
     {
         var locks = Locks(AppName(), new SandboxCommandLimits { MaxHeld = 1, MaxHeldPerSpace = 1 });

@@ -69,21 +69,16 @@ public sealed class SandboxCommandLocks(
         }
         catch
         {
+            // The turn's semaphore is held and the room was never reserved: give back the turn only.
+            turn.Semaphore.Release();
             EndTurn(sandboxId, turn);
             throw;
         }
 
-        var release = () => Release(spaceId, sandboxId, turn);
-
-        try
-        {
-            return await OpenGate(sandboxId, release, cancellationToken);
-        }
-        catch
-        {
-            release();
-            throw;
-        }
+        // From here the gate owns the turn and the reserved room. It gives both back exactly once when it is
+        // disposed, and a gate that fails to open disposes itself, so nothing below releases them again.
+        var release = Once(() => Release(spaceId, sandboxId, turn));
+        return await OpenGate(sandboxId, release, cancellationToken);
     }
 
     #endregion
@@ -133,6 +128,18 @@ public sealed class SandboxCommandLocks(
             held++;
             heldPerSpace[spaceId] = space + 1;
         }
+    }
+
+    private static Action Once(Action action)
+    {
+        var done = 0;
+        return () =>
+        {
+            if (Interlocked.Exchange(ref done, 1) == 0)
+            {
+                action();
+            }
+        };
     }
 
     private async Task<SandboxCommandGate> OpenGate(Guid sandboxId, Action release, CancellationToken cancellationToken)
