@@ -37,5 +37,27 @@ public sealed class FieldInputTests
         FieldInput.Within(over, 0).Should().Be(over, "a field with no limit keeps what was typed");
     }
 
+    [Fact]
+    public void Shipping_builds_omit_field_input_check_and_launch_hooks()
+    {
+        var nativeRoot = Path.Combine(Repository.Root, "src", "Drover.Native");
+        var project = File.ReadAllText(Path.Combine(nativeRoot, "Drover.Native.csproj"));
+        var activity = File.ReadAllText(Path.Combine(nativeRoot, "Platforms", "Android", "MainActivity.cs"));
+        var app = File.ReadAllText(Path.Combine(nativeRoot, "App.xaml.cs"));
+        var fieldsScript = File.ReadAllText(Path.Combine(nativeRoot, "Platforms", "WebAssembly", "WasmScripts", "Fields.js"));
+        var workflow = File.ReadAllText(Path.Combine(Repository.Root, ".github", "workflows", "native.yml"));
+
+        project.Should().Contain("""<PropertyGroup Condition="'$(DroverFieldCheck)' == 'true'">""");
+        project.Should().Contain("""<ItemGroup Condition="'$(DroverFieldCheck)' != 'true'">""");
+        project.Should().Contain("""<Compile Remove="Controls/FieldInputCheck.cs" />""");
+        project.Should().Contain("""<Compile Remove="Platform/NativeStop.cs" />""");
+
+        activity.Should().Contain("#if DROVER_FIELD_CHECK");
+        app.Should().Contain("#if DROVER_FIELD_CHECK");
+        fieldsScript.Should().Contain("current.count");
+        workflow.Should().Contain("DroverFieldCheck=true");
+        workflow.Should().Contain("drover\\.field_input");
+    }
+
     #endregion
 }

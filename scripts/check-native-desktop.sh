@@ -2,6 +2,7 @@
 set -euo pipefail
 
 app=${1:-src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll}
+field_app=${2:-${DROVER_FIELD_INPUT_APP:-$app}}
 scratch=$(mktemp -d)
 pid=
 cleanup() {
@@ -75,7 +76,7 @@ check_field_input() {
   export DROVER_FIELD_INPUT_CHECK=1
   export DROVER_FIELD_INPUT_REPORT="$report"
   set +e
-  dotnet "$app" >"$scratch/field-input.log" 2>&1
+  dotnet "$field_app" >"$scratch/field-input.log" 2>&1
   set -e
   cat "$scratch/field-input.log" >&2
   if [[ -f $report ]] && grep -F 'Field input check passed' "$report"; then

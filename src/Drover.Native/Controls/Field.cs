@@ -23,6 +23,8 @@ public sealed class Field : StackPanel
 
     private bool focused;
 
+    private string? registeredName;
+
     #endregion
 
     #region Constructors
@@ -53,8 +55,8 @@ public sealed class Field : StackPanel
         Children.Add(error);
         BuildInput();
         IsEnabledChangedBridge();
-        Loaded += (_, _) => NameForPasswordManagers(Autofill);
-        Unloaded += (_, _) => NameForPasswordManagers(null);
+        Loaded += (_, _) => RegisterForPasswordManagers();
+        Unloaded += (_, _) => UnregisterForPasswordManagers();
         this.WhenShownOrRethemed(Paint);
     }
 
@@ -319,12 +321,32 @@ public sealed class Field : StackPanel
         placeholder.Visibility = Value.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void NameForPasswordManagers(string? autofill)
+    private void RegisterForPasswordManagers()
     {
-        if (Autofill is not null)
+        if (Autofill is not { } autofill || string.IsNullOrEmpty(Label))
         {
-            PlatformFields.Name(Label, autofill);
+            return;
         }
+
+        if (registeredName == Label)
+        {
+            return;
+        }
+
+        UnregisterForPasswordManagers();
+        registeredName = Label;
+        PlatformFields.Name(Label, autofill);
+    }
+
+    private void UnregisterForPasswordManagers()
+    {
+        if (registeredName is not { } name)
+        {
+            return;
+        }
+
+        registeredName = null;
+        PlatformFields.Name(name, null);
     }
 
     private void SetFocused(bool value)

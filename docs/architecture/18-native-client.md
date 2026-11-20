@@ -79,9 +79,11 @@ dotnet test --project tests/Drover.Presentation.Tests
 
 Android URL fields host an Android `EditText` in the shared field frame. The editor keeps the selection and composing
 text with Android's input connection. Sign-in and account fields with an `Autofill` name host one too, with Android's
-autofill hint (`username`, `password`, `newPassword`): the platform's own text box gives the autofill service no
-structure to read, so a real field is the only one it can fill. The native-client workflow exercises the address field on an API 35 emulator
-with a test keyboard that composes, commits, and deletes text and with hardware key events. Run the same check with
+autofill hint (`username`, `password`, `newPassword`) and `ImportantForAutofill.Yes`: the platform's own text box gives
+the autofill service no structure to read. The native-client workflow exercises the address field on an API 35 emulator
+with a test keyboard that composes, commits, and deletes text and with hardware key events, and checks in a gated build
+that the hosted `EditText` views carry those hints and `ImportantForAutofill.Yes` (filling with a real Android password
+manager was not tried). Run the same check with
 `bash scripts/check-native-android-text-editing.sh` on a fresh emulator with the Drover development APK installed.
 
 On Android, the edge-to-edge window draws its background behind the system bars. The shell and custom popup

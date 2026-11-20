@@ -6,6 +6,7 @@ import re
 import shlex
 import struct
 import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -250,23 +251,26 @@ def main():
         check_unreachable_open()
         return
 
-    previous = shell("settings", "get", "secure", "default_input_method")
-    show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
-    shell("ime", "enable", IME)
-    try:
-        shell("settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
-        shell("ime", "set", IME)
-        check_edits()
-    finally:
-        if previous and previous != "null":
-            shell("ime", "set", previous)
-        shell("ime", "disable", IME)
-        if show_with_hardware == "null":
-            shell("settings", "delete", "secure", "show_ime_with_hard_keyboard")
-        else:
-            shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
-    check_safe_area()
-    check_field_input()
+    mode = sys.argv[1] if len(sys.argv) > 1 else "--all"
+    if mode in ("--all", "--editing"):
+        previous = shell("settings", "get", "secure", "default_input_method")
+        show_with_hardware = shell("settings", "get", "secure", "show_ime_with_hard_keyboard")
+        shell("ime", "enable", IME)
+        try:
+            shell("settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
+            shell("ime", "set", IME)
+            check_edits()
+        finally:
+            if previous and previous != "null":
+                shell("ime", "set", previous)
+            shell("ime", "disable", IME)
+            if show_with_hardware == "null":
+                shell("settings", "delete", "secure", "show_ime_with_hard_keyboard")
+            else:
+                shell("settings", "put", "secure", "show_ime_with_hard_keyboard", show_with_hardware)
+        check_safe_area()
+    if mode in ("--all", "--field-input"):
+        check_field_input()
 
 
 if __name__ == "__main__":

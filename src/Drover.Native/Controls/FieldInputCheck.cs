@@ -257,7 +257,14 @@ internal static class FieldInputCheck
         }
 
         var edit = (Android.Widget.EditText)((ContentPresenter)editor.Content).Content;
-        return edit.GetAutofillHints() ?? [];
+        var hints = edit.GetAutofillHints() ?? [];
+        if (hints.Length > 0 && edit.ImportantForAutofill != Android.Views.ImportantForAutofill.Yes)
+        {
+            throw new InvalidOperationException(
+                $"The Android editor carries hint {hints[0]} but its ImportantForAutofill is {edit.ImportantForAutofill}.");
+        }
+
+        return hints;
     }
 #endif
 
