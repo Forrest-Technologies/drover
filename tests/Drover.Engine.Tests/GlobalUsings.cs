@@ -22,6 +22,7 @@ global using Drover.Adapters.Conformance.Agents;
 global using Drover.Adapters.DataProtection;
 global using Drover.Adapters.E2B;
 global using Drover.Agents;
+global using Drover.Agents.History;
 global using Drover.Agents.Runtime;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;

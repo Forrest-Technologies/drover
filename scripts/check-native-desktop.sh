@@ -51,5 +51,24 @@ check_sign_in_survives_restart() {
   echo 'The desktop sign-in survived a restart in the test Secret Service and was removed on sign-out.'
 }
 
+# A deep link opened while nothing answers at the chosen server shows the unreachable gate and the process
+# reports that. Teardown under the virtual display can still crash after the report is written.
+check_unreachable_open() {
+  local report="$scratch/unreachable-open.txt"
+  export DROVER_UNREACHABLE_OPEN_CHECK=1
+  export DROVER_UNREACHABLE_OPEN_REPORT="$report"
+  set +e
+  dotnet "$app" >"$scratch/unreachable.log" 2>&1
+  set -e
+  cat "$scratch/unreachable.log" >&2
+  if [[ -f $report ]] && grep -F 'Unreachable open check passed' "$report"; then
+    echo 'A deep link opened while the server was down showed the unreachable gate.'
+    return 0
+  fi
+  echo 'The unreachable open check did not pass.' >&2
+  return 1
+}
+
 check_first_frame
 check_sign_in_survives_restart
+check_unreachable_open

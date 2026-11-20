@@ -893,7 +893,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var tree = RunView.Start(rootRunId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 tree = RunReducer.Apply(tree, change);
                 (run, reconnecting) = (tree.Find(runId) ?? run, null);
@@ -947,7 +947,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var view = RunView.Start(runId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
@@ -995,6 +995,17 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             Show();
         });
     }
+
+    // The reader calls this each time it is through again. A run that is waiting on the person, or quiet, sends nothing
+    // after a reconnect, so the notice goes now instead of with the next event.
+    private void ConnectionRestored() => ui.Post(() =>
+    {
+        if (reconnecting is not null)
+        {
+            reconnecting = null;
+            Show();
+        }
+    });
 
     #endregion
 

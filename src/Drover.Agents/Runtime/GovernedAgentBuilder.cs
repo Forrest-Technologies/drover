@@ -31,7 +31,7 @@ public static class GovernedAgentBuilder
         // Rules about replies go between the tool loop and the model, so every model call's answer passes them. A
         // tool's picture and the bot's notes are added below them, after the framework has handed the call's messages
         // to history, so neither is ever stored.
-        return new ReplyRules(new TransientImages(WithNotes(chatClient, run), run), run.Governor)
+        return new ReplyRules(new TransientImages(WithContext(chatClient, run), run), run.Governor)
             .AsAIAgent(options, loggerFactory)
             .AsBuilder()
             .Use(gate.Invoke)
@@ -56,12 +56,24 @@ public static class GovernedAgentBuilder
     #region Private Methods
 
     /// <summary>
-    /// The chat client that gives every model call of the run the notes its bot kept about its person, through the
-    /// framework's context provider pipeline. Below the per-service-call history persistence, so each call in the tool
-    /// loop has them and history never does.
+    /// The chat client that gives every model call the project instructions and the notes, through the framework's
+    /// context provider pipeline. Below the per-service-call history persistence, so each call in the tool loop has
+    /// them and history never stores them. A conversation with neither is given the inner client unchanged.
     /// </summary>
-    private static IChatClient WithNotes(IChatClient chatClient, RunContext run) =>
-        run.Execution.Memory is { } memory ? chatClient.AsBuilder().UseAIContextProviders(new NoteRecall(memory)).Build() : chatClient;
+    private static IChatClient WithContext(IChatClient chatClient, RunContext run)
+    {
+        if (run.Execution.Project is { Instructions.Length: > 0 } project)
+        {
+            chatClient = chatClient.AsBuilder().UseAIContextProviders(new ProjectInstructionSource(project)).Build();
+        }
+
+        if (run.Execution.Memory is { } memory)
+        {
+            chatClient = chatClient.AsBuilder().UseAIContextProviders(new NoteRecall(memory)).Build();
+        }
+
+        return chatClient;
+    }
 
     private static AITool ToTool(ToolDefinition definition, RunContext run)
     {

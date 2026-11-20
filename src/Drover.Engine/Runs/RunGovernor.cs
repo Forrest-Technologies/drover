@@ -21,6 +21,12 @@ public sealed class RunGovernor(
     public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
         files is null ? new Dictionary<Guid, FileForModel>() : await files.Open(fileIds, cancellationToken);
 
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenProjectFiles(
+        Guid projectId,
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken) =>
+        files is null ? new Dictionary<Guid, FileForModel>() : await files.OpenProject(projectId, fileIds, cancellationToken);
+
     public async Task<ToolGateDecision> Decide(ToolCallRequest toolCall, CancellationToken cancellationToken)
     {
         // The model call that asked for this tool is stored by now, so its message can be announced before the tool starts.

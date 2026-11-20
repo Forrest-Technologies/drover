@@ -260,7 +260,14 @@ public sealed partial class RunExecutor(
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children);
+        Project? project = null;
+
+        if (thread?.ProjectId is { } projectId)
+        {
+            project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
+        }
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project);
     }
 
     /// <summary>
@@ -712,6 +719,9 @@ public sealed partial class RunExecutor(
         Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
             ? memory with { CanList = offered.Contains("memory.list") }
             : null,
+        Project = loaded.Project is null
+            ? null
+            : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
     };
 
     /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
@@ -1165,7 +1175,8 @@ public sealed partial class RunExecutor(
         IReadOnlyList<ToolConnection> ToolConnections,
         bool ModelSeesImages,
         RecalledMemory? Memory,
-        IReadOnlyList<Bot> Children);
+        IReadOnlyList<Bot> Children,
+        Project? Project);
 
     #endregion
 }
