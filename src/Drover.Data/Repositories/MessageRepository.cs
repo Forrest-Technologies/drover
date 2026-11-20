@@ -182,26 +182,36 @@ public sealed class MessageRepository(DroverDbContext db)
 
     /// <summary>
     /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
-    /// first, at most <paramref name="limit"/> within the most recent <paramref name="candidateLimit"/> readable
-    /// placed messages. Only what a person or a bot said is searched: the text parts of placed messages in threads
-    /// that are not archived. Row-level security keeps this to the caller's space and to the threads whose audience
-    /// includes them. A partial descending index over the space's recent placed messages bounds the candidate window
-    /// so text extraction, tokenization, and ranking never scan unbounded history, and a statement timeout caps
+    /// first, at most <paramref name="limit"/> within a window of <paramref name="candidateLimit"/> readable placed
+    /// messages: the newest ones, or the newest sent before <paramref name="before"/>. Only what a person or a bot
+    /// said is searched: the text parts of placed messages in threads that are not archived. Row-level security keeps
+    /// this to the caller's space and to the threads whose audience includes them. The window is counted over
+    /// everything the caller may read in the space, so a busy shared thread can fill it with its own messages and
+    /// push older conversations past it; that is why the result says where the window ended, so the search can
+    /// continue from there. A partial descending index over the space's recent placed messages bounds the window so
+    /// text extraction, tokenization, and ranking never scan unbounded history, and a statement timeout caps
     /// execution time. Each snippet marks a matched word with <see cref="MatchStart"/> and <see cref="MatchEnd"/>,
-    /// which are taken out of the text before it is marked.
+    /// which are taken out of the text before it is marked. Call it inside a tenant transaction: it throws without
+    /// one, because the timeout is set for the transaction.
     /// </summary>
-    public async Task<IReadOnlyList<MessageMatch>> SearchMessages(
+    public async Task<MessageSearch> SearchMessages(
         string words,
         int limit,
+        MessageKey? before,
         CancellationToken cancellationToken,
         int candidateLimit = SearchCandidateLimit)
     {
-        if (db.Database.CurrentTransaction is not null)
+        if (db.Database.CurrentTransaction is null)
         {
-            await db.Database.ExecuteSqlRawAsync(SearchStatementTimeoutSql, cancellationToken);
+            throw new InvalidOperationException("A conversation search runs inside a tenant transaction so its time limit applies.");
         }
 
-        return await db.Database
+        await db.Database.ExecuteSqlRawAsync(SearchStatementTimeoutSql, cancellationToken);
+
+        // Without a cursor the window starts at the newest message: nothing is sent after the end of time.
+        var after = before ?? new MessageKey(DateTimeOffset.MaxValue, Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+
+        var matches = await db.Database
             .SqlQuery<MessageMatch>(
                 $"""
                 WITH candidates AS MATERIALIZED (
@@ -214,6 +224,7 @@ public sealed class MessageRepository(DroverDbContext db)
                       AND m.shelved_at IS NULL
                       AND m.role IN ('user', 'assistant')
                       AND t.archived_at IS NULL
+                      AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
                     ORDER BY m.created_at DESC, m.id DESC
                     LIMIT {candidateLimit}
                 )
@@ -238,6 +249,26 @@ public sealed class MessageRepository(DroverDbContext db)
                 LIMIT {limit}
                 """)
             .ToListAsync(cancellationToken);
+
+        // The window's last message and the one after it, if any: when there is one, older messages were not looked at.
+        var edge = await db.Database
+            .SqlQuery<MessageKey>(
+                $"""
+                SELECT m.created_at AS sent_at, m.id
+                FROM messages m
+                JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
+                WHERE m.position IS NOT NULL
+                  AND m.shelved_at IS NULL
+                  AND m.role IN ('user', 'assistant')
+                  AND t.archived_at IS NULL
+                  AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
+                ORDER BY m.created_at DESC, m.id DESC
+                OFFSET {candidateLimit - 1}
+                LIMIT 2
+                """)
+            .ToListAsync(cancellationToken);
+
+        return new(matches, edge.Count == 2 ? edge[0] : null);
     }
 
     /// <summary>Stores a message without a position: it waits for a run to take it.</summary>
@@ -327,3 +358,14 @@ public sealed record MessageMatch(
     bool FromBot,
     DateTimeOffset CreatedAt,
     string Snippet);
+
+
+/// <summary>A place in a space's messages, newest first: when a message was sent, and which message it was.</summary>
+public sealed record MessageKey(DateTimeOffset SentAt, Guid Id);
+
+
+/// <summary>
+/// The messages a search found, and where its window ended: <paramref name="Older"/> is the last message the search
+/// looked at when older readable messages remain, and null when it looked at all of them.
+/// </summary>
+public sealed record MessageSearch(IReadOnlyList<MessageMatch> Matches, MessageKey? Older);

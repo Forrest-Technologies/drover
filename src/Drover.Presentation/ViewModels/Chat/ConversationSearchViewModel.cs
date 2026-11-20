@@ -55,6 +55,13 @@ public sealed class ConversationSearchViewModel(
 
     private int asked;
 
+    // Where the search stopped, when older messages were not looked at, and how many messages it has looked at.
+    private SearchCursor? older;
+
+    private int looked;
+
+    private bool firstPage = true;
+
     #endregion
 
     #region Properties
@@ -66,6 +73,17 @@ public sealed class ConversationSearchViewModel(
     public string? Searched => searched;
 
     public ConversationSearchState State { get; private set; }
+
+    /// <summary>True when older messages were not searched and the person can ask for them.</summary>
+    public bool CanSearchOlder => older is not null && State is ConversationSearchState.Found or ConversationSearchState.NothingFound;
+
+    /// <summary>How far back the search looked, when it did not look at everything. Null once it has.</summary>
+    public string? Coverage => older is null ? null : $"Searched your newest {looked:N0} messages.";
+
+    /// <summary>The cause the nothing-found state gives: it never claims more than the search looked at.</summary>
+    public string NothingExplanation => older is null
+        ? NothingCause
+        : $"No message in your newest {looked:N0} messages has these words. Older messages are not searched until you ask.";
 
     /// <summary>True while a search is shown in place of the crew.</summary>
     public bool IsActive => State is not ConversationSearchState.Idle;
@@ -79,9 +97,8 @@ public sealed class ConversationSearchViewModel(
     public string? Status => State switch
     {
         ConversationSearchState.Searching => SearchingWords,
-        ConversationSearchState.Found when hits.Count >= MaxShown => $"The {hits.Count} best matches. Add a word to narrow them.",
-        ConversationSearchState.Found when hits.Count == 1 => "1 message found.",
-        ConversationSearchState.Found => $"{hits.Count} messages found.",
+        ConversationSearchState.Found => Joined(FoundWords, Coverage),
+        ConversationSearchState.NothingFound => Coverage,
         _ => null,
     };
 
@@ -108,6 +125,41 @@ public sealed class ConversationSearchViewModel(
             return;
         }
 
+        await Run(words, null);
+    }
+
+    /// <summary>
+    /// Searches the messages before the ones already searched and adds what it finds to the list. It does nothing
+    /// when every message has been searched.
+    /// </summary>
+    public async Task SearchOlder()
+    {
+        if (older is not null && searched is { } words)
+        {
+            await Run(words, older);
+        }
+    }
+
+    /// <summary>Empties the box and puts the crew back.</summary>
+    public void Clear()
+    {
+        asked++;
+        Query = string.Empty;
+        searched = null;
+        hits = [];
+        older = null;
+        looked = 0;
+        Problem = null;
+        State = ConversationSearchState.Idle;
+        OnPropertyChanged(string.Empty);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    private async Task Run(string words, SearchCursor? before)
+    {
         var ask = ++asked;
         searched = words;
         Problem = null;
@@ -116,11 +168,15 @@ public sealed class ConversationSearchViewModel(
 
         try
         {
-            var found = await api.SearchMessages(SpaceId, words);
+            var found = await api.SearchMessages(SpaceId, words, before);
 
             if (ask == asked)
             {
-                hits = [.. found.Select(ToRow)];
+                var rows = found.Hits.Select(ToRow);
+                hits = before is null ? [.. rows] : [.. hits, .. rows.Where(row => hits.All(shown => shown.Key != row.Key))];
+                firstPage = before is null;
+                looked = before is null ? found.Window : looked + found.Window;
+                older = found.Older;
                 State = hits.Count == 0 ? ConversationSearchState.NothingFound : ConversationSearchState.Found;
             }
         }
@@ -142,21 +198,14 @@ public sealed class ConversationSearchViewModel(
         }
     }
 
-    /// <summary>Empties the box and puts the crew back.</summary>
-    public void Clear()
+    private string FoundWords => (firstPage && hits.Count >= MaxShown, hits.Count) switch
     {
-        asked++;
-        Query = string.Empty;
-        searched = null;
-        hits = [];
-        Problem = null;
-        State = ConversationSearchState.Idle;
-        OnPropertyChanged(string.Empty);
-    }
+        (true, _) => $"The {hits.Count} best matches. Add a word to narrow them.",
+        (_, 1) => "1 message found.",
+        _ => $"{hits.Count} messages found.",
+    };
 
-    #endregion
-
-    #region Private Methods
+    private static string Joined(string first, string? second) => second is null ? first : $"{first} {second}";
 
     private static SearchHitRow ToRow(MessageSearchHit hit)
     {
@@ -197,6 +246,8 @@ public sealed class ConversationSearchViewModel(
     public const string NothingCause = "No message in your conversations has these words. Try other words, or fewer of them.";
 
     public const string ClearAction = "Clear the search";
+
+    public const string OlderAction = "Search older messages";
 
     public const string FailedTitle = "Drover could not search your conversations";
 

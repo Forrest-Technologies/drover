@@ -74,17 +74,17 @@ internal static class PanelSamples
     /// <summary>The search above the crew in each of its states, as wide as the crew's column.</summary>
     public static IEnumerable<UIElement> Searches()
     {
-        ConversationSearch Search(string words, IReadOnlyList<MessageSearchHit>? hits, bool held = false)
+        ConversationSearch Search(string words, MessageSearchResult? result, bool held = false)
         {
             var server = new SampleServer();
             var (api, session) = server.Connect();
             if (held)
             {
-                server.Hold("GET", $"{space}/threads/search");
+                server.Hold("POST", $"{space}/threads/search");
             }
-            else if (hits is not null)
+            else if (result is not null)
             {
-                server.Answer("GET", $"{space}/threads/search", hits);
+                server.Answer("POST", $"{space}/threads/search", result);
             }
 
             var search = new ConversationSearch(new(api, session, Log.For<ConversationSearchViewModel>())) { Width = Tokens.Number("DvListWidth") };
@@ -102,9 +102,11 @@ internal static class PanelSamples
         return
         [
             Search(string.Empty, null),
-            Search("lighthouse", found),
+            Search("lighthouse", new(found, 2000, null)),
+            Search("lighthouse", new(found, 2000, new(sampleStart, Id(0x906)))),
             Search("lighthouse", null, held: true),
-            Search("sample words", []),
+            Search("sample words", new([], 2000, null)),
+            Search("sample words", new([], 2000, new(sampleStart, Id(0x907)))),
             Search("sample words", null),
         ];
     }

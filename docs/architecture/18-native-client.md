@@ -432,7 +432,11 @@ The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPan
 (`ConversationSearchViewModel`), and while a search is shown it stands in place of the crew: the messages found, or a
 state that says nothing matched or the search failed, each with its one next step. Escape or the close button clears
 it and puts the crew back. Each result is a link to the message's moment (`Addresses.Moment`), so it opens the main
-conversation or the side chat scrolled to that message, the same way a link to a moment from memory or files does. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
+conversation or the side chat scrolled to that message, the same way a link to a moment from memory or files does. A search looks at
+the newest 2,000 messages the person may read, and the screen says so: the status line names how far back it looked,
+and the nothing-found state says no message in that many was a match rather than that none exists. While older
+messages remain, a "Search older messages" button runs the same words over the next 2,000 and adds what it finds to the
+list. Once every message has been looked at, the screen stops mentioning a limit. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
 is kept and told what changed, never made again.
 
 **The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a

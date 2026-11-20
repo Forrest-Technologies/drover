@@ -37,11 +37,11 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task Each_message_found_opens_its_conversation_at_that_message()
     {
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>
-        {
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
             new(repliedId, sideThreadId, botId, "Marshal", "Errands", false, true, sentAt, "The lighthouse is done.", [new(4, 10)]),
-        });
+        ]));
         var model = Make();
         model.Query = "  lighthouse & paint ";
 
@@ -78,10 +78,10 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task A_side_chat_with_no_title_is_named_as_a_side_chat()
     {
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>
-        {
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
             new(askedId, sideThreadId, botId, "Marshal", null, false, false, sentAt, "Paint.", []),
-        });
+        ]));
         var model = Make();
         model.Query = "paint";
 
@@ -94,15 +94,94 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task A_full_page_of_matches_says_how_to_narrow_them()
     {
-        bench.Server.Answer("POST", search, Enumerable.Range(0, ConversationSearchViewModel.MaxShown)
-            .Select(_ => new MessageSearchHit(Guid.CreateVersion7(), mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []))
-            .ToList());
+        bench.Server.Answer("POST", search, SearchPages.Page([.. Enumerable.Range(0, ConversationSearchViewModel.MaxShown)
+            .Select(_ => new MessageSearchHit(Guid.CreateVersion7(), mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []))]));
         var model = Make();
         model.Query = "paint";
 
         await model.Search();
 
         model.Status.Should().Be("The 30 best matches. Add a word to narrow them.");
+    }
+
+    [Fact]
+    public async Task A_search_that_stopped_short_says_how_far_back_it_looked_and_never_claims_there_is_no_match()
+    {
+        var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
+        bench.Server.Answer("POST", search, SearchPages.Page([], stoppedAt));
+        var model = Make();
+        model.Query = "nautilus";
+
+        await model.Search();
+
+        model.State.Should().Be(ConversationSearchState.NothingFound);
+        model.CanSearchOlder.Should().BeTrue();
+        model.Status.Should().Be("Searched your newest 2,000 messages.");
+        model.NothingExplanation.Should().Be("No message in your newest 2,000 messages has these words. Older messages are not searched until you ask.");
+        model.NothingExplanation.Should().NotBe(ConversationSearchViewModel.NothingCause);
+        ConversationSearchViewModel.OlderAction.Should().Be("Search older messages");
+
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
+            new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
+        ], stoppedAt));
+        model.Query = "lighthouse";
+        await model.Search();
+
+        model.Status.Should().Be("1 message found. Searched your newest 2,000 messages.");
+        model.CanSearchOlder.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Searching_older_messages_continues_from_where_the_search_stopped_and_adds_what_it_finds()
+    {
+        var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
+        bench.Server.Answer("POST", search, SearchPages.Page([], stoppedAt));
+        var model = Make();
+        model.Query = "nautilus";
+        await model.Search();
+        model.Hits.Should().BeEmpty();
+
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
+            new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt.AddDays(-45), "Ancient nautilus fossil.", [new(8, 8)]),
+        ]));
+        await model.SearchOlder();
+
+        var sent = bench.Server.Sent("POST", search)
+            .Select(body => JsonSerializer.Deserialize<SearchMessagesRequest>(body, JsonSerializerOptions.Web)!)
+            .ToList();
+        sent.Should().HaveCount(2);
+        sent[0].Before.Should().BeNull();
+        sent[1].Query.Should().Be("nautilus");
+        sent[1].Before.Should().Be(stoppedAt);
+        model.State.Should().Be(ConversationSearchState.Found);
+        model.Hits.Select(hit => hit.Key).Should().Equal(askedId);
+        model.Status.Should().Be("1 message found.", "every message has been searched, so nothing more is claimed");
+        model.CanSearchOlder.Should().BeFalse();
+
+        await model.SearchOlder();
+        bench.Server.Sent("POST", search).Should().HaveCount(2, "there is nothing older to ask for");
+    }
+
+    [Fact]
+    public async Task A_new_search_starts_again_from_the_newest_messages()
+    {
+        var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
+        bench.Server.Answer("POST", search, SearchPages.Page([], stoppedAt));
+        var model = Make();
+        model.Query = "nautilus";
+        await model.Search();
+        model.Query = "lighthouse";
+
+        await model.Search();
+
+        bench.Server.Sent("POST", search)
+            .Select(body => JsonSerializer.Deserialize<SearchMessagesRequest>(body, JsonSerializerOptions.Web)!.Before)
+            .Should().OnlyContain(before => before == null);
+        model.Clear();
+        model.CanSearchOlder.Should().BeFalse();
+        model.Coverage.Should().BeNull();
     }
 
     #endregion
@@ -113,7 +192,7 @@ public sealed class ConversationSearchTests : IDisposable
     public async Task Searching_says_so_until_the_answer_comes()
     {
         var gate = bench.Server.Hold("POST", search);
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>());
+        bench.Server.Answer("POST", search, SearchPages.Page([]));
         var model = Make();
         model.Query = "paint";
 
@@ -130,7 +209,7 @@ public sealed class ConversationSearchTests : IDisposable
     [Fact]
     public async Task Words_that_match_nothing_say_so_and_offer_to_clear_the_search()
     {
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>());
+        bench.Server.Answer("POST", search, SearchPages.Page([]));
         var model = Make();
         model.Query = "zebra";
 
@@ -165,10 +244,10 @@ public sealed class ConversationSearchTests : IDisposable
         ConversationSearchViewModel.FailedTitle.Should().Be("Drover could not search your conversations");
         ConversationSearchScreen.For(model.State, model.IsActive).Should().Be(new ConversationSearchScreen(true, true, false, false));
 
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>
-        {
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []),
-        });
+        ]));
         await model.Search();
 
         model.State.Should().Be(ConversationSearchState.Found);
@@ -193,10 +272,10 @@ public sealed class ConversationSearchTests : IDisposable
     public async Task An_answer_that_comes_after_the_search_was_cleared_is_dropped()
     {
         var gate = bench.Server.Hold("POST", search);
-        bench.Server.Answer("POST", search, new List<MessageSearchHit>
-        {
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint.", []),
-        });
+        ]));
         var model = Make();
         model.Query = "paint";
 
@@ -279,11 +358,11 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         Server.Answer("GET", $"{Space}/threads/{mainThreadId}/messages", mainHistory);
         Server.Answer("GET", $"{Space}/threads/{sideThreadId}", side);
         Server.Answer("GET", $"{Space}/threads/{sideThreadId}/messages", new[] { sideHitMessage });
-        Server.Answer("POST", $"{Space}/threads/search", new List<MessageSearchHit>
-        {
+        Server.Answer("POST", $"{Space}/threads/search", SearchPages.Page(
+        [
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
             new(repliedId, sideThreadId, botId, "Marshal", "Errands", false, true, sentAt, "The lighthouse is done.", [new(4, 10)]),
-        });
+        ]));
 
         var search = new ConversationSearchViewModel(Server.CreateApi(), Session, NullLogger<ConversationSearchViewModel>.Instance)
         {
@@ -347,6 +426,20 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         var extent = rows[^1].Top + rows[^1].Height;
         return Math.Max(0, extent - Viewport);
     }
+
+    #endregion
+}
+
+
+/// <summary>The answers a search gets from the sample server.</summary>
+file static class SearchPages
+{
+    #region Public Methods
+
+    /// <summary>An answer that looked at the newest messages and, when <paramref name="older"/> is given, left older ones unsearched.</summary>
+    public static MessageSearchResult Page(IReadOnlyList<MessageSearchHit> hits, SearchCursor? older = null) => new(hits, Window, older);
+
+    public const int Window = 2000;
 
     #endregion
 }

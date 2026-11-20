@@ -39,6 +39,8 @@ public sealed class ConversationSearch : StackPanel
         ActionLabel = ConversationSearchViewModel.ClearAction,
     };
 
+    private readonly Button older = new() { Content = ConversationSearchViewModel.OlderAction, HorizontalAlignment = HorizontalAlignment.Left };
+
     private readonly StackPanel list = new() { Spacing = Tokens.Number("DvSpace1") };
 
     private readonly ArrowKeyZone results = new() { Label = "Messages found" };
@@ -73,6 +75,7 @@ public sealed class ConversationSearch : StackPanel
         Children.Add(failed);
         Children.Add(nothing);
         Children.Add(results);
+        Children.Add(older);
 
         field.RegisterPropertyChangedCallback(Field.ValueProperty, (_, _) => model.Query = field.Value);
         field.Submitted += async (_, _) => await model.Search();
@@ -87,6 +90,7 @@ public sealed class ConversationSearch : StackPanel
         clear.Click += (_, _) => ClearAndStay();
         failed.Action += async (_, _) => await model.Search();
         nothing.Action += (_, _) => ClearAndStay();
+        older.Click += async (_, _) => await model.SearchOlder();
 
         model.PropertyChanged += (_, _) => Draw();
         Draw();
@@ -135,6 +139,8 @@ public sealed class ConversationSearch : StackPanel
         failed.Cause = model.Problem ?? ConversationSearchViewModel.FailedTitle;
         nothing.Visibility = Shown(screen.ShowsNothing);
         nothing.Title = model.NothingTitle;
+        nothing.Cause = model.NothingExplanation;
+        older.Visibility = Shown(model.CanSearchOlder);
         results.Visibility = Shown(screen.ShowsResults);
         Say(model.Status);
         ShowHits(screen.ShowsResults ? model.Hits : []);

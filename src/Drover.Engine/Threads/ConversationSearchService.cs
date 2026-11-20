@@ -17,9 +17,23 @@ public sealed class ConversationSearchService(MessageRepository messages)
         _ => null,
     };
 
-    /// <summary>The messages that match, best first. Words that match nothing, such as only very common words, find nothing.</summary>
-    public async Task<List<MessageSearchHit>> Search(string words, CancellationToken cancellationToken) =>
-        [.. (await messages.SearchMessages(words.Trim(), MaxHits, cancellationToken)).Select(ToHit)];
+    /// <summary>
+    /// The messages that match, best first, among the newest messages the caller may read, or the next ones before
+    /// <paramref name="before"/>. Words that match nothing, such as only very common words, find nothing. The result
+    /// says where the search stopped, so a person can search further back.
+    /// </summary>
+    public async Task<MessageSearchResult> Search(string words, SearchCursor? before, CancellationToken cancellationToken)
+    {
+        var found = await messages.SearchMessages(
+            words.Trim(),
+            MaxHits,
+            before is null ? null : new(before.SentAt.ToUniversalTime(), before.MessageId),
+            cancellationToken);
+        return new(
+            [.. found.Matches.Select(ToHit)],
+            MessageRepository.SearchCandidateLimit,
+            found.Older is { } older ? new(older.SentAt, older.Id) : null);
+    }
 
     #endregion
 

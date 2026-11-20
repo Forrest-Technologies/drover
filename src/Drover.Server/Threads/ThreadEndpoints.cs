@@ -57,7 +57,7 @@ public static class ThreadEndpoints
 
     #region Endpoints
 
-    private static async Task<Results<Ok<List<MessageSearchHit>>, ProblemHttpResult>> SearchMessages(
+    private static async Task<Results<Ok<MessageSearchResult>, ProblemHttpResult>> SearchMessages(
         SearchMessagesRequest request,
         HttpContext context,
         TenantScope scope,
@@ -80,7 +80,7 @@ public static class ThreadEndpoints
         }
 
         await using var work = await scope.Begin(context.RequestAborted);
-        return TypedResults.Ok(await search.Search(request.Query!, context.RequestAborted));
+        return TypedResults.Ok(await search.Search(request.Query!, request.Before, context.RequestAborted));
     }
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>

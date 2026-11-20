@@ -216,7 +216,7 @@ try {
                 }
                 else if (address === `/api/spaces/${spaceId}/threads/search` && route.request().method() === 'POST') {
                     const { query } = route.request().postDataJSON() ?? {};
-                    body = query === 'lighthouse'
+                    const hits = query === 'lighthouse'
                         ? [
                             {
                                 messageId: searchTopMessageId,
@@ -244,6 +244,7 @@ try {
                             },
                         ]
                         : [];
+                    body = { hits, window: 2000, older: null };
                 }
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }

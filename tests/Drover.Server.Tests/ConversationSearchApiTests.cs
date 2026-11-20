@@ -59,10 +59,12 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         var api = new DroverApi(NewRelay(client)) { AntiforgeryToken = client.Cookie("XSRF-TOKEN") };
 
         var throughApi = await Search(client, alice.SpaceId, "saffron & salt");
-        var throughClient = await api.SearchMessages(alice.SpaceId, "saffron & salt", Token);
+        var throughClient = await api.SearchMessages(alice.SpaceId, "saffron & salt", cancellationToken: Token);
 
-        throughClient.Should().BeEquivalentTo(throughApi);
-        throughClient.Should().NotBeEmpty();
+        throughClient.Hits.Should().BeEquivalentTo(throughApi);
+        throughClient.Hits.Should().NotBeEmpty();
+        throughClient.Window.Should().Be(MessageRepository.SearchCandidateLimit);
+        throughClient.Older.Should().BeNull("a small history is searched all at once");
     }
 
     [Theory]
@@ -207,8 +209,8 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
 
     private static string SearchPath(Guid spaceId) => $"{Space(spaceId)}/threads/search";
 
-    private static Task<List<MessageSearchHit>> Search(ApiClient client, Guid spaceId, string words) =>
-        PostFor<List<MessageSearchHit>>(client, SearchPath(spaceId), new SearchMessagesRequest(words), HttpStatusCode.OK);
+    private static async Task<List<MessageSearchHit>> Search(ApiClient client, Guid spaceId, string words) =>
+        [.. (await PostFor<MessageSearchResult>(client, SearchPath(spaceId), new SearchMessagesRequest(words), HttpStatusCode.OK)).Hits];
 
     private async Task<ApiClient> SignIn(string email, string password)
     {

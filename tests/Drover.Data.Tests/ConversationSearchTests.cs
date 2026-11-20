@@ -133,6 +133,7 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         Guid threadId;
         Message oldMatch;
         Message recentMatch;
+        Message windowEdge;
         await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
         {
             var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
@@ -152,6 +153,7 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
                 bulk.Add(filler);
             }
 
+            windowEdge = bulk[0];
             recentMatch = CoreRows.NewMessage(thread, position, "Fresh nautilus sighting.");
             recentMatch.CreatedAt = start.AddSeconds(MessageRepository.SearchCandidateLimit);
             bulk.Add(recentMatch);
@@ -160,11 +162,56 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
             await session.Commit();
         }
 
-        var found = await Search(provider, world.SpaceA, world.UserA1, "nautilus");
+        var newest = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", null);
 
-        found.Select(hit => hit.MessageId).Should().Equal(
+        newest.Matches.Select(hit => hit.MessageId).Should().Equal(
             [recentMatch.Id],
             "the older message sits past the recent candidate window");
+        newest.Older.Should().Be(
+            new MessageKey(windowEdge.CreatedAt, windowEdge.Id),
+            "the search says where its window ended, because an older message was not looked at");
+
+        var older = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", newest.Older);
+
+        older.Matches.Select(hit => hit.MessageId).Should().Equal(
+            [oldMatch.Id],
+            "searching on from where the window ended finds the message that was left out");
+        older.Older.Should().BeNull("every readable message has now been looked at");
+    }
+
+    [Fact]
+    public async Task A_history_that_fits_the_window_is_searched_whole()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
+
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
+            session.Db.Threads.Add(thread);
+            session.Db.Messages.Add(CoreRows.NewMessage(thread, 1, "A single nautilus."));
+            await session.Commit();
+        }
+
+        var result = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", null);
+
+        result.Matches.Should().ContainSingle();
+        result.Older.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_search_outside_a_transaction_is_refused_so_the_time_limit_always_applies()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        await using var session = TenantSession.Create(provider);
+        session.Tenant.SetUser(world.UserA1);
+        session.Tenant.SetSpace(world.SpaceA);
+
+        var act = () => new MessageRepository(session.Db).SearchMessages("nautilus", 30, null, Token);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     #endregion
@@ -173,10 +220,13 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    private static async Task<IReadOnlyList<MessageMatch>> Search(IServiceProvider provider, Guid spaceId, Guid userId, string words)
+    private static async Task<IReadOnlyList<MessageMatch>> Search(IServiceProvider provider, Guid spaceId, Guid userId, string words) =>
+        (await SearchWindow(provider, spaceId, userId, words, null)).Matches;
+
+    private static async Task<MessageSearch> SearchWindow(IServiceProvider provider, Guid spaceId, Guid userId, string words, MessageKey? before)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
-        return await new MessageRepository(session.Db).SearchMessages(words, 30, Token);
+        return await new MessageRepository(session.Db).SearchMessages(words, 30, before, Token);
     }
 
     private static async Task<Bot> SaveBot(IServiceProvider provider, Guid spaceId, Guid userId)

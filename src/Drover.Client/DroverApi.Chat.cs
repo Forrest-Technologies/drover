@@ -72,10 +72,12 @@ public sealed partial class DroverApi
 
     /// <summary>
     /// The messages of the caller's conversations whose words match <paramref name="words"/>, best match first. Only
-    /// the threads the caller may read are searched. Blank words, or more than the server allows, are refused.
+    /// the threads the caller may read are searched, and only the newest of their messages: the answer carries the
+    /// cursor that searches older ones, which goes in <paramref name="before"/>. Blank words, or more than the server
+    /// allows, are refused.
     /// </summary>
-    public Task<List<MessageSearchHit>> SearchMessages(Guid spaceId, string words, CancellationToken cancellationToken = default) =>
-        Post<List<MessageSearchHit>>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words), cancellationToken);
+    public Task<MessageSearchResult> SearchMessages(Guid spaceId, string words, SearchCursor? before = null, CancellationToken cancellationToken = default) =>
+        Post<MessageSearchResult>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words, before), cancellationToken);
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
