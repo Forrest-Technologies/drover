@@ -192,6 +192,27 @@ public sealed partial class ModelConnectionsViewModel(
             Catalog = await api.ListModels(SpaceId, connection.Id);
         });
 
+    /// <summary>
+    /// Whether a person may say a model of this connection reads pictures. Only a compatible endpoint takes it: it
+    /// lists models and nothing about them. A provider that reports its own capabilities offers no toggle.
+    /// </summary>
+    public bool CanMarkVision(ModelConnectionSummary connection) => CanEdit && connection.Kind == CompatibleKind;
+
+    public static string VisionLabel(ModelCatalogResponse entry) => $"{entry.DisplayName} reads pictures";
+
+    /// <summary>Says, for a model whose reading of pictures nobody can change here, what the catalog says.</summary>
+    public static string? VisionWords(ModelCatalogResponse entry) => entry.Capabilities.Vision ? "reads pictures" : null;
+
+    public Task SetVision(ModelConnectionSummary connection, ModelCatalogResponse entry, bool readsImages) =>
+        Change(connection, async () =>
+        {
+            var changed = await api.SetModelVision(SpaceId, connection.Id, new(entry.Model, readsImages));
+            Catalog = [.. (Catalog ?? []).Select(row => row.Model == changed.Model ? changed : row)];
+            Say(false, readsImages
+                ? $"{entry.DisplayName} is marked as reading pictures. Pictures attached for a bot that uses it go to it as pictures."
+                : $"{entry.DisplayName} is no longer marked as reading pictures.");
+        });
+
     public Task RefreshCatalog(ModelConnectionSummary connection) =>
         Change(connection, async () =>
         {
