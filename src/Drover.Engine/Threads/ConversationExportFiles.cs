@@ -443,16 +443,25 @@ public static class ConversationExportFiles
 
     // An image written with a reference, "![alt][label]", "![alt][]" or "![alt]", is only text in this message, but
     // it becomes an embed wherever a definition for the label is read. The mark is escaped so it never can.
+    // The code spans are sorted once and walked together with the text, so the work is the length of the text plus
+    // the number of spans, however many spans and image marks a paragraph holds.
     private static void EscapeImageMarks(string source, SourceSpan span, List<SourceSpan> code, Dictionary<int, string> replacements)
     {
+        code.Sort(static (first, second) => first.Start.CompareTo(second.Start));
         var end = Math.Min(source.Length - 2, span.End);
+        var next = 0;
 
         for (var index = Math.Max(0, span.Start); index <= end; index++)
         {
+            while (next < code.Count && code[next].End < index)
+            {
+                next++;
+            }
+
             if (source[index] == '!'
                 && source[index + 1] == '['
                 && (index == 0 || source[index - 1] != '\\')
-                && !code.Exists(inside => index >= inside.Start && index <= inside.End))
+                && !(next < code.Count && code[next].Start <= index))
             {
                 replacements[index] = "\\!";
             }

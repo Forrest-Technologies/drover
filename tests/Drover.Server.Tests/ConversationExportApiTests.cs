@@ -330,6 +330,30 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
     }
 
     [Fact]
+    public void A_paragraph_of_many_code_spans_and_image_marks_is_neutralized_in_bounded_time()
+    {
+        // The most pairs the parser takes in one paragraph before the export falls back to flat escaping is a little
+        // over 10,000, so this is the largest input that reaches the code span check.
+        const int Pairs = 10_000;
+        var text = string.Concat(Enumerable.Repeat("`code` ![a][b] ", Pairs));
+        var watch = Stopwatch.StartNew();
+
+        var neutralized = Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(text);
+
+        watch.Stop();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+        neutralized.Should().Be(string.Concat(Enumerable.Repeat(@"`code` \![a][b] ", Pairs)), "every mark outside code is escaped and the code spans are left alone");
+    }
+
+    [Fact]
+    public void An_image_mark_next_to_code_is_escaped_and_one_inside_code_is_not()
+    {
+        var neutralized = Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown("![a][b] `![c][d]` ![e][f] `x`![g][h]");
+
+        neutralized.Should().Be(@"\![a][b] `![c][d]` \![e][f] `x`\![g][h]");
+    }
+
+    [Fact]
     public void A_definition_and_an_image_mark_inside_code_are_left_alone()
     {
         var text = "`![a][b]` and\n\n```\n[b]: https://example.com/x\n![a][b]\n```";
