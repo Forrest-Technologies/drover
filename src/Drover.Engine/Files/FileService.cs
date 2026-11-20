@@ -29,6 +29,7 @@ public sealed class FileService(
     BotRepository bots,
     FileAbilityReader abilities,
     IFileStore store,
+    UploadCleanup uploadCleanup,
     IOptions<DeploymentPolicyOptions> deployment,
     TimeProvider time,
     ILogger<FileService> logger)
@@ -400,19 +401,28 @@ public sealed class FileService(
 
         await using (var work = await scope.Begin(cancellationToken))
         {
-            file = (await files.GetFilesForUpdate([fileId], cancellationToken)).SingleOrDefault();
+            var found = await files.FindFile(fileId, cancellationToken);
 
-            if (file is not { ProjectId: null, MessageId: null } || file.CreatedByUserId != userId)
+            if (found?.ThreadId is not { } threadId
+                || await threads.GetThreadForFileChange(threadId, cancellationToken) is null)
             {
                 return false;
             }
 
-            files.Remove(file);
-            await files.ReleaseBytes(SpaceId, file.Size, cancellationToken);
+            file = (await files.GetFilesForUpdate([fileId], cancellationToken)).SingleOrDefault();
+
+            if (file is not { ProjectId: null, MessageId: null, CreatedByBotId: null }
+                || file.ThreadId != threadId
+                || file.CreatedByUserId != userId)
+            {
+                return false;
+            }
+
+            await files.StageUploadDeletion(file, cancellationToken);
             await work.Commit(cancellationToken);
         }
 
-        await store.Delete(SpaceId, file.StorageKey, CancellationToken.None);
+        await uploadCleanup.Finish(SpaceId, file.AudienceUserId, file.Id, CancellationToken.None);
         logger.LogInformation("File {FileId} was removed before it was sent", fileId);
         return true;
     }

@@ -67,6 +67,42 @@ public sealed class PendingFileDeletionSeeder : PlainSeeder<PendingFileDeletion>
     }
 }
 
+
+public sealed class PendingUploadDeletionSeeder : PlainSeeder<PendingUploadDeletion>
+
+{
+    #region Public Methods
+
+    public override async Task<IReadOnlyDictionary<string, object?>> Insert(
+        IsolationHarness harness,
+        TenantSession session,
+        TableUnderTest table,
+        RowPlacement placement,
+        IReadOnlyDictionary<string, object?> values)
+    {
+        _ = values;
+        var files = harness.Table("files");
+        var source = await harness.Seed(files, placement);
+        await session.Execute(
+            "UPDATE files SET message_id = NULL, created_by_bot_id = NULL WHERE id = @id",
+            ("id", source.Key["id"]));
+        var deleted = await harness.DeleteRow(session, files, source);
+        Expect.That(deleted == 1, "Deleting the source upload did not create a pending upload deletion.");
+        return source.Key;
+    }
+
+    #endregion
+
+    #region Protected Methods
+
+    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    {
+        ["id"] = Guid.CreateVersion7(),
+    };
+
+    #endregion
+}
+
 public sealed class SecretSeeder : PlainSeeder<Secret>
 {
     protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
