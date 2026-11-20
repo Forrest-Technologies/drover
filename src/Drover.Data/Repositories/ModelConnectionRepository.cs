@@ -33,13 +33,25 @@ public sealed class ModelConnectionRepository(DroverDbContext db)
         db.ModelCatalog.AsNoTracking()
             .SingleOrDefaultAsync(entry => entry.ModelConnectionId == connectionId && entry.Model == model, cancellationToken);
 
-    /// <summary>The tracked catalog row of one model, for a change the caller commits.</summary>
-    public Task<ModelCatalogEntry?> GetCatalogEntry(Guid connectionId, string model, CancellationToken cancellationToken) =>
-        db.ModelCatalog.SingleOrDefaultAsync(entry => entry.ModelConnectionId == connectionId && entry.Model == model, cancellationToken);
+    /// <summary>
+    /// The tracked catalog row of one model, locked until the transaction ends. A change to its capabilities writes the
+    /// whole value, so two changes that overlap would overwrite each other: the second waits for the first and reads
+    /// what it left.
+    /// </summary>
+    public async Task<ModelCatalogEntry?> GetCatalogEntryForUpdate(Guid connectionId, string model, CancellationToken cancellationToken) =>
+        (await db.ModelCatalog
+            .FromSql($"SELECT * FROM model_catalog WHERE model_connection_id = {connectionId} AND model = {model} FOR UPDATE")
+            .ToListAsync(cancellationToken)).SingleOrDefault();
 
-    /// <summary>The tracked catalog rows of one connection, for the upsert.</summary>
-    public Task<List<ModelCatalogEntry>> GetCatalog(Guid connectionId, CancellationToken cancellationToken) =>
-        db.ModelCatalog.Where(entry => entry.ModelConnectionId == connectionId).ToListAsync(cancellationToken);
+    /// <summary>
+    /// The tracked catalog rows of one connection, for the upsert, locked until the transaction ends for the same
+    /// reason as <see cref="GetCatalogEntryForUpdate"/>: a refresh that read a row before an admin's change to it and
+    /// wrote after would put the old value back.
+    /// </summary>
+    public Task<List<ModelCatalogEntry>> GetCatalogForUpdate(Guid connectionId, CancellationToken cancellationToken) =>
+        db.ModelCatalog
+            .FromSql($"SELECT * FROM model_catalog WHERE model_connection_id = {connectionId} FOR UPDATE")
+            .ToListAsync(cancellationToken);
 
     /// <summary>
     /// True when a save failed because another request stored the same model first. The transaction is lost, so the

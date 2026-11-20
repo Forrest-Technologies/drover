@@ -11,12 +11,17 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
 
     private ScriptedModelProvider? model;
 
+    private ScriptedProvider Scripted { get; } = new();
+
     #endregion
 
     #region Overrides
 
-    protected override void ConfigureServices(IServiceCollection services) =>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
         services.AddSingleton<IModelClientProvider>(_ => model ??= new ScriptedModelProvider(new ScriptedModel()));
+        services.AddSingleton<IModelClientProvider>(Scripted);
+    }
 
     #endregion
 
@@ -112,6 +117,51 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
 
     #endregion
 
+    #region Overlapping Writes
+
+    [Fact]
+    public async Task A_refresh_that_overlaps_a_mark_keeps_the_mark_and_what_the_provider_reported()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateScripted(client, alice.SpaceId);
+        await SeedModels(alice, connection.Id, "plain");
+        Scripted.OnList = _ => Task.FromResult<IReadOnlyList<ModelInfo>>(
+            [new ModelInfo("plain", "plain", new ModelCapabilities { ContextTokens = 8192 }, [])]);
+        await using var admin = await HoldCatalogRow(alice, "plain", capabilities => capabilities with { Vision = true, VisionSetByOperator = true });
+
+        var refreshing = client.Post($"{Path(alice.SpaceId)}/{connection.Id}/models/refresh");
+        await WaitForAWriterToWait();
+        await admin.Commit();
+
+        (await refreshing).StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = (await ListModels(client, alice.SpaceId, connection.Id)).Single().Capabilities;
+        (stored.Vision, stored.VisionSetByOperator).Should().Be((true, true), "the admin's mark was committed while the refresh was writing");
+        stored.ContextSize.Should().Be(8192, "the refresh's own change is kept as well");
+    }
+
+    [Fact]
+    public async Task A_mark_that_overlaps_a_refresh_keeps_what_the_refresh_reported()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var connection = await CreateScripted(client, alice.SpaceId);
+        await SeedModels(alice, connection.Id, "plain");
+        await ChangeKind(alice, connection.Id, ModelConnectionKinds.Compatible);
+        await using var refresh = await HoldCatalogRow(alice, "plain", capabilities => capabilities with { ContextTokens = 8192 });
+
+        var marking = Mark(client, alice.SpaceId, connection.Id, "plain", true);
+        await WaitForAWriterToWait();
+        await refresh.Commit();
+
+        (await marking).StatusCode.Should().Be(HttpStatusCode.OK);
+        var stored = (await ListModels(client, alice.SpaceId, connection.Id)).Single().Capabilities;
+        (stored.Vision, stored.VisionSetByOperator).Should().Be((true, true));
+        stored.ContextSize.Should().Be(8192, "the refresh committed while the mark was being written, and the mark must not put the old value back");
+    }
+
+    #endregion
+
     #region What The Mark Decides
 
     [Fact]
@@ -182,6 +232,96 @@ public sealed class ModelVisionTests(PostgresServer postgres) : ServerTestBase(p
         await Read<ModelConnectionSummary>(await client.Post(
             Path(spaceId),
             new CreateModelConnectionRequest(ModelConnectionKinds.Compatible, "Compatible", "https://models.example.test/v1", null, "plain")));
+
+    private static async Task<ModelConnectionSummary> CreateScripted(ApiClient client, Guid spaceId) =>
+        await Read<ModelConnectionSummary>(await client.Post(
+            Path(spaceId),
+            new CreateModelConnectionRequest(ScriptedProvider.ConnectionKind, "Scripted", null, null, null)));
+
+    private async Task ChangeKind((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid connectionId, string kind)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(person.SpaceId, person.UserId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        (await db.ModelConnections.SingleAsync(row => row.Id == connectionId, Token)).Kind = kind;
+        await db.SaveChangesAsync(Token);
+        await work.Commit(Token);
+    }
+
+    /// <summary>
+    /// Changes a catalog row in a transaction that stays open, so the row stays locked and the write that comes next
+    /// has to wait for it. Committing releases it.
+    /// </summary>
+    private async Task<HeldWrite> HoldCatalogRow(
+        (string Email, string Password, Guid UserId, Guid SpaceId) person,
+        string modelId,
+        Func<ModelCapabilities, ModelCapabilities> change)
+    {
+        var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(person.SpaceId, person.UserId);
+        var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        var entry = await db.ModelCatalog.SingleAsync(row => row.Model == modelId, Token);
+        entry.Capabilities = change(entry.Capabilities);
+        await db.SaveChangesAsync(Token);
+        return new HeldWrite(scope, work);
+    }
+
+    /// <summary>Waits until another session is waiting on a lock, which is the write that has to wait for the held row.</summary>
+    private async Task WaitForAWriterToWait()
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            connection);
+
+        for (var attempt = 0; attempt < 300; attempt++)
+        {
+            if ((long)(await command.ExecuteScalarAsync(Token))! > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(50, Token);
+        }
+
+        throw new TimeoutException("No write waited on the held row.");
+    }
+
+    private sealed class HeldWrite(AsyncServiceScope scope, TenantWork work) : IAsyncDisposable
+    {
+        #region Private Fields
+
+        private bool committed;
+
+        #endregion
+
+        #region Public Methods
+
+        public async Task Commit()
+        {
+            committed = true;
+            await work.Commit(Token);
+        }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!committed)
+            {
+                await work.DisposeAsync();
+            }
+
+            await scope.DisposeAsync();
+        }
+
+        #endregion
+    }
 
     private async Task SeedModels((string Email, string Password, Guid UserId, Guid SpaceId) person, Guid connectionId, params string[] models)
     {

@@ -153,7 +153,7 @@ public sealed class ModelConnectionService(
             return new ModelVisionChange(null, "Only the models of a compatible endpoint can be marked as reading pictures. This provider reports its own.");
         }
 
-        if (await connections.GetCatalogEntry(connectionId, model, cancellationToken) is not { } entry)
+        if (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken) is not { } entry)
         {
             return null;
         }
@@ -399,7 +399,7 @@ public sealed class ModelConnectionService(
             return;
         }
 
-        var existing = await connections.GetCatalog(connection.Id, cancellationToken);
+        var existing = await connections.GetCatalogForUpdate(connection.Id, cancellationToken);
 
         foreach (var entry in CatalogUpsert.Apply(connection.Id, existing, models, time.GetUtcNow()))
         {
