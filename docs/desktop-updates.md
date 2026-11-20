@@ -9,7 +9,7 @@ environment, and replace `UPDATE_SIGNING_PUBLIC_KEY`. Publish new installers. An
 public key and will not accept a feed signed by the new key, so it needs a new package from the release page. Announce
 that outside the update feed. A signed feed cannot tell a client to trust a key the client does not already have, and
 the feed has no expiry. Ship a newer signed release instead of trying to recall an older file. The app remembers
-the newest release version in a signed feed it has verified, one record for each release channel, and refuses a later
+the newest release version in a signed feed it has verified, one record for each release channel (an install that has the single record an earlier build kept moves it to the channel it checks, so the floor is not lost), and refuses a later
 feed that offers an older version in the same channel. A manual check reports a stale feed. An automatic check offers
 nothing and shows nothing.
 A feed this install has never verified is still accepted, including one that is not the newest release published,

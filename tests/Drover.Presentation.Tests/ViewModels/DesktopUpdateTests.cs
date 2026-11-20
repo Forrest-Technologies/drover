@@ -314,6 +314,99 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
+    public void A_version_recorded_by_an_earlier_build_is_kept_as_the_floor_for_the_channel()
+    {
+        var settings = new MemorySettings();
+        settings.Values[UpdatePackageTrust.LegacyFeedSettingName] = "1.4.0";
+
+        // The older offer is refused, and the old record moves to the channel record.
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.3.0").Accepted.Should().BeFalse();
+        settings.Values[UpdatePackageTrust.FeedSettingName("stable")].Should().Be("1.4.0");
+        settings.Values.Should().NotContainKey(UpdatePackageTrust.LegacyFeedSettingName);
+
+        UpdatePackageTrust.AcceptFeed(settings, "stable", "1.5.0").Accepted.Should().BeTrue();
+        settings.Values[UpdatePackageTrust.FeedSettingName("stable")].Should().Be("1.5.0");
+    }
+
+    [Fact]
+    public void An_earlier_record_is_kept_even_when_the_check_offers_nothing()
+    {
+        var settings = new MemorySettings();
+        settings.Values[UpdatePackageTrust.LegacyFeedSettingName] = "1.4.0";
+
+        UpdatePackageTrust.AcceptFeed(settings, "preview", null).Accepted.Should().BeTrue();
+
+        settings.Values[UpdatePackageTrust.FeedSettingName("preview")].Should().Be("1.4.0");
+        UpdatePackageTrust.AcceptFeed(settings, "preview", "1.2.0-preview.1").Accepted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_channel_record_wins_over_an_earlier_one()
+    {
+        var settings = new MemorySettings();
+        settings.Values[UpdatePackageTrust.LegacyFeedSettingName] = "1.4.0";
+        settings.Values[UpdatePackageTrust.FeedSettingName("preview")] = "1.1.0-preview.1";
+
+        UpdatePackageTrust.AcceptFeed(settings, "preview", "1.2.0-preview.1").Accepted.Should().BeTrue();
+
+        settings.Values[UpdatePackageTrust.LegacyFeedSettingName].Should().Be("1.4.0", "it is left for the other channel to move");
+    }
+
+    [Fact]
+    public async Task Turning_checks_off_during_a_pending_install_is_not_undone_by_the_result()
+    {
+        using var package = await SignedPackage(nameof(Turning_checks_off_during_a_pending_install_is_not_undone_by_the_result));
+        var live = new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0");
+        var shown = new List<DesktopUpdateState>();
+
+        var state = await UpdateInstall.Run(
+            new RecordingInstaller([], null),
+            () =>
+            {
+                live = live with { ChecksEnabled = false, Phase = DesktopUpdatePhase.Idle };
+                return Task.FromResult(package.Path);
+            },
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Windows,
+            "2.0.0",
+            () => live,
+            shown.Add,
+            () => { });
+
+        state.ChecksEnabled.Should().BeFalse();
+        state.Phase.Should().Be(DesktopUpdatePhase.Installing);
+        shown.Should().HaveCount(2);
+        shown[0].ChecksEnabled.Should().BeTrue("checks were still on when the download began");
+        shown[1].ChecksEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_manual_result_keeps_the_checks_setting_turned_off_during_the_download()
+    {
+        using var package = await SignedPackage(nameof(A_manual_result_keeps_the_checks_setting_turned_off_during_the_download));
+        var live = new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0");
+
+        var state = await UpdateInstall.Run(
+            new RecordingInstaller([], null),
+            () =>
+            {
+                live = live with { ChecksEnabled = false };
+                return Task.FromResult(package.Path);
+            },
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Linux,
+            "2.0.0",
+            () => live,
+            _ => { },
+            () => { });
+
+        state.Phase.Should().Be(DesktopUpdatePhase.Manual);
+        state.ChecksEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_record_that_cannot_be_saved_does_not_refuse_a_newer_offer()
     {
         var settings = new MemorySettings();
@@ -358,7 +451,8 @@ public sealed class DesktopUpdateTests
             package.PublicKey,
             package.Signature,
             host,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             value => shown.Add(value.Phase),
             () => events.Add("closed"));
 
@@ -381,7 +475,8 @@ public sealed class DesktopUpdateTests
             package.PublicKey,
             package.Signature,
             UpdateHost.Windows,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             _ => { },
             () => events.Add("closed"));
 
@@ -395,7 +490,8 @@ public sealed class DesktopUpdateTests
             package.PublicKey,
             package.Signature,
             UpdateHost.Mac,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             _ => { },
             () => events.Add("closed"));
 
@@ -425,7 +521,8 @@ public sealed class DesktopUpdateTests
             package.PublicKey,
             package.Signature,
             host,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             _ => { },
             () => events.Add("closed"));
 
@@ -446,7 +543,8 @@ public sealed class DesktopUpdateTests
             package.PublicKey,
             package.Signature,
             UpdateHost.Linux,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             _ => { },
             () => events.Add("closed"));
 
@@ -465,7 +563,8 @@ public sealed class DesktopUpdateTests
             "unused",
             "unused",
             UpdateHost.Windows,
-            new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
             _ => { },
             () => events.Add("closed"));
 

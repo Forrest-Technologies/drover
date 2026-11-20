@@ -21,7 +21,9 @@ internal static class UpdateInstall
     /// <summary>
     /// Downloads the package, verifies its signature, and starts the installer only when the host allows it.
     /// Returns the state to show. The application is closed by <paramref name="closeApplication"/> only after
-    /// <paramref name="installer"/> reports that the installer started.
+    /// <paramref name="installer"/> reports that the installer started. Every state is built from
+    /// <paramref name="live"/> when it is needed, not from the state when the install began, so a setting changed
+    /// during the download is kept.
     /// </summary>
     public static async Task<DesktopUpdateState> Run(
         IUpdateInstaller installer,
@@ -29,14 +31,15 @@ internal static class UpdateInstall
         string? publicKey,
         string? signature,
         UpdateHost host,
-        DesktopUpdateState state,
+        string version,
+        Func<DesktopUpdateState> live,
         Action<DesktopUpdateState> progress,
         Action closeApplication)
     {
-        progress(state with { Phase = DesktopUpdatePhase.Downloading, Problem = null });
+        progress(live() with { Version = version, Phase = DesktopUpdatePhase.Downloading, Problem = null });
         var path = await download();
         var package = await File.ReadAllBytesAsync(path);
-        var decision = UpdatePackageTrust.Decide(publicKey, signature, package, host, path, state);
+        var decision = UpdatePackageTrust.Decide(publicKey, signature, package, host, path, live() with { Version = version });
         if (!decision.StartInstaller)
         {
             return decision.State;

@@ -35,6 +35,12 @@ internal static class UpdatePackageTrust
     public static string FeedSettingName(string channel) => $"drover-update-feed-{channel}";
 
     /// <summary>
+    /// The one record an earlier build kept for both channels. It is moved to the channel record the first time
+    /// that channel is checked, so an upgrade keeps the version floor it had.
+    /// </summary>
+    public const string LegacyFeedSettingName = "drover-update-feed";
+
+    /// <summary>
     /// Checks the version a verified feed offers against the newest one this install has verified for the same
     /// channel. An older offer is refused and the record is left alone. A newer offer is recorded, and a record
     /// that cannot be saved is returned but does not refuse the offer.
@@ -42,20 +48,29 @@ internal static class UpdatePackageTrust
     public static FeedVerdict AcceptFeed(IDeviceSettings settings, string channel, string? offered)
     {
         var name = FeedSettingName(channel);
-        if (IsOlderThanSeen(settings.Read(name), offered))
+        var seen = settings.Read(name);
+        Exception? notSaved = null;
+
+        if (string.IsNullOrWhiteSpace(seen) && settings.Read(LegacyFeedSettingName) is { Length: > 0 } legacy)
         {
-            return new FeedVerdict(false, null);
+            seen = legacy;
+            notSaved = MoveLegacyRecord(settings, name, legacy);
+        }
+
+        if (IsOlderThanSeen(seen, offered))
+        {
+            return new FeedVerdict(false, notSaved);
         }
 
         if (string.IsNullOrWhiteSpace(offered))
         {
-            return new FeedVerdict(true, null);
+            return new FeedVerdict(true, notSaved);
         }
 
         try
         {
             settings.Write(name, offered);
-            return new FeedVerdict(true, null);
+            return new FeedVerdict(true, notSaved);
         }
         catch (Exception exception)
         {
@@ -246,6 +261,20 @@ internal static class UpdatePackageTrust
     #endregion
 
     #region Private Methods
+
+    private static Exception? MoveLegacyRecord(IDeviceSettings settings, string name, string legacy)
+    {
+        try
+        {
+            settings.Write(name, legacy);
+            settings.Remove(LegacyFeedSettingName);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
 
     private static bool IsLink(string path) =>
         global::System.IO.Path.Exists(path)

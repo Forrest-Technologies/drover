@@ -99,7 +99,8 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
                 publicKey,
                 item.DownloadSignature,
                 UpdatePackageTrust.CurrentHost,
-                State with { Version = item.Version },
+                item.Version ?? string.Empty,
+                () => State,
                 Change,
                 () => ((App)Application.Current).MainWindow?.Close());
             Change(result);
