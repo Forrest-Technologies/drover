@@ -7,30 +7,47 @@ public readonly record struct Attempt<T>(T? Value, Exception? Failure);
 /// One Server-Sent Events connection. It yields the data of each frame until the connection ends or drops, and then
 /// stops; the caller decides whether to connect again. A refusal (not found, not allowed) is thrown instead, because
 /// connecting again would not change it. <paramref name="dropped"/> hears why a connection was lost, so a screen can
-/// say it is reconnecting.
+/// say it is reconnecting, and <paramref name="connected"/> hears each time it is through again, so the screen can stop
+/// saying so. The connection is also closed, quietly, when <paramref name="presence"/> says the app has left the screen.
 /// </summary>
-public sealed class SseConnection(HttpClient http, string path, Action<Exception>? dropped = null)
+public sealed class SseConnection(
+    HttpClient http,
+    string path,
+    StreamPresence? presence = null,
+    Action<Exception>? dropped = null,
+    Action? connected = null)
 {
     #region Public Methods
 
     public async IAsyncEnumerable<string> Read(string? lastEventId, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var connected = await Connect(lastEventId, cancellationToken);
+        using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presence?.Hidden ?? CancellationToken.None);
+        var token = reading.Token;
+        var opened = await Connect(lastEventId, cancellationToken, token);
 
-        if (connected.Value is not { } response)
+        if (opened.Value is not { } response)
         {
-            Report(connected.Failure);
+            Report(opened.Failure);
             yield break;
         }
 
         using (response)
         {
-            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var frames = SseParser.Create(body).EnumerateAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
+            var opening = await Body(response, cancellationToken, token);
+
+            if (opening.Value is not { } body)
+            {
+                Report(opening.Failure);
+                yield break;
+            }
+
+            connected?.Invoke();
+            await using var stream = body;
+            await using var frames = SseParser.Create(stream).EnumerateAsync(token).GetAsyncEnumerator(token);
 
             while (true)
             {
-                var moved = await MoveNext(frames);
+                var moved = await MoveNext(frames, cancellationToken, token);
 
                 if (!moved.Value)
                 {
@@ -47,7 +64,11 @@ public sealed class SseConnection(HttpClient http, string path, Action<Exception
 
     #region Private Methods
 
-    private async Task<Attempt<HttpResponseMessage>> Connect(string? lastEventId, CancellationToken cancellationToken)
+    // The app leaving the screen cancels the read but not the caller: that ends the connection with no failure to report.
+    private static bool Paused(CancellationToken caller, CancellationToken reading) =>
+        reading.IsCancellationRequested && !caller.IsCancellationRequested;
+
+    private async Task<Attempt<HttpResponseMessage>> Connect(string? lastEventId, CancellationToken caller, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Accept.ParseAdd("text/event-stream");
@@ -78,13 +99,33 @@ public sealed class SseConnection(HttpClient http, string path, Action<Exception
         {
             return new Attempt<HttpResponseMessage>(null, unreachable);
         }
+        catch (OperationCanceledException paused) when (Paused(caller, cancellationToken))
+        {
+            return new Attempt<HttpResponseMessage>(null, paused);
+        }
     }
 
-    private static async Task<Attempt<bool>> MoveNext(IAsyncEnumerator<SseItem<string>> frames)
+    private static async Task<Attempt<Stream>> Body(HttpResponseMessage response, CancellationToken caller, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new Attempt<Stream>(await response.Content.ReadAsStreamAsync(cancellationToken), null);
+        }
+        catch (OperationCanceledException paused) when (Paused(caller, cancellationToken))
+        {
+            return new Attempt<Stream>(null, paused);
+        }
+    }
+
+    private static async Task<Attempt<bool>> MoveNext(IAsyncEnumerator<SseItem<string>> frames, CancellationToken caller, CancellationToken cancellationToken)
     {
         try
         {
             return new Attempt<bool>(await frames.MoveNextAsync(), null);
+        }
+        catch (OperationCanceledException paused) when (Paused(caller, cancellationToken))
+        {
+            return new Attempt<bool>(false, paused);
         }
         catch (Exception lost) when (lost is IOException or HttpRequestException)
         {
@@ -92,9 +133,10 @@ public sealed class SseConnection(HttpClient http, string path, Action<Exception
         }
     }
 
+    // A pause (the app leaving the screen) is the one failure that is not a drop, so it is not reported as one.
     private void Report(Exception? failure)
     {
-        if (failure is not null)
+        if (failure is not (null or OperationCanceledException))
         {
             dropped?.Invoke(failure);
         }

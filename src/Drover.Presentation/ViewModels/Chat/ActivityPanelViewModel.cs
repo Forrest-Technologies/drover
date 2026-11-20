@@ -255,7 +255,7 @@ public sealed class ActivityPanelViewModel(
     {
         try
         {
-            await foreach (var stored in api.WatchRun(SpaceId, rootRunId, 0, Dropped, cancellationToken))
+            await foreach (var stored in api.WatchRun(SpaceId, rootRunId, 0, Dropped, Connected, cancellationToken))
             {
                 // An event of a stream already left behind must not reach the tree of the run shown now.
                 if (cancellationToken.IsCancellationRequested || Tree?.RootRunId != rootRunId)
@@ -299,6 +299,16 @@ public sealed class ActivityPanelViewModel(
         logger.LogDebug(exception, "The run's stream dropped in the {Screen}", nameof(ActivityPanelViewModel));
         Reconnecting = true;
         Redraw();
+    }
+
+    // Through again: a quiet run sends nothing after a reconnect, so the note goes now rather than with the next event.
+    private void Connected()
+    {
+        if (Reconnecting)
+        {
+            Reconnecting = false;
+            Redraw();
+        }
     }
 
     private void Redraw()
