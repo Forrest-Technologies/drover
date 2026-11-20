@@ -84,7 +84,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var settings = Hosted(withCertificate: true);
 
         await using var database = await postgres.CreateDatabase();
-        settings["ConnectionStrings:Drover"] = database.AdminConnectionString;
+        settings["ConnectionStrings:Drover"] = database.PrivilegedConnectionString;
 
         var message = await StartupFailure<InvalidOperationException>(settings);
 
@@ -96,7 +96,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     {
         var settings = SelfHosted();
         settings["Drover:Policy:Rules:ModelProviders"] = "-1";
-        var boot = () => Boot(settings, useAdminConnection: true);
+        var boot = () => Boot(settings, usePrivilegedConnection: true);
 
         await boot.Should().ThrowAsync<OptionsValidationException>()
             .WithMessage("*ModelProviders is not one of the values this rule has*");
@@ -106,7 +106,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     public async Task Hosted_real_program_rejects_a_privileged_role_before_building_the_host()
     {
         var settings = Hosted(withCertificate: true);
-        var boot = () => Boot(settings, useAdminConnection: true);
+        var boot = () => Boot(settings, usePrivilegedConnection: true);
 
         await boot.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*entry point exited without ever building an IHost*");
@@ -131,7 +131,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     {
         var settings = SelfHosted();
 
-        await using var server = await Boot(settings, useAdminConnection: true);
+        await using var server = await Boot(settings, usePrivilegedConnection: true);
 
         server.Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules
             .AllowMigrationCredentialInServer.Should().BeTrue();
@@ -141,7 +141,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     public async Task Self_hosted_on_a_superuser_connection_starts_but_logs_an_error_and_the_status_page_turns_red()
     {
         var logs = new LogCapture();
-        await using var server = await Boot(SelfHosted(), useAdminConnection: true, logs: logs);
+        await using var server = await Boot(SelfHosted(), usePrivilegedConnection: true, logs: logs);
         var connection = server.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString;
 
         var row = await StatusEndpoints.CheckDatabase(connection, NullLogger.Instance, TestContext.Current.CancellationToken);
@@ -384,15 +384,15 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
 
     private async Task<RunningServer> Boot(
         Dictionary<string, string?> settings,
-        bool useAdminConnection = false,
+        bool usePrivilegedConnection = false,
         bool useSecretFile = false,
         LogCapture? logs = null)
     {
         var database = await postgres.CreateDatabase();
 
-        if (useAdminConnection)
+        if (usePrivilegedConnection)
         {
-            settings["ConnectionStrings:Drover"] = database.AdminConnectionString;
+            settings["ConnectionStrings:Drover"] = database.PrivilegedConnectionString;
         }
 
         var keyRing = Path.Combine(Path.GetTempPath(), $"drover-keys-{Guid.NewGuid():N}");

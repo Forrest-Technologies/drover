@@ -35,6 +35,7 @@
   <ItemGroup>
     <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Shared\PostgresServer.cs" Link="Shared\PostgresServer.cs" />
+    <Compile Include="..\Shared\PostgresRoleLease.cs" Link="Shared\PostgresRoleLease.cs" />
     <Compile Include="..\Shared\SdkToolServer.cs" Link="Shared\SdkToolServer.cs" />
     <Compile Include="..\Shared\SignInDesk.cs" Link="Shared\SignInDesk.cs" />
   </ItemGroup>

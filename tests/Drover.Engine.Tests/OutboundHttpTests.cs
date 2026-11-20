@@ -25,7 +25,8 @@ public sealed class OutboundHttpTests
         using var client = new HttpClient(OutboundHttp.CreateHandler(
             DeploymentPolicy.Hosted,
             (_, _) => Task.FromResult<IPAddress[]>([IPAddress.IPv6Loopback, loopback]),
-            _ => false));
+            _ => false,
+            ConnectAfterRefusingIpv6));
 
         (await Get(client, $"http://fallback.test:{server.Port}/", privateForbidden)).Should().Be("fallback");
         server.Requests.Should().Be(1);
@@ -34,16 +35,15 @@ public sealed class OutboundHttpTests
     [Fact]
     public async Task Failed_checked_addresses_preserve_the_last_socket_failure()
     {
-        using var listener = new TcpListener(loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
         using var client = new HttpClient(OutboundHttp.CreateHandler(
             DeploymentPolicy.Hosted,
             (_, _) => Task.FromResult<IPAddress[]>([IPAddress.IPv6Loopback, loopback]),
-            _ => false));
+            _ => false,
+            (address, _, _) => FailedConnection(address.AddressFamily == AddressFamily.InterNetworkV6
+                ? SocketError.AddressFamilyNotSupported
+                : SocketError.ConnectionRefused)));
 
-        var attempt = () => Get(client, $"http://unreachable.test:{port}/", privateForbidden);
+        var attempt = () => Get(client, "http://unreachable.test/", privateForbidden);
 
         var failure = await attempt.Should().ThrowAsync<HttpRequestException>();
         var socketFailure = failure.Which.GetBaseException().Should().BeOfType<SocketException>().Which;
@@ -244,6 +244,33 @@ public sealed class OutboundHttpTests
         using var response = await client.SendAsync(request, Token);
         return await response.Content.ReadAsStringAsync(Token);
     }
+
+    private static async ValueTask<Stream> ConnectAfterRefusingIpv6(
+        IPAddress address,
+        int port,
+        CancellationToken cancellationToken)
+    {
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            throw new SocketException((int)SocketError.AddressFamilyNotSupported);
+        }
+
+        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+
+        try
+        {
+            await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
+            return new NetworkStream(socket, ownsSocket: true);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+    }
+
+    private static ValueTask<Stream> FailedConnection(SocketError error) =>
+        ValueTask.FromException<Stream>(new SocketException((int)error));
 
     // The test server hands the request text to its responder; the port is in the Host header.
     private static string Port(string request) =>
