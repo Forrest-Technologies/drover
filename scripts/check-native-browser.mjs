@@ -309,6 +309,7 @@ try {
                 }
 
                 current = name;
+                const titleBefore = await page.title();
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
                     : null;
@@ -422,7 +423,7 @@ try {
                     await checkLeavingWithEdits(page, address);
                 }
                 if (name === 'bot-new') {
-                    await checkLeavingNewBot(page, () => botCreates);
+                    await checkLeavingNewBot(page, titleBefore, () => botCreates);
                 }
                 if (name === 'usage') {
                     const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
@@ -526,7 +527,7 @@ async function checkLeavingWithEdits(page, address) {
 }
 
 // A new bot opens as a draft: nothing is stored until it is saved, so leaving it asks first and creates no bot.
-async function checkLeavingNewBot(page, createdBots) {
+async function checkLeavingNewBot(page, titleBefore, createdBots) {
     const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
     await page.getByRole('button', { name: 'Make bot', exact: true }).waitFor({ state: 'attached', timeout: 15000 });
     assert.equal(createdBots(), 0, 'Opening a new bot stores nothing.');
@@ -535,7 +536,8 @@ async function checkLeavingNewBot(page, createdBots) {
     await leavePrompt.waitFor({ state: 'attached', timeout: 15000 });
     assert.equal(createdBots(), 0, 'Being asked about leaving stores nothing.');
     await page.getByRole('button', { name: 'Leave', exact: true }).dispatchEvent('click');
-    await page.waitForFunction(() => document.title.startsWith('Sample bot'), null, { timeout: 15000 });
+    // Leaving by a step back goes to the screen that was open before the draft.
+    await page.waitForFunction(title => document.title === title, titleBefore, { timeout: 15000 });
     assert.equal(createdBots(), 0, 'Leaving an unsaved new bot creates no bot.');
 }
 
