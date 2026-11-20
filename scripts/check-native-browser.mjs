@@ -473,7 +473,14 @@ try {
                     await checkProjectListKeyboard(page);
                 }
                 if (name === 'project') {
-                    await checkProjectDraftsAndKeyboard(page);
+                    const cpu = await context.newCDPSession(page);
+                    await cpu.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+                    try {
+                        await checkProjectDraftsAndKeyboard(page);
+                    } finally {
+                        await cpu.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+                        await cpu.detach();
+                    }
                 }
                 if (name === 'project-member') {
                     await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
@@ -836,6 +843,11 @@ async function checkProjectDraftsAndKeyboard(page) {
     await page.keyboard.type('Keep the typed draft.');
     await page.waitForTimeout(200);
 
+    assert.equal(await nameField.inputValue(), 'Weekly draft',
+        'Project name did not take the typed draft before refreshing.');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Project instructions did not take the typed draft before refreshing.');
+
     await page.getByRole('button', { name: 'Move Quarterly planning into this project', exact: true }).dispatchEvent('click');
     await page.getByRole('button', { name: 'Move Quarterly planning out of this project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
 
@@ -843,9 +855,56 @@ async function checkProjectDraftsAndKeyboard(page) {
     assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.', 'Project instructions draft was lost after refreshing project details.');
 
     await instructionsField.focus();
+    await page.keyboard.press('Home');
+    for (let index = 0; index < 5; index++) {
+        await page.keyboard.press('ArrowRight');
+    }
+    for (let index = 0; index < 3; index++) {
+        await page.keyboard.press('Shift+ArrowRight');
+    }
+    await page.keyboard.type('this');
+    assert.equal(await instructionsField.inputValue(), 'Keep this typed draft.',
+        'Forward selection in the middle of project instructions must replace only the selected word.');
+
+    await page.keyboard.press('Home');
+    for (let index = 0; index < 9; index++) {
+        await page.keyboard.press('ArrowRight');
+    }
+    for (let index = 0; index < 4; index++) {
+        await page.keyboard.press('Shift+ArrowLeft');
+    }
+    await page.keyboard.type('the');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Backward selection in the middle of project instructions must keep the remaining draft intact.');
+
+    await selectNativeTextRange(instructionsField, 5, 8, 'forward');
+    await page.keyboard.type('this');
+    assert.equal(await instructionsField.inputValue(), 'Keep this typed draft.',
+        'Native forward selection must reach the editor before real keyboard input replaces the selected word.');
+    await selectNativeTextRange(instructionsField, 5, 9, 'backward');
+    await page.keyboard.type('the');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Native backward selection must preserve the rest of the draft.');
+
+    await instructionsField.focus();
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
     assert.equal(activeName, 'Save project', `Expected Tab from Instructions to reach Save project, got ${activeName}`);
+}
+
+async function selectNativeTextRange(field, start, end, direction) {
+    await field.evaluate((element, range) => new Promise((resolve, reject) => {
+        const selected = () => {
+            clearTimeout(deadline);
+            resolve();
+        };
+        const deadline = setTimeout(() => {
+            element.removeEventListener('select', selected);
+            reject(new Error('The native text selection event did not arrive.'));
+        }, 5000);
+        element.addEventListener('select', selected, { once: true });
+        element.setSelectionRange(range.start, range.end, range.direction);
+    }), { start, end, direction });
 }
 
 async function captureLive(origin, folder) {
