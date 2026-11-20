@@ -102,7 +102,7 @@ public sealed class IsolationHarness : IAsyncDisposable
 
         var values = await Compose(table, placement, parents);
         await using var session = await Open(placement.SpaceId, placement.User);
-        var key = await Insert(session, table, values);
+        var key = await table.Seeder.Insert(this, session, table, placement, values);
         await session.Commit();
         return new SeededRow(table.Name, key, placement, parents);
     }

@@ -77,6 +77,7 @@ public static class EngineServiceExtensions
         services.AddScoped<UsageService>();
         services.AddScoped<ApprovalService>();
         services.AddScoped<FileAbilityReader>();
+        services.AddSingleton<UploadCleanup>();
         services.AddScoped<FileService>();
         return services;
     }
