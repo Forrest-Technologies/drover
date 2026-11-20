@@ -8,7 +8,8 @@ public readonly record struct Attempt<T>(T? Value, Exception? Failure);
 /// stops; the caller decides whether to connect again. A refusal (not found, not allowed) is thrown instead, because
 /// connecting again would not change it. <paramref name="dropped"/> hears why a connection was lost, so a screen can
 /// say it is reconnecting, and <paramref name="connected"/> hears each time it is through again, so the screen can stop
-/// saying so. The connection is also closed, quietly, when <paramref name="presence"/> says the app has left the screen.
+/// saying so. The connection is also closed, quietly, when <paramref name="presence"/> says the app has left the screen,
+/// and <see cref="EndedByPause"/> then says that is why the last read ended, however soon the app is back.
 /// </summary>
 public sealed class SseConnection(
     HttpClient http,
@@ -17,10 +18,21 @@ public sealed class SseConnection(
     Action<Exception>? dropped = null,
     Action? connected = null)
 {
+    #region Properties
+
+    /// <summary>
+    /// Whether the last read ended because the app left the screen. The caller asks this rather than whether the app is
+    /// on screen now, because the app may already be back by the time the caller looks.
+    /// </summary>
+    public bool EndedByPause { get; private set; }
+
+    #endregion
+
     #region Public Methods
 
     public async IAsyncEnumerable<string> Read(string? lastEventId, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        EndedByPause = false;
         using var reading = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presence?.Hidden ?? CancellationToken.None);
         var token = reading.Token;
         var opened = await Connect(lastEventId, cancellationToken, token);
@@ -136,6 +148,8 @@ public sealed class SseConnection(
     // A pause (the app leaving the screen) is the one failure that is not a drop, so it is not reported as one.
     private void Report(Exception? failure)
     {
+        EndedByPause = failure is OperationCanceledException;
+
         if (failure is not (null or OperationCanceledException))
         {
             dropped?.Invoke(failure);
