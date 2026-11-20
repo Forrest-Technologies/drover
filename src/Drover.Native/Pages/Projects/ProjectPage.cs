@@ -200,29 +200,30 @@ public sealed class ProjectPage : Screen
 
         foreach (var file in model.Files)
         {
-            Func<Task> downloadAction = model.Delivers
-                ? () => model.Download(file)
-                : () => OpenDownload(model.DownloadAddress(file.File.Id));
-            var download = PageParts.Action(
-                ProjectViewModel.DownloadLabel(file),
-                downloadAction,
-                Refresh,
-                model.Working is null);
-            var label = Styles.Text(ProjectViewModel.FileLabel(file));
+            var row = PageParts.Row(Styles.Text(ProjectViewModel.FileLabel(file)));
+            if (model.Delivers || OperatingSystem.IsBrowser())
+            {
+                Func<Task> downloadAction = model.Delivers
+                    ? () => model.Download(file)
+                    : () => OpenDownload(model.DownloadAddress(file.File.Id));
+                row.Children.Add(PageParts.Action(
+                    ProjectViewModel.DownloadLabel(file),
+                    downloadAction,
+                    Refresh,
+                    model.Working is null));
+            }
+
             if (model.CanManage)
             {
-                var remove = PageParts.Action(
+                row.Children.Add(PageParts.Action(
                     ProjectViewModel.RemoveFileLabel(file),
                     () => model.RemoveFile(file.File.Id),
                     Refresh,
                     model.Working is null,
-                    ButtonKind.Danger);
-                body.Add(PageParts.Row(label, download, remove));
+                    ButtonKind.Danger));
             }
-            else
-            {
-                body.Add(PageParts.Row(label, download));
-            }
+
+            body.Add(row);
         }
 
         body.Add(PageParts.Action(ProjectViewModel.AddFile, AddFile, Refresh, model.CanManage && model.Working is null));

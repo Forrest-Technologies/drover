@@ -368,7 +368,27 @@ public sealed class ProjectViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task Downloading_delivers_the_authenticated_file_through_platform_delivery_and_reports_failures()
+    public async Task A_successful_upload_with_a_failed_refresh_is_not_reported_as_refused()
+    {
+        var screen = Make<ProjectViewModel>();
+        var file = new SampleFile("later.txt", 4, [1, 2, 3, 4]);
+        Answer();
+        await screen.Open(projectId);
+        Server.Answer("POST", filePath, Note);
+        Server.Answer("GET", projectPath, HttpStatusCode.ServiceUnavailable);
+
+        await screen.UploadFiles([file]);
+
+        Server.Sent("POST", filePath).Should().ContainSingle();
+        screen.Problem.Should().Contain("Uploaded later.txt.").And.Contain("Reopen");
+        screen.Problem.Should().NotStartWith("later.txt:");
+        screen.State.Should().Be(ProjectScreenState.Ready);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Downloading_delivers_the_authenticated_file_and_reports_save_failures(bool accessDenied)
     {
         var delivery = new RecordingDelivery();
         var log = new RecordingLogger<ProjectViewModel>();
@@ -387,11 +407,15 @@ public sealed class ProjectViewModelTests : ViewModelTest
         delivery.Saved[0].Href.Should().Be(screen.DownloadAddress(fileId));
         screen.Problem.Should().BeNull();
 
-        delivery.NextFailure = new IOException("Disk is full.");
+        const string RawFailure = "private-save-failure";
+        delivery.NextFailure = accessDenied
+            ? new UnauthorizedAccessException(RawFailure)
+            : new IOException(RawFailure);
         await screen.Download(Note);
 
         screen.Problem.Should().Be("Could not save note.txt.");
-        log.Entries.Should().ContainSingle(entry => entry.Exception == null && !entry.Message.Contains("Disk is full.", StringComparison.Ordinal));
+        log.Entries.Should().ContainSingle(entry =>
+            entry.Exception == null && !entry.Message.Contains(RawFailure, StringComparison.Ordinal));
     }
 
     [Fact]
