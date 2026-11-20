@@ -346,9 +346,6 @@ public sealed record DeploymentPolicy
 
     public QuotaMode SpaceQuotas { get; init; } = QuotaMode.Unlimited;
 
-    /// <summary>A space may turn tainted-run escalation off. It is on unless a space does.</summary>
-    public bool SpaceMayDisableTaintedRunEscalation { get; init; } = true;
-
     /// <summary>A space may turn on loading remote images in bot output. It is off unless a space does.</summary>
     public bool SpaceMayAutoLoadRemoteImages { get; init; } = true;
 
@@ -611,10 +608,6 @@ public sealed record DeploymentPolicy
             nameof(SpaceQuotas),
             policy => policy.SpaceQuotas,
             Enforcement.Later("Quotas, after Phase 0")),
-        PolicyRule.Permission(
-            nameof(SpaceMayDisableTaintedRunEscalation),
-            policy => policy.SpaceMayDisableTaintedRunEscalation,
-            Enforcement.Later("Phase 1: tainted-run escalation (06-mcp.md)")),
         PolicyRule.Permission(
             nameof(SpaceMayAutoLoadRemoteImages),
             policy => policy.SpaceMayAutoLoadRemoteImages,

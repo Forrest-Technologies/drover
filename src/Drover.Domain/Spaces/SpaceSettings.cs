@@ -32,9 +32,6 @@ public sealed record SpaceSettings
     /// <summary>False forbids requests to private addresses from this space. True, or null, changes nothing.</summary>
     public bool? AllowPrivateAddresses { get; init; }
 
-    /// <summary>False turns tainted-run escalation off where the deployment lets a space. Null leaves it on.</summary>
-    public bool? TaintedRunEscalation { get; init; }
-
     /// <summary>True turns remote images on where the deployment lets a space. Null leaves them off.</summary>
     public bool? AutoLoadRemoteImages { get; init; }
 

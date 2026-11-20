@@ -68,6 +68,17 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_configuration_that_still_sets_the_removed_tainted_run_escalation_rule_does_not_start_and_names_it()
+    {
+        var settings = SelfHosted();
+        settings["Drover:Policy:Rules:SpaceMayDisableTaintedRunEscalation"] = "false";
+
+        var message = await StartupFailure<InvalidOperationException>(settings);
+
+        message.Should().Contain("SpaceMayDisableTaintedRunEscalation");
+    }
+
+    [Fact]
     public async Task Self_hosted_with_an_enum_rule_that_is_not_one_of_its_values_does_not_start()
     {
         var settings = SelfHosted();
@@ -339,7 +350,7 @@ public sealed class PolicyStartupTests(PostgresServer postgres)
         var attempt = async () =>
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{target.Port}/")
-                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, AutoLoadRemoteImages: false));
             return await http.SendAsync(request, TestContext.Current.CancellationToken);
         };
 

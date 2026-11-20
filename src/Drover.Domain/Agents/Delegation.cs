@@ -47,14 +47,6 @@ public enum ChildRunOutcome
 
 
 /// <summary>
-/// What a child run came to, and its final answer when it completed. <see cref="Tainted"/> says the child read text
-/// from an untrusted source, itself or through a run beneath it, so whatever it hands back is that text's too.
+/// What a child run came to, and its final answer when it completed.
 /// </summary>
-public sealed record ChildRunReport(ChildRunOutcome Outcome, string? Answer = null)
-{
-    #region Properties
-
-    public bool Tainted { get; init; }
-
-    #endregion
-}
+public sealed record ChildRunReport(ChildRunOutcome Outcome, string? Answer = null);

@@ -189,7 +189,7 @@ public sealed class SharedFileTests(PostgresServer postgres)
 
     #endregion
 
-    #region Audience And Taint
+    #region Audience And Allow
 
     [Fact]
     public async Task A_file_shared_in_a_private_conversation_reaches_no_other_member_and_one_in_a_shared_conversation_does()
@@ -226,7 +226,7 @@ public sealed class SharedFileTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task Every_later_run_of_the_conversation_is_tainted_by_a_shared_file_and_another_conversation_is_not()
+    public async Task A_shared_file_taints_no_later_run_of_the_conversation_and_no_other_conversation()
     {
         var provider = new FakeSandboxProvider();
         var script = new ScriptedModel([.. WriteAndShareSteps("out/report.txt", "Q3 totals 42"), [new TextOutput("Glad to.")], [new TextOutput("Hello.")]]);
@@ -240,7 +240,7 @@ public sealed class SharedFileTests(PostgresServer postgres)
         var elsewhere = await world.WaitForStatus(await world.Post(otherThread, "Hi"), RunStatus.Completed, RunStatus.Failed);
 
         sharing.Tainted.Should().BeFalse("its sandbox has no network and holds nothing a person attached");
-        later.Tainted.Should().BeTrue("the conversation carries a file read out of the sandbox");
+        later.Tainted.Should().BeFalse("the conversation carries a file, which is not recorded as an untrusted read");
         elsewhere.Tainted.Should().BeFalse();
         world.Model.Requests[^2].Messages.SelectMany(message => message.Contents).OfType<ModelText>()
             .Should().NotContain(text => text.Text.Contains("Q3 totals 42", StringComparison.Ordinal) || text.Text.Contains("attached", StringComparison.Ordinal),
@@ -248,10 +248,10 @@ public sealed class SharedFileTests(PostgresServer postgres)
     }
 
     [Fact]
-    public async Task A_tainted_run_asks_before_it_shares_a_file()
+    public async Task A_run_given_an_attached_file_shares_a_file_on_an_allow_grant_without_asking()
     {
         var provider = new FakeSandboxProvider();
-        await using var world = await SandboxWorld(provider, new ScriptedModel([new ToolCallOutput("c1", "sandbox_share_file", """{"path":"out/other.txt"}""")]));
+        await using var world = await SandboxWorld(provider, new ScriptedModel([new ToolCallOutput("c1", "sandbox_share_file", """{"path":"out/other.txt"}""")], [new TextOutput("Shared.")]));
         var threadId = await world.NewThread();
         var notes = await world.Upload(threadId, "notes.txt", "a person's notes"u8.ToArray());
         var host = world.StartHost();
@@ -260,10 +260,9 @@ public sealed class SharedFileTests(PostgresServer postgres)
         var post = await world.PostRaw(threadId, "Share what you have", fileIds: [notes.File!.Id]);
         var run = await world.WaitForStatus(post.Run!.Id, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
 
-        run.Tainted.Should().BeTrue();
-        run.Status.Should().Be(RunStatus.Waiting, "sharing is a write, and a tainted run asks before it writes");
-        (await world.ReadToolCalls(run.Id)).Single(call => call.ToolName == "sandbox_share_file").Status.Should().Be(ToolCallStatus.PendingApproval);
-        (await world.Read(db => db.Files.CountAsync(file => file.CreatedByBotId != null, RunWorld.Token))).Should().Be(0);
+        run.Status.Should().Be(RunStatus.Completed, "sharing was allowed, and an attached file does not change that");
+        (await world.ReadToolCalls(run.Id)).Single(call => call.ToolName == "sandbox_share_file").Status.Should().Be(ToolCallStatus.Completed);
+        (await world.Read(db => db.Files.CountAsync(file => file.CreatedByBotId != null, RunWorld.Token))).Should().Be(1);
     }
 
     [Fact]
