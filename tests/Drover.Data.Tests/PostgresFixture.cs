@@ -3,9 +3,10 @@ namespace Drover.Data.Tests;
 /// <summary>
 /// One real PostgreSQL for the whole data test run. It uses the server named by <c>DROVER_TEST_POSTGRES</c> (a
 /// superuser connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It makes
-/// a database of its own, bootstraps the roles with passwords generated for this run, applies the migrations as
-/// <c>drover_owner</c>, and hands out connections as <c>drover_app</c>. Roles belong to the server, not the
-/// database, so two test runs against one server at the same time would reset each other's passwords.
+/// a database of its own, applies the migrations as <c>drover_owner</c>, and hands out connections as
+/// <c>drover_app</c>. Role passwords come from <see cref="TestRolePasswords"/>: roles belong to the server, not a
+/// database or a process, so every assembly that runs against one server at the same time must agree on them or
+/// they would reset each other's passwords.
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
@@ -13,13 +14,13 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly string databaseName = $"drover_test_{Guid.NewGuid():N}";
 
-    private readonly string ownerPassword = NewPassword();
-
-    private readonly string appPassword = NewPassword();
-
     private readonly Stopwatch elapsed = new();
 
     private readonly Lazy<Task<string>> scratchTemplate;
+
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
+
+    private string appPassword = null!;
 
     private PostgreSqlContainer? container;
 
@@ -50,6 +51,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         elapsed.Start();
         serverConnection = [with(await FindServer())];
+        ownerPassword = TestRolePasswords.For(serverConnection, "drover_owner");
+        appPassword = TestRolePasswords.For(serverConnection, "drover_app");
         await CreateDatabase();
         await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);
@@ -200,8 +203,6 @@ public sealed class PostgresFixture : IAsyncLifetime
             File.AppendAllText(summary, $"{line}{Environment.NewLine}");
         }
     }
-
-    private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 
     #endregion
 }

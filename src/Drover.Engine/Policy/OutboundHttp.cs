@@ -128,20 +128,23 @@ public static class OutboundHttp
         int port,
         CancellationToken cancellationToken)
     {
-        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        Socket? socket = null;
         try
         {
+            // Making the socket is a socket failure of its own: a machine without the address family (a host with
+            // IPv6 off) refuses it with AddressFamilyNotSupported, which must fall through to the next address.
+            socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             await socket.ConnectAsync(new IPEndPoint(address, port), cancellationToken);
             return (new NetworkStream(socket, ownsSocket: true), null);
         }
         catch (SocketException failure)
         {
-            socket.Dispose();
+            socket?.Dispose();
             return (null, failure);
         }
         catch
         {
-            socket.Dispose();
+            socket?.Dispose();
             throw;
         }
     }

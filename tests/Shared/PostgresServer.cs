@@ -3,22 +3,24 @@ namespace Drover.Tests.Common;
 /// <summary>
 /// One real PostgreSQL for a test assembly. It uses the server named by <c>DROVER_TEST_POSTGRES</c> (a superuser
 /// connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It migrates one
-/// template database, and each test class copies that template into a database of its own. Role passwords are
-/// generated for the run. Roles belong to the server, not the database, so two test assemblies run against one
-/// named server at the same time would reset each other's passwords: run them one after the other there.
+/// template database, and each test class copies that template into a database of its own. Role passwords come from
+/// <see cref="TestRolePasswords"/>: roles belong to the server, not this database, so every assembly that runs
+/// against one server at the same time must agree on them or they would reset each other's passwords. When the
+/// named server's connection string gives the superuser no password (a server that trusts the connection), a
+/// stand-in is filled in: it is never asked for, but settings handed to the server under test are complete either
+/// way, as they are on a server that checks passwords.
 /// </summary>
 public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
-    private readonly string ownerPassword = NewPassword();
-
-    private readonly string appPassword = NewPassword();
+    private readonly SemaphoreSlim creating = new(1, 1);
 
     private readonly string templateName = $"drover_template_{Guid.NewGuid():N}";
 
-    // Roles belong to the server, so two bootstraps at once race on them. Databases are made one at a time.
-    private readonly SemaphoreSlim creating = new(1, 1);
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
+
+    private string appPassword = null!;
 
     private PostgreSqlContainer? container;
 
@@ -41,6 +43,16 @@ public sealed class PostgresServer : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = [with(await FindServer())];
+
+        if (string.IsNullOrEmpty(server.Password))
+        {
+            // A server that trusts this connection never asks for the superuser's password; give the connection
+            // string a stand-in value anyway, so configuration built from it is complete on every machine.
+            server.Password = TestRolePasswords.For(server, "postgres");
+        }
+
+        ownerPassword = TestRolePasswords.For(server, "drover_owner");
+        appPassword = TestRolePasswords.For(server, "drover_app");
         await ExecuteOnServer($"CREATE DATABASE {templateName}");
         await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
         await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
@@ -123,8 +135,6 @@ public sealed class PostgresServer : IAsyncLifetime
         builder.Password = password;
         return builder;
     }
-
-    private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 
     #endregion
 }
