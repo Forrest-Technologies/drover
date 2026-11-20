@@ -31,6 +31,41 @@ public sealed class AttachedFileTests(PostgresServer postgres)
     }
 
     [Fact]
+    public async Task A_picture_reaches_a_compatible_endpoints_model_as_the_picture_once_an_admin_marks_it_and_a_refresh_keeps_the_mark()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("A cat.")]));
+        var scriptedKind = await SetConnectionKind(world, ModelConnectionKinds.Compatible);
+        var threadId = await world.NewThread();
+
+        var before = await world.Upload(threadId, "cat.png", TestPng.Make(64, 48));
+        before.Problem.Should().Be(FileProblem.Refused, "the endpoint lists the model and says nothing of pictures");
+
+        var change = await world.Transact(async services =>
+        {
+            var connectionId = (await services.GetRequiredService<ModelConnectionRepository>().ListConnections(RunWorld.Token)).Single().Id;
+            return await services.GetRequiredService<ModelConnectionService>().SetVision(connectionId, "scripted", true, RunWorld.Token);
+        });
+        change!.Problem.Should().BeNull();
+        await SetConnectionKind(world, scriptedKind);
+        await world.Read(async db =>
+        {
+            var model = await db.ModelCatalog.SingleAsync(entry => entry.Model == "scripted", RunWorld.Token);
+            CatalogUpsert.Apply(model.ModelConnectionId, [model], [new ModelInfo("scripted", "Scripted", new ModelCapabilities(), [])], DateTimeOffset.UtcNow);
+            return true;
+        });
+        var png = TestPng.Make(64, 48);
+        var upload = await world.Upload(threadId, "cat.png", png);
+        upload.File.Should().NotBeNull(upload.Detail);
+        world.StartHost();
+        var runId = await PostWith(world, threadId, "What is this?", upload.File!.Id);
+
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        var seen = world.Model.ImagesSeen[0].Should().ContainSingle().Which;
+        seen.MediaType.Should().Be("image/png");
+        seen.Data.ToArray().Should().Equal(png);
+    }
+
+    [Fact]
     public async Task A_text_file_reaches_the_model_as_its_text()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("Read it.")]));
@@ -650,6 +685,16 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         yield return new CommandStdout(Encoding.UTF8.GetBytes(text));
         yield return new CommandExited(0, null);
     }
+
+    /// <summary>Changes the kind of the world's connection and returns the kind it had. The run needs the scripted one back.</summary>
+    private static Task<string> SetConnectionKind(RunWorld world, string kind) =>
+        world.Read(async db =>
+        {
+            var connection = await db.ModelConnections.SingleAsync(RunWorld.Token);
+            var previous = connection.Kind;
+            connection.Kind = kind;
+            return previous;
+        });
 
     private static Task<bool> SetVision(RunWorld world, bool vision) =>
         world.Read(async db =>
