@@ -24,7 +24,7 @@ public static class Screens
         .Map(typeof(MeetBotPage), "/setup/bot")
         .Map(typeof(ShareToPage), "/share")
         .Map(typeof(BotListPage), "/bots")
-        .Map(typeof(BotEditorPage), "/bots/{BotId:guid}")
+        .Map(typeof(BotEditorPage), "/bots/{BotId:guid}", "/bots/new")
         .Map(typeof(BotSandboxPage), "/bots/{BotId:guid}/sandbox")
         .Map(typeof(ModelConnectionsPage), "/models")
         .Map(typeof(ToolConnectionsPage), "/tools")

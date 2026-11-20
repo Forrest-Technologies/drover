@@ -33,6 +33,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
     private static readonly Guid eyesConnectionId = Guid.Parse("0196f1a0-0000-7000-8000-000000000008");
 
+    private static readonly Guid madeId = Guid.Parse("0196f1a0-0000-7000-8000-000000000009");
+
     private static readonly string space = $"/api/spaces/{SpaceId}";
 
     private static readonly string bot = $"/api/spaces/{SpaceId}/bots/{botId}";
@@ -510,6 +512,176 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
         Navigator.Current.Should().Be(Addresses.Models);
         editor.Leaving.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Making A Bot
+
+    [Fact]
+    public async Task New_bot_opens_an_unsaved_draft_on_the_connection_and_stores_nothing()
+    {
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.IsNew.Should().BeTrue();
+        editor.State.Should().Be(BotEditorState.Shown);
+        editor.Heading.Should().Be("New bot");
+        editor.Draft!.Name.Should().Be("New bot");
+        editor.Draft.Handle.Should().Be("new-bot");
+        editor.Draft.ModelConnectionId.Should().Be(connectionId);
+        editor.Draft.Model.Should().Be("sample-large");
+        editor.SaveWords.Should().Be("Not made until you save");
+        editor.SaveLabel.Should().Be("Make bot");
+        editor.CanSave.Should().BeTrue();
+        BotEditorViewModel.Sections.Where(editor.ShowsSection).Should().Equal(Model, BotEditorViewModel.MemorySection, Team, Limits);
+        Server.Requests.Should().NotContain(request => request.Method == "POST" || request.Method == "PUT", "nothing is stored until the person saves");
+    }
+
+    [Fact]
+    public async Task A_connection_with_no_default_model_gives_the_draft_the_model_a_bot_already_uses_on_it()
+    {
+        Server.Answer("GET", $"{space}/model-connections", new[] { Connection with { DefaultModel = null } });
+        Server.Answer("GET", $"{space}/bots", new[] { BotSummaryOf(botId, "Marshal") with { Model = "sample-plain" } });
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.Draft!.Model.Should().Be("sample-plain");
+    }
+
+    [Fact]
+    public async Task Leaving_an_unmade_bot_asks_first_and_creates_nothing()
+    {
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+
+        Navigator.NavigateTo(Addresses.Bots);
+
+        Navigator.Current.Should().Be(Addresses.Home, "the editor stays until the person says");
+        editor.Leaving.Should().BeTrue();
+        editor.LeaveCause.Should().Be("New bot is not made yet. Leaving drops it.");
+        Navigator.HoldsWork!().Should().BeTrue();
+
+        editor.Leave();
+
+        Navigator.Current.Should().Be(Addresses.Bots);
+        Server.Requests.Should().NotContain(request => request.Method == "POST" || request.Method == "PUT", "leaving a draft stores no bot");
+    }
+
+    [Fact]
+    public async Task Saving_an_unmade_bot_makes_it_once_with_the_name_model_and_handle_the_server_numbered()
+    {
+        Server.Answer("POST", $"{space}/bots", Made("writer-2"), HttpStatusCode.Created);
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer", Handle = "writer-2" });
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+        editor.Edit(draft => draft.DescriptionForBots = "Writes things.");
+        editor.Draft!.Handle.Should().Be("writer", "the handle follows the name until someone chooses it");
+
+        await editor.Save();
+        await editor.Save();
+
+        Navigator.Current.Should().Be(Addresses.Bot(madeId));
+        var sent = Server.Sent("POST", $"{space}/bots").Should().ContainSingle("the bot is made once").Subject;
+        sent.Should().Contain("\"name\":\"Writer\"").And.Contain("\"model\":\"sample-large\"").And.Contain($"\"modelConnectionId\":\"{connectionId}\"");
+        var update = Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Subject;
+        update.Should().Contain("\"handle\":\"writer-2\"", "the handle the server made from the name is kept").And.Contain("Writes things.");
+    }
+
+    [Fact]
+    public async Task A_handle_the_person_chose_is_kept_when_the_bot_is_made()
+    {
+        Server.Answer("POST", $"{space}/bots", Made("writer"), HttpStatusCode.Created);
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Handle = "my-writer" });
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+        editor.Edit(draft => draft.Handle = "my-writer");
+
+        await editor.Save();
+
+        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Which.Should().Contain("\"handle\":\"my-writer\"");
+    }
+
+    [Fact]
+    public async Task New_bot_under_a_bot_keeps_its_parent_through_the_draft()
+    {
+        var parent = BotSummaryOf(botId, "Marshal");
+        Server.Answer("GET", $"{space}/bots", new[] { parent });
+        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId });
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(botId);
+        await editor.Save();
+
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle().Which.Should().Contain($"\"parentBotId\":\"{botId}\"");
+    }
+
+    [Fact]
+    public async Task A_parent_that_is_not_in_the_space_says_the_bot_is_not_here()
+    {
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(Guid.Parse("0196f1a0-0000-7000-8000-0000000000ff"));
+
+        editor.State.Should().Be(BotEditorState.Missing);
+    }
+
+    [Fact]
+    public async Task A_refusal_to_make_a_bot_is_said_in_the_servers_words_and_the_draft_stays()
+    {
+        Server.Refuse("POST", $"{space}/bots", HttpStatusCode.Conflict, "This space holds at most 1 bot.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+
+        await editor.Save();
+
+        editor.SaveProblem.Should().Be("This space holds at most 1 bot.");
+        editor.IsNew.Should().BeTrue();
+        editor.Draft!.Name.Should().Be("Writer");
+        Navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public async Task A_bot_that_was_made_stays_made_when_its_other_settings_could_not_be_saved()
+    {
+        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
+        Server.Refuse("PUT", $"{space}/bots/{madeId}/definition", HttpStatusCode.BadRequest, "Keep the instructions short.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+
+        await editor.Save();
+
+        Navigator.Current.Should().Be(Addresses.Bot(madeId), "the editor opens the bot that was made, so saving again does not make a second");
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_member_is_told_they_cannot_make_a_bot()
+    {
+        Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.State.Should().Be(BotEditorState.NotPermitted);
+    }
+
+    [Fact]
+    public async Task A_space_with_no_model_says_what_is_missing_instead_of_opening_a_draft()
+    {
+        Server.Answer("GET", $"{space}/model-connections", Array.Empty<ModelConnectionSummary>());
+        var editor = Make<BotEditorViewModel>();
+
+        await editor.OpenUnmade(null);
+
+        editor.State.Should().Be(BotEditorState.Failed);
+        editor.LoadProblem.Should().Be(BotEditorViewModel.NoModelCause);
     }
 
     #endregion
@@ -1438,6 +1610,12 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         new(ruleId, botId, "Marshal", false, name, true, 0, checkpoint, effect, conditions);
 
     // Opens the editor and checks it read everything, as the web tests wait for a section's summary.
+    private static BotSummary Made(string handle = "new-bot") =>
+        new(madeId, "New bot", handle, string.Empty, connectionId, "sample-large", "active");
+
+    private static BotSummary BotSummaryOf(Guid id, string name) =>
+        new(id, name, name.ToLowerInvariant(), "Sample instructions", connectionId, "sample-large", "active");
+
     private async Task<BotEditorViewModel> OpenEditor(string loaded = "Rules, No rules")
     {
         var editor = Make<BotEditorViewModel>();

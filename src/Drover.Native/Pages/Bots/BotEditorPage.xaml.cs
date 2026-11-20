@@ -104,6 +104,10 @@ public sealed partial class BotEditorPage : Screen
         {
             await Model.Open(botId, route.QueryValue("section"));
         }
+        else
+        {
+            await Model.OpenUnmade(Guid.TryParse(route.QueryValue("parent"), out var parent) ? parent : null);
+        }
     }
 
     private void Show()
@@ -393,6 +397,7 @@ public sealed partial class BotEditorPage : Screen
         handleRow.Shown(!Model.EditingHandle);
         handleWords.Show(Model.HandleShown);
         paused.Shown(Model.IsPaused);
+        menu.Shown(!Model.IsNew);
         pauseOrResume.Content = Model.IsPaused ? BotEditorViewModel.ResumeLabel : BotEditorViewModel.PauseLabel;
         actionProblem.Show(Model.ActionProblem);
         purpose.Show(draft.DescriptionForBots);
@@ -406,6 +411,13 @@ public sealed partial class BotEditorPage : Screen
     {
         foreach (var (section, (frame, part)) in sections)
         {
+            frame.Shown(Model.ShowsSection(section));
+
+            if (!Model.ShowsSection(section))
+            {
+                continue;
+            }
+
             frame.Summary = Model.Summary(section);
             if (frame.Open != Model.IsOpen(section))
             {

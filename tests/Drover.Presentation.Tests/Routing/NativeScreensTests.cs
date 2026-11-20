@@ -10,6 +10,10 @@ public sealed partial class NativeScreensTests
 
     private static readonly string[] onlyOnTheWeb = ["/dev/starters"];
 
+    // The web client still makes a bot when New bot is pressed. The native client opens the editor on a bot that is
+    // not made yet, at this address, and nothing is stored until it is saved.
+    private static readonly string[] onlyOnNative = ["/bots/new"];
+
     #endregion
 
     #region Public Methods
@@ -23,7 +27,7 @@ public sealed partial class NativeScreensTests
             .ToList();
 
         web.Should().NotBeEmpty();
-        NativePatterns().Should().BeEquivalentTo(web, "an address is a promise: a link someone kept must open in either client");
+        NativePatterns().Except(onlyOnNative).Should().BeEquivalentTo(web, "an address is a promise: a link someone kept must open in either client");
     }
 
     [Fact]
@@ -45,7 +49,7 @@ public sealed partial class NativeScreensTests
             Addresses.Talk(bot), Addresses.Summary(bot), Addresses.Memory(bot), Addresses.Screen(bot), Addresses.Activity(bot),
             Addresses.Activity(bot, other), Addresses.Files(bot), Addresses.Moment(bot, other, Guid.NewGuid(), false),
             Addresses.SideChats(bot), Addresses.NewSideChat(bot), Addresses.SideChat(bot, other), Addresses.Work(bot, other, other),
-            Addresses.Bot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
+            Addresses.Bot(bot), Addresses.NewBot(), Addresses.NewBot(bot), Addresses.BotMemory(bot), Addresses.BotSandbox(bot), Addresses.BotTerminal(bot),
             Addresses.UsageFor("7d"), Addresses.UsageFor("7d", bot), Addresses.ToolSignIn("done", "sample"),
             Addresses.ToolSignIn("failed", null), Addresses.ToolSignInReturn("sample ticket"),
         ];

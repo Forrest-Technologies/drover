@@ -11,8 +11,6 @@ public sealed partial class BotListViewModel(
 {
     #region Private Fields
 
-    private const string NewBotName = "New bot";
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(State), nameof(Crew), nameof(ShowsNewBot), nameof(ShowsAddUnder))]
     private IReadOnlyList<BotSummary>? bots;
@@ -24,13 +22,6 @@ public sealed partial class BotListViewModel(
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(State))]
     private string? loadProblem;
-
-    [ObservableProperty]
-    private string? problem;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(NewBotLabel), nameof(MakeBotLabel))]
-    private bool creating;
 
     #endregion
 
@@ -86,9 +77,9 @@ public sealed partial class BotListViewModel(
     /// <summary>Each row's button that makes a bot under it.</summary>
     public bool ShowsAddUnder => CanEdit && Connections is { Count: > 0 };
 
-    public string NewBotLabel => Creating ? "Making a bot" : "New bot";
+    public static string NewBotLabel => "New bot";
 
-    public string MakeBotLabel => Creating ? "Making a bot" : "Make a bot";
+    public static string MakeBotLabel => "Make a bot";
 
     /// <summary>The bots as the crew they form: a bot, then the bots it manages, set in beneath it.</summary>
     public IReadOnlyList<CrewNode> Crew => Bots is null ? [] : CrewTree.From(Bots);
@@ -126,34 +117,11 @@ public sealed partial class BotListViewModel(
     }
 
     /// <summary>
-    /// Makes a bot on the connection that last answered, at the top of the crew or under <paramref name="parentBotId"/>,
-    /// and opens it so that everything else is set there.
+    /// Opens the editor on a bot that is not made yet, at the top of the crew or under <paramref name="parentBotId"/>.
+    /// Nothing is stored until the person saves it there.
     /// </summary>
     [RelayCommand]
-    public async Task Create(Guid? parentBotId)
-    {
-        var connection = Connections!
-            .OrderByDescending(candidate => candidate.Status is "connected")
-            .ThenByDescending(candidate => candidate.LastCheckedAt)
-            .First();
-        Creating = true;
-        Problem = null;
-
-        try
-        {
-            var bot = await api.CreateBot(SpaceId, new(NewBotName, string.Empty, connection.Id, await FindModel(connection), parentBotId));
-            navigator.NavigateTo(Addresses.Bot(bot.Id));
-        }
-        catch (Exception exception) when (Failures.IsReportable(exception))
-        {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotListViewModel));
-            Problem = Failures.Sentence(exception);
-        }
-        finally
-        {
-            Creating = false;
-        }
-    }
+    public void Create(Guid? parentBotId) => navigator.NavigateTo(Addresses.NewBot(parentBotId));
 
     /// <summary>The line under a bot's name: its handle, its model, and the bot that made it, when that bot is still here.</summary>
     public string Facts(BotSummary bot) => $"@{bot.Handle} · {bot.Model}{MadeBy(bot)}";
@@ -173,12 +141,6 @@ public sealed partial class BotListViewModel(
         bot.MadeByBotId is { } maker && Bots!.FirstOrDefault(candidate => candidate.Id == maker) is { } made
             ? $" · made by {made.Name}"
             : string.Empty;
-
-    // The connection's own default, then the model a bot already uses on it, then the first one it lists.
-    private async Task<string?> FindModel(ModelConnectionSummary connection) =>
-        connection.DefaultModel
-        ?? Bots!.FirstOrDefault(bot => bot.ModelConnectionId == connection.Id)?.Model
-        ?? (await api.ListModels(SpaceId, connection.Id)).FirstOrDefault(entry => entry.State is "available")?.Model;
 
     #endregion
 }

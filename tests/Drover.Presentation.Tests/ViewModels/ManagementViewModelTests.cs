@@ -89,22 +89,17 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task A_new_bot_is_created_beneath_the_chosen_parent_with_the_existing_default_model()
+    public async Task A_new_bot_opens_an_unsaved_draft_beneath_the_chosen_parent_and_stores_nothing()
     {
-        var result = new BotSummary(botId, "New bot", "new-bot", "", connectionId, "sample-model", "active");
         server.Answer("GET", $"{space}/model-connections", new[] { Connection });
         server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
-        server.Answer("POST", $"{space}/bots", result, HttpStatusCode.Created);
         var model = new BotListViewModel(server.CreateApi(), session, navigator, NullLogger<BotListViewModel>.Instance);
         await model.Open();
 
-        await model.Create(parentId);
+        model.Create(parentId);
 
-        var sent = JsonSerializer.Deserialize<CreateBotRequest>(server.Sent("POST", $"{space}/bots").Single(), JsonSerializerOptions.Web)!;
-        sent.ParentBotId.Should().Be(parentId);
-        sent.Model.Should().Be("sample-model");
-        navigator.Current.Should().Be(Addresses.Bot(botId));
-        model.Creating.Should().BeFalse();
+        navigator.Current.Should().Be(Addresses.NewBot(parentId));
+        server.Requests.Should().NotContain(request => request.Method == "POST");
     }
 
     [Fact]

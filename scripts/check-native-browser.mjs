@@ -108,6 +108,7 @@ const screens = [
     ['meet-bot-empty', '/setup/bot', 'Meet your first bot'],
     ['bots', '/bots', 'Bots'],
     ['bot-editor', `/bots/${botId}`, 'Sample bot', 'Edit Sample bot'],
+    ['bot-new', '/bots/new', 'New bot'],
     ['sandbox-terminal', `/bots/${botId}/sandbox?tab=terminal`, "Sample bot's sandbox"],
     ['conversation', `/talk/${botId}`, 'Sample bot'],
     ['share-empty', '/share', 'Share to Drover'],
@@ -174,6 +175,7 @@ try {
             });
             let current;
             let heldRoute;
+            let botCreates = 0;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
             let externalBeaconRequests = 0;
@@ -214,6 +216,11 @@ try {
                 else if (address === '/api/setup') { body = { requiresCode: true }; }
                 else if (address.endsWith('/model-connections')) { body = current === 'meet-bot-empty' ? [] : [connection]; }
                 else if (address.endsWith(`/model-connections/${connectionId}/models`)) { body = []; }
+                else if (address.endsWith('/bots') && route.request().method() === 'POST') {
+                    botCreates++;
+                    await route.fulfill({ status: 201, json: bot });
+                    return;
+                }
                 else if (address.endsWith('/bots')) { body = current === 'meet-bot-empty' ? [] : [bot]; }
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
@@ -297,6 +304,10 @@ try {
                 await route.fulfill({ json: body });
             });
             for (const [name, address, title, heading = title] of screens) {
+                if (reference && name === 'bot-new') {
+                    continue;
+                }
+
                 current = name;
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
@@ -410,6 +421,9 @@ try {
                 if (name === 'bot-editor' && !reference) {
                     await checkLeavingWithEdits(page, address);
                 }
+                if (name === 'bot-new') {
+                    await checkLeavingNewBot(page, () => botCreates);
+                }
                 if (name === 'usage') {
                     const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
                     if (reference) {
@@ -509,6 +523,20 @@ async function checkLeavingWithEdits(page, address) {
     await page.waitForFunction(() => document.title.startsWith('Bots'), null, { timeout: 15000 });
     page.off('dialog', count);
     assert.equal(prompts, 0, 'With nothing unsaved, reloading asks nothing.');
+}
+
+// A new bot opens as a draft: nothing is stored until it is saved, so leaving it asks first and creates no bot.
+async function checkLeavingNewBot(page, createdBots) {
+    const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
+    await page.getByRole('button', { name: 'Make bot', exact: true }).waitFor({ state: 'attached', timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Opening a new bot stores nothing.');
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Being asked about leaving stores nothing.');
+    await page.getByRole('button', { name: 'Leave', exact: true }).dispatchEvent('click');
+    await page.waitForFunction(() => document.title.startsWith('Sample bot'), null, { timeout: 15000 });
+    assert.equal(createdBots(), 0, 'Leaving an unsaved new bot creates no bot.');
 }
 
 async function checkWorkspacePanels(page, width, theme) {
