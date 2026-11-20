@@ -202,7 +202,7 @@ public sealed partial class ExtensionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionsViewModel));
-            (Notice, NoticeIsProblem) = (Failures.Sentence(exception), true);
+            (Notice, NoticeIsProblem) = (Failures.Sentence(exception, "Check that the server is running."), true);
         }
         finally
         {
@@ -226,7 +226,7 @@ public sealed partial class ExtensionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionsViewModel));
-            ImportProblem = Failures.Sentence(exception);
+            ImportProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

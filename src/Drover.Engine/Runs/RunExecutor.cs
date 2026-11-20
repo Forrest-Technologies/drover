@@ -260,10 +260,20 @@ public sealed partial class RunExecutor(
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
-        var carriesFiles = thread is not null
-            && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
+        Project? project = null;
+        var projectHasFiles = false;
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
+        if (thread?.ProjectId is { } projectId)
+        {
+            project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
+            projectHasFiles = project is not null
+                && await services.GetRequiredService<FileRepository>().AnyProjectFile(project.Id, cancellationToken);
+        }
+
+        var carriesFiles = thread is not null
+            && (projectHasFiles || await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken));
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project, carriesFiles);
     }
 
     /// <summary>
@@ -738,6 +748,9 @@ public sealed partial class RunExecutor(
         Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
             ? memory with { CanList = offered.Contains("memory.list") }
             : null,
+        Project = loaded.Project is null
+            ? null
+            : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
     };
 
     /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
@@ -1245,6 +1258,7 @@ public sealed partial class RunExecutor(
         bool ModelSeesImages,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
+        Project? Project,
         bool CarriesFiles);
 
     #endregion

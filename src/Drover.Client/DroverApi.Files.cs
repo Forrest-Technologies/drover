@@ -89,39 +89,72 @@ public sealed partial class DroverApi
         long size,
         IProgress<long>? progress = null,
         CancellationToken cancellationToken = default) =>
-        SendFile(spaceId, threadId, name, new ProgressContent(content, size, progress), cancellationToken);
+        SendFile<FileResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}",
+            new ProgressContent(content, size, progress),
+            cancellationToken);
 
     /// <summary>Measures and uploads a file whose provider may not know its exact byte length.</summary>
-    public async Task<FileResponse> UploadFileWithUnverifiedSize(
+    public Task<FileResponse> UploadFileWithUnverifiedSize(
         Guid spaceId,
         Guid threadId,
         string name,
         Stream content,
         long maxBytes,
         IProgress<long>? progress = null,
-        CancellationToken cancellationToken = default)
-    {
-        using var body = new ProgressContent(content, null, progress);
-        try
-        {
-            // Android's HTTP handler chooses fixed-length framing before it buffers the content. Buffer first so
-            // Content-Length comes from the bytes themselves, even when the picker returned zero or a stale size.
-            await body.LoadIntoBufferAsync(maxBytes, cancellationToken);
-        }
-        catch (HttpRequestException exception) when (exception.HttpRequestError is HttpRequestError.ConfigurationLimitExceeded)
-        {
-            throw new DroverApiException(HttpStatusCode.RequestEntityTooLarge, "The file is larger than the server takes.")
-            {
-                Refusal = FileRefusals.TooLarge,
-            };
-        }
-
-        return await SendFile(spaceId, threadId, name, body, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) =>
+        BufferAndSendFile<FileResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}",
+            content,
+            maxBytes,
+            progress,
+            cancellationToken);
 
     /// <summary>Removes a file the caller attached and has not sent.</summary>
     public Task RemoveFile(Guid spaceId, Guid fileId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/files/{fileId}", cancellationToken);
+
+    /// <summary>The files shared in a project, newest first.</summary>
+    public Task<IReadOnlyList<ProjectFileResponse>> ListProjectFiles(Guid spaceId, Guid projectId, CancellationToken cancellationToken = default) =>
+        Get<IReadOnlyList<ProjectFileResponse>>($"{Space(spaceId)}/projects/{projectId}/files", cancellationToken);
+
+    /// <summary>Uploads a shared file to a project.</summary>
+    public Task<ProjectFileResponse> UploadProjectFile(
+        Guid spaceId,
+        Guid projectId,
+        string name,
+        Stream content,
+        long size,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        SendFile<ProjectFileResponse>(
+            $"{Space(spaceId)}/projects/{projectId}/files?name={Uri.EscapeDataString(name)}",
+            new ProgressContent(content, size, progress),
+            cancellationToken);
+
+    /// <summary>Measures and uploads a shared project file whose provider may not know its exact byte length.</summary>
+    public Task<ProjectFileResponse> UploadProjectFileWithUnverifiedSize(
+        Guid spaceId,
+        Guid projectId,
+        string name,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        BufferAndSendFile<ProjectFileResponse>(
+            $"{Space(spaceId)}/projects/{projectId}/files?name={Uri.EscapeDataString(name)}",
+            content,
+            maxBytes,
+            progress,
+            cancellationToken);
+
+    /// <summary>Removes a shared file from a project.</summary>
+    public Task RemoveProjectFile(Guid spaceId, Guid projectId, Guid fileId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/projects/{projectId}/files/{fileId}", cancellationToken);
+
+    /// <summary>Where a shared project file is read from, for a download link or preview. The server checks who asks.</summary>
+    public string ProjectFileAddress(Guid spaceId, Guid projectId, Guid fileId, bool download = false) =>
+        new Uri(http.BaseAddress!, $"{Space(spaceId)}/projects/{projectId}/files/{fileId}{(download ? "?download=true" : string.Empty)}").ToString();
 
     /// <summary>Where a file is read from, for a picture's source or a download link. The server checks who asks.</summary>
     public string FileAddress(Guid spaceId, Guid fileId, bool download = false) =>
@@ -152,10 +185,34 @@ public sealed partial class DroverApi
 
     #region Private Methods
 
-    private async Task<FileResponse> SendFile(
-        Guid spaceId, Guid threadId, string name, HttpContent body, CancellationToken cancellationToken)
+    private async Task<T> BufferAndSendFile<T>(
+        string path,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress,
+        CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
+        using var body = new ProgressContent(content, null, progress);
+        try
+        {
+            // Android's HTTP handler chooses fixed-length framing before it buffers the content. Buffer first so
+            // Content-Length comes from the bytes themselves, even when the picker returned zero or a stale size.
+            await body.LoadIntoBufferAsync(maxBytes, cancellationToken);
+        }
+        catch (HttpRequestException exception) when (exception.HttpRequestError is HttpRequestError.ConfigurationLimitExceeded)
+        {
+            throw new DroverApiException(HttpStatusCode.RequestEntityTooLarge, "The file is larger than the server takes.")
+            {
+                Refusal = FileRefusals.TooLarge,
+            };
+        }
+
+        return await SendFile<T>(path, body, cancellationToken);
+    }
+
+    private async Task<T> SendFile<T>(string path, HttpContent body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
             Content = body,
         };
@@ -166,7 +223,7 @@ public sealed partial class DroverApi
         }
 
         using var response = await http.SendAsync(request, cancellationToken);
-        return await Read<FileResponse>(response, cancellationToken);
+        return await Read<T>(response, cancellationToken);
     }
 
     private bool TryConversationFile(string address, out Guid spaceId, out Guid fileId)

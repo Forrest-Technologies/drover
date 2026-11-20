@@ -694,7 +694,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditorViewModel));
-            report(Failures.Sentence(exception));
+            report(Failures.Sentence(exception, "Check that the server is running."));
         }
 
         Notify();

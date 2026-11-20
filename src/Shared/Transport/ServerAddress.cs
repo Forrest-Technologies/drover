@@ -22,6 +22,9 @@ public sealed class ServerAddress
         Current = origin;
     }
 
+    /// <summary>Points at an origin for this run only. Nothing is stored.</summary>
+    internal void Use(Uri origin) => Current = origin;
+
     public void Forget()
     {
         Preferences.Default.Remove(Preference);

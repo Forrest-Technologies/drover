@@ -87,7 +87,7 @@ else
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePush));
-            problem = $"Could not check notifications on this device. {Failures.Sentence(exception)}";
+            problem = $"Could not check notifications on this device. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (JSException exception)
         {
@@ -142,7 +142,7 @@ else
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            problem = $"Could not send the test. {Failures.Sentence(exception)}";
+            problem = $"Could not send the test. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -163,7 +163,7 @@ else
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             Logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePush));
-            problem = $"Notifications did not change. {Failures.Sentence(exception)}";
+            problem = $"Notifications did not change. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (JSException exception)
         {

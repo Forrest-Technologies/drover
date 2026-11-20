@@ -117,7 +117,7 @@ public sealed partial class ExtensionsPage(DroverApi api, SessionState session, 
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionsPage));
-            importProblem = Failures.Sentence(exception);
+            importProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -148,7 +148,7 @@ public sealed partial class ExtensionsPage(DroverApi api, SessionState session, 
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionsPage));
-            (notice, noticeIsProblem) = (Failures.Sentence(exception), true);
+            (notice, noticeIsProblem) = (Failures.Sentence(exception, "Check that the server is running."), true);
         }
         finally
         {

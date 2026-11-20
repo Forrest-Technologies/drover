@@ -25,6 +25,7 @@ public enum FileRefusal
     ModelCannotReadImages,
     NothingCanOpenIt,
     SpaceFull,
+    UploadExpired,
     PrivateConversation,
 }
 
@@ -141,6 +142,7 @@ public static class FileWords
         FileRefusal.ModelCannotReadImages => $"{botName}'s model cannot read pictures.",
         FileRefusal.NothingCanOpenIt => $"{botName} has no way to open this kind of file. It needs a sandbox for it.",
         FileRefusal.SpaceFull => "This space has no room left for files on this server.",
+        FileRefusal.UploadExpired => "This upload took too long before finishing, so its space was released. Upload it again.",
         FileRefusal.PrivateConversation => $"This conversation is private, and others in this space can reach {botName}'s sandbox, so this file cannot go there.",
         _ => string.Empty,
     };
@@ -153,6 +155,7 @@ public static class FileWords
         FileRefusals.TooLarge => FileRefusal.TooLarge,
         FileRefusals.TooMany => FileRefusal.TooMany,
         FileRefusals.SpaceFull => FileRefusal.SpaceFull,
+        FileRefusals.UploadExpired => FileRefusal.UploadExpired,
         FileRefusals.ModelCannotReadImages => FileRefusal.ModelCannotReadImages,
         FileRefusals.NothingCanOpenIt => FileRefusal.NothingCanOpenIt,
         FileRefusals.PrivateConversation => FileRefusal.PrivateConversation,
