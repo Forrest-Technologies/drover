@@ -100,6 +100,53 @@ public sealed class BotWordsTests
     }
 
     [Fact]
+    public void The_request_a_draft_builds_says_whether_its_handle_follows_the_name_for_every_editor()
+    {
+        var followed = BotDraft.From(Stored("New bot", "new-bot"));
+        var chosen = BotDraft.From(Stored("New bot", "new-bot"));
+        followed.Rename("Writer");
+        chosen.Handle = "my-bot";
+
+        followed.ToRequest().HandleFollowsName.Should().BeTrue("the handle is the one the name made, so the server may number it");
+        followed.ToRequest().Handle.Should().Be("writer");
+        chosen.ToRequest().HandleFollowsName.Should().BeFalse("a person set it, so the server records it as chosen");
+        BotDraft.From(Stored("New bot", "new-bot") with { HandleChosen = true }).ToRequest().HandleFollowsName.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Two_successive_renames_saved_through_the_shared_builder_keep_following_the_name_until_a_handle_is_chosen()
+    {
+        // What the web editor does: build the draft from the stored bot, rename it, save the request the draft builds,
+        // read the stored bot back, and do it again. The server's answer here is what it stores for each request.
+        var stored = Stored("New bot", "new-bot-2");
+        var draft = BotDraft.From(stored);
+        draft.Rename("Writer");
+        var first = draft.ToRequest();
+        stored = stored with { Name = first.Name!, Handle = first.Handle!, HandleChosen = first.HandleFollowsName is false };
+
+        first.HandleFollowsName.Should().BeTrue();
+        stored.HandleChosen.Should().BeFalse("saving a handle the name made does not record it as chosen");
+
+        draft = BotDraft.From(stored);
+        draft.Rename("Author");
+        var second = draft.ToRequest();
+
+        second.Handle.Should().Be("author", "the handle still follows the name after the first rename was saved");
+        second.HandleFollowsName.Should().BeTrue();
+
+        // The person now sets the handle: that is stored as chosen, and a third rename leaves it alone.
+        draft = BotDraft.From(stored with { Name = "Author", Handle = "author" });
+        draft.Handle = "my-author";
+        var chosenRequest = draft.ToRequest();
+        stored = stored with { Name = "Author", Handle = chosenRequest.Handle!, HandleChosen = chosenRequest.HandleFollowsName is false };
+        draft = BotDraft.From(stored);
+        draft.Rename("Editor");
+
+        stored.HandleChosen.Should().BeTrue();
+        draft.ToRequest().Handle.Should().Be("my-author");
+    }
+
+    [Fact]
     public void A_handle_the_server_says_was_chosen_never_follows_even_when_it_is_spelled_like_one_the_name_made()
     {
         // new-bot-2 on a bot named New bot, set by a person in an earlier session and stored as chosen.

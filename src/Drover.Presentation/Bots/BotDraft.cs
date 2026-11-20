@@ -191,6 +191,11 @@ public sealed class BotDraft
         return null;
     }
 
+    /// <summary>
+    /// The request that saves this draft. It says whether the handle is the one the name makes (it was not chosen) or one
+    /// a person set, so every editor that builds its save here, the native one and the web one, gives the server the same
+    /// intent: it numbers a taken handle that follows the name, and records a chosen one so a rename never rewrites it.
+    /// </summary>
     public UpdateBotRequest ToRequest() =>
         new(
             Name,
@@ -206,7 +211,8 @@ public sealed class BotDraft
             new SandboxSettingsBody(Network, Hosts, ReadWhole(IdleTimeoutMinutes), Desktop, ScreenReader),
             [.. SandboxSharedWith.Order()],
             new BuildLimitsBody(ReadWhole(MaxChildren), ReadWhole(MaxDepthBelow)),
-            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)));
+            new RunLimitsBody(ReadWhole(MaxSteps), ReadWhole(MaxTokens), ReadWhole(MaxDelegations)),
+            HandleFollowsName: !HandleChosen);
 
     /// <summary>
     /// Clears the model settings the chosen model does not have, so a setting made for another model is not sent

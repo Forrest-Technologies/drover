@@ -446,7 +446,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             {
                 var staged = Draft.StagedGrants;
                 // The server stores whether the handle was chosen, and the answer carries it back.
-                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest() with { HandleFollowsName = !Draft.HandleChosen }));
+                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest()));
                 await ApplyGrants(staged);
                 JustSaved = true;
                 EditingHandle = false;

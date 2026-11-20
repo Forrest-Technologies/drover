@@ -195,6 +195,45 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task Two_successive_renames_that_say_the_handle_follows_the_name_number_a_collision_and_keep_following()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var taken = await CreateBot(client, alice.SpaceId, "Writer");
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        // The request an editor builds from a draft whose handle follows the name: the name's handle, and the intent.
+        UpdateBotRequest Rename(string name) =>
+            new(name, BotHandles.Stem(name), null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: true);
+
+        // The first rename collides with another bot's handle: the server numbers it instead of refusing.
+        var first = await PutFor<BotDetail>(client, route, Rename("Writer"));
+        // A second rename, saved after the first, still follows: the first save did not record a choice.
+        var second = await PutFor<BotDetail>(client, route, Rename("Author"));
+
+        taken.Handle.Should().Be("writer");
+        first.Handle.Should().Be("writer-2");
+        first.HandleChosen.Should().BeFalse("a handle the name made is not recorded as chosen, even when it was numbered");
+        second.Handle.Should().Be("author");
+        second.HandleChosen.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_client_that_does_not_say_whether_the_handle_follows_records_it_as_chosen_so_a_rename_through_it_stops_following()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest WithoutIntent(string name, string handle) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+
+        var renamed = await PutFor<BotDetail>(client, route, WithoutIntent("Writer", "writer"));
+
+        renamed.HandleChosen.Should().BeTrue("this is why every editor builds its request from BotDraft, which says what it means");
+    }
+
+    [Fact]
     public async Task A_handle_that_was_chosen_is_not_renumbered_by_a_client_that_says_it_follows_the_name()
     {
         var alice = await SeedPerson("alice");
