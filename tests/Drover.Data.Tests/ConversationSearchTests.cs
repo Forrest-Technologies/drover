@@ -16,8 +16,8 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         var world = await TenantWorld.Seed(provider);
         var botA = await SaveBot(provider, world.SpaceA, world.UserA1);
         var botB = await SaveBot(provider, world.SpaceB, world.UserB1);
-        var inA = await SaveThread(provider, world.SpaceA, world.UserA1, botA, Audience.Everyone, "The quokka migration is planned for spring.");
-        var inB = await SaveThread(provider, world.SpaceB, world.UserB1, botB, Audience.Everyone, "The quokka budget belongs to space B alone.");
+        var inA = await SaveThread(provider, world.SpaceA, world.Traveler, botA, world.Traveler, "The quokka migration is planned for spring.");
+        var inB = await SaveThread(provider, world.SpaceB, world.Traveler, botB, world.Traveler, "The quokka budget belongs to space B alone.");
 
         var travelerInA = await Search(provider, world.SpaceA, world.Traveler, "quokka");
         var travelerInB = await Search(provider, world.SpaceB, world.Traveler, "quokka");
@@ -32,7 +32,7 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task A_private_thread_is_found_only_by_its_owner_until_it_is_shared()
+    public async Task A_conversation_is_found_only_by_its_owner_even_when_it_is_shared()
     {
         await using var provider = postgres.BuildServices();
         var world = await TenantWorld.Seed(provider);
@@ -47,8 +47,8 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         owner.Should().ContainSingle().Which.Should().Match<MessageMatch>(hit =>
             hit.MessageId == said.Id && hit.ThreadId == said.ThreadId && hit.BotId == bot.Id && hit.InMainConversation);
         otherBefore.Should().BeEmpty("another member of the space may not read a private thread");
-        otherAfter.Should().ContainSingle().Which.Should().Match<MessageMatch>(hit =>
-            hit.MessageId == said.Id && !hit.InMainConversation, "a shared main thread is someone else's main conversation");
+        otherAfter.Should().BeEmpty("search covers a person's own conversations, and a shared one belongs to its owner");
+        (await Search(provider, world.SpaceA, world.UserA1, "wombat")).Should().ContainSingle("sharing does not hide it from its owner");
     }
 
     #endregion
@@ -181,6 +181,55 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task Paging_through_small_windows_covers_every_message_once_and_counts_only_searchable_ones()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
+        var start = DateTimeOffset.UtcNow.AddHours(-3);
+
+        List<Message> wanted = [];
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var thread = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
+            var archived = CoreRows.NewThread(bot, world.UserA1, world.UserA1);
+            archived.ArchivedAt = DateTimeOffset.UtcNow;
+            session.Db.Threads.AddRange(thread, archived);
+
+            for (var index = 0; index < 5; index++)
+            {
+                var message = CoreRows.NewMessage(thread, index + 1, $"Nautilus sighting number {index}.");
+                message.CreatedAt = start.AddMinutes(index * 2);
+                wanted.Add(message);
+
+                // An archived thread's message sits between each pair. It must not be searched or counted in a window.
+                var hidden = CoreRows.NewMessage(archived, index + 1, $"Nautilus hidden number {index}.");
+                hidden.CreatedAt = start.AddMinutes((index * 2) + 1);
+                session.Db.Messages.Add(hidden);
+            }
+
+            session.Db.Messages.AddRange(wanted);
+            await session.Commit();
+        }
+
+        List<Guid> seen = [];
+        MessageKey? cursor = null;
+        List<int> pageSizes = [];
+        do
+        {
+            var page = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", cursor, candidateLimit: 2);
+            pageSizes.Add(page.Matches.Count);
+            seen.AddRange(page.Matches.Select(hit => hit.MessageId));
+            cursor = page.Older;
+        }
+        while (cursor is not null && pageSizes.Count < 10);
+
+        pageSizes.Should().Equal(2, 2, 1);
+        seen.Should().BeEquivalentTo(wanted.Select(message => message.Id), "no message is skipped and none is searched twice");
+        seen.Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
     public async Task A_history_that_fits_the_window_is_searched_whole()
     {
         await using var provider = postgres.BuildServices();
@@ -227,10 +276,16 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     private static async Task<IReadOnlyList<MessageMatch>> Search(IServiceProvider provider, Guid spaceId, Guid userId, string words) =>
         (await SearchWindow(provider, spaceId, userId, words, null)).Matches;
 
-    private static async Task<MessageSearch> SearchWindow(IServiceProvider provider, Guid spaceId, Guid userId, string words, MessageKey? before)
+    private static async Task<MessageSearch> SearchWindow(
+        IServiceProvider provider,
+        Guid spaceId,
+        Guid userId,
+        string words,
+        MessageKey? before,
+        int candidateLimit = MessageRepository.SearchCandidateLimit)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
-        return await new MessageRepository(session.Db).SearchMessages(words, 30, before, Token);
+        return await new MessageRepository(session.Db).SearchMessages(words, 30, before, Token, candidateLimit);
     }
 
     private static async Task<Bot> SaveBot(IServiceProvider provider, Guid spaceId, Guid userId)

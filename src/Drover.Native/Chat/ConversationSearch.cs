@@ -88,7 +88,7 @@ public sealed class ConversationSearch : StackPanel
             }
         };
         clear.Click += (_, _) => ClearAndStay();
-        failed.Action += async (_, _) => await model.Search();
+        failed.Action += async (_, _) => await model.Retry();
         nothing.Action += (_, _) => ClearAndStay();
         older.Click += async (_, _) => await model.SearchOlder();
 
@@ -133,7 +133,7 @@ public sealed class ConversationSearch : StackPanel
     private void Draw()
     {
         var state = model.State;
-        var screen = ConversationSearchScreen.For(state, model.IsActive);
+        var screen = ConversationSearchScreen.For(state, model.IsActive, model.Hits.Count > 0);
         clear.Visibility = Shown(screen.ShowsClear);
         failed.Visibility = Shown(screen.ShowsFailed);
         failed.Cause = model.Problem ?? ConversationSearchViewModel.FailedTitle;

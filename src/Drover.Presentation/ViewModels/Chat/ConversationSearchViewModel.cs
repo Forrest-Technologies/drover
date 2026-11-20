@@ -62,6 +62,11 @@ public sealed class ConversationSearchViewModel(
 
     private bool firstPage = true;
 
+    // The page that failed, so trying again asks for that page and keeps what was already found.
+    private SearchCursor? failedBefore;
+
+    private bool failedOlder;
+
     #endregion
 
     #region Properties
@@ -129,6 +134,21 @@ public sealed class ConversationSearchViewModel(
     }
 
     /// <summary>
+    /// Asks again for what failed. When searching older messages failed, it asks for those messages again and keeps
+    /// the results already found; otherwise it searches from the newest messages.
+    /// </summary>
+    public async Task Retry()
+    {
+        if (failedOlder && searched is { } words)
+        {
+            await Run(words, failedBefore);
+            return;
+        }
+
+        await Search();
+    }
+
+    /// <summary>
     /// Searches the messages before the ones already searched and adds what it finds to the list. It does nothing
     /// when every message has been searched.
     /// </summary>
@@ -149,6 +169,8 @@ public sealed class ConversationSearchViewModel(
         hits = [];
         older = null;
         looked = 0;
+        failedOlder = false;
+        failedBefore = null;
         Problem = null;
         State = ConversationSearchState.Idle;
         OnPropertyChanged(string.Empty);
@@ -162,6 +184,7 @@ public sealed class ConversationSearchViewModel(
     {
         var ask = ++asked;
         searched = words;
+        failedOlder = false;
         Problem = null;
         State = ConversationSearchState.Searching;
         OnPropertyChanged(string.Empty);
@@ -186,7 +209,12 @@ public sealed class ConversationSearchViewModel(
 
             if (ask == asked)
             {
-                hits = [];
+                // A failed page of older messages keeps what was found and where it stopped.
+                failedOlder = before is not null;
+                failedBefore = before;
+                hits = failedOlder ? hits : [];
+                older = failedOlder ? older : null;
+                looked = failedOlder ? looked : 0;
                 Problem = Failures.Sentence(exception);
                 State = ConversationSearchState.Failed;
             }

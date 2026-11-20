@@ -72,7 +72,7 @@ public sealed partial class DroverApi
 
     /// <summary>
     /// The messages of the caller's conversations whose words match <paramref name="words"/>, best match first. Only
-    /// the threads the caller may read are searched, and only the newest of their messages: the answer carries the
+    /// the conversations the caller owns are searched, and only the newest of their messages: the answer carries the
     /// cursor that searches older ones, which goes in <paramref name="before"/>. Blank words, or more than the server
     /// allows, are refused.
     /// </summary>

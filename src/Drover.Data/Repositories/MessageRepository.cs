@@ -181,18 +181,18 @@ public sealed class MessageRepository(DroverDbContext db)
     }
 
     /// <summary>
-    /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
-    /// first, at most <paramref name="limit"/> within a window of <paramref name="candidateLimit"/> readable placed
-    /// messages: the newest ones, or the newest sent before <paramref name="before"/>. Only what a person or a bot
-    /// said is searched: the text parts of placed messages in threads that are not archived. Row-level security keeps
-    /// this to the caller's space and to the threads whose audience includes them. The window is counted over
-    /// everything the caller may read in the space, so a busy shared thread can fill it with its own messages and
-    /// push older conversations past it; that is why the result says where the window ended, so the search can
-    /// continue from there. A partial descending index over the space's recent placed messages bounds the window so
-    /// text extraction, tokenization, and ranking never scan unbounded history, and a statement timeout caps
-    /// execution time. Each snippet marks a matched word with <see cref="MatchStart"/> and <see cref="MatchEnd"/>,
-    /// which are taken out of the text before it is marked. Call it inside a tenant transaction: it throws without
-    /// one, because the timeout is set for the transaction.
+    /// The messages of the caller's own conversations whose words match <paramref name="words"/>, best match first,
+    /// at most <paramref name="limit"/> within a window of <paramref name="candidateLimit"/> placed messages: the
+    /// newest ones, or the newest sent before <paramref name="before"/>. Only what a person or a bot said is searched:
+    /// the text parts of placed messages in threads the caller owns that are not archived. Row-level security keeps
+    /// this to the caller's space and to the threads whose audience includes them, and the owner test narrows it to
+    /// threads that belong to the caller. A partial descending index over the space's recent placed messages bounds
+    /// the window so text extraction, tokenization, and ranking never scan unbounded history, and a statement
+    /// timeout caps execution time. The hits and the place where the window ended come from one statement, so they
+    /// describe the same set of messages even while threads are archived or messages shelved: the next page starts
+    /// at the last message this one looked at. Each snippet marks a matched word with <see cref="MatchStart"/> and
+    /// <see cref="MatchEnd"/>, which are taken out of the text before it is marked. Call it inside a tenant
+    /// transaction: it throws without one, because the timeout is set for the transaction.
     /// </summary>
     public async Task<MessageSearch> SearchMessages(
         string words,
@@ -210,65 +210,74 @@ public sealed class MessageRepository(DroverDbContext db)
 
         // Without a cursor the window starts at the newest message: nothing is sent after the end of time.
         var after = before ?? new MessageKey(DateTimeOffset.MaxValue, Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+        var extra = candidateLimit + 1;
 
-        var matches = await db.Database
-            .SqlQuery<MessageMatch>(
+        // One more message than the window is read, only to know whether older messages remain. The window is the
+        // first candidateLimit of them, and the message that ends it is where the next page starts.
+        var rows = await db.Database
+            .SqlQuery<MessageSearchRow>(
                 $"""
-                WITH candidates AS MATERIALIZED (
-                    SELECT m.id, m.space_id, m.thread_id, m.role, m.created_at, m.parts,
-                           t.bot_id, t.title AS thread_title,
-                           (t.is_main AND t.owner_user_id = sys.current_user_id()) AS in_main_conversation
-                    FROM messages m
-                    JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
-                    WHERE m.position IS NOT NULL
-                      AND m.shelved_at IS NULL
-                      AND m.role IN ('user', 'assistant')
-                      AND t.archived_at IS NULL
-                      AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
-                    ORDER BY m.created_at DESC, m.id DESC
-                    LIMIT {candidateLimit}
+                WITH ranked AS MATERIALIZED (
+                    SELECT pool.*, row_number() OVER (ORDER BY pool.created_at DESC, pool.id DESC) AS rn
+                    FROM (
+                        SELECT m.id, m.space_id, m.thread_id, m.role, m.created_at, m.parts,
+                               t.bot_id, t.title AS thread_title, t.is_main AS in_main_conversation
+                        FROM messages m
+                        JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
+                        WHERE m.position IS NOT NULL
+                          AND m.shelved_at IS NULL
+                          AND m.role IN ('user', 'assistant')
+                          AND t.archived_at IS NULL
+                          AND t.owner_user_id = sys.current_user_id()
+                          AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
+                        ORDER BY m.created_at DESC, m.id DESC
+                        LIMIT {extra}
+                    ) AS pool
+                ),
+                found AS (
+                    SELECT c.id AS message_id, c.thread_id, c.bot_id, b.name AS bot_name, c.thread_title,
+                           c.in_main_conversation,
+                           c.role = 'assistant' AS from_bot, c.created_at,
+                           ts_headline('english', said.text, q.query, said.marks) AS snippet,
+                           row_number() OVER (ORDER BY ts_rank(doc.document, q.query) DESC, c.created_at DESC, c.id DESC) AS place
+                    FROM ranked c
+                    JOIN bots b ON b.space_id = c.space_id AND b.id = c.bot_id
+                    CROSS JOIN websearch_to_tsquery('english', {words}) AS q(query)
+                    CROSS JOIN LATERAL (
+                        SELECT string_agg(translate(part.text, E'\u0001\u0002', ''), E'\n') AS text,
+                               'StartSel=' || E'\u0001' || ', StopSel=' || E'\u0002' || ', MaxFragments=1, MaxWords=24, MinWords=10' AS marks
+                        FROM jsonb_array_elements_text(jsonb_path_query_array(c.parts, '$[*] ? (@.type == "text").text')) AS part(text)
+                    ) AS said
+                    CROSS JOIN LATERAL (
+                        SELECT to_tsvector('english', said.text) AS document
+                    ) AS doc
+                    WHERE c.rn <= {candidateLimit}
+                      AND said.text IS NOT NULL
+                      AND doc.document @@ q.query
+                    ORDER BY place
+                    LIMIT {limit}
+                ),
+                edge AS (
+                    SELECT last.created_at AS edge_sent_at, last.id AS edge_id
+                    FROM ranked last
+                    WHERE last.rn = {candidateLimit}
+                      AND EXISTS (SELECT 1 FROM ranked next WHERE next.rn = {extra})
                 )
-                SELECT c.id AS message_id, c.thread_id, c.bot_id, b.name AS bot_name, c.thread_title,
-                       c.in_main_conversation,
-                       c.role = 'assistant' AS from_bot, c.created_at,
-                       ts_headline('english', said.text, q.query, said.marks) AS snippet
-                FROM candidates c
-                JOIN bots b ON b.space_id = c.space_id AND b.id = c.bot_id
-                CROSS JOIN websearch_to_tsquery('english', {words}) AS q(query)
-                CROSS JOIN LATERAL (
-                    SELECT string_agg(translate(part.text, E'\u0001\u0002', ''), E'\n') AS text,
-                           'StartSel=' || E'\u0001' || ', StopSel=' || E'\u0002' || ', MaxFragments=1, MaxWords=24, MinWords=10' AS marks
-                    FROM jsonb_array_elements_text(jsonb_path_query_array(c.parts, '$[*] ? (@.type == "text").text')) AS part(text)
-                ) AS said
-                CROSS JOIN LATERAL (
-                    SELECT to_tsvector('english', said.text) AS document
-                ) AS doc
-                WHERE said.text IS NOT NULL
-                  AND doc.document @@ q.query
-                ORDER BY ts_rank(doc.document, q.query) DESC, c.created_at DESC, c.id DESC
-                LIMIT {limit}
+                SELECT f.message_id, f.thread_id, f.bot_id, f.bot_name, f.thread_title, f.in_main_conversation,
+                       f.from_bot, f.created_at, f.snippet, NULL::timestamptz AS edge_sent_at, NULL::uuid AS edge_id, f.place::bigint AS place
+                FROM found f
+                UNION ALL
+                SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, e.edge_sent_at, e.edge_id, 9223372036854775807
+                FROM edge e
+                ORDER BY place
                 """)
             .ToListAsync(cancellationToken);
 
-        // The window's last message and the one after it, if any: when there is one, older messages were not looked at.
-        var edge = await db.Database
-            .SqlQuery<MessageKey>(
-                $"""
-                SELECT m.created_at AS sent_at, m.id
-                FROM messages m
-                JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
-                WHERE m.position IS NOT NULL
-                  AND m.shelved_at IS NULL
-                  AND m.role IN ('user', 'assistant')
-                  AND t.archived_at IS NULL
-                  AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
-                ORDER BY m.created_at DESC, m.id DESC
-                OFFSET {candidateLimit - 1}
-                LIMIT 2
-                """)
-            .ToListAsync(cancellationToken);
+        var older = rows.FirstOrDefault(row => row.MessageId is null) is { EdgeId: { } id, EdgeSentAt: { } sentAt }
+            ? new MessageKey(sentAt, id)
+            : null;
 
-        return new(matches, edge.Count == 2 ? edge[0] : null);
+        return new([.. rows.Where(row => row.MessageId is not null).Select(row => row.ToMatch())], older);
     }
 
     /// <summary>Stores a message without a position: it waits for a run to take it.</summary>
@@ -369,3 +378,34 @@ public sealed record MessageKey(DateTimeOffset SentAt, Guid Id);
 /// looked at when older readable messages remain, and null when it looked at all of them.
 /// </summary>
 public sealed record MessageSearch(IReadOnlyList<MessageMatch> Matches, MessageKey? Older);
+
+
+/// <summary>
+/// One row of the search statement: a message that matched, or the single row that says where the window ended.
+/// Columns that do not belong to the kind of row are null.
+/// </summary>
+internal sealed record MessageSearchRow(
+    Guid? MessageId,
+    Guid? ThreadId,
+    Guid? BotId,
+    string? BotName,
+    string? ThreadTitle,
+    bool? InMainConversation,
+    bool? FromBot,
+    DateTimeOffset? CreatedAt,
+    string? Snippet,
+    DateTimeOffset? EdgeSentAt,
+    Guid? EdgeId,
+    long Place)
+{
+    public MessageMatch ToMatch() => new(
+        MessageId!.Value,
+        ThreadId!.Value,
+        BotId!.Value,
+        BotName!,
+        ThreadTitle,
+        InMainConversation!.Value,
+        FromBot!.Value,
+        CreatedAt!.Value,
+        Snippet!);
+}

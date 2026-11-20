@@ -12,10 +12,10 @@ namespace Drover.Presentation.ViewModels.Chat;
 public readonly record struct ConversationSearchScreen(bool ShowsClear, bool ShowsFailed, bool ShowsNothing, bool ShowsResults)
 {
     /// <summary>The parts the screen shows for this search.</summary>
-    public static ConversationSearchScreen For(ConversationSearchState state, bool active) =>
+    public static ConversationSearchScreen For(ConversationSearchState state, bool active, bool hasHits = false) =>
         new(
             active,
             state is ConversationSearchState.Failed,
             state is ConversationSearchState.NothingFound,
-            state is ConversationSearchState.Found);
+            state is ConversationSearchState.Found || (state is ConversationSearchState.Failed && hasHits));
 }

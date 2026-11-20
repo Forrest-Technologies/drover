@@ -165,6 +165,61 @@ public sealed class ConversationSearchTests : IDisposable
     }
 
     [Fact]
+    public async Task Trying_again_after_older_messages_failed_asks_for_the_same_page_and_keeps_the_results()
+    {
+        var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
+            new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),
+        ], stoppedAt));
+        var model = Make();
+        model.Query = "lighthouse";
+        await model.Search();
+
+        bench.Server.Answer("POST", search, HttpStatusCode.InternalServerError);
+        await model.SearchOlder();
+
+        model.State.Should().Be(ConversationSearchState.Failed);
+        model.Hits.Should().ContainSingle("what was found stays while the next page is retried");
+        ConversationSearchScreen.For(model.State, model.IsActive, model.Hits.Count > 0).Should().Be(new ConversationSearchScreen(true, true, false, true));
+
+        bench.Server.Answer("POST", search, SearchPages.Page(
+        [
+            new(repliedId, sideThreadId, botId, "Marshal", "Errands", false, true, sentAt.AddDays(-40), "The lighthouse is done.", [new(4, 10)]),
+        ]));
+        await model.Retry();
+
+        var sent = bench.Server.Sent("POST", search)
+            .Select(body => JsonSerializer.Deserialize<SearchMessagesRequest>(body, JsonSerializerOptions.Web)!)
+            .ToList();
+        sent.Should().HaveCount(3);
+        sent[0].Before.Should().BeNull();
+        sent[1].Before.Should().Be(stoppedAt);
+        sent[2].Before.Should().Be(stoppedAt, "the retry asks for the page that failed, not for the newest messages");
+        model.State.Should().Be(ConversationSearchState.Found);
+        model.Hits.Select(hit => hit.Key).Should().Equal(askedId, repliedId);
+    }
+
+    [Fact]
+    public async Task Trying_again_after_the_first_search_failed_searches_from_the_newest_messages()
+    {
+        bench.Server.Answer("POST", search, HttpStatusCode.InternalServerError);
+        var model = Make();
+        model.Query = "lighthouse";
+        await model.Search();
+        model.State.Should().Be(ConversationSearchState.Failed);
+        model.Hits.Should().BeEmpty();
+
+        bench.Server.Answer("POST", search, SearchPages.Page([]));
+        await model.Retry();
+
+        bench.Server.Sent("POST", search)
+            .Select(body => JsonSerializer.Deserialize<SearchMessagesRequest>(body, JsonSerializerOptions.Web)!.Before)
+            .Should().OnlyContain(before => before == null);
+        model.State.Should().Be(ConversationSearchState.NothingFound);
+    }
+
+    [Fact]
     public async Task A_new_search_starts_again_from_the_newest_messages()
     {
         var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
