@@ -97,10 +97,12 @@ public sealed class WebPushChannel(HttpClient http, WebPushKeys keys, ILogger<We
         return target;
     }
 
+    // Every wake-up is one the person sees at once, so each is sent as urgent. A phone in deep idle holds anything less
+    // until its next maintenance window, which can be hours away.
     private static PushMessage ToMessage(DeviceSubscription subscription, PushWakeUp wakeUp) =>
         new(JsonSerializer.Serialize(new { kind = wakeUp.Kind, thread = wakeUp.ThreadId, user = subscription.UserId }))
         {
-            Urgency = wakeUp.Kind == PushKinds.ApprovalWaiting ? PushMessageUrgency.High : PushMessageUrgency.Normal,
+            Urgency = PushMessageUrgency.High,
         };
 
     #endregion

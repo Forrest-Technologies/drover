@@ -232,7 +232,7 @@ public sealed class BotSandboxPage : Screen
 
     #region Showing
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         if (route.GuidParameter("BotId") is { } botId)
         {

@@ -19,6 +19,49 @@ public sealed class FileRepository(DroverDbContext db)
     public Task<List<StoredFile>> GetFilesForUpdate(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
         db.Files.Where(file => ids.Contains(file.Id)).ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// An expired unsent upload, locked after its thread lock. The database's clock enforces the retention period,
+    /// so no caller can choose a cutoff that reaches a fresh upload.
+    /// </summary>
+    public async Task<StoredFile?> GetExpiredUploadForUpdate(Guid id, Guid threadId, CancellationToken cancellationToken) =>
+        (await db.Files
+            .FromSql($"""
+                SELECT * FROM files
+                WHERE id = {id}
+                  AND thread_id = {threadId}
+                  AND project_id IS NULL
+                  AND message_id IS NULL
+                  AND created_by_user_id IS NOT NULL
+                  AND created_by_user_id <> '00000000-0000-0000-0000-000000000000'::uuid
+                  AND created_by_bot_id IS NULL
+                  AND created_at < now() - interval '1 day'
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    /// <summary>
+    /// Old unsent uploads in every space, through the audited id-only system function. Each result must be re-read
+    /// and changed inside its own tenant scope.
+    /// </summary>
+    public Task<List<ExpiredUpload>> ListExpiredUploads(int limit, CancellationToken cancellationToken) =>
+        db.Database
+            .SqlQuery<ExpiredUpload>($"""
+                SELECT space_id, audience_user_id, file_id, thread_id FROM sys.expired_uploads({limit})
+                """)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Claims due stored-byte deletions in every space through the audited system function. It returns ids and
+    /// tenant context only, never paths or file metadata.
+    /// </summary>
+    public Task<List<PendingUploadToDelete>> ClaimPendingUploadDeletions(int limit, CancellationToken cancellationToken) =>
+        db.Database
+            .SqlQuery<PendingUploadToDelete>($"""
+                SELECT space_id, audience_user_id, file_id FROM sys.claim_pending_upload_deletions({limit})
+                """)
+            .ToListAsync(cancellationToken);
+
     /// <summary>Whether a message of the thread the caller can see carries a file.</summary>
     public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
         db.Files.AnyAsync(file => file.ThreadId == threadId && file.MessageId != null, cancellationToken);
@@ -45,6 +88,10 @@ public sealed class FileRepository(DroverDbContext db)
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
 
+    /// <summary>Whether the project has a shared file the caller can see.</summary>
+    public Task<bool> AnyProjectFile(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files.AnyAsync(file => file.ProjectId == projectId, cancellationToken);
+
     /// <summary>The files shared in a project that the caller can see, newest first.</summary>
     public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
         db.Files
@@ -53,6 +100,47 @@ public sealed class FileRepository(DroverDbContext db)
             .OrderByDescending(file => file.CreatedAt)
             .ThenByDescending(file => file.Id)
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// A bounded newest-first window of lightweight project file candidates whose size fits
+    /// <paramref name="maxSingleBytes"/>, paired with exact total and oversized counts computed in SQL without
+    /// materializing full rows.
+    /// </summary>
+    public async Task<ProjectFileWindow> ListProjectFileWindow(
+        Guid projectId,
+        int candidateLimit,
+        long maxSingleBytes,
+        CancellationToken cancellationToken)
+    {
+        var total = await db.Files
+            .AsNoTracking()
+            .CountAsync(file => file.ProjectId == projectId, cancellationToken);
+
+        if (total == 0)
+        {
+            return new ProjectFileWindow([], 0, 0);
+        }
+
+        var oversized = await db.Files
+            .AsNoTracking()
+            .CountAsync(file => file.ProjectId == projectId && (file.Size < 0 || file.Size > maxSingleBytes), cancellationToken);
+
+        if (oversized >= total || candidateLimit <= 0)
+        {
+            return new ProjectFileWindow([], total, oversized);
+        }
+
+        var candidates = await db.Files
+            .AsNoTracking()
+            .Where(file => file.ProjectId == projectId && file.Size >= 0 && file.Size <= maxSingleBytes)
+            .OrderByDescending(file => file.CreatedAt)
+            .ThenByDescending(file => file.Id)
+            .Select(file => new ProjectFileCandidate(file.Id, file.Size))
+            .Take(candidateLimit)
+            .ToListAsync(cancellationToken);
+
+        return new ProjectFileWindow(candidates, total, oversized);
+    }
 
     public Task<StoredFile?> FindProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken) =>
         db.Files.AsNoTracking().SingleOrDefaultAsync(file => file.Id == fileId && file.ProjectId == projectId, cancellationToken);
@@ -73,6 +161,39 @@ public sealed class FileRepository(DroverDbContext db)
     public void Remove(StoredFile file) => db.Files.Remove(file);
 
     public void RemoveRange(IEnumerable<StoredFile> files) => db.Files.RemoveRange(files);
+
+    /// <summary>
+    /// Removes one unsent conversation upload and returns its quota. The database trigger writes a durable pending
+    /// deletion before the row disappears, in the same transaction.
+    /// </summary>
+    public async Task StageUploadDeletion(StoredFile file, CancellationToken cancellationToken)
+    {
+        Remove(file);
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (!await db.PendingUploadDeletions.AnyAsync(pending => pending.Id == file.Id, cancellationToken))
+        {
+            throw new InvalidOperationException("A conversation upload was removed without a pending deletion row.");
+        }
+
+        await ReleaseBytes(file.SpaceId, file.Size, cancellationToken);
+    }
+
+    /// <summary>Claims one pending upload deletion in its tenant scope, when no live claim remains.</summary>
+    public async Task<bool> ClaimPendingUploadDeletion(
+        Guid id,
+        TimeSpan claimFor,
+        CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            UPDATE pending_upload_deletions
+            SET cleanup_claim_until = now() + {claimFor}
+            WHERE id = {id} AND (cleanup_claim_until IS NULL OR cleanup_claim_until <= now())
+            """,
+            cancellationToken) == 1;
+
+    public Task ForgetPendingUploadDeletion(Guid id, CancellationToken cancellationToken) =>
+        db.PendingUploadDeletions.Where(pending => pending.Id == id).ExecuteDeleteAsync(cancellationToken);
 
     /// <summary>
     /// Adds the bytes to the space's total when the total stays within <paramref name="limit"/>, in one statement,
@@ -360,6 +481,12 @@ public sealed class FileRepository(DroverDbContext db)
 
 /// <summary>A file a person and a bot exchanged, and whether the conversation that carries it is the main one.</summary>
 public sealed record ExchangedFile(StoredFile File, bool InMainConversation);
+
+/// <summary>Lightweight metadata for selecting which project files to open before materializing full rows.</summary>
+public sealed record ProjectFileCandidate(Guid Id, long Size);
+
+/// <summary>Bounded newest-first project file candidates with exact total and oversized counts.</summary>
+public sealed record ProjectFileWindow(IReadOnlyList<ProjectFileCandidate> Candidates, int TotalCount, int OversizedCount);
 
 /// <summary>Whether a finishing project upload's reservation was consumed, exceeded, or already expired.</summary>
 public enum HoldCompletion

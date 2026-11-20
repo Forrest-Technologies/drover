@@ -126,7 +126,7 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSectionViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
             Version++;
         }
         finally
@@ -153,13 +153,13 @@ public sealed class ToolsSectionViewModel(BotEditorViewModel editor, DroverApi a
         {
             // The tool changed while it was being read: show what it says now, so the next yes is to that.
             logger.LogInformation(changedAgain, "A tool changed again while it was reviewed on the {Screen} screen", nameof(ToolsSectionViewModel));
-            Problem = Failures.Sentence(changedAgain);
+            Problem = Failures.Sentence(changedAgain, "Check that the server is running.");
             editor.Tools = await api.ListBotTools(editor.SpaceId, editor.BotId);
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolsSectionViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

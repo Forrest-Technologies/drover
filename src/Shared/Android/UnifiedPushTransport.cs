@@ -20,29 +20,43 @@ internal static class UnifiedPushTransport
 
     private const string MessageAck = "org.unifiedpush.android.distributor.MESSAGE_ACK";
 
+    private const string PlatformPushPackage = "com.google.android.gms";
+
     #endregion
 
     #region Public Methods
 
+    /// <summary>
+    /// The distributors this phone has: each distributor app installed, and the app's own embedded distributor where the
+    /// build has one and the phone has the platform push service it speaks to.
+    /// </summary>
     public static IReadOnlyList<(string Package, string Label)> Distributors()
     {
-        var manager = AndroidApplication.Context.PackageManager!;
+        var context = AndroidApplication.Context;
+        var manager = context.PackageManager!;
         using var intent = new Intent(Register);
         return [.. manager.QueryBroadcastReceivers(intent, 0)
             .Select(receiver => (receiver.ActivityInfo?.PackageName, receiver.LoadLabel(manager)))
             .Where(receiver => receiver.PackageName is not null)
+            .Where(receiver => receiver.PackageName != context.PackageName || HasPlatformPush(manager))
             .Select(receiver => (receiver.PackageName!, receiver.Item2 ?? receiver.PackageName!))
             .DistinctBy(receiver => receiver.Item1)];
     }
 
+    /// <summary>
+    /// A distributor app the person installed comes first: they chose it, and it may be their own server. With none,
+    /// the embedded one. With several apps, the person picks.
+    /// </summary>
     public static Task<string?> Choose() => MainThread.InvokeOnMainThreadAsync(() =>
     {
+        var own = AndroidApplication.Context.PackageName;
         var distributors = Distributors();
-        return distributors.Count switch
+        IReadOnlyList<(string Package, string Label)> installed = [.. distributors.Where(distributor => distributor.Package != own)];
+        return installed.Count switch
         {
-            0 => Task.FromResult<string?>(null),
-            1 => Task.FromResult<string?>(distributors[0].Package),
-            _ => Pick(distributors),
+            0 => Task.FromResult(distributors.Count > 0 ? own : null),
+            1 => Task.FromResult<string?>(installed[0].Package),
+            _ => Pick(installed),
         };
     });
 
@@ -86,6 +100,12 @@ internal static class UnifiedPushTransport
     #endregion
 
     #region Private Methods
+
+    // The embedded distributor registers through the platform push service; a phone without it has no use for it. The
+    // embedded distributor's manifest makes that package visible to the app, so it is listed when it is installed.
+    private static bool HasPlatformPush(PackageManager manager) =>
+        manager.GetInstalledApplications(PackageInfoFlags.MatchSystemOnly)
+            .Any(application => application.PackageName == PlatformPushPackage && application.Enabled);
 
     private static Task<string?> Pick(IReadOnlyList<(string Package, string Label)> choices)
     {

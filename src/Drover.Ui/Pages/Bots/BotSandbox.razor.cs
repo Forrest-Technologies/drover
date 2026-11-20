@@ -282,7 +282,7 @@ public sealed partial class BotSandbox(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotSandbox));
-            actionProblem = Failures.Sentence(exception);
+            actionProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
 
         busy = false;
@@ -301,7 +301,7 @@ public sealed partial class BotSandbox(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotSandbox));
-            actionProblem = Failures.Sentence(exception);
+            actionProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
 
         busy = false;
@@ -334,7 +334,7 @@ public sealed partial class BotSandbox(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "The sandbox desktop terminal could not open");
-            actionProblem = Failures.Sentence(exception);
+            actionProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -363,7 +363,7 @@ public sealed partial class BotSandbox(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "A command in the sandbox was refused");
-            entry.Problem = Failures.Sentence(exception);
+            entry.Problem = Failures.Sentence(exception, "Check that the server is running.");
         }
 
         running = false;

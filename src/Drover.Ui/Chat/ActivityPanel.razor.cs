@@ -181,7 +181,7 @@ public sealed partial class ActivityPanel(
     {
         try
         {
-            await foreach (var stored in api.WatchRun(SpaceId, rootRunId, 0, Dropped, cancellationToken))
+            await foreach (var stored in api.WatchRun(SpaceId, rootRunId, 0, Dropped, Connected, cancellationToken))
             {
                 // An event of a stream already left behind must not reach the tree of the run shown now.
                 if (cancellationToken.IsCancellationRequested || tree?.RootRunId != rootRunId)
@@ -210,7 +210,7 @@ public sealed partial class ActivityPanel(
         catch (Exception exception) when (Failures.IsReportable(exception) && tree?.RootRunId == rootRunId)
         {
             logger.LogWarning(exception, "Watching run {RunId} failed in the {Screen}", rootRunId, nameof(ActivityPanel));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
             watchFailed = true;
             await InvokeAsync(StateHasChanged);
         }
@@ -225,6 +225,16 @@ public sealed partial class ActivityPanel(
         logger.LogDebug(exception, "The run's stream dropped in the {Screen}", nameof(ActivityPanel));
         reconnecting = true;
         Redraw();
+    }
+
+    // Through again: a quiet run sends nothing after a reconnect, so the note goes now rather than with the next event.
+    private void Connected()
+    {
+        if (reconnecting)
+        {
+            reconnecting = false;
+            Redraw();
+        }
     }
 
     private void Redraw()
@@ -278,7 +288,7 @@ public sealed partial class ActivityPanel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ActivityPanel));
-            return Failures.Sentence(exception);
+            return Failures.Sentence(exception, "Check that the server is running.");
         }
     }
 

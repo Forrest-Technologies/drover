@@ -41,7 +41,7 @@ public sealed class ToolConnectionsPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         await model.Open(route.QueryValue("sign-in"), Guid.TryParse(route.QueryValue("connection"), out var id) ? id : null, route.QueryValue("ticket"));
         Refresh();

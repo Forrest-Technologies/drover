@@ -176,7 +176,7 @@ public sealed partial class ModelConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            AddProblem = Failures.Sentence(exception);
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -230,7 +230,7 @@ public sealed partial class ModelConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ModelConnectionsViewModel));
-            problems[connection.Id] = Failures.Sentence(exception);
+            problems[connection.Id] = Failures.Sentence(exception, "Check that the server is running.");
             Notice = null;
         }
         finally

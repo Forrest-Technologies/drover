@@ -5,9 +5,16 @@ namespace Drover.Client.Streaming;
 /// handed out, sends it as <c>Last-Event-ID</c> when it connects again, and drops anything at or below it, so the
 /// caller sees every event once, in order. The phone locking, the tab sleeping, and the server restarting all look
 /// the same from here. The server closes the stream when the root run has ended and everything is sent, and this
-/// reader ends with it.
+/// reader ends with it. While <see cref="StreamPresence"/> says the app is off screen the reader holds no connection,
+/// and it picks up from the same number the moment the app is back.
 /// </summary>
-public sealed class RunEventReader(HttpClient http, string runPath, Guid rootRunId, Action<Exception>? dropped = null)
+public sealed class RunEventReader(
+    HttpClient http,
+    string runPath,
+    Guid rootRunId,
+    StreamPresence? presence = null,
+    Action<Exception>? dropped = null,
+    Action? connected = null)
 {
     #region Private Fields
 
@@ -21,11 +28,16 @@ public sealed class RunEventReader(HttpClient http, string runPath, Guid rootRun
     {
         var last = afterSeq;
         var backoff = new Backoff();
-        var connection = new SseConnection(http, $"{runPath}/events", dropped);
+        var connection = new SseConnection(http, $"{runPath}/events", presence, dropped, connected);
 
         while (true)
         {
             var ended = false;
+
+            if (presence is not null)
+            {
+                await presence.WhenShown(cancellationToken);
+            }
 
             await foreach (var data in connection.Read(last.ToString(CultureInfo.InvariantCulture), cancellationToken))
             {
@@ -40,7 +52,19 @@ public sealed class RunEventReader(HttpClient http, string runPath, Guid rootRun
                 ended = stored.RunId == rootRunId && RunEventTypes.IsTerminal(stored.Type);
             }
 
-            if (ended || await HasEndedWithNothingLeft(last, cancellationToken))
+            if (ended)
+            {
+                yield break;
+            }
+
+            // Leaving the screen is not a drop: connect again as soon as the app is back, without waiting out a backoff.
+            if (presence is { IsShown: false })
+            {
+                backoff.Reset();
+                continue;
+            }
+
+            if (await HasEndedWithNothingLeft(last, cancellationToken))
             {
                 yield break;
             }

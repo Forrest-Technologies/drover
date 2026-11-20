@@ -22,7 +22,7 @@ public sealed partial class SignInPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route)
+    protected override async Task Opened(RouteMatch<Type> route)
     {
         await Model.Load();
         Email.TakeFocus();

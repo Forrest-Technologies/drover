@@ -48,7 +48,7 @@ public sealed partial class SignInViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SignInViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
         }
     }
 
@@ -65,7 +65,7 @@ public sealed partial class SignInViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SignInViewModel));
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
