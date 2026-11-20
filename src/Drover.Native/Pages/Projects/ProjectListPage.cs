@@ -69,6 +69,7 @@ public sealed class ProjectListPage : Screen
         layout.Body.Add(statusPanel);
         layout.Body.Add(listPanel);
 
+        Unloaded += (_, _) => model.Cancel();
         Content = layout;
         Refresh();
     }

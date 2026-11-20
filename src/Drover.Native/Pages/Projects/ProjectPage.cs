@@ -85,6 +85,7 @@ public sealed class ProjectPage : Screen
         layout.Body.Add(statusPanel);
         layout.Body.Add(detailsPanel);
 
+        Unloaded += (_, _) => model.Cancel();
         Content = layout;
         Refresh();
     }
@@ -238,7 +239,10 @@ public sealed class ProjectPage : Screen
         foreach (var thread in model.Threads)
         {
             var label = model.ThreadLabel(thread);
-            body.Add(PageParts.Row(ThreadLink(label, Addresses.Conversation(thread.Id)), MoveOut(label, thread.Id)));
+            var link = ThreadLink(label, Addresses.Conversation(thread.Id));
+            body.Add(model.CanMoveOut(thread.Id)
+                ? PageParts.Row(link, MoveOut(label, thread.Id))
+                : PageParts.Row(link));
         }
     }
 
@@ -347,13 +351,7 @@ public sealed class ProjectPage : Screen
         return failed;
     }
 
-    private async Task AddFile()
-    {
-        foreach (var file in await PickedFiles.Choose())
-        {
-            await model.Upload(file);
-        }
-    }
+    private Task AddFile() => model.ChooseFiles(PickedFiles.Choose);
 
     private Task AskRemove()
     {

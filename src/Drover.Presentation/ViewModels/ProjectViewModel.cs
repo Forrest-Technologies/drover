@@ -64,6 +64,8 @@ public sealed partial class ProjectViewModel(
 
     public const string Starting = "Starting the conversation.";
 
+    private HashSet<Guid> ownedProjectThreads = [];
+
     private int loadGeneration;
 
     private long? maxFileBytes;
@@ -153,6 +155,7 @@ public sealed partial class ProjectViewModel(
     {
         Project = null;
         Missing = true;
+        ownedProjectThreads.Clear();
         LoadProblem = null;
     }
 
@@ -161,6 +164,7 @@ public sealed partial class ProjectViewModel(
     {
         if (draftProjectId != projectId)
         {
+            ownedProjectThreads.Clear();
             draftProjectId = projectId;
             nameEdited = false;
             instructionsEdited = false;
@@ -194,7 +198,6 @@ public sealed partial class ProjectViewModel(
         }
     }
 
-    [RelayCommand]
     public async Task Load()
     {
         var ticket = ++loadGeneration;
@@ -256,6 +259,8 @@ public sealed partial class ProjectViewModel(
             Files = foundFiles;
             Bots = foundBots;
             Movable = [.. foundOwned.Where(thread => thread.ProjectId != projectId)];
+            ownedProjectThreads =
+                [.. foundOwned.Where(thread => thread.ProjectId == projectId).Select(thread => thread.Id)];
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -310,13 +315,15 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
+        var submittedDraftName = DraftName;
+        var submittedDraftInstructions = DraftInstructions;
         await Run(
             Saving,
             async () =>
             {
                 await api.UpdateProject(SpaceId, ProjectId, new(name.Trim(), instructions ?? string.Empty));
-                nameEdited = false;
-                instructionsEdited = false;
+                nameEdited = DraftName != submittedDraftName;
+                instructionsEdited = DraftInstructions != submittedDraftInstructions;
             });
     }
 
@@ -325,7 +332,6 @@ public sealed partial class ProjectViewModel(
     public void CancelRemove() => ConfirmingRemove = false;
 
     /// <summary>Removes the project after the person confirms. Conversations stay, outside the project.</summary>
-    [RelayCommand]
     public async Task Remove()
     {
         if (!CanManage || !ConfirmingRemove)
@@ -357,6 +363,54 @@ public sealed partial class ProjectViewModel(
         }
     }
 
+    /// <summary>Opens the device chooser and reports its failures on the project screen.</summary>
+    public async Task ChooseFiles(Func<Task<IReadOnlyList<IPickedFile>>> choose)
+    {
+        if (!CanManage)
+        {
+            Problem = MemberNote;
+            return;
+        }
+
+        Working = "Choosing files.";
+        try
+        {
+            var selected = await ChoosePickedFiles(choose);
+            await UploadFiles(selected);
+        }
+        finally
+        {
+            Working = null;
+        }
+    }
+
+    /// <summary>Uploads the chosen files and keeps every refusal visible after the batch completes.</summary>
+    public async Task UploadFiles(IReadOnlyList<IPickedFile> selected)
+    {
+        if (!CanManage)
+        {
+            Problem = MemberNote;
+            return;
+        }
+
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        List<string> failures = [];
+        foreach (var file in selected)
+        {
+            await Upload(file);
+            if (Problem is { } refusal)
+            {
+                failures.Add($"{file.Name}: {refusal}");
+            }
+        }
+
+        Problem = failures.Count > 0 ? string.Join("\n", failures) : null;
+    }
+
     /// <summary>Uploads one shared file. A file larger than the server's limit is not sent.</summary>
     public async Task Upload(IPickedFile file)
     {
@@ -380,7 +434,12 @@ public sealed partial class ProjectViewModel(
                 return;
             }
 
-            await using var content = await file.OpenRead(limit, CancellationToken.None);
+            await using var content = await ReadPickedFile(file, limit);
+            if (content is null)
+            {
+                return;
+            }
+
             if (file.Size > 0)
             {
                 await api.UploadProjectFile(SpaceId, ProjectId, file.Name, content, file.Size);
@@ -392,7 +451,8 @@ public sealed partial class ProjectViewModel(
 
             await Load();
         }
-        catch (Exception exception) when (Failures.IsReportable(exception))
+        catch (Exception exception) when (Failures.IsReportable(exception)
+            || exception is IOException or UnauthorizedAccessException)
         {
             logger.LogWarning(
                 "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
@@ -400,7 +460,9 @@ public sealed partial class ProjectViewModel(
                 ProjectId,
                 exception.GetType().Name,
                 exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
-            Problem = Failures.Sentence(exception);
+            Problem = Failures.IsReportable(exception)
+                ? Failures.Sentence(exception)
+                : $"Could not read {file.Name}.";
         }
         finally
         {
@@ -488,7 +550,18 @@ public sealed partial class ProjectViewModel(
 
     public Task MoveIn(Guid threadId) => Move(threadId, ProjectId, MovingIn);
 
-    public Task MoveOut(Guid threadId) => Move(threadId, null, MovingOut);
+    public bool CanMoveOut(Guid threadId) => ownedProjectThreads.Contains(threadId);
+
+    public Task MoveOut(Guid threadId)
+    {
+        if (!CanMoveOut(threadId))
+        {
+            Problem = "Only your own conversations can move out of this project.";
+            return Task.CompletedTask;
+        }
+
+        return Move(threadId, null, MovingOut);
+    }
 
     public string DownloadAddress(Guid fileId) => api.ProjectFileAddress(SpaceId, ProjectId, fileId, download: true);
 
@@ -520,6 +593,46 @@ public sealed partial class ProjectViewModel(
 
     #region Private Methods
 
+    private async Task<IReadOnlyList<IPickedFile>> ChoosePickedFiles(
+        Func<Task<IReadOnlyList<IPickedFile>>> choose)
+    {
+        try
+        {
+            return await choose();
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("File selection was canceled on {Screen}", nameof(ProjectViewModel));
+            return [];
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            logger.LogWarning(
+                "The file chooser failed on {Screen}: {FailureKind}",
+                nameof(ProjectViewModel),
+                exception.GetType().Name);
+            Problem = "Could not choose a file. Try again.";
+            return [];
+        }
+    }
+
+    private async Task<Stream?> ReadPickedFile(IPickedFile file, long limit)
+    {
+        try
+        {
+            return await file.OpenRead(limit, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            logger.LogWarning(
+                "A picked file could not be read on {Screen}: {FailureKind}",
+                nameof(ProjectViewModel),
+                exception.GetType().Name);
+            Problem = $"Could not read {file.Name}.";
+            return null;
+        }
+    }
+
     private bool Current(int ticket) => ticket == loadGeneration;
 
     private void Report(string sentence)
@@ -545,6 +658,7 @@ public sealed partial class ProjectViewModel(
             if (Current(ticket))
             {
                 Project = null;
+                ownedProjectThreads.Clear();
                 Missing = true;
             }
 

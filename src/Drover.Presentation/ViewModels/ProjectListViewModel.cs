@@ -102,7 +102,6 @@ public sealed partial class ProjectListViewModel(
         }
     }
 
-    [RelayCommand]
     public async Task Load()
     {
         var ticket = ++loadGeneration;
@@ -142,7 +141,6 @@ public sealed partial class ProjectListViewModel(
     public Task Create() => Create(DraftName);
 
     /// <summary>Makes a project from the name the person typed, then opens it.</summary>
-    [RelayCommand]
     public async Task Create(string? name)
     {
         if (!CanManage)
