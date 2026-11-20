@@ -11,7 +11,7 @@ internal readonly record struct PdfPredictorShape(int Predictor, int Colors, int
 
     public long RowBytes => ((long)Colors * BitsPerComponent * Columns + 7) / 8;
 
-    public int BytesPerPixel => Math.Max(1, Colors * BitsPerComponent / 8);
+    public int BytesPerPixel => Math.Max(1, ((Colors * BitsPerComponent) + 7) / 8);
 
     #endregion
 }

@@ -10,8 +10,11 @@ public static partial class PdfPreviewGuard
 
     private const int MaxPagesInteriorNodes = 4;
 
-    /// <summary>How many parses that missed their deadline may still be running before new ones are refused.</summary>
-    private const int MaxAbandonedParses = 2;
+    /// <summary>
+    /// Parse threads alive at once, running or past their deadline. Admission takes one atomically after the server
+    /// slot is held, so requests queued for a slot cannot start a thread once this is reached.
+    /// </summary>
+    private const int MaxLiveParses = NativeFilePreview.MaxConcurrentPdfPreviews + 2;
 
     private static readonly TimeSpan defaultDeadline = TimeSpan.FromSeconds(2);
 
@@ -25,7 +28,7 @@ public static partial class PdfPreviewGuard
 
     private static readonly ConcurrentDictionary<Guid, UserPdfBudget> userBudgets = new();
 
-    private static int abandonedParses;
+    private static int liveParses;
 
     #endregion
 
@@ -44,7 +47,7 @@ public static partial class PdfPreviewGuard
             return new(Refusal: NativePreviewRefusal.TooLarge);
         }
 
-        if (Volatile.Read(ref abandonedParses) >= MaxAbandonedParses)
+        if (Volatile.Read(ref liveParses) >= MaxLiveParses)
         {
             return new(Refusal: NativePreviewRefusal.TooComplex);
         }
@@ -71,6 +74,13 @@ public static partial class PdfPreviewGuard
         if (!acquiredGlobal)
         {
             ReleaseUserSlot(userId);
+            return new(Refusal: NativePreviewRefusal.TooComplex);
+        }
+
+        if (!TryStartParse())
+        {
+            ReleaseUserSlot(userId);
+            globalGate.Release();
             return new(Refusal: NativePreviewRefusal.TooComplex);
         }
 
@@ -600,9 +610,10 @@ public static partial class PdfPreviewGuard
 
     /// <summary>
     /// A server slot held by one parse. The parser cannot be stopped from outside: a slow page keeps running after its
-    /// deadline. So the slot is given back when the deadline passes, and the parse is counted as abandoned until its
-    /// thread ends. Past <see cref="MaxAbandonedParses"/> of them no new parse starts, which bounds the work a hostile
-    /// file can leave running. The user's own slot stays held until the thread ends, so one person cannot leave more
+    /// deadline. So the slot is given back when the deadline passes, and the thread still counts as live until it
+    /// ends. <see cref="TryStartParse"/> admits a thread only while fewer than <see cref="MaxLiveParses"/> are live, and
+    /// it does so after the slot is held and atomically, which bounds the threads a hostile file can leave running
+    /// whatever was queued. The user's own slot stays held until the thread ends, so one person cannot leave more
     /// than one parse running.
     /// </summary>
     private sealed class ParseHold(Guid userId)
@@ -626,7 +637,6 @@ public static partial class PdfPreviewGuard
         {
             if (Interlocked.CompareExchange(ref state, Abandoned, Running) == Running)
             {
-                Interlocked.Increment(ref abandonedParses);
                 globalGate.Release();
             }
         }
@@ -635,17 +645,31 @@ public static partial class PdfPreviewGuard
         public void Finish()
         {
             ReleaseUserSlot(userId);
-            if (Interlocked.Exchange(ref state, Finished) == Abandoned)
-            {
-                Interlocked.Decrement(ref abandonedParses);
-            }
-            else
+            Interlocked.Decrement(ref liveParses);
+            if (Interlocked.Exchange(ref state, Finished) != Abandoned)
             {
                 globalGate.Release();
             }
         }
 
         #endregion
+    }
+
+    private static bool TryStartParse()
+    {
+        while (true)
+        {
+            var live = Volatile.Read(ref liveParses);
+            if (live >= MaxLiveParses)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref liveParses, live + 1, live) == live)
+            {
+                return true;
+            }
+        }
     }
 
     private sealed class UserPdfBudget

@@ -37,16 +37,6 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
 {
     #region Private Fields
 
-    /// <summary>
-    /// The filters, beside Flate and DCT, a document read allows. Each shrinks or keeps its input within a small
-    /// ratio. LZW is left out: one code can unpack to thousands of bytes, so its output cannot be bounded.
-    /// </summary>
-    private static readonly string[] readingFilterNames =
-    [
-        "ASCII85Decode", "A85", "ASCIIHexDecode", "AHx", "RunLengthDecode", "RL", "CCITTFaxDecode", "CCF",
-        "JBIG2Decode", "JPXDecode",
-    ];
-
     private readonly PreviewFilterNames names = new(new BoundedFlate(budget, cancellationToken), budget);
 
     #endregion
@@ -150,15 +140,57 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
 
             if (!budget.PreviewFiltersOnly)
             {
-                foreach (var name in readingFilterNames)
-                {
-                    filters[name] = PdfFilters.DefaultFilterProvider.Instance
-                        .GetNamedFilters([PdfTokens.NameToken.Create(name)])[0];
-                }
+                AddReadingFilters(filters, flate);
             }
 
             return filters;
         }
+
+        /// <summary>
+        /// The filters, beside Flate and DCT, a document read allows. Each reserves the most it can produce from the
+        /// budget Flate shares before it decodes, and gives back what it did not use, so a chain of them is bounded
+        /// by the same total. LZW is left out: one code can unpack to thousands of bytes. JBIG2, JPX and DCT are not
+        /// decoded by the parser at all, so they cannot expand.
+        /// </summary>
+        private static void AddReadingFilters(Dictionary<string, PdfFilters.IFilter> filters, BoundedFlate flate)
+        {
+            var defaults = PdfFilters.DefaultFilterProvider.Instance;
+            Add(["ASCII85Decode", "A85"], (input, _, _) => input.Length * 4L);
+            Add(["ASCIIHexDecode", "AHx"], (input, _, _) => (input.Length / 2L) + 1);
+            Add(["RunLengthDecode", "RL"], (input, _, _) => input.Length * 64L);
+            Add(["CCITTFaxDecode", "CCF"], CcittWorstCase);
+
+            foreach (var name in new[] { "JBIG2Decode", "JPXDecode" })
+            {
+                filters[name] = defaults.GetNamedFilters([PdfTokens.NameToken.Create(name)])[0];
+            }
+
+            void Add(string[] names, Func<Memory<byte>, PdfTokens.DictionaryToken, int, long?> worstCase)
+            {
+                var inner = defaults.GetNamedFilters([PdfTokens.NameToken.Create(names[0])])[0];
+                var reserved = new ReservedFilter(inner, flate, worstCase);
+                foreach (var name in names)
+                {
+                    filters[name] = reserved;
+                }
+            }
+        }
+
+        /// <summary>The bytes a CCITT stream unpacks to, one bit a pixel, from the size its dictionary names. Null when it names none.</summary>
+        private static long? CcittWorstCase(Memory<byte> input, PdfTokens.DictionaryToken stream, int filterIndex)
+        {
+            var parameters = PdfFilters.DecodeParameterResolver.GetFilterParameters(stream, filterIndex);
+            var columns = Number(parameters, "Columns") ?? 1728;
+            var rows = Number(parameters, "Rows") ?? Number(stream, "Height") ?? Number(stream, "H");
+            return rows is > 0 && columns > 0 ? (((long)columns + 7) / 8) * rows : null;
+        }
+
+        private static int? Number(PdfTokens.DictionaryToken dictionary, string name) =>
+            dictionary.TryGet(PdfTokens.NameToken.Create(name), out var token)
+                && token is PdfTokens.NumericToken { Double: >= 0 and <= int.MaxValue } number
+                && number.Double == number.Int
+                    ? number.Int
+                    : null;
 
         #endregion
     }
@@ -226,6 +258,21 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
                 result.Write(buffer[..read]);
             }
         }
+
+        /// <summary>Takes the most a stage may produce from the budget before it decodes. Refuses a stage that may not fit.</summary>
+        public void ReserveMost(long most)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (most > Math.Min(budget.StreamBytes, budget.TotalBytes - totalDecoded))
+            {
+                Refuse(NativePreviewRefusal.TooLarge);
+            }
+
+            totalDecoded += (int)most;
+        }
+
+        /// <summary>Returns what a stage reserved and did not produce.</summary>
+        public void GiveBack(long unused) => totalDecoded -= (int)Math.Max(0, unused);
 
         public void ReserveBytes(int length)
         {
@@ -296,6 +343,41 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
             }
 
             return memory[..length];
+        }
+
+        #endregion
+    }
+
+
+    private sealed class ReservedFilter(
+        PdfFilters.IFilter inner,
+        BoundedFlate budget,
+        Func<Memory<byte>, PdfTokens.DictionaryToken, int, long?> worstCase) : PdfFilters.IFilter
+    {
+        #region Properties
+
+        public bool IsSupported => inner.IsSupported;
+
+        #endregion
+
+        #region Public Methods
+
+        public Memory<byte> Decode(
+            Memory<byte> input,
+            PdfTokens.DictionaryToken streamDictionary,
+            PdfFilters.IFilterProvider filterProvider,
+            int filterIndex)
+        {
+            if (worstCase(input, streamDictionary, filterIndex) is not { } most)
+            {
+                budget.Refuse(NativePreviewRefusal.TooComplex);
+                return default;
+            }
+
+            budget.ReserveMost(most);
+            var output = inner.Decode(input, streamDictionary, filterProvider, filterIndex);
+            budget.GiveBack(most - output.Length);
+            return output;
         }
 
         #endregion

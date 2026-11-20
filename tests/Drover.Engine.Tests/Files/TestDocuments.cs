@@ -197,6 +197,34 @@ public static class TestDocuments
         return result.ToArray();
     }
 
+    /// <summary>Run length data: each of <paramref name="runs"/> repeats one byte 128 times, so it unpacks 64 fold.</summary>
+    public static byte[] RunLengthRuns(int runs)
+    {
+        var data = new byte[(runs * 2) + 1];
+        for (var run = 0; run < runs; run++)
+        {
+            data[run * 2] = 129;
+            data[(run * 2) + 1] = (byte)' ';
+        }
+
+        data[^1] = 128;
+        return data;
+    }
+
+    /// <summary>Run length data that copies each of <paramref name="pairs"/> bytes as it is, so it unpacks to half its size.</summary>
+    public static byte[] RunLengthLiterals(int pairs)
+    {
+        var data = new byte[(pairs * 2) + 1];
+        for (var pair = 0; pair < pairs; pair++)
+        {
+            data[pair * 2] = 0;
+            data[(pair * 2) + 1] = (byte)' ';
+        }
+
+        data[^1] = 128;
+        return data;
+    }
+
     /// <summary>The bytes as ASCII base 85 text, with its end marker.</summary>
     public static byte[] Ascii85(byte[] data)
     {
@@ -273,9 +301,10 @@ public static class TestDocuments
 
     /// <summary>
     /// The rows of <paramref name="raw"/> as a PNG predictor stores them, each tagged with <paramref name="tag"/>
-    /// (0 none, 1 left, 2 up, 3 average, 4 Paeth).
+    /// (0 none, 1 left, 2 up, 3 average, 4 Paeth). The left neighbour is <paramref name="bytesPerPixel"/> bytes back:
+    /// a pixel's bits rounded up to whole bytes.
     /// </summary>
-    public static byte[] PngPredicted(byte[] raw, int rowBytes, byte tag)
+    public static byte[] PngPredicted(byte[] raw, int rowBytes, byte tag, int bytesPerPixel = 1)
     {
         List<byte> predicted = [];
         for (var row = 0; row < raw.Length / rowBytes; row++)
@@ -283,9 +312,9 @@ public static class TestDocuments
             predicted.Add(tag);
             for (var column = 0; column < rowBytes; column++)
             {
-                var left = column > 0 ? raw[(row * rowBytes) + column - 1] : 0;
+                var left = column >= bytesPerPixel ? raw[(row * rowBytes) + column - bytesPerPixel] : 0;
                 var up = row > 0 ? raw[((row - 1) * rowBytes) + column] : 0;
-                var upLeft = row > 0 && column > 0 ? raw[((row - 1) * rowBytes) + column - 1] : 0;
+                var upLeft = row > 0 && column >= bytesPerPixel ? raw[((row - 1) * rowBytes) + column - bytesPerPixel] : 0;
                 var estimate = tag switch
                 {
                     1 => left,

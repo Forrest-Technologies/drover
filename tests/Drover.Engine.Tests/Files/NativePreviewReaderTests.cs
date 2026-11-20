@@ -235,6 +235,25 @@ public sealed class NativePreviewReaderTests
         result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content");
     }
 
+    [Theory]
+    [InlineData(1, 1, 3, 1, 1)]
+    [InlineData(3, 4, 5, 8, 2)]
+    [InlineData(3, 2, 5, 4, 1)]
+    [InlineData(1, 16, 4, 8, 2)]
+    public async Task Reads_packed_and_wide_pixels_by_the_left_neighbour_a_whole_pixel_back(
+        int colors, int bitsPerComponent, int columns, int rowBytes, int bytesPerPixel)
+    {
+        foreach (var tag in (byte[])[1, 3, 4])
+        {
+            var predicted = TestDocuments.PngPredicted(TestDocuments.PdfCommands(64), rowBytes, tag, bytesPerPixel);
+            var filter = $"/Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors {colors} /BitsPerComponent {bitsPerComponent} /Columns {columns} >>";
+            var result = await Read(TestDocuments.ContentStreamPdf(filter, [TestDocuments.CompressPdfCommands(predicted)]));
+
+            result.Refusal.Should().BeNull($"tag {tag}");
+            result.Pages.Should().ContainSingle().Which.Text.Should().Be("Safe content", $"tag {tag}");
+        }
+    }
+
     [Fact]
     public async Task Reads_a_flate_stream_with_the_tiff_predictor()
     {
@@ -361,14 +380,14 @@ public sealed class NativePreviewReaderTests
     }
 
     [Fact]
-    public async Task Starts_no_new_parse_while_two_parses_that_missed_their_deadline_are_still_running()
+    public async Task Starts_no_new_parse_while_four_parses_that_missed_their_deadline_are_still_running()
     {
         var pdf = TestDocuments.Pdf("Page one");
         using var stuck = new ManualResetEventSlim(false);
         var started = false;
         try
         {
-            for (var run = 0; run < 2; run++)
+            for (var run = 0; run < 4; run++)
             {
                 using var content = new MemoryStream(pdf);
                 var missed = await NativePreviewReader.Read(
@@ -376,12 +395,44 @@ public sealed class NativePreviewReaderTests
                 missed.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
             }
 
-            using var third = new MemoryStream(pdf);
+            using var fifth = new MemoryStream(pdf);
             var refused = await NativePreviewReader.Read(
-                third, CancellationToken.None, Guid.NewGuid(), TimeSpan.FromSeconds(2), () => started = true);
+                fifth, CancellationToken.None, Guid.NewGuid(), TimeSpan.FromSeconds(2), () => started = true);
 
             refused.Refusal.Should().Be(NativePreviewRefusal.TooComplex);
             started.Should().BeFalse();
+        }
+        finally
+        {
+            stuck.Set();
+            await WaitUntilPreviewsAreAccepted(pdf);
+        }
+    }
+
+    [Fact]
+    public async Task Requests_queued_before_the_live_bound_is_reached_cannot_start_threads_past_it_when_slots_come_free()
+    {
+        // Two parses hold both slots and miss their deadline at about 100 ms; two requests queued from the start take
+        // the freed slots and miss theirs at about 250 ms; two more, queued at 90 ms with the live bound not yet
+        // reached, are still waiting at 250 ms. Admission after the slot is held keeps the threads at the bound.
+        var pdf = TestDocuments.Pdf("Page one");
+        using var stuck = new ManualResetEventSlim(false);
+        var entered = 0;
+        try
+        {
+            var requests = new List<Task<NativeFilePreview>>
+            {
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(100), TimeSpan.Zero, () => Interlocked.Increment(ref entered)),
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(100), TimeSpan.Zero, () => Interlocked.Increment(ref entered)),
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(20), () => Interlocked.Increment(ref entered)),
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(20), () => Interlocked.Increment(ref entered)),
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(90), () => Interlocked.Increment(ref entered)),
+                Queue(pdf, stuck, TimeSpan.FromMilliseconds(250), TimeSpan.FromMilliseconds(90), () => Interlocked.Increment(ref entered)),
+            };
+
+            await Task.WhenAll(requests);
+
+            Volatile.Read(ref entered).Should().BeInRange(2, 4, "no more than four parse threads are ever alive");
         }
         finally
         {
@@ -528,6 +579,23 @@ public sealed class NativePreviewReaderTests
     #endregion
 
     #region Private Methods
+
+    private static async Task<NativeFilePreview> Queue(
+        byte[] pdf, ManualResetEventSlim stuck, TimeSpan deadline, TimeSpan after, Action entered)
+    {
+        await Task.Delay(after);
+        using var content = new MemoryStream(pdf);
+        return await NativePreviewReader.Read(
+            content,
+            CancellationToken.None,
+            Guid.NewGuid(),
+            deadline,
+            () =>
+            {
+                entered();
+                stuck.Wait(TimeSpan.FromSeconds(10));
+            });
+    }
 
     private static async Task<NativeFilePreview> ReadWhileParsingTogether(byte[] pdf, Barrier bothParsing)
     {

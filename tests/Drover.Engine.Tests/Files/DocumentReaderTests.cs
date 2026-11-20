@@ -144,6 +144,50 @@ public sealed class DocumentReaderTests
     }
 
     [Fact]
+    public void A_run_length_stream_that_could_unpack_past_the_reading_budget_is_unreadable_before_it_is_unpacked()
+    {
+        var pdf = TestDocuments.ContentStreamPdf("/Filter /RunLengthDecode", [TestDocuments.RunLengthRuns(1024 * 1024)]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_ccitt_stream_that_names_a_picture_past_the_reading_budget_is_unreadable_before_it_is_unpacked()
+    {
+        var filter = "/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 100000 /Rows 100000 >>";
+        var pdf = TestDocuments.ContentStreamPdf(filter, [[1, 2, 3, 4]]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void An_ascii85_stream_that_could_unpack_past_the_reading_budget_is_unreadable()
+    {
+        var pdf = TestDocuments.ContentStreamPdf(
+            "/Filter /ASCII85Decode", [[.. Enumerable.Repeat((byte)'z', (ReadingStreamBytes / 4) + 1), .. "~>"u8]]);
+
+        var reading = () => DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        reading.Should().Throw<DocumentUnreadableException>().WithMessage("it unpacks to more than the server will read");
+    }
+
+    [Fact]
+    public void A_run_length_stream_that_stays_small_is_read_though_its_worst_case_is_large()
+    {
+        var pdf = TestDocuments.ContentStreamPdf(
+            "/Filter /RunLengthDecode",
+            [TestDocuments.RunLengthLiterals(300_000), TestDocuments.RunLengthLiterals(300_000), TestDocuments.RunLengthLiterals(300_000)]);
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        read.Read.Should().Be(1);
+    }
+
+    [Fact]
     public void A_pdf_stream_with_a_chain_of_filters_is_still_read()
     {
         var packed = TestDocuments.Ascii85(TestDocuments.CompressPdfCommands(TestDocuments.PdfCommands(64)));

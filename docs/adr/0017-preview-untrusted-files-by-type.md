@@ -50,14 +50,17 @@ size, never from its name or a client-supplied content type.
   refuses filter chains and filters other than Flate and DCT, with Download available for those files. The
   request has a deadline and checks cancellation during screening and decoding and between pages.
 - The parser cannot be stopped from outside, so a page that never reaches a cancellation check keeps running
-  after the deadline. The server slot is given back when the deadline passes and the parse is counted as
-  abandoned until its thread ends; at two abandoned parses no new parse starts. The user's own slot stays held
-  until the thread ends, so one person cannot leave more than one parse running. A hard stop needs the parse in
-  a child process with a time and memory limit.
+  after the deadline. The server slot is given back when the deadline passes, and the thread still counts as live
+  until it ends. A request takes a live count atomically after it holds a server slot, and is refused once four
+  parse threads are alive, so requests queued for a slot cannot start threads past that bound. The user's own slot
+  stays held until the thread ends, so one person cannot leave more than one parse running. A hard stop needs the
+  parse in a child process with a time and memory limit.
 - Reading a PDF's text for search and attachments (`DocumentReader.Read`) uses the same provider with wider
-  bounds (64 MiB per stream, 128 MiB per document), so no PDF read path decodes without a cap. Chains of
-  ASCII85, ASCIIHex, RunLength, CCITT, JBIG2 and JPX filters stay readable there. LZW is refused because its
-  output cannot be bounded.
+  bounds (64 MiB per stream, 128 MiB per document), so no PDF read path decodes without a cap. Every expanding
+  stage shares that budget. ASCII85, ASCIIHex, RunLength and CCITT reserve the most they can produce (from their
+  input size, or from the Columns and Rows a CCITT stream names) before they decode, are refused when that does
+  not fit, and give back what they did not use. A chain of them is bounded by the same total. LZW is refused
+  because its output cannot be bounded. JBIG2, JPX and DCT are not decoded by the parser, so they cannot expand.
 
 Preview content never enters model instructions, tool grants, or the app's trusted interface tree. Widening the
 HTML policy or enabling network access requires a new decision.
