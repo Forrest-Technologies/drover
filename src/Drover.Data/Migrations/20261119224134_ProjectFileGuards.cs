@@ -51,6 +51,8 @@ namespace Drover.Data.Migrations
 
             migrationBuilder.IsolateBySpace("file_byte_reservations");
             migrationBuilder.IsolateBySpace("pending_file_deletions");
+            migrationBuilder.Sql("REVOKE UPDATE ON pending_file_deletions FROM drover_app;");
+            migrationBuilder.Sql("GRANT UPDATE (id, cleanup_claim_until) ON pending_file_deletions TO drover_app;");
 
             // A project file is shared with every member, so the audience policy would let a member change it.
             // Owners and admins are the only writers, and a delete returns quota and records the stored bytes in
@@ -92,7 +94,12 @@ namespace Drover.Data.Migrations
 
                   IF TG_OP = 'DELETE' THEN
                     INSERT INTO public.pending_file_deletions (id, space_id, project_id, storage_key, size)
-                    VALUES (OLD.id, OLD.space_id, OLD.project_id, OLD.storage_key, OLD.size);
+                    VALUES (
+                      OLD.id,
+                      OLD.space_id,
+                      OLD.project_id,
+                      replace(OLD.space_id::text, '-', '') || '/' || replace(OLD.id::text, '-', ''),
+                      OLD.size);
 
                     UPDATE public.spaces
                     SET stored_file_bytes = CASE
@@ -110,17 +117,82 @@ namespace Drover.Data.Migrations
 
                 REVOKE ALL ON FUNCTION public.enforce_project_file_access() FROM PUBLIC;
 
-                CREATE TRIGGER trg_files_project_access
-                  BEFORE INSERT OR UPDATE OR DELETE ON public.files
+                CREATE TRIGGER trg_files_project_insert
+                  BEFORE INSERT ON public.files
                   FOR EACH ROW
+                  WHEN (NEW.project_id IS NOT NULL)
                   EXECUTE FUNCTION public.enforce_project_file_access();
+
+                CREATE TRIGGER trg_files_project_update
+                  BEFORE UPDATE ON public.files
+                  FOR EACH ROW
+                  WHEN (OLD.project_id IS NOT NULL OR NEW.project_id IS NOT NULL)
+                  EXECUTE FUNCTION public.enforce_project_file_access();
+
+                CREATE TRIGGER trg_files_project_delete
+                  BEFORE DELETE ON public.files
+                  FOR EACH ROW
+                  WHEN (OLD.project_id IS NOT NULL)
+                  EXECUTE FUNCTION public.enforce_project_file_access();
+
+                CREATE FUNCTION public.enforce_pending_file_deletion_access()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                SET search_path = pg_catalog, public, pg_temp
+                AS $function$
+                BEGIN
+                  IF current_user <> 'drover_system' AND NOT EXISTS (
+                    SELECT 1
+                    FROM public.memberships AS member
+                    WHERE member.space_id = sys.current_space()
+                      AND member.user_id = sys.current_user_id()
+                      AND member.role IN ('owner', 'admin')) THEN
+                    RAISE EXCEPTION 'Only space owners and admins may change pending file deletions.'
+                      USING ERRCODE = 'insufficient_privilege';
+                  END IF;
+
+                  IF TG_OP = 'INSERT' THEN
+                    IF NEW.storage_key IS DISTINCT FROM (replace(NEW.space_id::text, '-', '') || '/' || replace(NEW.id::text, '-', '')) THEN
+                      RAISE EXCEPTION 'Pending file deletion key must match the file.'
+                        USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                    RETURN NEW;
+                  END IF;
+
+                  IF TG_OP = 'UPDATE' THEN
+                    IF NEW.id IS DISTINCT FROM OLD.id
+                      OR NEW.space_id IS DISTINCT FROM OLD.space_id
+                      OR NEW.project_id IS DISTINCT FROM OLD.project_id
+                      OR NEW.storage_key IS DISTINCT FROM OLD.storage_key
+                      OR NEW.size IS DISTINCT FROM OLD.size
+                      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+                      RAISE EXCEPTION 'Pending file deletion details cannot be changed.'
+                        USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                    RETURN NEW;
+                  END IF;
+
+                  RETURN OLD;
+                END;
+                $function$;
+
+                REVOKE ALL ON FUNCTION public.enforce_pending_file_deletion_access() FROM PUBLIC;
+
+                CREATE TRIGGER trg_pending_file_deletions_access
+                  BEFORE INSERT OR UPDATE OR DELETE ON public.pending_file_deletions
+                  FOR EACH ROW
+                  EXECUTE FUNCTION public.enforce_pending_file_deletion_access();
                 """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("DROP TRIGGER trg_files_project_access ON public.files;");
+            migrationBuilder.Sql("DROP TRIGGER trg_pending_file_deletions_access ON public.pending_file_deletions;");
+            migrationBuilder.Sql("DROP FUNCTION public.enforce_pending_file_deletion_access();");
+            migrationBuilder.Sql("DROP TRIGGER trg_files_project_delete ON public.files;");
+            migrationBuilder.Sql("DROP TRIGGER trg_files_project_update ON public.files;");
+            migrationBuilder.Sql("DROP TRIGGER trg_files_project_insert ON public.files;");
             migrationBuilder.Sql("DROP FUNCTION public.enforce_project_file_access();");
 
             migrationBuilder.DropTable(

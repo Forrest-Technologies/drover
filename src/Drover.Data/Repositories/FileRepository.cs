@@ -153,6 +153,51 @@ public sealed class FileRepository(DroverDbContext db)
     }
 
     /// <summary>
+    /// Expands an existing reservation by <paramref name="additionalBytes"/> when the space has room under
+    /// <paramref name="limit"/>, returning true when both the space and the reservation increased.
+    /// </summary>
+    public async Task<bool> ExtendHold(Guid spaceId, Guid holdId, long additionalBytes, long limit, CancellationToken cancellationToken)
+    {
+        if (additionalBytes <= 0 || !await ReserveBytes(spaceId, additionalBytes, limit, cancellationToken))
+        {
+            return false;
+        }
+
+        var updated = await db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes} WHERE id = {holdId} AND space_id = {spaceId}",
+            cancellationToken);
+
+        if (updated == 0)
+        {
+            await ReleaseBytes(spaceId, additionalBytes, cancellationToken);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Drops holds created at or before <paramref name="olderThan"/> and returns their bytes to the space, skipping any
+    /// row locked by an active upload. Returns the dropped reservation ids so staged bytes can be removed best-effort.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> ReleaseExpiredHolds(Guid spaceId, DateTimeOffset olderThan, CancellationToken cancellationToken)
+    {
+        var expired = await db.FileByteReservations
+            .FromSql($"SELECT * FROM file_byte_reservations WHERE space_id = {spaceId} AND created_at <= {olderThan} FOR UPDATE SKIP LOCKED")
+            .ToListAsync(cancellationToken);
+
+        if (expired.Count == 0)
+        {
+            return [];
+        }
+
+        db.FileByteReservations.RemoveRange(expired);
+        await db.SaveChangesAsync(cancellationToken);
+        await ReleaseBytes(spaceId, expired.Sum(hold => hold.Bytes), cancellationToken);
+        return [.. expired.Select(hold => hold.Id)];
+    }
+
+    /// <summary>
     /// Removes the project files. The database trigger records a pending deletion and returns their quota. The rows
     /// are saved in this transaction so the pending rows can be claimed before commit.
     /// </summary>

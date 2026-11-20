@@ -243,6 +243,164 @@ public sealed class ProjectFileTests(PostgresServer postgres)
             .Should().Be(11);
     }
 
+    [Fact]
+    public async Task Cancelling_a_project_upload_after_reservation_commits_releases_the_hold_and_bytes()
+    {
+        var gate = new GatedStore();
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+        {
+            services.AddSingleton<IFileStore>(gate);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 1 },
+            }));
+        });
+        var project = await CreateProject(world, "Cancelled");
+        var limit = 1024L * 1024L;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
+
+        var uploadTask = UploadProjectFile(world, project.Id, "aborted.bin", new MemoryStream(new byte[limit]), limit, cts.Token);
+
+        await gate.FirstEntered.WaitAsync(RunWorld.Token);
+        await cts.CancelAsync();
+        gate.Release();
+
+        var aborted = () => uploadTask;
+        await aborted.Should().ThrowAsync<OperationCanceledException>();
+
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Files.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(0);
+
+        var retry = await UploadProjectFile(world, project.Id, "after.bin", new byte[limit]);
+        retry.File.Should().NotBeNull(retry.Detail);
+    }
+
+    [Fact]
+    public async Task A_storage_delete_failure_during_aborted_project_upload_still_releases_the_hold()
+    {
+        var store = new SaveAndDeleteFailingStore();
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+            services.AddSingleton<IFileStore>(store));
+        var project = await CreateProject(world, "DeleteFails");
+
+        var attempt = () => UploadProjectFile(world, project.Id, "broken.bin", new byte[256]);
+        await attempt.Should().ThrowAsync<IOException>();
+
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_abandoned_reservation_past_hold_lifetime_is_reclaimed_by_a_later_upload()
+    {
+        var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 1 },
+            }));
+        });
+        var project = await CreateProject(world, "Abandoned");
+        var limit = 1024L * 1024L;
+        var abandonedId = Guid.CreateVersion7();
+
+        await world.Transact(async services =>
+        {
+            var hold = await services.GetRequiredService<FileRepository>()
+                .TryHold(world.SpaceId, abandonedId, limit, limit, clock.GetUtcNow(), RunWorld.Token);
+            hold.Should().NotBeNull();
+            return true;
+        });
+
+        var whileFresh = await UploadProjectFile(world, project.Id, "blocked.bin", new byte[1024]);
+        whileFresh.Problem.Should().Be(FileProblem.Refused);
+        whileFresh.Refusal.Should().Be(FileRefusals.SpaceFull);
+
+        clock.Advance(FileService.HoldLifetime + TimeSpan.FromMinutes(1));
+
+        var afterExpiry = await UploadProjectFile(world, project.Id, "reclaimed.bin", new byte[limit]);
+        afterExpiry.File.Should().NotBeNull(afterExpiry.Detail);
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(limit);
+    }
+
+    [Fact]
+    public async Task Two_overlapping_chunked_project_uploads_share_the_space_quota_concurrently()
+    {
+        var gate = new GatedStore();
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+        {
+            services.AddSingleton<IFileStore>(gate);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 1 },
+            }));
+        });
+        var project = await CreateProject(world, "Chunked");
+        var chunkSize = 100 * 1024;
+
+        await using var firstStream = new MemoryStream(new byte[chunkSize]);
+        var firstUpload = UploadProjectFile(world, project.Id, "chunked-one.bin", firstStream, declaredLength: null, cancellationToken: TestContext.Current.CancellationToken);
+        await gate.FirstEntered.WaitAsync(RunWorld.Token);
+
+        await using var secondStream = new MemoryStream(new byte[chunkSize]);
+        var secondUpload = await UploadProjectFile(world, project.Id, "chunked-two.bin", secondStream, declaredLength: null, cancellationToken: TestContext.Current.CancellationToken);
+        secondUpload.File.Should().NotBeNull(secondUpload.Detail);
+
+        gate.Release();
+        var completedFirst = await firstUpload;
+        completedFirst.File.Should().NotBeNull(completedFirst.Detail);
+
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(chunkSize * 2);
+    }
+
+    [Fact]
+    public async Task Cancelling_the_request_during_project_file_deletion_still_finishes_pending_cleanup()
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
+        var cancellingStore = new CancellingOnDeleteStore(cts);
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+            services.AddSingleton<IFileStore>(cancellingStore));
+        var project = await CreateProject(world, "CancelledDelete");
+        var stored = (await UploadProjectFile(world, project.Id, "drop.txt", new byte[120])).File!;
+
+        cancellingStore.FailNextDelete = true;
+
+        await using (var scope = world.Hosts[0].Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            var failing = () => scope.ServiceProvider.GetRequiredService<FileService>()
+                .RemoveProjectFile(project.Id, stored.Id, cts.Token);
+            await failing.Should().ThrowAsync<IOException>();
+        }
+
+        // The claim must have been cleared even though the request token was cancelled before ClearClaim ran.
+        (await world.Read(db => db.PendingFileDeletions.SingleAsync(row => row.Id == stored.Id, RunWorld.Token)))
+            .CleanupClaimUntil.Should().BeNull();
+
+        using var retryCts = CancellationTokenSource.CreateLinkedTokenSource(RunWorld.Token);
+        cancellingStore.Reset(retryCts);
+        await using (var scope = world.Hosts[0].Services.CreateAsyncScope())
+        {
+            scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
+            var retried = await scope.ServiceProvider.GetRequiredService<FileService>()
+                .RemoveProjectFile(project.Id, stored.Id, retryCts.Token);
+            retried.Should().BeTrue();
+        }
+
+        (await world.Read(db => db.PendingFileDeletions.CountAsync(RunWorld.Token))).Should().Be(0);
+        (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
+            .Should().Be(0);
+    }
+
     #endregion
 
     #region Private Helpers
@@ -270,12 +428,21 @@ public sealed class ProjectFileTests(PostgresServer postgres)
         return await UploadProjectFile(world, projectId, name, stream, bytes.Length);
     }
 
-    private static async Task<FileUpload> UploadProjectFile(RunWorld world, Guid projectId, string name, Stream content, long? declaredLength)
+    private static Task<FileUpload> UploadProjectFile(RunWorld world, Guid projectId, string name, Stream content, long? declaredLength) =>
+        UploadProjectFile(world, projectId, name, content, declaredLength, RunWorld.Token);
+
+    private static async Task<FileUpload> UploadProjectFile(
+        RunWorld world,
+        Guid projectId,
+        string name,
+        Stream content,
+        long? declaredLength,
+        CancellationToken cancellationToken)
     {
         await using var scope = world.Hosts[0].Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
         return await scope.ServiceProvider.GetRequiredService<FileService>()
-            .UploadForProject(projectId, name, content, declaredLength, world.UserId, RunWorld.Token);
+            .UploadForProject(projectId, name, content, declaredLength, world.UserId, cancellationToken);
     }
 
     private static Task<IReadOnlyList<StoredFile>?> ListProjectFiles(RunWorld world, Guid projectId) =>
@@ -525,6 +692,102 @@ public sealed class ProjectFileTests(PostgresServer postgres)
             files.TryRemove(storageKey, out _);
             return Task.CompletedTask;
         }
+
+        #endregion
+    }
+
+    private sealed class SaveAndDeleteFailingStore : IFileStore
+    {
+        #region Interface Implementations
+
+        public Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken) =>
+            throw new IOException("Simulated upload failure.");
+
+        public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken) =>
+            Task.FromResult<Stream?>(null);
+
+        public Task Delete(Guid spaceId, string storageKey, CancellationToken cancellationToken) =>
+            throw new IOException("Simulated delete failure during cleanup.");
+
+        #endregion
+    }
+
+    private sealed class CancellingOnDeleteStore(CancellationTokenSource requestCts) : IFileStore
+    {
+        #region Private Fields
+
+        private readonly ConcurrentDictionary<string, byte[]> files = new(StringComparer.Ordinal);
+
+        private CancellationTokenSource activeCts = requestCts;
+
+        #endregion
+
+        #region Properties
+
+        public bool FailNextDelete { get; set; }
+
+        #endregion
+
+        #region Public Methods
+
+        public void Reset(CancellationTokenSource cts)
+        {
+            activeCts = cts;
+            FailNextDelete = false;
+        }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public async Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(copy, cancellationToken);
+            files[storageKey] = copy.ToArray();
+        }
+
+        public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            return Task.FromResult<Stream?>(files.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes, writable: false) : null);
+        }
+
+        public async Task Delete(Guid spaceId, string storageKey, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            await activeCts.CancelAsync();
+
+            if (FailNextDelete)
+            {
+                FailNextDelete = false;
+                throw new IOException("Simulated failure after cancellation.");
+            }
+
+            files.TryRemove(storageKey, out _);
+        }
+
+        #endregion
+    }
+
+    private sealed class MovableClock(DateTimeOffset start) : TimeProvider
+    {
+        #region Private Fields
+
+        private DateTimeOffset current = start;
+
+        #endregion
+
+        #region Public Methods
+
+        public void Advance(TimeSpan delta) => current = current.Add(delta);
+
+        #endregion
+
+        #region Overrides
+
+        public override DateTimeOffset GetUtcNow() => current;
 
         #endregion
     }

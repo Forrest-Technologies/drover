@@ -54,13 +54,17 @@ public sealed class FileByteReservationSeeder : PlainSeeder<FileByteReservation>
 
 public sealed class PendingFileDeletionSeeder : PlainSeeder<PendingFileDeletion>
 {
-    protected override Dictionary<string, object?> Columns(SeedRow seed) => new()
+    protected override Dictionary<string, object?> Columns(SeedRow seed)
     {
-        ["id"] = Guid.CreateVersion7(),
-        ["project_id"] = Guid.CreateVersion7(),
-        ["storage_key"] = seed.Unique("key"),
-        ["size"] = 1L,
-    };
+        var id = Guid.CreateVersion7();
+        return new()
+        {
+            ["id"] = id,
+            ["project_id"] = Guid.CreateVersion7(),
+            ["storage_key"] = FileStorageKeys.For(seed.Placement.SpaceId!.Value, id),
+            ["size"] = 1L,
+        };
+    }
 }
 
 public sealed class SecretSeeder : PlainSeeder<Secret>

@@ -116,14 +116,14 @@ public sealed class ProjectService(
                     return false;
                 }
 
-                deletions = [.. pending.Select(row => new StoredDeletion(row.Id, row.StorageKey))];
+                deletions = [.. pending.Select(row => new StoredDeletion(row.Id))];
                 await work.Commit(cancellationToken);
             }
             else
             {
                 var projectFiles = await files.GetProjectFilesForUpdate(project.Id, cancellationToken);
                 await files.StageProjectFileDeletion(projectFiles, now, claimUntil, cancellationToken);
-                deletions = [.. projectFiles.Select(file => new StoredDeletion(file.Id, file.StorageKey))];
+                deletions = [.. projectFiles.Select(file => new StoredDeletion(file.Id))];
                 await projects.ClearThreadsForProject(project.Id, cancellationToken);
                 projects.Remove(project);
                 audit.Record(actor, "project.removed", AuditTargets.Project, project.Id, Snapshot(project), null);

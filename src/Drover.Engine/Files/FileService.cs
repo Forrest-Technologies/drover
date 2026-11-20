@@ -40,6 +40,14 @@ public sealed class FileService(
     /// <summary>The most files a list of files exchanged with a bot holds: the newest ones.</summary>
     public const int MaxExchangedFiles = 200;
 
+    /// <summary>How much quota a chunked project upload with no declared length holds at a time.</summary>
+    public const long ChunkHoldStepBytes = 64 * 1024;
+
+    /// <summary>How long an uncommitted project-upload byte reservation stays valid before a later request reclaims it.</summary>
+    public static readonly TimeSpan HoldLifetime = TimeSpan.FromMinutes(15);
+
+    private static readonly TimeSpan cleanupTimeout = TimeSpan.FromSeconds(15);
+
     #endregion
 
     #region Properties
@@ -191,9 +199,10 @@ public sealed class FileService(
             return prepared.Refusal;
         }
 
-        var allowance = declaredLength is > 0
-            ? declaredLength.Value
-            : Math.Min(Rules.MaxFileBytes, prepared.Room);
+        var chunked = declaredLength is not > 0;
+        var allowance = chunked
+            ? Math.Min(ChunkHoldStepBytes, Math.Min(Rules.MaxFileBytes, prepared.Room))
+            : declaredLength!.Value;
 
         if (allowance <= 0)
         {
@@ -208,33 +217,48 @@ public sealed class FileService(
             return new FileUpload(null, FileProblem.NotFound);
         }
 
-        if (held.Hold is not { } hold)
+        if (held.Hold is not { } initialHold)
         {
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
+        var holdBox = new HoldBox(initialHold);
         var clean = CleanName(name);
         var key = FileStorageKeys.For(SpaceId, id);
         var inspector = new FileInspector();
-        await using var metered = new MeteredStream(content, hold.Bytes, inspector);
+        var streamLimit = chunked ? Rules.MaxFileBytes : initialHold.Bytes;
+        await using var source = chunked
+            ? new SteppedUploadStream(content, Rules.MaxFileBytes, holdBox, ExtendProjectHold, projectId)
+            : content;
+        await using var metered = new MeteredStream(source, streamLimit, inspector);
 
         try
         {
             await store.Save(SpaceId, key, metered, cancellationToken);
         }
+        catch (ProjectQuotaFullException quotaFull)
+        {
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
+            logger.LogInformation(quotaFull, "A chunked upload to project {ProjectId} ran out of space quota", projectId);
+            return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
+        }
+        catch (ProjectMissingException missing)
+        {
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
+            logger.LogInformation(missing, "Project {ProjectId} could not be found during chunked upload", projectId);
+            return new FileUpload(null, FileProblem.NotFound);
+        }
         catch (FileTooLargeException tooLarge)
         {
-            await store.Delete(SpaceId, key, CancellationToken.None);
-            await ReleaseHold(hold, cancellationToken);
-            logger.LogInformation(tooLarge, "An upload to project {ProjectId} went past {MaxBytes} bytes and was refused", projectId, hold.Bytes);
-            return hold.Bytes < Rules.MaxFileBytes
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
+            logger.LogInformation(tooLarge, "An upload to project {ProjectId} went past {MaxBytes} bytes and was refused", projectId, streamLimit);
+            return streamLimit < Rules.MaxFileBytes
                 ? Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes))
                 : Refused(FileRefusals.TooLarge, FileWords.TooLarge(null, Rules.MaxFileBytes));
         }
         catch (Exception)
         {
-            await store.Delete(SpaceId, key, CancellationToken.None);
-            await ReleaseHold(hold, cancellationToken);
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
             throw;
         }
 
@@ -263,18 +287,18 @@ public sealed class FileService(
                 file.ReadingNote = await ReadingNote(file, modelReadsImages: false, cancellationToken);
             }
 
-            upload = await KeepForProject(projectId, file, hold, cancellationToken);
+            upload = await KeepForProject(projectId, file, holdBox.Hold, cancellationToken);
         }
         catch (Exception)
         {
-            await store.Delete(SpaceId, key, CancellationToken.None);
-            await ReleaseHold(hold, cancellationToken);
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
             throw;
         }
 
         if (upload.File is null)
         {
-            await store.Delete(SpaceId, key, CancellationToken.None);
+            using var timeout = new CancellationTokenSource(cleanupTimeout);
+            await DeleteStoredQuietly(key, timeout.Token);
         }
 
         return upload;
@@ -394,12 +418,12 @@ public sealed class FileService(
 
             if (file is not null)
             {
-                deletion = new StoredDeletion(file.Id, file.StorageKey);
+                deletion = new StoredDeletion(file.Id);
                 await files.StageProjectFileDeletion([file], now, claimUntil, cancellationToken);
             }
             else if (await files.ClaimPending(fileId, projectId, now, claimUntil, cancellationToken) is { } pending)
             {
-                deletion = new StoredDeletion(pending.Id, pending.StorageKey);
+                deletion = new StoredDeletion(pending.Id);
             }
             else
             {
@@ -472,8 +496,10 @@ public sealed class FileService(
         }
 
         var can = await abilities.Read(bot, thread, cancellationToken);
+        var expired = await files.ReleaseExpiredHolds(SpaceId, time.GetUtcNow() - HoldLifetime, cancellationToken);
         var stored = await files.GetStoredBytes(SpaceId, cancellationToken);
         await work.Commit(cancellationToken);
+        await DeleteExpiredStaging(expired);
 
         var room = Math.Max(0, MaxSpaceBytes - stored);
         return declaredLength > room
@@ -490,8 +516,10 @@ public sealed class FileService(
             return null;
         }
 
+        var expired = await files.ReleaseExpiredHolds(SpaceId, time.GetUtcNow() - HoldLifetime, cancellationToken);
         var stored = await files.GetStoredBytes(SpaceId, cancellationToken);
         await work.Commit(cancellationToken);
+        await DeleteExpiredStaging(expired);
 
         var room = Math.Max(0, MaxSpaceBytes - stored);
         return declaredLength > room
@@ -512,8 +540,12 @@ public sealed class FileService(
             return new FileUpload(null, FileProblem.NotFound);
         }
 
+        var expired = await files.ReleaseExpiredHolds(SpaceId, time.GetUtcNow() - HoldLifetime, cancellationToken);
+
         if (!await files.ReserveBytes(SpaceId, file.Size, MaxSpaceBytes, cancellationToken))
         {
+            await work.Commit(cancellationToken);
+            await DeleteExpiredStaging(expired);
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
         }
 
@@ -521,28 +553,116 @@ public sealed class FileService(
         file.AudienceUserId = thread.AudienceUserId;
         files.Add(file);
         await work.Commit(cancellationToken);
+        await DeleteExpiredStaging(expired);
         logger.LogInformation("File {FileId} of {Size} bytes stored for thread {ThreadId}", file.Id, file.Size, threadId);
         return new FileUpload(file);
     }
 
-    private async Task<HoldAttempt> HoldProjectBytes(Guid projectId, Guid fileId, long bytes, CancellationToken cancellationToken)
+    private async Task<long> ExtendProjectHold(Guid projectId, HoldBox holdBox, long neededBytes, CancellationToken cancellationToken)
     {
+        var current = holdBox.Hold;
+        var additionalNeeded = neededBytes - current.Bytes;
+
+        if (additionalNeeded <= 0)
+        {
+            return current.Bytes;
+        }
+
+        var stepTarget = Math.Min(Rules.MaxFileBytes, Math.Max(neededBytes, current.Bytes + ChunkHoldStepBytes));
+        var desiredStep = stepTarget - current.Bytes;
+
         await using var work = await scope.Begin(cancellationToken);
 
         if (await projects.FindProject(projectId, cancellationToken) is null)
         {
-            return HoldAttempt.NotFound;
+            throw new ProjectMissingException();
         }
 
-        var reservation = await files.TryHold(SpaceId, fileId, bytes, MaxSpaceBytes, time.GetUtcNow(), cancellationToken);
+        long added;
 
-        if (reservation is null)
+        if (await files.ExtendHold(SpaceId, current.Id, desiredStep, MaxSpaceBytes, cancellationToken))
         {
-            return HoldAttempt.Full;
+            added = desiredStep;
+        }
+        else if (desiredStep != additionalNeeded && await files.ExtendHold(SpaceId, current.Id, additionalNeeded, MaxSpaceBytes, cancellationToken))
+        {
+            added = additionalNeeded;
+        }
+        else
+        {
+            throw new ProjectQuotaFullException();
         }
 
         await work.Commit(cancellationToken);
-        return new HoldAttempt(new ByteHold(reservation.Id, reservation.Bytes), false);
+        holdBox.Hold = current with { Bytes = current.Bytes + added };
+        return holdBox.Hold.Bytes;
+    }
+
+    private async Task<HoldAttempt> HoldProjectBytes(Guid projectId, Guid fileId, long bytes, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Guid> expired;
+        FileByteReservation? reservation;
+
+        await using (var work = await scope.Begin(cancellationToken))
+        {
+            if (await projects.FindProject(projectId, cancellationToken) is null)
+            {
+                return HoldAttempt.NotFound;
+            }
+
+            var now = time.GetUtcNow();
+            expired = await files.ReleaseExpiredHolds(SpaceId, now - HoldLifetime, cancellationToken);
+            reservation = await files.TryHold(SpaceId, fileId, bytes, MaxSpaceBytes, now, cancellationToken);
+            await work.Commit(cancellationToken);
+        }
+
+        await DeleteExpiredStaging(expired);
+
+        return reservation is null
+            ? HoldAttempt.Full
+            : new HoldAttempt(new ByteHold(reservation.Id, reservation.Bytes), false);
+    }
+
+    private async Task CleanupAbortedProjectUpload(string storageKey, ByteHold hold)
+    {
+        using var timeout = new CancellationTokenSource(cleanupTimeout);
+        await DeleteStoredQuietly(storageKey, timeout.Token);
+
+        try
+        {
+            await ReleaseHold(hold, timeout.Token);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not release byte reservation {ReservationId} after an aborted upload", hold.Id);
+        }
+    }
+
+    private async Task DeleteExpiredStaging(IReadOnlyList<Guid> expired)
+    {
+        if (expired.Count == 0)
+        {
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(cleanupTimeout);
+
+        foreach (var id in expired)
+        {
+            await DeleteStoredQuietly(FileStorageKeys.For(SpaceId, id), timeout.Token);
+        }
+    }
+
+    private async Task DeleteStoredQuietly(string storageKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await store.Delete(SpaceId, storageKey, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Could not delete staged bytes for key {StorageKey}", storageKey);
+        }
     }
 
     private async Task ReleaseHold(ByteHold hold, CancellationToken cancellationToken)
@@ -596,6 +716,125 @@ public sealed class FileService(
         public static HoldAttempt NotFound { get; } = new(null, true);
 
         public static HoldAttempt Full { get; } = new(null, false);
+    }
+
+    private sealed class HoldBox(ByteHold hold)
+    {
+        #region Properties
+
+        public ByteHold Hold { get; set; } = hold;
+
+        #endregion
+    }
+
+    private sealed class ProjectQuotaFullException() : IOException("The space has reached its file storage limit.");
+
+    private sealed class ProjectMissingException() : IOException("The project could not be found.");
+
+    private sealed class SteppedUploadStream(
+        Stream inner,
+        long maxFileBytes,
+        HoldBox holdBox,
+        Func<Guid, HoldBox, long, CancellationToken, Task<long>> extendHold,
+        Guid projectId) : Stream
+    {
+        #region Private Fields
+
+        private long bytesRead;
+
+        #endregion
+
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => bytesRead;
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Overrides
+
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            var read = inner.Read(buffer);
+            EnsureReservedSync(read);
+            return read;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await inner.ReadAsync(buffer, cancellationToken);
+
+            if (read <= 0)
+            {
+                return read;
+            }
+
+            bytesRead += read;
+
+            if (bytesRead > maxFileBytes)
+            {
+                throw new FileTooLargeException();
+            }
+
+            if (bytesRead > holdBox.Hold.Bytes)
+            {
+                await extendHold(projectId, holdBox, bytesRead, cancellationToken);
+            }
+
+            return read;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        #endregion
+
+        #region Private Methods
+
+        private void EnsureReservedSync(int read)
+        {
+            if (read <= 0)
+            {
+                return;
+            }
+
+            bytesRead += read;
+
+            if (bytesRead > maxFileBytes)
+            {
+                throw new FileTooLargeException();
+            }
+
+            if (bytesRead > holdBox.Hold.Bytes)
+            {
+                throw new NotSupportedException("Chunked project uploads require asynchronous stream reading.");
+            }
+        }
+
+        #endregion
     }
 
     #endregion

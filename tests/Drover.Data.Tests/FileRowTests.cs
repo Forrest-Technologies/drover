@@ -323,6 +323,108 @@ public sealed class FileRowTests(PostgresFixture postgres)
         }
     }
 
+    [Fact]
+    public async Task A_member_cannot_write_pending_file_deletions_and_owners_cannot_mutate_or_forge_keys()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        Guid projectId;
+        Guid fileId;
+        Guid otherFileId;
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var project = new Project { Name = "Deletion Queue Guards" };
+            asOwner.Db.Projects.Add(project);
+            await asOwner.Db.SaveChangesAsync(Token);
+            projectId = project.Id;
+
+            fileId = Guid.CreateVersion7();
+            otherFileId = Guid.CreateVersion7();
+            asOwner.Db.Files.Add(new StoredFile
+            {
+                Id = fileId,
+                AudienceUserId = Audience.Everyone,
+                ProjectId = projectId,
+                StorageKey = FileStorageKeys.For(world.SpaceA, fileId),
+                Name = "one.txt",
+                ContentType = "text/plain",
+                Size = 10,
+                Sha256 = new string('3', 64),
+                CreatedByUserId = world.UserA1,
+            });
+            await asOwner.Db.SaveChangesAsync(Token);
+            await asOwner.Execute("DELETE FROM files WHERE id = @id", ("id", fileId));
+            await asOwner.Commit();
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var forgedId = Guid.CreateVersion7();
+            var insert = () => asMember.Execute(
+                "INSERT INTO pending_file_deletions (id, space_id, project_id, storage_key, size) VALUES (@id, @space, @project, @key, 10)",
+                ("id", forgedId),
+                ("space", world.SpaceA),
+                ("project", projectId),
+                ("key", FileStorageKeys.For(world.SpaceA, otherFileId)));
+            (await insert.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var updateClaim = () => asMember.Execute(
+                "UPDATE pending_file_deletions SET cleanup_claim_until = now() WHERE id = @id",
+                ("id", fileId));
+            (await updateClaim.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var updateKey = () => asMember.Execute(
+                "UPDATE pending_file_deletions SET storage_key = @key WHERE id = @id",
+                ("id", fileId),
+                ("key", FileStorageKeys.For(world.SpaceA, otherFileId)));
+            (await updateKey.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asMember = await TenantSession.Open(provider, world.SpaceA, world.UserA2))
+        {
+            var delete = () => asMember.Execute(
+                "DELETE FROM pending_file_deletions WHERE id = @id",
+                ("id", fileId));
+            (await delete.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var mutateKey = () => asOwner.Execute(
+                "UPDATE pending_file_deletions SET storage_key = @key WHERE id = @id",
+                ("id", fileId),
+                ("key", FileStorageKeys.For(world.SpaceA, otherFileId)));
+            (await mutateKey.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var mismatchedInsert = () => asOwner.Execute(
+                "INSERT INTO pending_file_deletions (id, space_id, project_id, storage_key, size) VALUES (@id, @space, @project, @key, 10)",
+                ("id", Guid.CreateVersion7()),
+                ("space", world.SpaceA),
+                ("project", projectId),
+                ("key", FileStorageKeys.For(world.SpaceA, otherFileId)));
+            (await mismatchedInsert.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+
+        await using (var asOwner = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            var claimed = await asOwner.Execute(
+                "UPDATE pending_file_deletions SET cleanup_claim_until = now() WHERE id = @id",
+                ("id", fileId));
+            claimed.Should().Be(1);
+            await asOwner.Commit();
+        }
+    }
+
     #endregion
 
     #region Private Methods
