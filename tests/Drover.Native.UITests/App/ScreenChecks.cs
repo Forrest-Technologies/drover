@@ -47,6 +47,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 await Step("connect", Connect);
                 await Step("sign in", SignIn);
                 await Step("open a conversation", OpenConversation);
+                await Step("composer bounds", ComposerBounds);
                 await Step("send a message", SendMessage);
                 await Step("back", Back);
             }
@@ -135,6 +136,47 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         await Press("CrewRow");
         await Shown("ComposerField");
+    }
+
+    /// <summary>
+    /// The automation box of each composer button is where the button is drawn, within 2 px, with the options row open
+    /// and again once the field is three lines tall, which moves everything above it. The browser build keeps its
+    /// accessible boxes apart from the drawn controls, so <c>check-native-browser.mjs</c> asks the canvas; here the
+    /// peer's rectangle is compared with the control's own.
+    /// </summary>
+    private async Task ComposerBounds()
+    {
+        await Shown("ComposerField");
+        await Press("ComposerMore");
+        await AreWhereDrawn("with the options open", "ComposerMore", "ComposerAttach", "ComposerSend");
+        var oneLine = (await Shown("ComposerField")).ActualHeight;
+        await Type("ComposerField", "one\ntwo\nthree");
+        await Until("the field to grow", () => Find("ComposerField") is { } grown && grown.ActualHeight > oneLine + 20 ? grown : null);
+        await AreWhereDrawn("with the field three lines tall", "ComposerMore", "ComposerAttach", "ComposerSend");
+        await Type("ComposerField", string.Empty);
+        await Press("ComposerMore");
+    }
+
+    private async Task AreWhereDrawn(string state, params string[] ids)
+    {
+        var root = window.Content as FrameworkElement ?? throw new CheckFailedException("the window has no content");
+
+        foreach (var id in ids)
+        {
+            var element = await Shown(id);
+            var drawn = element.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            var peer = FrameworkElementAutomationPeer.CreatePeerForElement(element)
+                ?? throw new CheckFailedException($"{id} has no automation peer");
+            var box = peer.GetBoundingRectangle();
+
+            if (Math.Abs(box.X - drawn.X) > 2 || Math.Abs(box.Y - drawn.Y) > 2
+                || Math.Abs(box.Width - drawn.Width) > 2 || Math.Abs(box.Height - drawn.Height) > 2)
+            {
+                var said = $"its automation box is {box.X:0.#},{box.Y:0.#} {box.Width:0.#}x{box.Height:0.#}";
+                throw new CheckFailedException(
+                    $"{id} {state}: {said} but it is drawn at {drawn.X:0.#},{drawn.Y:0.#} {drawn.Width:0.#}x{drawn.Height:0.#}");
+            }
+        }
     }
 
     private async Task SendMessage()

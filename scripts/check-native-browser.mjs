@@ -355,6 +355,9 @@ try {
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
                 if (name === 'conversation' && !reference) {
+                    await checkComposerBounds(page);
+                }
+                if (name === 'conversation' && !reference) {
                     const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
                     const download = page.getByRole('link', { name: 'Download sample-preview.md' });
@@ -447,6 +450,111 @@ try {
 }
 
 // Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
+// The accessible box of each composer button must stand where the button is drawn. The semantic tree and the canvas are
+// separate, so the check asks the canvas where the button is drawn: focusing a button draws its focus ring, and the
+// pixels that change between the field being focused and the button being focused are the ring. Its top left corner
+// must sit where the box's does (the ring of a button with an icon only stands 4 px outside it), within 2 px. The runtime
+// moves a box only when the control's own offset or size changes, so a box whose ancestor moved is stale. Opening and
+// closing the options row and growing the field are the moves that find it. Stop is visible only while a bot works, so
+// it is not looked at here.
+async function checkComposerBounds(page) {
+    const field = page.getByRole('textbox', { name: 'Message to Sample bot', exact: true });
+    const buttons = ['More options', 'Attach', 'Send'];
+    const outset = { 'More options': 4 };
+    const margin = 6;
+    const reader = await page.context().newPage();
+    await reader.setContent('<canvas id="c"></canvas>');
+    // The box and the margin around it, as the pixels that differ between two pictures: where they begin.
+    const firstChange = async (before, after) => reader.evaluate(async ([one, two]) => {
+        const load = async base64 => {
+            const image = new Image();
+            await new Promise(resolve => { image.onload = resolve; image.src = `data:image/png;base64,${base64}`; });
+            const canvas = document.getElementById('c');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            return context.getImageData(0, 0, image.width, image.height);
+        };
+        const [a, b] = [await load(one), await load(two)];
+        let [left, top, count] = [Infinity, Infinity, 0];
+        for (let y = 0; y < a.height; y++) {
+            for (let x = 0; x < a.width; x++) {
+                const i = (y * a.width + x) * 4;
+                if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 60) {
+                    left = Math.min(left, x);
+                    top = Math.min(top, y);
+                    count++;
+                }
+            }
+        }
+        return { left, top, count };
+    }, [before.toString('base64'), after.toString('base64')]);
+    const misses = async label => {
+        const button = page.getByRole('button', { name: label, exact: true });
+        const box = await button.count() === 1 ? await button.boundingBox({ timeout: 1000 }) : null;
+        if (!box) {
+            return [`${label} has no accessible box`];
+        }
+        const clip = {
+            x: Math.max(0, Math.floor(box.x) - margin),
+            y: Math.max(0, Math.floor(box.y) - margin),
+            width: Math.ceil(box.width) + 2 * margin,
+            height: Math.ceil(box.height) + 2 * margin,
+        };
+        await field.focus();
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(200);
+        const before = await page.screenshot({ clip });
+        await button.focus();
+        await page.waitForTimeout(200);
+        const after = await page.screenshot({ clip });
+        const { left, top, count } = await firstChange(before, after);
+        const expected = { x: Math.floor(box.x) - (outset[label] ?? 0), y: Math.floor(box.y) - (outset[label] ?? 0) };
+        const drawn = { x: clip.x + left, y: clip.y + top };
+        if (count === 0 || Math.abs(drawn.x - expected.x) > 2 || Math.abs(drawn.y - expected.y) > 2) {
+            return [`${label}: its focus ring begins at ${count === 0 ? 'nowhere inside' : `${drawn.x},${drawn.y} where`} its accessible box, which begins at ${box.x},${box.y} (ring expected at ${expected.x},${expected.y})`];
+        }
+        return [];
+    };
+    const settled = async (state, names) => {
+        let found = [];
+        const until = Date.now() + 3000;
+        do {
+            await page.waitForTimeout(250);
+            found = [];
+            for (const label of names) {
+                found.push(...await misses(label));
+            }
+        } while (found.length > 0 && Date.now() < until);
+        assert.equal(found.length, 0, `${state}: the accessible boxes are not where the buttons are drawn.\n${found.join('\n')}`);
+    };
+    const more = page.getByRole('button', { name: 'More options', exact: true });
+
+    try {
+        await more.dispatchEvent('click');
+        await settled('options open', buttons.filter(label => label !== 'Send'));
+        await field.focus();
+        await page.keyboard.type('one');
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('two');
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('three');
+        await settled('options open and the field three lines tall', buttons);
+        await more.dispatchEvent('click');
+        await settled('options closed and the field three lines tall', ['More options', 'Send']);
+        await more.dispatchEvent('click');
+        await settled('options open again', buttons);
+        await more.dispatchEvent('click');
+        await field.focus();
+        await page.keyboard.press('ControlOrMeta+A');
+        await page.keyboard.press('Delete');
+        await page.waitForTimeout(250);
+    } finally {
+        await reader.close();
+    }
+}
+
 async function checkLeavingWithEdits(page, address) {
     const instructions = page.getByRole('textbox', { name: 'Instructions', exact: true });
     const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
