@@ -41,7 +41,7 @@ public sealed class FileService(
     public const int MaxExchangedFiles = 200;
 
     /// <summary>How much quota a chunked project upload with no declared length holds at a time.</summary>
-    public const long ChunkHoldStepBytes = 64 * 1024;
+    public const long ChunkHoldStepBytes = 1024 * 1024;
 
     /// <summary>How long an uncommitted project-upload byte reservation stays valid before a later request reclaims it.</summary>
     public static readonly TimeSpan HoldLifetime = TimeSpan.FromMinutes(15);
@@ -235,6 +235,12 @@ public sealed class FileService(
         try
         {
             await store.Save(SpaceId, key, metered, cancellationToken);
+        }
+        catch (ProjectUploadExpiredException expired)
+        {
+            await CleanupAbortedProjectUpload(key, holdBox.Hold);
+            logger.LogInformation(expired, "A chunked upload to project {ProjectId} expired before finishing", projectId);
+            return Refused(FileRefusals.UploadExpired, FileWords.UploadExpired(HoldLifetime));
         }
         catch (ProjectQuotaFullException quotaFull)
         {
@@ -578,15 +584,27 @@ public sealed class FileService(
             throw new ProjectMissingException();
         }
 
+        var touchedAt = time.GetUtcNow();
         long added;
+        var step = await files.ExtendHold(SpaceId, current.Id, desiredStep, MaxSpaceBytes, touchedAt, cancellationToken);
 
-        if (await files.ExtendHold(SpaceId, current.Id, desiredStep, MaxSpaceBytes, cancellationToken))
+        if (step is HoldExtension.Extended)
         {
             added = desiredStep;
         }
-        else if (desiredStep != additionalNeeded && await files.ExtendHold(SpaceId, current.Id, additionalNeeded, MaxSpaceBytes, cancellationToken))
+        else if (step is HoldExtension.Expired)
         {
-            added = additionalNeeded;
+            throw new ProjectUploadExpiredException();
+        }
+        else if (desiredStep != additionalNeeded)
+        {
+            var exact = await files.ExtendHold(SpaceId, current.Id, additionalNeeded, MaxSpaceBytes, touchedAt, cancellationToken);
+            added = exact switch
+            {
+                HoldExtension.Extended => additionalNeeded,
+                HoldExtension.Expired => throw new ProjectUploadExpiredException(),
+                _ => throw new ProjectQuotaFullException(),
+            };
         }
         else
         {
@@ -683,11 +701,17 @@ public sealed class FileService(
             return new FileUpload(null, FileProblem.NotFound);
         }
 
-        if (file.Size > hold.Bytes || !await files.CompleteHold(SpaceId, hold.Id, hold.Bytes, file.Size, cancellationToken))
+        if (file.Size > hold.Bytes)
         {
             await files.ReleaseHold(SpaceId, hold.Id, hold.Bytes, cancellationToken);
             await work.Commit(cancellationToken);
             return Refused(FileRefusals.SpaceFull, FileWords.SpaceFull(Rules.MaxSpaceFileMegabytes));
+        }
+
+        if (!await files.CompleteHold(SpaceId, hold.Id, hold.Bytes, file.Size, cancellationToken))
+        {
+            await work.Commit(cancellationToken);
+            return Refused(FileRefusals.UploadExpired, FileWords.UploadExpired(HoldLifetime));
         }
 
         file.ProjectId = projectId;
@@ -728,6 +752,8 @@ public sealed class FileService(
     }
 
     private sealed class ProjectQuotaFullException() : IOException("The space has reached its file storage limit.");
+
+    private sealed class ProjectUploadExpiredException() : IOException("The upload reservation expired before the upload finished.");
 
     private sealed class ProjectMissingException() : IOException("The project could not be found.");
 

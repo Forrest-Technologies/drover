@@ -161,6 +161,18 @@ public abstract class FileStoreConformance
         await delete.Should().ThrowAsync<ArgumentException>();
     }
 
+    [Fact]
+    public async Task Saving_reads_content_asynchronously_without_calling_synchronous_Read()
+    {
+        var store = CreateStore();
+        var key = NewKey(Space);
+        var content = RandomBytes(128 * 1024);
+
+        await store.Save(Space, key, new AsyncOnlyStream(content), Token);
+
+        (await Read(store, Space, key)).Should().Equal(content);
+    }
+
     #endregion
 
     #region Private Methods
@@ -197,6 +209,67 @@ public abstract class FileStoreConformance
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             Task.FromResult(Read(buffer, offset, count));
+
+        #endregion
+    }
+
+    /// <summary>Fails on any synchronous read so <see cref="IFileStore.Save"/> must read asynchronously.</summary>
+    private sealed class AsyncOnlyStream(byte[] content) : Stream
+    {
+        #region Private Fields
+
+        private int position;
+
+        #endregion
+
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => position;
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Overrides
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(Span<byte> buffer) => throw new NotSupportedException();
+
+        public override int ReadByte() => throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var remaining = content.Length - position;
+            var toCopy = Math.Min(remaining, buffer.Length);
+            content.AsMemory(position, toCopy).CopyTo(buffer);
+            position += toCopy;
+            return ValueTask.FromResult(toCopy);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
         #endregion
     }

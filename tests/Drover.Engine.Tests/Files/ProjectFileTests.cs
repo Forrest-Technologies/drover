@@ -339,17 +339,18 @@ public sealed class ProjectFileTests(PostgresServer postgres)
             services.AddSingleton<IFileStore>(gate);
             services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
             {
-                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 1 },
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 3 },
             }));
         });
         var project = await CreateProject(world, "Chunked");
-        var chunkSize = 100 * 1024;
+        var firstSize = 1_200_000;
+        var secondSize = 700 * 1024;
 
-        await using var firstStream = new MemoryStream(new byte[chunkSize]);
+        await using var firstStream = new MemoryStream(new byte[firstSize]);
         var firstUpload = UploadProjectFile(world, project.Id, "chunked-one.bin", firstStream, declaredLength: null, cancellationToken: TestContext.Current.CancellationToken);
         await gate.FirstEntered.WaitAsync(RunWorld.Token);
 
-        await using var secondStream = new MemoryStream(new byte[chunkSize]);
+        await using var secondStream = new MemoryStream(new byte[secondSize]);
         var secondUpload = await UploadProjectFile(world, project.Id, "chunked-two.bin", secondStream, declaredLength: null, cancellationToken: TestContext.Current.CancellationToken);
         secondUpload.File.Should().NotBeNull(secondUpload.Detail);
 
@@ -359,7 +360,62 @@ public sealed class ProjectFileTests(PostgresServer postgres)
 
         (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(0);
         (await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId).Select(space => space.StoredFileBytes).SingleAsync(RunWorld.Token)))
-            .Should().Be(chunkSize * 2);
+            .Should().Be(firstSize + secondSize);
+    }
+
+    [Fact]
+    public async Task A_chunked_upload_that_keeps_extending_survives_past_hold_lifetime_and_an_expired_hold_reports_why()
+    {
+        var clock = new MovableClock(new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero));
+        var stepped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slowStore = new CoordinatedStore();
+        slowStore.Arm(stepped, finish);
+
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel(), everyHost: services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.AddSingleton<IFileStore>(slowStore);
+            services.AddSingleton<IOptions<DeploymentPolicyOptions>>(Options.Create(new DeploymentPolicyOptions
+            {
+                Rules = new DeploymentPolicy { MaxSpaceFileMegabytes = 4 },
+            }));
+        });
+        var project = await CreateProject(world, "SlowButActive");
+        var totalSize = (int)FileService.ChunkHoldStepBytes + (256 * 1024);
+
+        // Advance 10 minutes before the upload crosses the step boundary, so ExtendHold renews at +10m;
+        // advance another 10 minutes after extending (20m total > 15m HoldLifetime, but only 10m since touch).
+        var uploadStream = new SlowStepStream(new byte[totalSize], (int)FileService.ChunkHoldStepBytes, clock, TimeSpan.FromMinutes(10));
+        var upload = UploadProjectFile(world, project.Id, "steady.bin", uploadStream, declaredLength: null, cancellationToken: RunWorld.Token);
+        await stepped.Task.WaitAsync(RunWorld.Token);
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var concurrent = await UploadProjectFile(world, project.Id, "other.bin", new byte[128]);
+        concurrent.File.Should().NotBeNull(concurrent.Detail);
+        (await world.Read(db => db.FileByteReservations.CountAsync(RunWorld.Token))).Should().Be(1, "renewed hold must not be reaped");
+
+        finish.SetResult();
+        var completed = await upload;
+        completed.File.Should().NotBeNull(completed.Detail);
+
+        // Now stall past HoldLifetime without renewing so the reaper drops the hold before KeepForProject commits.
+        var stalledEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stalledFinish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        slowStore.Arm(stalledEntered, stalledFinish);
+
+        var stalledUpload = UploadProjectFile(world, project.Id, "stalled.bin", new MemoryStream(new byte[1024]), declaredLength: 1024, cancellationToken: RunWorld.Token);
+        await stalledEntered.Task.WaitAsync(RunWorld.Token);
+        clock.Advance(FileService.HoldLifetime + TimeSpan.FromMinutes(1));
+        var reaper = await UploadProjectFile(world, project.Id, "reaper.bin", new byte[64]);
+        reaper.File.Should().NotBeNull(reaper.Detail);
+
+        stalledFinish.SetResult();
+        var expired = await stalledUpload;
+        expired.File.Should().BeNull();
+        expired.Problem.Should().Be(FileProblem.Refused);
+        expired.Refusal.Should().Be(FileRefusals.UploadExpired);
+        expired.Detail.Should().Contain("expired");
     }
 
     [Fact]
@@ -767,6 +823,131 @@ public sealed class ProjectFileTests(PostgresServer postgres)
 
             files.TryRemove(storageKey, out _);
         }
+
+        #endregion
+    }
+
+    private sealed class CoordinatedStore : IFileStore
+    {
+        #region Private Fields
+
+        private readonly ConcurrentDictionary<string, byte[]> files = new(StringComparer.Ordinal);
+
+        private TaskCompletionSource? activeEntered;
+
+        private TaskCompletionSource? activeRelease;
+
+        #endregion
+
+        #region Public Methods
+
+        public void Arm(TaskCompletionSource nextEntered, TaskCompletionSource nextRelease)
+        {
+            activeEntered = nextEntered;
+            activeRelease = nextRelease;
+        }
+
+        #endregion
+
+        #region Interface Implementations
+
+        public async Task Save(Guid spaceId, string storageKey, Stream content, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            var entered = Interlocked.Exchange(ref activeEntered, null);
+            var release = Interlocked.Exchange(ref activeRelease, null);
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(copy, cancellationToken);
+            files[storageKey] = copy.ToArray();
+
+            if (entered is not null && release is not null)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(cancellationToken);
+            }
+        }
+
+        public Task<Stream?> Open(Guid spaceId, string storageKey, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            return Task.FromResult<Stream?>(files.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes, writable: false) : null);
+        }
+
+        public Task Delete(Guid spaceId, string storageKey, CancellationToken cancellationToken)
+        {
+            FileStorageKeys.Require(spaceId, storageKey);
+            files.TryRemove(storageKey, out _);
+            return Task.CompletedTask;
+        }
+
+        #endregion
+    }
+
+    private sealed class SlowStepStream(byte[] content, int advanceAtByte, MovableClock clock, TimeSpan advanceBy) : Stream
+    {
+        #region Private Fields
+
+        private int position;
+
+        private bool advanced;
+
+        #endregion
+
+        #region Properties
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => position;
+            set => throw new NotSupportedException();
+        }
+
+        #endregion
+
+        #region Overrides
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var remaining = content.Length - position;
+            if (remaining <= 0)
+            {
+                return ValueTask.FromResult(0);
+            }
+
+            if (!advanced && position >= advanceAtByte)
+            {
+                advanced = true;
+                clock.Advance(advanceBy);
+            }
+
+            var cap = !advanced ? Math.Max(1, Math.Min(buffer.Length, advanceAtByte - position)) : buffer.Length;
+            var toCopy = Math.Min(remaining, cap);
+            content.AsMemory(position, toCopy).CopyTo(buffer);
+            position += toCopy;
+            return ValueTask.FromResult(toCopy);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
 
         #endregion
     }

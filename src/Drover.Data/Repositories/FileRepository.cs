@@ -153,27 +153,38 @@ public sealed class FileRepository(DroverDbContext db)
     }
 
     /// <summary>
-    /// Expands an existing reservation by <paramref name="additionalBytes"/> when the space has room under
-    /// <paramref name="limit"/>, returning true when both the space and the reservation increased.
+    /// Expands an existing reservation by <paramref name="additionalBytes"/> and renews its activity timestamp to
+    /// <paramref name="touchedAt"/> when the space has room under <paramref name="limit"/>.
     /// </summary>
-    public async Task<bool> ExtendHold(Guid spaceId, Guid holdId, long additionalBytes, long limit, CancellationToken cancellationToken)
+    public async Task<HoldExtension> ExtendHold(
+        Guid spaceId,
+        Guid holdId,
+        long additionalBytes,
+        long limit,
+        DateTimeOffset touchedAt,
+        CancellationToken cancellationToken)
     {
+        if (!await db.FileByteReservations.Where(hold => hold.Id == holdId).AnyAsync(cancellationToken))
+        {
+            return HoldExtension.Expired;
+        }
+
         if (additionalBytes <= 0 || !await ReserveBytes(spaceId, additionalBytes, limit, cancellationToken))
         {
-            return false;
+            return HoldExtension.SpaceFull;
         }
 
         var updated = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes} WHERE id = {holdId} AND space_id = {spaceId}",
+            $"UPDATE file_byte_reservations SET bytes = bytes + {additionalBytes}, created_at = {touchedAt} WHERE id = {holdId} AND space_id = {spaceId}",
             cancellationToken);
 
         if (updated == 0)
         {
             await ReleaseBytes(spaceId, additionalBytes, cancellationToken);
-            return false;
+            return HoldExtension.Expired;
         }
 
-        return true;
+        return HoldExtension.Extended;
     }
 
     /// <summary>
@@ -281,3 +292,11 @@ public sealed class FileRepository(DroverDbContext db)
 
 /// <summary>A file a person and a bot exchanged, and whether the conversation that carries it is the main one.</summary>
 public sealed record ExchangedFile(StoredFile File, bool InMainConversation);
+
+/// <summary>Whether an active upload reservation could be expanded and renewed.</summary>
+public enum HoldExtension
+{
+    Extended,
+    SpaceFull,
+    Expired,
+}
