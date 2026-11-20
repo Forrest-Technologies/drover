@@ -102,6 +102,87 @@ jobs:
           path: src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
           if-no-files-found: error
 
+  ios:
+    name: iOS
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Require Xcode 27.2
+        run: xcodebuild -version | grep -F 'Xcode 27.2'
+      - name: Install the iOS workload
+        run: dotnet workload install ios --version 11.0.100
+      - name: Build iOS, warnings are errors
+        run: |
+          dotnet build src/Drover.Native -f net11.0-ios \
+            -p:DroverNativeTargetFrameworks=net11.0-ios \
+            -p:DroverEnableApple=true \
+            -p:RuntimeIdentifier=iossimulator-arm64 \
+            -p:CodesignKey=- \
+            -c Release \
+            -warnaserror
+          dll="$(find src/Drover.Native/bin/Release/net11.0-ios -type f -name 'Drover.Native.dll' -print -quit)"
+          test -n "$dll"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText' "$dll"; then
+            echo "Screen-check hooks must not be compiled into the shipping iOS binary"
+            exit 1
+          fi
+      - name: Build the screen checks and an iOS build made for them
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-ios \
+            -p:DroverNativeTargetFrameworks=net11.0-ios \
+            -p:DroverEnableApple=true \
+            -p:RuntimeIdentifier=iossimulator-arm64 \
+            -p:CodesignKey=- \
+            -p:DroverUiChecks=true \
+            -c Release \
+            -warnaserror \
+            -o "$RUNNER_TEMP/ui-checks-ios"
+      - name: Start PostgreSQL for the screen checks
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          brew install postgresql@17
+          bin="$(brew --prefix postgresql@17)/bin"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          umask 077
+          printf '%s' "$password" > "$RUNNER_TEMP/postgres-password"
+          "$bin/initdb" -D "$RUNNER_TEMP/postgres" \
+            --auth-host=scram-sha-256 \
+            --auth-local=trust \
+            --username=postgres \
+            --pwfile="$RUNNER_TEMP/postgres-password" > /dev/null
+          rm "$RUNNER_TEMP/postgres-password"
+          "$bin/pg_ctl" -D "$RUNNER_TEMP/postgres" \
+            -o "-p 5432 -c listen_addresses=127.0.0.1" \
+            -l "$RUNNER_TEMP/postgres.log" \
+            -w start
+          echo "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$password" >> "$GITHUB_ENV"
+      - name: Open the app and pass the shared screen checks after a restart
+        run: |
+          device="$(xcrun simctl list devices available --json \
+            | jq -r '[.devices["com.apple.CoreSimulator.SimRuntime.iOS-27-2"][]?
+              | select(.name | startswith("iPhone"))][0].udid // empty')"
+          test -n "$device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          trap 'xcrun simctl shutdown "$device" || true' EXIT
+          app="$(find "$RUNNER_TEMP/ui-checks-ios" -type d -name 'Drover.Native.app' -print -quit)"
+          test -n "$app"
+          dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- ios "$app" "$device"
+
   desktop:
     name: Desktop (${{ matrix.os }})
     strategy:

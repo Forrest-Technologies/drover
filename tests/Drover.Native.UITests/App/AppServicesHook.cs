@@ -22,7 +22,7 @@ public static partial class AppServices
         }
 
         // Once per run: the app starts its services again when a person chooses another server.
-        if (!forgotten)
+        if (!forgotten && !settings.ChecksRestart)
         {
             new ServerAddress().Forget();
             forgotten = true;

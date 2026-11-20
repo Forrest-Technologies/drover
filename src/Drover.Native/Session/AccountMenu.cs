@@ -1,8 +1,8 @@
 namespace Drover.Native.Session;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, and signing out. In the bar it carries the
-/// person's name; compact, in a phone's dock, it is an icon over the word "Account".
+/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. In the bar it
+/// carries the person's name; compact, in a phone's dock, it is an icon over the word "Account".
 /// </summary>
 public sealed class AccountMenu : Grid
 {
@@ -14,6 +14,8 @@ public sealed class AccountMenu : Grid
 
     private readonly Dialog notifications = new() { Title = "Notifications on this device" };
 
+    private readonly Dialog about = new() { Title = "About Drover" };
+
     #endregion
 
     #region Constructors
@@ -21,8 +23,10 @@ public sealed class AccountMenu : Grid
     public AccountMenu()
     {
         notifications.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => NotificationsChanged());
+        about.RegisterPropertyChangedCallback(Dialog.OpenProperty, (_, _) => AboutChanged());
         Children.Add(menu);
         Children.Add(notifications);
+        Children.Add(about);
 
         model.PropertyChanged += (_, _) => Show();
         Unloaded += (_, _) => model.Dispose();
@@ -54,6 +58,7 @@ public sealed class AccountMenu : Grid
         menu.TriggerIcon = Compact ? IconName.Account : null;
         menu.HorizontalAlignment = Compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
         ShowNotifications();
+        ShowAbout();
 
         if (Compact)
         {
@@ -77,6 +82,7 @@ public sealed class AccountMenu : Grid
             menu.Items.Add(Item("Status", () => model.Open(Addresses.Status)));
         }
 
+        menu.Items.Add(Item("About Drover", model.OpenAbout));
         menu.Items.Add(Item("Sign out", () => _ = model.SignOut()));
     }
 
@@ -93,6 +99,22 @@ public sealed class AccountMenu : Grid
         if (!model.NotificationsOpen)
         {
             notifications.Body = null;
+        }
+    }
+
+    // Made each time it opens, so a notice from the last save is not shown again.
+    private void ShowAbout()
+    {
+        if (model.AboutOpen && !about.Open)
+        {
+            about.Body = new AboutDrover();
+        }
+
+        about.Open = model.AboutOpen;
+
+        if (!model.AboutOpen)
+        {
+            about.Body = null;
         }
     }
 
@@ -151,6 +173,15 @@ public sealed class AccountMenu : Grid
         if (!notifications.Open && model.NotificationsOpen)
         {
             model.NotificationsOpen = false;
+            menu.ReturnFocusToTrigger();
+        }
+    }
+
+    private void AboutChanged()
+    {
+        if (!about.Open && model.AboutOpen)
+        {
+            model.AboutOpen = false;
             menu.ReturnFocusToTrigger();
         }
     }

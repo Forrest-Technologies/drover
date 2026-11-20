@@ -149,6 +149,59 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
         JsonElement.DeepEquals((await world.ReadToolCalls(runId)).Single().Result!.Value, JsonElement.Parse("""{"done":true}""")).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("computer_click", """{"x":10,"y":20}""")]
+    [InlineData("computer_type", """{"text":"keep this"}""")]
+    public async Task An_action_a_tainted_run_takes_marks_the_screen_so_a_later_clean_run_that_looks_is_tainted_with_the_network_off(
+        string tool, string arguments)
+    {
+        var provider = DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "web__fetch")],
+            [new ToolCallOutput("c2", tool, arguments)],
+            [new TextOutput("Acted.")],
+            [new ToolCallOutput("c3", "computer_screenshot")],
+            [new TextOutput("Seen.")]);
+        await using var world = await ComputerWorld(provider, script, network: NetworkAccess.Off);
+        await SandboxBrokerTests.OfferUntrustedPage(world);
+        world.StartHost();
+
+        var actor = await world.Post(await world.NewThread(), "Read the page and act on it");
+        await SandboxBrokerTests.ApproveTheWrite(world, actor);
+        var acted = await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Failed);
+
+        acted.Status.Should().Be(RunStatus.Completed, acted.Error?.Message);
+        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeTrue(
+            "the run had read untrusted text before it acted on the screen");
+
+        var looker = await world.Post(await world.NewThread(), "What is on the screen?");
+        var clean = await world.WaitForStatus(looker, RunStatus.Completed, RunStatus.Failed);
+
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        clean.Tainted.Should().BeTrue("a tainted run acted on this screen, and the network being off does not make it trusted");
+    }
+
+    [Fact]
+    public async Task An_action_a_clean_run_takes_does_not_mark_the_screen_so_a_later_run_that_looks_stays_clean()
+    {
+        var provider = DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "computer_click", """{"x":10,"y":20}""")],
+            [new TextOutput("Clicked.")],
+            [new ToolCallOutput("c2", "computer_screenshot")],
+            [new TextOutput("Seen.")]);
+        await using var world = await ComputerWorld(provider, script, network: NetworkAccess.Off);
+        world.StartHost();
+
+        var actor = await world.Post(await world.NewThread(), "Click");
+        (await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+        var looker = await world.Post(await world.NewThread(), "Look");
+        var clean = await world.WaitForStatus(looker, RunStatus.Completed, RunStatus.Failed);
+
+        (await world.Read(db => db.Sandboxes.AsNoTracking().SingleAsync(RunWorld.Token))).Tainted.Should().BeFalse();
+        clean.Tainted.Should().BeFalse();
+    }
+
     #endregion
 
     #region Offered Only Where It Can Work
