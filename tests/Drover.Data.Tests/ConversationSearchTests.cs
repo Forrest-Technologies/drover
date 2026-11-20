@@ -167,8 +167,9 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         newest.Matches.Select(hit => hit.MessageId).Should().Equal(
             [recentMatch.Id],
             "the older message sits past the recent candidate window");
+        // PostgreSQL keeps microseconds and a .NET time keeps 100 nanosecond ticks, so the stored time is compared.
         newest.Older.Should().Be(
-            new MessageKey(windowEdge.CreatedAt, windowEdge.Id),
+            new MessageKey(Microseconds(windowEdge.CreatedAt), windowEdge.Id),
             "the search says where its window ended, because an older message was not looked at");
 
         var older = await SearchWindow(provider, world.SpaceA, world.UserA1, "nautilus", newest.Older);
@@ -217,6 +218,9 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     #endregion
 
     #region Helpers
+
+    private static DateTimeOffset Microseconds(DateTimeOffset time) =>
+        new(time.Ticks - time.Ticks % (TimeSpan.TicksPerMillisecond / 1000), time.Offset);
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
