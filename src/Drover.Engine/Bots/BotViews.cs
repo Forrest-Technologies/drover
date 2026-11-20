@@ -46,7 +46,8 @@ public static class BotViews
             new BuildLimitsBody(bot.BuildLimits.MaxChildren, bot.BuildLimits.MaxDepthBelow),
             new RunLimitsBody(bot.RunLimits.MaxSteps, bot.RunLimits.MaxTokens, bot.RunLimits.MaxDelegations),
             bot.CreatedByUserId,
-            bot.CreatedByBotId);
+            bot.CreatedByBotId,
+            bot.HandleChosen);
     }
 
     /// <summary>
@@ -72,7 +73,7 @@ public static class BotViews
             request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits,
             request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits)
         {
-            HandleFollowsName = request.HandleFollowsName is true,
+            HandleFollowsName = request.HandleFollowsName,
         };
     }
 

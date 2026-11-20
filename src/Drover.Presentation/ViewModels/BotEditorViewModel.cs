@@ -445,11 +445,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
             async () =>
             {
                 var staged = Draft.StagedGrants;
-                var chosen = Draft.HandleChosen;
-                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest() with { HandleFollowsName = !chosen }));
-
-                // What was typed stays the person's: a handle they chose does not start following the name after a save.
-                Draft.HandleChosen = chosen;
+                // The server stores whether the handle was chosen, and the answer carries it back.
+                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest() with { HandleFollowsName = !Draft.HandleChosen }));
                 await ApplyGrants(staged);
                 JustSaved = true;
                 EditingHandle = false;

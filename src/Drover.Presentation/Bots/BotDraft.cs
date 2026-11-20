@@ -31,8 +31,9 @@ public sealed class BotDraft
     }
 
     /// <summary>
-    /// True when a person set the handle in this editor, so a rename never changes it, whatever it is spelled like.
-    /// False for a handle read from the server: there the spelling is all there is to go on.
+    /// True when a person set the handle, here or in an earlier session (the server stores it), so a rename never changes
+    /// it, whatever it is spelled like. False for a handle the name made, and for a bot from before this was stored,
+    /// where the spelling is all there is to go on.
     /// </summary>
     public bool HandleChosen { get; set; }
 
@@ -112,7 +113,7 @@ public sealed class BotDraft
     {
         Name = bot.Name,
         Handle = bot.Handle,
-        HandleChosen = false,
+        HandleChosen = bot.HandleChosen,
         Avatar = bot.Avatar,
         DescriptionForBots = bot.DescriptionForBots,
         Instructions = bot.Instructions,

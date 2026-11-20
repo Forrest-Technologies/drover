@@ -20,6 +20,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         [nameof(Bot.CreatedByUserId)] = "provenance",
         [nameof(Bot.CreatedByBotId)] = "provenance",
         [nameof(Bot.Status)] = "changed by pause, resume, and remove, which have routes of their own",
+        [nameof(Bot.HandleChosen)] = "recorded by the server from HandleFollowsName and from a handle that changed, never set directly",
     };
 
     private ScriptedModel script = new();
@@ -168,6 +169,71 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
+    public async Task A_handle_a_person_set_is_stored_as_chosen_and_stays_chosen_in_a_later_session_through_a_rename()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        await CreateBot(client, alice.SpaceId, "New bot");
+        var second = await CreateBot(client, alice.SpaceId, "New bot");
+        var route = $"{Space(alice.SpaceId)}/bots/{second.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle, bool? follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+        second.Handle.Should().Be("new-bot-2", "the server numbered it");
+        (await GetFor<BotDetail>(client, route)).HandleChosen.Should().BeFalse("the name made it");
+
+        // The person sets new-bot-2 themselves. It is the very handle the server made, spelled the same.
+        var chosen = await PutFor<BotDetail>(client, route, Edit(null, "new-bot-2", follows: false));
+
+        chosen.HandleChosen.Should().BeTrue();
+        (await GetFor<BotDetail>(client, route)).HandleChosen.Should().BeTrue("it is stored, so a fresh editor session reads it");
+
+        // A client that renames and still says the handle follows the name cannot undo the choice.
+        var renamed = await PutFor<BotDetail>(client, route, Edit("Writer", "new-bot-2", follows: true));
+
+        renamed.Handle.Should().Be("new-bot-2");
+        renamed.HandleChosen.Should().BeTrue("a choice is never undone by an update");
+    }
+
+    [Fact]
+    public async Task A_handle_that_was_chosen_is_not_renumbered_by_a_client_that_says_it_follows_the_name()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var other = await CreateBot(client, alice.SpaceId, "Writer");
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle, bool? follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+        await PutFor<BotDetail>(client, route, Edit(null, "scout", follows: false));
+
+        var refused = await client.Put(route, Edit("Writer", BotHandles.Stem("Writer"), follows: true));
+
+        other.Handle.Should().Be("writer");
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a chosen handle is never renumbered, so the taken one is refused");
+        (await GetFor<BotDetail>(client, route)).Handle.Should().Be("scout");
+    }
+
+    [Fact]
+    public async Task A_request_that_does_not_say_records_a_changed_handle_as_chosen_and_keeps_an_unchanged_one()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "Scout");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        UpdateBotRequest Edit(string? name, string? handle) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+
+        var untouched = await PutFor<BotDetail>(client, route, Edit("Scout the first", null));
+        var changed = await PutFor<BotDetail>(client, route, Edit(null, "my-scout"));
+        var later = await PutFor<BotDetail>(client, route, Edit("Scout again", null));
+
+        untouched.HandleChosen.Should().BeFalse("no handle was sent");
+        changed.HandleChosen.Should().BeTrue("a client that does not say and changes the handle has chosen it");
+        later.HandleChosen.Should().BeTrue();
+        later.Handle.Should().Be("my-scout");
+    }
+
+    [Fact]
     public async Task A_handle_an_earlier_server_made_with_every_separator_kept_follows_a_rename()
     {
         var alice = await SeedPerson("alice");
@@ -177,7 +243,16 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         bot.Handle.Should().Be("a-b", "separators now make one hyphen");
         UpdateBotRequest Edit(string name, string handle, bool follows) =>
             new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
-        await PutFor<BotDetail>(client, route, Edit("A  B", "a--b", follows: false));
+
+        // A bot from before the server stored whether the handle was chosen: its handle has every separator kept and
+        // its flag is false, so only the spelling says the name made it.
+        await InSpace(alice.SpaceId, alice.UserId, async services =>
+        {
+            var db = services.GetRequiredService<DroverDbContext>();
+            await db.Bots.Where(found => found.Id == bot.Id)
+                .ExecuteUpdateAsync(set => set.SetProperty(found => found.Handle, "a--b").SetProperty(found => found.HandleChosen, false), Token);
+            return 0;
+        });
 
         var renamed = await PutFor<BotDetail>(client, route, Edit("Writer", BotHandles.Stem("Writer"), follows: true));
 
