@@ -23,15 +23,9 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
 
-    /// <summary>
-    /// The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
-    /// one width it has, which is taken as it is (0).
-    /// </summary>
-#if !__ANDROID__ && !__IOS__
-    private static readonly int[] requiredWidths = [360, 1280];
-#else
-    private static readonly int[] requiredWidths = [0];
-#endif
+    // The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
+    // one width it has, which is taken as it is (0).
+    private static readonly int[] requiredWidths = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? [0] : [360, 1280];
 
     /// <summary>The width the checks run at when a check has made the window another.</summary>
     private const int PhoneWidth = 420;
@@ -231,7 +225,19 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
             return null;
         });
-        await Task.Delay(300);
+
+        // The content takes its new layout on the frames after the window reaches its width: look until it is the
+        // same twice running.
+        var lastWidth = -1d;
+        await Until("the layout to settle", () =>
+        {
+            var now = (window.Content as FrameworkElement)?.ActualWidth ?? 0;
+            var settled = Math.Abs(now - lastWidth) < 0.5;
+            lastWidth = now;
+            return settled ? window.Content : null;
+        });
+#else
+        await Task.CompletedTask;
 #endif
     }
 
