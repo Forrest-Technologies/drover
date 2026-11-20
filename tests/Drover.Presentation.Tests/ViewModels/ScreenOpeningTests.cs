@@ -135,6 +135,69 @@ public sealed class ScreenOpeningTests : ViewModelTest
         gate.State.Should().Be(GateState.SignedIn);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, true)]
+    [InlineData(HttpStatusCode.NotFound, false)]
+    [InlineData(HttpStatusCode.Unauthorized, true)]
+    [InlineData(HttpStatusCode.Unauthorized, false)]
+    public async Task Navigation_boundary_catches_404_and_401_refusals_without_showing_the_unreachable_gate(
+        HttpStatusCode status, bool apiRefusal)
+    {
+        SignedIn();
+        await Session.Load(TestContext.Current.CancellationToken);
+        var gate = Watched();
+        await gate.Check();
+        var logger = new RecordingLogger();
+        var screenState = "kept";
+        Exception refusal = apiRefusal
+            ? new DroverApiException(status, "Secret server details must not be logged.")
+            : new HttpRequestException("Secret transport details.", null, status);
+
+        var opening = () => Session.OpenAtNavigationBoundary(() => Task.FromException(refusal), logger);
+
+        await opening.Should().NotThrowAsync();
+        Session.Unreachable.Should().BeFalse("401 and 404 mean the server answered, so the offline gate stays hidden");
+        gate.State.Should().Be(GateState.SignedIn);
+        screenState.Should().Be("kept");
+        logger.Warnings.Should().ContainSingle(entry =>
+            entry.Contains(refusal.GetType().Name, StringComparison.Ordinal)
+            && entry.Contains(((int)status).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            && !entry.Contains("Secret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Navigation_boundary_catches_a_rejected_renewed_session_without_showing_the_offline_gate()
+    {
+        Server.Fail(
+            "GET",
+            "/api/session",
+            new HttpRequestException("Drover could not verify the renewed session.", null, HttpStatusCode.Unauthorized));
+        var gate = Watched();
+        var logger = new RecordingLogger();
+
+        var opening = () => Session.OpenAtNavigationBoundary(
+            () => Session.Load(TestContext.Current.CancellationToken),
+            logger);
+
+        await opening.Should().NotThrowAsync();
+        Session.Unreachable.Should().BeFalse();
+        gate.State.Should().Be(GateState.Checking);
+        logger.Warnings.Should().ContainSingle(entry =>
+            entry.Contains(nameof(HttpRequestException), StringComparison.Ordinal)
+            && entry.Contains("401", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Navigation_boundary_still_lets_app_faults_escape()
+    {
+        var opening = () => Session.OpenAtNavigationBoundary(
+            () => throw new InvalidOperationException("Sample fault."),
+            NullLogger.Instance);
+
+        await opening.Should().ThrowAsync<InvalidOperationException>();
+        Session.Unreachable.Should().BeFalse();
+    }
+
     #endregion
 
     #region Private Methods
@@ -157,6 +220,40 @@ public sealed class ScreenOpeningTests : ViewModelTest
         await gate.Check();
         gate.State.Should().Be(GateState.Unreachable);
         Session.Unreachable.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region Helpers
+
+    private sealed class RecordingLogger : ILogger
+    {
+        #region Properties
+
+        public List<string> Warnings { get; } = [];
+
+        #endregion
+
+        #region Public Methods
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+
+        #endregion
     }
 
     #endregion

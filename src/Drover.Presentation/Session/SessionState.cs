@@ -78,6 +78,26 @@ public sealed class SessionState(DroverApi api)
         }
     }
 
+    /// <summary>
+    /// Opens a screen from the native shell's fire-and-forget navigation callback. Unreachable failures trigger the
+    /// offline gate via <see cref="OpenScreen"/>; server refusals and unreadable answers that a screen did not catch
+    /// itself are logged and stopped here so they cannot escape to the platform handler and close the app.
+    /// </summary>
+    public async Task OpenAtNavigationBoundary(Func<Task> open, ILogger logger)
+    {
+        try
+        {
+            await OpenScreen(open, logger);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(
+                "A screen stopped opening because the server refused the request ({ExceptionType}, {StatusCode})",
+                exception.GetType().Name,
+                StatusCodeOf(exception));
+        }
+    }
+
     public void Begin(SessionResponse session)
     {
         Current = session;

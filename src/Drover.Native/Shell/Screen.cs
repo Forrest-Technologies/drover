@@ -63,7 +63,7 @@ public abstract class Screen : Page
     {
         Route = route;
         var session = ((App)Application.Current).Services.GetRequiredService<SessionState>();
-        await session.OpenScreen(() => Opened(route), Log.Factory.CreateLogger(GetType()));
+        await session.OpenAtNavigationBoundary(() => Opened(route), Log.Factory.CreateLogger(GetType()));
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)

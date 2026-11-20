@@ -19,7 +19,6 @@
     <ApplicationId>com.forresttechnologies.drover.client</ApplicationId>
     <!-- The checks build installs beside the regular app, so clearing it cannot erase a signed-in copy. -->
     <ApplicationId Condition="'$(DroverUiChecks)' == 'true'">com.forresttechnologies.drover.checks</ApplicationId>
-    <!-- The offline deep-link check replaces the chosen server and then exits. A shipping build leaves it out. -->
     <ApplicationDisplayVersion Condition="'$(ApplicationDisplayVersion)' == ''">0.1.0</ApplicationDisplayVersion>
     <ApplicationVersion Condition="'$(ApplicationVersion)' == ''">1</ApplicationVersion>
     <!-- The development server's targets switch the version attribute off in Debug so hot reload sees a stable
