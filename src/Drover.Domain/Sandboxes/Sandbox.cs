@@ -29,8 +29,9 @@ public sealed class Sandbox : ISpaceOwned
     public DateTimeOffset? RetireAfter { get; set; }
 
     /// <summary>
-    /// A file a person attached was copied in. What a bot reads from the sandbox can then be that file's text, so
-    /// every read taints the run, in any conversation, until the sandbox is gone.
+    /// Not written and not read. Before an owner decision of 2026-11-20 it made every read from the sandbox taint the
+    /// run, and a clean run's command ask. The column stays so the schema needs no migration; dropping it is a
+    /// migration, which is for the owner to decide.
     /// </summary>
     public bool Tainted { get; set; }
 

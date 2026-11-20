@@ -19,10 +19,6 @@ public sealed class FileRepository(DroverDbContext db)
     public Task<List<StoredFile>> GetFilesForUpdate(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
         db.Files.Where(file => ids.Contains(file.Id)).ToListAsync(cancellationToken);
 
-    /// <summary>Whether a message of the thread the caller can see carries a file.</summary>
-    public Task<bool> AnySentInThread(Guid threadId, CancellationToken cancellationToken) =>
-        db.Files.AnyAsync(file => file.ThreadId == threadId && file.MessageId != null, cancellationToken);
-
     /// <summary>
     /// The files the person and the bot exchanged in the person's own conversations with it, newest first, at most
     /// <paramref name="limit"/>: each one the bot shared and each one the person sent. A file another member sent in

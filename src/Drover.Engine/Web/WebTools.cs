@@ -6,8 +6,8 @@ namespace Drover.Engine.Web;
 /// Each is a catalog row, off until granted and narrowed by every grant above like any other tool, and every call
 /// passes the tool gate. <c>web.fetch</c> is on every server; <c>web.search</c> only on one with a search service.
 /// Neither is offered where <see cref="DeploymentPolicy.AllowWebTools"/> is off, and a call is refused there too.
-/// What either returns is text from the web: the run is tainted before the model reads it, and the result says it is
-/// information, not instructions.
+/// What either returns is text from the web: the run is marked tainted before the model reads it, which is a record
+/// and changes no grant, and the result says it is information, not instructions.
 /// </summary>
 public static class WebTools
 {

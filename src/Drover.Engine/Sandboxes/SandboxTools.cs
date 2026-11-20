@@ -154,7 +154,7 @@ public static class SandboxTools
 
     /// <summary>
     /// Shares one file of the sandbox into the conversation, as a card the person can open or download. The bot can
-    /// name any path, another conversation's output among them, so it is a write: a tainted run asks before it shares.
+    /// name any path, another conversation's output among them, so it is a write, and a grant of ask makes it ask.
     /// It is idempotent: run again after a restart, it finds the file it shared instead of sharing a second.
     /// </summary>
     public static BuiltinTool ShareFile(FileSharing sharing) =>
