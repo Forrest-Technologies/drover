@@ -35,8 +35,8 @@ public sealed partial class ExtensionEditorPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route) =>
-        await Model.Open(Guid.TryParse(route.QueryValue("bot"), out var bot) ? bot : null);
+    protected override Task Opened(RouteMatch<Type> route) =>
+        Model.Open(Guid.TryParse(route.QueryValue("bot"), out var bot) ? bot : null);
 
     // A form read again from text changes every field at once: the bindings are told to read them all.
     private void Refresh(string? changed)

@@ -26,7 +26,7 @@ public sealed partial class ConnectModelPage : Screen
 
     #region Private Methods
 
-    protected override async void Opened(RouteMatch<Type> route) => await Model.Open();
+    protected override Task Opened(RouteMatch<Type> route) => Model.Open();
 
     private void Refresh()
     {

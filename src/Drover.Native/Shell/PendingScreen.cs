@@ -15,7 +15,7 @@ public abstract class PendingScreen(string name, ScreenLayout layout) : Screen
 
     #region Private Methods
 
-    protected override void Opened(RouteMatch<Type> route)
+    protected override Task Opened(RouteMatch<Type> route)
     {
         var services = ((App)Application.Current).Services;
         var heading = Styles.Text(name, layout is ScreenLayout.Entry ? "DvTextH2" : "DvTextH1");
@@ -38,6 +38,8 @@ public abstract class PendingScreen(string name, ScreenLayout layout) : Screen
             Add(work.Body, body);
             Content = work;
         }
+
+        return Task.CompletedTask;
     }
 
     private static void Add(UIElementCollection target, UIElement[] items)
