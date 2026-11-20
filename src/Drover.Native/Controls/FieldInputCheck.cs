@@ -71,14 +71,14 @@ internal static class FieldInputCheck
         panel.Children.Add(name);
         window.Content = panel;
 
-        var emailHint = Read(email);
-        var passwordHint = Read(password);
-        var createdHint = Read(created);
-        var addressHint = Read(address);
-        Expect("Email", emailHint, "username", "EmailSmtpAddress");
-        Expect("Password", passwordHint, "password", "Password");
-        Expect("New password", createdHint, "newPassword", "Password");
-        Expect("Address", addressHint, "none", "Url");
+        var firstHint = Read(email);
+        var secondHint = Read(password);
+        var thirdHint = Read(created);
+        var fourthHint = Read(address);
+        Expect("Email", firstHint, "username", "EmailSmtpAddress");
+        Expect("Password", secondHint, "password", "Password");
+        Expect("New password", thirdHint, "newPassword", "Password");
+        Expect("Address", fourthHint, "none", "Url");
 
         var over = new string('n', FieldLimits.BotName + 1);
         if (Input(name) is not TextBox box)
@@ -88,25 +88,19 @@ internal static class FieldInputCheck
 
         // The platform raises TextChanged on a later dispatcher turn, which is what cuts the paste.
         box.Text = over;
-        _ = Task.Run(() => WatchPaste(window, name, over, emailHint, passwordHint, createdHint, addressHint));
+        _ = Task.Run(() => WatchPaste(window, name, over));
     }
 
-    private static async Task WatchPaste(
-        Window window,
-        Field name,
-        string over,
-        string emailHint,
-        string passwordHint,
-        string createdHint,
-        string addressHint)
+    private static async Task WatchPaste(Window window, Field name, string over)
     {
         var expected = over[..FieldLimits.BotName];
+        var pause = TimeSpan.FromMilliseconds(Tokens.Number("DvDur1"));
         for (var attempt = 0; attempt < 40; attempt++)
         {
             var outcome = new TaskCompletionSource<string?>();
             if (!window.DispatcherQueue.TryEnqueue(() => ReadPaste(name, expected, outcome)))
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(50));
+                await Task.Delay(pause);
                 continue;
             }
 
@@ -124,7 +118,7 @@ internal static class FieldInputCheck
             }
             if (problem is null)
             {
-                Pass(emailHint, passwordHint, createdHint, addressHint, expected.Length);
+                Pass(expected.Length);
                 return;
             }
 
@@ -134,7 +128,7 @@ internal static class FieldInputCheck
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(50));
+            await Task.Delay(pause);
         }
     }
 
@@ -160,7 +154,7 @@ internal static class FieldInputCheck
         }
     }
 
-    private static void Pass(string emailHint, string passwordHint, string createdHint, string addressHint, int kept)
+    private static void Pass(int kept)
     {
         if (Interlocked.Exchange(ref finished, 1) != 0)
         {
@@ -168,11 +162,7 @@ internal static class FieldInputCheck
         }
 
         Log.Factory.CreateLogger(nameof(FieldInputCheck)).LogWarning(
-            "Field input check passed for {Email}, {Password}, {NewPassword}, {Address}; name kept {Kept}",
-            emailHint,
-            passwordHint,
-            createdHint,
-            addressHint,
+            "Field input check passed; name kept {Kept}",
             kept);
         Write("Field input check passed");
         NativeStop.Now(0);
@@ -261,8 +251,13 @@ internal static class FieldInputCheck
 #if ANDROID
     private static string[] Hints(AndroidTextEditor editor)
     {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(26))
+        {
+            return [];
+        }
+
         var edit = (Android.Widget.EditText)((ContentPresenter)editor.Content).Content;
-        return edit.AutofillHints ?? [];
+        return edit.GetAutofillHints() ?? [];
     }
 #endif
 

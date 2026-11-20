@@ -285,13 +285,18 @@ public sealed class Field : StackPanel
 
     private void Take(string text)
     {
-        text = FieldInput.Within(text, MaxLength);
-        if (Value != text)
+        var kept = FieldInput.Within(text, MaxLength);
+        if (Value != kept)
         {
-            Value = text;
+            Value = kept;
         }
 
-        placeholder.Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (kept != text)
+        {
+            ShowValue();
+        }
+
+        placeholder.Visibility = Value.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowValue()
@@ -341,17 +346,6 @@ public sealed class Field : StackPanel
         error.Text = Error ?? string.Empty;
         error.Visibility = Error is null ? Visibility.Collapsed : Visibility.Visible;
         input.IsEnabled = !Disabled;
-        switch (input)
-        {
-            // The platform rejects a whole paste that is longer than its own limit, so the control stays open and
-            // Take keeps the prefix. A limit of zero already means the field has no limit.
-            case TextBox box:
-                box.MaxLength = 0;
-                break;
-            case PasswordBox box:
-                box.MaxLength = 0;
-                break;
-        }
 
         AutomationProperties.SetName(input, Label);
         AutomationProperties.SetHelpText(input, string.Join(" ", new[] { Hint, Error }.Where(text => text is not null)));
