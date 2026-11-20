@@ -302,7 +302,7 @@ Unchanged from the clients this one replaces, because it compiles the same sourc
 - **Notifications in a browser** go through the same `push.js` and `push-worker.js` as the web client, behind `IPushRegistration` (`BrowserPushRegistration`). A browser failure is reported as `DeviceCallFailedException`. The development build has no service worker (the platform's own module worker is what a development build serves), so notifications need a published build.
 - **On Android** the native build uses the Android shell's code, shared (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims).
 - **On a desktop** `DesktopNotifications` follows the signed-in person's live signal stream while the app runs. It asks the server for the same safe wake text and per-bot choice as push before showing anything. The foreground conversation stays quiet. A selected conversation in an inactive or minimized window still notifies. `DesktopNotificationSink` uses each system's notification facility. Selecting one opens its main conversation or side chat through `IncomingNavigation`. Session changes cancel pending work and remove old notifications before they can navigate. A missing system facility disables this delivery path without stopping the app. The Notifications dialog describes this live-only delivery and says that system settings can still silence it. It does not offer the background push switch.
-- **On a desktop** a conversation file is saved through the system's save dialog (`DesktopFileDelivery`). Sharing puts a copy in a folder of the app's own and opens the folder: the file itself is never opened, because a bot can send a program.
+- **On a desktop** a conversation or project file is saved through the system's save dialog (`DesktopFileDelivery`). Sharing puts a copy in a folder of the app's own and opens the folder: the file itself is never opened, because a bot can send a program.
 
 ## How to move a screen
 
@@ -416,9 +416,14 @@ No screen class derives from `PendingScreen` any more; the class stays for a scr
 it moves. The last two to move were the bot editor and the share screen.
 
 Projects have a native list and a native project screen (`ProjectListPage`, `ProjectPage`) with view models in
-`Drover.Presentation`. An owner or admin creates, renames, and removes a project, edits its instructions, and adds or
-removes its files. A member sees those controls unavailable and can still open a project, start a conversation with a
-bot, and move a conversation they own. The server still decides each request.
+`Drover.Presentation` and screenshots in `docs/screenshots/issue-328/`. An owner or admin creates, renames, and
+removes a project, edits its instructions, and adds or removes its files. A member sees those controls unavailable and
+can still open a project, start a conversation with a bot, and move a conversation they own. The server still decides
+each request. Editor inputs live in persistent panels so typed drafts and keyboard focus survive list refreshes, uploads,
+and conversation moves. Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall
+back to `Launcher` only in the browser target. Upload size checks read the server's limit from `/files/rules`, and
+movable conversations are fetched in one request for the signed-in owner. `scripts/check-native-browser.mjs` checks
+every project state, draft persistence, keyboard focus, and the five-item `PhoneNav` dock at 360 pixels.
 
 The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one `ShareInbox`, names the
 chosen bot there with `SendTo`, and opens that bot's conversation; the bot's main `ConversationViewModel` takes the

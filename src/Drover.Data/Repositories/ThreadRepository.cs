@@ -101,6 +101,15 @@ public sealed class ThreadRepository(DroverDbContext db)
                     .SetProperty(thread => thread.SummaryUpdatedAt, now),
                 cancellationToken) == 1;
 
+    /// <summary>The caller's own unarchived threads across bots in the space, newest activity first.</summary>
+    public Task<List<ChatThread>> ListOwnedThreads(Guid ownerUserId, int limit, CancellationToken cancellationToken) =>
+        db.Threads.AsNoTracking()
+            .Where(thread => thread.OwnerUserId == ownerUserId && thread.ArchivedAt == null)
+            .OrderByDescending(thread => thread.LastActivityAt)
+            .ThenByDescending(thread => thread.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
     /// <summary>The threads with one bot that the caller may see and has not archived, newest activity first.</summary>
     public Task<List<ChatThread>> ListThreadsForBot(Guid botId, int limit, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking()

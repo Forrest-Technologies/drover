@@ -12,9 +12,25 @@ public sealed class ProjectPage : Screen
 
     private readonly ProjectViewModel model = Make<ProjectViewModel>();
 
-    private Field nameField = new();
+    private readonly StackPanel statePanel = new() { Spacing = Tokens.Number("DvSpace3") };
 
-    private TextArea instructionsField = new();
+    private readonly StackPanel editorPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly StackPanel statusPanel = new() { Spacing = Tokens.Number("DvSpace2") };
+
+    private readonly StackPanel detailsPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly TextBlock titleText = PageParts.Title("Project");
+
+    private readonly TextBlock memberNoteText = Styles.Text(ProjectViewModel.MemberNote, "DvTextSecondary");
+
+    private readonly Field nameField;
+
+    private readonly TextArea instructionsField;
+
+    private readonly Button saveButton;
+
+    private bool showing;
 
     #endregion
 
@@ -22,6 +38,53 @@ public sealed class ProjectPage : Screen
 
     public ProjectPage()
     {
+        nameField = PageParts.Field(
+            "Name",
+            string.Empty,
+            value =>
+            {
+                if (!showing)
+                {
+                    model.UpdateDraftName(value);
+                }
+            });
+        AutomationProperties.SetName(nameField, "Name");
+
+        instructionsField = new TextArea
+        {
+            Label = "Instructions",
+            Hint = "These belong to the project. They do not add a tool or change what a bot is allowed to do.",
+        };
+        AutomationProperties.SetName(instructionsField, "Instructions");
+        instructionsField.RegisterPropertyChangedCallback(
+            TextArea.ValueProperty,
+            (_, _) =>
+            {
+                if (!showing)
+                {
+                    model.UpdateDraftInstructions(instructionsField.Value);
+                }
+            });
+
+        saveButton = PageParts.Action(
+            "Save project",
+            () => model.Save(),
+            Refresh,
+            enabled: false,
+            ButtonKind.Primary);
+
+        editorPanel.Children.Add(titleText);
+        editorPanel.Children.Add(memberNoteText);
+        editorPanel.Children.Add(nameField);
+        editorPanel.Children.Add(instructionsField);
+        editorPanel.Children.Add(saveButton);
+
+        layout.Body.Add(Back());
+        layout.Body.Add(statePanel);
+        layout.Body.Add(editorPanel);
+        layout.Body.Add(statusPanel);
+        layout.Body.Add(detailsPanel);
+
         Content = layout;
         Refresh();
     }
@@ -51,73 +114,79 @@ public sealed class ProjectPage : Screen
 
     private void Refresh()
     {
-        var body = layout.Body;
-        body.Clear();
-        body.Add(Back());
+        var ready = model.State is ProjectScreenState.Ready;
+        statePanel.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
+        editorPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        statusPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        detailsPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
 
-        if (model.State is ProjectScreenState.Loading)
+        statePanel.Children.Clear();
+        if (!ready)
         {
-            body.Add(PageParts.Title("Project"));
-            body.Add(PageParts.Waiting(ProjectViewModel.Loading));
+            if (model.State is ProjectScreenState.Loading)
+            {
+                statePanel.Children.Add(PageParts.Title("Project"));
+                statePanel.Children.Add(PageParts.Waiting(ProjectViewModel.Loading));
+            }
+            else if (model.State is ProjectScreenState.Missing)
+            {
+                statePanel.Children.Add(Missing());
+            }
+            else
+            {
+                statePanel.Children.Add(Failed(ProjectViewModel.LoadFailedTitle, model.LoadProblem, model.Load));
+            }
+
+            statusPanel.Children.Clear();
+            detailsPanel.Children.Clear();
             return;
         }
 
-        if (model.State is ProjectScreenState.Missing)
+        showing = true;
+        try
         {
-            body.Add(Missing());
-            return;
+            titleText.Text = model.Name;
+            AutomationProperties.SetName(titleText, model.Name);
+            memberNoteText.Visibility = model.CanManage ? Visibility.Collapsed : Visibility.Visible;
+
+            if (nameField.Value != model.DraftName)
+            {
+                nameField.Value = model.DraftName;
+            }
+
+            nameField.Disabled = !model.CanManage;
+
+            if (instructionsField.Value != model.DraftInstructions)
+            {
+                instructionsField.Value = model.DraftInstructions;
+            }
+
+            instructionsField.Disabled = !model.CanManage;
+            saveButton.IsEnabled = model.CanManage && model.Working is null;
+        }
+        finally
+        {
+            showing = false;
         }
 
-        if (model.State is ProjectScreenState.Failed)
-        {
-            body.Add(Failed(ProjectViewModel.LoadFailedTitle, model.LoadProblem, model.Load));
-            return;
-        }
-
-        body.Add(PageParts.Title(model.Name));
-        if (!model.CanManage)
-        {
-            body.Add(Styles.Text(ProjectViewModel.MemberNote, "DvTextSecondary"));
-        }
-
-        ShowEditor(body);
+        statusPanel.Children.Clear();
         if (model.Problem is { } problem)
         {
-            body.Add(Styles.Text(problem, "DvTextSecondary"));
+            statusPanel.Children.Add(Styles.Text(problem, "DvTextSecondary"));
         }
 
         if (model.Working is { } working)
         {
-            body.Add(PageParts.Waiting(working));
+            statusPanel.Children.Add(PageParts.Waiting(working));
         }
 
-        ShowFiles(body);
-        ShowConversations(body);
-        ShowStart(body);
-        ShowMoveIn(body);
-        ShowRemove(body);
-    }
-
-    private void ShowEditor(UIElementCollection body)
-    {
-        nameField = PageParts.Field("Name", model.Name, Remember, disabled: !model.CanManage);
-        AutomationProperties.SetName(nameField, "Name");
-        instructionsField = new TextArea
-        {
-            Label = "Instructions",
-            Value = model.Instructions,
-            Hint = "These belong to the project. They do not add a tool or change what a bot is allowed to do.",
-            Disabled = !model.CanManage,
-        };
-        AutomationProperties.SetName(instructionsField, "Instructions");
-        body.Add(nameField);
-        body.Add(instructionsField);
-        body.Add(PageParts.Action(
-            "Save project",
-            () => model.Save(nameField.Value, instructionsField.Value),
-            Refresh,
-            model.CanManage && model.Working is null,
-            ButtonKind.Primary));
+        var details = detailsPanel.Children;
+        details.Clear();
+        ShowFiles(details);
+        ShowConversations(details);
+        ShowStart(details);
+        ShowMoveIn(details);
+        ShowRemove(details);
     }
 
     private void ShowFiles(UIElementCollection body)
@@ -130,9 +199,12 @@ public sealed class ProjectPage : Screen
 
         foreach (var file in model.Files)
         {
+            Func<Task> downloadAction = model.Delivers
+                ? () => model.Download(file)
+                : () => OpenDownload(model.DownloadAddress(file.File.Id));
             var download = PageParts.Action(
                 ProjectViewModel.DownloadLabel(file),
-                () => OpenDownload(model.DownloadAddress(file.File.Id)),
+                downloadAction,
                 Refresh,
                 model.Working is null);
             var label = Styles.Text(ProjectViewModel.FileLabel(file));
@@ -249,16 +321,13 @@ public sealed class ProjectPage : Screen
         return link;
     }
 
-    private EmptyState Missing()
+    private static EmptyState Missing() => new()
     {
-        return new EmptyState
-        {
-            Title = ProjectViewModel.MissingTitle,
-            Cause = ProjectViewModel.MissingCause,
-            ActionLabel = ProjectViewModel.MissingAction,
-            ActionHref = Addresses.Projects,
-        };
-    }
+        Title = ProjectViewModel.MissingTitle,
+        Cause = ProjectViewModel.MissingCause,
+        ActionLabel = ProjectViewModel.MissingAction,
+        ActionHref = Addresses.Projects,
+    };
 
     private EmptyState Failed(string title, string? cause, Func<Task> retry)
     {
@@ -307,8 +376,6 @@ public sealed class ProjectPage : Screen
 
         return Task.CompletedTask;
     }
-
-    private static void Remember(string value) => _ = value;
 
     #endregion
 }

@@ -53,6 +53,9 @@ public sealed partial class ProjectListViewModel(
     [ObservableProperty]
     private string? working;
 
+    [ObservableProperty]
+    private string draftName = string.Empty;
+
     #endregion
 
     #region Properties
@@ -77,9 +80,25 @@ public sealed partial class ProjectListViewModel(
     /// <summary>Runs when the screen opens.</summary>
     public async Task Open()
     {
-        if (await session.Load() is not null)
+        DraftName = string.Empty;
+        LoadProblem = null;
+        Problem = null;
+
+        try
         {
-            await Load();
+            if (await session.Load() is not null)
+            {
+                await Load();
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(
+                "A request to the server failed on {Screen}: {FailureKind} ({StatusCode})",
+                nameof(ProjectListViewModel),
+                exception.GetType().Name,
+                StatusCodeOf(exception));
+            LoadProblem = Failures.Sentence(exception);
         }
     }
 
@@ -106,13 +125,21 @@ public sealed partial class ProjectListViewModel(
                 return;
             }
 
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectListViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen}: {FailureKind} ({StatusCode})",
+                nameof(ProjectListViewModel),
+                exception.GetType().Name,
+                StatusCodeOf(exception));
             LoadProblem = Failures.Sentence(exception);
         }
     }
 
     /// <summary>Drops a load that is still in flight, so its answer cannot replace a later one.</summary>
     public void Cancel() => loadGeneration++;
+
+    public void UpdateDraftName(string value) => DraftName = value;
+
+    public Task Create() => Create(DraftName);
 
     /// <summary>Makes a project from the name the person typed, then opens it.</summary>
     [RelayCommand]
@@ -142,6 +169,7 @@ public sealed partial class ProjectListViewModel(
                 return;
             }
 
+            DraftName = string.Empty;
             navigator.NavigateTo(Addresses.Project(project.Id));
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
@@ -151,7 +179,11 @@ public sealed partial class ProjectListViewModel(
                 return;
             }
 
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectListViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen}: {FailureKind} ({StatusCode})",
+                nameof(ProjectListViewModel),
+                exception.GetType().Name,
+                StatusCodeOf(exception));
             Problem = Failures.Sentence(exception);
         }
         finally
@@ -162,6 +194,13 @@ public sealed partial class ProjectListViewModel(
             }
         }
     }
+
+    #endregion
+
+    #region Private Methods
+
+    private static int? StatusCodeOf(Exception exception) =>
+        exception is DroverApiException apiException ? (int)apiException.StatusCode : null;
 
     #endregion
 }

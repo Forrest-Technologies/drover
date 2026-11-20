@@ -101,6 +101,21 @@ if (!reference) {
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
 };
+const projectId = '0196f1a0-0000-7000-8000-000000000010';
+const projectFileId = '0196f1a0-0000-7000-8000-0000000000f2';
+const projectOutsideThreadId = '0196f1a0-0000-7000-8000-000000000007';
+const projectSummary = {
+    id: projectId, name: 'Weekly', instructions: 'Ship the note.',
+    createdAt: thread.lastActivityAt, updatedAt: thread.lastActivityAt,
+};
+const projectFile = {
+    file: { id: projectFileId, name: 'brief.txt', contentType: 'text/plain', kind: 'text', size: 128 },
+    projectId, uploadedAt: thread.lastActivityAt,
+};
+const projectOutsideThread = {
+    id: projectOutsideThreadId, botId, title: 'Quarterly planning',
+    isShared: false, lastActivityAt: thread.lastActivityAt, activeRunId: null, isMain: false, attention: null, projectId: null,
+};
 const screens = [
     ['sign-in', '/sign-in', 'Sign in to Drover', 'Sign in'],
     ['account', '/setup', 'Set up Drover', 'Create your account'],
@@ -123,6 +138,16 @@ const screens = [
     ['extension-editor-loading', `/extensions/edit?bot=${botId}`, 'Make an extension'],
     ['extension-editor-failed', `/extensions/edit?bot=${botId}`, 'Make an extension'],
     ['extension-editor', '/extensions/edit', 'Make an extension'],
+];
+const nativeProjectScreens = [
+    ['projects-empty', '/projects', 'Projects', 'Projects'],
+    ['projects-failed', '/projects', 'Projects', 'Projects'],
+    ['projects', '/projects', 'Projects', 'Projects'],
+    ['project-loading', `/projects/${projectId}`, 'Project', 'Project'],
+    ['project-failed', `/projects/${projectId}`, 'Project', 'Drover could not load the project'],
+    ['project-missing', `/projects/${projectId}`, 'Project', 'This project is not here'],
+    ['project', `/projects/${projectId}`, 'Project', 'Weekly'],
+    ['project-member', `/projects/${projectId}`, 'Project', 'Weekly'],
 ];
 const errors = [];
 try {
@@ -170,10 +195,20 @@ try {
                     || (message.location().url === `${origin}/api/setup` && message.text().includes('404 (Not Found)'))
                 )) {
                     return;
+                } else if ((current === 'projects-failed' || current === 'project-loading' || current === 'project-failed')
+                    && (message.location().url === `${origin}/api/spaces/${spaceId}/projects`
+                        || message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`)
+                    && message.text().includes('503 (Service Unavailable)')) {
+                    return;
+                } else if (current === 'project-missing'
+                    && message.location().url === `${origin}/api/spaces/${spaceId}/projects/${projectId}`
+                    && message.text().includes('404 (Not Found)')) {
+                    return;
                 } else { errors.push(`${message.location().url}: ${message.text()}`); }
             });
             let current;
             let heldRoute;
+            let projectMoved = false;
             let previewFrameRequests = [];
             let revokedPreviewGrants = [];
             let externalBeaconRequests = 0;
@@ -204,8 +239,13 @@ try {
             await page.route('**/api/**', async route => {
                 const address = new URL(route.request().url()).pathname;
                 let body;
+                const method = route.request().method();
                 if (address === '/api/session' && current === 'sign-in') { await route.fulfill({ status: 401 }); return; }
-                if (address === '/api/session') { body = person; }
+                if (address === '/api/session') {
+                    body = current === 'project-member'
+                        ? { ...person, spaces: [{ ...person.spaces[0], role: 'member' }] }
+                        : person;
+                }
                 else if (address === '/api/antiforgery') {
                     await route.fulfill({ status: 204, headers: { 'Set-Cookie': 'XSRF-TOKEN=sample; Path=/; SameSite=Strict' } });
                     return;
@@ -278,6 +318,7 @@ try {
                     await route.fulfill({ status: 204 });
                     return;
                 }
+                else if (address.endsWith('/files/rules')) { body = { maxFileBytes: 26214400 }; }
                 else if (address.endsWith(`/bots/${botId}/tools`)
                     || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
@@ -287,6 +328,38 @@ try {
                 else if (address.endsWith(`/usage/bots/${botId}/runs`)) { body = { botId, currency: 'usd', runs: [] }; }
                 else if (address.endsWith('/tool-connections')) { body = current === 'tools-empty' || current === 'tools-add' ? [] : [{ id: connectionId, name: 'Sample tools', slug: 'sample-tools', url: 'https://tools.example.test/mcp', authKind: 'header', trust: 'untrusted', protocolMode: 'automatic', status: 'ready', negotiatedProtocol: null, lastListedAt: null, lastError: null, signInScope: 'space', signIn: null }]; }
                 else if (address.endsWith(`/tool-connections/${connectionId}/tools`)) { body = current === 'tools-review' ? [{ id: botId, connectionId, name: 'sample', modelName: 'sample__sample', title: 'Sample tool', description: 'Sample changed description', sensitivity: 'read', state: 'available', lastSeenAt: '2026-11-18T00:00:00Z', needsReview: true, definitionHash: 'sample-current', reviewed: { title: 'Sample tool', description: 'Sample original description', inputSchema: '{}' } }] : []; }
+                else if (address === `/api/spaces/${spaceId}/threads` && method === 'GET') {
+                    body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [projectOutsideThread];
+                }
+                else if (address === `/api/spaces/${spaceId}/threads/${projectOutsideThreadId}/project` && method === 'PUT') {
+                    projectMoved = true;
+                    body = { ...projectOutsideThread, projectId };
+                }
+                else if (address === `/api/spaces/${spaceId}/projects` && method === 'GET') {
+                    if (current === 'projects-failed') {
+                        await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                        return;
+                    }
+                    body = current === 'projects-empty' ? [] : [projectSummary];
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}` && method === 'GET') {
+                    if (current === 'project-loading') { heldRoute = route; return; }
+                    if (current === 'project-failed') {
+                        await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                        return;
+                    }
+                    if (current === 'project-missing') {
+                        await route.fulfill({ status: 404, json: { title: 'Project not found.', status: 404 } });
+                        return;
+                    }
+                    body = projectSummary;
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}/threads` && method === 'GET') {
+                    body = projectMoved ? [{ ...projectOutsideThread, projectId }] : [];
+                }
+                else if (address === `/api/spaces/${spaceId}/projects/${projectId}/files` && method === 'GET') {
+                    body = [projectFile];
+                }
                 else if (address.endsWith('/extensions')) { body = []; }
                 else if (address.endsWith(`/extensions/from-bot/${botId}`)) {
                     if (current === 'extension-editor-loading') { heldRoute = route; return; }
@@ -296,13 +369,15 @@ try {
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
-            for (const [name, address, title, heading = title] of screens) {
+            const activeScreens = reference ? screens : [...screens, ...nativeProjectScreens];
+            for (const [name, address, title, heading = title] of activeScreens) {
                 current = name;
+                if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
                     : null;
                 const target = `${reference ? '' : '/native'}${address}`;
-                if (name === 'account' || name === 'sign-in' || (reference && (name.startsWith('tools') || name.startsWith('extension-editor')))) {
+                if (name === 'account' || name === 'sign-in' || name === 'project-member' || (reference && (name.startsWith('tools') || name.startsWith('extension-editor')))) {
                     await page.goto(`${origin}${target}`);
                     await page.locator(reference ? '.dv-boot' : '.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
                 } else if (reference) {
@@ -311,7 +386,7 @@ try {
                     // Exercise the browser-history integration while keeping the already-started runtime.
                     await page.evaluate(target => { history.pushState(null, '', target); dispatchEvent(new PopStateEvent('popstate')); }, target);
                 }
-                await page.waitForFunction(title => document.title.startsWith(title), title, { timeout: 15000 }).catch(async error => {
+                await page.waitForFunction(title => document.title === title || (document.title.startsWith(title) && /^[\s·\-\u2014|]/.test(document.title.slice(title.length))), title, { timeout: 15000 }).catch(async error => {
                     throw new Error(`${name} at ${width}px in ${theme} expected title "${title}" but found "${await page.title()}" at ${page.url()}.\n${errors.join('\n')}`, { cause: error });
                 });
                 await page.waitForTimeout(600);
@@ -352,8 +427,58 @@ try {
                     await page.getByRole('heading', { name: 'Drover could not open this bot as an extension', exact: true })
                         .waitFor({ state: 'attached', timeout: 5000 });
                 }
+                if (name === 'projects-empty') {
+                    await page.getByRole('heading', { name: 'No project yet', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'projects-failed') {
+                    await page.getByRole('heading', { name: 'Drover could not load the projects', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'projects') {
+                    await page.getByRole('link', { name: 'Weekly', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('textbox', { name: 'Project name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-loading') {
+                    await page.getByLabel('Loading the project.', { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-failed') {
+                    await page.getByRole('button', { name: 'Try again', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project-missing') {
+                    await page.getByRole('link', { name: 'Back to projects', exact: true }).first().waitFor({ state: 'attached', timeout: 5000 });
+                }
+                if (name === 'project' || name === 'project-member') {
+                    await page.getByRole('textbox', { name: 'Name', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('textbox', { name: 'Instructions', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Download brief.txt', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    await page.getByRole('button', { name: 'Start with Sample bot', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                }
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
+                if (name === 'extension-editor') {
+                    // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
+                    await page.mouse.move(width / 2, 500);
+                    await page.mouse.wheel(0, 3000);
+                    await page.waitForTimeout(200);
+                    const exportControl = page.getByRole(reference ? 'link' : 'button', { name: 'Download extension.json', exact: true });
+                    const [saved] = await Promise.all([page.waitForEvent('download'), reference ? exportControl.click() : exportControl.dispatchEvent('click')]);
+                    assert.equal(saved.suggestedFilename(), 'extension.json');
+                    const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
+                    assert.equal(file.version, 1);
+                }
+                if (name === 'projects' && width === 360) {
+                    await checkPhoneNavLayout(page, width);
+                }
+                if (name === 'projects') {
+                    await checkProjectListKeyboard(page);
+                }
+                if (name === 'project') {
+                    await checkProjectDraftsAndKeyboard(page);
+                }
+                if (name === 'project-member') {
+                    await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+                    assert.equal(await page.getByRole('button', { name: 'Save project', exact: true }).isDisabled(), true);
+                }
                 if (name === 'conversation' && !reference) {
                     const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
@@ -427,15 +552,6 @@ try {
                     heldRoute = null;
                 }
             }
-            // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-            await page.mouse.move(width / 2, 500);
-            await page.mouse.wheel(0, 3000);
-            await page.waitForTimeout(200);
-            const exportControl = page.getByRole(reference ? 'link' : 'button', { name: 'Download extension.json', exact: true });
-            const [saved] = await Promise.all([page.waitForEvent('download'), reference ? exportControl.click() : exportControl.dispatchEvent('click')]);
-            assert.equal(saved.suggestedFilename(), 'extension.json');
-            const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
-            assert.equal(file.version, 1);
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             await context.close();
         }
@@ -669,6 +785,69 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
  * recorded per picture in captures.json beside the pictures, not treated as failures: a live server answers some
  * requests with 401 or 404 on purpose.
  */
+async function checkPhoneNavLayout(page, width) {
+    const nav = page.getByRole('navigation', { name: 'Drover', exact: true });
+    await nav.waitFor({ state: 'visible', timeout: 5000 });
+    const items = [
+        nav.getByRole('link', { name: 'Chats', exact: true }),
+        nav.getByRole('link', { name: 'Projects', exact: true }),
+        nav.getByRole('link', { name: 'Bots', exact: true }),
+        nav.getByRole('link', { name: 'Tools', exact: true }),
+        nav.getByRole('button', { name: 'Account for Sample person', exact: true }),
+    ];
+    const boxes = [];
+    for (const item of items) {
+        await item.waitFor({ state: 'visible', timeout: 5000 });
+        const box = await item.boundingBox();
+        assert(box && box.width > 0 && box.height >= 44, `PhoneNav item ${item} has invalid bounds: ${JSON.stringify(box)}`);
+        assert(box.x >= 0 && box.x + box.width <= width + 1, `PhoneNav item overflows ${width}px viewport: ${JSON.stringify(box)}`);
+        boxes.push(box);
+    }
+    const rowY = boxes[0].y;
+    for (let index = 0; index < boxes.length; index++) {
+        assert(Math.abs(boxes[index].y - rowY) <= 2, `PhoneNav item ${index} wrapped to another row.`);
+        if (index > 0) {
+            assert(boxes[index - 1].x + boxes[index - 1].width <= boxes[index].x + 1, `PhoneNav items ${index - 1} and ${index} overlap.`);
+        }
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    assert.equal(overflow, false, `Horizontal overflow detected in PhoneNav at ${width}px.`);
+}
+
+async function checkProjectListKeyboard(page) {
+    const field = page.getByRole('textbox', { name: 'Project name', exact: true });
+    await field.focus();
+    await page.keyboard.type('Draft');
+    await page.waitForTimeout(150);
+    assert.equal(await field.inputValue(), 'Draft');
+    await page.keyboard.press('Tab');
+    const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
+    assert.equal(activeName, 'New project', `Expected Tab from Project name to land on New project, got ${activeName}`);
+}
+
+async function checkProjectDraftsAndKeyboard(page) {
+    const nameField = page.getByRole('textbox', { name: 'Name', exact: true });
+    const instructionsField = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    await nameField.focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Weekly draft');
+    await instructionsField.focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type('Keep the typed draft.');
+    await page.waitForTimeout(200);
+
+    await page.getByRole('button', { name: 'Move Quarterly planning into this project', exact: true }).dispatchEvent('click');
+    await page.getByRole('button', { name: 'Move Quarterly planning out of this project', exact: true }).waitFor({ state: 'attached', timeout: 5000 });
+
+    assert.equal(await nameField.inputValue(), 'Weekly draft', 'Project name draft was lost after refreshing project details.');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.', 'Project instructions draft was lost after refreshing project details.');
+
+    await instructionsField.focus();
+    await page.keyboard.press('Tab');
+    const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());
+    assert.equal(activeName, 'Save project', `Expected Tab from Instructions to reach Save project, got ${activeName}`);
+}
+
 async function captureLive(origin, folder) {
     const scenes = JSON.parse(await fs.readFile(process.env.DROVER_LIVE_SCENES, 'utf8'));
     const only = process.env.DROVER_LIVE_ONLY?.split(',');

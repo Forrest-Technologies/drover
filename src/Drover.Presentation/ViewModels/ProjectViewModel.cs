@@ -8,7 +8,8 @@ public sealed partial class ProjectViewModel(
     DroverApi api,
     SessionState session,
     Navigator navigator,
-    ILogger<ProjectViewModel> logger) : ObservableObject
+    ILogger<ProjectViewModel> logger,
+    IFileDelivery? delivery = null) : ObservableObject
 {
     #region Private Fields
 
@@ -55,16 +56,23 @@ public sealed partial class ProjectViewModel(
 
     public const string RemovingFile = "Removing the file.";
 
+    public const string Downloading = "Saving the file.";
+
     public const string MovingIn = "Moving the conversation in.";
 
     public const string MovingOut = "Moving the conversation out.";
 
     public const string Starting = "Starting the conversation.";
 
-    /// <summary>How much of an unknown-size file this screen will read. The server still enforces its own limit.</summary>
-    private const long OpenReadCap = 25 * 1024 * 1024;
-
     private int loadGeneration;
+
+    private long? maxFileBytes;
+
+    private Guid draftProjectId;
+
+    private bool nameEdited;
+
+    private bool instructionsEdited;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(State), nameof(Name), nameof(Instructions))]
@@ -83,6 +91,12 @@ public sealed partial class ProjectViewModel(
 
     [ObservableProperty]
     private string? working;
+
+    [ObservableProperty]
+    private string draftName = string.Empty;
+
+    [ObservableProperty]
+    private string draftInstructions = string.Empty;
 
     [ObservableProperty]
     private bool confirmingRemove;
@@ -118,7 +132,10 @@ public sealed partial class ProjectViewModel(
     /// <summary>Bots a person can start a conversation with. A paused bot is left out; the server would refuse it.</summary>
     public IReadOnlyList<BotSummary> ActiveBots => [.. Bots.Where(bot => bot.Status is "active")];
 
-    public static string TooLarge => $"That file is larger than {Words.Size(OpenReadCap)}. Drover did not upload it.";
+    /// <summary>True on a device, where a file is saved through the system instead of launched in a browser.</summary>
+    public bool Delivers => delivery is not null;
+
+    public string TooLarge => TooLargeFor(maxFileBytes);
 
     /// <summary>The server still checks the role. This only keeps a control a person cannot use from looking ready.</summary>
     public bool CanManage => session.Space?.Role is "owner" or "admin";
@@ -142,10 +159,38 @@ public sealed partial class ProjectViewModel(
     /// <summary>Runs when the screen opens at a project's address.</summary>
     public async Task Open(Guid projectId)
     {
-        ProjectId = projectId;
-        if (await session.Load() is not null)
+        if (draftProjectId != projectId)
         {
-            await Load();
+            draftProjectId = projectId;
+            nameEdited = false;
+            instructionsEdited = false;
+            DraftName = string.Empty;
+            DraftInstructions = string.Empty;
+            Project = null;
+            ConfirmingRemove = false;
+            Problem = null;
+        }
+
+        ProjectId = projectId;
+        LoadProblem = null;
+        Missing = false;
+
+        try
+        {
+            if (await session.Load() is not null)
+            {
+                await Load();
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
+            LoadProblem = Failures.Sentence(exception);
         }
     }
 
@@ -177,23 +222,40 @@ public sealed partial class ProjectViewModel(
                 return;
             }
 
+            var foundRules = await api.GetFileRules(SpaceId);
+            if (!Current(ticket))
+            {
+                return;
+            }
+
             var foundBots = await api.ListBots(SpaceId);
             if (!Current(ticket))
             {
                 return;
             }
 
-            var foundMovable = await ReadMovable(projectId, foundBots, ticket);
-            if (!Current(ticket) || foundMovable is null)
+            var foundOwned = await api.ListOwnedThreads(SpaceId);
+            if (!Current(ticket))
             {
                 return;
             }
 
             Project = found;
+            maxFileBytes = foundRules.MaxFileBytes;
+            if (!nameEdited)
+            {
+                DraftName = found.Name;
+            }
+
+            if (!instructionsEdited)
+            {
+                DraftInstructions = found.Instructions ?? string.Empty;
+            }
+
             Threads = foundThreads;
             Files = foundFiles;
             Bots = foundBots;
-            Movable = foundMovable;
+            Movable = [.. foundOwned.Where(thread => thread.ProjectId != projectId)];
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
@@ -202,7 +264,12 @@ public sealed partial class ProjectViewModel(
                 return;
             }
 
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Report(Failures.Sentence(exception));
         }
     }
@@ -213,6 +280,20 @@ public sealed partial class ProjectViewModel(
         loadGeneration++;
         Working = null;
     }
+
+    public void UpdateDraftName(string value)
+    {
+        DraftName = value;
+        nameEdited = true;
+    }
+
+    public void UpdateDraftInstructions(string value)
+    {
+        DraftInstructions = value;
+        instructionsEdited = true;
+    }
+
+    public Task Save() => Save(DraftName, DraftInstructions);
 
     /// <summary>Saves the name and instructions the person currently has in the fields.</summary>
     public async Task Save(string? name, string? instructions)
@@ -229,7 +310,14 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
-        await Run(Saving, () => api.UpdateProject(SpaceId, ProjectId, new(name.Trim(), instructions ?? string.Empty)));
+        await Run(
+            Saving,
+            async () =>
+            {
+                await api.UpdateProject(SpaceId, ProjectId, new(name.Trim(), instructions ?? string.Empty));
+                nameEdited = false;
+                instructionsEdited = false;
+            });
     }
 
     public void PrepareRemove() => ConfirmingRemove = true;
@@ -255,7 +343,12 @@ public sealed partial class ProjectViewModel(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Problem = Failures.Sentence(exception);
         }
         finally
@@ -264,7 +357,7 @@ public sealed partial class ProjectViewModel(
         }
     }
 
-    /// <summary>Uploads one shared file. A file the screen can already see is too large is not sent.</summary>
+    /// <summary>Uploads one shared file. A file larger than the server's limit is not sent.</summary>
     public async Task Upload(IPickedFile file)
     {
         if (!CanManage)
@@ -273,32 +366,40 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
-        if (file.Size > OpenReadCap)
-        {
-            Problem = TooLarge;
-            return;
-        }
-
         Working = Uploading;
         Problem = null;
 
         try
         {
-            await using var content = await file.OpenRead(OpenReadCap, CancellationToken.None);
+            var limit = maxFileBytes ?? (await api.GetFileRules(SpaceId)).MaxFileBytes;
+            maxFileBytes = limit;
+
+            if (file.Size > limit)
+            {
+                Problem = TooLargeFor(limit);
+                return;
+            }
+
+            await using var content = await file.OpenRead(limit, CancellationToken.None);
             if (file.Size > 0)
             {
                 await api.UploadProjectFile(SpaceId, ProjectId, file.Name, content, file.Size);
             }
             else
             {
-                await api.UploadProjectFileWithUnverifiedSize(SpaceId, ProjectId, file.Name, content, OpenReadCap);
+                await api.UploadProjectFileWithUnverifiedSize(SpaceId, ProjectId, file.Name, content, limit);
             }
 
             await Load();
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Problem = Failures.Sentence(exception);
         }
         finally
@@ -318,6 +419,46 @@ public sealed partial class ProjectViewModel(
         return Run(RemovingFile, () => api.RemoveProjectFile(SpaceId, ProjectId, fileId));
     }
 
+    /// <summary>Saves a shared project file through platform file delivery on desktop and Android.</summary>
+    public async Task Download(ProjectFileResponse file)
+    {
+        if (delivery is null)
+        {
+            return;
+        }
+
+        Working = Downloading;
+        Problem = null;
+
+        try
+        {
+            var shared = new SharedFile(
+                file.File.Id,
+                file.File.Name,
+                file.File.ContentType,
+                file.File.Size,
+                DownloadAddress(file.File.Id),
+                FromBot: false,
+                file.UploadedAt);
+            await delivery.Save(shared);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception)
+            || exception is IOException or InvalidOperationException or ArgumentException)
+        {
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
+            Problem = Failures.IsReportable(exception) ? Failures.Sentence(exception) : $"Could not save {file.File.Name}.";
+        }
+        finally
+        {
+            Working = null;
+        }
+    }
+
     /// <summary>Starts a conversation with a bot inside this project, then opens it.</summary>
     public async Task Start(Guid botId)
     {
@@ -331,7 +472,12 @@ public sealed partial class ProjectViewModel(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Problem = Failures.Sentence(exception);
         }
         finally
@@ -352,6 +498,11 @@ public sealed partial class ProjectViewModel(
         var who = bot?.Name ?? "a bot";
         return string.IsNullOrWhiteSpace(thread.Title) ? $"Conversation with {who}" : thread.Title;
     }
+
+    public static string TooLargeFor(long? limit) =>
+        limit is { } bytes
+            ? $"That file is larger than {Words.Size(bytes)}. Drover did not upload it."
+            : "That file is larger than the server allows. Drover did not upload it.";
 
     public static string FileLabel(ProjectFileResponse file) => $"{file.File.Name}, {Words.Size(file.File.Size)}";
 
@@ -397,26 +548,12 @@ public sealed partial class ProjectViewModel(
                 Missing = true;
             }
 
-            logger.LogInformation(exception, "Project {ProjectId} is not in this space", projectId);
+            logger.LogInformation(
+                "Project {ProjectId} was not found in this space ({StatusCode})",
+                projectId,
+                (int)exception.StatusCode);
             return null;
         }
-    }
-
-    private async Task<IReadOnlyList<ThreadSummary>?> ReadMovable(Guid projectId, IReadOnlyList<BotSummary> foundBots, int ticket)
-    {
-        IReadOnlyList<ThreadSummary> found = [];
-        foreach (var bot in foundBots)
-        {
-            var own = await api.ListThreads(SpaceId, bot.Id);
-            if (!Current(ticket))
-            {
-                return null;
-            }
-
-            found = [.. found, .. own.Where(thread => thread.ProjectId != projectId)];
-        }
-
-        return found;
     }
 
     private async Task Run(string progress, Func<Task> work)
@@ -431,7 +568,12 @@ public sealed partial class ProjectViewModel(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Problem = Failures.Sentence(exception);
         }
         finally
@@ -452,7 +594,12 @@ public sealed partial class ProjectViewModel(
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
-            logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ProjectViewModel));
+            logger.LogWarning(
+                "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
+                nameof(ProjectViewModel),
+                ProjectId,
+                exception.GetType().Name,
+                exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
             Problem = Failures.Sentence(exception);
         }
         finally

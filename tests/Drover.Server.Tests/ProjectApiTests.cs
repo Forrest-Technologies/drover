@@ -139,6 +139,16 @@ public sealed class ProjectApiTests(PostgresServer postgres) : ServerTestBase(po
         var ownerMovesMemberShared = await asOwner.Put($"{Space(owner.SpaceId)}/threads/{memberPrivate.Id}/project", new SetThreadProjectRequest(null));
         ownerMovesMemberShared.StatusCode.Should().Be(HttpStatusCode.Forbidden, "only the conversation owner may change project membership");
 
+        // The caller's space-wide owned conversation list includes all of their bots and leaves out other members'
+        // conversations even after sharing.
+        var ownerSecondBotThread = await PostFor<ThreadSummary>(asOwner, $"{Space(owner.SpaceId)}/bots/{botB.Id}/threads", new CreateThreadRequest("Owner beta"), HttpStatusCode.Created);
+        var ownerOwnedThreads = await GetFor<List<ThreadSummary>>(asOwner, $"{Space(owner.SpaceId)}/threads");
+        ownerOwnedThreads.Select(t => t.Id).Should().BeEquivalentTo([ungrouped.Id, ownerInProject.Id, ownerSecondBotThread.Id]);
+        ownerOwnedThreads.Select(t => t.Id).Should().NotContain(memberPrivate.Id);
+
+        var fileRules = await GetFor<FileRules>(asMember, $"{Space(owner.SpaceId)}/files/rules");
+        fileRules.MaxFileBytes.Should().BePositive();
+
         var memberLeaves = await PutFor<ThreadSummary>(asMember, $"{Space(owner.SpaceId)}/threads/{memberPrivate.Id}/project", new SetThreadProjectRequest(null));
         memberLeaves.ProjectId.Should().BeNull();
         memberLeaves.IsShared.Should().BeTrue();

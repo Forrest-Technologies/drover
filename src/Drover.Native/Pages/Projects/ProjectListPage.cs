@@ -9,7 +9,21 @@ public sealed class ProjectListPage : Screen
 
     private readonly ProjectListViewModel model = Make<ProjectListViewModel>();
 
-    private Field draftName = new();
+    private readonly TextBlock titleText = PageParts.Title(ProjectListViewModel.Heading);
+
+    private readonly TextBlock memberNoteText = Styles.Text(ProjectListViewModel.MemberNote, "DvTextSecondary");
+
+    private readonly StackPanel createPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly StackPanel statusPanel = new() { Spacing = Tokens.Number("DvSpace2") };
+
+    private readonly StackPanel listPanel = new() { Spacing = Tokens.Number("DvSpace3") };
+
+    private readonly Field draftName;
+
+    private readonly Button createButton;
+
+    private bool showing;
 
     #endregion
 
@@ -17,6 +31,44 @@ public sealed class ProjectListPage : Screen
 
     public ProjectListPage()
     {
+        draftName = PageParts.Field(
+            "Project name",
+            string.Empty,
+            value =>
+            {
+                if (!showing)
+                {
+                    model.UpdateDraftName(value);
+                }
+            },
+            hint: "Name the project, then make it.");
+        AutomationProperties.SetName(draftName, "Project name");
+        createButton = PageParts.Action(
+            ProjectListViewModel.EmptyAction,
+            () => model.Create(),
+            Refresh,
+            enabled: false,
+            ButtonKind.Primary);
+        draftName.Submitted += async (_, _) =>
+        {
+            if (model.CanManage && model.Working is null)
+            {
+                var pending = model.Create();
+                Refresh();
+                await pending;
+                Refresh();
+            }
+        };
+
+        createPanel.Children.Add(draftName);
+        createPanel.Children.Add(createButton);
+
+        layout.Body.Add(titleText);
+        layout.Body.Add(memberNoteText);
+        layout.Body.Add(createPanel);
+        layout.Body.Add(statusPanel);
+        layout.Body.Add(listPanel);
+
         Content = layout;
         Refresh();
     }
@@ -39,68 +91,63 @@ public sealed class ProjectListPage : Screen
 
     private void Refresh()
     {
-        var body = layout.Body;
-        body.Clear();
-        body.Add(PageParts.Title(ProjectListViewModel.Heading));
+        var ready = model.State is ProjectListState.Empty or ProjectListState.Listed;
+        memberNoteText.Visibility = ready && !model.CanManage ? Visibility.Visible : Visibility.Collapsed;
+        createPanel.Visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+
+        showing = true;
+        try
+        {
+            if (draftName.Value != model.DraftName)
+            {
+                draftName.Value = model.DraftName;
+            }
+
+            draftName.Disabled = !model.CanManage;
+            createButton.IsEnabled = model.CanManage && model.Working is null;
+            createButton.Visibility = (model.State is ProjectListState.Listed || !model.CanManage)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        finally
+        {
+            showing = false;
+        }
+
+        statusPanel.Children.Clear();
+        if (ready && model.Problem is { } problem)
+        {
+            statusPanel.Children.Add(Styles.Text(problem, "DvTextSecondary"));
+        }
+
+        if (ready && model.Working is { } working)
+        {
+            statusPanel.Children.Add(PageParts.Waiting(working));
+        }
+
+        listPanel.Children.Clear();
 
         if (model.State is ProjectListState.Failed)
         {
-            body.Add(Failed(ProjectListViewModel.LoadFailedTitle, model.LoadProblem, model.Load));
+            listPanel.Children.Add(Failed(ProjectListViewModel.LoadFailedTitle, model.LoadProblem, model.Load));
             return;
         }
 
         if (model.State is ProjectListState.Loading)
         {
-            body.Add(PageParts.Waiting(ProjectListViewModel.Loading));
+            listPanel.Children.Add(PageParts.Waiting(ProjectListViewModel.Loading));
             return;
-        }
-
-        if (!model.CanManage)
-        {
-            body.Add(Styles.Text(ProjectListViewModel.MemberNote, "DvTextSecondary"));
-        }
-
-        ShowCreate(body);
-        if (model.Problem is { } problem)
-        {
-            body.Add(Styles.Text(problem, "DvTextSecondary"));
-        }
-
-        if (model.Working is { } working)
-        {
-            body.Add(PageParts.Waiting(working));
         }
 
         if (model.State is ProjectListState.Empty)
         {
-            body.Add(Empty());
+            listPanel.Children.Add(Empty());
             return;
         }
 
         foreach (var project in model.Projects ?? [])
         {
-            body.Add(ProjectLink(project));
-        }
-    }
-
-    private void ShowCreate(UIElementCollection body)
-    {
-        draftName = PageParts.Field(
-            "Project name",
-            string.Empty,
-            Remember,
-            hint: "Name the project, then make it.",
-            disabled: !model.CanManage);
-        AutomationProperties.SetName(draftName, "Project name");
-        body.Add(draftName);
-        if (model.State is ProjectListState.Listed || !model.CanManage)
-        {
-            body.Add(PageParts.Action(
-                ProjectListViewModel.EmptyAction,
-                () => model.Create(draftName.Value),
-                Refresh,
-                model.CanManage && model.Working is null,
-                ButtonKind.Primary));
+            listPanel.Children.Add(ProjectLink(project));
         }
     }
 
@@ -117,7 +164,7 @@ public sealed class ProjectListPage : Screen
         {
             empty.Action += async (_, _) =>
             {
-                var pending = model.Create(draftName.Value);
+                var pending = model.Create();
                 Refresh();
                 await pending;
                 Refresh();
@@ -127,7 +174,7 @@ public sealed class ProjectListPage : Screen
         return empty;
     }
 
-    private Link ProjectLink(ProjectSummary project)
+    private static Link ProjectLink(ProjectSummary project)
     {
         var link = new Link
         {
@@ -156,8 +203,6 @@ public sealed class ProjectListPage : Screen
         };
         return failed;
     }
-
-    private static void Remember(string value) => _ = value;
 
     #endregion
 }
