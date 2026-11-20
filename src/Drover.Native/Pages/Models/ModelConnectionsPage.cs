@@ -142,7 +142,7 @@ public sealed class ModelConnectionsPage : Screen
 
             foreach (var entry in catalog)
             {
-                body.Children.Add(Styles.Text($"{entry.DisplayName} · {entry.Model}{(entry.State is "available" ? string.Empty : $" ({entry.State})")}"));
+                body.Children.Add(CatalogRow(connection, entry));
             }
         }
 
@@ -164,6 +164,30 @@ public sealed class ModelConnectionsPage : Screen
         }
 
         return PageParts.Card(body);
+    }
+
+    private UIElement CatalogRow(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry)
+    {
+        var state = entry.State is "available" ? string.Empty : $" ({entry.State})";
+        var words = ModelConnectionsViewModel.VisionWords(entry) is { } vision ? $" · {vision}" : string.Empty;
+        var line = Styles.Text($"{entry.DisplayName} · {entry.Model}{state}{(model.CanMarkVision(connection) ? string.Empty : words)}");
+
+        if (!model.CanMarkVision(connection))
+        {
+            return line;
+        }
+
+        var reads = new Switch { Label = ModelConnectionsViewModel.VisionLabel(entry), Value = entry.Capabilities.Vision, IsEnabled = !model.ChangePending };
+        reads.OnChanged(() => model.ChangePending, on => SetVision(connection, entry, on));
+        return PageParts.Column(line, reads);
+    }
+
+    private async void SetVision(Drover.Contracts.Models.ModelConnectionSummary connection, Drover.Contracts.Models.ModelCatalogResponse entry, bool readsImages)
+    {
+        var pending = model.SetVision(connection, entry, readsImages);
+        Refresh();
+        await pending;
+        Refresh();
     }
 
     private Button Action(string label, Func<Task> work, ButtonKind kind = ButtonKind.Quiet) =>

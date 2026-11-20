@@ -8,7 +8,7 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 {
     #region Private Fields
 
-    public const string ConnectionKind = "openai_compatible";
+    public const string ConnectionKind = ModelConnectionKinds.Compatible;
 
     public const string HttpClientName = "drover-openai-compatible";
 

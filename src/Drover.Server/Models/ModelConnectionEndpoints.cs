@@ -16,6 +16,7 @@ public static class ModelConnectionEndpoints
         scoped.MapPost("/", CreateConnection).RequireSpaceRole(MembershipRole.Admin).WithName("CreateModelConnection");
         scoped.MapPut("/{connectionId:guid}/key", ReplaceKey).RequireSpaceRole(MembershipRole.Admin).WithName("ReplaceModelKey");
         scoped.MapGet("/{connectionId:guid}/models", ListModels).WithName("ListModels");
+        scoped.MapPut("/{connectionId:guid}/models/vision", SetModelVision).RequireSpaceRole(MembershipRole.Admin).WithName("SetModelVision");
 
         var calling = space.MapGroup("/model-connections");
         calling.MapPost("/{connectionId:guid}/test", TestConnection).RequireSpaceRole(MembershipRole.Admin).WithName("TestModelConnection");
@@ -73,6 +74,29 @@ public static class ModelConnectionEndpoints
     {
         var catalog = await models.ListModels(connectionId, context.RequestAborted);
         return catalog is null ? TypedResults.NotFound() : TypedResults.Ok(catalog.Select(entry => entry.ToResponse()).ToList());
+    }
+
+    private static async Task<Results<Ok<ModelCatalogResponse>, NotFound, ProblemHttpResult>> SetModelVision(
+        Guid connectionId,
+        SetModelVisionRequest request,
+        HttpContext context,
+        ModelConnectionService models)
+    {
+        if (string.IsNullOrWhiteSpace(request.Model))
+        {
+            return TypedResults.Problem(title: "Name the model.", statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var change = await models.SetVision(connectionId, request.Model, request.ReadsImages, context.RequestAborted);
+
+        if (change is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return change.Entry is { } entry
+            ? TypedResults.Ok(entry.ToResponse())
+            : TypedResults.Problem(title: change.Problem, statusCode: StatusCodes.Status400BadRequest);
     }
 
     private static async Task<Results<Ok<ConnectionTestResponse>, NotFound>> TestConnection(

@@ -127,6 +127,20 @@ public sealed partial class DroverApi
         return await response.ReadValue<List<ModelCatalogResponse>>(cancellationToken);
     }
 
+    /// <summary>Says whether a model of a compatible connection reads pictures. False clears the mark.</summary>
+    public async Task<ModelCatalogResponse> SetModelVision(
+        Guid spaceId,
+        Guid connectionId,
+        SetModelVisionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.PutAsJsonAsync(
+            $"api/spaces/{spaceId}/model-connections/{connectionId}/models/vision",
+            request,
+            cancellationToken);
+        return await response.ReadValue<ModelCatalogResponse>(cancellationToken);
+    }
+
     public async Task<ModelRefreshResponse> RefreshModels(
         Guid spaceId,
         Guid connectionId,
