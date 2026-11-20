@@ -22,6 +22,18 @@ public abstract class TableSeeder
     /// </summary>
     public abstract Task<IReadOnlyDictionary<string, object?>> Row(SeedRow seed);
 
+    /// <summary>
+    /// Inserts the row used by positive isolation controls. Most tables use a direct insert. A table whose rows are
+    /// produced only by another table's trigger can override this and exercise that production path.
+    /// </summary>
+    public virtual Task<IReadOnlyDictionary<string, object?>> Insert(
+        IsolationHarness harness,
+        TenantSession session,
+        TableUnderTest table,
+        RowPlacement placement,
+        IReadOnlyDictionary<string, object?> values) =>
+        harness.Insert(session, table, values);
+
     #endregion
 }
 

@@ -18,6 +18,7 @@ global using CommunityToolkit.Mvvm.ComponentModel;
 global using CommunityToolkit.Mvvm.Input;
 global using Drover.Client;
 global using Drover.Client.Runs;
+global using Drover.Client.Streaming;
 global using Drover.Contracts.Bots;
 global using Drover.Contracts.Extensions;
 global using Drover.Contracts.Files;

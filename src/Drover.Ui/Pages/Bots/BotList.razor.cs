@@ -85,7 +85,7 @@ public sealed partial class BotList(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotList));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

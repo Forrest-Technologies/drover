@@ -80,6 +80,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<PendingFileDeletion> PendingFileDeletions => Set<PendingFileDeletion>();
 
+    public DbSet<PendingUploadDeletion> PendingUploadDeletions => Set<PendingUploadDeletion>();
+
     public DbSet<Secret> Secrets => Set<Secret>();
 
     public DbSet<MemoryNote> Memories => Set<MemoryNote>();

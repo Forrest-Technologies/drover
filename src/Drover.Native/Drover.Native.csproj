@@ -104,6 +104,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- The offline deep-link check replaces the chosen server and then exits. A shipping build leaves it out. -->
+  <PropertyGroup Condition="'$(DroverUnreachableCheck)' == 'true'">
+    <DefineConstants>$(DefineConstants);DROVER_UNREACHABLE_CHECK</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DroverUnreachableCheck)' != 'true'">
+    <Compile Remove="Shell/UnreachableOpenCheck.cs" />
+  </ItemGroup>
+
   <!-- How requests reach the server. In a browser: the same-origin handler the web client uses. On a device: the
        handler and session the Android shell uses. Each is one source, compiled into both apps. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">

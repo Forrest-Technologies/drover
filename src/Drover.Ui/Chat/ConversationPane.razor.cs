@@ -251,7 +251,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -362,7 +362,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"Your message was not sent. {Failures.Sentence(exception)}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -405,7 +405,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
+            problem = $"The reply was not stopped. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -440,7 +440,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            return $"Your answer was not sent. {Failures.Sentence(exception)}";
+            return $"Your answer was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -473,7 +473,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception)}");
+            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception, "Check that the server is running.")}");
         }
     }
 
@@ -487,7 +487,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception), ToastKind.Error);
+            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
         }
     }
 
@@ -523,7 +523,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+            problem = $"It was not tried again. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -569,7 +569,7 @@ public sealed partial class ConversationPane(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationPane));
-            problem = $"The files were not attached. {Failures.Sentence(exception)}";
+            problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
             return;
         }
 
@@ -715,7 +715,7 @@ public sealed partial class ConversationPane(
         var tree = RunView.Start(rootRunId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 tree = RunReducer.Apply(tree, change);
                 (run, reconnecting) = (tree.Find(runId) ?? run, null);
@@ -769,7 +769,7 @@ public sealed partial class ConversationPane(
         var view = RunView.Start(runId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
@@ -813,6 +813,17 @@ public sealed partial class ConversationPane(
         logger.LogInformation(cause, "The event stream dropped and is being reconnected");
         reconnecting = "The connection dropped. Reconnecting.";
         _ = InvokeAsync(StateHasChanged);
+    }
+
+    // The reader calls this each time it is through again. A quiet run sends nothing after a reconnect, so the notice
+    // goes now instead of with the next event.
+    private void ConnectionRestored()
+    {
+        if (reconnecting is not null)
+        {
+            reconnecting = null;
+            _ = InvokeAsync(StateHasChanged);
+        }
     }
 
     #endregion

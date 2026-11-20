@@ -38,13 +38,59 @@ public sealed partial class SessionGateViewModel(
             }
             else
             {
-                State = GateState.SignedIn;
+                State = session.Unreachable ? GateState.Unreachable : GateState.SignedIn;
             }
         }
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(SessionGateViewModel));
             State = GateState.Unreachable;
+        }
+    }
+
+    /// <summary>
+    /// Asks the server again. A screen that could not reach it is opened again, so it loads what it shows.
+    /// </summary>
+    [RelayCommand]
+    public async Task TryAgain()
+    {
+        if (session.Unreachable)
+        {
+            navigator.NavigateTo(navigator.Current, replace: true);
+        }
+
+        await Check();
+    }
+
+    /// <summary>Follows whether the screen behind the gate reached the server, while the gate is shown.</summary>
+    public void Watch()
+    {
+        session.ReachChanged -= ShowReach;
+        session.ReachChanged += ShowReach;
+    }
+
+    public void Unwatch() => session.ReachChanged -= ShowReach;
+
+    #endregion
+
+    #region Private Methods
+
+    private void ShowReach()
+    {
+        if (session.Unreachable)
+        {
+            State = GateState.Unreachable;
+        }
+        else if (State is GateState.Unreachable)
+        {
+            if (session.Current is not null)
+            {
+                State = GateState.SignedIn;
+            }
+            else
+            {
+                _ = Check();
+            }
         }
     }
 
