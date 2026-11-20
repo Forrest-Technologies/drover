@@ -842,7 +842,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
                 }
 
                 var id = madeBotId.Value;
-                await api.UpdateBotDefinition(SpaceId, id, Draft.ToRequest() with { HandleFollowsName = !Draft.HandleChosen });
+                await api.UpdateBotDefinition(SpaceId, id, Draft.ToRequest());
                 leaveConfirmed = true;
                 madeAndOpened = true;
                 toasts.Show($"{Draft.Name} was made.", ToastKind.Success);
