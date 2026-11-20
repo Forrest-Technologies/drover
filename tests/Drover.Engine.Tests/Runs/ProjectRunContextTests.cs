@@ -407,7 +407,8 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Project_scan_limits_use_the_embedded_picture_header_not_only_the_pdf_dictionary(bool zeroHeaderHeight)
+    public async Task Project_scan_limits_use_the_embedded_picture_header_not_only_the_pdf_dictionary(
+        bool zeroHeaderHeight)
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
         world.StartHost();
@@ -445,7 +446,11 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
 
         for (var index = 0; index < 15; index++)
         {
-            photos.Add((await Upload(world, project.Id, $"newer-{index:D2}.jpg", TestDocuments.Jpeg(32, 32, (byte)index))).File!);
+            photos.Add((await Upload(
+                world,
+                project.Id,
+                $"newer-{index:D2}.jpg",
+                TestDocuments.Jpeg(32, 32, (byte)index))).File!);
         }
 
         var openedBeforeRun = world.Files.Opened;
@@ -456,9 +461,11 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
 
         first[scan.Id].Images.Should().HaveCount(4, "five slots include one page without a convertible picture");
         first[scan.Id].Text.Should().Contain("Only 4 of its 25 pages are shown");
-        second[scan.Id].Images.Should().HaveCount(19, "twenty slots include the same page without a convertible picture");
+        second[scan.Id].Images.Should().HaveCount(
+            19, "twenty slots include the same page without a convertible picture");
         second[scan.Id].Text.Should().Contain("Only 19 of its 25 pages are shown");
-        (world.Files.Opened - openedBeforeRun).Should().Be(17, "the scan is reopened once when later capacity can reveal more pages");
+        (world.Files.Opened - openedBeforeRun).Should().Be(
+            17, "the scan is reopened once when later capacity can reveal more pages");
     }
 
     [Fact]
@@ -472,12 +479,17 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
 
         for (var index = 0; index < ProjectFileLimits.MaxImages; index++)
         {
-            photos.Add((await Upload(world, project.Id, $"newer-{index:D2}.jpg", TestDocuments.Jpeg(4, 4, (byte)index))).File!);
+            photos.Add((await Upload(
+                world,
+                project.Id,
+                $"newer-{index:D2}.jpg",
+                TestDocuments.Jpeg(4, 4, (byte)index))).File!);
         }
 
         var files = DirectProjectFiles(world);
 
-        var opened = await files.OpenProject(project.Id, [document.Id, .. photos.Select(file => file.Id)], RunWorld.Token);
+        var opened = await files.OpenProject(
+            project.Id, [document.Id, .. photos.Select(file => file.Id)], RunWorld.Token);
 
         opened[document.Id].Images.Should().BeNullOrEmpty();
         opened[document.Id].Text.Should().Contain("has no text").And.NotContain("image allowance for this model call");
@@ -494,11 +506,15 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         var openedBeforeRun = world.Files.Opened;
         var files = DirectProjectFiles(world);
 
-        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should().Contain("first-content");
-        (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Text.Should().Contain("second-content");
-        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should().Contain("first-content");
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should()
+            .Contain("first-content");
+        (await files.OpenProject(project.Id, [second.Id], RunWorld.Token))[second.Id].Text.Should()
+            .Contain("second-content");
+        (await files.OpenProject(project.Id, [first.Id], RunWorld.Token))[first.Id].Text.Should()
+            .Contain("first-content");
 
-        (world.Files.Opened - openedBeforeRun).Should().Be(3, "A to B to A evicts stable text outside the current selection");
+        (world.Files.Opened - openedBeforeRun).Should().Be(
+            3, "A to B to A evicts stable text outside the current selection");
     }
 
     [Fact]
@@ -521,7 +537,8 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         await files.OpenProject(project.Id, [oversized.Id, accepted.Id], RunWorld.Token);
         await files.OpenProject(project.Id, [oversized.Id, accepted.Id], RunWorld.Token);
 
-        taints.Should().Be(4, "each selected project row taints, including a cached picture and a stable intrinsic note");
+        taints.Should().Be(
+            4, "each selected project row taints, including a cached picture and a stable intrinsic note");
     }
 
     [Fact]
