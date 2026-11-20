@@ -133,8 +133,8 @@ jobs:
             -warnaserror
           dll="$(find src/Drover.Native/bin/Release/net11.0-ios -type f -name 'Drover.Native.dll' -print -quit)"
           test -n "$dll"
-          if grep -a -q DROVER_UI_CHECK_REPORT "$dll"; then
-            echo "DROVER_UI_CHECK_REPORT must not be compiled into the shipping iOS binary"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText' "$dll"; then
+            echo "Screen-check hooks must not be compiled into the shipping iOS binary"
             exit 1
           fi
       - name: Build the screen checks and an iOS build made for them
