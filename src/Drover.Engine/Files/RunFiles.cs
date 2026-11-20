@@ -424,7 +424,7 @@ public sealed class RunFiles(
                     if (read.PageImages.Count == 0)
                     {
                         var noPictures = read.ImagesExceedSingleLimits
-                            ? ProjectNote(file, "its page pictures are too large to show in one model call")
+                            ? ProjectNote(file, "its page pictures could not be shown safely")
                             : budgetLimited
                                 ? ProjectImageAllowanceNote(file)
                                 : new FileForModel(
@@ -439,6 +439,11 @@ public sealed class RunFiles(
                         if (!TryAddProjectFile(opened, budget, noPictures, ref anyKept))
                         {
                             break;
+                        }
+
+                        if (budgetLimited)
+                        {
+                            projectPictures[file.Id] = new ProjectPictureCache(noPictures, allowance, true);
                         }
 
                         continue;
@@ -714,7 +719,9 @@ public sealed class RunFiles(
         HashSet<Guid> retained =
         [
             .. opened
-                .Where(pair => pair.Value.Images is { Count: > 0 })
+                .Where(pair => pair.Value.Images is { Count: > 0 }
+                    || (projectPictures.TryGetValue(pair.Key, out var cached)
+                        && ReferenceEquals(pair.Value, cached.File)))
                 .Select(pair => pair.Key),
         ];
 

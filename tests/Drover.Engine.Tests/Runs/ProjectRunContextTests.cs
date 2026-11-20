@@ -430,6 +430,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         second[file.Id].Images.Should().BeNullOrEmpty();
         first[file.Id].Text.Should().Be(second[file.Id].Text)
             .And.Contain("project shares")
+            .And.Contain("could not be shown safely")
             .And.NotContain("image allowance for this model call");
         (world.Files.Opened - openedBeforeRun).Should().Be(1, "the intrinsic result is stable across model steps");
     }
@@ -469,9 +470,7 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
     }
 
     [Fact]
-
     public async Task A_zero_picture_partial_scan_is_reopened_when_a_later_call_has_more_image_capacity()
-
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
         world.StartHost();
@@ -492,6 +491,10 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
         var files = DirectProjectFiles(world);
 
         var first = await files.OpenProject(project.Id, [older.Id, newer.Id], RunWorld.Token);
+        var openedAfterFirst = world.Files.Opened;
+        var sameCapacity = await files.OpenProject(project.Id, [older.Id, newer.Id], RunWorld.Token);
+        sameCapacity[older.Id].Text.Should().Be(first[older.Id].Text);
+        world.Files.Opened.Should().Be(openedAfterFirst, "unchanged capacity reuses the temporary outcome");
         var second = await files.OpenProject(project.Id, [older.Id], RunWorld.Token);
 
         first[newer.Id].Images.Should().HaveCount(19);

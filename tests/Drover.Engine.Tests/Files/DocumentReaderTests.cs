@@ -102,13 +102,9 @@ public sealed class DocumentReaderTests
     }
 
     [Theory]
-
     [InlineData(false)]
-
     [InlineData(true)]
-
     public void Scanned_pdf_picture_headers_must_be_readable_and_match_the_pdf_dictionary(bool zeroHeaderHeight)
-
     {
         var pdf = TestDocuments.ScannedPdfWithDeclaredImageSize(
             actualWidth: 8_000,
