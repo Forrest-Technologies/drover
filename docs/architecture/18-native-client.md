@@ -433,8 +433,10 @@ removes a project, edits its instructions, and adds or removes its files. A memb
 can still open a project, start a conversation with a bot, and move a conversation they own. The server still decides
 each request. Editor inputs live in persistent panels so typed drafts and keyboard focus survive list refreshes, uploads,
 and conversation moves. Project file downloads use `DroverApi` through `IFileDelivery` on desktop and Android and fall
-back to `Launcher` only in the browser target. Upload size checks read the server's limit from `/files/rules`, and
-movable conversations are fetched in one request for the signed-in owner. `scripts/check-native-browser.mjs` checks
+back to `Launcher` only in the browser target. Devices without file delivery do not offer a download action.
+Upload size checks read the server's limit from `/files/rules`, and
+movable conversations are fetched in one request for the signed-in owner. The list keeps the existing limit of
+200 non-archived threads, including scheduled and handed work. `scripts/check-native-browser.mjs` checks
 every project state, draft persistence, keyboard focus, and the five-item `PhoneNav` dock at 360 pixels.
 
 The share screen (`ShareToPage`, `ShareToViewModel`) reads what is waiting in the one `ShareInbox`, names the

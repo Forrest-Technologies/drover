@@ -891,6 +891,15 @@ async function checkProjectDraftsAndKeyboard(page) {
     assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
         'Native backward selection must preserve the rest of the draft.');
 
+    await selectNativeTextRange(instructionsField, 5, 5, 'none');
+    await page.keyboard.type('point ');
+    assert.equal(await instructionsField.inputValue(), 'Keep point the typed draft.',
+        'A native collapsed caret must reach the editor before real keyboard input inserts text.');
+    await selectNativeTextRange(instructionsField, 5, 11, 'forward');
+    await page.keyboard.press('Backspace');
+    assert.equal(await instructionsField.inputValue(), 'Keep the typed draft.',
+        'Removing text inserted at a native caret must preserve the remaining draft.');
+
     await instructionsField.focus();
     await page.keyboard.press('Tab');
     const activeName = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent?.trim());

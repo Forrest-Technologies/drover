@@ -54,6 +54,12 @@ public sealed partial class ProjectViewModel(
 
     public const string Uploading = "Uploading the file.";
 
+    public const string ChoosingFiles = "Choosing files.";
+
+    public const string ChooseFailed = "Could not choose a file. Try again.";
+
+    public const string OwnConversationsOnly = "Only your own conversations can move out of this project.";
+
     public const string RemovingFile = "Removing the file.";
 
     public const string Downloading = "Saving the file.";
@@ -372,7 +378,7 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
-        Working = "Choosing files.";
+        Working = ChoosingFiles;
         try
         {
             var selected = await ChoosePickedFiles(choose);
@@ -384,7 +390,7 @@ public sealed partial class ProjectViewModel(
         }
     }
 
-    /// <summary>Uploads the chosen files and keeps every refusal visible after the batch completes.</summary>
+    /// <summary>Uploads the chosen files and keeps every problem visible after the batch completes.</summary>
     public async Task UploadFiles(IReadOnlyList<IPickedFile> selected)
     {
         if (!CanManage)
@@ -398,30 +404,31 @@ public sealed partial class ProjectViewModel(
             return;
         }
 
-        List<string> failures = [];
+        List<string> problems = [];
         foreach (var file in selected)
         {
-            await Upload(file);
-            if (Problem is { } refusal)
+            var uploaded = await Upload(file);
+            if (Problem is { } problem)
             {
-                failures.Add($"{file.Name}: {refusal}");
+                problems.Add(uploaded ? problem : $"{file.Name}: {problem}");
             }
         }
 
-        Problem = failures.Count > 0 ? string.Join("\n", failures) : null;
+        Problem = problems.Count > 0 ? string.Join("\n", problems) : null;
     }
 
-    /// <summary>Uploads one shared file. A file larger than the server's limit is not sent.</summary>
-    public async Task Upload(IPickedFile file)
+    /// <summary>Uploads one shared file and returns whether the server accepted it.</summary>
+    public async Task<bool> Upload(IPickedFile file)
     {
         if (!CanManage)
         {
             Problem = MemberNote;
-            return;
+            return false;
         }
 
         Working = Uploading;
         Problem = null;
+        var uploaded = false;
 
         try
         {
@@ -431,13 +438,13 @@ public sealed partial class ProjectViewModel(
             if (file.Size > limit)
             {
                 Problem = TooLargeFor(limit);
-                return;
+                return false;
             }
 
             await using var content = await ReadPickedFile(file, limit);
             if (content is null)
             {
-                return;
+                return false;
             }
 
             if (file.Size > 0)
@@ -449,7 +456,12 @@ public sealed partial class ProjectViewModel(
                 await api.UploadProjectFileWithUnverifiedSize(SpaceId, ProjectId, file.Name, content, limit);
             }
 
+            uploaded = true;
             await Load();
+            if (Problem is not null || LoadProblem is not null)
+            {
+                Problem = UploadedWithoutRefresh(file.Name);
+            }
         }
         catch (Exception exception) when (Failures.IsReportable(exception)
             || exception is IOException or UnauthorizedAccessException)
@@ -460,14 +472,18 @@ public sealed partial class ProjectViewModel(
                 ProjectId,
                 exception.GetType().Name,
                 exception is DroverApiException apiException ? (int)apiException.StatusCode : null);
-            Problem = Failures.IsReportable(exception)
-                ? Failures.Sentence(exception)
-                : $"Could not read {file.Name}.";
+            Problem = uploaded
+                ? UploadedWithoutRefresh(file.Name)
+                : Failures.IsReportable(exception)
+                    ? Failures.Sentence(exception)
+                    : $"Could not read {file.Name}.";
         }
         finally
         {
             Working = null;
         }
+
+        return uploaded;
     }
 
     public Task RemoveFile(Guid fileId)
@@ -505,7 +521,8 @@ public sealed partial class ProjectViewModel(
             await delivery.Save(shared);
         }
         catch (Exception exception) when (Failures.IsReportable(exception)
-            || exception is IOException or InvalidOperationException or ArgumentException)
+            || exception is IOException or UnauthorizedAccessException
+                or InvalidOperationException or ArgumentException)
         {
             logger.LogWarning(
                 "A request to the server failed on {Screen} for project {ProjectId}: {FailureKind} ({StatusCode})",
@@ -556,7 +573,7 @@ public sealed partial class ProjectViewModel(
     {
         if (!CanMoveOut(threadId))
         {
-            Problem = "Only your own conversations can move out of this project.";
+            Problem = OwnConversationsOnly;
             return Task.CompletedTask;
         }
 
@@ -611,7 +628,7 @@ public sealed partial class ProjectViewModel(
                 "The file chooser failed on {Screen}: {FailureKind}",
                 nameof(ProjectViewModel),
                 exception.GetType().Name);
-            Problem = "Could not choose a file. Try again.";
+            Problem = ChooseFailed;
             return [];
         }
     }
@@ -632,6 +649,9 @@ public sealed partial class ProjectViewModel(
             return null;
         }
     }
+
+    private static string UploadedWithoutRefresh(string name) =>
+        $"Uploaded {name}. Reopen this project to refresh its files.";
 
     private bool Current(int ticket) => ticket == loadGeneration;
 
