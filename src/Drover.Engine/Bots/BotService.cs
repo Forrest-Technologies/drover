@@ -14,6 +14,7 @@ public sealed class BotService(
     AuditLog audit,
     PolicyService policies,
     SandboxRepository sandboxes,
+    ModelFallbackService fallbacks,
     TimeProvider time,
     ILogger<BotService> logger)
 {
@@ -173,7 +174,10 @@ public sealed class BotService(
         bot.Instructions = edit.Instructions;
         bot.ModelConnectionId = edit.ModelConnectionId;
         bot.Model = edit.Model.Trim();
-        bot.ModelSettings = edit.ModelSettings!;
+        bot.ModelSettings = edit.ModelSettings! with
+        {
+            Fallbacks = [.. edit.ModelSettings.Fallbacks.Select(fallback => fallback with { Model = fallback.Model.Trim() })],
+        };
         bot.MemorySettings = edit.MemorySettings!;
         bot.SandboxPolicy = edit.SandboxPolicy!.Value;
         bot.SandboxSettings = edit.SandboxSettings! with
@@ -571,7 +575,11 @@ public sealed class BotService(
 
         // A model the catalog does not know is taken on trust; one it knows is held to what it can do.
         var known = await connections.FindCatalogEntry(edit.ModelConnectionId, edit.Model.Trim(), cancellationToken);
-        return known is null ? null : FindCapabilityProblem(settings, known);
+        var capabilityProblem = known is null ? null : FindCapabilityProblem(settings, known);
+        return capabilityProblem ?? await fallbacks.FindProblem(
+            settings.Fallbacks,
+            new ModelFallback(edit.ModelConnectionId, edit.Model.Trim()),
+            cancellationToken);
     }
 
     private static string? FindCapabilityProblem(ModelSettings settings, ModelCatalogEntry known)

@@ -29,7 +29,41 @@ public sealed record BotDetail(
 public sealed record BotAvatarBody(string? Emoji, Guid? FileId);
 
 /// <summary>Model options in provider-neutral names. A null leaves the choice to the model.</summary>
-public sealed record ModelSettingsBody(double? Temperature, int? MaxOutputTokens, string? ReasoningEffort, string WebSearch, bool StructuredOutput);
+public sealed record ModelSettingsBody(
+    double? Temperature,
+    int? MaxOutputTokens,
+    string? ReasoningEffort,
+    string WebSearch,
+    bool StructuredOutput,
+    IReadOnlyList<ModelFallbackBody>? Fallbacks = null,
+    bool UseSpaceFallbacks = true);
+
+/// <summary>A model on one connection of the space.</summary>
+public sealed record ModelFallbackBody(Guid ConnectionId, string Model);
+
+/// <summary>The fallback models set for a space.</summary>
+public sealed record SpaceModelFallbacks(IReadOnlyList<ModelFallbackBody> Fallbacks);
+
+/// <summary>Capabilities shown for one model in an effective chain.</summary>
+public sealed record ModelChainCapabilities(bool Tools, bool Vision, int? ContextTokens, bool StructuredOutput);
+
+/// <summary>Catalog prices per million tokens for one model in an effective chain.</summary>
+public sealed record ModelChainPrices(decimal? Input, decimal? Output, string Currency);
+
+/// <summary>One usable entry in a bot's effective model chain.</summary>
+public sealed record ModelChainEntry(
+    Guid ConnectionId,
+    string ConnectionName,
+    string ConnectionStatus,
+    string Model,
+    string DisplayName,
+    ModelChainCapabilities Capabilities,
+    ModelChainPrices Prices,
+    string? PrivacyMode,
+    IReadOnlyList<string> Mismatches);
+
+/// <summary>The primary model followed by the bot or space fallback list.</summary>
+public sealed record BotModelChain(IReadOnlyList<ModelChainEntry> Models);
 
 /// <summary>
 /// Whether the bot keeps notes about the person it works for, how long a note and all of them together may be (a null

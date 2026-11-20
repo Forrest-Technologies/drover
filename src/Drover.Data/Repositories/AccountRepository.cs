@@ -217,6 +217,10 @@ public sealed class AccountRepository(DroverDbContext db)
     public Task<Space?> GetSpace(Guid id, CancellationToken cancellationToken) =>
         db.Spaces.AsNoTracking().SingleOrDefaultAsync(space => space.Id == id, cancellationToken);
 
+    /// <summary>The tracked space row, for a change the caller commits.</summary>
+    public Task<Space?> GetSpaceForUpdate(Guid id, CancellationToken cancellationToken) =>
+        db.Spaces.SingleOrDefaultAsync(space => space.Id == id, cancellationToken);
+
     public void Add(Space space) => db.Spaces.Add(space);
 
     public void Add(User user) => db.Users.Add(user);
