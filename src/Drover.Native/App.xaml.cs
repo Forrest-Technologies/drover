@@ -81,6 +81,7 @@ public partial class App : Application
                 IsActive = activated.WindowActivationState is not WindowActivationState.Deactivated;
             Restart();
             MainWindow.Activate();
+            StartChecks(MainWindow);
         }
         catch (Exception exception)
         {
@@ -88,6 +89,10 @@ public partial class App : Application
             throw;
         }
     }
+
+    // A build made for the screen checks (tests/Drover.Native.UITests) runs them here. Any other build has no body
+    // for this, so the call is not compiled.
+    partial void StartChecks(Window window);
 
     #endregion
 }
