@@ -720,6 +720,29 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Theory]
+    [InlineData("memory", SideView.Memory)]
+    [InlineData("side", SideView.List)]
+    public async Task Escape_in_a_non_composer_rail_closes_the_rail(string path, SideView opener)
+    {
+        await Go($"/talk/{botId}/{path}");
+        await Until(() => Talk.Side.Should().Be(opener));
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = false;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeTrue();
+        Address.Should().Be($"talk/{botId}");
+        Talk.CanShowRail.Should().BeFalse();
+        openers.Should().Equal([opener]);
+    }
+
+    [Theory]
     [InlineData(SideView.Summary, SideView.Summary)]
     [InlineData(SideView.Chat, SideView.List)]
     [InlineData(SideView.New, SideView.List)]

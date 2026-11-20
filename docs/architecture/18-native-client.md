@@ -458,7 +458,9 @@ place the panel links beside the title or on one compact row below it. On a phon
 
 Escape anywhere inside an open rail closes it, as its close control does, and the focus goes back to the way that
 opened it: its link in the header, or the bot menu where the header shows no links (a phone, and handed work, which
-opens from its card). A key a dialog or a menu inside the rail takes for itself closes that first.
+opens from its card). A key a dialog or a menu inside the rail takes for itself closes that first, and a composer
+holding text or attached files inside the rail keeps the key so a draft is never dropped. Non-composer fields inside
+the native rail do not count as drafts, so Escape still closes the rail from them.
 `TalkViewModel.CloseRailFromKeyboard` is the one path, so a device's Back that closes a rail can call it too. The web
 client does the same in `Talk.razor.js`.
 
@@ -493,6 +495,7 @@ Known differences of this screen from the web client:
 | Area | Difference |
 | --- | --- |
 | Arrow keys | The crew and the side chats also move the focus with the arrow keys, Home, and End. The web client has Tab alone |
+| Escape with text in non-composer rail fields | In the native client only a non-empty `Composer` (or composer attachments) keeps Escape from closing the rail; in the web client (`Talk.razor.js`), any non-empty field inside the rail keeps the key |
 | Pasting and dropping files | Written against the platform's clipboard and drag events. Not exercised: the display used for verification has no clipboard manager or file manager |
 | File chooser | The platform's own. Not exercised under the virtual display |
 | Enter while composing with an input method | The web client leaves Enter to the input method. The platform does not say that a composition is under way |

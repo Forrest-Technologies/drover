@@ -660,10 +660,10 @@ internal sealed class TalkWorkspace : Grid
     #region Keyboard
 
     // Escape closes what is beside the conversation. A key something inside took for itself, as a dialog does, or a
-    // text field with content inside the rail, is left alone; a menu's list is not inside the rail at all.
+    // composer with text inside the rail, is left alone; other rail fields and a menu's list do not count as a draft.
     private void CloseRailOnEscape(object sender, KeyRoutedEventArgs key)
     {
-        if (key.Key is not VirtualKey.Escape || key.Handled || InTextFieldWithContent(key))
+        if (key.Key is not VirtualKey.Escape || key.Handled || InComposerWithContent(key))
         {
             return;
         }
@@ -674,17 +674,21 @@ internal sealed class TalkWorkspace : Grid
         }
     }
 
-    private bool InTextFieldWithContent(KeyRoutedEventArgs key)
+    private bool InComposerWithContent(KeyRoutedEventArgs key)
     {
         var current = (XamlRoot is { } root ? FocusManager.GetFocusedElement(root) as DependencyObject : null)
             ?? key.OriginalSource as DependencyObject;
+        var hasContent = false;
         while (current is not null)
         {
             switch (current)
             {
                 case TextBox box when box.Text.Length > 0:
                 case PasswordBox password when password.Password.Length > 0:
-                    return true;
+                    hasContent = true;
+                    break;
+                case Composer:
+                    return hasContent;
             }
 
             current = VisualTreeHelper.GetParent(current);

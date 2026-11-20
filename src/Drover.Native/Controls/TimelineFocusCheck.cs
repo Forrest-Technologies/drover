@@ -30,6 +30,8 @@ internal static class TimelineFocusCheck
 
     private static readonly UsageTotals noUsage = new(0, 0, 0, 0);
 
+    private static string stage = "startup";
+
     #endregion
 
     #region Public Methods
@@ -39,10 +41,11 @@ internal static class TimelineFocusCheck
     /// </summary>
     public static void Start(Window window)
     {
+        Volatile.Write(ref stage, "startup");
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(30));
-            Fail("The activity focus check did not finish within 30 seconds.");
+            Fail($"The activity focus check did not finish within 30 seconds (stage: {Volatile.Read(ref stage)}).");
         });
 
         var server = new LiveRunServer();
@@ -66,6 +69,7 @@ internal static class TimelineFocusCheck
     {
         try
         {
+            List<string> failures = [];
             var seq = 0;
             void Send(string type, object payload) =>
                 server.Push(new(++seq, runId, type, RunEventTypes.Write(payload), epoch.AddSeconds(seq)));
@@ -80,11 +84,13 @@ internal static class TimelineFocusCheck
             Send(RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_approval", null, 0, noUsage));
 
             // 1. Lanes form: open the approval node inside ActivityPanel and focus Approve inside RunMomentDetail.
+            Volatile.Write(ref stage, "case 1: waiting for lanes approval node");
             var approvalNode = await WaitFor(() => FindNodes(panel).FirstOrDefault(node => node.Node.Event.Kind is TimelineKind.Waiting));
             var approvalEventId = approvalNode.Node.Event.Id;
             var countBeforeCase1 = FindNodes(panel).Count;
             Invoke(approvalNode);
 
+            Volatile.Write(ref stage, "case 1: focusing Approve inside RunMomentDetail (lanes form)");
             var approveInLanes = await WaitFor(() => FindButton(panel, RunMomentDetailViewModel.Approve));
             await FocusControl(panel, approveInLanes, "Approve inside RunMomentDetail (lanes form)");
 
@@ -92,17 +98,18 @@ internal static class TimelineFocusCheck
                 Guid.Parse("0196f1a0-0000-7000-8000-000000000021"), "sandbox.run", "sandbox.run",
                 """{"command":"ls"}""", "allow"));
 
+            Volatile.Write(ref stage, "case 1: waiting for lanes timeline update");
             await WaitFor(() => FindNodes(panel).Count > countBeforeCase1 ? true : null);
             await Settle(panel);
 
             var afterLanesDetail = FindButton(panel, RunMomentDetailViewModel.Approve);
             if (!ReferenceEquals(approveInLanes, afterLanesDetail) || approveInLanes.FocusState is FocusState.Unfocused)
             {
-                Fail("Focus left RunMomentDetail in lanes form when a new event arrived.");
-                return;
+                failures.Add("Case 1: Focus left RunMomentDetail in lanes form when a new event arrived.");
             }
 
             // 2. Lanes form: focus a TimelineNodeButton itself and send a new event.
+            Volatile.Write(ref stage, "case 2: focusing TimelineNodeButton (lanes form)");
             var focusedNode = FindNodes(panel).First(node => node.Node.Event.Id == approvalEventId);
             var countBeforeCase2 = FindNodes(panel).Count;
             await FocusControl(panel, focusedNode, "TimelineNodeButton (lanes form)");
@@ -111,17 +118,18 @@ internal static class TimelineFocusCheck
                 Guid.Parse("0196f1a0-0000-7000-8000-000000000022"), "sandbox.run", "sandbox.run",
                 """{"command":"pwd"}""", "allow"));
 
+            Volatile.Write(ref stage, "case 2: waiting for lanes timeline update");
             await WaitFor(() => FindNodes(panel).Count > countBeforeCase2 ? true : null);
             await Settle(panel);
 
             var afterNode = FindNodes(panel).FirstOrDefault(node => node.Node.Event.Id == approvalEventId);
             if (!ReferenceEquals(focusedNode, afterNode) || focusedNode.FocusState is FocusState.Unfocused)
             {
-                Fail("Focus left TimelineNodeButton in lanes form when a new event arrived.");
-                return;
+                failures.Add("Case 2: Focus left TimelineNodeButton in lanes form when a new event arrived.");
             }
 
             // 3. List form (Keyed.Sync): switch ActivityPanel to List, open approval Disclosure, focus Approve inside RunMomentDetail.
+            Volatile.Write(ref stage, "case 3: switching to list form");
             var form = await WaitFor(() => First<SegmentedControl>(panel));
             form.Value = "list";
 
@@ -134,6 +142,7 @@ internal static class TimelineFocusCheck
             var approvalSection = sections.First(section => section.Title.Contains("Asked to", StringComparison.Ordinal));
             approvalSection.Open = true;
 
+            Volatile.Write(ref stage, "case 3: focusing Approve inside RunMomentDetail (list form)");
             var approveInList = await WaitFor(() => FindButton(panel, RunMomentDetailViewModel.Approve));
             await FocusControl(panel, approveInList, "Approve inside RunMomentDetail (list form)");
 
@@ -141,17 +150,18 @@ internal static class TimelineFocusCheck
                 Guid.Parse("0196f1a0-0000-7000-8000-000000000023"), "sandbox.run", "sandbox.run",
                 """{"command":"id"}""", "allow"));
 
+            Volatile.Write(ref stage, "case 3: waiting for list update");
             await WaitFor(() => All<Disclosure>(panel).Count > countBeforeCase3 ? true : null);
             await Settle(panel);
 
             var afterListDetail = FindButton(panel, RunMomentDetailViewModel.Approve);
             if (!ReferenceEquals(approveInList, afterListDetail) || approveInList.FocusState is FocusState.Unfocused)
             {
-                Fail("Focus left RunMomentDetail in list form (Keyed.Sync) when a new event arrived.");
-                return;
+                failures.Add("Case 3: Focus left RunMomentDetail in list form (Keyed.Sync) when a new event arrived.");
             }
 
             // 4. List form (Keyed.Sync): focus the Disclosure toggle button and send a new event.
+            Volatile.Write(ref stage, "case 4: focusing Disclosure toggle (list form)");
             var currentSections = All<Disclosure>(panel);
             var countBeforeCase4 = currentSections.Count;
             var currentSection = currentSections.First(section => section.Title.Contains("Asked to", StringComparison.Ordinal));
@@ -162,6 +172,7 @@ internal static class TimelineFocusCheck
                 Guid.Parse("0196f1a0-0000-7000-8000-000000000024"), "sandbox.run", "sandbox.run",
                 """{"command":"date"}""", "allow"));
 
+            Volatile.Write(ref stage, "case 4: waiting for list update");
             await WaitFor(() => All<Disclosure>(panel).Count > countBeforeCase4 ? true : null);
             await Settle(panel);
 
@@ -169,7 +180,12 @@ internal static class TimelineFocusCheck
             var afterToggle = afterSection is null ? null : First<PlainButton>(afterSection);
             if (!ReferenceEquals(currentSection, afterSection) || !ReferenceEquals(toggle, afterToggle) || toggle.FocusState is FocusState.Unfocused)
             {
-                Fail("Focus left the open list section (Keyed.Sync) when a new event arrived.");
+                failures.Add("Case 4: Focus left the open list section (Keyed.Sync) when a new event arrived.");
+            }
+
+            if (failures.Count > 0)
+            {
+                Fail(string.Join(" | ", failures));
                 return;
             }
 
