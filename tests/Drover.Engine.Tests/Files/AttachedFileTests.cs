@@ -288,6 +288,10 @@ public sealed class AttachedFileTests(PostgresServer postgres)
         var first = await PostWith(world, threadId, "Keep the report", upload.File!.Id);
         (await world.WaitForStatus(first, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
         var clean = await world.Post(await world.NewThread(), "What is in your sandbox?");
+        var waiting = await world.WaitForStatus(clean, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
+        waiting.Status.Should().Be(RunStatus.Waiting, "a command in a sandbox that holds an attached file asks before the shell starts");
+        var pending = (await world.ReadToolCalls(clean)).Single(call => call.Status == ToolCallStatus.PendingApproval);
+        await world.Decide(pending.Id, approved: true);
         var run = await world.WaitForStatus(clean, RunStatus.Completed, RunStatus.Failed);
 
         run.Status.Should().Be(RunStatus.Completed);

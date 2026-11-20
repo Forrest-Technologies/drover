@@ -40,5 +40,19 @@ public sealed class ToolCallRepository(DroverDbContext db)
         }
     }
 
+    public async Task<IReadOnlyList<ExportToolCallRow>> ListExportToolCalls(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken) =>
+        ids.Count == 0
+            ? []
+            : await db.ToolCalls.AsNoTracking()
+                .Where(call => ids.Contains(call.Id))
+                .Select(call => new ExportToolCallRow(call.Id, call.ToolName, call.Status, call.IsError))
+                .ToListAsync(cancellationToken);
+
     #endregion
 }
+
+
+/// <summary>The few fields an export shows about a tool call, leaving arguments and output unread.</summary>
+public sealed record ExportToolCallRow(Guid Id, string ToolName, ToolCallStatus Status, bool IsError);

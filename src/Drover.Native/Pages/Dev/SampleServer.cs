@@ -30,6 +30,10 @@ internal sealed class SampleServer : HttpMessageHandler
 
     #region Public Methods
 
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "The gallery serializes fixed sample contract types from the rooted Drover.Contracts assembly.")]
     public SampleServer Answer<T>(string method, string path, T body)
     {
         answers[$"{method} {path}"] = () => new StringContent(JsonSerializer.Serialize(body, json), System.Text.Encoding.UTF8, "application/json");
@@ -60,6 +64,10 @@ internal sealed class SampleServer : HttpMessageHandler
     /// Answers with a run's events as a stream that stays open after the last one, as the stream of a run that is
     /// still going does.
     /// </summary>
+    [UnconditionalSuppressMessage(
+        "Trimming",
+        "IL2026",
+        Justification = "The gallery serializes fixed sample contract types from the rooted Drover.Contracts assembly.")]
     public SampleServer Stream(string path, IEnumerable<RunEventResponse> events)
     {
         var sent = System.Text.Encoding.UTF8.GetBytes(string.Concat(events.Select(stored => $"data: {JsonSerializer.Serialize(stored, json)}\n\n")));

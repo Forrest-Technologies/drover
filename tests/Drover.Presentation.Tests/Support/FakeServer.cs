@@ -67,6 +67,19 @@ public sealed class FakeServer : HttpMessageHandler
         return this;
     }
 
+    /// <summary>Answers the address with text to keep as a file, named as the server names a download.</summary>
+    public FakeServer AnswerFile(string method, string path, string text, string contentType, string fileName)
+    {
+        answers[$"{method} {path}"] = () => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(text, Encoding.UTF8, contentType)
+            {
+                Headers = { ContentDisposition = new("attachment") { FileNameStar = fileName } },
+            },
+        };
+        return this;
+    }
+
     /// <summary>
     /// Holds every request to the address until the test completes what this returns, so a screen can be seen while it
     /// waits for the server.

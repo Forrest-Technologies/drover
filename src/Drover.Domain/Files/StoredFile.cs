@@ -4,7 +4,8 @@ namespace Drover.Domain.Files;
 /// Metadata of a stored file. The bytes live behind the file store, under <see cref="StorageKey"/>. A file a person
 /// attaches belongs to a thread and has the thread's audience, carried by the foreign key, so sharing the thread
 /// shares its files. It is pending until a message is sent with it (<see cref="MessageId"/>), and kept as long as
-/// that message is.
+/// that message is. A file shared in a project belongs to that project with <see cref="ProjectId"/> set and has the
+/// space-wide audience.
 /// </summary>
 public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 {
@@ -20,6 +21,9 @@ public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 
     /// <summary>The conversation the file was attached in. Null for a file that belongs to no conversation.</summary>
     public Guid? ThreadId { get; set; }
+
+    /// <summary>The project this file is shared in. Null for a file that belongs to no project.</summary>
+    public Guid? ProjectId { get; set; }
 
     /// <summary>
     /// The message that carries the file, null while the file waits to be sent. A plain column: the thread's key

@@ -145,6 +145,21 @@ public sealed partial class UsagePageViewModel(DroverApi api, SessionState sessi
 
     public void ChoosePeriod(string period) => navigation.NavigateTo(Addresses.UsageFor(period, Bot));
 
+    /// <summary>
+    /// True once when the bot the person just chose has its runs on screen, so the focus moves to them. A period
+    /// change, a first load, or runs that failed to load leave the focus where it is.
+    /// </summary>
+    public bool TakeRunsFocus()
+    {
+        if (!FocusRuns || Runs is null)
+        {
+            return false;
+        }
+
+        FocusRuns = false;
+        return true;
+    }
+
     public static string ConversationOf(RunCost run) =>
         run.IsMain ? Addresses.Talk(run.ThreadBotId) : Addresses.SideChat(run.ThreadBotId, run.ThreadId);
 

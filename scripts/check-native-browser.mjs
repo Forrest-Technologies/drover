@@ -71,14 +71,28 @@ const messages = [{
     id: '0196f1a0-0000-7000-8000-000000000006', threadId: thread.id, position: 1, role: 'assistant',
     parts: [{ kind: 'text', text: 'Sample reply from the conversation history.' }], createdAt: thread.lastActivityAt,
 }];
-const exchangedFiles = [{
-    file: { id: htmlFileId, name: 'report.html', contentType: 'text/html', kind: 'other', size: 128 },
-    threadId: thread.id,
-    messageId: messages[0].id,
-    inMainConversation: true,
-    fromBot: true,
-    sharedAt: thread.lastActivityAt,
-}];
+const sampleFile = {
+    id: '0196f1a0-0000-7000-8000-000000000007', name: 'sample-preview.md',
+    contentType: 'text/markdown', kind: 'text', size: 120,
+};
+const panelFile = {
+    id: '0196f1a0-0000-7000-8000-000000000008', name: 'sample-panel.png',
+    contentType: 'image/png', kind: 'image', size: 80,
+};
+const exchangedFiles = [
+    {
+        file: panelFile, threadId: thread.id, messageId: messages[0].id,
+        inMainConversation: true, fromBot: true, sharedAt: thread.lastActivityAt,
+    },
+    {
+        file: { id: htmlFileId, name: 'report.html', contentType: 'text/html', kind: 'other', size: 128 },
+        threadId: thread.id, messageId: messages[0].id,
+        inMainConversation: true, fromBot: true, sharedAt: thread.lastActivityAt,
+    },
+];
+const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
+const sampleImageAddress = 'https://preview-image.example.test/sample.png';
+messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
 };
@@ -124,12 +138,26 @@ try {
                 }
                 errors.push(String(error));
             });
+            let externalPreviewRequests = 0;
+            await page.route('https://preview-image.example.test/**', async route => {
+                externalPreviewRequests++;
+                await route.abort();
+            });
+            let previewRequests = 0;
+            let panelPreviewRequests = 0;
+            let completePreview;
+            const previewGate = new Promise(resolve => { completePreview = resolve; });
             let extensionFailures = 0;
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
                 if (message.location().url.startsWith(previewOrigin)) { return; }
                 // These two intentional API failures exercise the loading-to-failure and retry states.
                 const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
+                if (current === 'conversation' && previewRequests === 5
+                    && message.location().url.endsWith(`/files/${sampleFile.id}/native-preview`)
+                    && message.text().includes('net::ERR_FAILED')) {
+                    return;
+                }
                 if (message.location().url === expectedUrl && message.text() === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)') {
                     extensionFailures++;
                 } else if (current === 'sign-in' && (
@@ -197,6 +225,44 @@ try {
                 else if (address.endsWith('/summary')) { body = { text: null }; }
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
                 else if (address.endsWith('/stream')) { await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }); return; }
+                else if (address.endsWith(`/files/${sampleFile.id}/native-preview`)) {
+                    const attempt = ++previewRequests;
+                    if (attempt === 1) {
+                        await previewGate;
+                    }
+
+                    if (attempt === 5) {
+                        await route.abort();
+                        return;
+                    }
+
+                    if (attempt === 1) {
+                        body = { markdown: `# Sample preview heading\n\n![Sample external image](${sampleImageAddress})` };
+                    } else if (attempt === 2) {
+                        body = {
+                            pages: [
+                                { number: 1, text: 'Sample PDF page one summary.' },
+                                { number: 2, text: 'Sample PDF page two details.' },
+                            ],
+                        };
+                    } else if (attempt === 3) {
+                        body = {
+                            diagram: {
+                                direction: 'TD',
+                                nodes: [
+                                    { id: 'A', label: 'Upload file' },
+                                    { id: 'B', label: 'Native preview' },
+                                ],
+                                edges: [{ from: 'A', to: 'B', label: 'bounded' }],
+                            },
+                        };
+                    } else {
+                        body = { refusal: attempt === 4 ? 1 : attempt === 6 ? 2 : 0 };
+                    }
+                }
+                else if (address.endsWith(`/files/${panelFile.id}/native-preview`)) {
+                    body = { image: ++panelPreviewRequests === 1 ? samplePng : 'iVBORw0KGgo=' };
+                }
                 else if (address.endsWith('/messages')) { body = messages; }
                 else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
                 else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
@@ -282,9 +348,56 @@ try {
                 assert.equal(errors.length, 0, errors.join('\n'));
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
                 if (name === 'conversation') {
+                    const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
+                    const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
+                    const download = page.getByRole('link', { name: 'Download sample-preview.md' });
+                    const previewPath = `/files/${sampleFile.id}/native-preview`;
+                    const requested = page.waitForRequest(request => new URL(request.url()).pathname.endsWith(previewPath));
+                    await preview.press('Enter');
+                    await requested;
+                    await closePreview.waitFor({ state: 'attached' });
+                    await page.screenshot({ path: path.join(pictures, `preview-loading-${width}-${theme}.png`) });
+                    const loaded = page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith(previewPath));
+                    completePreview();
+                    await (await loaded).finished();
+                    await page.waitForTimeout(500);
+                    assert.equal(externalPreviewRequests, 0);
+                    await page.screenshot({ path: path.join(pictures, `preview-markdown-${width}-${theme}.png`) });
+                    await closePreview.press('Space');
+                    for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
+                        const event = state === 'error' ? 'requestfailed' : 'requestfinished';
+                        const finished = page.waitForEvent(event, request => new URL(request.url()).pathname.endsWith(previewPath));
+                        await preview.press('Enter');
+                        await finished;
+                        await download.waitFor({ state: 'attached' });
+                        await page.waitForTimeout(500);
+                        if (state === 'pdf') {
+                            await page.getByRole('button', { name: 'Next PDF page', exact: true }).press('Enter');
+                            await page.waitForTimeout(300);
+                        }
+                        await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
+                        await closePreview.press('Space');
+                    }
                     await checkWorkspacePanels(page, width, theme);
                     if (width === 1280) {
                         await checkHtmlPreviewContainment(page, previewFrameRequests, revokedPreviewGrants, () => externalBeaconRequests);
+                    }
+                    if (width === 360) {
+                        await page.getByRole('button', { name: 'More about Sample bot' }).dispatchEvent('click');
+                        await page.getByRole('menuitem', { name: 'Files', exact: true }).dispatchEvent('click');
+                    } else {
+                        await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
+                    }
+                    const panelPreview = page.getByRole('button', { name: 'Preview sample-panel.png', exact: true });
+                    const panelPath = `/files/${panelFile.id}/native-preview`;
+                    for (const state of ['picture', 'picture-error']) {
+                        const finished = page.waitForEvent('requestfinished',
+                            request => new URL(request.url()).pathname.endsWith(panelPath));
+                        await panelPreview.press('Enter');
+                        await finished;
+                        await page.waitForTimeout(500);
+                        await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
+                        await page.getByRole('button', { name: 'Close preview of sample-panel.png' }).press('Space');
                     }
                 }
                 if (name === 'bot-editor') {
@@ -328,10 +441,31 @@ async function checkLeavingWithEdits(page, address) {
     const editorUrl = page.url();
     await instructions.focus();
     await page.keyboard.type('Sample edit. ');
-    await page.waitForTimeout(300);
+    const deadline = Date.now() + 15000;
+    let typed = '';
+    while (Date.now() < deadline) {
+        typed = await instructions.inputValue();
+        if (typed.includes('Sample edit. ')) {
+            break;
+        }
+        await page.waitForTimeout(100);
+    }
+    assert(typed.includes('Sample edit. '), `Instructions did not take the edit. The field held ${JSON.stringify(typed)}.`);
+    // The save words are not in the accessibility tree. The save button enables only once the editor is dirty.
+    const save = page.getByRole('button', { name: 'Save changes', exact: true });
+    const enabledAt = Date.now() + 15000;
+    let enabled = false;
+    while (Date.now() < enabledAt) {
+        if (await save.isEnabled()) {
+            enabled = true;
+            break;
+        }
+        await page.waitForTimeout(100);
+    }
+    assert(enabled, 'The edit did not make the bot editor dirty.');
 
     await page.goBack();
-    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await leavePrompt.waitFor({ state: 'attached', timeout: 15000 });
     await page.waitForURL(editorUrl);
     await page.getByRole('button', { name: 'Stay here', exact: true }).dispatchEvent('click');
     await leavePrompt.waitFor({ state: 'detached' });

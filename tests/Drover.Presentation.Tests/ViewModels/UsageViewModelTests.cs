@@ -152,6 +152,44 @@ public sealed class UsageViewModelTests : IDisposable
         model.Rows[0].Hue.Should().Be(BotIdentity.Hue(lead));
     }
 
+    [Fact]
+    public async Task Choosing_a_bot_moves_the_focus_to_its_runs_once_and_a_period_or_a_first_load_does_not()
+    {
+        UsageNode[] crew = [new(lead, "Lead", "sample-model", new(1.00m, 100, 10), null, [])];
+        server.Answer("GET", $"{space}/usage/bots/{lead}/runs", new BotRunsUsage(lead, "USD", [], null));
+        var model = await Opened(crew, bot: lead);
+
+        model.TakeRunsFocus().Should().BeFalse("a page opened at a bot's address keeps the focus where the page put it");
+
+        model.Bot = null;
+        await model.Open();
+        model.Bot = lead;
+        await model.Open();
+
+        model.TakeRunsFocus().Should().BeTrue("the person just chose this bot");
+        model.TakeRunsFocus().Should().BeFalse("the focus moves once, not on every redraw");
+
+        model.PeriodInAddress = "today";
+        server.Answer("GET", $"{space}/usage", new CrewUsage("today", DateTimeOffset.UnixEpoch, "USD", crew));
+        await model.Open();
+
+        model.TakeRunsFocus().Should().BeFalse("a period change keeps the focus in the period control");
+    }
+
+    [Fact]
+    public async Task Runs_that_could_not_be_listed_leave_the_focus_where_it_is()
+    {
+        UsageNode[] crew = [new(lead, "Lead", "sample-model", new(1.00m, 100, 10), null, [])];
+        var model = await Opened(crew);
+        server.Answer("GET", $"{space}/usage/bots/{lead}/runs", HttpStatusCode.InternalServerError);
+
+        model.Bot = lead;
+        await model.Open();
+
+        model.RunsProblem.Should().NotBeNull();
+        model.TakeRunsFocus().Should().BeFalse();
+    }
+
     #endregion
 
     #region Private Methods

@@ -84,6 +84,10 @@ public static class RunViews
     public static FileResponse ToResponse(this StoredFile file) =>
         new(file.Id, file.Name, file.ContentType, KindName(file.ContentType), file.Size, file.Width, file.Height, file.Preview, file.ReadingNote);
 
+    /// <summary>A file shared in a project, as the API shows it.</summary>
+    public static ProjectFileResponse ToProjectFileResponse(this StoredFile file) =>
+        new(file.ToResponse(), file.ProjectId ?? Guid.Empty, file.CreatedAt);
+
     /// <summary>A file a person and a bot exchanged, as the API shows it.</summary>
     public static ExchangedFileResponse ToResponse(this ExchangedFile exchanged) =>
         new(

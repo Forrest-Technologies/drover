@@ -81,6 +81,29 @@ public sealed partial class DroverApi
         Get<List<RunEventResponse>>($"{Space(spaceId)}/threads/{threadId}/tool-events", cancellationToken);
 
     /// <summary>
+    /// The conversation as a file to keep, exactly as the server wrote it: <see cref="ExportFormats.Markdown"/> to
+    /// read, or <see cref="ExportFormats.Json"/>, the versioned <see cref="ConversationExport"/>. The name is the one
+    /// the server gave it.
+    /// </summary>
+    public async Task<ConversationFile> ExportConversation(
+        Guid spaceId,
+        Guid threadId,
+        string format,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync(
+            $"{Space(spaceId)}/threads/{threadId}/export?format={Uri.EscapeDataString(format)}",
+            cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+        var headers = response.Content.Headers;
+        var name = headers.ContentDisposition?.FileNameStar ?? headers.ContentDisposition?.FileName?.Trim('"');
+        return new ConversationFile(
+            string.IsNullOrWhiteSpace(name) ? $"conversation.{(format is ExportFormats.Json ? "json" : "md")}" : name,
+            headers.ContentType?.MediaType ?? "text/plain",
+            await response.Content.ReadAsStringAsync(cancellationToken));
+    }
+
+    /// <summary>
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
     /// then the message comes back pending (no position) with the run under way, and <paramref name="whenBusy"/>
     /// says whether it steers that run at its next step (<see cref="BusyModes.Steer"/>, the default) or waits for it
@@ -202,3 +225,7 @@ public sealed partial class DroverApi
 
     #endregion
 }
+
+
+/// <summary>A conversation as a file: the name to save it under, its media type, and its text.</summary>
+public sealed record ConversationFile(string Name, string MediaType, string Text);

@@ -39,6 +39,8 @@ public sealed class OutboundBansTests
             "[src/Shared/Transport/AppRequests.cs]",
             "[src/Drover.Native/{Device,Platforms/WebAssembly}/PlatformServices.cs]",
             "[tests/Drover.Engine.Tests/OutboundHttpTests.cs]",
+            "[tests/Drover.Native.UITests/App/CheckSettings.cs]",
+            "[tests/Drover.Native.UITests/*.cs]",
             "[**/obj/**/*.cs]",
         ]);
     }

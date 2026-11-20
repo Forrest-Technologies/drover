@@ -70,6 +70,7 @@ public static class EngineServiceExtensions
         services.AddScoped<ThreadService>();
         services.AddScoped<ProjectService>();
         services.AddScoped<ConversationModels>();
+        services.AddScoped<ConversationExporter>();
         services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();

@@ -25,6 +25,7 @@
     <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
+    <Project Path="tests/Drover.Native.UITests/Drover.Native.UITests.csproj" />
     <Project Path="tests/Drover.Presentation.Tests/Drover.Presentation.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
   </Folder>

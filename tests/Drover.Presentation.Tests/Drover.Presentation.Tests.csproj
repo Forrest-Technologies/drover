@@ -21,6 +21,13 @@
     <ProjectReference Include="..\..\src\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
+  <!-- The device checks' guard, report, and automation names, read by the rules that hold them in step with the app. -->
+  <ItemGroup>
+    <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
+    <Compile Include="..\Drover.Native.UITests\IosCheckReport.cs" Link="Rules\IosCheckReport.cs" />
+    <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
+  </ItemGroup>
+
   <!-- Event logs recorded from a real server. -->
   <ItemGroup>
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
