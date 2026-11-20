@@ -46,8 +46,10 @@ const movedNote = "drover-push-moved";
 // Its one entry, at a path from the root, as the retired worker writes it.
 const movedEntry = "/drover-push-moved";
 
-// The subscription an attempt to take the moved one up made, kept until the server's answer about it is known.
+// The subscription an attempt to take the moved one up made, kept until the server's answer about it is known, and
+// the account it was made for: only that account may settle it.
 const candidateEntry = "/drover-push-candidate";
+const candidateAccountEntry = "/drover-push-candidate-account";
 
 // "none" without the note; otherwise whether the browser still allows notifications, so the client at the root can
 // subscribe without asking.
@@ -68,8 +70,14 @@ export function moveCandidate() {
     return readNote(candidateEntry);
 }
 
-export async function rememberMoveCandidate(endpoint) {
-    await (await caches.open(movedNote)).put(candidateEntry, new Response(endpoint));
+export function moveCandidateAccount() {
+    return readNote(candidateAccountEntry);
+}
+
+export async function rememberMoveCandidate(endpoint, account) {
+    const note = await caches.open(movedNote);
+    await note.put(candidateAccountEntry, new Response(account));
+    await note.put(candidateEntry, new Response(endpoint));
 }
 
 // Ends the subscription only while it is the one at this address. One another account made since is left alone.

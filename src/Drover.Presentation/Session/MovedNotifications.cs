@@ -21,9 +21,16 @@ namespace Drover.Ui.Session;
 /// is ended: the next start asks the server whose that subscription is, keeps it if the move was taken, and ends it
 /// and tries again if not. A subscription is only ever ended while it is still the one this attempt made.
 /// </para>
+/// <para>
+/// That subscription is kept with the account it was made for, and only that account settles it. While another
+/// account is signed in, the note, the subscription, and its account are left exactly as they are, and nothing is
+/// said: a "no" from the server for another account does not show that the move was never taken. The server names the
+/// account each answer is for, so an account that changed in another tab between the steps is caught the same way.
+/// </para>
 /// </summary>
 public sealed class MovedNotifications(
     DroverApi api,
+    SessionState session,
     ToastService toasts,
     ILogger<MovedNotifications> logger,
     IPushRegistration? registration = null)
@@ -72,6 +79,11 @@ public sealed class MovedNotifications(
                 ? await TakeUp(registration, moved, cancellationToken)
                 : TakeUpOutcome.NotTakenUp;
 
+            if (outcome is TakeUpOutcome.LeftForItsAccount)
+            {
+                return;
+            }
+
             Tell(outcome);
             await registration.ForgetMovedSubscription(cancellationToken);
         }
@@ -107,21 +119,37 @@ public sealed class MovedNotifications(
     /// again.</item>
     /// <item>Any other subscription is another account's, and is never ended.</item>
     /// </list>
+    /// An earlier attempt's subscription is settled only by the account it was made for, while that account is the
+    /// one signed in; otherwise everything is left for it.
     /// </summary>
     private async Task<TakeUpOutcome> TakeUp(IPushRegistration device, MovedPush moved, CancellationToken cancellationToken)
     {
+        if (session.Current?.UserId is not { } account
+            || (moved.Candidate is not null && moved.CandidateAccount != account))
+        {
+            return TakeUpOutcome.LeftForItsAccount;
+        }
+
         var check = await device.Check(cancellationToken);
 
         if (check.Endpoint is { } current)
         {
-            if ((await api.GetPushDeviceState(current, cancellationToken)).On)
-            {
-                return current == moved.Candidate ? TakeUpOutcome.TakenUp : TakeUpOutcome.AlreadyOn;
-            }
+            var state = await api.GetPushDeviceState(current, cancellationToken);
 
             if (current != moved.Candidate)
             {
-                return TakeUpOutcome.HeldByAnother;
+                return state.On ? TakeUpOutcome.AlreadyOn : TakeUpOutcome.HeldByAnother;
+            }
+
+            // The answer is about the candidate only when it is for the account the candidate was made for.
+            if (state.AccountId != account)
+            {
+                return TakeUpOutcome.LeftForItsAccount;
+            }
+
+            if (state.On)
+            {
+                return TakeUpOutcome.TakenUp;
             }
 
             await device.UnsubscribeOnly(current, cancellationToken);
@@ -141,7 +169,7 @@ public sealed class MovedNotifications(
             return TakeUpOutcome.NotTakenUp;
         }
 
-        return await Move(device, moved.Endpoint!, subscription, cancellationToken);
+        return await Move(device, moved.Endpoint!, subscription, account, cancellationToken);
     }
 
     /// <summary>
@@ -154,11 +182,12 @@ public sealed class MovedNotifications(
         IPushRegistration device,
         string previous,
         PushDeviceRequest subscription,
+        Guid account,
         CancellationToken cancellationToken)
     {
         try
         {
-            await device.RememberMoveCandidate(subscription.Endpoint, cancellationToken);
+            await device.RememberMoveCandidate(subscription.Endpoint, account, cancellationToken);
         }
         catch (DeviceCallFailedException)
         {
@@ -189,7 +218,7 @@ public sealed class MovedNotifications(
             case TakeUpOutcome.HeldByAnother:
                 toasts.Show(HeldByAnother, ToastKind.Warning);
                 break;
-            case TakeUpOutcome.AlreadyOn:
+            case TakeUpOutcome.AlreadyOn or TakeUpOutcome.LeftForItsAccount:
                 break;
         }
     }
@@ -204,6 +233,7 @@ public sealed class MovedNotifications(
         AlreadyOn,
         HeldByAnother,
         NotTakenUp,
+        LeftForItsAccount,
     }
 
     #endregion

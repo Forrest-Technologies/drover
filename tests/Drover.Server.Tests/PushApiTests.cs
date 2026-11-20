@@ -107,6 +107,22 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task A_device_state_names_the_account_it_answers_for()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var device = Device("https://push.example/sample-device");
+        var asAlice = await SignIn(alice);
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+
+        var forAlice = await StateFor(asAlice, device.Endpoint);
+        var forBob = await StateFor(await SignIn(bob), device.Endpoint);
+
+        forAlice.Should().Be(new PushDeviceState(true, alice.UserId));
+        forBob.Should().Be(new PushDeviceState(false, bob.UserId), "an answer for another account is never taken for alice's");
+    }
+
+    [Fact]
     public async Task A_new_subscription_takes_the_place_of_the_persons_previous_one_in_one_request()
     {
         var alice = await SignIn(await SeedPerson("alice"));
@@ -271,11 +287,13 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         return new PushDeviceRequest(endpoint, Base64Url.EncodeToString(publicKey), Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16)));
     }
 
-    private static async Task<bool> IsOn(ApiClient client, string endpoint)
+    private static async Task<bool> IsOn(ApiClient client, string endpoint) => (await StateFor(client, endpoint)).On;
+
+    private static async Task<PushDeviceState> StateFor(ApiClient client, string endpoint)
     {
         var response = await client.Post("/api/push/device/state", new PushDeviceQuery(endpoint));
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
-        return (await response.Content.ReadFromJsonAsync<PushDeviceState>(Token))!.On;
+        return (await response.Content.ReadFromJsonAsync<PushDeviceState>(Token))!;
     }
 
     private Task<ApiClient> SignIn((string Email, string Password, Guid UserId, Guid SpaceId) person) => SignIn(person.Email, person.Password);

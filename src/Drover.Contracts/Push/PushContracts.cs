@@ -31,8 +31,12 @@ public sealed record MovePushDeviceRequest(string PreviousEndpoint, PushDeviceRe
 }
 
 
-/// <summary>Whether the server will wake this device for the signed-in person.</summary>
-public sealed record PushDeviceState(bool On);
+/// <summary>
+/// Whether the server will wake this device for the signed-in person, and which person the answer is for: the
+/// account the request was signed in as, so a client can tell an answer for another account (signed in since, in
+/// another tab) from a "no" for the one it asked about.
+/// </summary>
+public sealed record PushDeviceState(bool On, Guid? AccountId = null);
 
 
 /// <summary>Whether a bot may notify the signed-in person. On unless they turned it off.</summary>

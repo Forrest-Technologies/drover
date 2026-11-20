@@ -70,8 +70,11 @@ public static class PushEndpoints
             }),
         };
 
-    private static async Task<Ok<PushDeviceState>> GetDeviceState(PushDeviceQuery device, HttpContext context, PushService push) =>
-        TypedResults.Ok(new PushDeviceState(await push.IsOn(context.User.GetUserId(), device.Endpoint, context.RequestAborted)));
+    private static async Task<Ok<PushDeviceState>> GetDeviceState(PushDeviceQuery device, HttpContext context, PushService push)
+    {
+        var userId = context.User.GetUserId();
+        return TypedResults.Ok(new PushDeviceState(await push.IsOn(userId, device.Endpoint, context.RequestAborted), userId));
+    }
 
     private static async Task<NoContent> TurnOff(PushDeviceQuery device, HttpContext context, PushService push)
     {

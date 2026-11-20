@@ -35,6 +35,9 @@ public class FakePushRegistration : IPushRegistration
     /// <summary>The subscription an attempt to take up the moved one made, kept with the note.</summary>
     public string? MoveCandidate { get; set; }
 
+    /// <summary>The account the candidate was made for.</summary>
+    public Guid? MoveCandidateAccount { get; set; }
+
     /// <summary>What happens on the device right after it subscribes, such as another tab replacing the subscription.</summary>
     public Action? AfterSubscribe { get; set; }
 
@@ -86,19 +89,21 @@ public class FakePushRegistration : IPushRegistration
         MovedAsked++;
         return Task.FromResult(Moved is MovedSubscription.None
             ? new MovedPush(Moved)
-            : new MovedPush(Moved, MovedEndpoint, MoveCandidate));
+            : new MovedPush(Moved, MovedEndpoint, MoveCandidate, MoveCandidateAccount));
     }
 
     public Task ForgetMovedSubscription(CancellationToken cancellationToken = default)
     {
         Moved = MovedSubscription.None;
         MoveCandidate = null;
+        MoveCandidateAccount = null;
         return Task.CompletedTask;
     }
 
-    public Task RememberMoveCandidate(string endpoint, CancellationToken cancellationToken = default)
+    public Task RememberMoveCandidate(string endpoint, Guid account, CancellationToken cancellationToken = default)
     {
         MoveCandidate = endpoint;
+        MoveCandidateAccount = account;
         return Task.CompletedTask;
     }
 

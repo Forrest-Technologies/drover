@@ -63,13 +63,18 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
             return new MovedPush(state);
         }
 
-        return new MovedPush(state, await Call(MovedEndpointWith, "movedEndpoint"), await Call(MoveCandidateWith, "moveCandidate"));
+        var account = await Call(MoveCandidateAccountWith, "moveCandidateAccount");
+        return new MovedPush(
+            state,
+            await Call(MovedEndpointWith, "movedEndpoint"),
+            await Call(MoveCandidateWith, "moveCandidate"),
+            Guid.TryParse(account, out var id) ? id : null);
     }
 
-    public Task RememberMoveCandidate(string endpoint, CancellationToken cancellationToken = default) =>
+    public Task RememberMoveCandidate(string endpoint, Guid account, CancellationToken cancellationToken = default) =>
         Call(async () =>
         {
-            await RememberMoveCandidateWith(endpoint);
+            await RememberMoveCandidateWith(endpoint, account.ToString());
             return true;
         }, "rememberMoveCandidate");
 
@@ -119,8 +124,11 @@ internal sealed partial class BrowserPushRegistration(ILogger<BrowserPushRegistr
     [JSImport("moveCandidate", Module)]
     private static partial Task<string?> MoveCandidateWith();
 
+    [JSImport("moveCandidateAccount", Module)]
+    private static partial Task<string?> MoveCandidateAccountWith();
+
     [JSImport("rememberMoveCandidate", Module)]
-    private static partial Task RememberMoveCandidateWith(string endpoint);
+    private static partial Task RememberMoveCandidateWith(string endpoint, string account);
 
     [JSImport("unsubscribeOnly", Module)]
     private static partial Task<bool> UnsubscribeOnlyWith(string endpoint);

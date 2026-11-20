@@ -37,6 +37,8 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
 
     private const string MovingPage = "<!DOCTYPE html><title>Moving</title>";
 
+    private const string SampleAccount = "00000000-0000-7000-8000-0000000000a1";
+
     // Registers a worker for the page at the root and gives its registration a sample subscription another account
     // made: ending it is recorded instead of reaching a push service.
     private const string SampleRootSubscription = """
@@ -118,20 +120,23 @@ public sealed class RetiredNativeWorkerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_candidate_is_kept_with_the_note_and_forgotten_with_it()
+    public async Task A_candidate_is_kept_with_its_account_and_the_note_and_forgotten_with_them()
     {
         subscribed = true;
         await Retire();
 
         (await PushCall<string?>("moveCandidate()")).Should().BeNull();
-        await PushCall<bool>("rememberMoveCandidate('https://push.example.test/sample-root').then(() => true)");
+        (await PushCall<string?>("moveCandidateAccount()")).Should().BeNull();
+        await PushCall<bool>($"rememberMoveCandidate('https://push.example.test/sample-root', '{SampleAccount}').then(() => true)");
 
         (await PushCall<string?>("moveCandidate()")).Should().Be("https://push.example.test/sample-root");
+        (await PushCall<string?>("moveCandidateAccount()")).Should().Be(SampleAccount);
         (await MovedEndpoint()).Should().Be("https://push.example.test/sample-moved");
 
         await page.EvaluateAsync("async () => (await import('/push.js')).forgetMove()");
 
         (await PushCall<string?>("moveCandidate()")).Should().BeNull();
+        (await PushCall<string?>("moveCandidateAccount()")).Should().BeNull();
     }
 
     [Fact]
