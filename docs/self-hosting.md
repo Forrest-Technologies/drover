@@ -24,8 +24,9 @@ docker compose logs drover
 ```
 
 The image serves the browser client at `/`. Until 2026-11-20 it was served at `/native/`; that address now sends the
-browser to the same address at `/`. An app installed from `/native/` opens `/`, outside the folder it was installed
-for, so it may show an address bar; installing it again from `/` gives it its own window. `DROVER_BUILD_NATIVE` no
+browser to the same address at `/`. An app installed from `/native/` is moved to `/` the next time it is opened and
+keeps its own window. Notifications a browser had on at `/native/` are turned on again at `/` the next time the
+person signs in, when the browser still allows them; otherwise Drover says to turn them on again. `DROVER_BUILD_NATIVE` no
 longer exists: the image always includes the browser client.
 
 ## Reaching Drover from other devices

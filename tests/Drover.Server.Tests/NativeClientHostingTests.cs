@@ -171,12 +171,11 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
 
     [Theory]
     [InlineData("/native", "/")]
-    [InlineData("/native/", "/")]
     [InlineData("/native/sign-in", "/sign-in")]
     [InlineData("/native/talk/01a1d987-ea5b-71c7-b0bf-e67eaaa8a61f/memory", "/talk/01a1d987-ea5b-71c7-b0bf-e67eaaa8a61f/memory")]
     [InlineData("/native?tool-sign-in=connected&connection=sample", "/?tool-sign-in=connected&connection=sample")]
     [InlineData("/native/?tool-sign-in=connected&connection=sample", "/?tool-sign-in=connected&connection=sample")]
-    [InlineData("/native/manifest.webmanifest", "/manifest.webmanifest")]
+    [InlineData("/native/index.html", "/index.html")]
     [InlineData("/NATIVE/sign-in", "/sign-in")]
     public async Task The_address_the_client_was_served_under_sends_the_browser_to_the_same_address_at_the_root(
         string path, string location)
@@ -219,6 +218,49 @@ public sealed class NativeClientTests(PostgresServer postgres) : ServerTestBase(
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         response.Headers.Location!.OriginalString.Should().Be(location);
         new Uri(new Uri("https://drover.example/"), response.Headers.Location).Host.Should().Be("drover.example");
+    }
+
+    [Fact]
+    public async Task The_start_page_of_an_app_installed_from_the_former_address_links_its_new_manifest_and_moves_to_the_root()
+    {
+        var response = await NewClient().Get("/native/");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
+        response.Headers.GetValues("Cache-Control").Single().Should().Be("no-store, no-cache");
+        response.Headers.GetValues("Content-Security-Policy").Single().Should().Contain("script-src 'self' 'wasm-unsafe-eval'");
+        var page = await response.Content.ReadAsStringAsync(Token);
+        page.Should().Contain("<link rel=\"manifest\" href=\"/native/manifest.webmanifest\" />")
+            .And.Contain("<meta http-equiv=\"refresh\" content=\"2;url=/\" />")
+            .And.Contain("<a href=\"/\">Open Drover</a>")
+            .And.NotContain("<script");
+    }
+
+    [Fact]
+    public async Task The_installed_apps_manifest_keeps_its_id_and_moves_its_start_and_scope_to_the_root()
+    {
+        var response = await NewClient().Get("/native/manifest.webmanifest");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/manifest+json");
+        using var manifest = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Token));
+        manifest.RootElement.GetProperty("id").GetString().Should().Be("/native/");
+        manifest.RootElement.GetProperty("start_url").GetString().Should().Be("/");
+        manifest.RootElement.GetProperty("scope").GetString().Should().Be("/");
+        manifest.RootElement.GetProperty("name").GetString().Should().Be("Drover");
+    }
+
+    [Theory]
+    [InlineData("POST", "/native/", "/")]
+    [InlineData("POST", "/native/manifest.webmanifest", "/manifest.webmanifest")]
+    [InlineData("DELETE", "/native/service-worker.js", "/service-worker.js")]
+    public async Task Only_a_get_is_answered_with_a_fixed_file(string method, string path, string location)
+    {
+        var client = NewClient();
+        var response = method == "POST" ? await client.Post(path) : await client.Delete(path);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.OriginalString.Should().Be(location);
     }
 
     [Fact]

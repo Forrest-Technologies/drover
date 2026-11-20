@@ -19,9 +19,9 @@
     <ProjectReference Include="..\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
   </ItemGroup>
 
-  <!-- Answers the worker of the browser client as it was served under /native/ (Clients/RetiredNativeAddress.cs). -->
+  <!-- What the browser client's former address, /native/, still answers (Clients/RetiredNativeAddress.cs). -->
   <ItemGroup>
-    <EmbeddedResource Include="Clients/retired-native-worker.js" LogicalName="Drover.Server.Clients.retired-native-worker.js" />
+    <EmbeddedResource Include="Clients/retired-native-*" LogicalName="Drover.Server.Clients.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

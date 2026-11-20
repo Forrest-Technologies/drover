@@ -1,12 +1,19 @@
 namespace Drover.Server.Clients;
 
 /// <summary>
-/// The address the browser client was served under, <c>/native/</c>, until it took the root on 2026-11-20. A link, a
-/// bookmark, or an app installed from there is sent to the same address at the root, with its query, when that
-/// address is made of plain path segments; anything else is sent to the root itself. A browser that
-/// installed the client there still has its service worker, which asks for its script again from time to time: it is
-/// answered with one that removes that worker, what it stored, and its push subscription, and moves its open pages
-/// to the root (<c>retired-native-worker.js</c>), so the person is not notified twice.
+/// The address the browser client was served under, <c>/native/</c>, until it took the root on 2026-11-20. A link or a
+/// bookmark is sent to the same address at the root, with its query, when that address is made of plain path
+/// segments; anything else is sent to the root itself. Three addresses are answered here instead, all with fixed
+/// content:
+/// <list type="bullet">
+/// <item><c>/native/</c> with no query, the start page of an app installed from there: a page that links the manifest
+/// below and moves itself to the root after two seconds (<c>retired-native-page.html</c>).</item>
+/// <item><c>/native/manifest.webmanifest</c>: the installed app's manifest under its old id, with its start and scope
+/// moved to the root, so the browser keeps the app and opens it at the root in its own window
+/// (<c>retired-native-manifest.webmanifest</c>).</item>
+/// <item><c>/native/service-worker.js</c>: a worker that removes the old one and what it stored, and hands its push
+/// subscription to the client at the root (<c>retired-native-worker.js</c>).</item>
+/// </list>
 /// </summary>
 internal sealed partial class RetiredNativeAddress(RequestDelegate next)
 {
@@ -16,11 +23,14 @@ internal sealed partial class RetiredNativeAddress(RequestDelegate next)
 
     private const string BasePath = "/native";
 
-    private const string WorkerPath = "/service-worker.js";
+    private const string MovingPagePath = "/";
 
-    private const string WorkerResource = "Drover.Server.Clients.retired-native-worker.js";
-
-    private static readonly Lazy<string> worker = new(ReadWorker);
+    private static readonly FrozenDictionary<string, RetiredFile> files = new Dictionary<string, RetiredFile>
+    {
+        ["/service-worker.js"] = new("retired-native-worker.js", "text/javascript"),
+        ["/manifest.webmanifest"] = new("retired-native-manifest.webmanifest", "application/manifest+json"),
+        [MovingPagePath] = new("retired-native-page.html", "text/html"),
+    }.ToFrozenDictionary(StringComparer.Ordinal);
 
     #endregion
 
@@ -33,10 +43,9 @@ internal sealed partial class RetiredNativeAddress(RequestDelegate next)
             return next(context);
         }
 
-        var method = context.Request.Method;
-        if (rest == WorkerPath && (HttpMethods.IsGet(method) || HttpMethods.IsHead(method)))
+        if (FileFor(context.Request, rest) is { } file)
         {
-            return TypedResults.Text(worker.Value, "text/javascript", Encoding.UTF8).ExecuteAsync(context);
+            return TypedResults.Text(file.Text, file.ContentType, Encoding.UTF8).ExecuteAsync(context);
         }
 
         // A local redirect refuses any address that is not a path on this server, so even a target this class built
@@ -73,12 +82,57 @@ internal sealed partial class RetiredNativeAddress(RequestDelegate next)
     [GeneratedRegex("^[A-Za-z0-9._~-]+$", RegexOptions.CultureInvariant)]
     private static partial Regex PlainSegment();
 
-    private static string ReadWorker()
+    /// <summary>The fixed file a GET or HEAD asks for. The moving page only at <c>/native/</c> itself, with no query.</summary>
+    private static RetiredFile? FileFor(HttpRequest request, PathString rest)
     {
-        using var stream = typeof(RetiredNativeAddress).Assembly.GetManifestResourceStream(WorkerResource)
-            ?? throw new InvalidOperationException($"The server was built without {WorkerResource}.");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
+        if (!HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method))
+        {
+            return null;
+        }
+
+        var path = rest.Value ?? string.Empty;
+
+        if (path == MovingPagePath && request.QueryString.HasValue)
+        {
+            return null;
+        }
+
+        return files.GetValueOrDefault(path);
+    }
+
+    #endregion
+
+    #region Nested Types
+
+    /// <summary>A file built into the server, read once.</summary>
+    private sealed class RetiredFile(string name, string contentType)
+    {
+        #region Private Fields
+
+        private readonly Lazy<string> text = new(() => Read(name));
+
+        #endregion
+
+        #region Properties
+
+        public string Text => text.Value;
+
+        public string ContentType => contentType;
+
+        #endregion
+
+        #region Private Methods
+
+        private static string Read(string name)
+        {
+            var resource = $"Drover.Server.Clients.{name}";
+            using var stream = typeof(RetiredNativeAddress).Assembly.GetManifestResourceStream(resource)
+                ?? throw new InvalidOperationException($"The server was built without {resource}.");
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+
+        #endregion
     }
 
     #endregion
