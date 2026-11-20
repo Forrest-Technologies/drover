@@ -91,7 +91,9 @@ public sealed partial class ConnectModelViewModel(
     }
 
     // The first test saves the Connection. A later one keeps it and only replaces a changed key,
-    // unless the provider or the address changed, which makes it a different Connection.
+    // unless the provider or the address changed, which makes it a different Connection: then the
+    // space is asked first, because a visit to this step may have made one for it already, and a
+    // second row for the same provider and address would sit on the Models screen as another one.
     private async Task<ModelConnectionSummary> SaveConnection()
     {
         var address = Kind == CompatibleKind ? BaseUrl.Trim() : null;
@@ -99,9 +101,20 @@ public sealed partial class ConnectModelViewModel(
 
         if (Connection is null || Connection.Kind != Kind || !string.Equals(Connection.BaseUrl, address, StringComparison.Ordinal))
         {
-            var created = await api.CreateModelConnection(SpaceId, new(Kind, NameFor(address), address, key, null));
-            SentKey = key;
-            return created;
+            var reused = (await api.ListModelConnections(SpaceId))
+                .FirstOrDefault(saved => saved.Kind == Kind && string.Equals(saved.BaseUrl, address, StringComparison.Ordinal));
+
+            if (reused is not null)
+            {
+                Connection = reused;
+                SentKey = null;
+            }
+            else
+            {
+                var made = await api.CreateModelConnection(SpaceId, new(Kind, NameFor(address), address, key, null));
+                SentKey = key;
+                return made;
+            }
         }
 
         if (key is not null && key != SentKey)
