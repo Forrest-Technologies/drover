@@ -75,7 +75,6 @@
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
-    <DefineConstants>$(DefineConstants);DROVER_BROWSER</DefineConstants>
     <!-- A published browser build is served by Drover's own server beside the web client, under this path. A
          development build is served from the root by the development host. -->
     <WasmShellWebAppBasePath Condition="'$(Configuration)' == 'Release'">/native/</WasmShellWebAppBasePath>

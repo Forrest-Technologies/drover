@@ -23,24 +23,24 @@ internal sealed class AndroidApp : IAppUnderCheck
     {
         var serial = await ChooseDevice();
         var port = new Uri(settings["DROVER_UI_CHECK_SERVER"]).Port;
+        var runId = settings.GetValueOrDefault("DROVER_UI_CHECK_RUN") ?? Guid.NewGuid().ToString("N");
         await Adb(serial, "reverse", $"tcp:{port}", $"tcp:{port}");
 
         try
         {
             await Adb(serial, "shell", "am", "force-stop", Package);
             await Adb(serial, "shell", "pm", "clear", Package);
-            var started = long.Parse(
-                (await Adb(serial, "shell", "date", "+%s")).Trim(),
-                System.Globalization.CultureInfo.InvariantCulture);
             var activity = (await Adb(serial, "shell", "cmd", "package", "resolve-activity", "--brief", Package))
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
             string[] start = ["shell", "am", "start", "-W", "-n", activity];
             await Adb(serial, [.. start, .. settings.SelectMany(setting => new[] { "--es", setting.Key, $"'{setting.Value}'" })]);
-            var lines = await ReadReport(serial, started);
+            var lines = await ReadReport(serial, runId);
 
             if (!lines.Any(line => line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal)))
             {
-                logger.LogError("The device log, last lines:\n{Log}", string.Join('\n', (await Adb(serial, "logcat", "-d")).Split('\n').TakeLast(300)));
+                var tagLog = await Adb(serial, "logcat", "-d", "-v", "epoch", "-s", $"{Tag}:*");
+                var filtered = AndroidCheckGuard.TagLogsForRun(tagLog, runId, Tag);
+                logger.LogError("The {Tag} log for this run:\n{Log}", Tag, string.Join('\n', filtered.TakeLast(300)));
             }
 
             return lines;
@@ -71,15 +71,15 @@ internal sealed class AndroidApp : IAppUnderCheck
                 "Refusing to clear a package that was not named for this run, or that is not the checks build.");
     }
 
-    private static async Task<IReadOnlyList<string>> ReadReport(string serial, long startedEpochSeconds)
+    private static async Task<IReadOnlyList<string>> ReadReport(string serial, string runId)
     {
         var watch = Stopwatch.StartNew();
 
         while (true)
         {
-            var lines = AndroidCheckGuard.ReportsSince(
+            var lines = AndroidCheckGuard.ReportsForRun(
                 await Adb(serial, "logcat", "-d", "-v", "epoch", "-s", $"{Tag}:I"),
-                startedEpochSeconds).ToList();
+                runId).ToList();
 
             if (lines.Any(line => line.StartsWith(Program.ResultPrefix, StringComparison.Ordinal)) || watch.Elapsed > patience)
             {

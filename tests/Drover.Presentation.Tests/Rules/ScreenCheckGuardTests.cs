@@ -28,30 +28,38 @@ public sealed partial class ScreenCheckGuardTests
     [Fact]
     public void A_report_from_before_this_run_is_not_the_result()
     {
-        const long Started = 1_700_000_000;
+        const string Run = "run-current";
         const string Log = """
-            1699999998.000  1  2 I DroverUiCheck: ui-check old
-            1699999999.000  1  2 I DroverUiCheck: ui-check kept
-            not a stamp
-            1700000002.000  1  2 I Other: hello
-            1700000002.500  1  2 I DroverUiCheck: ui-check result: passed
+            1700000000.100  1  2 I DroverUiCheck: run-previous ui-check result: passed
+            1700000000.150  1  2 I Other: run-current ui-check result: passed
+            1700000000.200  1  2 I DroverUiCheck: run-current ui-check pass: launch (100 ms)
+            1700000000.900  1  2 I DroverUiCheck: run-current ui-check result: passed
             """;
 
-        AndroidCheckGuard.ReportsSince(Log, Started).Should().Equal(
-            "ui-check kept",
+        AndroidCheckGuard.ReportsForRun(Log, Run).Should().Equal(
+            "ui-check pass: launch (100 ms)",
             "ui-check result: passed");
+        AndroidCheckGuard.TagLogsForRun(Log, Run, "DroverUiCheck").Should().Equal(
+            "1700000000.200  1  2 I DroverUiCheck: run-current ui-check pass: launch (100 ms)",
+            "1700000000.900  1  2 I DroverUiCheck: run-current ui-check result: passed");
     }
 
     [Fact]
     public void The_checks_build_is_a_separate_package_and_keeps_its_own_settings()
     {
         var project = File.ReadAllText(Path.Combine(Repository.Root, "src", "Drover.Native", "Drover.Native.csproj"));
-        var settings = File.ReadAllText(Path.Combine(
+        var shims = File.ReadAllText(Path.Combine(
             Repository.Root,
             "src",
             "Drover.Native",
             "Device",
             "StorageShims.cs"));
+        var hook = File.ReadAllText(Path.Combine(
+            Repository.Root,
+            "tests",
+            "Drover.Native.UITests",
+            "App",
+            "PreferencesHook.cs"));
         var android = File.ReadAllText(Path.Combine(
             Repository.Root,
             "tests",
@@ -61,12 +69,18 @@ public sealed partial class ScreenCheckGuardTests
 
         project.Should().Contain(
             """<ApplicationId Condition="'$(DroverUiChecks)' == 'true'">com.forresttechnologies.drover.checks</ApplicationId>""");
-        settings.Should().Contain("DROVER_UI_CHECK_REPORT");
-        settings.Should().Contain("checks-preferences.txt");
+        shims.Should().NotContain("DROVER_UI_CHECK_REPORT");
+        shims.Should().NotContain("checks-preferences.txt");
+        hook.Should().Contain("DROVER_UI_CHECK_REPORT");
+        hook.Should().Contain("checks-preferences.txt");
         android.Should().Contain("com.forresttechnologies.drover.checks");
         android.Should().NotContain("logcat\", \"-c\"");
+        android.Should().NotContain("logcat\", \"-d\")");
+        android.Should().Contain("TagLogsForRun");
         android.Should().Contain("DROVER_ANDROID_SERIAL");
         workflow.Should().Contain("DROVER_ANDROID_SERIAL");
+        workflow.Should().Contain("adb -s \"${serial}\" install -r");
+        workflow.Should().Contain("grep -a -q DROVER_UI_CHECK_REPORT");
         workflow.IndexOf("*-Signed.apk", StringComparison.Ordinal).Should().BeLessThan(
             workflow.IndexOf("DROVER_ANDROID_SERIAL", StringComparison.Ordinal));
     }
@@ -91,7 +105,7 @@ public sealed partial class ScreenCheckGuardTests
         var project = File.ReadAllText(Path.Combine(Repository.Root, "src", "Drover.Native", "Drover.Native.csproj"));
         project.Should().Contain("""<ItemGroup Condition="'$(DroverUiChecks)' == 'true'">""");
         project.Should().NotContain("DroverUiChecks)' == 'true' and");
-        checks.Should().Contain("#if DROVER_BROWSER");
+        checks.Should().NotContain("DROVER_BROWSER");
         checks.Should().Contain("DispatcherQueue.CreateTimer()");
         checks.Should().NotContain("Task.Delay");
         foreach (var id in wanted)
@@ -99,41 +113,6 @@ public sealed partial class ScreenCheckGuardTests
             native.Should().Contain($"\"{id}\"", $"{id} is a control the screen checks press");
             AutomationIds.Matches(null, shown: true, id).Should().BeFalse();
         }
-    }
-
-    [Fact]
-    public void The_browser_harness_reads_the_lines_the_page_records()
-    {
-        var channel = File.ReadAllText(Path.Combine(
-            Repository.Root,
-            "tests",
-            "Drover.Native.UITests",
-            "App",
-            "PageCheckChannel.cs"));
-        var settings = File.ReadAllText(Path.Combine(
-            Repository.Root,
-            "tests",
-            "Drover.Native.UITests",
-            "App",
-            "CheckSettings.cs"));
-        var report = File.ReadAllText(Path.Combine(
-            Repository.Root,
-            "tests",
-            "Drover.Native.UITests",
-            "App",
-            "ScreenChecks.cs"));
-        var script = File.ReadAllText(Path.Combine(Repository.Root, "scripts", "check-native-screens.mjs"));
-
-        channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckRead\")]");
-        channel.Should().Contain("[JSImport(\"globalThis.droverUiCheckWrite\")]");
-        channel.Should().Contain("[JSImport(\"globalThis.setInterval\")]");
-        channel.Should().Contain("[JSImport(\"globalThis.clearInterval\")]");
-        settings.Should().Contain("PageCheckChannel.Read(name)");
-        report.Should().Contain("PageCheckChannel.Write(line)");
-        report.Should().Contain("PageCheckChannel.Every");
-        script.Should().Contain("globalThis.droverUiCheckRead = name => localStorage.getItem(name)");
-        script.Should().Contain("globalThis.droverUiCheckLines");
-        script.Should().Contain("globalThis.droverUiCheckWrite");
     }
 
     #endregion

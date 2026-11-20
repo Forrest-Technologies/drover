@@ -38,9 +38,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         try
         {
             await Step("launch", Launch);
-#if !DROVER_BROWSER
             await Step("connect", Connect);
-#endif
             await Step("sign in", SignIn);
             await Step("open a conversation", OpenConversation);
             await Step("send a message", SendMessage);
@@ -64,10 +62,6 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private async Task Launch()
     {
-#if DROVER_BROWSER
-        // A browser is already on the server that served the page. There is no connect screen.
-        await Shown("SignInEmail", startPatience);
-#else
         await Shown("ConnectAddress", startPatience);
 #if !__ANDROID__
         // The native window can attach after the connect control is on screen. A resize before that is ignored,
@@ -82,7 +76,6 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
             window.AppWindow.Resize(new(420, 860));
             return null;
         });
-#endif
 #endif
     }
 
@@ -198,8 +191,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         invoker.Invoke();
     }
 
-    // The next look is a tick, not a delay. On a browser a delay started while the window is opening never
-    // resumes, and the dispatcher timer does not tick then either. The page's own interval does.
+    // The next look is a timer tick rather than a delay so the check keeps running on the window's dispatcher.
     private Task<T> Until<T>(string what, Func<T?> probe, TimeSpan? wait = null)
         where T : class
     {
@@ -211,20 +203,11 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         var found = new TaskCompletionSource<T>();
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var limit = wait ?? patience;
-#if DROVER_BROWSER
-        var timer = 0;
-#pragma warning disable CA1416
-        timer = PageCheckChannel.Every(
-            () => Look(found, watch, limit, what, probe, () => PageCheckChannel.Stop(timer)),
-            (int)poll.TotalMilliseconds);
-#pragma warning restore CA1416
-#else
         var queue = window.DispatcherQueue.CreateTimer();
         queue.Interval = poll;
         queue.IsRepeating = true;
         queue.Tick += (_, _) => Look(found, watch, limit, what, probe, queue.Stop);
         queue.Start();
-#endif
         return found.Task;
     }
 
@@ -358,11 +341,8 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     private void Report(string line)
     {
 #if __ANDROID__
-        Android.Util.Log.Info(Tag, line);
-#elif DROVER_BROWSER
-        // The harness polls the lines the page records. A browser has no report file, and the app logger does not
-        // reach the page.
-        PageCheckChannel.Write(line);
+        var entry = string.IsNullOrEmpty(settings.RunId) ? line : $"{settings.RunId} {line}";
+        Android.Util.Log.Info(Tag, entry);
 #else
         if (settings.ReportPath is { } path)
         {
@@ -373,11 +353,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     }
 
     // A desktop app closes, which tells the harness the report is complete. Android stays open: the harness reads
-    // the result line from the device log and stops the app itself. A browser stays open until the harness closes
-    // the page, which it does once this line is on the console.
+    // the result line from the device log and stops the app itself.
     private static void Finish()
     {
-#if !__ANDROID__ && !DROVER_BROWSER
+#if !__ANDROID__
         Application.Current.Exit();
 #endif
     }

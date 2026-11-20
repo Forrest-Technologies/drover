@@ -53,38 +53,52 @@ internal static class AndroidCheckGuard
         return serials.Contains(selected) ? selected : null;
     }
 
-    /// <summary>Report lines written at or after <paramref name="startedEpochSeconds"/>, device time.</summary>
-    public static IReadOnlyList<string> ReportsSince(string log, long startedEpochSeconds)
+    /// <summary>Report lines written under <paramref name="tag"/> for <paramref name="runId"/>.</summary>
+    public static IReadOnlyList<string> ReportsForRun(string log, string runId, string tag = "DroverUiCheck")
     {
+        if (string.IsNullOrWhiteSpace(runId) || string.IsNullOrWhiteSpace(tag))
+        {
+            return [];
+        }
+
         List<string> lines = [];
+        var prefix = $"{runId} ui-check";
+        foreach (var line in TagLogsForRun(log, runId, tag))
+        {
+            var at = line.IndexOf(prefix, StringComparison.Ordinal);
+            if (at >= 0)
+            {
+                lines.Add(line[(at + runId.Length + 1)..]);
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>Lines written under <paramref name="tag"/> for <paramref name="runId"/>.</summary>
+    public static IReadOnlyList<string> TagLogsForRun(string log, string runId, string tag)
+    {
+        if (string.IsNullOrWhiteSpace(runId) || string.IsNullOrWhiteSpace(tag))
+        {
+            return [];
+        }
+
+        List<string> lines = [];
+        var tagMarker = $"{tag}:";
+        var runMarker = $"{runId} ";
         foreach (var raw in log.Split('\n'))
         {
             var trimmed = raw.Trim();
-            var split = trimmed.IndexOf(' ');
-            if (split <= 0)
+            var tagAt = trimmed.IndexOf(tagMarker, StringComparison.Ordinal);
+            if (tagAt < 0)
             {
                 continue;
             }
 
-            if (!double.TryParse(
-                trimmed[..split],
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out var stamp))
+            var runAt = trimmed.IndexOf(runMarker, tagAt + tagMarker.Length, StringComparison.Ordinal);
+            if (runAt >= 0 && char.IsWhiteSpace(trimmed[runAt - 1]))
             {
-                continue;
-            }
-
-            if (stamp + 1 < startedEpochSeconds)
-            {
-                continue;
-            }
-
-            const string Marker = "ui-check";
-            var at = trimmed.IndexOf(Marker, StringComparison.Ordinal);
-            if (at >= 0)
-            {
-                lines.Add(trimmed[at..]);
+                lines.Add(trimmed);
             }
         }
 

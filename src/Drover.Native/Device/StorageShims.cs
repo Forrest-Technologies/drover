@@ -21,7 +21,7 @@ public interface ISecureStorage
 /// The plain settings the shared server-address code asks for, with the shape of the one the Android shell uses.
 /// Only the server's address is kept here, never a secret.
 /// </summary>
-public sealed class Preferences
+public sealed partial class Preferences
 {
     #region Properties
 
@@ -35,9 +35,12 @@ public sealed class Preferences
 
     public string Get(string key, string fallback)
     {
-        if (IsolatedPath() is { } path)
+        var handled = false;
+        var value = fallback;
+        TryGetIsolatedText(key, fallback, ref handled, ref value);
+        if (handled)
         {
-            return Read(path).TryGetValue(key, out var value) ? value : fallback;
+            return value;
         }
 
         return Settings.Values.TryGetValue(key, out var stored) && stored is string text ? text : fallback;
@@ -45,11 +48,10 @@ public sealed class Preferences
 
     public void Set(string key, string value)
     {
-        if (IsolatedPath() is { } path)
+        var handled = false;
+        TrySetIsolatedText(key, value, ref handled);
+        if (handled)
         {
-            var stored = Read(path);
-            stored[key] = value;
-            Write(path, stored);
             return;
         }
 
@@ -58,9 +60,12 @@ public sealed class Preferences
 
     public bool Get(string key, bool fallback)
     {
-        if (IsolatedPath() is { } path)
+        var handled = false;
+        var value = fallback;
+        TryGetIsolatedFlag(key, fallback, ref handled, ref value);
+        if (handled)
         {
-            return Read(path).TryGetValue(key, out var value) ? value == "true" : fallback;
+            return value;
         }
 
         return Settings.Values.TryGetValue(key, out var stored) && stored is bool flag ? flag : fallback;
@@ -68,11 +73,10 @@ public sealed class Preferences
 
     public void Set(string key, bool value)
     {
-        if (IsolatedPath() is { } path)
+        var handled = false;
+        TrySetIsolatedFlag(key, value, ref handled);
+        if (handled)
         {
-            var stored = Read(path);
-            stored[key] = value ? "true" : "false";
-            Write(path, stored);
             return;
         }
 
@@ -81,11 +85,10 @@ public sealed class Preferences
 
     public void Remove(string key)
     {
-        if (IsolatedPath() is { } path)
+        var handled = false;
+        TryRemoveIsolated(key, ref handled);
+        if (handled)
         {
-            var stored = Read(path);
-            stored.Remove(key);
-            Write(path, stored);
             return;
         }
 
@@ -96,50 +99,16 @@ public sealed class Preferences
 
     #region Private Methods
 
-    // A screen-check run keeps its server choice beside its report. The regular app's settings stay untouched.
-    private static string? IsolatedPath()
-    {
-        var report = Environment.GetEnvironmentVariable("DROVER_UI_CHECK_REPORT");
-        if (string.IsNullOrWhiteSpace(report))
-        {
-            return null;
-        }
+    // Implemented only in builds made for the screen checks (tests/Drover.Native.UITests/App/PreferencesHook.cs).
+    static partial void TryGetIsolatedText(string key, string fallback, ref bool handled, ref string value);
 
-        var directory = System.IO.Path.GetDirectoryName(report);
-        if (string.IsNullOrEmpty(directory))
-        {
-            return null;
-        }
+    static partial void TrySetIsolatedText(string key, string value, ref bool handled);
 
-        Directory.CreateDirectory(directory);
-        return System.IO.Path.Combine(directory, "checks-preferences.txt");
-    }
+    static partial void TryGetIsolatedFlag(string key, bool fallback, ref bool handled, ref bool value);
 
-    private static Dictionary<string, string> Read(string path)
-    {
-        if (!File.Exists(path))
-        {
-            return [];
-        }
+    static partial void TrySetIsolatedFlag(string key, bool value, ref bool handled);
 
-        var stored = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var line in File.ReadAllLines(path))
-        {
-            var split = line.IndexOf('=');
-            if (split > 0)
-            {
-                stored[line[..split]] = line[(split + 1)..];
-            }
-        }
-
-        return stored;
-    }
-
-    private static void Write(string path, Dictionary<string, string> stored)
-    {
-        var lines = stored.Select(pair => $"{pair.Key}={pair.Value}");
-        File.WriteAllLines(path, lines);
-    }
+    static partial void TryRemoveIsolated(string key, ref bool handled);
 
     #endregion
 }

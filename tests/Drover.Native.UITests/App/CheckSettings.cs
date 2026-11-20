@@ -11,7 +11,8 @@ internal sealed record CheckSettings(
     string Password,
     string Certificate,
     string Reply,
-    string? ReportPath)
+    string? ReportPath,
+    string? RunId)
 {
     #region Private Fields
 
@@ -27,6 +28,8 @@ internal sealed record CheckSettings(
 
     public const string ReportName = "DROVER_UI_CHECK_REPORT";
 
+    public const string RunIdName = "DROVER_UI_CHECK_RUN";
+
     private static readonly Lazy<CheckSettings?> current = new(Read);
 
     #endregion
@@ -38,7 +41,6 @@ internal sealed record CheckSettings(
 
     #endregion
 
-#if !DROVER_BROWSER
     #region Public Methods
 
     /// <summary>
@@ -59,7 +61,6 @@ internal sealed record CheckSettings(
     }
 
     #endregion
-#endif
 
     #region Private Methods
 
@@ -72,17 +73,13 @@ internal sealed record CheckSettings(
             return null;
         }
 
-        return new(origin, email, password, certificate, reply, Value(ReportName));
+        return new(origin, email, password, certificate, reply, Value(ReportName), Value(RunIdName));
     }
 
     private static string? Value(string name)
     {
 #if __ANDROID__
         var value = (Uno.UI.ContextHelper.Current as Android.App.Activity)?.Intent?.GetStringExtra(name);
-#elif DROVER_BROWSER
-        // The page is served by the test server. The harness puts the settings in local storage and installs the
-        // function that reads them, before the app starts. A browser has no process environment to read.
-        var value = PageCheckChannel.Read(name);
 #else
         var value = Environment.GetEnvironmentVariable(name);
 #endif
