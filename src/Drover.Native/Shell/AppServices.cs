@@ -13,8 +13,13 @@ public static partial class AppServices
     public static ServiceProvider Build()
     {
         var services = new ServiceCollection()
-            .AddLogging(logging => logging.SetMinimumLevel(LogLevel.Warning).AddPlatformLog())
+            .AddLogging(logging => logging
+                .SetMinimumLevel(LogLevel.Warning)
+                .AddPlatformLog()
+                .AddDiagnosticLog(AppDiagnostics.Log))
             .AddSingleton(TimeProvider.System)
+            .AddSingleton(AppDiagnostics.Log)
+            .AddSingleton(AppDiagnostics.ThisApp)
             .AddSingleton<Navigator>()
             .AddSingleton<SessionState>()
             .AddSingleton<ILiveNotifications, NoLiveNotifications>()
