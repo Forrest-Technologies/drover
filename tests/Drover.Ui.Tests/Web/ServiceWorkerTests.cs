@@ -45,6 +45,29 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         });
         """ + "\n";
 
+    // The headless browser has no push service, so it has no subscription. This gives the worker one the test sets,
+    // and counts how many times the worker ends it.
+    private const string SubscriptionStub = """
+        self.testSubscription = 'https://push.example/test-subscription';
+        self.unsubscribeCount = 0;
+        PushManager.prototype.getSubscription = async function () {
+            const endpoint = self.testSubscription;
+            return endpoint === null ? null : {
+                endpoint,
+                unsubscribe: async () => { self.unsubscribeCount++; self.testSubscription = null; return true; },
+            };
+        };
+        self.addEventListener('message', message => {
+            if (message.data === null || typeof message.data !== 'object' || !('subscription' in message.data || message.data.unsubscribeCount)) return;
+            if ('subscription' in message.data) self.testSubscription = message.data.subscription;
+            message.ports[0].postMessage(self.unsubscribeCount);
+        });
+        """ + "\n";
+
+    private const string TestSubscription = "https://push.example/test-subscription";
+
+    private const string AnotherPersonsSubscription = "https://push.example/another-persons-subscription";
+
     /// <summary>The person's sign-in, as a cookie the worker's own request to the server must carry.</summary>
     private const string SignInCookie = "drover-test-session=signed-in";
 
@@ -141,7 +164,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Sample bot finished.|{Home}talk/{botId}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}|{TestSubscription}");
     }
 
     [Fact]
@@ -152,7 +175,32 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}|{TestSubscription}");
+    }
+
+    [Fact]
+    public async Task A_push_left_for_the_last_person_shows_nothing_of_it_and_ends_the_browsers_subscription()
+    {
+        await SetSubscription(AnotherPersonsSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+
+        var shown = await WaitForNotifications();
+        shown.Should().Equal([$"Drover|Something changed. Open Drover to see it.|{Home}"], "nothing of the last person's bot is shown");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}|{AnotherPersonsSubscription}");
+        (await SetSubscription(null)).Should().Be(1, "the worker ends a subscription the signed-in person does not hold");
+    }
+
+    [Fact]
+    public async Task A_push_with_no_subscription_to_name_asks_the_server_nothing()
+    {
+        await SetSubscription(null);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+
+        var shown = await WaitForNotifications();
+        shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
+        wakeQueries.Should().BeEmpty();
     }
 
     [Fact]
@@ -195,7 +243,15 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             MapClient(app, Home, Shell);
             app.MapGet("/api/push/wake", (HttpContext http) =>
             {
-                wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}");
+                var endpoint = http.Request.Headers["Push-Endpoint"].ToString();
+                wakeQueries.Add($"{http.Request.QueryString}|{http.Request.Headers.Cookie}|{endpoint}");
+
+                // The server answers only the person who holds a subscription for the address the worker names.
+                if (endpoint == AnotherPersonsSubscription)
+                {
+                    return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
                 return http.Request.Query["thread"] == threadId.ToString() && http.Request.Headers.Cookie == SignInCookie
                     ? Results.Json(new { body = "Sample bot finished.", botId, threadId, isMain = true })
                     : Results.NotFound();
@@ -263,7 +319,7 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         app.MapGet($"{home}talk/{{bot}}", () => Results.Content(shellPage, "text/html"));
         app.MapGet($"{home}register.js", () => Results.Content($"navigator.serviceWorker.register('{home}service-worker.js');", "text/javascript"));
         app.MapGet($"{home}service-worker.js", async () => Results.Content(
-            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
+            $"{RejectionRecorder}{OpenRecorder}{PushDispatcher}{SubscriptionStub}{await File.ReadAllTextAsync(WebFile("service-worker.published.js"))}",
             "text/javascript"));
         app.MapGet($"{home}push-worker.js", async () => Results.Content(await File.ReadAllTextAsync(WebFile("push-worker.js")), "text/javascript"));
         app.MapGet($"{home}service-worker-assets.js", () => Results.Content(AssetsManifest(shellPage), "text/javascript"));
@@ -293,6 +349,18 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
             })
             """, payload).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
     }
+
+    /// <summary>Sets the subscription the worker finds in its browser, or none, and returns how many times it has ended one.</summary>
+    private async Task<int> SetSubscription(string? endpoint) =>
+        await page.EvaluateAsync<int>(
+            """
+            endpoint => new Promise(done => {
+                const channel = new MessageChannel();
+                channel.port1.onmessage = ({ data }) => { channel.port1.close(); done(data); };
+                navigator.serviceWorker.controller.postMessage({ subscription: endpoint }, [channel.port2]);
+            })
+            """,
+            endpoint).WaitAsync(TimeSpan.FromSeconds(30), Xunit.TestContext.Current.CancellationToken);
 
     /// <summary>The notifications the worker shows, as title, body, and the address a tap opens.</summary>
     private async Task<string[]> WaitForNotifications()

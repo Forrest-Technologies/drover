@@ -9,6 +9,9 @@ public static class PushEndpoints
 {
     #region Public Methods
 
+    /// <summary>The header in which a browser names the subscription that woke it, when it asks what to show.</summary>
+    public const string PushEndpointHeader = "Push-Endpoint";
+
     public static IEndpointRouteBuilder MapPushEndpoints(this RouteGroupBuilder api)
     {
         var push = api.MapGroup("/push").RequireAuthorization();
@@ -25,7 +28,7 @@ public static class PushEndpoints
             .WithBodyLimit(RequestLimits.Account)
             .WithName("TestPushDevice");
         push.MapGet("/wake", GetWakeText).WithName("GetPushWakeText")
-            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see.");
+            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see. A browser sends its own subscription address in the Push-Endpoint header, and is answered only while the signed-in person holds a subscription for it (403 otherwise).");
         return api;
     }
 
@@ -78,10 +81,30 @@ public static class PushEndpoints
                 statusCode: StatusCodes.Status503ServiceUnavailable),
         };
 
-    private static async Task<Results<Ok<PushWakeText>, NotFound>> GetWakeText(string kind, Guid thread, HttpContext context, PushService push) =>
-        await push.Describe(context.User.GetUserId(), kind, thread, context.RequestAborted) is { } text
+    // A browser that was left subscribed by one person is woken for that person's runs. The worker names the
+    // subscription that woke it, in a header so the address, which anyone holding it may push to, is not in a URL or
+    // a log line. Only the person who holds a subscription for it is answered, so the next person on the browser is
+    // told nothing of the last one's bots. The Android app and the desktop's live signal ask without a subscription
+    // address: each checks for itself that the account is the one it was registered for.
+    private static async Task<Results<Ok<PushWakeText>, NotFound, StatusCodeHttpResult>> GetWakeText(
+        string kind,
+        Guid thread,
+        HttpContext context,
+        PushService push)
+    {
+        var userId = context.User.GetUserId();
+
+        // A header that is there but blank names no subscription, so it is not one the person holds.
+        if (context.Request.Headers.TryGetValue(PushEndpointHeader, out var named)
+            && !await push.IsOn(userId, named.ToString().Trim(), context.RequestAborted))
+        {
+            return TypedResults.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return await push.Describe(userId, kind, thread, context.RequestAborted) is { } text
             ? TypedResults.Ok(text)
             : TypedResults.NotFound();
+    }
 
     private static async Task<Results<Ok<BotNotifySetting>, NotFound>> GetBotNotify(Guid botId, HttpContext context, PushService push)
     {

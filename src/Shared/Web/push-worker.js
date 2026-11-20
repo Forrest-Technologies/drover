@@ -23,7 +23,8 @@ const pushHome = new URL(self.registration.scope).pathname;
 const look = { lang: "en", icon: `${pushHome}icon-192.png` };
 
 // A push must always show something, or the browser shows a notice of its own. When the server does not say what
-// (the person signed out, or the thread is gone) the notification says only that Drover has something.
+// (the person signed out, the thread is gone, or this browser's subscription is not the signed-in person's) the
+// notification says only that Drover has something.
 async function showWakeUp(wakeUp) {
     const text = wakeUp === null ? null : await fetchText(wakeUp);
 
@@ -41,14 +42,50 @@ async function showWakeUp(wakeUp) {
     });
 }
 
+// The worker names its own subscription with the request, in a header so the address is not in a URL. A browser left
+// subscribed by one person, then used by another, is woken for the first person's runs: the server answers only the
+// person who holds a subscription for that address. When it says the signed-in person does not, this browser's
+// subscription is not theirs, so it is ended here and the browser is woken no more for the last person's bots. They
+// turn notifications on again to subscribe afresh. Without a subscription there is nothing to ask for.
 async function fetchText(wakeUp) {
+    const subscription = await readSubscription();
+
+    if (subscription === null) {
+        return null;
+    }
+
     const query = new URLSearchParams({ kind: String(wakeUp.kind), thread: String(wakeUp.thread) });
 
     try {
-        const answer = await fetch(`/api/push/wake?${query}`, { credentials: "same-origin", headers: { Accept: "application/json" } });
+        const answer = await fetch(`/api/push/wake?${query}`, {
+            credentials: "same-origin",
+            headers: { Accept: "application/json", "Push-Endpoint": subscription.endpoint },
+        });
+
+        if (answer.status === 403) {
+            await endSubscription(subscription);
+            return null;
+        }
+
         return answer.ok ? await answer.json() : null;
     } catch {
         return null;
+    }
+}
+
+async function readSubscription() {
+    try {
+        return await self.registration.pushManager.getSubscription();
+    } catch {
+        return null;
+    }
+}
+
+async function endSubscription(subscription) {
+    try {
+        await subscription.unsubscribe();
+    } catch {
+        // A subscription that cannot be ended here is ended by the push service when it is next used.
     }
 }
 
