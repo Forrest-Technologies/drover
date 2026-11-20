@@ -150,6 +150,70 @@ public sealed class ManagementViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Only_an_admin_is_offered_to_mark_a_compatible_endpoints_model_and_a_providers_own_models_offer_no_toggle()
+    {
+        var compatible = Connection with { Kind = "openai_compatible" };
+        server.Answer("GET", $"{space}/model-connections", new[] { Connection, compatible });
+        var model = Models();
+        await model.Open();
+
+        model.CanMarkVision(compatible).Should().BeTrue();
+        model.CanMarkVision(Connection).Should().BeFalse("a provider that reports its own capabilities keeps its own value");
+
+        server.Answer("GET", "/api/session", Samples.Session("member"));
+        var asMember = new ModelConnectionsViewModel(server.CreateApi(), new(server.CreateApi()), NullLogger<ModelConnectionsViewModel>.Instance);
+        await asMember.Open();
+
+        asMember.CanMarkVision(compatible).Should().BeFalse("the server decides, and a member is not offered the control");
+    }
+
+    [Fact]
+    public async Task Marking_a_model_sends_the_model_and_the_answer_replaces_only_its_row_in_the_shown_catalog()
+    {
+        var compatible = Connection with { Kind = "openai_compatible" };
+        server.Answer("GET", $"{space}/model-connections", new[] { compatible });
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Entry("meta/plain", vision: false), Entry("other", vision: false) });
+        server.Answer("PUT", $"{space}/model-connections/{connectionId}/models/vision", Entry("meta/plain", vision: true));
+        var model = Models();
+        await model.Open();
+        await model.ShowCatalog(compatible);
+
+        await model.SetVision(compatible, model.Catalog![0], readsImages: true);
+
+        model.Catalog.Select(row => (row.Model, row.Capabilities.Vision)).Should().Equal(("meta/plain", true), ("other", false));
+        model.NoticeIsProblem.Should().BeFalse();
+        model.Notice.Should().Contain("reading pictures");
+        JsonSerializer.Deserialize<SetModelVisionRequest>(server.Sent("PUT", $"{space}/model-connections/{connectionId}/models/vision").Single(), JsonSerializerOptions.Web)
+            .Should().Be(new SetModelVisionRequest("meta/plain", true));
+        ModelConnectionsViewModel.VisionLabel(model.Catalog[0]).Should().Be("meta/plain reads pictures");
+    }
+
+    [Fact]
+    public async Task A_refused_mark_reports_on_the_connection_and_leaves_the_catalog_as_it_was()
+    {
+        var compatible = Connection with { Kind = "openai_compatible" };
+        server.Answer("GET", $"{space}/model-connections", new[] { compatible });
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Entry("plain", vision: false) });
+        server.Refuse("PUT", $"{space}/model-connections/{connectionId}/models/vision", HttpStatusCode.NotFound, "Sample model is gone.");
+        var model = Models();
+        await model.Open();
+        await model.ShowCatalog(compatible);
+
+        await model.SetVision(compatible, model.Catalog![0], readsImages: true);
+
+        model.Catalog[0].Capabilities.Vision.Should().BeFalse();
+        model.Problems.Should().ContainKey(connectionId);
+        model.ChangePending.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_model_the_catalog_says_reads_pictures_says_so_in_words_for_everyone()
+    {
+        ModelConnectionsViewModel.VisionWords(Entry("plain", vision: true)).Should().Be("reads pictures");
+        ModelConnectionsViewModel.VisionWords(Entry("plain", vision: false)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_refused_connection_action_reports_only_on_its_own_row()
     {
         server.Answer("GET", $"{space}/model-connections", new[] { Connection });
@@ -167,6 +231,17 @@ public sealed class ManagementViewModelTests : IDisposable
     #endregion
 
     #region Private Methods
+
+    private static ModelCatalogResponse Entry(string id, bool vision) =>
+        new(
+            id,
+            id,
+            new ModelCapabilitiesResponse(null, null, true, true, vision, false, [], false, false, VisionSetByOperator: vision),
+            new ModelPriceResponse(null, null, null, "USD"),
+            null,
+            [],
+            "available",
+            DateTimeOffset.UnixEpoch);
 
     private StatusPageViewModel Status() => new(server.CreateApi(), session, NullLogger<StatusPageViewModel>.Instance);
 

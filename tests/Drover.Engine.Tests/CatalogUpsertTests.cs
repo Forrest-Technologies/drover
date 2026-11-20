@@ -47,6 +47,31 @@ public sealed class CatalogUpsertTests
     }
 
     [Fact]
+    public void A_mark_an_operator_set_survives_a_refresh_that_reports_no_capabilities()
+    {
+        var marked = new ModelCatalogEntry
+        {
+            Model = "alpha",
+            DisplayName = "Alpha",
+            Capabilities = new ModelCapabilities { Vision = true, VisionSetByOperator = true },
+        };
+
+        CatalogUpsert.Apply(connection, [marked], [new ModelInfo("alpha", "Alpha", new ModelCapabilities(), [])], now);
+
+        (marked.Capabilities.Vision, marked.Capabilities.VisionSetByOperator).Should().Be((true, true));
+    }
+
+    [Fact]
+    public void A_refresh_still_takes_the_providers_own_value_where_nobody_marked_the_model()
+    {
+        var plain = new ModelCatalogEntry { Model = "alpha", DisplayName = "Alpha", Capabilities = new ModelCapabilities { Vision = false } };
+
+        CatalogUpsert.Apply(connection, [plain], [new ModelInfo("alpha", "Alpha", new ModelCapabilities { Vision = true }, [])], now);
+
+        (plain.Capabilities.Vision, plain.Capabilities.VisionSetByOperator).Should().Be((true, false));
+    }
+
+    [Fact]
     public void A_model_no_longer_listed_keeps_its_row_marked_missing()
     {
         var gone = new ModelCatalogEntry { Model = "gone", DisplayName = "Gone", LastSeenAt = now.AddDays(-1) };

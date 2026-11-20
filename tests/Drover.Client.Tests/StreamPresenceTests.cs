@@ -65,6 +65,45 @@ public sealed class StreamPresenceTests
     }
 
     [Fact]
+    public async Task A_run_stream_hidden_and_shown_again_before_it_looks_is_still_not_a_drop()
+    {
+        using var server = new LiveServer();
+        using var presence = new StreamPresence();
+        var api = new DroverApi(Http(server), presence);
+        var drops = 0;
+        var seen = Channel.CreateUnbounded<long>();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var watching = Task.Run(async () =>
+        {
+            await foreach (var stored in api.WatchRun(
+                spaceId,
+                runId,
+                dropped: _ => Interlocked.Increment(ref drops),
+                cancellationToken: cancellationToken))
+            {
+                await seen.Writer.WriteAsync(stored.Seq, cancellationToken);
+            }
+        }, cancellationToken);
+
+        var first = await server.Next(cancellationToken);
+        await first.Send(Event(1, RunEventTypes.RunStarted));
+        (await seen.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(patience, cancellationToken)).Should().Be(1);
+
+        // The app is back on screen before the stream has looked at whether it left. It must still know that its own
+        // connection was closed for leaving, not lost.
+        presence.Hide();
+        presence.Show();
+
+        await first.Closed.WaitAsync(patience, cancellationToken);
+        var second = await server.Next(cancellationToken);
+        await second.Send(Event(2, RunEventTypes.RunCompleted));
+        second.End();
+        await watching.WaitAsync(patience, cancellationToken);
+        Volatile.Read(ref drops).Should().Be(0, "leaving the screen is not a dropped connection, however soon the app is back");
+        server.LastEventIds.Should().Equal("0", "1");
+    }
+
+    [Fact]
     public async Task A_dropped_run_stream_says_so_and_says_when_it_is_through_again()
     {
         using var server = new LiveServer();
