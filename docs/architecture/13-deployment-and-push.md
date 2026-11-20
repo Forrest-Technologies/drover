@@ -214,6 +214,8 @@ The app picks a path at run time, in this order:
 
 Path 2 is the important find: most Android phones get working push with zero setup, and the server still needs only its Web Push adapter. It is an Apache-2.0 library (`org.unifiedpush.android:embedded-fcm-distributor` 3.1.0) added to the native Android build as an unbound Maven artifact: its manifest brings its own receivers, the app's connector finds it as a distributor in its own package, and no project file, key, or account of Drover's is involved. `DroverEmbeddedPush=false` leaves it out for a build that must not use the platform service. A distributor app the person installed always wins over the embedded one; with neither, or with the embedded one on a phone without the platform service, the app says a distributor is needed.
 
+The library ships an optional default gateway, the UnifiedPush project's own relay, for apps that register without a VAPID key of their own. It is not used here. The connector sends the server's own VAPID public key as the `vapid` extra in its register broadcast, so the distributor registers directly with the platform push service and returns that service's own endpoint; the relay is only for an app that passes no key. The relay, when an app does use it, is run by the UnifiedPush project and sees nothing of a wake-up: the payload is AES-GCM encrypted to the device key and carries only `{ kind, thread }`, the same two fields everywhere. A build with `DroverEmbeddedPush=false`, or one where the person installed a distributor app, does not use the embedded distributor at all.
+
 If no path is available, the app says so in plain words and offers a one-tap link to install a distributor.
 
 Paths 1 and 2 are built. Path 3 is built only if users ask.

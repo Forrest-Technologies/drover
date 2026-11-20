@@ -192,7 +192,9 @@
 
   <!-- Push with no distributor app installed: an embedded distributor over the phone's own platform push service. It
        needs no project or key of Drover's: it hands the app a standard Web Push endpoint, which the server signs for
-       with its own VAPID key as it does for every device. Apache-2.0, no proprietary library; its Kotlin runtime and
+       with its own VAPID key as it does for every device. The library ships an optional relay for apps that pass no
+       VAPID key; Drover passes its own, so the relay is never used and the distributor talks to the platform push
+       service directly. Apache-2.0, no proprietary library; its Kotlin runtime and
        coroutines already come with the platform's Android packages. DroverEmbeddedPush=false leaves it out, for a
        build that must not use that service; such a build needs a distributor app. The build's check of its Java
        dependencies stops on a package reference the platform's SDK adds without a version, so it is off for this one
