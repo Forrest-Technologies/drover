@@ -721,7 +721,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         {
             var repository = services.GetRequiredService<ModelConnectionRepository>();
             var database = services.GetRequiredService<DroverDbContext>();
-            database.ModelCatalog.RemoveRange(await repository.GetCatalog(connectionId, Token));
+            database.ModelCatalog.RemoveRange(await repository.ListCatalog(connectionId, Token));
             database.ModelConnections.Remove((await repository.GetConnection(connectionId, Token))!);
             return true;
         });
