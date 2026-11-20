@@ -6,11 +6,35 @@ namespace Drover.Ui.Bots;
 /// </summary>
 public sealed class BotDraft
 {
+    #region Private Fields
+
+    private string handle = string.Empty;
+
+    #endregion
+
     #region Properties
 
     public string Name { get; set; } = string.Empty;
 
-    public string Handle { get; set; } = string.Empty;
+    /// <summary>
+    /// The bot's handle. Setting it is a choice: it is how a person types one, so the handle stops following the name.
+    /// The editor sets the handle a name makes through <see cref="Rename"/>, which is not a choice.
+    /// </summary>
+    public string Handle
+    {
+        get => handle;
+        set
+        {
+            handle = value;
+            HandleChosen = true;
+        }
+    }
+
+    /// <summary>
+    /// True when a person set the handle in this editor, so a rename never changes it, whatever it is spelled like.
+    /// False for a handle read from the server: there the spelling is all there is to go on.
+    /// </summary>
+    public bool HandleChosen { get; set; }
 
     public BotAvatarBody Avatar { get; set; } = new(null, null);
 
@@ -88,6 +112,7 @@ public sealed class BotDraft
     {
         Name = bot.Name,
         Handle = bot.Handle,
+        HandleChosen = false,
         Avatar = bot.Avatar,
         DescriptionForBots = bot.DescriptionForBots,
         Instructions = bot.Instructions,
@@ -125,9 +150,9 @@ public sealed class BotDraft
     /// </summary>
     public void Rename(string name)
     {
-        if (BotHandles.Follows(Handle, Name) && BotHandles.Slug(name) is { Length: > 0 } follows)
+        if (!HandleChosen && BotHandles.Follows(Handle, Name) && BotHandles.Slug(name).Length > 0)
         {
-            Handle = follows;
+            handle = BotHandles.Stem(name);
         }
 
         Name = name;

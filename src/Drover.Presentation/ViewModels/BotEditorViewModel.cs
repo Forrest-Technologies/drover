@@ -445,7 +445,11 @@ public sealed partial class BotEditorViewModel : ObservableObject
             async () =>
             {
                 var staged = Draft.StagedGrants;
-                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest()));
+                var chosen = Draft.HandleChosen;
+                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest() with { HandleFollowsName = !chosen }));
+
+                // What was typed stays the person's: a handle they chose does not start following the name after a save.
+                Draft.HandleChosen = chosen;
                 await ApplyGrants(staged);
                 JustSaved = true;
                 EditingHandle = false;

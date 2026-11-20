@@ -48,13 +48,14 @@ public sealed class BotWordsTests
     [Fact]
     public void A_handle_follows_the_name_until_someone_chooses_it()
     {
-        var fresh = new BotDraft { Name = "New bot", Handle = "new-bot" };
+        // A handle read from the server was not chosen in this editor.
+        var fresh = new BotDraft { Name = "New bot", Handle = "new-bot", HandleChosen = false };
         var chosen = new BotDraft { Name = "New bot", Handle = "helper" };
 
         fresh.Rename("Scout the 2nd!");
         fresh.Rename("Scout");
         chosen.Rename("Scout");
-        var emptied = new BotDraft { Name = "Marshal", Handle = "marshal" };
+        var emptied = new BotDraft { Name = "Marshal", Handle = "marshal", HandleChosen = false };
         emptied.Rename(" ");
 
         fresh.Handle.Should().Be("scout");
@@ -65,9 +66,9 @@ public sealed class BotWordsTests
     [Fact]
     public void A_numbered_handle_the_server_made_follows_a_rename_and_a_chosen_one_does_not()
     {
-        var second = new BotDraft { Name = "New bot", Handle = "new-bot-2" };
-        var chosen = new BotDraft { Name = "New bot", Handle = "new-bot-help" };
-        var emptyName = new BotDraft { Name = "!!!", Handle = "bot-3" };
+        var second = new BotDraft { Name = "New bot", Handle = "new-bot-2", HandleChosen = false };
+        var chosen = new BotDraft { Name = "New bot", Handle = "new-bot-help", HandleChosen = false };
+        var emptyName = new BotDraft { Name = "!!!", Handle = "bot-3", HandleChosen = false };
         var notYetMade = new BotDraft();
 
         second.Rename("Writer");
@@ -79,6 +80,68 @@ public sealed class BotWordsTests
         chosen.Handle.Should().Be("new-bot-help", "a handle that is not the name's with a number was chosen by someone");
         emptyName.Handle.Should().Be("scout", "a name with no letter or digit makes the handle bot, which can be numbered too");
         notYetMade.Handle.Should().Be("writer", "nothing has been chosen yet");
+    }
+
+    [Fact]
+    public void A_handle_a_person_typed_never_follows_even_when_it_is_spelled_like_one_the_name_made()
+    {
+        // new-bot-2 on a bot named New bot is spelled like a generated handle, but the person typed it.
+        var typed = new BotDraft { Name = "New bot", Handle = "new-bot-2", HandleChosen = false };
+        typed.Handle = "new-bot-2";
+        var typedExact = new BotDraft { Name = "New bot", Handle = "new-bot", HandleChosen = false };
+        typedExact.Handle = "new-bot";
+
+        typed.HandleChosen.Should().BeTrue("setting the handle is a choice");
+        typed.Rename("Writer");
+        typedExact.Rename("Writer");
+
+        typed.Handle.Should().Be("new-bot-2");
+        typedExact.Handle.Should().Be("new-bot", "even the handle the name makes stays once a person has set it");
+    }
+
+    [Fact]
+    public void A_handle_from_the_server_was_not_chosen_here_and_a_rename_after_a_choice_in_the_same_editor_still_keeps_it()
+    {
+        var read = BotDraft.From(Stored("New bot", "new-bot-2"));
+        read.HandleChosen.Should().BeFalse();
+
+        read.Rename("Writer");
+
+        read.Handle.Should().Be("writer");
+        read.HandleChosen.Should().BeFalse("a rename is not a choice");
+        read.Handle = "my-writer";
+        read.Rename("Author");
+        read.Handle.Should().Be("my-writer");
+        new BotDraft { Name = "x", Handle = "x" }.HandleChosen.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("A  B", "a--b", "Scout", "scout")]
+    [InlineData("A -B", "a--b", "Scout", "scout")]
+    [InlineData("A  B", "a--b-2", "Scout", "scout")]
+    [InlineData("A  B", "a-b", "Scout", "scout")]
+    [InlineData("A  B", "a---b", "Scout", "a---b")]
+    public void A_handle_an_earlier_server_made_with_every_separator_kept_follows_a_rename(string name, string handle, string renamed, string expected)
+    {
+        var draft = new BotDraft { Name = name, Handle = handle, HandleChosen = false };
+
+        draft.Rename(renamed);
+
+        draft.Handle.Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_name_longer_than_a_handle_may_be_makes_a_handle_within_the_limit_in_the_draft_and_on_the_server()
+    {
+        var longName = new string('a', 120);
+        var draft = new BotDraft { Name = "New bot", Handle = "new-bot", HandleChosen = false };
+
+        draft.Rename(longName);
+
+        draft.Handle.Should().Be(BotHandles.Stem(longName));
+        draft.Handle.Length.Should().BeLessThanOrEqualTo(BotHandles.MaxLength - 8, "room is left for a number");
+        draft.Handle.Should().MatchRegex("^[a-z0-9]+(-[a-z0-9]+)*$");
+        BotHandles.Follows(draft.Handle, longName).Should().BeTrue();
     }
 
     [Theory]
@@ -96,6 +159,9 @@ public sealed class BotWordsTests
     [InlineData("new-bot", "New bot", true)]
     [InlineData("new-bot-2", "New bot", true)]
     [InlineData("new-bot-12", "New bot", true)]
+    [InlineData("a--b", "A  B", true)]
+    [InlineData("a--b-3", "A  B", true)]
+    [InlineData("a-b-3", "A  B", true)]
     [InlineData("new-bot-1", "New bot", false)]
     [InlineData("new-bot-0", "New bot", false)]
     [InlineData("new-bot-x", "New bot", false)]
@@ -120,4 +186,15 @@ public sealed class BotWordsTests
     }
 
     #endregion
+
+    #region Private Methods
+
+    private static BotDetail Stored(string name, string handle) => new(
+        Guid.Empty, name, handle, new BotAvatarBody(null, null), string.Empty, string.Empty, Guid.Empty, "sample",
+        new ModelSettingsBody(null, null, null, "off", false), new MemorySettingsBody(false, "none", null, null), "none",
+        new SandboxSettingsBody("off", [], null), [], "active", null, 0, new BuildLimitsBody(null, null),
+        new RunLimitsBody(null, null, null), null, null);
+
+    #endregion
 }
+

@@ -46,28 +46,40 @@ public static class BotHandles
     }
 
     /// <summary>
-    /// Whether the handle is one the name made: its stem, or its stem with the number the server adds when the stem is
-    /// taken ("new-bot-2"). A handle a person typed that is neither never follows the name. A handle that is not there
-    /// yet follows it, because nothing has been chosen.
+    /// The handle an earlier server made from a name: every run of anything else became a hyphen for each character,
+    /// without collapsing, so "A  B" made "a--b". Bots made then still hold such a handle.
     /// </summary>
-    public static bool Follows(string handle, string name)
+    public static string LegacyStem(string name)
     {
-        if (handle.Length == 0)
+        var slug = new StringBuilder(name.Length);
+
+        foreach (var letter in name.Trim().ToLowerInvariant())
         {
-            return true;
+            slug.Append(char.IsAsciiLetterOrDigit(letter) ? letter : '-');
         }
 
-        var stem = Stem(name);
-
-        if (handle == stem)
-        {
-            return true;
-        }
-
-        return handle.StartsWith($"{stem}-", StringComparison.Ordinal)
-            && int.TryParse(handle.AsSpan(stem.Length + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number)
-            && number >= 2;
+        var trimmed = slug.ToString().Trim('-');
+        return trimmed.Length == 0 ? DefaultStem : trimmed[..Math.Min(trimmed.Length, MaxStemLength)].Trim('-');
     }
+
+    /// <summary>
+    /// Whether the handle looks like one the name made: its stem, or the stem an earlier server made, with or without
+    /// the number the server adds when the stem is taken ("new-bot-2"). A handle that is not there yet follows,
+    /// because nothing has been chosen. This is the spelling only: a person may have typed such a handle, which is why
+    /// the editor also records whether the handle was chosen, and follows only when it was not.
+    /// </summary>
+    public static bool Follows(string handle, string name) =>
+        handle.Length == 0 || Made(handle, Stem(name)) || Made(handle, LegacyStem(name));
+
+    #endregion
+
+    #region Private Methods
+
+    private static bool Made(string handle, string stem) =>
+        handle == stem
+        || (handle.StartsWith($"{stem}-", StringComparison.Ordinal)
+            && int.TryParse(handle.AsSpan(stem.Length + 1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number)
+            && number >= 2);
 
     #endregion
 

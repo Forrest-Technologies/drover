@@ -391,6 +391,30 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_handle_the_person_typed_stays_through_a_save_and_a_later_rename_and_a_followed_one_says_so()
+    {
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout" });
+        var editor = await OpenEditor();
+
+        editor.Rename("Scout");
+        await editor.Save();
+
+        Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which
+            .Should().Contain("\"handleFollowsName\":true", "the handle is the one the name made, so the server may number it");
+
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout-2" });
+        editor.Edit(draft => draft.Handle = "scout-2");
+        await editor.Save();
+        editor.Rename("Author");
+        editor.Draft!.Handle.Should().Be("scout-2", "a handle spelled like a numbered one, set by the person, is theirs after a save too");
+        await editor.Save();
+
+        var sent = Server.Sent("PUT", $"{bot}/definition").ToList();
+        sent[1].Should().Contain("\"handleFollowsName\":false", "a handle the person chose is never renumbered");
+        sent[2].Should().Contain("\"handle\":\"scout-2\"").And.Contain("\"handleFollowsName\":false");
+    }
+
+    [Fact]
     public async Task A_refused_save_says_what_the_server_said_and_keeps_what_was_typed()
     {
         Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "Give the bot a name of up to 200 characters.");
