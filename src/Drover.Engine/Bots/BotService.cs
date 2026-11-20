@@ -148,9 +148,11 @@ public sealed class BotService(
             return BotChange.NotFound;
         }
 
-        // A handle the old name made follows the new name. The client sends the new name's handle, which may be taken
-        // by another bot, so the server adds a number as it does for a new bot. Any other handle is used as it came.
-        if (edit.Handle != bot.Handle
+        // A handle the old name made follows the new name. The client says so when the handle it sends is the new
+        // name's, not one a person chose, and it may be taken by another bot: the server then adds a number as it does
+        // for a new bot. A handle a person chose is used as it came, and a taken one is refused.
+        if (edit.HandleFollowsName
+            && edit.Handle != bot.Handle
             && edit.Name.Trim() != bot.Name
             && BotHandles.Follows(bot.Handle, bot.Name)
             && edit.Handle == BotHandles.Stem(edit.Name)

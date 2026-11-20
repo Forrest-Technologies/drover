@@ -393,6 +393,30 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_handle_the_person_typed_stays_through_a_save_and_a_later_rename_and_a_followed_one_says_so()
+    {
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout" });
+        var editor = await OpenEditor();
+
+        editor.Rename("Scout");
+        await editor.Save();
+
+        Server.Sent("PUT", $"{bot}/definition").Should().ContainSingle().Which
+            .Should().Contain("\"handleFollowsName\":true", "the handle is the one the name made, so the server may number it");
+
+        Server.Answer("PUT", $"{bot}/definition", Marshal with { Name = "Scout", Handle = "scout-2" });
+        editor.Edit(draft => draft.Handle = "scout-2");
+        await editor.Save();
+        editor.Rename("Author");
+        editor.Draft!.Handle.Should().Be("scout-2", "a handle spelled like a numbered one, set by the person, is theirs after a save too");
+        await editor.Save();
+
+        var sent = Server.Sent("PUT", $"{bot}/definition").ToList();
+        sent[1].Should().Contain("\"handleFollowsName\":false", "a handle the person chose is never renumbered");
+        sent[2].Should().Contain("\"handle\":\"scout-2\"").And.Contain("\"handleFollowsName\":false");
+    }
+
+    [Fact]
     public async Task A_refused_save_says_what_the_server_said_and_keeps_what_was_typed()
     {
         Server.Refuse("PUT", $"{bot}/definition", HttpStatusCode.BadRequest, "Give the bot a name of up to 200 characters.");
@@ -648,17 +672,76 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task A_bot_that_was_made_stays_made_when_its_other_settings_could_not_be_saved()
+    public async Task A_refused_second_step_keeps_the_draft_on_screen_and_the_next_save_sets_it_on_the_bot_that_was_made()
     {
-        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
-        Server.Refuse("PUT", $"{space}/bots/{madeId}/definition", HttpStatusCode.BadRequest, "Keep the instructions short.");
+        Server.Answer("POST", $"{space}/bots", Made("writer"), HttpStatusCode.Created);
+        Server.Refuse("PUT", $"{space}/bots/{madeId}/definition", HttpStatusCode.BadRequest, "Another bot already uses the handle my-writer. Choose a different one.");
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+        editor.Edit(draft => draft.DescriptionForBots = "Writes things.");
+        editor.Edit(draft => draft.Instructions = "Write briefly.");
+        editor.Edit(draft => draft.Handle = "my-writer");
 
         await editor.Save();
 
-        Navigator.Current.Should().Be(Addresses.Bot(madeId), "the editor opens the bot that was made, so saving again does not make a second");
+        Navigator.Current.Should().Be(Addresses.Home, "the editor stays, so nothing typed is lost");
+        editor.IsNew.Should().BeTrue();
+        editor.IsMade.Should().BeTrue();
+        editor.State.Should().Be(BotEditorState.Shown);
+        editor.SaveProblem.Should().Be($"{BotEditorViewModel.MadeButNotSet} Another bot already uses the handle my-writer. Choose a different one.");
+        (editor.Draft!.Name, editor.Draft.DescriptionForBots, editor.Draft.Instructions, editor.Draft.Handle)
+            .Should().Be(("Writer", "Writes things.", "Write briefly.", "my-writer"));
+        editor.SaveLabel.Should().Be("Save changes");
+        editor.SaveWords.Should().Be("Made, but its settings are not saved yet");
+        editor.LeaveCause.Should().Be("Writer was made, but its settings are not saved yet. Leaving drops them and keeps the bot as it was made.");
         Server.Sent("POST", $"{space}/bots").Should().ContainSingle();
+
+        // The person corrects the handle and saves again: the bot that was made is updated, and no second one is made.
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer", Handle = "writer-two" });
+        editor.Edit(draft => draft.Handle = "writer-two");
+        await editor.Save();
+
+        Navigator.Current.Should().Be(Addresses.Bot(madeId));
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle("the bot is made once");
+        var updates = Server.Sent("PUT", $"{space}/bots/{madeId}/definition").ToList();
+        updates.Should().HaveCount(2);
+        updates[1].Should().Contain("\"handle\":\"writer-two\"").And.Contain("Writes things.").And.Contain("Write briefly.").And.Contain("\"handleFollowsName\":false");
+    }
+
+    [Fact]
+    public async Task A_second_step_that_fails_for_any_reason_leaves_the_draft_and_retries_without_making_another_bot()
+    {
+        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
+        Server.Refuse("PUT", $"{space}/bots/{madeId}/definition", HttpStatusCode.InternalServerError, "The server could not save this.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Edit(draft => draft.Instructions = "Keep what I typed.");
+
+        await editor.Save();
+        await editor.Save();
+
+        Navigator.Current.Should().Be(Addresses.Home);
+        editor.Draft!.Instructions.Should().Be("Keep what I typed.");
+        editor.SaveProblem.Should().StartWith(BotEditorViewModel.MadeButNotSet);
+        Server.Sent("POST", $"{space}/bots").Should().ContainSingle("a retry never makes a second bot");
+        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_handle_the_server_made_for_a_new_bot_is_not_a_choice_so_the_draft_keeps_following_the_name()
+    {
+        Server.Answer("POST", $"{space}/bots", Made("writer-2"), HttpStatusCode.Created);
+        Server.Refuse("PUT", $"{space}/bots/{madeId}/definition", HttpStatusCode.InternalServerError, "The server could not save this.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+
+        await editor.Save();
+
+        editor.Draft!.Handle.Should().Be("writer-2", "the server numbered it");
+        editor.Draft.HandleChosen.Should().BeFalse();
+        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Which.Should().Contain("\"handleFollowsName\":true");
     }
 
     [Fact]

@@ -70,7 +70,10 @@ public static class BotViews
             request.SandboxSettings is { } sandbox ? Read(sandbox) : bot.SandboxSettings,
             request.SandboxSharedWith ?? current.SandboxSharedWith,
             request.BuildLimits is { } limits ? new BuildLimits { MaxChildren = limits.MaxChildren, MaxDepthBelow = limits.MaxDepthBelow } : bot.BuildLimits,
-            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits);
+            request.RunLimits is { } runs ? new RunLimits { MaxSteps = runs.MaxSteps, MaxTokens = runs.MaxTokens, MaxDelegations = runs.MaxDelegations } : bot.RunLimits)
+        {
+            HandleFollowsName = request.HandleFollowsName is true,
+        };
     }
 
     public static BotToolEntry ToEntry(this BotToolView view)

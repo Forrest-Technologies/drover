@@ -52,6 +52,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
     // The bot an unsaved new bot became, so saving the same draft again does not make a second.
     private Guid? madeBotId;
 
+    // Set when both steps are done and the editor is going to the bot, so a second Save on the same draft does nothing.
+    private bool madeAndOpened;
+
     private bool leaveConfirmed;
 
     #endregion
@@ -126,6 +129,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
     /// <summary>True while the editor holds a bot that is not made yet. Nothing is stored until it is saved.</summary>
     public bool IsNew { get; private set; }
 
+    /// <summary>True once a bot that was a draft has been made, while the rest of its settings are not saved yet.</summary>
+    public bool IsMade => madeBotId is not null;
+
     /// <summary>Whether the dialog that asks about removing the bot is open.</summary>
     public bool Removing { get; private set; }
 
@@ -161,6 +167,8 @@ public sealed partial class BotEditorViewModel : ObservableObject
     public static string Back => "Bots";
 
     public const string NewBotName = "New bot";
+
+    public const string MadeButNotSet = "The bot was made, but its settings are not saved yet.";
 
     public static string NoModelCause => "A bot needs a model to think with, and this space has none yet. Connect a model first.";
 
@@ -245,6 +253,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public string SaveWords => (Dirty, JustSaved) switch
     {
+        (true, _) when IsMade => "Made, but its settings are not saved yet",
         (true, _) when IsNew => "Not made until you save",
         (true, _) => "Changes not saved yet",
         (false, true) => "Saved",
@@ -256,11 +265,11 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public bool CanSave => Dirty && !Saving;
 
-    public string SaveLabel => (Saving, IsNew) switch
+    public string SaveLabel => (Saving, IsNew, IsMade) switch
     {
-        (true, true) => "Making",
-        (true, false) => "Saving",
-        (false, true) => "Make bot",
+        (true, true, false) => "Making",
+        (true, _, _) => "Saving",
+        (false, true, false) => "Make bot",
         _ => "Save changes",
     };
 
@@ -296,9 +305,12 @@ public sealed partial class BotEditorViewModel : ObservableObject
 
     public static string LeaveTitle => "Leave without saving";
 
-    public string LeaveCause => IsNew
-        ? $"{(Draft is null ? "This bot" : ShownName)} is not made yet. Leaving drops it."
-        : $"The changes to {Saved?.Name} are not saved yet. Leaving drops them.";
+    public string LeaveCause => (IsNew, IsMade) switch
+    {
+        (true, true) => $"{ShownName} was made, but its settings are not saved yet. Leaving drops them and keeps the bot as it was made.",
+        (true, false) => $"{(Draft is null ? "This bot" : ShownName)} is not made yet. Leaving drops it.",
+        _ => $"The changes to {Saved?.Name} are not saved yet. Leaving drops them.",
+    };
 
     public string SpaceRole => session.Space?.Role ?? string.Empty;
 
@@ -366,7 +378,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             return;
         }
 
-        (IsNew, newParentId, madeBotId, BotId, shownBotId, leaveConfirmed) = (true, parentBotId, null, Guid.Empty, null, false);
+        (IsNew, newParentId, madeBotId, madeAndOpened, BotId, shownBotId, leaveConfirmed) = (true, parentBotId, null, false, Guid.Empty, null, false);
         await LoadNew();
     }
 
@@ -512,7 +524,11 @@ public sealed partial class BotEditorViewModel : ObservableObject
             async () =>
             {
                 var staged = Draft.StagedGrants;
-                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest()));
+                var chosen = Draft.HandleChosen;
+                Show(await api.UpdateBotDefinition(SpaceId, BotId, Draft.ToRequest() with { HandleFollowsName = !chosen }));
+
+                // What was typed stays the person's: a handle they chose does not start following the name after a save.
+                Draft.HandleChosen = chosen;
                 await ApplyGrants(staged);
                 JustSaved = true;
                 EditingHandle = false;
@@ -774,12 +790,13 @@ public sealed partial class BotEditorViewModel : ObservableObject
         Notify();
     }
 
-    // Makes the bot once, with the name, model and parent chosen, then sets the rest of the draft on it. The server
-    // makes the handle from the name and numbers it, so it is kept unless the person chose one. A bot that was made
-    // stays made even if the rest could not be set: the editor opens it, so saving again does not make a second.
+    // Makes the bot once, with the name, model and parent chosen, then sets the rest of the draft on it, in two steps.
+    // The first step is never repeated: once the bot is made its id is kept, so a second Save does not make another.
+    // If the second step is refused, for example because a handle that was chosen is taken by then, the draft stays on
+    // screen with the reason, and the next Save sets it on the bot that was made, so nothing typed is lost.
     private async Task MakeBot()
     {
-        if (madeBotId is not null)
+        if (madeAndOpened)
         {
             return;
         }
@@ -797,33 +814,27 @@ public sealed partial class BotEditorViewModel : ObservableObject
         await Try(
             async () =>
             {
-                var made = await api.CreateBot(SpaceId, new(Draft.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId));
-                madeBotId = made.Id;
+                if (madeBotId is null)
+                {
+                    var made = await api.CreateBot(SpaceId, new(Draft.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId));
+                    madeBotId = made.Id;
+
+                    // The server made the handle from the name, numbered if taken. That is not a choice of the person's.
+                    if (!Draft.HandleChosen)
+                    {
+                        Draft.Handle = made.Handle;
+                        Draft.HandleChosen = false;
+                    }
+                }
+
+                var id = madeBotId.Value;
+                await api.UpdateBotDefinition(SpaceId, id, Draft.ToRequest() with { HandleFollowsName = !Draft.HandleChosen });
                 leaveConfirmed = true;
-
-                if (BotHandles.Follows(Draft.Handle, Draft.Name))
-                {
-                    Draft.Handle = made.Handle;
-                }
-
-                string? notSet = null;
-
-                try
-                {
-                    await api.UpdateBotDefinition(SpaceId, made.Id, Draft.ToRequest());
-                }
-                catch (Exception exception) when (Failures.IsReportable(exception))
-                {
-                    logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditorViewModel));
-                    notSet = Failures.Sentence(exception);
-                }
-
-                toasts.Show(
-                    notSet is null ? $"{made.Name} was made." : $"{made.Name} was made, but its other settings were not saved: {notSet}",
-                    notSet is null ? ToastKind.Success : ToastKind.Warning);
-                navigator.NavigateTo(Addresses.Bot(made.Id));
+                madeAndOpened = true;
+                toasts.Show($"{Draft.Name} was made.", ToastKind.Success);
+                navigator.NavigateTo(Addresses.Bot(id));
             },
-            problem => SaveProblem = problem);
+            problem => SaveProblem = madeBotId is null ? problem : $"{MadeButNotSet} {problem}");
         Saving = false;
         Notify();
     }

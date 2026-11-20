@@ -111,7 +111,8 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             });
 
         // Each part differs from what a new bot holds, so a part that was silently dropped fails here.
-        foreach (var part in typeof(UpdateBotRequest).GetProperties())
+        // HandleFollowsName is how the client says the handle is not one a person chose. It is not stored.
+        foreach (var part in typeof(UpdateBotRequest).GetProperties().Where(part => part.Name != nameof(UpdateBotRequest.HandleFollowsName)))
         {
             var readPart = typeof(BotDetail).GetProperty(part.Name)!;
             JsonSerializer.Serialize(readPart.GetValue(read)).Should().NotBe(JsonSerializer.Serialize(readPart.GetValue(untouched)), $"{part.Name} was edited");
@@ -142,26 +143,64 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var second = await CreateBot(client, alice.SpaceId, "New bot");
         var handSet = await CreateBot(client, alice.SpaceId, "Scout");
         var route = (BotSummary bot) => $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
-        UpdateBotRequest Rename(string name, string handle) =>
-            new(name, handle, null, null, null, null, null, null, null, null, null, null, null);
+        UpdateBotRequest Rename(string name, string handle, bool follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
 
         first.Handle.Should().Be("new-bot");
         second.Handle.Should().Be("new-bot-2", "the server adds a number to keep a handle unique");
 
         // The second "New bot" is renamed to "Writer": its numbered handle follows.
-        var writer = await PutFor<BotDetail>(client, route(second), Rename("Writer", BotHandles.Stem("Writer")));
+        var writer = await PutFor<BotDetail>(client, route(second), Rename("Writer", BotHandles.Stem("Writer"), follows: true));
         writer.Handle.Should().Be("writer");
 
         // Another bot is renamed to a name whose handle is taken: the handle follows and the server numbers it.
-        var other = await PutFor<BotDetail>(client, route(first), Rename("Writer", BotHandles.Stem("Writer")));
+        var other = await PutFor<BotDetail>(client, route(first), Rename("Writer", BotHandles.Stem("Writer"), follows: true));
         other.Handle.Should().Be("writer-2");
 
-        // A handle a person chose stays when the name changes, and one that is taken is refused, not renumbered.
-        await PutFor<BotDetail>(client, route(handSet), Rename("Scout", "my-scout"));
-        var renamed = await PutFor<BotDetail>(client, route(handSet), Rename("Scout the second", null!));
+        // A handle a person chose stays when the name changes, and a taken one is refused, not renumbered, even when it
+        // is exactly the handle the new name makes.
+        await PutFor<BotDetail>(client, route(handSet), Rename("Scout", "my-scout", follows: false));
+        var renamed = await PutFor<BotDetail>(client, route(handSet), Rename("Scout the second", null!, follows: false));
         renamed.Handle.Should().Be("my-scout");
-        var taken = await client.Put(route(handSet), Rename("Scout the second", "writer"));
-        taken.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var takenByChoice = await client.Put(route(handSet), Rename("Writer", "writer", follows: false));
+        takenByChoice.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a handle a person chose is refused when it is taken, not renumbered");
+        (await GetFor<BotDetail>(client, route(handSet))).Handle.Should().Be("my-scout");
+    }
+
+    [Fact]
+    public async Task A_handle_an_earlier_server_made_with_every_separator_kept_follows_a_rename()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var bot = await CreateBot(client, alice.SpaceId, "A  B");
+        var route = $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition";
+        bot.Handle.Should().Be("a-b", "separators now make one hyphen");
+        UpdateBotRequest Edit(string name, string handle, bool follows) =>
+            new(name, handle, null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: follows);
+        await PutFor<BotDetail>(client, route, Edit("A  B", "a--b", follows: false));
+
+        var renamed = await PutFor<BotDetail>(client, route, Edit("Writer", BotHandles.Stem("Writer"), follows: true));
+
+        renamed.Handle.Should().Be("writer", "the handle an earlier server made from the name follows it");
+    }
+
+    [Fact]
+    public async Task A_name_longer_than_a_handle_may_be_still_makes_a_handle_the_server_accepts()
+    {
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice);
+        var first = await CreateBot(client, alice.SpaceId, "First");
+        var longName = new string('a', 150);
+        var route = $"{Space(alice.SpaceId)}/bots/{first.Id}/definition";
+        await CreateBot(client, alice.SpaceId, longName);
+
+        var renamed = await PutFor<BotDetail>(
+            client,
+            route,
+            new UpdateBotRequest(longName, BotHandles.Stem(longName), null, null, null, null, null, null, null, null, null, null, null, HandleFollowsName: true));
+
+        renamed.Handle.Length.Should().BeLessThanOrEqualTo(BotHandles.MaxLength);
+        renamed.Handle.Should().StartWith(BotHandles.Stem(longName)).And.EndWith("-2", "the stem is taken by the bot made with that name");
     }
 
     [Theory]

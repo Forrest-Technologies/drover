@@ -18,7 +18,11 @@ public sealed record BotEdit(
     SandboxSettings? SandboxSettings,
     IReadOnlyList<Guid> SandboxSharedWith,
     BuildLimits BuildLimits,
-    RunLimits RunLimits);
+    RunLimits RunLimits)
+{
+    /// <summary>The handle is the one the new name makes, not one a person chose, so the service may number it.</summary>
+    public bool HandleFollowsName { get; init; }
+}
 
 /// <summary>
 /// A bot to create: its name, what it is for as other bots read it, its instructions, and the model it talks to. It
