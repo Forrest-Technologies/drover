@@ -88,6 +88,10 @@ public sealed class FileRepository(DroverDbContext db)
         return [.. rows.Select(row => new ExchangedFile(row.File, row.IsMain))];
     }
 
+    /// <summary>Whether the project has a shared file the caller can see.</summary>
+    public Task<bool> AnyProjectFile(Guid projectId, CancellationToken cancellationToken) =>
+        db.Files.AnyAsync(file => file.ProjectId == projectId, cancellationToken);
+
     /// <summary>The files shared in a project that the caller can see, newest first.</summary>
     public Task<List<StoredFile>> ListProjectFiles(Guid projectId, CancellationToken cancellationToken) =>
         db.Files
@@ -96,6 +100,47 @@ public sealed class FileRepository(DroverDbContext db)
             .OrderByDescending(file => file.CreatedAt)
             .ThenByDescending(file => file.Id)
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// A bounded newest-first window of lightweight project file candidates whose size fits
+    /// <paramref name="maxSingleBytes"/>, paired with exact total and oversized counts computed in SQL without
+    /// materializing full rows.
+    /// </summary>
+    public async Task<ProjectFileWindow> ListProjectFileWindow(
+        Guid projectId,
+        int candidateLimit,
+        long maxSingleBytes,
+        CancellationToken cancellationToken)
+    {
+        var total = await db.Files
+            .AsNoTracking()
+            .CountAsync(file => file.ProjectId == projectId, cancellationToken);
+
+        if (total == 0)
+        {
+            return new ProjectFileWindow([], 0, 0);
+        }
+
+        var oversized = await db.Files
+            .AsNoTracking()
+            .CountAsync(file => file.ProjectId == projectId && (file.Size < 0 || file.Size > maxSingleBytes), cancellationToken);
+
+        if (oversized >= total || candidateLimit <= 0)
+        {
+            return new ProjectFileWindow([], total, oversized);
+        }
+
+        var candidates = await db.Files
+            .AsNoTracking()
+            .Where(file => file.ProjectId == projectId && file.Size >= 0 && file.Size <= maxSingleBytes)
+            .OrderByDescending(file => file.CreatedAt)
+            .ThenByDescending(file => file.Id)
+            .Select(file => new ProjectFileCandidate(file.Id, file.Size))
+            .Take(candidateLimit)
+            .ToListAsync(cancellationToken);
+
+        return new ProjectFileWindow(candidates, total, oversized);
+    }
 
     public Task<StoredFile?> FindProjectFile(Guid projectId, Guid fileId, CancellationToken cancellationToken) =>
         db.Files.AsNoTracking().SingleOrDefaultAsync(file => file.Id == fileId && file.ProjectId == projectId, cancellationToken);
@@ -436,6 +481,12 @@ public sealed class FileRepository(DroverDbContext db)
 
 /// <summary>A file a person and a bot exchanged, and whether the conversation that carries it is the main one.</summary>
 public sealed record ExchangedFile(StoredFile File, bool InMainConversation);
+
+/// <summary>Lightweight metadata for selecting which project files to open before materializing full rows.</summary>
+public sealed record ProjectFileCandidate(Guid Id, long Size);
+
+/// <summary>Bounded newest-first project file candidates with exact total and oversized counts.</summary>
+public sealed record ProjectFileWindow(IReadOnlyList<ProjectFileCandidate> Candidates, int TotalCount, int OversizedCount);
 
 /// <summary>Whether a finishing project upload's reservation was consumed, exceeded, or already expired.</summary>
 public enum HoldCompletion
