@@ -243,7 +243,7 @@ public sealed class AndroidPushRegistration(
                 AndroidNotifications.Clear();
                 pending?.TrySetResult(null);
                 pending = null;
-                await TellServerToStop(saved, cancellationToken);
+                await TellServerToStop(origin, saved, cancellationToken);
                 break;
         }
     }
@@ -287,17 +287,32 @@ public sealed class AndroidPushRegistration(
         {
             await using var scope = scopes.CreateAsyncScope();
             var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
-            if ((await api.GetSession(cancellationToken))?.UserId != saved.UserId)
+            var made = await OwnerBoundWrite.Run(
+                () => server.Current,
+                origin,
+                async () => (await api.GetSession(cancellationToken))?.UserId,
+                saved.UserId,
+                () => api.TurnOnPush(request, cancellationToken),
+                () => api.TurnOffPush(request.Endpoint, CancellationToken.None),
+                logger);
+            if (!made)
             {
                 return saved;
             }
 
-            await api.TurnOnPush(request, cancellationToken);
             var reported = saved with { Reported = saved.Endpoint };
             await storage.SetAsync(Key(origin), reported.Store());
             if (saved.Reported is { } previous && previous != saved.Endpoint)
             {
-                await api.TurnOffPush(previous, cancellationToken);
+                // The old address goes only while the same person is still signed in. If not, it stays and the
+                // next look removes it, since the server was told the new one.
+                await OwnerBoundWrite.Run(
+                    () => server.Current,
+                    origin,
+                    async () => (await api.GetSession(cancellationToken))?.UserId,
+                    saved.UserId,
+                    () => api.TurnOffPush(previous, cancellationToken),
+                    () => Task.CompletedTask);
             }
 
             return reported;
@@ -311,21 +326,23 @@ public sealed class AndroidPushRegistration(
 
     // The registration is gone from the device, so the server must not keep sending to it. If the server cannot be
     // reached now it learns from the distributor, whose answer to a message for a gone registration it acts on.
-    private async Task TellServerToStop(AndroidPushSubscription saved, CancellationToken cancellationToken)
+    private async Task TellServerToStop(Uri origin, AndroidPushSubscription saved, CancellationToken cancellationToken)
     {
         string?[] addresses = [saved.Endpoint, saved.Reported];
         try
         {
             await using var scope = scopes.CreateAsyncScope();
             var api = scope.ServiceProvider.GetRequiredService<DroverApi>();
-            if ((await api.GetSession(cancellationToken))?.UserId != saved.UserId)
-            {
-                return;
-            }
-
             foreach (var address in addresses.OfType<string>().Distinct())
             {
-                await api.TurnOffPush(address, cancellationToken);
+                // Each removal is checked on its own, so one made after the person signed out is not made at all.
+                await OwnerBoundWrite.Run(
+                    () => server.Current,
+                    origin,
+                    async () => (await api.GetSession(cancellationToken))?.UserId,
+                    saved.UserId,
+                    () => api.TurnOffPush(address, cancellationToken),
+                    () => Task.CompletedTask);
             }
         }
         catch (Exception exception) when (exception is HttpRequestException or DroverApiException or OperationCanceledException)

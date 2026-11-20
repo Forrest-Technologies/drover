@@ -8,12 +8,19 @@ public sealed class AndroidFileDelivery(DroverApi api, DocumentDestination docum
 
     private const string SharedFolder = "sharing-root";
 
+    private readonly SingleSave saves = new();
+
     #endregion
 
     #region Interface Implementations
 
     public async Task<bool> Save(SharedFile file, CancellationToken cancellationToken = default)
     {
+        // The turn is held from the picker to the end of the clean-up, since the marker that recovers an interrupted
+        // save is one record and a second save would replace it.
+        using var turn = saves.TryStart()
+            ?? throw new FileDeliveryException("Another file is being saved. Wait for it to finish, then save this one.");
+
         // Ask where it goes before anything is downloaded: a person who cancels costs no download, and the file then
         // goes straight to the place they chose instead of through the app's cache.
         if (await documents.Choose(SafeName(file.Name), PickerType(file), cancellationToken) is not { } destination)
