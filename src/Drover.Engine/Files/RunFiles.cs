@@ -1,15 +1,17 @@
 namespace Drover.Engine.Files;
 
 /// <summary>
-/// What one run's model is given for the files people attached to its conversation. Rows are read as the run's
-/// person, so a file they cannot see is never given. A picture goes to a model that reads pictures; text goes in as
-/// text, up to <see cref="MaxTextCharacters"/>; a document's text is read out on the server (<see cref="DocumentReader"/>)
-/// and goes in the same way, from at most <paramref name="maxDocumentPages"/> of its pages, and a PDF with no text
-/// goes to a model that reads pictures as the pictures of its first pages; anything else is copied into the bot's
-/// sandbox, once a run, and the model is told where, as a document is too when the bot has a sandbox it may use, but only from a conversation everyone who can reach the sandbox can see, checked when the rows
-/// are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>) and again when the copy is written. Nothing here holds a
-/// transaction while it reads a file or copies one. A file is text from outside Drover, so a run given one, its
-/// content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
+/// What one run's model is given for the files people attached to its conversation or shared in its project. Rows
+/// are read as the run's person, so a file they cannot see is never given. A picture goes to a model that reads
+/// pictures; text goes in as text, up to <see cref="MaxTextCharacters"/>; a document's text is read out on the server
+/// (<see cref="DocumentReader"/>) and goes in the same way, from at most <paramref name="maxDocumentPages"/> of its
+/// pages, and a PDF with no text goes to a model that reads pictures as the pictures of its first pages; anything else
+/// from a conversation attachment is copied into the bot's sandbox, once a run, and the model is told where, as a
+/// document is too when the bot has a sandbox it may use, but only from a conversation everyone who can reach the
+/// sandbox can see, checked when the rows are read (<see cref="FileAbilityReader.AudienceCoversSandbox"/>) and again
+/// when the copy is written. Shared project files never copy into a sandbox and reach the model directly as text,
+/// read documents, or pictures. Nothing here holds a transaction while it reads a file or copies one. A file is text
+/// from outside Drover, so a run given one, its content or its copy in the sandbox, is tainted (<paramref name="taint"/>).
 /// </summary>
 public sealed class RunFiles(
     RunTenant tenant,
@@ -68,7 +70,39 @@ public sealed class RunFiles(
 
         foreach (var (file, covered) in rows)
         {
-            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), cancellationToken);
+            opened[file.Id] = await Give(file, new FileAbilities(modelReadsImages, hasSandbox, covered), forProject: false, cancellationToken);
+        }
+
+        return opened;
+    }
+
+    /// <summary>
+    /// Opens shared files belonging to <paramref name="projectId"/> for the model without touching any sandbox.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, FileForModel>> OpenProject(
+        Guid projectId,
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<Guid, FileForModel> opened = [];
+
+        if (fileIds.Count == 0)
+        {
+            return opened;
+        }
+
+        var rows = await tenant.Transact(
+            async services =>
+            {
+                var files = await services.GetRequiredService<FileRepository>().ListFiles(fileIds, cancellationToken);
+                return files.Where(file => file.ProjectId == projectId).ToList();
+            },
+            cancellationToken);
+        FileAbilities directOnly = new(modelReadsImages, HasSandbox: false, AudienceCoversSandbox: false);
+
+        foreach (var file in rows)
+        {
+            opened[file.Id] = await Give(file, directOnly, forProject: true, cancellationToken);
         }
 
         return opened;
@@ -82,7 +116,7 @@ public sealed class RunFiles(
     #region Private Methods
 
     /// <summary>A picture is read each time it is given, so its bytes are not held for the whole run. So are pictures of pages.</summary>
-    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
+    private async Task<FileForModel> Give(StoredFile file, FileAbilities can, bool forProject, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
         {
@@ -103,11 +137,13 @@ public sealed class RunFiles(
             FileUse.Text => await Text(file, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
-            _ => Note(file, FileUses.RefusalFor(kind, can) switch
+            _ => Note(file, (forProject, FileUses.RefusalFor(kind, can)) switch
             {
-                FileRefusals.PrivateConversation => "this conversation is private and others in this space can reach your sandbox, so it was not put there and you cannot open it",
-                FileRefusals.ModelCannotReadImages => "this bot's model cannot read pictures and it has no sandbox, so it cannot open it",
-                _ => "this bot has no sandbox to open it in, so it cannot open it",
+                (true, FileRefusals.ModelCannotReadImages) => "this bot's model cannot read pictures and project files are not copied into a sandbox, so it cannot open it",
+                (true, _) => "project files are not copied into a sandbox, so it cannot open it",
+                (false, FileRefusals.PrivateConversation) => "this conversation is private and others in this space can reach your sandbox, so it was not put there and you cannot open it",
+                (false, FileRefusals.ModelCannotReadImages) => "this bot's model cannot read pictures and it has no sandbox, so it cannot open it",
+                (false, _) => "this bot has no sandbox to open it in, so it cannot open it",
             }),
         };
 

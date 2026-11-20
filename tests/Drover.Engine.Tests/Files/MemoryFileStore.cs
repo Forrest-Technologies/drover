@@ -9,6 +9,8 @@ public sealed class MemoryFileStore : IFileStore
 
     private int saved;
 
+    private int opened;
+
     #endregion
 
     #region Properties
@@ -23,6 +25,9 @@ public sealed class MemoryFileStore : IFileStore
     /// copies the bytes. Null does nothing.
     /// </summary>
     public Func<CancellationToken, Task>? BeforeOpen { get; set; }
+
+    /// <summary>How many times <see cref="Open"/> read stored content.</summary>
+    public int Opened => opened;
 
     #endregion
 
@@ -46,6 +51,7 @@ public sealed class MemoryFileStore : IFileStore
             await before(cancellationToken);
         }
 
+        Interlocked.Increment(ref opened);
         return files.TryGetValue(storageKey, out var bytes) ? new MemoryStream(bytes, writable: false) : null;
     }
 

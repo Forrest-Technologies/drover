@@ -69,4 +69,15 @@ public interface IRunGovernor
     /// </summary>
     Task<IReadOnlyDictionary<Guid, FileForModel>> OpenFiles(IReadOnlyCollection<Guid> fileIds, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyDictionary<Guid, FileForModel>>(new Dictionary<Guid, FileForModel>());
+
+    /// <summary>
+    /// What the model is given for each of these shared files in <paramref name="projectId"/>, by file id, read as
+    /// the run's person. Project files reach the model directly as text, read document pages, or pictures; they are
+    /// never copied into a bot's sandbox.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, FileForModel>> OpenProjectFiles(
+        Guid projectId,
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken) =>
+        OpenFiles(fileIds, cancellationToken);
 }

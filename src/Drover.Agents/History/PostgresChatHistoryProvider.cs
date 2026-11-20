@@ -76,11 +76,13 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         var ordered = MessageOrder.ResultsAfterCalls(complete);
         var shown = summary is null ? ordered : MessageOrder.After(ordered, summary.ThroughPosition);
 
-        // Attached files and the project's current files are opened with no transaction open: copying one into a
-        // sandbox waits on the network. Both go through the same grant path.
+        // Attached files and the project's bounded files are opened with no transaction open: copying an attachment
+        // into a sandbox waits on the network, while project files are read directly and never copied into a sandbox.
         var attachmentIds = shown.Concat(steers).FileIds();
-        var projectIds = projectFiles?.FileIds ?? [];
-        var files = await run.Governor.OpenFiles([.. attachmentIds.Concat(projectIds).Distinct()], cancellationToken);
+        var files = await run.Governor.OpenFiles([.. attachmentIds], cancellationToken);
+        var projectOpened = projectFiles is { FileIds.Count: > 0 } selected
+            ? await run.Governor.OpenProjectFiles(selected.ProjectId, selected.FileIds, cancellationToken)
+            : new Dictionary<Guid, FileForModel>();
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage(files))];
         steering = [.. steered.Select(message => message.MessageId!)];
         context.RequestMessages = [.. request, .. steered];
@@ -94,9 +96,9 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
         if (projectFiles is { } shared)
         {
-            List<FileForModel> opened = [.. shared.FileIds.Where(files.ContainsKey).Select(id => files[id])];
+            List<FileForModel> opened = [.. shared.FileIds.Where(projectOpened.ContainsKey).Select(id => projectOpened[id])];
 
-            if (ProjectFileGrant.ToMessage(shared.Name, opened) is { } sharedFiles)
+            if (ProjectFileGrant.ToMessage(shared.Name, opened, shared.OmittedCount) is { } sharedFiles)
             {
                 given.Insert(summary is null ? 0 : 1, sharedFiles);
             }
@@ -167,21 +169,21 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     #region Summary
 
     /// <summary>
-    /// The project the conversation belongs to now, and its file ids, oldest first. Null when it belongs to none.
-    /// Read in the history transaction so a project or file removed since the run loaded is not granted.
+    /// The pinned project for this execution and its bounded file ids, oldest first. Null when the execution has no
+    /// project or the project was removed. Using the pinned execution project keeps project instructions and file grants
+    /// on the same project even if the conversation moves mid-run.
     /// </summary>
     private async Task<SharedProjectFiles?> ReadProjectFiles(IServiceProvider services, CancellationToken cancellationToken)
     {
-        var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.Thread.Id, cancellationToken);
-
-        if (thread?.ProjectId is not { } projectId
-            || await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken) is not { } project)
+        if (run.Execution.Project is not { } pinned
+            || await services.GetRequiredService<ProjectRepository>().FindProject(pinned.Id, cancellationToken) is not { } project)
         {
             return null;
         }
 
         var files = await services.GetRequiredService<FileRepository>().ListProjectFiles(project.Id, cancellationToken);
-        return new SharedProjectFiles(project.Name, [.. files.Select(file => file.Id).Reverse()]);
+        var selection = ProjectFileGrant.SelectForOpen(files);
+        return new SharedProjectFiles(project.Id, project.Name, selection.FileIds, selection.OmittedCount);
     }
 
     /// <summary>
@@ -475,8 +477,8 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     /// <summary>A main thread's summary and the position of the last message it covers.</summary>
     private sealed record HistorySummary(string Text, int ThroughPosition);
 
-    /// <summary>The project files to grant on this model call, oldest first.</summary>
-    private sealed record SharedProjectFiles(string Name, IReadOnlyList<Guid> FileIds);
+    /// <summary>The project files selected to grant on this model call, oldest first.</summary>
+    private sealed record SharedProjectFiles(Guid ProjectId, string Name, IReadOnlyList<Guid> FileIds, int OmittedCount);
 
     #endregion
 }
