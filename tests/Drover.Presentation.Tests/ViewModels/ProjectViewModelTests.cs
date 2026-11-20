@@ -138,6 +138,32 @@ public sealed class ProjectViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task Edits_made_while_a_save_is_in_flight_remain_in_the_fields()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        screen.UpdateDraftName("Submitted name");
+        screen.UpdateDraftInstructions("Submitted instructions");
+        var saved = Weekly with { Name = "Submitted name", Instructions = "Submitted instructions" };
+        Server.Answer("PUT", projectPath, saved);
+        Server.Answer("GET", projectPath, saved);
+        var held = Server.Hold("PUT", projectPath);
+
+        var saving = screen.Save();
+        screen.UpdateDraftName("Later name");
+        screen.UpdateDraftInstructions("Later instructions");
+        held.SetResult();
+        await saving;
+
+        Server.Sent("PUT", projectPath).Should().ContainSingle()
+            .Which.Should().Contain("Submitted name").And.Contain("Submitted instructions");
+        screen.Name.Should().Be("Submitted name");
+        screen.DraftName.Should().Be("Later name");
+        screen.DraftInstructions.Should().Be("Later instructions");
+    }
+
+    [Fact]
     public async Task Typed_drafts_survive_reload_upload_removal_and_move_until_saved_or_switching_project()
     {
         var outside = Thread(outsideId, botId, "Side notes", null);
@@ -230,6 +256,117 @@ public sealed class ProjectViewModelTests : ViewModelTest
         screen.Files.Should().ContainSingle();
     }
 
+    [Theory]
+    [InlineData("io")]
+    [InlineData("access")]
+    public async Task A_file_that_cannot_be_read_reports_its_name_without_logging_the_failure(string failureKind)
+    {
+        const string RawFailure = "raw-reader-failure";
+        var failure = failureKind switch
+        {
+            "io" => (Exception)new IOException(RawFailure),
+            _ => new UnauthorizedAccessException(RawFailure),
+        };
+        var log = new RecordingLogger<ProjectViewModel>();
+        var screen = new ProjectViewModel(Server.CreateApi(), Session, Navigator, log);
+        var file = new SampleFile("private-note.txt", 4, [1, 2, 3, 4], failure);
+        Answer(maxFileBytes: HostedMaxBytes);
+        await screen.Open(projectId);
+
+        await screen.Upload(file);
+
+        screen.Problem.Should().Contain(file.Name).And.NotContain(RawFailure);
+        screen.Working.Should().BeNull();
+        Server.Sent("POST", filePath).Should().BeEmpty();
+        log.Entries.Should().ContainSingle();
+        log.Entries.Should().OnlyContain(entry =>
+            entry.Exception == null && !entry.Message.Contains(RawFailure, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Choosing_files_reports_local_failures_without_logging_the_failure_text()
+    {
+        const string RawFailure = "raw-chooser-failure";
+        var log = new RecordingLogger<ProjectViewModel>();
+        var screen = new ProjectViewModel(Server.CreateApi(), Session, Navigator, log);
+        Answer();
+        await screen.Open(projectId);
+
+        await screen.ChooseFiles(() =>
+            Task.FromException<IReadOnlyList<IPickedFile>>(new IOException(RawFailure)));
+
+        screen.Problem.Should().Be("Could not choose a file. Try again.");
+        screen.Working.Should().BeNull();
+        Server.Sent("POST", filePath).Should().BeEmpty();
+        log.Entries.Should().ContainSingle();
+        log.Entries.Should().OnlyContain(entry =>
+            entry.Exception == null && !entry.Message.Contains(RawFailure, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Cancelling_or_emptying_the_file_chooser_preserves_the_existing_problem()
+    {
+        var screen = Make<ProjectViewModel>();
+        Answer();
+        await screen.Open(projectId);
+        await screen.Save(" ", "ignored");
+        var previous = screen.Problem;
+        var cancelled = new CancellationToken(canceled: true);
+
+        await screen.ChooseFiles(() => Task.FromCanceled<IReadOnlyList<IPickedFile>>(cancelled));
+        screen.Problem.Should().Be(previous);
+
+        await screen.ChooseFiles(() => Task.FromResult<IReadOnlyList<IPickedFile>>([]));
+        screen.Problem.Should().Be(previous);
+        screen.Working.Should().BeNull();
+        Server.Sent("POST", filePath).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_batch_keeps_an_oversized_file_named_and_uploads_the_later_valid_file()
+    {
+        var screen = Make<ProjectViewModel>();
+        var tooBig = new SampleFile("oversized.bin", HostedMaxBytes + 1, [1]);
+        var valid = new SampleFile("later.txt", 4, [1, 2, 3, 4]);
+        Answer(maxFileBytes: HostedMaxBytes);
+        await screen.Open(projectId);
+        Server.Answer("POST", filePath, Note);
+        Server.Answer<IReadOnlyList<ProjectFileResponse>>("GET", filePath, [Note]);
+
+        await screen.UploadFiles([tooBig, valid]);
+
+        screen.Problem.Should().Contain(tooBig.Name).And.Contain("10 MB");
+        Server.Addresses.Where(address => address.StartsWith($"POST {filePath}", StringComparison.Ordinal))
+            .Should().ContainSingle().Which.Should().Contain("name=later.txt");
+        Server.Addresses.Should().NotContain(address =>
+            address.Contains("name=oversized.bin", StringComparison.Ordinal));
+        screen.Files.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_batch_keeps_an_unreadable_file_named_and_uploads_the_later_valid_file()
+    {
+        const string RawFailure = "raw-batch-reader-failure";
+        var log = new RecordingLogger<ProjectViewModel>();
+        var screen = new ProjectViewModel(Server.CreateApi(), Session, Navigator, log);
+        var unreadable = new SampleFile("private.txt", 4, [1, 2, 3, 4], new IOException(RawFailure));
+        var valid = new SampleFile("later.txt", 4, [1, 2, 3, 4]);
+        Answer(maxFileBytes: HostedMaxBytes);
+        await screen.Open(projectId);
+        Server.Answer("POST", filePath, Note);
+        Server.Answer<IReadOnlyList<ProjectFileResponse>>("GET", filePath, [Note]);
+
+        await screen.UploadFiles([unreadable, valid]);
+
+        screen.Problem.Should().Contain(unreadable.Name).And.NotContain(RawFailure);
+        Server.Addresses.Where(address => address.StartsWith($"POST {filePath}", StringComparison.Ordinal))
+            .Should().ContainSingle().Which.Should().Contain("name=later.txt");
+        Server.Addresses.Should().NotContain(address => address.Contains("name=private.txt", StringComparison.Ordinal));
+        log.Entries.Should().ContainSingle();
+        log.Entries.Should().OnlyContain(entry =>
+            entry.Exception == null && !entry.Message.Contains(RawFailure, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Downloading_delivers_the_authenticated_file_through_platform_delivery_and_reports_failures()
     {
@@ -314,6 +451,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
         Server.Answer("PUT", $"{space}/threads/{outsideId}/project", moved);
         Server.Answer("GET", threadPath, new[] { moved });
         Server.Answer("GET", $"{space}/threads", new[] { moved });
+        await screen.MoveIn(outsideId);
         var before = Server.Requests.Count;
         await screen.MoveOut(outsideId);
         var added = Server.Requests.Skip(before).ToList();
@@ -323,6 +461,37 @@ public sealed class ProjectViewModelTests : ViewModelTest
         added.Single(request => request.Method == "PUT").Body.Should().Contain("\"projectId\":null");
         screen.Threads.Should().ContainSingle().Which.Id.Should().Be(outsideId);
         screen.Movable.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Only_an_owned_conversation_currently_in_the_project_can_move_out()
+    {
+        var ownedInside = Thread(threadId, botId, "Weekly notes", projectId);
+        var ownedOutside = Thread(outsideId, botId, "Side notes", null);
+        var otherInside = Thread(Guid.Parse("0196f1a0-0000-7000-8000-000000000018"), botId, "Other notes", projectId);
+        var screen = Make<ProjectViewModel>();
+        Answer(threads: [ownedInside, otherInside], bots: [Marshal], own: [ownedInside, ownedOutside]);
+
+        await screen.Open(projectId);
+
+        screen.CanMoveOut(ownedInside.Id).Should().BeTrue();
+        screen.CanMoveOut(ownedOutside.Id).Should().BeFalse();
+        screen.CanMoveOut(otherInside.Id).Should().BeFalse();
+        screen.CanMoveOut(Guid.Empty).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Moving_another_persons_conversation_out_is_refused_without_a_request()
+    {
+        var otherInside = Thread(threadId, botId, "Other notes", projectId);
+        var screen = Make<ProjectViewModel>();
+        Answer(threads: [otherInside], bots: [Marshal]);
+        await screen.Open(projectId);
+
+        await screen.MoveOut(otherInside.Id);
+
+        screen.Problem.Should().Contain("your own conversations");
+        Server.Sent("PUT", $"{space}/threads/{otherInside.Id}/project").Should().BeEmpty();
     }
 
     [Fact]
@@ -431,7 +600,7 @@ public sealed class ProjectViewModelTests : ViewModelTest
 
     #region Sample Files
 
-    private sealed class SampleFile(string name, long size, byte[] bytes) : IPickedFile
+    private sealed class SampleFile(string name, long size, byte[] bytes, Exception? failure = null) : IPickedFile
     {
         #region Properties
 
@@ -449,7 +618,9 @@ public sealed class ProjectViewModelTests : ViewModelTest
         {
             cancellationToken.ThrowIfCancellationRequested();
             RequestedCap = maxBytes;
-            return Task.FromResult<Stream>(new MemoryStream(bytes));
+            return failure is null
+                ? Task.FromResult<Stream>(new MemoryStream(bytes))
+                : Task.FromException<Stream>(failure);
         }
 
         #endregion
