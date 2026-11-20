@@ -11,6 +11,7 @@ public sealed class BotMapping : IEntityTypeConfiguration<Bot>
         builder.Property(bot => bot.Id).ValueGeneratedNever();
         builder.Property(bot => bot.Name).HasMaxLength(200);
         builder.Property(bot => bot.Handle).HasMaxLength(100);
+        builder.Property(bot => bot.HandleChosen).HasDefaultValue(false);
         builder.Property(bot => bot.Model).HasMaxLength(200);
         builder.Property(bot => bot.Avatar).HasJsonRecord();
         builder.Property(bot => bot.ModelSettings).HasJsonRecord();

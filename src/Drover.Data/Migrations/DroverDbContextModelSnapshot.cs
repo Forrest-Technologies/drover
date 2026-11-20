@@ -353,6 +353,12 @@ namespace Drover.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("handle");
 
+                    b.Property<bool>("HandleChosen")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("handle_chosen");
+
                     b.Property<string>("Instructions")
                         .IsRequired()
                         .HasColumnType("text")
