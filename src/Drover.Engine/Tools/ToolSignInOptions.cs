@@ -26,6 +26,12 @@ public sealed class ToolSignInOptions
     public static readonly FrozenSet<string> AppSchemes = FrozenSet.ToFrozenSet(
         ["com.forresttechnologies.drover.preview", "com.forresttechnologies.drover.client"], StringComparer.Ordinal);
 
+    /// <summary>
+    /// The paths of the browser clients this server serves: the web client, and the native client's browser build
+    /// (<c>NativeClientFiles.BasePath</c> in the server). A browser that started a sign-in in one comes back to it.
+    /// </summary>
+    public static readonly FrozenSet<string> WebPaths = FrozenSet.ToFrozenSet(["/", "/native/"], StringComparer.Ordinal);
+
     #endregion
 
     #region Properties

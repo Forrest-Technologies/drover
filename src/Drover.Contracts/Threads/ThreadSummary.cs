@@ -14,4 +14,5 @@ public sealed record ThreadSummary(
     DateTimeOffset LastActivityAt,
     Guid? ActiveRunId,
     bool IsMain = false,
-    ThreadAttention? Attention = null);
+    ThreadAttention? Attention = null,
+    Guid? ProjectId = null);

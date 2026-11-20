@@ -23,7 +23,23 @@ public sealed partial class DroverApi
         Get<List<ThreadSummary>>($"{Space(spaceId)}/bots/{botId}/threads", cancellationToken);
 
     public Task<ThreadSummary> CreateThread(Guid spaceId, Guid botId, string? title = null, CancellationToken cancellationToken = default) =>
-        Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title), cancellationToken);
+        CreateThread(spaceId, botId, title, projectId: null, cancellationToken);
+
+    public Task<ThreadSummary> CreateThread(
+        Guid spaceId,
+        Guid botId,
+        string? title,
+        Guid? projectId,
+        CancellationToken cancellationToken = default) =>
+        Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title, projectId), cancellationToken);
+
+    /// <summary>Moves a conversation into a project of the same space, or out of its project when <paramref name="projectId"/> is null.</summary>
+    public Task<ThreadSummary> SetThreadProject(
+        Guid spaceId,
+        Guid threadId,
+        Guid? projectId,
+        CancellationToken cancellationToken = default) =>
+        Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/project", new SetThreadProjectRequest(projectId), cancellationToken);
 
     /// <summary>
     /// The caller's one main thread with the bot, made the first time it is asked for. Asking again returns the same

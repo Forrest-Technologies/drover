@@ -1,21 +1,17 @@
+#if __ANDROID__ || __IOS__
 namespace Drover.Native.Platform;
 
 /// <summary>
-/// Where the sign-in that outlives the app is kept. On a phone that is the platform's credential store, which the
-/// device's hardware backs. A desktop has no such store the app can use, so there nothing is written anywhere:
-/// the sign-in lasts until the app closes, and the person signs in again next time.
+/// Where the sign-in that outlives the app is kept on a phone: the platform's credential store, which the device's
+/// hardware backs. A desktop keeps it in the operating system's credential store instead (<c>DesktopSecrets</c>).
 /// </summary>
 internal sealed class DeviceSecrets(ILogger<DeviceSecrets> logger) : ISecureStorage
 {
     #region Private Fields
 
-#if __ANDROID__ || __IOS__
     private const string Resource = "Drover";
 
     private readonly Windows.Security.Credentials.PasswordVault vault = new();
-#else
-    private readonly Dictionary<string, string> untilClosed = [];
-#endif
 
     #endregion
 
@@ -38,7 +34,6 @@ internal sealed class DeviceSecrets(ILogger<DeviceSecrets> logger) : ISecureStor
 
     #region Private Methods
 
-#if __ANDROID__ || __IOS__
     private string? Read(string key)
     {
         if (Find(key) is not { } kept)
@@ -67,17 +62,7 @@ internal sealed class DeviceSecrets(ILogger<DeviceSecrets> logger) : ISecureStor
     private Windows.Security.Credentials.PasswordCredential? Find(string key) => vault.RetrieveAll().FirstOrDefault(
         credential => string.Equals(credential.Resource, Resource, StringComparison.OrdinalIgnoreCase)
             && string.Equals(credential.UserName, key, StringComparison.OrdinalIgnoreCase));
-#else
-    private string? Read(string key)
-    {
-        logger.LogDebug("This platform has no credential store, so the sign-in is kept only while the app is open");
-        return untilClosed.GetValueOrDefault(key);
-    }
-
-    private void Write(string key, string value) => untilClosed[key] = value;
-
-    private bool Forget(string key) => untilClosed.Remove(key);
-#endif
 
     #endregion
 }
+#endif

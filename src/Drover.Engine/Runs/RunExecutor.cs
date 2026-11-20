@@ -428,8 +428,8 @@ public sealed partial class RunExecutor(
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
     /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
-    /// read the screen for the bot, a crew tool a server that lets bots build bots, and a memory tool a bot with memory
-    /// on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
+    /// read the screen for the bot, a crew tool a server that lets bots build bots, a web tool a server that offers the
+    /// web tools, and a memory tool a bot with memory on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
     private RunTool? ToRunTool(GrantedTool granted, LoadedRun loaded)
@@ -461,6 +461,18 @@ public sealed partial class RunExecutor(
 
             // Where the server does not let bots build bots, the crew tools are not offered, whatever the grant says.
             if (CrewTools.IsCrewTool(granted.Tool.Name) && !deployment.Value.Rules.AllowBotsBuildingBots)
+            {
+                return null;
+            }
+
+            // Where the server does not offer the web tools, they are not offered, whatever the grant says.
+            if (WebTools.IsWebTool(granted.Tool.Name) && !deployment.Value.Rules.AllowWebTools)
+            {
+                return null;
+            }
+
+            // Where the server does not offer image generation, its tool is not offered, whatever the grant says.
+            if (ImageTools.IsImageTool(granted.Tool.Name) && !deployment.Value.Rules.AllowImageGeneration)
             {
                 return null;
             }

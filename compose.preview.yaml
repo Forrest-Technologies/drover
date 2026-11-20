@@ -1,0 +1,12 @@
+# Add this override after compose.proxy.yaml to enable the separate preview site.
+services:
+  drover:
+    environment:
+      DROVER_PREVIEW_URL: https://${DROVER_PREVIEW_DOMAIN:?Set DROVER_PREVIEW_DOMAIN to a name on a separate site}
+
+  proxy:
+    command: ["caddy", "run", "--config", "/etc/drover/proxy.conf", "--adapter", "caddyfile"]
+    environment:
+      DROVER_PREVIEW_DOMAIN: ${DROVER_PREVIEW_DOMAIN}
+    volumes:
+      - ./proxy.conf:/etc/drover/proxy.conf:ro

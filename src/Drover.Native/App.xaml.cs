@@ -33,6 +33,8 @@ public partial class App : Application
 
     public Window? MainWindow { get; private set; }
 
+    public bool IsActive { get; private set; }
+
     /// <summary>The services of the app. A screen makes its view model from them; nothing else reaches for them.</summary>
     public IServiceProvider Services => services ?? throw new InvalidOperationException("The app has not started yet.");
 
@@ -56,7 +58,9 @@ public partial class App : Application
         Log.Factory = services.GetRequiredService<ILoggerFactory>();
         Uno.Extensions.LogExtensionPoint.AmbientLoggerFactory = Log.Factory;
         Link.Opener = address => navigator.NavigateTo(address);
+        DialogSurface.Navigator = navigator;
         PlatformShell.Start(navigator);
+        services.GetRequiredService<ILiveNotifications>().Start();
 
         var shell = new ShellView(services, window);
         window.Content = shell;
@@ -73,6 +77,8 @@ public partial class App : Application
         {
             PlatformShell.ReadDevice();
             MainWindow = new Window { Title = "Drover" };
+            MainWindow.Activated += (_, activated) =>
+                IsActive = activated.WindowActivationState is not WindowActivationState.Deactivated;
             Restart();
             MainWindow.Activate();
         }

@@ -49,7 +49,11 @@ public static class RunViews
             thread.LastActivityAt,
             activeRunId,
             thread.IsMain,
-            attention);
+            attention,
+            thread.ProjectId);
+
+    public static ProjectSummary ToSummary(this Project project) =>
+        new(project.Id, project.Name, project.Instructions, project.CreatedAt, project.UpdatedAt);
 
     /// <summary>
     /// The message as the API returns it. <paramref name="scheduleCron"/> is the time of the schedule that sent it, while

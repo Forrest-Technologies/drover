@@ -6,6 +6,16 @@ public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAtte
 /// <summary>What choosing a conversation's model came to: the models now, or why the choice was refused. Neither when the thread is not found.</summary>
 public sealed record ModelChoice(ConversationModelChoice? Choice, string? Problem = null);
 
+public enum ProjectMembershipOutcome
+{
+    Updated,
+    NotFound,
+    Forbidden,
+}
+
+/// <summary>What moving a conversation into or out of a project came to.</summary>
+public sealed record ProjectMembershipChange(ProjectMembershipOutcome Outcome, ThreadView? Thread = null);
+
 /// <summary>
 /// Threads and their messages, as the caller may see them: row-level security shows a person their own threads and
 /// the shared ones, so a thread that is not theirs simply is not found. Runs in the tenant scope the endpoint filter
@@ -13,6 +23,7 @@ public sealed record ModelChoice(ConversationModelChoice? Choice, string? Proble
 /// </summary>
 public sealed class ThreadService(
     ThreadRepository threads,
+    ProjectRepository projects,
     MessageRepository messages,
     BotRepository bots,
     RunRepository runs,
@@ -21,6 +32,7 @@ public sealed class ThreadService(
     TenantScope scope,
     UserSignalHub signals,
     ConversationModels models,
+    SandboxRepository sandboxes,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -80,10 +92,39 @@ public sealed class ThreadService(
             cancellationToken);
     }
 
-    /// <summary>A new private thread with the bot, owned by the caller. Null when the bot cannot be talked to.</summary>
-    public async Task<ChatThread?> Create(Guid botId, string? title, Guid ownerUserId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's visible threads in one project, newest activity first, each with what it has for them. Null when
+    /// the project does not exist here.
+    /// </summary>
+    public async Task<List<ThreadView>?> ListThreadsForProject(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (await projects.FindProject(projectId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var found = await threads.ListThreadsForProject(projectId, ListLimit, cancellationToken);
+        var active = await runs.ListActiveRunIds([.. found.Select(thread => thread.Id)], cancellationToken);
+        return await WithAttention(
+            [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))],
+            userId,
+            cancellationToken);
+    }
+
+    /// <summary>A new private thread with the bot, owned by the caller. Null when the bot or project cannot be used.</summary>
+    public async Task<ChatThread?> Create(
+        Guid botId,
+        string? title,
+        Guid ownerUserId,
+        CancellationToken cancellationToken,
+        Guid? projectId = null)
     {
         if (await bots.FindBot(botId, cancellationToken) is not { Status: BotStatus.Active })
+        {
+            return null;
+        }
+
+        if (projectId is { } targetProjectId && await projects.LockProjectForShare(targetProjectId, cancellationToken) is null)
         {
             return null;
         }
@@ -91,6 +132,7 @@ public sealed class ThreadService(
         var thread = new ChatThread
         {
             BotId = botId,
+            ProjectId = projectId,
             OwnerUserId = ownerUserId,
             AudienceUserId = ownerUserId,
             Title = Shorten(title),
@@ -98,6 +140,73 @@ public sealed class ThreadService(
         };
         threads.Add(thread);
         return thread;
+    }
+
+    /// <summary>
+    /// Moves a conversation into a project of the same space, or out of its project when
+    /// <paramref name="projectId"/> is null. Only the conversation's owner may move it; another member gets forbidden
+    /// on a shared conversation, and row-level security hides private conversations of other people as not found.
+    /// </summary>
+    public async Task<ProjectMembershipChange> SetProject(
+        Guid threadId,
+        Guid? projectId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (await threads.FindThread(threadId, cancellationToken) is not { } existing)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        if (existing.OwnerUserId != userId)
+        {
+            return new(ProjectMembershipOutcome.Forbidden);
+        }
+
+        if (projectId is { } targetProjectId && await projects.LockProjectForShare(targetProjectId, cancellationToken) is null)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        if (await threads.GetThreadForUpdate(threadId, cancellationToken) is not { } thread)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        thread.ProjectId = projectId;
+        return new(ProjectMembershipOutcome.Updated, await WithAttention(thread, userId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Makes a shared thread private to its owner. Every live sandbox is retired in this same transaction, before
+    /// the audience narrows: a copy was allowed because the whole space could see the conversation, and that is no
+    /// longer true. Nothing on the sandbox says which conversation wrote it, so every live sandbox of the space is
+    /// retired. The retirement holds the space's copy fence, so a copy still in flight re-checks the audience before
+    /// it writes. False when the caller is not the owner, or the thread is not there. A thread that is already
+    /// private is left as it is.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var thread = await threads.FindThread(threadId, cancellationToken);
+
+        if (thread is null || thread.OwnerUserId != userId)
+        {
+            return false;
+        }
+
+        if (thread.AudienceUserId == Audience.Everyone)
+        {
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
+
+            if (!await threads.MakePrivate(threadId, userId, cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        await work.Commit(cancellationToken);
+        return true;
     }
 
     /// <summary>

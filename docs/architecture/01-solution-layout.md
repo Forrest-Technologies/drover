@@ -25,6 +25,7 @@ Drover.slnx
     Drover.Adapters.Mcp              IToolSource over the MCP C# SDK
     Drover.Adapters.E2B              ISandboxProvider over E2B's HTTP API
     Drover.Adapters.WebPush          IPushChannel for browsers and UnifiedPush
+    Drover.Adapters.SearXng          IWebSearch over an operator's own SearXNG instance
     Drover.Adapters.LocalFiles       IFileStore on a volume
     Drover.Adapters.DataProtection   ISecretVault over ASP.NET Core Data Protection, ciphertext through Data's SecretRepository
     Drover.Client                 typed API client, SSE reader with reconnect, run state reducer and view model
@@ -60,6 +61,8 @@ Drover.Native.slnx
     Drover.Native                 Uno Platform app: web (WebAssembly), desktop, Android, [iOS, Mac Catalyst]
     (references Drover.Presentation, Drover.Client, Drover.Contracts)
 ```
+
+`tests/Drover.Native.Desktop.Tests` runs the desktop credential store against the computer's real one. It is in neither solution: `Drover.slnx`'s Linux CI has no Secret Service, and the Android and browser jobs that license-check `Drover.Native.slnx` never restore a desktop project. The desktop workflow runs it by path on each system.
 
 `src/Shared/Transport` holds how a client reaches the server, as source files linked into the projects that need them: `AntiforgeryHandler` into `Drover.Web` and the native browser build; `AppRequests`, `NativeSession`, `NativeSessionTokens`, and `ServerAddress` into `Drover.App` and the native device builds. One source, so the two clients cannot drift apart on security.
 

@@ -38,6 +38,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<ExtensionInstall> ExtensionInstalls => Set<ExtensionInstall>();
 
+    public DbSet<Project> Projects => Set<Project>();
+
     public DbSet<ModelConnection> ModelConnections => Set<ModelConnection>();
 
     public DbSet<ModelCatalogEntry> ModelCatalog => Set<ModelCatalogEntry>();

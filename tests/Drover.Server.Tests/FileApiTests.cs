@@ -15,6 +15,16 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
 
     #endregion
 
+    #region Properties
+
+    protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+    {
+        [PublicAddress.Variable] = "https://app.example.test",
+        [Drover.Server.Files.PreviewOrigin.Variable] = "https://preview.other.test",
+    };
+
+    #endregion
+
     #region Overrides
 
     protected override void ConfigureServices(IServiceCollection services)
@@ -157,6 +167,131 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task The_application_policy_only_allows_the_configured_preview_frame_origin()
+    {
+        var response = await NewClient().Get("https://app.example.test/api/antiforgery");
+        var policy = response.Headers.GetValues("Content-Security-Policy").Single();
+        policy.Split(';', StringSplitOptions.TrimEntries).Should()
+            .ContainSingle(directive => directive.StartsWith("frame-src"))
+            .Which.Should().Be("frame-src https://preview.other.test");
+    }
+
+    [Fact]
+    public async Task Html_preview_is_authorized_once_sanitized_and_served_only_on_the_preview_origin()
+    {
+        var (owner, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(owner, spaceId, botId);
+        var hostile = """
+            <!doctype html><base href="https://outside.example/"><meta http-equiv="refresh" content="0;url=https://outside.example">
+            <h1 onclick="alert(1)" style="color: red; background-image: url(https://outside.example/a)">Report</h1>
+            <script>alert(document.cookie)</script><form action="/send"><input name="secret"></form>
+            <iframe src="https://outside.example"></iframe><a href="next">next</a>
+            <img src="https://outside.example/a.png"><img src="/relative.png"><img src="//outside.example/a.png">
+            <ul style="list-style: url(//outside.example/mark.png)"><li>item</li></ul>
+            <img alt="kept" src="data:image/png;base64,iVBORw0KGgo=">
+            """;
+        var file = await Upload(owner, spaceId, threadId, "report.html", Body(hostile));
+        var member = await SeedMember(spaceId, "bob", MembershipRole.Admin);
+        var memberClient = await SignIn(member.Email, member.Password);
+        var (stranger, strangerSpace, _, _) = await Conversation("eve");
+        var minted = await owner.Post($"{Space(spaceId)}/files/{file.Id}/preview");
+        var preview = (await minted.Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!;
+
+        (await memberClient.Post($"{Space(spaceId)}/files/{file.Id}/preview")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await stranger.Post($"{Space(strangerSpace)}/files/{file.Id}/preview")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        preview.Address.Should().StartWith("https://preview.other.test/preview/file?grant=");
+        var token = new Uri(preview.Address!).Query["?grant=".Length..];
+        var cleanClient = NewClient();
+        (await owner.Get(preview.Address!)).StatusCode.Should().Be(HttpStatusCode.NotFound, "preview requests carrying app cookies are refused");
+        (await cleanClient.PostWithoutToken(preview.Address!)).StatusCode.Should().Be(
+            HttpStatusCode.NotFound, "only GET can consume a preview grant");
+        var served = await cleanClient.Get(preview.Address!);
+        var html = await served.Content.ReadAsStringAsync(Token);
+
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+        served.Content.Headers.ContentType!.ToString().Should().Be("text/html; charset=utf-8");
+        served.Headers.Should().NotContain(header => header.Key == "Set-Cookie");
+        served.Headers.Should().NotContain(header => header.Key == "X-Frame-Options");
+        served.Headers.Location.Should().BeNull("a preview response never redirects into the application origin");
+        served.Headers.GetValues("Referrer-Policy").Should().Equal("no-referrer");
+        served.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        served.Headers.GetValues("Cache-Control").Should().Equal("no-store");
+        var policy = served.Headers.GetValues("Content-Security-Policy").Single();
+        policy.Should().Contain("default-src 'none'").And.Contain("script-src 'none'").And.Contain("connect-src 'none'")
+            .And.Contain("frame-src 'none'").And.Contain("object-src 'none'").And.Contain("base-uri 'none'")
+            .And.Contain("form-action 'none'").And.Contain("media-src 'none'").And.Contain("frame-ancestors https://app.example.test");
+        html.Should().Contain("Report").And.Contain("data:image/png;base64,iVBORw0KGgo=")
+            .And.NotContain("script").And.NotContain("onclick").And.NotContain("form").And.NotContain("iframe")
+            .And.NotContain("outside.example").And.NotContain("relative.png").And.NotContain("href=")
+            .And.NotContain("background-image").And.NotContain("url(");
+        (await cleanClient.Get(preview.Address!)).StatusCode.Should().Be(HttpStatusCode.NotFound, "a grant is single-use");
+        var invalidToken = new string('a', 64);
+        (await cleanClient.Get($"https://preview.other.test/preview/file?grant={invalidToken}"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Logs.AllText().Should().NotContain(token);
+        Logs.AllText().Should().NotContain(invalidToken);
+        (await cleanClient.Get($"https://app.example.test/preview/file?grant={token}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await cleanClient.Get("https://preview.other.test/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await cleanClient.Get("https://preview.other.test:444/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await cleanClient.Get("http://preview.other.test/api/antiforgery")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_expired_or_changed_file_preview_grant_is_refused()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, "report.html", Body("<h1>Report</h1>"));
+        var expiring = await MintPreview(client, spaceId, file.Id);
+
+        Time.Advance(TimeSpan.FromMinutes(2));
+        (await NewClient().Get(expiring)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Logs.AllText().Should().NotContain(new Uri(expiring).Query["?grant=".Length..]);
+
+        var changed = await MintPreview(client, spaceId, file.Id);
+        await ChangeHash(spaceId, file.Id, new string('1', 64));
+        (await NewClient().Get(changed)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Only_the_recipient_can_revoke_an_outstanding_preview_grant()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, "report.html", Body("<h1>Report</h1>"));
+        var path = $"{Space(spaceId)}/files/{file.Id}/preview";
+        var member = await SeedMember(spaceId, "bob", MembershipRole.Admin);
+        var otherClient = await SignIn(member.Email, member.Password);
+        var issued = (await (await client.Post(path)).Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!;
+
+        (await otherClient.Post($"{path}/revoke", new FilePreviewRevokeRequest(issued.Grant!)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await NewClient().Get(issued.Address!)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var replacement = (await (await client.Post(path)).Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!;
+        (await client.Post($"{path}/revoke", new FilePreviewRevokeRequest(replacement.Grant!)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await NewClient().Get(replacement.Address!)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Removing_membership_revokes_an_outstanding_preview_grant()
+    {
+        var (client, spaceId, threadId, botId) = await Conversation("alice");
+        await GiveSandbox(client, spaceId, botId);
+        var file = await Upload(client, spaceId, threadId, "report.html", Body("<h1>Report</h1>"));
+        var preview = await MintPreview(client, spaceId, file.Id);
+
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand("delete from memberships where space_id = @space", connection);
+        command.Parameters.AddWithValue("space", spaceId);
+        (await command.ExecuteNonQueryAsync(Token)).Should().Be(1);
+
+        (await NewClient().Get(preview)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Another_member_who_cannot_see_the_conversation_and_another_space_cannot_download_or_remove_the_file()
     {
         var (owner, spaceId, threadId, _) = await Conversation("alice");
@@ -210,6 +345,24 @@ public sealed class FileApiTests(PostgresServer postgres) : ServerTestBase(postg
         $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}";
 
     private static ByteArrayContent Body(string text) => new(Encoding.UTF8.GetBytes(text));
+
+    private static async Task<string> MintPreview(ApiClient client, Guid spaceId, Guid fileId)
+    {
+        var response = await client.Post($"{Space(spaceId)}/files/{fileId}/preview");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Token));
+        return (await response.Content.ReadFromJsonAsync<FilePreviewResponse>(Token))!.Address!;
+    }
+
+    private async Task ChangeHash(Guid spaceId, Guid fileId, string hash)
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString);
+        await connection.OpenAsync(Token);
+        await using var command = new NpgsqlCommand("update files set sha256 = @hash where space_id = @space and id = @file", connection);
+        command.Parameters.AddWithValue("hash", hash);
+        command.Parameters.AddWithValue("space", spaceId);
+        command.Parameters.AddWithValue("file", fileId);
+        (await command.ExecuteNonQueryAsync(Token)).Should().Be(1);
+    }
 
     /// <summary>The start of a PNG: as much as the server reads to know a picture and its size.</summary>
     private static byte[] PngHeader(int width, int height) =>

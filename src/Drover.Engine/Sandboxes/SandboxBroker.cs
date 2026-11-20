@@ -50,6 +50,9 @@ public sealed class SandboxBroker(
     private const string HeldSentence =
         "A person has this sandbox's screen right now, because a bot that shares it asked them to take it over. Nothing was done in the sandbox. Try again once they hand it back; an owner or admin can see who holds it, and stop that run, on the bot's sandbox page.";
 
+    private const string ClosedConversationSentence =
+        "This conversation is private, and others in this space can reach this bot's sandbox, so it was not changed.";
+
     private const int MaxEntries = 1000;
 
     /// <summary>The least time a sandbox stays up for a desktop action: starting the display can take a minute and a half.</summary>
@@ -60,17 +63,32 @@ public sealed class SandboxBroker(
 
     #endregion
 
+    #region Properties
+
+    /// <summary>
+    /// Runs after a bot write has passed its audience check and before the sandbox is acquired. A test holds the
+    /// write open here so a narrowing can commit in between. Production leaves it unset.
+    /// </summary>
+    public Func<CancellationToken, Task>? BeforeAcquire { get; set; }
+
+    #endregion
+
+
     #region Public Methods
 
     /// <summary>Runs a command, streaming its output into the run's events, and returns what it printed.</summary>
-    public Task<SandboxCommandResult> Run(
+    public async Task<SandboxCommandResult> Run(
         BuiltinToolCall call,
         string? environment,
         string command,
         string? workingDirectory,
         TimeSpan? timeout,
-        CancellationToken cancellationToken) =>
-        RunCommand(SandboxCaller.Of(call), environment, command, workingDirectory, timeout, call.Output, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
+        return await RunCommand(caller, environment, command, workingDirectory, timeout, call.Output, cancellationToken);
+    }
 
     private async Task<SandboxCommandResult> RunCommand(
         SandboxCaller caller,
@@ -83,6 +101,7 @@ public sealed class SandboxBroker(
     {
         var limit = CommandLimit(timeout);
         var lease = await Acquire(caller, environment, limit + commandMargin, screen: false, cancellationToken);
+        await AuthorizeLiveWrite(caller, cancellationToken);
 
         // The model wrote the whole command, for its own sandbox; Drover adds no text of its own to it, so a shell
         // reading it can only do what the model could do anyway with a second call.
@@ -142,6 +161,8 @@ public sealed class SandboxBroker(
 
     public async Task<bool> WriteFile(BuiltinToolCall call, string? environment, string path, string content, CancellationToken cancellationToken)
     {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
         var bytes = Encoding.UTF8.GetBytes(content);
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
 
@@ -150,7 +171,8 @@ public sealed class SandboxBroker(
             throw new BuiltinToolException($"The content is {bytes.Length} bytes; this server writes at most {maxBytes} bytes to a sandbox file.");
         }
 
-        var lease = await Acquire(SandboxCaller.Of(call), environment, null, screen: false, cancellationToken);
+        var lease = await Acquire(caller, environment, null, screen: false, cancellationToken);
+        await AuthorizeLiveWrite(caller, cancellationToken);
 
         try
         {
@@ -162,16 +184,18 @@ public sealed class SandboxBroker(
             throw Refusal(failure, path);
         }
 
-        await Finish(SandboxCaller.Of(call), lease, readsSandbox: false, cancellationToken);
+        await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
     }
 
     /// <summary>
     /// Puts a file a person attached into the bot's own sandbox, made on first use, for the bot to work on. Not a tool
     /// call: the server does it while it builds what the model reads, for a bot whose grants let it use a sandbox. The
-    /// same file size limit binds it as a bot's own writes. Refusals are <see cref="BuiltinToolException"/>.
+    /// same file size limit binds it as a bot's own writes. The file's audience is read again under the space's copy
+    /// fence, in the same transaction as the tainted mark, and the provider is called only when everyone who can reach
+    /// the sandbox can still see it. Refusals are <see cref="BuiltinToolException"/>.
     /// </summary>
-    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, CancellationToken cancellationToken)
+    public async Task PutFile(SandboxCaller caller, string path, Stream content, long size, Guid fileId, CancellationToken cancellationToken)
     {
         var maxBytes = deployment.Value.Rules.MaxSandboxFileBytes;
 
@@ -181,7 +205,7 @@ public sealed class SandboxBroker(
         }
 
         var lease = await Acquire(caller, null, null, screen: false, cancellationToken);
-        await MarkTainted(caller, lease, cancellationToken);
+        await AuthorizeCopy(caller, lease, fileId, cancellationToken);
 
         try
         {
@@ -298,8 +322,12 @@ public sealed class SandboxBroker(
     /// Runs one mouse or keyboard action on the bot's sandbox screen. The command is a program and its arguments, built
     /// by <see cref="DesktopCommands"/>; its output is not read, so nothing from the sandbox comes back with it.
     /// </summary>
-    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken) =>
-        await Act(SandboxCaller.Of(call), action, doing, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+    public async Task<bool> Act(BuiltinToolCall call, CommandRequest action, string doing, CancellationToken cancellationToken)
+    {
+        var caller = SandboxCaller.Of(call);
+        await RefuseWriteFromAClosedConversation(caller, cancellationToken);
+        return await Act(caller, action, doing, create: true, cancellationToken) ?? throw MadeSandboxMissing();
+    }
 
     /// <summary>
     /// One action on the screen, for a bot or a person. Null when <paramref name="create"/> is false and there is no
@@ -312,6 +340,7 @@ public sealed class SandboxBroker(
             return null;
         }
 
+        await AuthorizeLiveWrite(caller, cancellationToken);
         await RunOnScreen(lease, action, doing, cancellationToken);
         await Finish(caller, lease, readsSandbox: false, cancellationToken);
         return lease.NewSandbox;
@@ -866,7 +895,7 @@ public sealed class SandboxBroker(
     /// <summary>
     /// Records the use: the row is running and was used now, and a bot's tool call names the sandbox. A sandbox kept up
     /// longer for a long command goes back to its idle time. Text read from a sandbox that can reach the network, or
-    /// from one marked tainted (<see cref="MarkTainted"/>), taints the run.
+    /// from one marked tainted (<see cref="AuthorizeCopy"/>), taints the run.
     /// </summary>
     private async Task Finish(SandboxCaller caller, SandboxLease lease, bool readsSandbox, CancellationToken cancellationToken)
     {
@@ -910,29 +939,108 @@ public sealed class SandboxBroker(
     }
 
     /// <summary>
-    /// Marks the sandbox as holding a file a person attached, for good, in its own committed transaction before the
-    /// file is written: a write that is cancelled or fails after the provider took it still leaves the mark. A sandbox
-    /// whose row is gone is not written to, since nothing could carry the mark.
+    /// Refuses a bot's write into the sandbox from a conversation not everyone who can reach the sandbox can see, as
+    /// the copy of an attached file is refused when its rows are read. The audience is read as it is now, in one short
+    /// transaction that closes before the sandbox is touched, so a conversation made private, or a personal space that
+    /// gained a member, stops the write from the next call. A person's own controls have no call and never pass through here.
     /// </summary>
-    private static async Task MarkTainted(SandboxCaller caller, SandboxLease lease, CancellationToken cancellationToken)
+    private async Task RefuseWriteFromAClosedConversation(SandboxCaller caller, CancellationToken cancellationToken)
     {
-        var marked = await caller.Tenant.Transact(
+        if (caller.Call is not { ThreadId: { } threadId })
+        {
+            return;
+        }
+
+        var covered = await caller.Tenant.Transact(
             async services =>
             {
-                if (await services.GetRequiredService<SandboxRepository>().GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
-                {
-                    return false;
-                }
-
-                row.Tainted = true;
-                return true;
+                var thread = await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken);
+                return thread is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        thread.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
             },
             cancellationToken);
 
-        if (!marked)
+        if (!covered)
         {
-            throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
+            throw new BuiltinToolException(ClosedConversationSentence);
         }
+
+        if (BeforeAcquire is { } pause)
+        {
+            await pause(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Reads the conversation's audience again under the space's copy fence, after the sandbox is acquired and before
+    /// the provider is called. Retirement of every live sandbox holds the same fence until the narrower audience is
+    /// committed, so a write that passed the earlier check cannot land on a sandbox acquired after that retirement.
+    /// A person's own controls have no call and are not refused here.
+    /// </summary>
+    private static async Task AuthorizeLiveWrite(SandboxCaller caller, CancellationToken cancellationToken)
+    {
+        if (caller.Call is not { ThreadId: { } threadId })
+        {
+            return;
+        }
+
+        await caller.Tenant.Transact(
+            async services =>
+            {
+                await services.GetRequiredService<SandboxRepository>().LockCopies(cancellationToken);
+                var thread = await services.GetRequiredService<ThreadRepository>().FindThread(threadId, cancellationToken);
+                var covered = thread is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        thread.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
+
+                if (!covered)
+                {
+                    throw new BuiltinToolException(ClosedConversationSentence);
+                }
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Re-reads who may see <paramref name="fileId"/> and marks the sandbox, under the space's copy fence, before the
+    /// provider is called. A narrowing of that audience holds the same fence until the change is committed, so this
+    /// either sees the narrower audience and writes nothing, or marks a sandbox that the narrowing then retires.
+    /// </summary>
+    private static async Task AuthorizeCopy(SandboxCaller caller, SandboxLease lease, Guid fileId, CancellationToken cancellationToken)
+    {
+        await caller.Tenant.Transact(
+            async services =>
+            {
+                var sandboxes = services.GetRequiredService<SandboxRepository>();
+                await sandboxes.LockCopies(cancellationToken);
+                var file = await services.GetRequiredService<FileRepository>().FindFile(fileId, cancellationToken);
+                var covered = file is not null
+                    && await FileAbilityReader.AudienceCoversSandbox(
+                        caller.Tenant.SpaceId,
+                        file.AudienceUserId,
+                        services.GetRequiredService<AccountRepository>(),
+                        cancellationToken);
+
+                if (!covered)
+                {
+                    throw new BuiltinToolException(ClosedConversationSentence);
+                }
+
+                if (await sandboxes.GetSandboxForUpdate(lease.SandboxId, cancellationToken) is not { } row)
+                {
+                    throw new BuiltinToolException("The sandbox was removed while the file was on its way. Try again.");
+                }
+
+                row.Tainted = true;
+            },
+            cancellationToken);
     }
 
     #endregion

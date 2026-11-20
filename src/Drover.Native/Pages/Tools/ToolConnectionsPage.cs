@@ -31,8 +31,9 @@ public sealed class ToolConnectionsPage : Screen
 
     #region Properties
 
-    // A device app has a scheme the provider's sign-in page comes back to; the browser build has none and comes back to its own address.
-    private static string? ReturnScheme => ((App)Application.Current).Services.GetService<AppSignInReturn>()?.Scheme;
+    // Where the provider's sign-in page comes back to: a device app's scheme, the desktop app's loopback listener, or
+    // the browser build's own path.
+    private static string? ReturnScheme => ((App)Application.Current).Services.GetService<AppSignInReturn>()?.ReturnTo;
 
     public override string Title => "Tool connections · Drover";
 

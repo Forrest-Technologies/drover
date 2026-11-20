@@ -32,6 +32,11 @@ public static class SecurityHeaders
     public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app) =>
         app.Use(async (context, next) =>
         {
+            if (await PreviewFileEndpoints.TryServe(context))
+            {
+                return;
+            }
+
             context.Response.OnStarting(() =>
             {
                 var headers = context.Response.Headers;
@@ -39,7 +44,9 @@ public static class SecurityHeaders
                 // A stored file sets a stricter policy of its own, which sandboxes it and lets it load nothing.
                 if (!headers.ContainsKey("Content-Security-Policy"))
                 {
-                    headers["Content-Security-Policy"] = ContentSecurityPolicy;
+                    var preview = context.RequestServices.GetService<PreviewOrigin>();
+                    var frameSource = preview is null ? "'none'" : preview.Preview.GetLeftPart(UriPartial.Authority);
+                    headers["Content-Security-Policy"] = $"{ContentSecurityPolicy}; frame-src {frameSource}";
                 }
 
                 headers["X-Content-Type-Options"] = "nosniff";

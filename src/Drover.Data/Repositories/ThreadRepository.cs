@@ -17,6 +17,15 @@ public sealed class ThreadRepository(DroverDbContext db)
 
     public void Add(ChatThread thread) => db.Threads.Add(thread);
 
+    /// <summary>
+    /// Makes a shared thread private to its owner. Child rows follow, because their foreign key updates with this
+    /// one. False when the thread is missing or already private.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid ownerUserId, CancellationToken cancellationToken) =>
+        await db.Threads
+            .Where(thread => thread.Id == threadId && thread.OwnerUserId == ownerUserId && thread.AudienceUserId == Audience.Everyone)
+            .ExecuteUpdateAsync(set => set.SetProperty(thread => thread.AudienceUserId, ownerUserId), cancellationToken) == 1;
+
     public Task<ChatThread?> FindThread(Guid id, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking().SingleOrDefaultAsync(thread => thread.Id == id, cancellationToken);
 
@@ -76,6 +85,15 @@ public sealed class ThreadRepository(DroverDbContext db)
     public Task<List<ChatThread>> ListThreadsForBot(Guid botId, int limit, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking()
             .Where(thread => thread.BotId == botId && thread.ArchivedAt == null)
+            .OrderByDescending(thread => thread.LastActivityAt)
+            .ThenByDescending(thread => thread.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>The threads in one project that the caller may see and has not archived, newest activity first.</summary>
+    public Task<List<ChatThread>> ListThreadsForProject(Guid projectId, int limit, CancellationToken cancellationToken) =>
+        db.Threads.AsNoTracking()
+            .Where(thread => thread.ProjectId == projectId && thread.ArchivedAt == null)
             .OrderByDescending(thread => thread.LastActivityAt)
             .ThenByDescending(thread => thread.Id)
             .Take(limit)

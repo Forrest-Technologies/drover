@@ -180,7 +180,7 @@ public sealed partial class ToolConnections(
     private Task SignIn(ToolConnectionSummary connection) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<AppSignInReturn>()?.Scheme);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<AppSignInReturn>()?.ReturnTo);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {

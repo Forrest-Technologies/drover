@@ -451,6 +451,57 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
+    public async Task A_step_back_with_changes_not_saved_asks_first_and_then_goes_back()
+    {
+        Navigator.NavigateTo(Addresses.Bots);
+        Navigator.NavigateTo(Addresses.Bot(botId));
+        var editor = await OpenEditor();
+        editor.Rename("Scout");
+
+        Navigator.StepBack().Should().Be(BackStep.Held);
+
+        Navigator.Current.Should().Be(Addresses.Bot(botId));
+        editor.Leaving.Should().BeTrue();
+
+        editor.Leave();
+
+        Navigator.Current.Should().Be(Addresses.Bots);
+        Navigator.CanGoForward.Should().BeTrue("the person went back, so the next step back does not open the editor again");
+    }
+
+    [Fact]
+    public async Task Browser_back_with_changes_not_saved_stays_and_asks_first()
+    {
+        Navigator.NavigateTo(Addresses.Bots);
+        Navigator.NavigateTo(Addresses.Bot(botId));
+        var editor = await OpenEditor();
+        editor.Rename("Scout");
+
+        Navigator.Arrive(Addresses.Bots).Should().BeFalse("the browser's address is put back");
+
+        Navigator.Current.Should().Be(Addresses.Bot(botId));
+        editor.Leaving.Should().BeTrue();
+        editor.Draft!.Name.Should().Be("Scout");
+    }
+
+    [Fact]
+    public async Task Closing_the_app_asks_first_only_while_changes_are_not_saved()
+    {
+        var editor = await OpenEditor();
+        Navigator.HoldsWork!().Should().BeFalse();
+
+        editor.Rename("Scout");
+        Navigator.HoldsWork!().Should().BeTrue();
+
+        Navigator.NavigateTo(Addresses.Models);
+        editor.Leave();
+        Navigator.HoldsWork!().Should().BeFalse("the person chose to drop the changes");
+
+        editor.Close();
+        Navigator.HoldsWork.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Leaving_with_nothing_to_save_asks_nothing()
     {
         var editor = await OpenEditor();

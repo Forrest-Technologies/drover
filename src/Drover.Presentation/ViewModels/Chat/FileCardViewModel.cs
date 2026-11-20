@@ -2,8 +2,8 @@ namespace Drover.Presentation.ViewModels.Chat;
 
 /// <summary>
 /// One file in a conversation. A picture is shown with its dimensions set; a text file shows its first lines, and all
-/// of it on "Show all"; anything else is a card. Every form has the same way to get the file. Content a bot wrote is
-/// never rendered as a page: it is shown as text or downloaded.
+/// of it on "Show all"; anything else is a card. Every form has the same way to get the file. A bot HTML file can ask
+/// for an isolated preview address; the platform surface decides whether it can enforce the required containment.
 /// </summary>
 public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDelivery? delivery = null) : ObservableObject
 {
@@ -13,6 +13,10 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     private bool focusWhole;
 
+    private string? previewGrant;
+
+    private int previewGeneration;
+
     #endregion
 
     #region Properties
@@ -21,6 +25,12 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     /// <summary>Reads a text file's whole content, up to <see cref="FileWords.MaxShownCharacters"/>. Without it there is no "Show all".</summary>
     public Func<SharedFile, Task<FileText>>? ReadWhole { get; set; }
+
+    /// <summary>Issues one isolated address for a bot HTML file. The client surface decides whether it can contain it.</summary>
+    public Func<SharedFile, Task<FilePreviewResponse>>? RequestPreview { get; set; }
+
+    /// <summary>Invalidates a preview grant that was not consumed before its surface closed.</summary>
+    public Func<SharedFile, string, Task>? RevokePreview { get; set; }
 
     public FileKind Kind => FileWords.Kind(File);
 
@@ -66,6 +76,18 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
     public bool ExportFailed { get; private set; }
 
     public string? Caption => string.IsNullOrWhiteSpace(File.Caption) ? null : File.Caption;
+
+    public bool CanPreview => File.FromBot && File.ContentType.Equals("text/html", StringComparison.OrdinalIgnoreCase);
+
+    public bool Previewing { get; private set; }
+
+    public string PreviewLabel => Previewing ? "Loading" : "Preview";
+
+    public string PreviewButtonName => Previewing ? $"Loading a preview of {File.Name}" : $"Preview {File.Name}";
+
+    public string? PreviewAddress { get; private set; }
+
+    public string? PreviewProblem { get; private set; }
 
     #endregion
 
@@ -149,6 +171,76 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
         return false;
     }
 
+    public async Task Preview()
+    {
+        if (!CanPreview || Previewing || RequestPreview is null)
+        {
+            return;
+        }
+
+        var file = File;
+        var generation = previewGeneration;
+        Previewing = true;
+        PreviewProblem = null;
+        Changed();
+
+        try
+        {
+            var response = await RequestPreview(file);
+            if (generation != previewGeneration || File.Id != file.Id)
+            {
+                await RevokeGrant(file, response.Grant);
+                return;
+            }
+
+            if (response.Address is { } address
+                && Uri.TryCreate(address, UriKind.Absolute, out var parsed)
+                && parsed.Scheme is "https"
+                && !SharesAppSite(file.Href, parsed)
+                && response.Grant is { Length: > 0 } grant)
+            {
+                PreviewAddress = address;
+                previewGrant = grant;
+            }
+            else
+            {
+                await RevokeGrant(file, response.Grant);
+                PreviewProblem = response.Problem ?? $"Drover could not preview {File.Name}. Download is still available.";
+            }
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException)
+        {
+            logger.LogWarning(exception, "A conversation file preview could not be issued");
+            if (generation == previewGeneration && File.Id == file.Id)
+            {
+                PreviewProblem = $"Drover could not preview {file.Name}. {Failures.Sentence(exception)} Download is still available.";
+            }
+        }
+        finally
+        {
+            Previewing = false;
+            Changed();
+        }
+    }
+
+    public void RefusePreview()
+    {
+        PreviewProblem = "Preview is not available on this device. Save the file to view it.";
+        Changed();
+    }
+
+    public async Task ClosePreview()
+    {
+        var file = File;
+        var grant = previewGrant;
+        previewGeneration++;
+        PreviewAddress = null;
+        previewGrant = null;
+        Changed();
+
+        await RevokeGrant(file, grant);
+    }
+
     #endregion
 
     #region Fixed Words
@@ -159,9 +251,40 @@ public sealed class FileCardViewModel(ILogger<FileCardViewModel> logger, IFileDe
 
     public const string Download = "Download";
 
+    public const string PreviewFile = "Preview";
+
     #endregion
 
     #region Private Methods
+
+    private static bool SharesAppSite(string fileHref, Uri preview) =>
+        Uri.TryCreate(fileHref, UriKind.Absolute, out var app)
+        && string.Equals(Site(app), Site(preview), StringComparison.OrdinalIgnoreCase);
+
+    private static string Site(Uri address)
+    {
+        var host = address.IdnHost.TrimEnd('.');
+        return host.Split('.') is [.., var secondLast, var last] && !System.Net.IPAddress.TryParse(host, out _)
+            ? $"{secondLast}.{last}"
+            : host;
+    }
+
+    private async Task RevokeGrant(SharedFile file, string? grant)
+    {
+        if (grant is null || RevokePreview is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await RevokePreview(file, grant);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException)
+        {
+            logger.LogWarning(exception, "An HTML preview grant could not be revoked");
+        }
+    }
 
     private void Changed() => OnPropertyChanged(string.Empty);
 

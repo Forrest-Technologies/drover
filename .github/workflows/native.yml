@@ -67,6 +67,7 @@ jobs:
           adb shell wm dismiss-keyguard
           adb install src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
           bash scripts/check-native-android-text-editing.sh
+          python3 scripts/check-native-android-back.py
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -103,10 +104,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb x11-utils imagemagick libgl1-mesa-dri
-      - name: Open the Linux app and verify its first frame
+          sudo apt-get install -y xvfb x11-utils imagemagick libgl1-mesa-dri dbus gnome-keyring libsecret-1-0
+      - name: Open the Linux app, verify its first frame, and keep a sign-in across a restart
         if: runner.os == 'Linux'
         run: xvfb-run -a bash scripts/check-native-desktop.sh
+      - name: Keep a sign-in in the system credential store across a restart
+        if: runner.os != 'Linux'
+        run: dotnet test --project tests/Drover.Native.Desktop.Tests -c Release
       - name: Check desktop dependency licenses
         env:
           DroverNativeTargetFrameworks: net11.0-desktop

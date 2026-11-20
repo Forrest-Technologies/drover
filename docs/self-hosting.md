@@ -38,7 +38,17 @@ Compose's `.env` file before building to omit the Uno client.
 DROVER_DOMAIN=drover.example.org docker compose -f compose.yaml -f compose.proxy.yaml up --build
 ```
 
-Replace `drover.example.org` with your own name. Put `DROVER_DOMAIN=...` in a file named `.env` beside `compose.yaml` to keep it between runs.
+To enable HTML previews, point a second DNS name at the same proxy and add the preview override:
+
+```sh
+DROVER_DOMAIN=drover.example.org DROVER_PREVIEW_DOMAIN=drover-preview.example.net \
+  docker compose -f compose.yaml -f compose.proxy.yaml -f compose.preview.yaml up --build
+```
+
+Replace both names with names you control. The preview name must be on a separate site, such as `example.net` when
+the application is on `example.org`. This boundary keeps bot-written HTML away from application cookies. Put both
+values in a file named `.env` beside `compose.yaml` to keep them between runs. The server conservatively compares
+the final two DNS labels. Choose names with different final two labels if a multi-label public suffix causes rejection.
 
 The overlay adds a `proxy` service that gets and renews the certificate, redirects HTTP to HTTPS, and forwards to Drover. It gives the compose network a fixed subnet (`DROVER_PROXY_SUBNET`, default `172.30.80.0/24`) and the proxy a fixed address in it (`DROVER_PROXY_ADDRESS`, default `172.30.80.250`). Drover trusts the forwarded client address and scheme from that address only. If the default subnet clashes with another network on the machine, set both variables.
 
@@ -51,9 +61,16 @@ Skip the overlay and set two things on the `drover` service:
 | Setting | Value |
 | --- | --- |
 | `DROVER_PUBLIC_URL` | The address people open, such as `https://drover.example.org` |
+| `DROVER_PREVIEW_URL` | A separate HTTPS site used only for untrusted HTML previews, such as `https://drover-preview.example.net` |
 | `Drover__Proxy__TrustedAddresses__0` | The proxy's address or network, as Drover sees it |
 
-Without the second setting Drover still works, but every person shares the proxy's address for the sign-in limit. Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
+Route both HTTPS names to the Drover server. Preview routes are refused on the application name. Application and API
+routes are refused on the preview name. If `DROVER_PREVIEW_URL` is absent, file downloads continue to work and HTML
+preview explains what the operator must configure. Do not record preview query strings in proxy access logs. The
+provided overlay discards access logs for the preview name because its query carries the one-use grant.
+
+Without the trusted-address setting Drover still works, but every person shares the proxy's address for the sign-in
+limit. Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`; the server refuses to start with it.
 
 ## Before you expose it
 

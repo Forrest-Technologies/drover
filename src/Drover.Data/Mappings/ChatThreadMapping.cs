@@ -17,6 +17,9 @@ public sealed class ChatThreadMapping : IEntityTypeConfiguration<ChatThread>
         // Listing a bot's threads reads this. Declared, because the filtered index below would otherwise stand in for it.
         builder.HasIndex(thread => new { thread.SpaceId, thread.BotId });
 
+        // Listing a project's threads and clearing memberships on project removal read this.
+        builder.HasIndex(thread => new { thread.SpaceId, thread.ProjectId });
+
         // One main thread per person per bot. Two requests that race to open it are decided here: the loser re-reads.
         builder.HasIndex(thread => new { thread.SpaceId, thread.BotId, thread.OwnerUserId })
             .IsUnique()
@@ -34,6 +37,7 @@ public sealed class ChatThreadMapping : IEntityTypeConfiguration<ChatThread>
             "(summary IS NULL) = (summary_through_position IS NULL) AND (summary IS NULL OR is_main)"));
         builder.HasAlternateKey(thread => new { thread.SpaceId, thread.Id, thread.AudienceUserId });
         builder.WithinSpace<ChatThread, Bot>(nameof(ChatThread.BotId));
+        builder.WithinSpace<ChatThread, Project>(nameof(ChatThread.ProjectId));
         builder.ReferencesUser(nameof(ChatThread.OwnerUserId));
     }
 

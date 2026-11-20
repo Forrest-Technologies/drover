@@ -118,6 +118,9 @@ public sealed class ComposeFileTests
         var defaultAddress = IPAddress.Parse(ComposeFile.Fallback(address!));
         System.Net.IPNetwork.Parse(ComposeFile.Fallback(subnet!)).Contains(defaultAddress).Should().BeTrue();
         ComposeFile.Text(ComposeFile.Map(proxy.Service("drover"), "environment"), "DROVER_PUBLIC_URL").Should().StartWith("https://");
+        ComposeFile.Text(ComposeFile.Map(ComposeFile.Read("compose.preview.yaml").Service("drover"), "environment"), "DROVER_PREVIEW_URL").Should().StartWith("https://");
+        File.ReadAllText(Path.Combine(ComposeFile.Root, "proxy.conf")).Should()
+            .Contain("{$DROVER_DOMAIN}").And.Contain("{$DROVER_PREVIEW_DOMAIN}").And.Contain("output discard");
     }
 
     #endregion
@@ -133,6 +136,8 @@ public sealed class ComposeFileTests
 public sealed class ComposeFile(YamlMappingNode root)
 {
     #region Properties
+
+    public static string Root => FindRoot();
 
     public IReadOnlyList<string> ServiceNames => [.. Map(root, "services").Children.Keys.Select(key => ((YamlScalarNode)key).Value!)];
 

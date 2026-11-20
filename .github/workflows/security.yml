@@ -95,6 +95,8 @@ jobs:
       - name: actionlint
         run: |
           "$RUNNER_TEMP/actionlint" -color
+      - name: Release workflow safety checks
+        run: python3 scripts/check-release-workflow.py
 
   dockerfile:
     name: Dockerfile (hadolint)

