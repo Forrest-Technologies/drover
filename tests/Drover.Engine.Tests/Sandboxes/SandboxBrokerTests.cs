@@ -356,12 +356,13 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
         var provider = new FakeSandboxProvider { AfterWrite = _ => cancelled.Cancel() };
         await using var world = await SandboxWorld(provider);
         await GiveSandbox(world, world.BotId, SandboxPolicy.Private);
+        var upload = await world.Upload(await world.NewThread(), "notes.txt", "attached"u8.ToArray());
         var host = world.StartHost();
         var broker = host.Services.GetRequiredService<SandboxBroker>();
         var caller = new SandboxCaller(new RunTenant(host.Services.GetRequiredService<IServiceScopeFactory>(), world.SpaceId, world.UserId), world.BotId);
         using var content = new MemoryStream("attached"u8.ToArray());
 
-        var put = () => broker.PutFile(caller, "attachments/a/notes.txt", content, content.Length, cancelled.Token);
+        var put = () => broker.PutFile(caller, "attachments/a/notes.txt", content, content.Length, upload.File!.Id, cancelled.Token);
 
         await put.Should().ThrowAsync<OperationCanceledException>();
         provider.Only().Files.Should().ContainKey("attachments/a/notes.txt");
@@ -543,8 +544,7 @@ public sealed class SandboxBrokerTests(PostgresServer postgres)
     /// <summary>Makes the world's space a shared one with an admin besides its owner. Returns the admin.</summary>
     private static async Task<Guid> MakeShared(RunWorld world)
     {
-        await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
-            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), RunWorld.Token));
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
         return await world.AddMember(MembershipRole.Admin);
     }
 

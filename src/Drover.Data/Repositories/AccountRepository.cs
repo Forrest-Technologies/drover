@@ -219,7 +219,15 @@ public sealed class AccountRepository(DroverDbContext db)
 
     public void Add(Space space) => db.Spaces.Add(space);
 
+    public void Add(User user) => db.Users.Add(user);
+
     public void Add(Membership membership) => db.Memberships.Add(membership);
+
+    /// <summary>Makes a personal space shared. Zero when it is missing or already shared.</summary>
+    public Task<int> MakeShared(Guid spaceId, CancellationToken cancellationToken) =>
+        db.Spaces
+            .Where(space => space.Id == spaceId && space.Kind == SpaceKind.Personal)
+            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), cancellationToken);
 
     #endregion
 }

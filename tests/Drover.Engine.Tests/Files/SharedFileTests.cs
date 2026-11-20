@@ -463,8 +463,7 @@ public sealed class SharedFileTests(PostgresServer postgres)
     /// <summary>Makes the world's space a shared one with an admin besides its owner. Returns the admin.</summary>
     private static async Task<Guid> MakeShared(RunWorld world)
     {
-        await world.Read(db => db.Spaces.Where(space => space.Id == world.SpaceId)
-            .ExecuteUpdateAsync(set => set.SetProperty(space => space.Kind, SpaceKind.Shared), RunWorld.Token));
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
         return await world.AddMember(MembershipRole.Admin);
     }
 

@@ -21,7 +21,7 @@ public interface ISecureStorage
 /// The plain settings the shared server-address code asks for, with the shape of the one the Android shell uses.
 /// Only the server's address is kept here, never a secret.
 /// </summary>
-public sealed class Preferences
+public sealed partial class Preferences
 {
     #region Properties
 
@@ -33,15 +33,82 @@ public sealed class Preferences
 
     #region Public Methods
 
-    public string Get(string key, string fallback) => Settings.Values.TryGetValue(key, out var value) && value is string text ? text : fallback;
+    public string Get(string key, string fallback)
+    {
+        var handled = false;
+        var value = fallback;
+        TryGetIsolatedText(key, fallback, ref handled, ref value);
+        if (handled)
+        {
+            return value;
+        }
 
-    public void Set(string key, string value) => Settings.Values[key] = value;
+        return Settings.Values.TryGetValue(key, out var stored) && stored is string text ? text : fallback;
+    }
 
-    public bool Get(string key, bool fallback) => Settings.Values.TryGetValue(key, out var value) && value is bool flag ? flag : fallback;
+    public void Set(string key, string value)
+    {
+        var handled = false;
+        TrySetIsolatedText(key, value, ref handled);
+        if (handled)
+        {
+            return;
+        }
 
-    public void Set(string key, bool value) => Settings.Values[key] = value;
+        Settings.Values[key] = value;
+    }
 
-    public void Remove(string key) => Settings.Values.Remove(key);
+    public bool Get(string key, bool fallback)
+    {
+        var handled = false;
+        var value = fallback;
+        TryGetIsolatedFlag(key, fallback, ref handled, ref value);
+        if (handled)
+        {
+            return value;
+        }
+
+        return Settings.Values.TryGetValue(key, out var stored) && stored is bool flag ? flag : fallback;
+    }
+
+    public void Set(string key, bool value)
+    {
+        var handled = false;
+        TrySetIsolatedFlag(key, value, ref handled);
+        if (handled)
+        {
+            return;
+        }
+
+        Settings.Values[key] = value;
+    }
+
+    public void Remove(string key)
+    {
+        var handled = false;
+        TryRemoveIsolated(key, ref handled);
+        if (handled)
+        {
+            return;
+        }
+
+        Settings.Values.Remove(key);
+    }
+
+    #endregion
+
+    #region Private Methods
+
+    // Implemented only in builds made for the screen checks (tests/Drover.Native.UITests/App/PreferencesHook.cs).
+    static partial void TryGetIsolatedText(string key, string fallback, ref bool handled, ref string value);
+
+    static partial void TrySetIsolatedText(string key, string value, ref bool handled);
+
+    static partial void TryGetIsolatedFlag(string key, bool fallback, ref bool handled, ref bool value);
+
+    static partial void TrySetIsolatedFlag(string key, bool value, ref bool handled);
+
+    static partial void TryRemoveIsolated(string key, ref bool handled);
 
     #endregion
 }
