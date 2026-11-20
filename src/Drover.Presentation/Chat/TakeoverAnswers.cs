@@ -59,7 +59,7 @@ public static class TakeoverAnswers
         }
 
         logger.LogWarning(exception, "A request about tool call {ToolCallId} failed", toolCallId);
-        return $"{what} {Failures.Sentence(exception)}";
+        return $"{what} {Failures.Sentence(exception, "Check that the server is running.")}";
     }
 
     #endregion

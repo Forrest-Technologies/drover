@@ -247,7 +247,7 @@ public sealed class ShellViewModelTests : IDisposable
 
         session.Current.Should().NotBeNull();
         toasts.Toasts.Single().Kind.Should().Be(ToastKind.Error);
-        toasts.Toasts.Single().Message.Should().StartWith("You are still signed in.");
+        toasts.Toasts.Single().Message.Should().Be("You are still signed in. Drover could not reach its server. Check that the server is running.");
     }
 
     [Fact]

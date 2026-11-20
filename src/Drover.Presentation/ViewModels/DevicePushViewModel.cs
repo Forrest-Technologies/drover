@@ -74,7 +74,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Could not check notifications on this device. {Failures.Sentence(exception)}";
+            Problem = $"Could not check notifications on this device. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (DeviceCallFailedException exception)
         {
@@ -105,7 +105,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Could not send the test. {Failures.Sentence(exception)}";
+            Problem = $"Could not send the test. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -127,7 +127,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Notifications did not change. {Failures.Sentence(exception)}";
+            Problem = $"Notifications did not change. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (DeviceCallFailedException exception)
         {

@@ -210,7 +210,7 @@ public sealed partial class ActivityPanel(
         catch (Exception exception) when (Failures.IsReportable(exception) && tree?.RootRunId == rootRunId)
         {
             logger.LogWarning(exception, "Watching run {RunId} failed in the {Screen}", rootRunId, nameof(ActivityPanel));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
             watchFailed = true;
             await InvokeAsync(StateHasChanged);
         }
@@ -278,7 +278,7 @@ public sealed partial class ActivityPanel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ActivityPanel));
-            return Failures.Sentence(exception);
+            return Failures.Sentence(exception, "Check that the server is running.");
         }
     }
 

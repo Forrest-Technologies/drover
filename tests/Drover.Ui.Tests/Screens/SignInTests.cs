@@ -76,7 +76,7 @@ public sealed class SignInTests : ScreenTest
 
         var page = Render<SignIn>();
 
-        page.WaitForAssertion(() => page.Find("[role=alert]").TextContent.Trim().Should().Be(Failures.Unreachable));
+        page.WaitForAssertion(() => page.Find("[role=alert]").TextContent.Trim().Should().Be("Drover could not reach its server. Check that the server is running."));
     }
 
     [Fact]

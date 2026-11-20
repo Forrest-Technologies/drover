@@ -601,7 +601,7 @@ public sealed partial class SandboxScreenViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogInformation(exception, "An input to the sandbox was refused");
-            ScreenProblem = Failures.Sentence(exception);
+            ScreenProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
 
         Sending = false;

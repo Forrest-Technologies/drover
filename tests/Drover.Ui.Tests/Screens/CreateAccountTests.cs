@@ -81,7 +81,7 @@ public sealed class CreateAccountTests : ScreenTest
 
         var page = Render<CreateAccount>();
 
-        page.WaitForAssertion(() => page.Find("[role=alert]").TextContent.Trim().Should().Be(Failures.Unreachable));
+        page.WaitForAssertion(() => page.Find("[role=alert]").TextContent.Trim().Should().Be("Drover could not reach its server."));
         page.FindAll("form").Should().BeEmpty();
         page.FindAll("button").Select(button => button.TextContent.Trim()).Should().Equal("Try again");
     }

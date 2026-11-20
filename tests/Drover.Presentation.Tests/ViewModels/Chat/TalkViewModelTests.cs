@@ -62,6 +62,18 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Not Ready
 
     [Fact]
+    public async Task An_unreachable_conversation_keeps_the_server_check_as_its_next_step()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        await Go("/");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Drover could not reach its server. Check that the server is running."));
+        MainPane.Problem.Should().Be("Drover could not reach its server. Check that the server is running.");
+    }
+
+
+    [Fact]
     public async Task With_no_model_the_workspace_says_so_and_links_to_connecting_one()
     {
         Server.Answer("GET", $"{Space}/model-connections", Array.Empty<ModelConnectionSummary>());
