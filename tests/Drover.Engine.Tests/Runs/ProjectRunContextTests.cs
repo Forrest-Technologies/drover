@@ -469,6 +469,41 @@ public sealed class ProjectRunContextTests(PostgresServer postgres)
     }
 
     [Fact]
+
+    public async Task A_zero_picture_partial_scan_is_reopened_when_a_later_call_has_more_image_capacity()
+
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));
+        world.StartHost();
+        var project = await CreateProject(world, "Initially hidden scan", "");
+        var olderPages = Enumerable.Range(0, 24)
+            .Select(index => TestDocuments.Jpeg(512, 512, (byte)index))
+            .ToArray();
+        var older = (await Upload(
+            world,
+            project.Id,
+            "older.pdf",
+            TestDocuments.ScannedPdfWithBlankPage(1, olderPages))).File!;
+        var newerPages = Enumerable.Range(0, 19)
+            .Select(index => TestDocuments.Jpeg(512, 512, (byte)index))
+            .ToArray();
+        var newer = (await Upload(world, project.Id, "newer.pdf", TestDocuments.ScannedPdf(newerPages))).File!;
+        var openedBeforeRun = world.Files.Opened;
+        var files = DirectProjectFiles(world);
+
+        var first = await files.OpenProject(project.Id, [older.Id, newer.Id], RunWorld.Token);
+        var second = await files.OpenProject(project.Id, [older.Id], RunWorld.Token);
+
+        first[newer.Id].Images.Should().HaveCount(19);
+        first[older.Id].Images.Should().BeNullOrEmpty();
+        first[older.Id].Text.Should().Contain("image allowance for this model call");
+        second[older.Id].Images.Should().HaveCount(19, "the later call has twenty slots and only page one is blank");
+        second[older.Id].Text.Should().Contain("Only 19 of its 25 pages are shown");
+        (world.Files.Opened - openedBeforeRun).Should().Be(
+            3, "both scans are opened first and the older scan is reopened when more capacity becomes available");
+    }
+
+    [Fact]
     public async Task An_empty_project_document_is_not_mislabeled_when_newer_pictures_use_the_image_count()
     {
         await using var world = await RunWorld.Create(postgres, new ScriptedModel([new TextOutput("unused")]));

@@ -213,7 +213,7 @@ public sealed class RunFiles(
 
             if (use is FileUse.Text)
             {
-                var textResult = await Text(file, cancellationToken, ProjectCaption);
+                var textResult = await Text(file, ProjectCaption, cancellationToken);
                 projectStable[file.Id] = textResult;
 
                 if (!TryAddProjectFile(opened, budget, textResult, ref anyKept))
@@ -274,7 +274,7 @@ public sealed class RunFiles(
                     continue;
                 }
 
-                var picture = await Picture(file, cancellationToken, ProjectCaption);
+                var picture = await Picture(file, ProjectCaption, cancellationToken);
 
                 if (picture.Images is [{ } image])
                 {
@@ -363,7 +363,7 @@ public sealed class RunFiles(
 
                 if (modelReadsImages
                     && file.ContentType is DocumentTypes.Pdf
-                    && file.ReadingNote is DocumentWords.NoReadableText
+                    && file.ReadingNote == DocumentWords.NoReadableText
                     && (budget.RemainingImages == 0
                         || budget.RemainingImageBytes == 0
                         || budget.RemainingDecodedImageBytes == 0))
@@ -375,7 +375,6 @@ public sealed class RunFiles(
 
                     continue;
                 }
-
 
                 if (await ReadAll(file, cancellationToken) is not { } bytes)
                 {
@@ -419,17 +418,20 @@ public sealed class RunFiles(
 
                 if (!read.HasText && modelReadsImages && file.ContentType is DocumentTypes.Pdf)
                 {
+                    var budgetLimited = !read.ImagesExceedSingleLimits
+                        && (read.ImagesRejected || imageCap < Math.Min(read.Read, MaxPageImages));
+
                     if (read.PageImages.Count == 0)
                     {
                         var noPictures = read.ImagesExceedSingleLimits
                             ? ProjectNote(file, "its page pictures are too large to show in one model call")
-                            : read.ImagesRejected || imageCap == 0
+                            : budgetLimited
                                 ? ProjectImageAllowanceNote(file)
                                 : new FileForModel(
                                     file.Id,
                                     DocumentWords.WithoutProjectText(file.Name, file.ContentType, read));
 
-                        if (read.ImagesExceedSingleLimits || (!read.ImagesRejected && imageCap > 0))
+                        if (read.ImagesExceedSingleLimits || !budgetLimited)
                         {
                             projectStable[file.Id] = noPictures;
                         }
@@ -460,8 +462,6 @@ public sealed class RunFiles(
                         break;
                     }
 
-                    var budgetLimited = (read.ImagesRejected && !read.ImagesExceedSingleLimits)
-                        || imageCap < Math.Min(read.Read, MaxPageImages);
                     RetainOpenedProjectPictures(opened);
                     projectPictures[file.Id] = new ProjectPictureCache(docImages, allowance, budgetLimited);
                     continue;
@@ -494,7 +494,7 @@ public sealed class RunFiles(
 
     #region Private Methods
 
-    /// <summary>Reads a picture from storage; the caller controls bounded project-cache retention.</summary>
+    /// <summary>Opens a conversation attachment within the bot's current file abilities.</summary>
     private async Task<FileForModel> Give(StoredFile file, FileAbilities can, CancellationToken cancellationToken)
     {
         if (given.TryGetValue(file.Id, out var known))
@@ -512,8 +512,8 @@ public sealed class RunFiles(
 
         var result = use switch
         {
-            FileUse.Image => await Picture(file, cancellationToken),
-            FileUse.Text => await Text(file, cancellationToken),
+            FileUse.Image => await Picture(file, AttachmentCaption, cancellationToken),
+            FileUse.Text => await Text(file, AttachmentCaption, cancellationToken),
             FileUse.Document => await Document(file, can, cancellationToken),
             FileUse.Sandbox => await IntoSandbox(file, cancellationToken),
             _ => Note(file, FileUses.RefusalFor(kind, can) switch
@@ -534,8 +534,8 @@ public sealed class RunFiles(
 
     private async Task<FileForModel> Picture(
         StoredFile file,
-        CancellationToken cancellationToken,
-        string source = AttachmentCaption)
+        string source,
+        CancellationToken cancellationToken)
     {
         await using var content = await store.Open(tenant.SpaceId, file.StorageKey, cancellationToken);
 
@@ -582,8 +582,8 @@ public sealed class RunFiles(
 
     private async Task<FileForModel> Text(
         StoredFile file,
-        CancellationToken cancellationToken,
-        string source = AttachmentCaption)
+        string source,
+        CancellationToken cancellationToken)
     {
         await using var content = await store.Open(tenant.SpaceId, file.StorageKey, cancellationToken);
 

@@ -101,6 +101,29 @@ public sealed class DocumentReaderTests
         read.ImagesExceedSingleLimits.Should().BeTrue();
     }
 
+    [Theory]
+
+    [InlineData(false)]
+
+    [InlineData(true)]
+
+    public void Scanned_pdf_picture_headers_must_be_readable_and_match_the_pdf_dictionary(bool zeroHeaderHeight)
+
+    {
+        var pdf = TestDocuments.ScannedPdfWithDeclaredImageSize(
+            actualWidth: 8_000,
+            actualHeight: 6_000,
+            declaredWidth: 1_200,
+            declaredHeight: 1_600,
+            zeroHeaderHeight: zeroHeaderHeight);
+
+        var read = DocumentReader.Read(pdf, DocumentTypes.Pdf, roomy);
+
+        read.PageImages.Should().BeEmpty();
+        read.ImagesRejected.Should().BeTrue();
+        read.ImagesExceedSingleLimits.Should().BeTrue();
+    }
+
     [Fact]
     public void A_word_document_is_read_paragraph_by_paragraph()
     {

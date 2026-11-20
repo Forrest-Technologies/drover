@@ -8,12 +8,16 @@ public static class DocumentWords
 {
     #region Private Fields
 
-    /// <summary>The stored reading note for a document without readable text.</summary>
-    public const string NoReadableText = "It has no text a bot can read.";
-
     private const string AttachmentCaption = "The person attached";
 
     private const string ProjectCaption = "The project shares";
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>The stored reading note for a document without readable text.</summary>
+    public static string NoReadableText { get; } = "It has no text a bot can read.";
 
     #endregion
 
@@ -62,12 +66,11 @@ public static class DocumentWords
         string contentType,
         DocumentContent read,
         int maxCharacters,
-        string source) =>
-        $"""
-        [{source} {name}, {Describe(contentType, read)}. Its text follows.]
-        {read.Text}
-        {Ending(name, read, maxCharacters)}
-        """;
+        string source)
+    {
+        var heading = $"[{source} {name}, {Describe(contentType, read)}. Its text follows.]";
+        return $"{heading}\n{read.Text}\n{Ending(name, read, maxCharacters)}";
+    }
 
     private static string WithoutText(string name, string contentType, DocumentContent read, string source)
     {
@@ -84,14 +87,15 @@ public static class DocumentWords
     private static string ShownPages(int shown, int total) =>
         $"Only {shown} of its {total} pages {(shown is 1 ? "is" : "are")} shown.";
 
-
     private static string Ending(string name, DocumentContent read, int maxCharacters) => read switch
     {
         { TextCut: true } => $"[{name} continues. Only its first {maxCharacters} characters are shown.]",
-        { PagesCut: true } =>
-            $"[{name} continues. Only its first {read.Read} of its {read.Total} {read.Unit} are shown.]",
+        { PagesCut: true } => $"[{name} continues. {FirstUnitsShown(read)}]",
         _ => $"[End of {name}.]",
     };
+
+    private static string FirstUnitsShown(DocumentContent read) =>
+        $"Only its first {read.Read} of its {read.Total} {read.Unit} {(read.Read is 1 ? "is" : "are")} shown.";
 
     /// <summary>"a PDF document of 12 pages", "a Word document", "an Excel workbook of 3 sheets".</summary>
     private static string Describe(string contentType, DocumentContent read)
