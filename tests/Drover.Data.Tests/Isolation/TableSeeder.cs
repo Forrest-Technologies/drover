@@ -76,6 +76,10 @@ public sealed class SeedRow(
             ? parent.Key[column]
             : throw new InvalidOperationException($"'{Table}' has no parent row in '{parentTable}'.");
 
+    /// <summary>The space id of the seeded parent row in <paramref name="parentTable"/>, or null when unplaced.</summary>
+    public Guid? ParentSpaceId(string parentTable) =>
+        parents.TryGetValue(parentTable, out var parent) ? parent.Placement.SpaceId : null;
+
     /// <summary>A new user who exists in the database, for a row that needs one of its own.</summary>
     public Task<Guid> CreateUser() => createUser();
 
