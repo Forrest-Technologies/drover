@@ -68,10 +68,16 @@ internal static class PlatformShell
     // Before a server is chosen the address waits: the connect screen comes first.
     private static void OpenIncoming(Navigator navigator)
     {
-        if (((App)Application.Current).Services.GetRequiredService<ServerAddress>().Current is not null
-            && Incoming.Take() is { } address)
+        var services = ((App)Application.Current).Services;
+        if (services.GetRequiredService<ServerAddress>().Current is not null && Incoming.TakeOpening() is { } opening)
         {
-            navigator.NavigateTo(address);
+            // The conversation may be in a space other than the person's own, so work in its space first.
+            if (opening.Space is { } space)
+            {
+                services.GetRequiredService<SessionState>().ChooseSpace(space);
+            }
+
+            navigator.NavigateTo(opening.Path);
         }
     }
 

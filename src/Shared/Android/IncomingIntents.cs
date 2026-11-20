@@ -32,12 +32,31 @@ internal static class IncomingIntents
 
     #region Private Methods
 
+    // The activity is open to every app, so any of them can send this. A notification this app posted carries the
+    // person and the registration it was made for; an intent without them, or with ones that are not this device's
+    // current ones, goes nowhere.
     private static void OpenConversation(Intent? intent)
     {
-        if (intent?.Action == AndroidNotifications.OpenAction && AndroidNotifications.Conversation(intent, out var bot, out var thread))
+        if (intent?.Action != AndroidNotifications.OpenAction
+            || !AndroidNotifications.Conversation(intent, out var bot, out var thread)
+            || !Guid.TryParse(intent.GetStringExtra("user"), out var user)
+            || intent.GetStringExtra("registration") is not { Length: > 0 } registration)
         {
-            var address = intent.GetBooleanExtra("main", true) ? Addresses.Talk(bot) : Addresses.SideChat(bot, thread);
-            IPlatformApplication.Current?.Services.GetService<IncomingNavigation>()?.Open(address);
+            return;
+        }
+
+        var address = intent.GetBooleanExtra("main", true) ? Addresses.Talk(bot) : Addresses.SideChat(bot, thread);
+        Guid? space = Guid.TryParse(intent.GetStringExtra("space"), out var named) ? named : null;
+        _ = OpenIfOurs(user, registration, address, space);
+    }
+
+    private static async Task OpenIfOurs(Guid user, string registration, string address, Guid? space)
+    {
+        var services = IPlatformApplication.Current?.Services;
+        if (services?.GetService<AndroidPushRegistration>() is { } registrations
+            && await registrations.BelongsTo(user, registration))
+        {
+            services.GetService<IncomingNavigation>()?.Open(address, space);
         }
     }
 
