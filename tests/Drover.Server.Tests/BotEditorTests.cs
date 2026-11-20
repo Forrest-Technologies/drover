@@ -67,6 +67,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var second = await CreateConnection(client, alice.SpaceId, "Second");
         var fileId = await SeedFile(alice.SpaceId, alice.UserId);
         await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "seeing", new ModelCapabilities { Vision = true });
+        await SeedCatalogEntry(alice.SpaceId, alice.UserId, second.Id, "backup-model", new ModelCapabilities());
         var untouched = await GetFor<BotDetail>(client, $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition");
         var edit = new UpdateBotRequest(
             "Atlas",
@@ -76,7 +77,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
             "Answer in one paragraph.",
             second.Id,
             "other-model",
-            new ModelSettingsBody(0.4, 900, "high", "automatic", true),
+            new ModelSettingsBody(0.4, 900, "high", "automatic", true, [new ModelFallbackBody(second.Id, "backup-model")], UseSpaceFallbacks: false),
             new MemorySettingsBody(true, "summarization", 60_000, 12, 300, 4000),
             "named",
             new SandboxSettingsBody("allowlist", ["Example.com", "api.example.org"], 30, Desktop: true, new ScreenReaderBody(second.Id, " seeing ")),
