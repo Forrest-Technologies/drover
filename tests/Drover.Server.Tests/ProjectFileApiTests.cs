@@ -83,6 +83,33 @@ public sealed class ProjectFileApiTests(PostgresServer postgres) : ServerTestBas
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Project_file_native_previews_follow_project_access_and_removal()
+    {
+        var owner = await SeedPerson("preview-owner");
+        var member = await SeedMember(owner.SpaceId, "preview-member", MembershipRole.Member);
+        var stranger = await SeedPerson("preview-stranger");
+        var asOwner = await SignIn(owner);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asStranger = await SignIn(stranger);
+        var project = await CreateProject(asOwner, owner.SpaceId, "Notes");
+        var uploaded = await UploadProjectFile(asOwner, owner.SpaceId, project.Id, "notes.txt", "shared notes");
+        var previewPath = $"{Space(owner.SpaceId)}/files/{uploaded.File.Id}/native-preview";
+
+        var preview = await asMember.Get(previewPath);
+
+        preview.StatusCode.Should().Be(HttpStatusCode.OK);
+        preview.Headers.CacheControl!.NoStore.Should().BeTrue();
+        (await preview.Content.ReadFromJsonAsync<NativeFilePreview>(Token))!.Markdown.Should().Be("shared notes");
+        (await asStranger.Get(previewPath)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await asStranger.Get($"{Space(stranger.SpaceId)}/files/{uploaded.File.Id}/native-preview"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await asOwner.Delete($"{Space(owner.SpaceId)}/projects/{project.Id}/files/{uploaded.File.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await asMember.Get(previewPath)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     #endregion
 
     #region Limits And Cross-Space Isolation

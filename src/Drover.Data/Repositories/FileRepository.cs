@@ -228,7 +228,8 @@ public sealed class FileRepository(DroverDbContext db)
 
     /// <summary>
     /// Drops project-upload holds last renewed at or before <paramref name="olderThan"/> and returns held bytes.
-    /// Runs only on administrator project-upload paths, skips locked holds, and protects visible stored or queued files.
+    /// Runs only on administrator project-upload paths, skips locked holds, and protects visible stored
+    /// or queued files.
     /// </summary>
     public async Task<IReadOnlyList<Guid>> ReleaseExpiredHolds(
         Guid spaceId,
