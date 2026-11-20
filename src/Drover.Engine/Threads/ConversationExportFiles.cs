@@ -249,6 +249,10 @@ public static class ConversationExportFiles
     /// <summary>
     /// Keeps ordinary Markdown syntax intact outside code blocks and inline code spans while neutralizing active HTML,
     /// remote or inline image embeds, and scriptable link schemes using Markdig's linear CommonMark parser.
+    /// A reader resolves link reference definitions across the whole saved document, so a definition in one message
+    /// can turn a reference in another into a link or an image. Each message is parsed alone and cannot see the
+    /// others, so no definition is left standing and no reference is left to resolve: a definition is written as
+    /// plain text, and an exclamation mark before a bracket is escaped so a reference-style image never embeds.
     /// </summary>
     public static string NeutralizeMarkdown(string text, ILogger? logger = null)
     {
@@ -289,17 +293,13 @@ public static class ConversationExportFiles
                 }
                 else if (block is LinkReferenceDefinition reference)
                 {
-                    if (!IsSafeLinkUrl(reference.Url)
-                        && reference.Span.Start >= 0
-                        && reference.Span.Start < current.Length
-                        && current[reference.Span.Start] == '[')
-                    {
-                        replacements[reference.Span.Start] = "\\[";
-                    }
+                    EscapeDefinition(current, reference.Span, replacements);
                 }
                 else if (block is LeafBlock { Inline: { } root })
                 {
-                    CollectUnsafeInlines(current, root, replacements);
+                    List<SourceSpan> code = [];
+                    CollectUnsafeInlines(current, root, replacements, code);
+                    EscapeImageMarks(current, block.Span, code, replacements);
                 }
             }
 
@@ -358,7 +358,7 @@ public static class ConversationExportFiles
         _ => string.Create(CultureInfo.InvariantCulture, $"{bytes / (double)Megabyte:0.#} MB"),
     };
 
-    private static void CollectUnsafeInlines(string source, ContainerInline root, Dictionary<int, string> replacements)
+    private static void CollectUnsafeInlines(string source, ContainerInline root, Dictionary<int, string> replacements, List<SourceSpan> code)
     {
         Stack<Markdig.Syntax.Inlines.Inline> stack = new();
         stack.Push(root);
@@ -369,6 +369,7 @@ public static class ConversationExportFiles
 
             if (node is CodeInline)
             {
+                code.Add(node.Span);
                 continue;
             }
 
@@ -421,6 +422,39 @@ public static class ConversationExportFiles
                 {
                     stack.Push(child);
                 }
+            }
+        }
+    }
+
+    // A definition is "[label]: address". Escaping its opening bracket makes the line plain text, so it defines nothing.
+    private static void EscapeDefinition(string source, SourceSpan span, Dictionary<int, string> replacements)
+    {
+        var end = Math.Min(source.Length - 1, span.End);
+
+        for (var index = Math.Max(0, span.Start); index <= end; index++)
+        {
+            if (source[index] == '[')
+            {
+                replacements[index] = "\\[";
+                return;
+            }
+        }
+    }
+
+    // An image written with a reference, "![alt][label]", "![alt][]" or "![alt]", is only text in this message, but
+    // it becomes an embed wherever a definition for the label is read. The mark is escaped so it never can.
+    private static void EscapeImageMarks(string source, SourceSpan span, List<SourceSpan> code, Dictionary<int, string> replacements)
+    {
+        var end = Math.Min(source.Length - 2, span.End);
+
+        for (var index = Math.Max(0, span.Start); index <= end; index++)
+        {
+            if (source[index] == '!'
+                && source[index + 1] == '['
+                && (index == 0 || source[index - 1] != '\\')
+                && !code.Exists(inside => index >= inside.Start && index <= inside.End))
+            {
+                replacements[index] = "\\!";
             }
         }
     }

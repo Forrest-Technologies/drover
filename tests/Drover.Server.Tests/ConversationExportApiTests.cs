@@ -289,6 +289,55 @@ public sealed class ConversationExportApiTests(PostgresServer postgres) : Server
     }
 
     [Fact]
+    public async Task A_reference_in_one_message_cannot_resolve_through_a_definition_in_another()
+    {
+        script = new ScriptedModel([new TextOutput("[brand]: https://evil.test/pixel.png\n\n[site]: https://evil.test/page")]);
+        var alice = await SeedPerson("alice");
+        var client = await SignIn(alice.Email, alice.Password);
+        var bot = await CreateBot(client, alice.SpaceId);
+        var main = await OpenMain(client, alice.SpaceId, bot.Id);
+        await Ask(client, alice.SpaceId, main.Id, new SendMessageRequest("![logo][brand] ![short][] ![brand] [go][site]"));
+
+        var md = await (await client.Get(ExportPath(alice.SpaceId, main.Id, "markdown"))).Content.ReadAsStringAsync(Token);
+        var rendered = Markdig.Markdown.ToHtml(md, new MarkdownPipelineBuilder().UsePipeTables().UseTaskLists().UseAutoLinks().Build());
+
+        rendered.Should().NotContain("<img", "a definition in a later message must not turn an earlier reference into an image");
+        rendered.Should().NotContain("src=", "no reference may resolve across messages");
+        rendered.Should().NotContain(">go</a>", "a link reference does not resolve across messages either");
+        rendered.Should().Contain("[go][site]");
+        md.Should().Contain(@"\![logo][brand]");
+        md.Should().Contain(@"\[brand]: https://evil.test/pixel.png");
+    }
+
+    [Theory]
+    [InlineData("![logo][brand]", "[brand]: https://evil.test/pixel.png")]
+    [InlineData("![brand][]", "[brand]: https://evil.test/pixel.png")]
+    [InlineData("![brand]", "[brand]: https://evil.test/pixel.png")]
+    [InlineData("[brand]: https://evil.test/pixel.png", "![logo][brand]")]
+    [InlineData("![logo][brand]", "> [brand]: <https://evil.test/pixel.png> \"title\"")]
+    [InlineData("![logo][brand]", "- [brand]: https://evil.test/pixel.png")]
+    public void Neutralized_messages_joined_into_one_document_resolve_nothing_across_each_other(string first, string second)
+    {
+        var document = string.Join(
+            "\n\n## Person, 2026-01-01 00:00 UTC\n\n",
+            Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(first),
+            Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(second));
+
+        var rendered = Markdig.Markdown.ToHtml(document, new MarkdownPipelineBuilder().UsePipeTables().UseTaskLists().UseAutoLinks().Build());
+
+        rendered.Should().NotContain("<img");
+        rendered.Should().NotContain("src=");
+    }
+
+    [Fact]
+    public void A_definition_and_an_image_mark_inside_code_are_left_alone()
+    {
+        var text = "`![a][b]` and\n\n```\n[b]: https://example.com/x\n![a][b]\n```";
+
+        Drover.Engine.Threads.ConversationExportFiles.NeutralizeMarkdown(text).Should().Be(text);
+    }
+
+    [Fact]
     public void Neutralizing_long_malformed_link_labels_completes_in_linear_time()
     {
         var longLabels = $"{string.Concat(Enumerable.Repeat("[unclosed ", 60))}{new string('a', 50_000)}](javascript:alert(1))\n[click](javascript:alert(1))";
