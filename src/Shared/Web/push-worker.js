@@ -58,20 +58,20 @@ async function showWakeUp(wakeUp) {
 // for the first person's runs: it is told nothing, 403 when this browser's subscription is not the signed-in person's,
 // which is then ended here so the browser is woken no more for the last person's bots, and 409 when the wake was sent
 // for someone else, as one already queued as the person switched is, which leaves the signed-in person's own
-// subscription alone. The next person turns notifications on to subscribe afresh. Without a subscription, a push has
-// nothing to be asked for and shows nothing.
+// subscription alone. The next person turns notifications on to subscribe afresh. Without a subscription, or when the
+// push names nobody, there is nothing to ask for and nothing is shown.
 async function fetchText(wakeUp) {
     const subscription = await readSubscription();
 
-    if (subscription === null) {
+    // A push that names nobody was queued before it carried the person it was sent for, and nothing says it was for the
+    // person signed in now, so it is not described to them.
+    if (subscription === null || typeof wakeUp.user !== "string") {
         return refused;
     }
 
     const query = new URLSearchParams({ kind: String(wakeUp.kind), thread: String(wakeUp.thread) });
 
-    if (typeof wakeUp.user === "string") {
-        query.set("user", wakeUp.user);
-    }
+    query.set("user", wakeUp.user);
 
     try {
         const answer = await fetch(`/api/push/wake?${query}`, {

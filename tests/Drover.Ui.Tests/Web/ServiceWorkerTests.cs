@@ -164,23 +164,23 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
     [Fact]
     public async Task A_push_shows_what_the_server_says_asked_for_with_the_persons_own_sign_in()
     {
-        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
 
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Sample bot finished.|{Home}talk/{botId}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}|{SignInCookie}|{TestSubscription}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}&user={signedInPerson}|{SignInCookie}|{TestSubscription}");
     }
 
     [Fact]
     public async Task A_push_the_server_does_not_explain_still_shows_without_any_of_the_conversation()
     {
-        await DeliverPush($$"""{"kind":"run.finished","thread":"{{Guid.Empty}}"}""");
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{Guid.Empty}}","user":"{{signedInPerson}}"}""");
 
         var shown = await WaitForNotifications();
 
         shown.Should().Equal($"Drover|Something changed. Open Drover to see it.|{Home}");
-        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}|{SignInCookie}|{TestSubscription}");
+        wakeQueries.Should().Equal($"?kind=run.finished&thread={Guid.Empty}&user={signedInPerson}|{SignInCookie}|{TestSubscription}");
     }
 
     [Fact]
@@ -193,6 +193,20 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         (await ShownNotifications()).Should().BeEmpty("the signed-in person holds no subscription for this address, so nothing is shown");
         wakeQueries.Should().Equal($"?kind=run.finished&thread={threadId}&user={signedInPerson}|{SignInCookie}|{AnotherPersonsSubscription}");
         (await SetSubscription(null)).Should().Be(1, "the worker ends a subscription the signed-in person does not hold");
+    }
+
+    [Fact]
+    public async Task A_push_for_the_last_person_while_their_subscription_is_still_installed_ends_it_and_shows_nothing()
+    {
+        // The next person signed in on the last person's browser and has not turned notifications on, so the
+        // subscription is still the last person's. The push names the last person, who is not the signed-in person:
+        // the missing subscription is what the server reports first, so the worker ends it.
+        await SetSubscription(AnotherPersonsSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{anotherPerson}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty();
+        (await SetSubscription(null)).Should().Be(1, "the subscription that is not the signed-in person's is ended, not kept");
     }
 
     [Fact]
@@ -209,6 +223,20 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
         await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}","user":"{{signedInPerson}}"}""");
 
         (await WaitForNotifications()).Should().Equal([$"Drover|Sample bot finished.|{Home}talk/{botId}"], "a wake sent for the signed-in person is described");
+    }
+
+    [Fact]
+    public async Task A_push_queued_before_it_named_the_person_shows_nothing_and_asks_the_server_nothing_across_a_subscription_replacement()
+    {
+        // The last person's push was queued before the upgrade, so it names nobody. The next person has registered
+        // their own subscription since, which the worker would otherwise supply for it.
+        await SetSubscription(TestSubscription);
+
+        await DeliverPush($$"""{"kind":"run.finished","thread":"{{threadId}}"}""");
+
+        (await ShownNotifications()).Should().BeEmpty("nothing says the push was for the person signed in");
+        wakeQueries.Should().BeEmpty();
+        (await SetSubscription(TestSubscription)).Should().Be(0, "the signed-in person's own subscription is kept");
     }
 
     [Fact]
@@ -267,14 +295,15 @@ public abstract class ServiceWorkerScenarios : IAsyncLifetime
 
                 // The server answers only the person the wake was sent for, and only while they hold a subscription
                 // for the address the worker names.
-                if (http.Request.Query.TryGetValue("user", out var intended) && intended != signedInPerson.ToString())
-                {
-                    return Results.StatusCode(StatusCodes.Status409Conflict);
-                }
-
+                // Ownership of the subscription is checked first, as the real server does.
                 if (endpoint == AnotherPersonsSubscription)
                 {
                     return Results.StatusCode(StatusCodes.Status403Forbidden);
+                }
+
+                if (!http.Request.Query.TryGetValue("user", out var intended) || intended != signedInPerson.ToString())
+                {
+                    return Results.StatusCode(StatusCodes.Status409Conflict);
                 }
 
                 return http.Request.Query["thread"] == threadId.ToString() && http.Request.Headers.Cookie == SignInCookie

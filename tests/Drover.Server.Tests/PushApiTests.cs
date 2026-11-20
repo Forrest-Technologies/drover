@@ -151,7 +151,7 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
         var device = Device("https://push.example/left-subscribed");
         (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
-        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}";
+        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
 
         var asSubscriber = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
         var asAnotherPerson = await asMember.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
@@ -192,6 +192,43 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
     }
 
     [Fact]
+    public async Task When_the_last_persons_subscription_is_still_installed_the_next_person_gets_a_403_before_any_recipient_check()
+    {
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var asAlice = await SignIn(alice);
+        var asMember = await SignIn(member.Email, member.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var aliceDevice = Device("https://push.example/alices-still-installed");
+        (await asAlice.Put("/api/push/device", aliceDevice)).EnsureSuccessStatusCode();
+
+        // The member signed in on alice's browser and never turned notifications on, so holds no subscription for its
+        // address. A new wake for alice names alice, which is not the member: the missing subscription is what is
+        // reported, so the worker ends alice's subscription, not a recipient mismatch that would keep it.
+        var forAlice = await asMember.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}", PushEndpoints.PushEndpointHeader, aliceDevice.Endpoint);
+
+        forAlice.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await forAlice.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_browsers_wake_that_names_nobody_is_not_described_even_to_the_person_who_holds_the_subscription()
+    {
+        var alice = await SeedPerson("alice");
+        var asAlice = await SignIn(alice);
+        var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
+        var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        var device = Device("https://push.example/queued-before-the-upgrade");
+        (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
+
+        var legacy = await asAlice.Get($"/api/push/wake?kind=run.finished&thread={thread.Id}", PushEndpoints.PushEndpointHeader, device.Endpoint);
+
+        legacy.StatusCode.Should().Be(HttpStatusCode.Conflict, "nothing says a wake that names nobody was for the person signed in");
+        (await legacy.Content.ReadAsStringAsync(Token)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_person_who_turned_the_same_browser_on_is_answered_and_the_first_person_still_is()
     {
         var alice = await SeedPerson("alice");
@@ -205,8 +242,8 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         (await asMember.Put("/api/push/device", device)).EnsureSuccessStatusCode();
         var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}";
 
-        var forAlice = await asAlice.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
-        var forMember = await asMember.Get(wake, PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var forAlice = await asAlice.Get($"{wake}&user={alice.UserId}", PushEndpoints.PushEndpointHeader, device.Endpoint);
+        var forMember = await asMember.Get($"{wake}&user={member.UserId}", PushEndpoints.PushEndpointHeader, device.Endpoint);
 
         forAlice.StatusCode.Should().Be(HttpStatusCode.OK);
         forMember.StatusCode.Should().Be(HttpStatusCode.NotFound, "the member holds the subscription, but alice's main thread is hers alone");
@@ -220,7 +257,7 @@ public sealed class PushApiTests(PostgresServer postgres) : ServerTestBase(postg
         var bot = await CreateBot(asAlice, alice.SpaceId, "Atlas");
         var thread = await OpenMain(asAlice, alice.SpaceId, bot.Id);
         var device = Device("https://push.example/turned-off");
-        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}";
+        var wake = $"/api/push/wake?kind=run.finished&thread={thread.Id}&user={alice.UserId}";
         (await asAlice.Put("/api/push/device", device)).EnsureSuccessStatusCode();
         (await asAlice.Post("/api/push/device/off", new PushDeviceQuery(device.Endpoint))).EnsureSuccessStatusCode();
 

@@ -28,7 +28,7 @@ public static class PushEndpoints
             .WithBodyLimit(RequestLimits.Account)
             .WithName("TestPushDevice");
         push.MapGet("/wake", GetWakeText).WithName("GetPushWakeText")
-            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see. A browser sends its own subscription address in the Push-Endpoint header and the person the wake was sent for in the user query value: it is answered only while the signed-in person holds a subscription for that address (403 otherwise) and is that person (409 otherwise).");
+            .WithSummary("What a woken device shows: the bot and what happened, for a thread the person can see. A browser sends its own subscription address in the Push-Endpoint header and the person the wake was sent for in the user query value: it is answered only while the signed-in person holds a subscription for that address (403, checked first) and is that person (409 otherwise, also when a browser names nobody).");
         return api;
     }
 
@@ -86,9 +86,9 @@ public static class PushEndpoints
     // line, and the person the wake was sent for, which the wake itself carries. Only that person is answered, and
     // only while they hold a subscription for that address. So the next person on the browser is told nothing of the
     // last one's bots, and neither is the next person when a wake for the last one was already queued as they
-    // switched. The two refusals differ: 409 says the wake is for someone else (nothing is shown, the browser's own
-    // subscription is the signed-in person's and is kept), 403 says the signed-in person holds no subscription for
-    // this address (nothing is shown, and the worker ends it). The Android app and the desktop's live signal ask
+    // switched. The two refusals differ: 403 says the signed-in person holds no subscription for this address (nothing
+    // is shown, and the worker ends it), and is checked first; 409 says the wake is for someone else, or names nobody
+    // (nothing is shown, the browser's own subscription is the signed-in person's and is kept). The Android app and the desktop's live signal ask
     // without either: each checks for itself that the account is the one it was registered for.
     private static async Task<Results<Ok<PushWakeText>, NotFound, StatusCodeHttpResult>> GetWakeText(
         string kind,
@@ -98,17 +98,23 @@ public static class PushEndpoints
         PushService push)
     {
         var userId = context.User.GetUserId();
+        var fromBrowser = context.Request.Headers.TryGetValue(PushEndpointHeader, out var named);
 
-        if (user is { } intended && intended != userId)
-        {
-            return TypedResults.StatusCode(StatusCodes.Status409Conflict);
-        }
-
-        // A header that is there but blank names no subscription, so it is not one the person holds.
-        if (context.Request.Headers.TryGetValue(PushEndpointHeader, out var named)
-            && !await push.IsOn(userId, named.ToString().Trim(), context.RequestAborted))
+        // Ownership of the subscription is checked first. A header that is there but blank names no subscription, so it
+        // is not one the person holds. When the person signed in holds no subscription for the address, this browser's
+        // subscription is someone else's, whoever the wake was for, and the worker ends it. The person the wake was sent
+        // for is compared only once the subscription is the signed-in person's.
+        if (fromBrowser && !await push.IsOn(userId, named.ToString().Trim(), context.RequestAborted))
         {
             return TypedResults.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        // A browser's wake that names nobody (queued before the person was added to the payload) cannot be shown to
+        // the person signed in: nothing says it was for them. The Android app and the desktop send no subscription
+        // address and are not bound this way.
+        if ((fromBrowser && user is null) || (user is { } intended && intended != userId))
+        {
+            return TypedResults.StatusCode(StatusCodes.Status409Conflict);
         }
 
         return await push.Describe(userId, kind, thread, context.RequestAborted) is { } text
