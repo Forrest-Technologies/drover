@@ -58,8 +58,8 @@ size, never from its name or a client-supplied content type.
 - Reading a PDF's text for search and attachments (`DocumentReader.Read`) uses the same provider with wider
   bounds (64 MiB per stream, 128 MiB per document), so no PDF read path decodes without a cap. Every expanding
   stage shares that budget. ASCII85, ASCIIHex, RunLength and CCITT reserve the most they can produce (from their
-  input size, or from the Columns and Rows a CCITT stream names) before they decode, are refused when that does
-  not fit, and give back what they did not use. A chain of them is bounded by the same total. LZW is refused
+  input size, or from the size the fax decoder itself would allocate: Columns, and the image Height, or Rows when the height is absent) before they decode, are refused when that does
+  not fit, and give back what they did not use, and a result larger than its reservation is refused. A chain of them is bounded by the same total. LZW is refused
   because its output cannot be bounded. JBIG2, JPX and DCT are not decoded by the parser, so they cannot expand.
 
 Preview content never enters model instructions, tool grants, or the app's trusted interface tree. Widening the

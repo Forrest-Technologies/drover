@@ -165,7 +165,7 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
                 filters[name] = defaults.GetNamedFilters([PdfTokens.NameToken.Create(name)])[0];
             }
 
-            void Add(string[] names, Func<Memory<byte>, PdfTokens.DictionaryToken, int, long?> worstCase)
+            void Add(string[] names, Func<Memory<byte>, PdfTokens.DictionaryToken, int, long> worstCase)
             {
                 var inner = defaults.GetNamedFilters([PdfTokens.NameToken.Create(names[0])])[0];
                 var reserved = new ReservedFilter(inner, flate, worstCase);
@@ -176,21 +176,35 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
             }
         }
 
-        /// <summary>The bytes a CCITT stream unpacks to, one bit a pixel, from the size its dictionary names. Null when it names none.</summary>
-        private static long? CcittWorstCase(Memory<byte> input, PdfTokens.DictionaryToken stream, int filterIndex)
+        /// <summary>
+        /// The bytes the fax decoder allocates, read the way it reads them: Columns defaults to 1728, and the row
+        /// count is the image Height (or its abbreviation H) when both it and Rows are positive, else the larger of
+        /// the two, so a stream that leaves Rows out and names its height on the image is the size it really is.
+        /// A size that cannot be allocated is refused as damaged by the decoder, so it reserves nothing here.
+        /// </summary>
+        private static long CcittWorstCase(Memory<byte> input, PdfTokens.DictionaryToken stream, int filterIndex)
         {
             var parameters = PdfFilters.DecodeParameterResolver.GetFilterParameters(stream, filterIndex);
-            var columns = Number(parameters, "Columns") ?? 1728;
-            var rows = Number(parameters, "Rows") ?? Number(stream, "Height") ?? Number(stream, "H");
-            return rows is > 0 && columns > 0 ? (((long)columns + 7) / 8) * rows : null;
+            var columns = IntOrDefault(parameters, 1728, "Columns");
+            var rows = IntOrDefault(parameters, 0, "Rows");
+            var height = IntOrDefault(stream, 0, "Height", "H");
+            rows = rows > 0 && height > 0 ? height : Math.Max(rows, height);
+            return Math.Max(0, (((long)columns + 7) / 8) * rows);
         }
 
-        private static int? Number(PdfTokens.DictionaryToken dictionary, string name) =>
-            dictionary.TryGet(PdfTokens.NameToken.Create(name), out var token)
-                && token is PdfTokens.NumericToken { Double: >= 0 and <= int.MaxValue } number
-                && number.Double == number.Int
-                    ? number.Int
-                    : null;
+        /// <summary>The first named entry that exists, as a number the way the decoder reads it, else the fallback.</summary>
+        private static int IntOrDefault(PdfTokens.DictionaryToken dictionary, int fallback, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (dictionary.TryGet(PdfTokens.NameToken.Create(name), out var token))
+                {
+                    return token is PdfTokens.NumericToken number ? number.Int : fallback;
+                }
+            }
+
+            return fallback;
+        }
 
         #endregion
     }
@@ -352,7 +366,7 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
     private sealed class ReservedFilter(
         PdfFilters.IFilter inner,
         BoundedFlate budget,
-        Func<Memory<byte>, PdfTokens.DictionaryToken, int, long?> worstCase) : PdfFilters.IFilter
+        Func<Memory<byte>, PdfTokens.DictionaryToken, int, long> worstCase) : PdfFilters.IFilter
     {
         #region Properties
 
@@ -368,14 +382,14 @@ internal sealed class PdfPreviewFilters(PdfDecodeBudget budget, CancellationToke
             PdfFilters.IFilterProvider filterProvider,
             int filterIndex)
         {
-            if (worstCase(input, streamDictionary, filterIndex) is not { } most)
-            {
-                budget.Refuse(NativePreviewRefusal.TooComplex);
-                return default;
-            }
-
+            var most = worstCase(input, streamDictionary, filterIndex);
             budget.ReserveMost(most);
             var output = inner.Decode(input, streamDictionary, filterProvider, filterIndex);
+            if (output.Length > most)
+            {
+                budget.Refuse(NativePreviewRefusal.TooLarge);
+            }
+
             budget.GiveBack(most - output.Length);
             return output;
         }
