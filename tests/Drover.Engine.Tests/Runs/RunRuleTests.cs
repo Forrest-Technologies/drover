@@ -451,10 +451,10 @@ public sealed class RunRuleTests(PostgresServer postgres)
             await using var scope = world.Hosts[0].Services.CreateAsyncScope();
             scope.ServiceProvider.GetRequiredService<TenantContext>().Set(world.SpaceId, world.UserId);
             await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(RunWorld.Token);
-            var change = await scope.ServiceProvider.GetRequiredService<Drover.Engine.Rules.RuleService>().Update(
+            var change = await scope.ServiceProvider.GetRequiredService<RuleService>().Update(
                 world.BotId,
                 ruleId,
-                new Drover.Contracts.Rules.BotRuleBody("Tightened", true, "before_reply", "block", []),
+                new BotRuleBody("Tightened", true, "before_reply", "block", []),
                 world.UserId,
                 RunWorld.Token);
             change.Problem.Should().BeNull();
