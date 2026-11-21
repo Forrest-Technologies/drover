@@ -453,12 +453,12 @@ public sealed class BotSandboxPage : Screen
             row.Children.Add(outcome);
             if (result.Stdout.Length > 0)
             {
-                row.Children.Add(new CodeBlock { Code = result.Stdout, CodeLanguage = "Output" });
+                row.Children.Add(new CodeBlock { Code = result.Stdout, CodeLanguage = "Output", CopyLabel = OutputWords.CopyOutput });
             }
 
             if (result.Stderr.Length > 0)
             {
-                row.Children.Add(new CodeBlock { Code = result.Stderr, CodeLanguage = "Errors" });
+                row.Children.Add(new CodeBlock { Code = result.Stderr, CodeLanguage = "Errors", CopyLabel = OutputWords.CopyOutput });
             }
         }
 
