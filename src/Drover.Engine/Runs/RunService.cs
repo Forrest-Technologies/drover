@@ -65,7 +65,13 @@ public sealed partial class RunService(
 
     private const string CancelledBeforeApproval = "The run was cancelled before this call was approved.";
 
-    public const string HandoffIsReadOnly = "This is a bot's work on a task another bot handed over, so it is read-only. To change the work, send your message in the conversation where the task was given.";
+    private const string HandoffReadOnlyStart =
+        "This is a bot's work on a task another bot handed over, so it is read-only.";
+
+    private const string HandoffReadOnlyChange =
+        "To change the work, send your message in the conversation where the task was given.";
+
+    public static string HandoffIsReadOnly => $"{HandoffReadOnlyStart} {HandoffReadOnlyChange}";
 
     #endregion
 

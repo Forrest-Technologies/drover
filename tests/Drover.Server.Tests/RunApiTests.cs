@@ -315,15 +315,20 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         var asOutsider = await SignIn(outsider);
         var space = Space(alice.SpaceId);
         var connection = await CreateConnection(asOwner, alice.SpaceId);
-        var lead = await PostFor<BotSummary>(asOwner, $"{space}/bots", new CreateBotRequest("Lead", "Hand work down.", connection.Id, null), HttpStatusCode.Created);
-        var helper = await PostFor<BotSummary>(asOwner, $"{space}/bots", new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null, lead.Id), HttpStatusCode.Created);
+        var lead = await PostFor<BotSummary>(asOwner, $"{space}/bots",
+            new CreateBotRequest("Lead", "Hand work down.", connection.Id, null), HttpStatusCode.Created);
+        var helper = await PostFor<BotSummary>(asOwner, $"{space}/bots",
+            new CreateBotRequest("Helper", "Answer briefly.", connection.Id, null, lead.Id), HttpStatusCode.Created);
         await Grant(alice.SpaceId, alice.UserId, lead.Id, DelegateTool.Name);
-        var thread = await PostFor<ThreadSummary>(asOwner, $"{space}/bots/{lead.Id}/threads", new CreateThreadRequest(null), HttpStatusCode.Created);
+        var thread = await PostFor<ThreadSummary>(asOwner, $"{space}/bots/{lead.Id}/threads",
+            new CreateThreadRequest(null), HttpStatusCode.Created);
         script.Then(
-            [new ToolCallOutput("d1", DelegateTool.Name, JsonSerializer.Serialize(new { bot_id = helper.Id, task = "Say what you found." }))],
+            [new ToolCallOutput("d1", DelegateTool.Name, JsonSerializer.Serialize(
+                new { bot_id = helper.Id, task = "Say what you found." }))],
             [new TextOutput("The helper's answer.")],
             [new TextOutput("Done.")]);
-        var sent = await PostFor<SendMessageResponse>(asOwner, $"{space}/threads/{thread.Id}/messages", new SendMessageRequest("Ask the helper."), HttpStatusCode.Accepted);
+        var sent = await PostFor<SendMessageResponse>(asOwner, $"{space}/threads/{thread.Id}/messages",
+            new SendMessageRequest("Ask the helper."), HttpStatusCode.Accepted);
         await WaitForRun(asOwner, alice.SpaceId, sent.Run.Id, "completed");
 
         var child = await DelegationChild(alice.SpaceId, alice.UserId);
@@ -334,14 +339,16 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         [
             await asOwner.Post($"{messagesPath}/messages", new SendMessageRequest("Let me help.")),
             await asOwner.Post($"{messagesPath}/messages/{child.ReplyId}/regenerate"),
-            await asOwner.Post($"{messagesPath}/messages/{child.TaskId}/edit", new EditMessageRequest("Change the task.")),
+            await asOwner.Post($"{messagesPath}/messages/{child.TaskId}/edit",
+                new EditMessageRequest("Change the task.")),
             await asOwner.Post($"{messagesPath}/messages/{child.TaskId}/show"),
             await asOwner.Post(retryPath),
         ];
 
         for (var index = 0; index < writes.Length; index++)
         {
-            writes[index].StatusCode.Should().Be(HttpStatusCode.Conflict, $"write {index} into a bot's conversation is refused");
+            writes[index].StatusCode.Should().Be(HttpStatusCode.Conflict,
+                $"write {index} into a bot's conversation is refused");
         }
 
         foreach (var response in writes)
@@ -361,15 +368,19 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         var outsiderSpace = Space(outsider.SpaceId);
         HttpResponseMessage[] outsiderWrites =
         [
-            await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages", new SendMessageRequest("Let me in")),
+            await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages",
+                new SendMessageRequest("Let me in")),
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.ReplyId}/regenerate"),
-            await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.TaskId}/edit", new EditMessageRequest("Let me in")),
+            await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.TaskId}/edit",
+                new EditMessageRequest("Let me in")),
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.TaskId}/show"),
             await asOutsider.Post($"{outsiderSpace}/runs/{child.RunId}/retry"),
         ];
 
-        memberWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound, "someone outside the audience learns nothing about the conversation");
-        outsiderWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound, "another space cannot reach the conversation or its run");
+        memberWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound,
+            "someone outside the audience learns nothing about the conversation");
+        outsiderWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound,
+            "another space cannot reach the conversation or its run");
     }
 
     #endregion
@@ -405,12 +416,20 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
         var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
         var tool = await db.Tools.SingleAsync(found => found.Name == toolName, Token);
-        db.ToolGrants.Add(new ToolGrant { BotId = botId, ToolId = tool.Id, Effect = GrantEffect.Allow, GrantedByUserId = userId });
+        db.ToolGrants.Add(new ToolGrant
+        {
+            BotId = botId,
+            ToolId = tool.Id,
+            Effect = GrantEffect.Allow,
+            GrantedByUserId = userId,
+        });
         await db.SaveChangesAsync(Token);
         await work.Commit(Token);
     }
 
-    private async Task<(Guid ThreadId, Guid RunId, Guid TaskId, Guid ReplyId)> DelegationChild(Guid spaceId, Guid userId)
+    private async Task<(Guid ThreadId, Guid RunId, Guid TaskId, Guid ReplyId)> DelegationChild(
+        Guid spaceId,
+        Guid userId)
     {
         await using var scope = Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, userId);

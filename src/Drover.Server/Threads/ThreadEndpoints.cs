@@ -293,7 +293,9 @@ public static class ThreadEndpoints
         {
             PostProblem.NotFound => TypedResults.NotFound(),
             PostProblem.Invalid => TypedResults.Problem(title: post.Detail, statusCode: StatusCodes.Status400BadRequest),
-            PostProblem.ReadOnly => TypedResults.Problem(title: RunService.HandoffIsReadOnly, statusCode: StatusCodes.Status409Conflict),
+            PostProblem.ReadOnly => TypedResults.Problem(
+                title: RunService.HandoffIsReadOnly,
+                statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Accepted(
                 $"/api/spaces/{access.SpaceId}/runs/{post.Run!.Id}",
                 new SendMessageResponse(post.Message!.ToResponse(), post.Run.ToSummary())),
@@ -324,7 +326,9 @@ public static class ThreadEndpoints
             VersionOutcome.BotUnavailable => TypedResults.Problem(
                 title: "This bot is paused or removed, so it cannot answer.",
                 statusCode: StatusCodes.Status409Conflict),
-            VersionOutcome.ReadOnly => TypedResults.Problem(title: RunService.HandoffIsReadOnly, statusCode: StatusCodes.Status409Conflict),
+            VersionOutcome.ReadOnly => TypedResults.Problem(
+                title: RunService.HandoffIsReadOnly,
+                statusCode: StatusCodes.Status409Conflict),
             _ => TypedResults.Problem(title: change.Detail, statusCode: StatusCodes.Status400BadRequest),
         };
 

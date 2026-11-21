@@ -34,7 +34,8 @@ public sealed class ThreadLine(
     {
         if (thread.Origin is ThreadOrigin.Delegation)
         {
-            throw new InvalidOperationException("A delegation conversation takes no messages from people, so it starts no run.");
+            throw new InvalidOperationException(
+                "A delegation conversation takes no messages from people, so it starts no run.");
         }
 
         var run = new Run
