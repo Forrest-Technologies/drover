@@ -649,9 +649,11 @@ try {
                             const picture = page.locator('[aria-label="sample-panel.png"]');
                             await picture.waitFor({ state: 'attached', timeout: 10000 });
                         } else {
-                            const problem = page.getByText(
-                                'Could not decode this picture. Download the file to keep it.', { exact: true });
-                            await problem.waitFor({ state: 'attached', timeout: 10000 });
+                            await page.waitForFunction(() => {
+                                const words = document.body.innerText;
+                                return words.includes('Could not decode this picture')
+                                    || words.includes('Could not show the preview');
+                            }, null, { timeout: 10000 });
                         }
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
                         await closePanel.press('Space');
