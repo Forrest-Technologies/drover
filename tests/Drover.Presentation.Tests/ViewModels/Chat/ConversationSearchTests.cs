@@ -220,6 +220,45 @@ public sealed class ConversationSearchTests : IDisposable
     }
 
     [Fact]
+    public async Task Mine_only_is_sent_with_the_search_and_changing_it_searches_again_from_the_newest_messages()
+    {
+        var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
+        bench.Server.Answer("POST", search, SearchPages.Page([], stoppedAt));
+        var model = Make();
+        model.Query = "lighthouse";
+        await model.Search();
+        model.MineOnly.Should().BeFalse("the search covers the shared conversations too until it is narrowed");
+
+        await model.SetMineOnly(true);
+        await model.SearchOlder();
+        await model.SetMineOnly(false);
+
+        var sent = bench.Server.Sent("POST", search)
+            .Select(body => JsonSerializer.Deserialize<SearchMessagesRequest>(body, JsonSerializerOptions.Web)!)
+            .ToList();
+        sent.Select(request => request.MineOnly).Should().Equal([false, true, true, false]);
+        sent.Select(request => request.Before).Should().Equal([null, null, stoppedAt, null], "turning it on or off starts again from the newest");
+        ConversationSearchViewModel.MineOnlyLabel.Should().Be("Mine only");
+    }
+
+    [Fact]
+    public async Task Mine_only_with_no_words_is_kept_for_the_next_search_and_asks_nothing_and_says_so_when_nothing_is_found()
+    {
+        bench.Server.Answer("POST", search, SearchPages.Page([]));
+        var model = Make();
+
+        model.NothingExplanation.Should().Be(ConversationSearchViewModel.NothingCause, "the search covers the shared conversations too until it is narrowed");
+        await model.SetMineOnly(true);
+
+        bench.Server.Sent("POST", search).Should().BeEmpty("there are no words to search for");
+        model.MineOnly.Should().BeTrue();
+        model.Query = "zebra";
+        await model.Search();
+        JsonSerializer.Deserialize<SearchMessagesRequest>(bench.Server.Sent("POST", search).Single(), JsonSerializerOptions.Web)!.MineOnly.Should().BeTrue();
+        model.NothingExplanation.Should().Be(ConversationSearchViewModel.NothingMineCause);
+    }
+
+    [Fact]
     public async Task A_new_search_starts_again_from_the_newest_messages()
     {
         var stoppedAt = new SearchCursor(sentAt.AddDays(-30), Guid.CreateVersion7());
@@ -272,7 +311,7 @@ public sealed class ConversationSearchTests : IDisposable
 
         model.State.Should().Be(ConversationSearchState.NothingFound);
         model.NothingTitle.Should().Be("Nothing matches “zebra”");
-        ConversationSearchViewModel.NothingCause.Should().Be("No message in your conversations has these words. Try other words, or fewer of them.");
+        ConversationSearchViewModel.NothingCause.Should().Be("No message in the conversations you can read has these words. Try other words, or fewer of them.");
         ConversationSearchViewModel.ClearAction.Should().Be("Clear the search");
         model.Status.Should().BeNull();
         model.Hits.Should().BeEmpty();
@@ -402,17 +441,19 @@ public sealed class ConversationSearchNavigationTests : WorkspaceTest
         }
         var sideHitMessage = new MessageResponse(repliedId, sideThreadId, 1, "assistant", null, [new MessagePartResponse("text") { Text = "The lighthouse is done." }], sentAt);
 
-        Server.Answer("GET", $"{Space}/model-connections", new[]
-        {
-            new ModelConnectionSummary(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null),
-        });
-        Server.Answer("GET", $"{Space}/bots", new[] { bot });
-        Server.Answer("GET", $"{Space}/bots/{botId}/threads", new[] { main, side });
+        ModelConnectionSummary[] connections = [new(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null)];
+        BotSummary[] bots = [bot];
+        ThreadSummary[] threads = [main, side];
+        MessageResponse[] sideMessages = [sideHitMessage];
+
+        Server.Answer("GET", $"{Space}/model-connections", connections);
+        Server.Answer("GET", $"{Space}/bots", bots);
+        Server.Answer("GET", $"{Space}/bots/{botId}/threads", threads);
         Server.Answer("PUT", $"{Space}/bots/{botId}/main-thread", main);
         Server.Answer("GET", $"{Space}/threads/{mainThreadId}", main);
         Server.Answer("GET", $"{Space}/threads/{mainThreadId}/messages", mainHistory);
         Server.Answer("GET", $"{Space}/threads/{sideThreadId}", side);
-        Server.Answer("GET", $"{Space}/threads/{sideThreadId}/messages", new[] { sideHitMessage });
+        Server.Answer("GET", $"{Space}/threads/{sideThreadId}/messages", sideMessages);
         Server.Answer("POST", $"{Space}/threads/search", SearchPages.Page(
         [
             new(askedId, mainThreadId, botId, "Marshal", null, true, false, sentAt, "Paint the lighthouse.", [new(10, 10)]),

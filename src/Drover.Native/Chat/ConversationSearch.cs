@@ -24,6 +24,12 @@ public sealed class ConversationSearch : StackPanel
         VerticalAlignment = VerticalAlignment.Bottom,
     };
 
+    private readonly Switch mineOnly = new()
+    {
+        Label = ConversationSearchViewModel.MineOnlyLabel,
+        About = ConversationSearchViewModel.MineOnlyHint,
+    };
+
     private readonly TextBlock status = Styles.Text(null, "DvTextCaption");
 
     private readonly EmptyState failed = new()
@@ -71,6 +77,7 @@ public sealed class ConversationSearch : StackPanel
         results.Items = list;
         Pieces.SayWhenShown(status);
         Children.Add(box);
+        Children.Add(mineOnly);
         Children.Add(status);
         Children.Add(failed);
         Children.Add(nothing);
@@ -88,6 +95,13 @@ public sealed class ConversationSearch : StackPanel
             }
         };
         clear.Click += (_, _) => ClearAndStay();
+        mineOnly.RegisterPropertyChangedCallback(Switch.ValueProperty, async (_, _) =>
+        {
+            if (mineOnly.Value != model.MineOnly)
+            {
+                await model.SetMineOnly(mineOnly.Value);
+            }
+        });
         failed.Action += async (_, _) => await model.Retry();
         nothing.Action += (_, _) => ClearAndStay();
         older.Click += async (_, _) => await model.SearchOlder();
@@ -134,6 +148,12 @@ public sealed class ConversationSearch : StackPanel
     {
         var state = model.State;
         var screen = ConversationSearchScreen.For(state, model.IsActive, model.Hits.Count > 0);
+
+        if (mineOnly.Value != model.MineOnly)
+        {
+            mineOnly.Value = model.MineOnly;
+        }
+
         clear.Visibility = Shown(screen.ShowsClear);
         failed.Visibility = Shown(screen.ShowsFailed);
         failed.Cause = model.Problem ?? ConversationSearchViewModel.FailedTitle;

@@ -79,6 +79,12 @@ public sealed class ConversationSearchViewModel(
 
     public ConversationSearchState State { get; private set; }
 
+    /// <summary>
+    /// Whether the search covers only the person's own conversations. Off, it covers their own and the ones shared with
+    /// the space. Set it with <see cref="SetMineOnly"/>, which searches again when there are words.
+    /// </summary>
+    public bool MineOnly { get; private set; }
+
     /// <summary>True when older messages were not searched and the person can ask for them.</summary>
     public bool CanSearchOlder => older is not null && State is ConversationSearchState.Found or ConversationSearchState.NothingFound;
 
@@ -87,7 +93,7 @@ public sealed class ConversationSearchViewModel(
 
     /// <summary>The cause the nothing-found state gives: it never claims more than the search looked at.</summary>
     public string NothingExplanation => older is null
-        ? NothingCause
+        ? (MineOnly ? NothingMineCause : NothingCause)
         : $"No message in your newest {looked:N0} messages has these words. Older messages are not searched until you ask.";
 
     /// <summary>True while a search is shown in place of the crew.</summary>
@@ -149,6 +155,30 @@ public sealed class ConversationSearchViewModel(
     }
 
     /// <summary>
+    /// Narrows the search to the person's own conversations, or widens it to the shared ones too. With words in the
+    /// box it searches again from the newest messages, so the list is never a mix of the two; with none it only keeps
+    /// the choice for the next search.
+    /// </summary>
+    public async Task SetMineOnly(bool value)
+    {
+        if (MineOnly == value)
+        {
+            return;
+        }
+
+        MineOnly = value;
+
+        if (searched is { } words)
+        {
+            await Run(words, null);
+        }
+        else
+        {
+            OnPropertyChanged(string.Empty);
+        }
+    }
+
+    /// <summary>
     /// Searches the messages before the ones already searched and adds what it finds to the list. It does nothing
     /// when every message has been searched.
     /// </summary>
@@ -191,7 +221,7 @@ public sealed class ConversationSearchViewModel(
 
         try
         {
-            var found = await api.SearchMessages(SpaceId, words, before);
+            var found = await api.SearchMessages(SpaceId, words, before, MineOnly);
 
             if (ask == asked)
             {
@@ -271,9 +301,15 @@ public sealed class ConversationSearchViewModel(
 
     public const string SearchingWords = "Searching your conversations.";
 
-    public const string NothingCause = "No message in your conversations has these words. Try other words, or fewer of them.";
+    public const string NothingCause = "No message in the conversations you can read has these words. Try other words, or fewer of them.";
+
+    public const string NothingMineCause = "No message in your own conversations has these words. Try other words, or fewer of them, or turn off Mine only.";
 
     public const string ClearAction = "Clear the search";
+
+    public const string MineOnlyLabel = "Mine only";
+
+    public const string MineOnlyHint = "Leave out conversations other people shared.";
 
     public const string OlderAction = "Search older messages";
 
