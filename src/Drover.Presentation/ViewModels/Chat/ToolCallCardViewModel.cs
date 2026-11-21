@@ -75,6 +75,12 @@ public sealed class ToolCallCardViewModel : ObservableObject
 
     public string AskTitle => $"{BotName} asks to {Card.Request}";
 
+    /// <summary>True once the question can say who asks and what for. Approve and Deny are never offered before that.</summary>
+    public bool SaysWhatIsAsked => BotName.Length > 0 && !string.IsNullOrWhiteSpace(Card.Request);
+
+    /// <summary>Approve and Deny can be pressed: the question says what is asked, and no answer is on its way.</summary>
+    public bool CanAnswer => SaysWhatIsAsked && !Deciding;
+
     /// <summary>The arguments on one line under the title, or nothing when the call has none worth a line.</summary>
     public string? Summary => Card.Summary.Length > 0 ? Card.Summary : null;
 
@@ -177,7 +183,7 @@ public sealed class ToolCallCardViewModel : ObservableObject
 
     public async Task Answer(bool approved)
     {
-        if (Decide is null)
+        if (Decide is null || !CanAnswer)
         {
             return;
         }

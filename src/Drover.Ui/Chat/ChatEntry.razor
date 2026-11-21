@@ -21,13 +21,17 @@
 }
 else if (Message.Text.Length == 0)
 {
-    <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-tools @(Compact ? "dv-message-compact" : null)" aria-label="What @BotName did">
-        @foreach (var tool in Message.Tools)
-        {
-            @Tool(tool)
-        }
-        @Files
-    </article>
+    @* A reply that so far holds only what the bot reasoned is not shown: this client shows the bot thinking instead. *@
+    @if (Message.Tools.Count > 0 || Message.Files.Count > 0)
+    {
+        <article id="@Anchor" tabindex="@TabIndex" class="dv-message dv-message-tools @(Compact ? "dv-message-compact" : null)" aria-label="What @BotName did">
+            @foreach (var tool in Message.Tools)
+            {
+                @Tool(tool)
+            }
+            @Files
+        </article>
+    }
 }
 else if (Compact)
 {

@@ -36,6 +36,11 @@
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Documents">
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+
   <ItemGroup Label="Push">
     <PackageVersion Include="Lib.Net.Http.WebPush" Version="3.3.1" />
   </ItemGroup>
@@ -51,9 +56,15 @@
     <PackageVersion Include="Microsoft.Maui.Controls" Version="11.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Native desktop">
+    <PackageVersion Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.92.0" />
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.92.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Interface">
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />
+    <PackageVersion Include="AngleSharp" Version="1.10.1" />
     <PackageVersion Include="Markdig" Version="1.6.0" />
   </ItemGroup>
 

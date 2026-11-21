@@ -4,7 +4,8 @@ namespace Drover.Domain.Files;
 /// Metadata of a stored file. The bytes live behind the file store, under <see cref="StorageKey"/>. A file a person
 /// attaches belongs to a thread and has the thread's audience, carried by the foreign key, so sharing the thread
 /// shares its files. It is pending until a message is sent with it (<see cref="MessageId"/>), and kept as long as
-/// that message is.
+/// that message is. A file shared in a project belongs to that project with <see cref="ProjectId"/> set and has the
+/// space-wide audience.
 /// </summary>
 public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 {
@@ -20,6 +21,9 @@ public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 
     /// <summary>The conversation the file was attached in. Null for a file that belongs to no conversation.</summary>
     public Guid? ThreadId { get; set; }
+
+    /// <summary>The project this file is shared in. Null for a file that belongs to no project.</summary>
+    public Guid? ProjectId { get; set; }
 
     /// <summary>
     /// The message that carries the file, null while the file waits to be sent. A plain column: the thread's key
@@ -47,6 +51,12 @@ public sealed class StoredFile : ISpaceOwned, IAudienceScoped
 
     /// <summary>A text file's first lines, for the conversation to show.</summary>
     public string? Preview { get; set; }
+
+    /// <summary>
+    /// Under a document a person attached, the note that a bot reads less than all of it, and why: cut at a bound,
+    /// no text, or not readable. Null when a bot reads all of it, and for every other kind of file.
+    /// </summary>
+    public string? ReadingNote { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 

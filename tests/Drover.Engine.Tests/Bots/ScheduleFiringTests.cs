@@ -87,7 +87,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task A_scheduled_run_acts_for_its_owner_recalls_their_notes_starts_clean_unless_a_note_taints_it_and_its_reply_is_new_to_them(
+    public async Task A_scheduled_run_acts_for_its_owner_recalls_their_notes_starts_clean_whether_or_not_a_note_is_tainted_and_its_reply_is_new_to_them(
         bool taintedNote)
     {
         const string Note = "Reads the brief before standup.";
@@ -116,7 +116,7 @@ public sealed class ScheduleFiringTests(PostgresServer postgres)
         queued.Tainted.Should().BeFalse("a scheduled run starts clean");
         run.Status.Should().Be(RunStatus.Completed);
         run.PrincipalUserId.Should().Be(world.UserId);
-        run.Tainted.Should().Be(taintedNote, "a note a tainted run wrote taints the run given it, as it would any run");
+        run.Tainted.Should().BeFalse("a note, tainted or not, is reference material: it is not an untrusted read of this run");
         thread.AudienceUserId.Should().Be(world.UserId, "the conversation a schedule makes is private to its owner");
         world.Model.Requests.Should().ContainSingle().Which.Messages
             .SelectMany(message => message.Contents.OfType<ModelText>())

@@ -9,6 +9,8 @@ public sealed class SetupViewModelTests : IDisposable
 
     private static readonly Guid botId = Guid.Parse("0196f1a0-0000-7000-8000-000000000004");
 
+    private static readonly Guid otherConnectionId = Guid.Parse("0196f1a0-0000-7000-8000-000000000005");
+
     private static readonly string space = $"/api/spaces/{Samples.Session().Spaces[0].Id}";
 
     private readonly FakeServer server = new();
@@ -33,6 +35,9 @@ public sealed class SetupViewModelTests : IDisposable
 
     private static Drover.Contracts.Models.ModelConnectionSummary Connection =>
         new(connectionId, "Sample connection", "venice", null, true, "connected", null, [], null, null);
+
+    private static Drover.Contracts.Models.ModelConnectionSummary OtherConnection =>
+        new(otherConnectionId, "models.example.test", "openai_compatible", "https://models.example.test/v1", true, "connected", null, [], null, null);
 
     private static BotSummary Lead => new(botId, "Sample lead", "sample-lead", "Sample instructions", connectionId, "sample-model", "active");
 
@@ -109,6 +114,7 @@ public sealed class SetupViewModelTests : IDisposable
     public async Task Retesting_a_corrected_key_updates_the_existing_connection()
     {
         var path = $"{space}/model-connections";
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
         server.Answer("POST", path, Connection, HttpStatusCode.Created);
         server.Answer("PUT", $"{path}/{connectionId}/key", Connection);
         server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(false, "Sample rejected key.", "unauthorized", Connection));
@@ -134,6 +140,7 @@ public sealed class SetupViewModelTests : IDisposable
     public async Task Choosing_another_provider_clears_the_previous_test()
     {
         var path = $"{space}/model-connections";
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
         server.Answer("POST", path, Connection, HttpStatusCode.Created);
         server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
         var model = ConnectionStep();
@@ -144,6 +151,83 @@ public sealed class SetupViewModelTests : IDisposable
 
         model.Passed.Should().BeFalse();
         model.Outcome.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Retesting_with_the_same_values_creates_no_second_connection()
+    {
+        var path = $"{space}/model-connections";
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
+        server.Answer("POST", path, Connection, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
+        var model = ConnectionStep();
+        await model.Open();
+        model.ApiKey = "sample-key";
+
+        await model.Test();
+        await model.Test();
+
+        server.Sent("POST", path).Should().ContainSingle("the step keeps the connection its first test made");
+        server.Sent("PUT", $"{path}/{connectionId}/key").Should().BeEmpty();
+        model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Switching_the_provider_and_back_reuses_the_connection_that_matches()
+    {
+        var path = $"{space}/model-connections";
+        server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
+        server.Answer("POST", $"{path}/{otherConnectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, OtherConnection));
+        server.Answer("PUT", $"{path}/{connectionId}/key", Connection);
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
+        server.Answer("POST", path, Connection, HttpStatusCode.Created);
+        var model = ConnectionStep();
+        await model.Open();
+        model.ApiKey = "sample-key";
+        await model.Test();
+
+        model.ChooseProvider("openai_compatible");
+        model.BaseUrl = "https://models.example.test/v1";
+        model.ApiKey = "sample-other-key";
+        server.Answer("GET", path, new[] { Connection });
+        server.Answer("POST", path, OtherConnection, HttpStatusCode.Created);
+        await model.Test();
+
+        model.ChooseProvider("venice");
+        model.ApiKey = "sample-key";
+        server.Answer("GET", path, new[] { Connection, OtherConnection });
+        await model.Test();
+
+        server.Sent("POST", path).Should().HaveCount(2, "one connection per provider and address chosen, never a second for the same pair");
+        model.Connection.Should().BeEquivalentTo(Connection);
+        model.Passed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Reopening_the_step_reuses_the_connection_it_made_and_stores_a_retyped_key()
+    {
+        var path = $"{space}/model-connections";
+        server.Answer("GET", path, Array.Empty<Drover.Contracts.Models.ModelConnectionSummary>());
+        server.Answer("POST", path, Connection, HttpStatusCode.Created);
+        server.Answer("POST", $"{path}/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
+        var first = ConnectionStep();
+        await first.Open();
+        first.ApiKey = "sample-key";
+        await first.Test();
+        first.Continue();
+
+        var again = ConnectionStep();
+        await again.Open();
+        server.Answer("GET", path, new[] { Connection });
+        server.Answer("PUT", $"{path}/{connectionId}/key", Connection);
+        again.ApiKey = "sample-key";
+
+        await again.Test();
+
+        server.Sent("POST", path).Should().ContainSingle("the step made the connection once, across both visits");
+        server.Sent("PUT", $"{path}/{connectionId}/key").Single().Should().Contain("sample-key");
+        again.Connection.Should().BeEquivalentTo(Connection);
+        again.Passed.Should().BeTrue();
     }
 
     [Fact]

@@ -93,10 +93,7 @@ public sealed class MemoryService(
         var notes = await memories.ListNotes(bot.Id, userId, cancellationToken);
         return new RecalledMemory(
             [.. notes.Select(note => new RecalledNote(note.Id, note.Text, note.UpdatedAt))],
-            LimitsFor(bot.MemorySettings).NotesCharacters)
-        {
-            Tainted = notes.Any(note => note.Tainted),
-        };
+            LimitsFor(bot.MemorySettings).NotesCharacters);
     }
 
     public async Task<(IReadOnlyList<MemoryNote> Notes, NoteLimits Limits)> List(NoteWriter writer, CancellationToken cancellationToken)

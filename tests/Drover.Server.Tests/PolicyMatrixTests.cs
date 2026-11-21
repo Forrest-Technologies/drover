@@ -88,7 +88,7 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
         var attempt = async () =>
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{target.Port}/")
-                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, TaintedRunEscalation: true, AutoLoadRemoteImages: false));
+                .ForSpace(new EffectivePolicy(AllowPrivateAddresses: true, AutoLoadRemoteImages: false));
             using var response = await http.SendAsync(request, Token);
             return await response.Content.ReadAsStringAsync(Token);
         };
@@ -208,6 +208,18 @@ public abstract class PolicyMatrixTests(PostgresServer postgres, string preset) 
 
         rules.AllowConversationSummaries.Should().Be(Setting(nameof(DeploymentPolicy.AllowConversationSummaries)) == "true");
         rules.MaxConversationSummarySeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxConversationSummarySeconds)));
+    }
+
+    [Fact]
+    public void The_web_rules_decide_whether_the_web_tools_are_offered_and_bound_each_read()
+    {
+        var rules = Services.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules;
+
+        rules.AllowWebTools.Should().Be(Setting(nameof(DeploymentPolicy.AllowWebTools)) == "true");
+        rules.MaxWebPageBytes.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxWebPageBytes)));
+        rules.MaxWebRequestSeconds.ToString(CultureInfo.InvariantCulture).Should().Be(Setting(nameof(DeploymentPolicy.MaxWebRequestSeconds)));
+        Services.GetServices<BuiltinTool>().Select(tool => tool.Name).Should().Contain(WebTools.FetchName, "every server can read a page")
+            .And.NotContain(WebTools.SearchName, "no search service is configured");
     }
 
     [Fact]

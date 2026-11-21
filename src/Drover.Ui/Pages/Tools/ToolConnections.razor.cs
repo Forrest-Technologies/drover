@@ -160,7 +160,7 @@ public sealed partial class ToolConnections(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnections));
-            addProblem = Failures.Sentence(exception);
+            addProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -180,7 +180,7 @@ public sealed partial class ToolConnections(
     private Task SignIn(ToolConnectionSummary connection) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<AppSignInReturn>()?.Scheme);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, services.GetService<AppSignInReturn>()?.ReturnTo);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {
@@ -302,7 +302,7 @@ public sealed partial class ToolConnections(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnections));
-            problems[connection.Id] = Failures.Sentence(exception);
+            problems[connection.Id] = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

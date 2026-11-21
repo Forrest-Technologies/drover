@@ -20,7 +20,9 @@ public sealed record ModelCapabilitiesResponse(
     bool Reasoning,
     IReadOnlyList<string> ReasoningEfforts,
     bool StructuredOutput,
-    bool WebSearch);
+    bool WebSearch,
+    bool ImageGeneration = false,
+    bool VisionSetByOperator = false);
 
 /// <summary>Price per million tokens in <see cref="Currency"/>. A null price means unknown.</summary>
 public sealed record ModelPriceResponse(decimal? InputPerMillion, decimal? OutputPerMillion, decimal? CachedInputPerMillion, string Currency);

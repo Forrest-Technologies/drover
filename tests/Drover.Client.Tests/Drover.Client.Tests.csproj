@@ -13,6 +13,14 @@
     <ProjectReference Include="..\..\src\Drover.Client\Drover.Client.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../../src/Shared/Transport/AppRequests.cs" Link="Transport/AppRequests.cs" />
+    <Compile Include="../../src/Shared/Transport/NativeSession.cs" Link="Transport/NativeSession.cs" />
+    <Compile Include="../../src/Shared/Transport/NativeSessionTokens.cs" Link="Transport/NativeSessionTokens.cs" />
+    <Compile Include="../../src/Shared/Transport/ServerAddress.cs" Link="Transport/ServerAddress.cs" />
+    <Compile Include="../../src/Drover.Native/Platforms/Desktop/DesktopSecrets.cs" Link="Desktop/DesktopSecrets.cs" />
+  </ItemGroup>
+
   <!-- Event logs recorded from the run engine's own tests (step 9), so the reducer is held to what the engine writes. -->
   <ItemGroup>
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />

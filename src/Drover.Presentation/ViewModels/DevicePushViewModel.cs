@@ -6,7 +6,11 @@ namespace Drover.Presentation.ViewModels;
 /// control says so in a sentence and offers nothing.
 /// </summary>
 public sealed partial class DevicePushViewModel(
-    DroverApi api, SessionState session, ILogger<DevicePushViewModel> logger, IPushRegistration? registration = null) : ObservableObject
+    DroverApi api,
+    SessionState session,
+    ILogger<DevicePushViewModel> logger,
+    IPushRegistration? registration = null,
+    ILiveNotificationStatus? live = null) : ObservableObject
 {
     #region Private Fields
 
@@ -33,6 +37,8 @@ public sealed partial class DevicePushViewModel(
     public static string UnavailableSentence => "This app cannot turn notifications on yet. Turn them on in the web app, in this same menu.";
 
     public static string CheckingNote => "Checking this device.";
+
+    public string StatusSentence => live?.StatusSentence ?? UnavailableSentence;
 
     /// <summary>False where the platform has nothing to register with.</summary>
     public bool Available => registration is not null;
@@ -68,7 +74,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Could not check notifications on this device. {Failures.Sentence(exception)}";
+            Problem = $"Could not check notifications on this device. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (DeviceCallFailedException exception)
         {
@@ -99,7 +105,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Could not send the test. {Failures.Sentence(exception)}";
+            Problem = $"Could not send the test. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -121,7 +127,7 @@ public sealed partial class DevicePushViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(DevicePushViewModel));
-            Problem = $"Notifications did not change. {Failures.Sentence(exception)}";
+            Problem = $"Notifications did not change. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         catch (DeviceCallFailedException exception)
         {

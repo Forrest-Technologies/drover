@@ -5,6 +5,7 @@ global using System.Text.Encodings.Web;
 global using System.Text.Json;
 global using System.Text.Json.Serialization;
 global using Drover.Contracts.Files;
+global using Drover.Contracts.Projects;
 global using Drover.Contracts.Runs;
 global using Drover.Contracts.Threads;
 global using Drover.Contracts.Tools;

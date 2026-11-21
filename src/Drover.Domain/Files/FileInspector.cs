@@ -5,9 +5,11 @@ public sealed record FileFacts(FileKind Kind, string ContentType, int? Width = n
 
 /// <summary>
 /// Reads a file as it streams past, once, and says what it is. A picture is a PNG, JPEG, GIF, or WebP whose header
-/// gives its size; text is UTF-8 with no NUL byte anywhere in it. The content type is chosen here from that, and from
-/// the name's extension only to tell kinds of text apart, so a content type always names the kind it belongs to
-/// (<see cref="KindOf"/>). Nothing here trusts what the browser said the file was.
+/// gives its size; text is UTF-8 with no NUL byte anywhere in it; a document is a PDF by its header, or a Word, Excel,
+/// or PowerPoint file, which is a zip archive by its header and told apart by the name's extension. The content type
+/// is chosen here from that, and from the name's extension only to tell kinds of text and of office document apart, so
+/// a content type always names the kind it belongs to (<see cref="KindOf"/>). Nothing here trusts what the browser
+/// said the file was.
 /// </summary>
 public sealed class FileInspector
 {
@@ -34,15 +36,21 @@ public sealed class FileInspector
         [".yml"] = "application/yaml",
         [".html"] = "text/html",
         [".htm"] = "text/html",
+        [".mmd"] = "text/vnd.mermaid",
+        [".mermaid"] = "text/vnd.mermaid",
+    };
+
+    private static readonly Dictionary<string, string> officeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".docx"] = DocumentTypes.Word,
+        [".xlsx"] = DocumentTypes.Excel,
+        [".pptx"] = DocumentTypes.PowerPoint,
     };
 
     private static readonly Dictionary<string, string> otherTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        [".pdf"] = "application/pdf",
         [".zip"] = "application/zip",
         [".gz"] = "application/gzip",
-        [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         [".mp3"] = "audio/mpeg",
         [".mp4"] = "video/mp4",
     };
@@ -92,6 +100,12 @@ public sealed class FileInspector
 
         var extension = Path.GetExtension(name);
 
+        // Before text: a PDF may be all ASCII, and is still a PDF.
+        if (FindDocument(start, extension) is { } document)
+        {
+            return new FileFacts(FileKind.Document, document);
+        }
+
         if (isText && IsUtf8([], flush: true))
         {
             return new FileFacts(FileKind.Text, textTypes.GetValueOrDefault(extension, "text/plain"), Preview: PreviewOf(start));
@@ -100,10 +114,26 @@ public sealed class FileInspector
         return new FileFacts(FileKind.Other, otherTypes.GetValueOrDefault(extension, "application/octet-stream"));
     }
 
+    /// <summary>Reads pixel dimensions from a PNG, JPEG, GIF, or WebP header without decoding pixel data.</summary>
+    public static bool TryReadImageDimensions(ReadOnlySpan<byte> bytes, out int width, out int height)
+    {
+        if (FindImageSize(bytes) is (int w, int h) && w > 0 && h > 0)
+        {
+            width = w;
+            height = h;
+            return true;
+        }
+
+        width = 0;
+        height = 0;
+        return false;
+    }
+
     /// <summary>The kind a content type the inspector chose belongs to.</summary>
     public static FileKind KindOf(string contentType) =>
         imageTypes.Contains(contentType) ? FileKind.Image
         : contentType.StartsWith("text/", StringComparison.Ordinal) || textLikeTypes.Contains(contentType) ? FileKind.Text
+        : DocumentTypes.All.Contains(contentType) ? FileKind.Document
         : FileKind.Other;
 
     #endregion
@@ -154,20 +184,42 @@ public sealed class FileInspector
 
     #endregion
 
+    #region Documents
+
+    /// <summary>A PDF by its header, whatever its name; an office file is a zip archive with the extension of one.</summary>
+    private static string? FindDocument(ReadOnlySpan<byte> start, string extension) => start switch
+    {
+        [0x25, 0x50, 0x44, 0x46, 0x2D, ..] => DocumentTypes.Pdf,
+        [0x50, 0x4B, 0x03, 0x04, ..] => officeTypes.GetValueOrDefault(extension),
+        _ => null,
+    };
+
+    #endregion
+
     #region Pictures
+
+    private static (int, int)? FindImageSize(ReadOnlySpan<byte> start) => start switch
+    {
+        [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => PngSize(start),
+        [0xFF, 0xD8, 0xFF, ..] => JpegSize(start),
+        [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => GifSize(start),
+        [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => WebpSize(start),
+        _ => null,
+    };
 
     private static FileFacts? FindImage(ReadOnlySpan<byte> start)
     {
-        var found = start switch
+        var type = start switch
         {
-            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => ("image/png", PngSize(start)),
-            [0xFF, 0xD8, 0xFF, ..] => ("image/jpeg", JpegSize(start)),
-            [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => ("image/gif", GifSize(start)),
-            [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => ("image/webp", WebpSize(start)),
-            _ => (null, null),
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ..] => "image/png",
+            [0xFF, 0xD8, 0xFF, ..] => "image/jpeg",
+            [0x47, 0x49, 0x46, 0x38, 0x37 or 0x39, 0x61, ..] => "image/gif",
+            [0x52, 0x49, 0x46, 0x46, _, _, _, _, 0x57, 0x45, 0x42, 0x50, ..] => "image/webp",
+            _ => null,
         };
 
-        return found is (string type, ({ } width, { } height))
+        return type is not null
+            && FindImageSize(start) is ({ } width, { } height)
             && width is > 0 and <= LargestSide && height is > 0 and <= LargestSide
             ? new FileFacts(FileKind.Image, type, width, height)
             : null;

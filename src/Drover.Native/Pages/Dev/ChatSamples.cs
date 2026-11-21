@@ -16,6 +16,18 @@ internal static class ChatSamples
 
     private static readonly Guid connection = Guid.Parse("00000000-0000-7000-8000-000000000014");
 
+    private static readonly Guid sampleRun = Guid.Parse("00000000-0000-7000-8000-000000000015");
+
+    private static readonly Guid sampleStrongerRun = Guid.Parse("00000000-0000-7000-8000-000000000016");
+
+    private static readonly Guid sampleQuestion = Guid.Parse("00000000-0000-7000-8000-000000000017");
+
+    private static readonly Guid sampleEdited = Guid.Parse("00000000-0000-7000-8000-000000000018");
+
+    private static readonly Guid sampleSecondReply = Guid.Parse("00000000-0000-7000-8000-000000000019");
+
+    private static readonly Guid sampleThirdReply = Guid.Parse("00000000-0000-7000-8000-00000000001a");
+
     private static readonly BotSummary[] crew =
     [
         new(lead, "Sample lead bot", "sample-lead", "Sample instructions", connection, "sample-model", "active"),
@@ -56,6 +68,18 @@ internal static class ChatSamples
         [
             Tall(new MessageList { Model = Conversation(writing: true) }),
         ]),
+        new("A reply's reasoning and sources", "Reasoning stays closed until opened; while it arrives the bot's head breathes and the section's edge is lit. Sources sit under the words and open outside the app.", () =>
+        [
+            Fitting(new MessageList { Model = Reasoned() }),
+        ]),
+        new("A reply's model", "Under a finished reply, the model that wrote it, beside what the reply used.", () =>
+        [
+            Fitting(new MessageList { Model = WrittenBy() }),
+        ]),
+        new("Versions of a message and a reply", "The person may edit their last message or ask for another reply. Earlier versions stay one step away, and the switch says which one is shown.", () =>
+        [
+            Fitting(new MessageList { Model = Versions() }),
+        ]),
         new("A reply that failed", "What failed in a sentence, one way forward, and the server's report for whoever needs it.", () =>
         [
             Wide(new FailureLine { Cause = FailureCause.ModelUnreachable, BotName = "Sample lead bot", Reported = "sample_error: A sample report from the server." }),
@@ -79,6 +103,10 @@ internal static class ChatSamples
                 },
             }),
         ]),
+        new("Choosing a conversation's model", "Behind the plus button, beside Attach, when the bot may answer with more than one model.", () =>
+        [
+            Wide(new Composer { Model = ChoosingModel() }),
+        ]),
     ];
 
     /// <summary>A sample conversation of the given length, for looking at and for measuring the list.</summary>
@@ -96,6 +124,100 @@ internal static class ChatSamples
         return list;
     }
 
+    /// <summary>A sample conversation with a reply that reasoned and cited sources, and one whose reasoning is arriving.</summary>
+    public static MessageListViewModel Reasoned()
+    {
+        List<ChatMessage> messages =
+        [
+            new("sample-reasoned-question", true, "A sample question that needs sources."),
+            new("sample-reasoned-answer", false, "A sample answer drawn from two sample sources.")
+            {
+                Reasoning = "A sample line of reasoning.\n\nA second sample line that weighs the sources.",
+                Sources =
+                [
+                    SourceLink.From("https://sample.example/first", "Sample source with a title")!,
+                    SourceLink.From("https://www.sample.example/second", null)!,
+                ],
+            },
+            new("sample-thinking-question", true, "A sample follow-up question."),
+            new("sample-thinking-answer", false, string.Empty, Streaming: true) { Reasoning = "A sample line of reasoning, still arriving" },
+        ];
+
+        var list = new MessageListViewModel { BotName = "Sample lead bot", BotHue = BotIdentity.Hue(lead), Messages = messages, Thinking = true };
+        list.Update();
+        return list;
+    }
+
+    /// <summary>A sample conversation whose replies each name the model that wrote them.</summary>
+    public static MessageListViewModel WrittenBy()
+    {
+        List<ChatMessage> messages =
+        [
+            new("sample-model-question", true, "A sample question for the bot's own model."),
+            new("sample-model-answer", false, "A sample answer.") { RunId = sampleRun, EndsReply = true, Model = "sample-model" },
+            new("sample-stronger-question", true, "A harder sample question."),
+            new("sample-stronger-answer", false, "A sample answer from the stronger model.")
+            {
+                RunId = sampleStrongerRun,
+                EndsReply = true,
+                Model = "sample-stronger-model",
+            },
+        ];
+
+        // A sample: the gallery reads no usage, so a reply says it used nothing.
+        var list = new MessageListViewModel
+        {
+            BotName = "Sample lead bot",
+            BotHue = BotIdentity.Hue(lead),
+            Messages = messages,
+            LoadUsage = runId => Task.FromResult(new RunUsageDetail(runId, "USD", new(null, 0, 0), null)),
+        };
+        list.Update();
+        return list;
+    }
+
+    /// <summary>A sample conversation whose last message was edited once and whose reply was asked for three times.</summary>
+    public static MessageListViewModel Versions()
+    {
+        List<ChatMessage> messages =
+        [
+            new(sampleEdited.ToString(), true, "A sample question, edited.") { Versions = new(2, 2, sampleQuestion, null), MayEdit = true },
+            new(sampleThirdReply.ToString(), false, "A sample answer, the third one asked for.")
+            {
+                RunId = sampleRun,
+                EndsReply = true,
+                Model = "sample-model",
+                Versions = new(3, 3, sampleSecondReply, null),
+                MayRegenerate = true,
+            },
+        ];
+
+        // A sample: the gallery sends nothing, so switching, editing, and asking again change nothing here.
+        var list = new MessageListViewModel
+        {
+            BotName = "Sample lead bot",
+            BotHue = BotIdentity.Hue(lead),
+            Messages = messages,
+            OnShowVersion = _ => Task.CompletedTask,
+            OnRegenerate = _ => Task.CompletedTask,
+            OnEdit = (_, _) => Task.CompletedTask,
+        };
+        list.Update();
+        return list;
+    }
+
+    /// <summary>A sample composer with its options open, offering the bot's own model and one more.</summary>
+    public static ComposerViewModel ChoosingModel()
+    {
+        var composer = new ComposerViewModel { BotName = "Sample lead bot", OptionsOpen = true };
+        composer.ShowModels(new ConversationModelChoice(
+            "sample-model",
+            "Sample model",
+            "sample-stronger-model",
+            [new("sample-model", "Sample model"), new("sample-stronger-model", "Sample stronger model")]));
+        return composer;
+    }
+
     #endregion
 
     #region Private Methods
@@ -110,6 +232,10 @@ internal static class ChatSamples
         """;
 
     private static Border Wide(FrameworkElement sample) => new() { Child = sample, Width = Tokens.Number("DvDialogWidth") };
+
+    // As tall as a tall sample, and no wider than the page, so a phone shows the sample at its own width.
+    private static Border Fitting(FrameworkElement sample) =>
+        new() { Child = sample, MaxWidth = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };
 
     private static Border Tall(FrameworkElement sample) =>
         new() { Child = sample, Width = Tokens.Number("DvDialogWidth"), Height = Tokens.Number("DvDialogWidth") };

@@ -1,8 +1,8 @@
 namespace Drover.Presentation.ViewModels;
 
 /// <summary>
-/// The account menu: the theme, the ways to the settings screens, and signing out. The same menu is in the bar of
-/// a wide window and, compact, in the dock of a narrow one.
+/// The account menu: the theme, the ways to the settings screens, what the app is, and signing out. The same menu is
+/// in the bar of a wide window and, compact, in the dock of a narrow one.
 /// </summary>
 public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 {
@@ -37,6 +37,9 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool notificationsOpen;
+
+    [ObservableProperty]
+    private bool aboutOpen;
 
     #endregion
 
@@ -101,6 +104,10 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public void OpenNotifications() => NotificationsOpen = true;
 
+    /// <summary>What the app is, and the diagnostic log to attach to a bug report.</summary>
+    [RelayCommand]
+    public void OpenAbout() => AboutOpen = true;
+
     [RelayCommand]
     public async Task SignOut()
     {
@@ -113,7 +120,7 @@ public sealed partial class AccountMenuViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(AccountMenuViewModel));
-            toasts.Show($"You are still signed in. {Failures.Sentence(exception)}", ToastKind.Error);
+            toasts.Show($"You are still signed in. {Failures.Sentence(exception, "Check that the server is running.")}", ToastKind.Error);
         }
     }
 

@@ -6,4 +6,6 @@ public static class AuditTargets
     public const string Bot = "bot";
 
     public const string Extension = "extension";
+
+    public const string Project = "project";
 }

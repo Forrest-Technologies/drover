@@ -49,6 +49,24 @@ public sealed class VeniceCatalogTests
         models.Single(model => model.Id == "e2ee-kimi-k3-p").Privacy.Should().Be(PrivacyMode.Attested);
     }
 
+    [Fact]
+    public async Task Marks_image_models_with_image_generation_capability()
+    {
+        var provider = ProviderFor(
+            """
+            {"provenance":"hand-written","note":"hand-written image model entry","exchanges":[
+              {"path":"/models","body":{"data":[{"id":"img-1","type":"image","model_spec":{"name":"Image One","capabilities":{"supportsFunctionCalling":true}}}]}},
+              {"path":"/models/traits","body":{"data":{}}}]}
+            """);
+
+        var models = await provider.ListModels(connection, null, TestContext.Current.CancellationToken);
+
+        var image = models.Should().ContainSingle().Which;
+        image.Capabilities.ImageGeneration.Should().BeTrue();
+        image.Capabilities.ToolCalling.Should().BeFalse();
+        image.Capabilities.Streaming.Should().BeFalse();
+    }
+
     #endregion
 
     #region Traits

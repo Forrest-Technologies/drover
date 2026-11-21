@@ -11,6 +11,9 @@ public sealed record ConnectionChange(ModelConnection? Connection, string? Probl
     public static ConnectionChange Invalid(string problem) => new(null, problem);
 }
 
+/// <summary>What marking a model as reading pictures came to: the changed catalog row, or a sentence for the admin.</summary>
+public sealed record ModelVisionChange(ModelCatalogEntry? Entry, string? Problem);
+
 /// <summary>A test or a refresh that reached, or tried to reach, the provider.</summary>
 public sealed record ProviderCheck<T>(T? Result, ModelFailure? Failure, string Message, ModelConnection Connection);
 
@@ -133,11 +136,41 @@ public sealed class ModelConnectionService(
         return new ConnectionChange(connection, null);
     }
 
+    /// <summary>
+    /// Records that a space admin says a model of a compatible connection reads pictures, or clears that. Only a
+    /// compatible endpoint takes it: a provider that reports its own capabilities keeps its own value. Null when the
+    /// connection or the model is not in this space's catalog; a sentence when the connection's kind takes no mark.
+    /// </summary>
+    public async Task<ModelVisionChange?> SetVision(Guid connectionId, string model, bool readsImages, CancellationToken cancellationToken)
+    {
+        if (await connections.FindConnection(connectionId, cancellationToken) is not { } connection)
+        {
+            return null;
+        }
+
+        if (connection.Kind != ModelConnectionKinds.Compatible)
+        {
+            return new ModelVisionChange(null, "Only the models of a compatible endpoint can be marked as reading pictures. This provider reports its own.");
+        }
+
+        if (await connections.GetCatalogEntryForUpdate(connectionId, model, cancellationToken) is not { } entry)
+        {
+            return null;
+        }
+
+        entry.Capabilities = entry.Capabilities with { Vision = readsImages, VisionSetByOperator = readsImages };
+        logger.LogInformation("Model connection {ConnectionId} marked a model as reading pictures: {ReadsImages}", connectionId, readsImages);
+        return new ModelVisionChange(entry, null);
+    }
+
     #endregion
 
     #region Provider Calls
 
-    /// <summary>Asks the provider whether the connection works, then records the answer and any balances it gave.</summary>
+    /// <summary>
+    /// Asks the provider whether the connection works, records the answer and any balances it gave, and on a pass
+    /// stocks the catalog, so the Models screen lists the provider's models without a Refresh of its own.
+    /// </summary>
     public async Task<ProviderCheck<ConnectionTestResult>?> Test(Guid connectionId, CancellationToken cancellationToken)
     {
         var call = await Prepare(connectionId, cancellationToken);
@@ -155,6 +188,20 @@ public sealed class ModelConnectionService(
             connectionId,
             outcome.Succeeded,
             outcome.Failure);
+
+        if (connection is not null && outcome.Succeeded)
+        {
+            try
+            {
+                await StockCatalog(call, cancellationToken);
+            }
+            catch (Exception problem) when (problem is not OperationCanceledException)
+            {
+                // The test result is already given: a catalog that could not be written must not fail it.
+                logger.LogWarning(problem, "The model catalog of {ConnectionId} could not be stored after its passing test", connectionId);
+            }
+        }
+
         return new ProviderCheck<ConnectionTestResult>(outcome, outcome.Failure, outcome.Message, connection ?? call.Snapshot);
     }
 
@@ -171,12 +218,7 @@ public sealed class ModelConnectionService(
             return null;
         }
 
-        var asked = await Ask(call, (provider, key, token) => provider.ListModels(call.Endpoint!, key, token), cancellationToken);
-
-        if (asked.Value is { } models && models.Count > policy.Deployment.MaxModelsPerConnection)
-        {
-            asked = new Answer<IReadOnlyList<ModelInfo>>(null, ModelFailure.Rejected, ModelProviderException.FromLimit("model list").Message);
-        }
+        var asked = await AskCatalog(call, cancellationToken);
 
         if (asked.Value is { } listed)
         {
@@ -264,6 +306,34 @@ public sealed class ModelConnectionService(
         }
     }
 
+    /// <summary>Asks the provider for its models, with the deployment's cap on how many one connection may list.</summary>
+    private async Task<Answer<IReadOnlyList<ModelInfo>>> AskCatalog(PreparedCall call, CancellationToken cancellationToken)
+    {
+        var asked = await Ask(call, (provider, key, token) => provider.ListModels(call.Endpoint!, key, token), cancellationToken);
+        return asked.Value is { } models && models.Count > policy.Deployment.MaxModelsPerConnection
+            ? new Answer<IReadOnlyList<ModelInfo>>(null, ModelFailure.Rejected, ModelProviderException.FromLimit("model list").Message)
+            : asked;
+    }
+
+    /// <summary>
+    /// Stocks the catalog after a passing test. A provider that cannot answer leaves the catalog as it was: the
+    /// test's result was already given and does not change for the listing.
+    /// </summary>
+    private async Task StockCatalog(PreparedCall call, CancellationToken cancellationToken)
+    {
+        var asked = await AskCatalog(call, cancellationToken);
+
+        if (asked.Value is { } listed)
+        {
+            await StoreCatalog(call, listed, cancellationToken);
+            logger.LogInformation("Model connection {ConnectionId} listed {ModelCount} models on its test", call.Snapshot.Id, listed.Count);
+        }
+        else
+        {
+            logger.LogInformation("Model connection {ConnectionId} passed its test but could not list models: {Failure}", call.Snapshot.Id, asked.Failure);
+        }
+    }
+
     /// <summary>
     /// Second scope: write the outcome. If the key or address changed while the provider was answering, the
     /// answer is about a connection that no longer exists in that form, so nothing is written.
@@ -322,14 +392,14 @@ public sealed class ModelConnectionService(
     private async Task TryStoreCatalog(PreparedCall call, IReadOnlyList<ModelInfo> models, CancellationToken cancellationToken)
     {
         await using var work = await scope.Begin(cancellationToken);
-        var connection = await connections.GetConnection(call.Snapshot.Id, cancellationToken);
+        var connection = await connections.FindConnection(call.Snapshot.Id, cancellationToken);
 
         if (connection is null || HasChanged(connection, call.Snapshot))
         {
             return;
         }
 
-        var existing = await connections.GetCatalog(connection.Id, cancellationToken);
+        var existing = await connections.GetCatalogForUpdate(connection.Id, cancellationToken);
 
         foreach (var entry in CatalogUpsert.Apply(connection.Id, existing, models, time.GetUtcNow()))
         {

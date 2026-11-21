@@ -3,7 +3,7 @@ namespace Drover.Native.Controls;
 /// <summary>
 /// The modal layer a <see cref="Dialog"/> and a <see cref="Sheet"/> share. It covers the window with the flat dim,
 /// holds a panel with a title, a Close button, a body, and actions, keeps Tab inside the panel, closes on Escape,
-/// and puts the focus back where it was when it closes.
+/// and puts the focus back where it was when it closes. While it is open, a device's Back closes it first.
 /// </summary>
 internal sealed class DialogSurface
 {
@@ -16,6 +16,8 @@ internal sealed class DialogSurface
     private readonly Popup popup = new() { IsLightDismissEnabled = false };
 
     private readonly Grid layer = new();
+
+    private readonly Grid safeArea = new();
 
     private readonly Border scrim = new();
 
@@ -36,6 +38,8 @@ internal sealed class DialogSurface
     private readonly TranslateTransform slide = new();
 
     private Control? opener;
+
+    private Navigator? closesFor;
 
     #endregion
 
@@ -87,7 +91,19 @@ internal sealed class DialogSurface
         panel.TabFocusNavigation = KeyboardNavigationMode.Cycle;
         panel.KeyDown += (_, key) => CloseOnEscape(key);
         layer.Children.Add(scrim);
-        layer.Children.Add(panel);
+        layer.Children.Add(safeArea);
+        safeArea.Children.Add(panel);
+#if ANDROID
+        // Popups are siblings of the shell, so they also need to respect the window's visible bounds.
+        SafeArea.Attach(safeArea);
+        safeArea.RegisterPropertyChangedCallback(Grid.PaddingProperty, (_, _) =>
+        {
+            if (popup.XamlRoot is { } root)
+            {
+                Place(root.Size);
+            }
+        });
+#endif
         popup.Child = layer;
     }
 
@@ -95,7 +111,10 @@ internal sealed class DialogSurface
 
     #region Properties
 
-    /// <summary>Raised when the person closed the surface: Escape, or the Close button.</summary>
+    /// <summary>The app's navigator, told while a surface is open so that a step back closes it first.</summary>
+    public static Navigator? Navigator { get; set; }
+
+    /// <summary>Raised when the person closed the surface: Escape, Back, or the Close button.</summary>
     public event Action? Closed;
 
     #endregion
@@ -127,6 +146,8 @@ internal sealed class DialogSurface
 
         if (!popup.IsOpen)
         {
+            closesFor = Navigator;
+            closesFor?.AddCloser(CloseFromBack);
             popup.IsOpen = true;
             Motion.FadeIn(layer);
             SlideIn(root.Size);
@@ -143,6 +164,8 @@ internal sealed class DialogSurface
         }
 
         popup.IsOpen = false;
+        closesFor?.RemoveCloser(CloseFromBack);
+        closesFor = null;
         body.Content = null;
         actions.Content = null;
         if (popup.XamlRoot is { } root)
@@ -164,6 +187,8 @@ internal sealed class DialogSurface
         close.TakeFocus();
     }
 
+    private void CloseFromBack() => Closed?.Invoke();
+
     private void CloseOnEscape(KeyRoutedEventArgs key)
     {
         if (key.Key is VirtualKey.Escape)
@@ -175,7 +200,14 @@ internal sealed class DialogSurface
 
     private void Resize(XamlRoot root, XamlRootChangedEventArgs args) => Place(root.Size);
 
-    private bool ComesFromBelow(Size window) => atEdge && window.Width < (double)Styles.Dictionary["DvBreakSheet"];
+    private bool ComesFromBelow(double width) => atEdge && width < (double)Styles.Dictionary["DvBreakSheet"];
+
+    private Size SafeSize(Size window)
+    {
+        var padding = safeArea.Padding;
+        return new(Math.Max(0, window.Width - padding.Left - padding.Right),
+            Math.Max(0, window.Height - padding.Top - padding.Bottom));
+    }
 
     // A dialog sits in the middle. A sheet takes the trailing edge, and on a narrow window comes up from the bottom.
     private void Place(Size window)
@@ -183,27 +215,28 @@ internal sealed class DialogSurface
         var (border, card, sheet) = (Tokens.Number("DvBorder"), Tokens.Number("DvRadiusCard"), Tokens.Number("DvRadiusSheet"));
         layer.Width = window.Width;
         layer.Height = window.Height;
+        var available = SafeSize(window);
 
         if (!atEdge)
         {
-            panel.Width = Math.Min(Tokens.Number("DvDialogWidth"), window.Width - Tokens.Number("DvSpace6"));
-            panel.MaxHeight = window.Height - Tokens.Number("DvSpace6");
+            panel.Width = Math.Clamp(available.Width - Tokens.Number("DvSpace6"), 0, Tokens.Number("DvDialogWidth"));
+            panel.MaxHeight = Math.Max(0, available.Height - Tokens.Number("DvSpace6"));
             panel.Height = double.NaN;
             (panel.HorizontalAlignment, panel.VerticalAlignment) = (HorizontalAlignment.Center, VerticalAlignment.Center);
             (panel.BorderThickness, panel.CornerRadius) = (new(border), new(card));
         }
-        else if (ComesFromBelow(window))
+        else if (ComesFromBelow(available.Width))
         {
-            panel.Width = window.Width;
-            panel.MaxHeight = window.Height - Tokens.Number("DvSpace7");
+            panel.Width = available.Width;
+            panel.MaxHeight = Math.Max(0, available.Height - Tokens.Number("DvSpace7"));
             panel.Height = double.NaN;
             (panel.HorizontalAlignment, panel.VerticalAlignment) = (HorizontalAlignment.Stretch, VerticalAlignment.Bottom);
             (panel.BorderThickness, panel.CornerRadius) = (new(0, border, 0, 0), new(sheet, sheet, 0, 0));
         }
         else
         {
-            panel.Width = Math.Min(Tokens.Number("DvSheetWidth"), window.Width);
-            panel.MaxHeight = panel.Height = window.Height;
+            panel.Width = Math.Min(Tokens.Number("DvSheetWidth"), available.Width);
+            panel.MaxHeight = panel.Height = available.Height;
             (panel.HorizontalAlignment, panel.VerticalAlignment) = (HorizontalAlignment.Right, VerticalAlignment.Stretch);
             (panel.BorderThickness, panel.CornerRadius) = (new(border, 0, 0, 0), new(sheet, 0, 0, sheet));
         }
@@ -218,7 +251,7 @@ internal sealed class DialogSurface
             return;
         }
 
-        var fromBelow = ComesFromBelow(window);
+        var fromBelow = ComesFromBelow(SafeSize(window).Width);
         var arrive = new DoubleAnimation
         {
             From = fromBelow ? window.Height / 2 : panel.Width,

@@ -42,6 +42,7 @@ public static class EngineServiceExtensions
     {
         services.AddOptions<RunOptions>().Configure(options => configure?.Invoke(options));
         services.AddBuiltinTools();
+        services.AddImageTools();
         services.AddSingleton<SandboxAvailability>();
         services.AddSingleton<SandboxControlService>();
         services.AddSingleton<RunScopes>();
@@ -67,12 +68,16 @@ public static class EngineServiceExtensions
         services.AddSingleton<ScheduleRunner>();
         services.AddScoped<RuleService>();
         services.AddScoped<ThreadService>();
+        services.AddScoped<ProjectService>();
+        services.AddScoped<ConversationModels>();
+        services.AddScoped<ConversationExporter>();
         services.AddScoped<PushService>();
         services.AddScoped<ThreadLine>();
         services.AddScoped<RunService>();
         services.AddScoped<UsageService>();
         services.AddScoped<ApprovalService>();
         services.AddScoped<FileAbilityReader>();
+        services.AddSingleton<UploadCleanup>();
         services.AddScoped<FileService>();
         return services;
     }

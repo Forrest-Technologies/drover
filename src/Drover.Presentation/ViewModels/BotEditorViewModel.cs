@@ -293,6 +293,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
     {
         BotId = botId;
         navigator.Leaving = ConfirmLeaving;
+        navigator.HoldsWork = HoldsWork;
 
         if (shownBotId != BotId && await session.Load() is not null)
         {
@@ -309,6 +310,11 @@ public sealed partial class BotEditorViewModel : ObservableObject
         if (navigator.Leaving == ConfirmLeaving)
         {
             navigator.Leaving = null;
+        }
+
+        if (navigator.HoldsWork == HoldsWork)
+        {
+            navigator.HoldsWork = null;
         }
     }
 
@@ -516,6 +522,9 @@ public sealed partial class BotEditorViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>True while there are changes not saved that leaving would drop.</summary>
+    public bool HoldsWork() => Dirty && !leaveConfirmed;
+
     public void SetLeaving(bool value)
     {
         Leaving = value;
@@ -527,7 +536,17 @@ public sealed partial class BotEditorViewModel : ObservableObject
         Leaving = false;
         leaveConfirmed = true;
         Notify();
-        navigator.NavigateTo(leavingFor ?? Addresses.Bots);
+        var target = leavingFor ?? Addresses.Bots;
+
+        // Left by a step back, the app goes back, so the editor is not the next step back again.
+        if (navigator.Previous == target)
+        {
+            navigator.GoBack();
+        }
+        else
+        {
+            navigator.NavigateTo(target);
+        }
     }
 
     /// <summary>Asks the screen to read everything it shows again.</summary>
@@ -671,7 +690,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(BotEditorViewModel));
-            report(Failures.Sentence(exception));
+            report(Failures.Sentence(exception, "Check that the server is running."));
         }
 
         Notify();

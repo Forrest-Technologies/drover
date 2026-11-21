@@ -40,13 +40,154 @@ jobs:
       - name: Install Android workload
         run: dotnet workload install android --version 11.0.100
       - name: Build Android, warnings are errors
-        run: dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
+        run: |
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release -warnaserror
+          dll=src/Drover.Native/bin/Release/net11.0-android/Drover.Native.dll
+          test -f "$dll"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|UnreachableOpenCheck' "$dll"; then
+            echo "Screen-check, focus check and unreachable-open check hooks must not be compiled into the shipping Android binary"
+            exit 1
+          fi
+      - name: Build the screen checks and an Android build made for them
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
+            -p:DroverUiChecks=true -p:ApplicationDisplayVersion=checks -warnaserror -o "$RUNNER_TEMP/ui-checks-android"
+      - name: Build the Android unreachable-open check
+        run: |
+          dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -c Release \
+            -p:DroverUnreachableCheck=true -warnaserror -o "$RUNNER_TEMP/unreachable-android"
+
+      - name: Check Android address editing, safe-area layout, and the shared screen checks
+        timeout-minutes: 20
+        run: |
+          sudo chmod a+rw /dev/kvm
+          sdkmanager 'emulator' 'system-images;android-35;default;x86_64'
+          printf 'no\n' | avdmanager create avd -n drover-editing -k 'system-images;android-35;default;x86_64'
+          "$ANDROID_HOME/emulator/emulator" -avd drover-editing -no-window -no-audio \
+            -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/drover-emulator.log" 2>&1 &
+          trap 'adb emu kill || true' EXIT
+          if ! timeout 180 adb wait-for-device; then
+            cat "$RUNNER_TEMP/drover-emulator.log"
+            exit 1
+          fi
+          for _ in {1..60}; do
+            if [[ $(adb shell getprop sys.boot_completed) == 1 ]]; then break; fi
+            sleep 2
+          done
+          if [[ $(adb shell getprop sys.boot_completed) != 1 ]]; then
+            cat "$RUNNER_TEMP/drover-emulator.log"
+            exit 1
+          fi
+          adb shell input keyevent KEYCODE_WAKEUP
+          adb shell wm dismiss-keyguard
+          adb install src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
+          bash scripts/check-native-android-text-editing.sh
+          python3 scripts/check-native-android-back.py
+          # The checks package is a different id. Name the emulator so install and run target the same device and the
+          # harness will not clear any other device.
+          serial="$(adb devices | awk '/^emulator-/{ print $1; exit }')"
+          if [[ -z "${serial}" ]]; then
+            echo "The screen checks need the emulator this job started."
+            exit 1
+          fi
+          adb -s "${serial}" install -r "$RUNNER_TEMP"/ui-checks-android/*-Signed.apk
+          DROVER_ANDROID_SERIAL="${serial}" dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- android
+          adb install -r "$RUNNER_TEMP"/unreachable-android/*-Signed.apk
+          DROVER_UNREACHABLE_OPEN_ONLY=1 python3 scripts/check-native-android-text-editing.py
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-android-layout
+          path: artifacts/android-layout/
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-android-development
           path: src/Drover.Native/bin/Release/net11.0-android/*-Signed.apk
           if-no-files-found: error
+
+  ios:
+    name: iOS
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Require Xcode 27.2
+        run: xcodebuild -version | grep -F 'Xcode 27.2'
+      - name: Install the iOS workload
+        run: dotnet workload install ios --version 11.0.100
+      - name: Build iOS, warnings are errors
+        run: |
+          dotnet build src/Drover.Native -f net11.0-ios \
+            -p:DroverNativeTargetFrameworks=net11.0-ios \
+            -p:DroverEnableApple=true \
+            -p:RuntimeIdentifier=iossimulator-arm64 \
+            -p:CodesignKey=- \
+            -c Release \
+            -warnaserror
+          dll="$(find src/Drover.Native/bin/Release/net11.0-ios -type f -name 'Drover.Native.dll' -print -quit)"
+          test -n "$dll"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText' "$dll"; then
+            echo "Screen-check hooks must not be compiled into the shipping iOS binary"
+            exit 1
+          fi
+      - name: Build the screen checks and an iOS build made for them
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-ios \
+            -p:DroverNativeTargetFrameworks=net11.0-ios \
+            -p:DroverEnableApple=true \
+            -p:RuntimeIdentifier=iossimulator-arm64 \
+            -p:CodesignKey=- \
+            -p:DroverUiChecks=true \
+            -c Release \
+            -warnaserror \
+            -o "$RUNNER_TEMP/ui-checks-ios"
+      - name: Start PostgreSQL for the screen checks
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          brew install postgresql@17
+          bin="$(brew --prefix postgresql@17)/bin"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          umask 077
+          printf '%s' "$password" > "$RUNNER_TEMP/postgres-password"
+          "$bin/initdb" -D "$RUNNER_TEMP/postgres" \
+            --auth-host=scram-sha-256 \
+            --auth-local=trust \
+            --username=postgres \
+            --pwfile="$RUNNER_TEMP/postgres-password" > /dev/null
+          rm "$RUNNER_TEMP/postgres-password"
+          "$bin/pg_ctl" -D "$RUNNER_TEMP/postgres" \
+            -o "-p 5432 -c listen_addresses=127.0.0.1" \
+            -l "$RUNNER_TEMP/postgres.log" \
+            -w start
+          echo "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$password" >> "$GITHUB_ENV"
+      - name: Open the app and pass the shared screen checks after a restart
+        run: |
+          device="$(xcrun simctl list devices available --json \
+            | jq -r '[.devices["com.apple.CoreSimulator.SimRuntime.iOS-27-2"][]?
+              | select(.name | startswith("iPhone"))][0].udid // empty')"
+          test -n "$device"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+          trap 'xcrun simctl shutdown "$device" || true' EXIT
+          app="$(find "$RUNNER_TEMP/ui-checks-ios" -type d -name 'Drover.Native.app' -print -quit)"
+          test -n "$app"
+          dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- ios "$app" "$device"
 
   desktop:
     name: Desktop (${{ matrix.os }})
@@ -55,7 +196,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -66,15 +207,51 @@ jobs:
         with:
           global-json-file: global.json
       - name: Build desktop, warnings are errors
-        run: dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
+        shell: bash
+        run: |
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release -warnaserror
+          dll=src/Drover.Native/bin/Release/net11.0-desktop/Drover.Native.dll
+          test -f "$dll"
+          if grep -a -q -E 'ScreenChecks|CheckSettings|TryGetIsolatedText|TimelineFocusCheck|UnreachableOpenCheck' "$dll"; then
+            echo "Screen-check, focus check and unreachable-open check hooks must not be compiled into the shipping desktop binary"
+            exit 1
+          fi
+      - name: Build the Linux unreachable-open check
+        if: runner.os == 'Linux'
+        run: |
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release \
+            -p:DroverUnreachableCheck=true -warnaserror -o "$RUNNER_TEMP/unreachable-desktop"
       - name: Install the Linux display test tools
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb x11-utils imagemagick libgl1-mesa-dri
-      - name: Open the Linux app and verify its first frame
+          sudo apt-get install -y xvfb x11-utils imagemagick libgl1-mesa-dri dbus gnome-keyring libsecret-1-0
+      - name: Open the Linux app, verify its first frame, and keep a sign-in across a restart
         if: runner.os == 'Linux'
-        run: xvfb-run -a bash scripts/check-native-desktop.sh
+        run: xvfb-run -a bash scripts/check-native-desktop.sh "$RUNNER_TEMP/unreachable-desktop/Drover.Native.dll"
+      - name: Keep a sign-in in the system credential store across a restart
+        if: runner.os != 'Linux'
+        run: dotnet test --project tests/Drover.Native.Desktop.Tests -c Release
+      - name: A focused activity row keeps focus when a new event arrives
+        shell: bash
+        run: |
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -p:DroverTimelineFocusCheck=true -c Release -warnaserror -o "$RUNNER_TEMP/timeline-focus-desktop"
+          export DROVER_TIMELINE_FOCUS_CHECK=1
+          app="$RUNNER_TEMP/timeline-focus-desktop/Drover.Native.dll"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            set +e
+            xvfb-run -a dotnet "$app" >"$RUNNER_TEMP/focus.log" 2>&1
+            code=$?
+            set -e
+            cat "$RUNNER_TEMP/focus.log"
+            # The check can pass and the process can still die while the virtual display tears the window down.
+            if grep -F 'Activity focus check passed.' "$RUNNER_TEMP/focus.log"; then
+              exit 0
+            fi
+            exit "$code"
+          else
+            dotnet "$app"
+          fi
       - name: Check desktop dependency licenses
         env:
           DroverNativeTargetFrameworks: net11.0-desktop
@@ -82,13 +259,46 @@ jobs:
         run: |
           dotnet tool restore
           dotnet tool run nuget-license -- -i Drover.Native.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -override licenses/allowed-exceptions.json -err
+      - name: Build the screen checks and a desktop build made for them
+        shell: bash
+        run: |
+          dotnet build tests/Drover.Native.UITests -c Release -warnaserror
+          dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -c Release \
+            -p:DroverUiChecks=true -warnaserror -o "$RUNNER_TEMP/ui-checks-desktop"
+      # Linux runs PostgreSQL in a container. Windows has it installed but stopped; macOS installs it.
+      - name: Start PostgreSQL for the screen checks on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The image installs the service disabled.
+          Get-Service -Name 'postgresql*' | Set-Service -StartupType Manual -PassThru | Start-Service
+          "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres;Password=$env:PGPASSWORD" >> $env:GITHUB_ENV
+      - name: Start PostgreSQL for the screen checks on macOS
+        if: runner.os == 'macOS'
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          brew install postgresql@17
+          bin="$(brew --prefix postgresql@17)/bin"
+          "$bin/initdb" -D "$RUNNER_TEMP/postgres" -A trust -U postgres > /dev/null
+          "$bin/pg_ctl" -D "$RUNNER_TEMP/postgres" -o "-p 5432 -c listen_addresses=127.0.0.1" -l "$RUNNER_TEMP/postgres.log" -w start
+          echo "DROVER_TEST_POSTGRES=Host=127.0.0.1;Port=5432;Username=postgres" >> "$GITHUB_ENV"
+      - name: Open the app and pass the shared screen checks
+        shell: bash
+        run: |
+          checks=(dotnet run --project tests/Drover.Native.UITests -c Release --no-build -- desktop "$RUNNER_TEMP/ui-checks-desktop/Drover.Native.dll")
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a "${checks[@]}"
+          else
+            "${checks[@]}"
+          fi
 
   browser:
     env:
       DroverNativeTargetFrameworks: net11.0-browserwasm
     name: Publish browser client
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -102,7 +312,7 @@ jobs:
         run: dotnet workload install wasm-tools
       - name: Check formatting of the native client and its shared sources
         # The analyzers run in the builds above; this checks the layout of the files only, without a restore.
-        run: dotnet format whitespace --folder --verify-no-changes --include src/Drover.Native src/Shared
+        run: dotnet format whitespace --folder --verify-no-changes --include src/Drover.Native src/Shared tests/Drover.Native.UITests/App
       - name: Publish browser, warnings are errors
         run: dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -c Release -warnaserror -o artifacts/native
       - name: Check native dependency licenses

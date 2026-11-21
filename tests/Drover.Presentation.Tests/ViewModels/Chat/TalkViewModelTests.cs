@@ -62,6 +62,18 @@ public sealed class TalkViewModelTests : WorkspaceTest
     #region Not Ready
 
     [Fact]
+    public async Task An_unreachable_conversation_keeps_the_server_check_as_its_next_step()
+    {
+        Server.Fail("GET", $"{Space}/threads/{threadId}/messages", new HttpRequestException("connection refused"));
+
+        await Go("/");
+
+        await Until(() => MainPane.List.Problem.Should().Be("Drover could not reach its server. Check that the server is running."));
+        MainPane.Problem.Should().Be("Drover could not reach its server. Check that the server is running.");
+    }
+
+
+    [Fact]
     public async Task With_no_model_the_workspace_says_so_and_links_to_connecting_one()
     {
         Server.Answer("GET", $"{Space}/model-connections", Array.Empty<ModelConnectionSummary>());
@@ -225,7 +237,116 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Opening
+
+    [Fact]
+    public async Task Opening_a_conversation_makes_it_once_and_reads_it_once()
+    {
+        var sandbox = Server.Hold("GET", $"{Space}/bots/{botId}/sandbox");
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        HashSet<ConversationViewModel> made = [];
+        Talk.PropertyChanged += (_, _) =>
+        {
+            if (Talk.MainPane is { } pane)
+            {
+                made.Add(pane);
+            }
+        };
+
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        messages.SetResult();
+        sandbox.SetResult();
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        made.Should().ContainSingle("the screen changes several times while it opens, and keeps the one conversation");
+        Server.Sent("PUT", $"{Space}/bots/{botId}/main-thread").Should().ContainSingle();
+        Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_conversation_starts_loading_before_the_question_of_the_bots_screen_is_answered()
+    {
+        var bots = Server.Hold("GET", $"{Space}/bots");
+        var sandbox = Server.Hold("GET", $"{Space}/bots/{botId}/sandbox");
+        await Go($"/talk/{botId}");
+        await Until(() => Talk.NotReady.Should().Be(WorkspaceState.Loading));
+
+        bots.SetResult();
+
+        await Until(() => Talk.MainPane!.Messages.Should().HaveCount(2));
+        sandbox.SetResult();
+    }
+
+    [Fact]
+    public async Task A_conversation_with_messages_says_it_is_loading_until_they_arrive_and_never_that_nothing_was_said()
+    {
+        var messages = Server.Hold("GET", $"{Space}/threads/{threadId}/messages");
+        List<(bool Loading, int Count, bool Empty)> seen = [];
+        ConversationViewModel? followed = null;
+        Talk.PropertyChanged += (_, _) =>
+        {
+            if (Talk.MainPane is { } pane && followed is null)
+            {
+                followed = pane;
+                Record(pane);
+                pane.List.PropertyChanged += (_, _) => Record(pane);
+            }
+        };
+
+        await Go($"/talk/{botId}");
+        await Until(() => Server.Sent("GET", $"{Space}/threads/{threadId}/messages").Should().ContainSingle());
+        MainPane.Loading.Should().BeTrue();
+        MainPane.List.IsEmpty.Should().BeFalse("nothing is known to be said or not while the conversation is read");
+        messages.SetResult();
+
+        await Until(() => seen.Should().Contain((false, 2, false)));
+        seen.Should().NotContain(state => state.Empty, "the empty state is never shown for a conversation that has messages");
+        seen.Should().NotContain(state => !state.Loading && state.Count == 0, "it says it is loading until the messages are there");
+        seen.Should().Equal(seen.OrderByDescending(state => state.Loading), "loading comes first, then the messages");
+
+        void Record(ConversationViewModel pane) => seen.Add((pane.Loading, pane.List.Messages.Count, pane.List.IsEmpty));
+    }
+
+    [Fact]
+    public async Task A_conversation_with_nothing_said_says_so_once_it_has_been_read()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", Array.Empty<MessageResponse>());
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Loading.Should().BeFalse());
+        await Until(() => MainPane.List.IsEmpty.Should().BeTrue());
+        MainPane.List.StartHint.Should().Be("Nothing said yet. Write to Marshal below.");
+    }
+
+    #endregion
+
     #region Reading
+
+    [Fact]
+    public async Task A_dropped_run_stream_says_it_is_reconnecting_and_stops_saying_so_once_through_even_with_nothing_new()
+    {
+        Main(Thread(runId));
+        var first = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await first.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+        await first.Send(Event(2, RunEventTypes.RunWaiting, new RunStatusChanged("waiting", "awaiting_approval", null, 1, null)));
+        await Until(() => MainPane.Waiting.Should().BeTrue());
+
+        // The run waits on the person, so the stream that comes back has nothing to send.
+        Server.Stream($"{Space}/runs/{runId}/events");
+        var dropped = false;
+        MainPane.PropertyChanged += (_, _) => dropped |= MainPane.Notice == "The connection dropped. Reconnecting.";
+        await first.End();
+
+        await Until(() =>
+        {
+            dropped.Should().BeTrue("the screen says the connection dropped while it is away");
+            Server.Addresses.Count(address => address.StartsWith($"GET {Space}/runs/{runId}/events", StringComparison.Ordinal)).Should().Be(2);
+            MainPane.Notice.Should().BeNull("the stream is through again");
+        });
+    }
 
     [Fact]
     public async Task The_start_page_lists_the_crew_as_a_tree_and_opens_the_leads_main_conversation()
@@ -406,6 +527,47 @@ public sealed class TalkViewModelTests : WorkspaceTest
     }
 
     [Fact]
+    public async Task A_step_back_closes_a_rail_opened_from_the_conversation_and_then_leaves_it()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        await Go($"/talk/{botId}");
+        await Go($"/talk/{botId}/screen");
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+
+        await StepBack(BackStep.Closed);
+
+        await Until(() => Talk.Side.Should().Be(SideView.Closed));
+        Navigator.Current.Should().Be($"/talk/{botId}");
+        Navigator.StepBack().Should().Be(BackStep.WentBack, "with the rail closed, back leaves the conversation");
+        Navigator.Current.Should().Be(Addresses.Home);
+    }
+
+    [Fact]
+    public async Task A_step_back_closes_a_rail_opened_directly_into_its_conversation()
+    {
+        Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
+        Navigator.StartAt($"/talk/{botId}/screen");
+        await Do(() => Talk.Open(new(botId, "screen")));
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+
+        await StepBack(BackStep.Closed);
+
+        await Until(() => Talk.Side.Should().Be(SideView.Closed));
+        Navigator.Current.Should().Be($"/talk/{botId}");
+        Navigator.CanStepBack.Should().BeFalse("the rail leaves no step behind, so the next back leaves the app");
+    }
+
+    [Fact]
+    public async Task A_step_back_in_a_side_chat_goes_to_the_list_of_them()
+    {
+        await Go($"/talk/{botId}/side/new");
+
+        await StepBack(BackStep.Closed);
+
+        Navigator.Current.Should().Be(Addresses.SideChats(botId));
+    }
+
+    [Fact]
     public async Task A_bot_with_a_screen_offers_it_beside_the_conversation()
     {
         Server.Answer("GET", $"{Space}/bots/{botId}/sandbox", ScreenStatus(desktop: true));
@@ -494,6 +656,136 @@ public sealed class TalkViewModelTests : WorkspaceTest
         Talk.CloseRailName.Should().Be(close);
         Talk.At.Should().Be("side");
     }
+
+    [Theory]
+    [InlineData("summary", SideView.Summary)]
+    [InlineData("memory", SideView.Memory)]
+    [InlineData("files", SideView.Files)]
+    [InlineData("activity", SideView.Activity)]
+    [InlineData("side", SideView.List)]
+    [InlineData("side/new", SideView.List)]
+    public async Task Escape_closes_the_rail_and_the_focus_goes_back_to_the_way_that_opened_it(string rail, SideView way)
+    {
+        await Go($"/talk/{botId}/{rail}");
+        await Until(() => Talk.CanShowRail.Should().BeTrue());
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = false;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeTrue();
+        Address.Should().Be($"talk/{botId}");
+        await Until(() => openers.Should().Equal(way));
+        Talk.Side.Should().Be(SideView.Closed);
+        Talk.At.Should().Be("main");
+        await Until(() => MainPane.Messages.Should().HaveCount(2, "the main conversation is as it was"));
+    }
+
+    [Fact]
+    public async Task Escape_with_nothing_beside_the_conversation_is_left_to_something_else()
+    {
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = true;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Address.Should().Be($"talk/{botId}");
+        openers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_a_draft_keeps_the_rail_and_the_draft()
+    {
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SidePane.Should().NotBeNull());
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = true;
+        await Do(() =>
+        {
+            Talk.SidePane!.Composer.Text = "Half-written side chat message";
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Address.Should().Be($"talk/{botId}/side/new");
+        Talk.Side.Should().Be(SideView.New);
+        Talk.SidePane!.Composer.Text.Should().Be("Half-written side chat message");
+        openers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Escape_in_a_side_chat_with_an_attached_file_keeps_the_rail_and_the_file()
+    {
+        var fileId = Guid.CreateVersion7();
+        AttachmentsAllowed();
+        Server.Answer("POST", $"{Space}/bots/{botId}/threads", Side with { Title = null }, HttpStatusCode.Created);
+        Server.Answer("GET", $"{Space}/threads/{sideId}/attachment-rules", new AttachmentRules(1024, 10, true, true));
+        Server.Answer("POST", $"{Space}/threads/{sideId}/files", new FileResponse(fileId, "notes.txt", "text/plain", FileKinds.Text, 3), HttpStatusCode.Created);
+        await Go($"/talk/{botId}/side/new");
+        await Until(() => Talk.SidePane.Should().NotBeNull());
+
+        await Attach(() => Talk.SidePane!, new SamplePickedFile("notes.txt", "one"));
+        await Until(() => Talk.SidePane!.Composer.Attachments.Should().ContainSingle());
+
+        var closed = true;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeFalse();
+        Talk.SidePane!.Composer.Attachments.Should().ContainSingle();
+        Talk.CanShowRail.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("memory", SideView.Memory)]
+    [InlineData("side", SideView.List)]
+    public async Task Escape_in_a_non_composer_rail_closes_the_rail(string path, SideView opener)
+    {
+        await Go($"/talk/{botId}/{path}");
+        await Until(() => Talk.Side.Should().Be(opener));
+        List<SideView?> openers = [];
+        Talk.RailOpenerFocusRequested += openers.Add;
+
+        var closed = false;
+        await Do(() =>
+        {
+            closed = Talk.CloseRailFromKeyboard();
+            return Task.CompletedTask;
+        });
+
+        closed.Should().BeTrue();
+        Address.Should().Be($"talk/{botId}");
+        Talk.CanShowRail.Should().BeFalse();
+        openers.Should().Equal([opener]);
+    }
+
+    [Theory]
+    [InlineData(SideView.Summary, SideView.Summary)]
+    [InlineData(SideView.Chat, SideView.List)]
+    [InlineData(SideView.New, SideView.List)]
+    [InlineData(SideView.Work, null)]
+    [InlineData(SideView.Closed, null)]
+    public void Each_thing_beside_the_conversation_is_opened_by_its_way_in_the_header(SideView side, SideView? way) =>
+        side.Way().Should().Be(way);
 
     [Fact]
     public async Task An_earlier_run_opens_in_the_activity_rail_by_its_own_address()
@@ -952,8 +1244,10 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #region Files
 
-    [Fact]
-    public async Task A_file_attached_is_uploaded_at_once_and_goes_with_the_message()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_attached_is_uploaded_at_once_and_goes_with_the_message(bool sizeKnown)
     {
         var fileId = Guid.CreateVersion7();
         AttachmentsAllowed();
@@ -962,10 +1256,11 @@ public sealed class TalkViewModelTests : WorkspaceTest
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Messages.Should().HaveCount(2));
 
-        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one"));
+        await Attach(() => MainPane, new SamplePickedFile("notes.txt", "one", sizeKnown));
 
         await Until(() => Status(MainPane).Should().Equal("3 bytes"));
         Server.Addresses.Should().Contain($"POST {Space}/threads/{threadId}/files?name=notes.txt");
+        Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().Equal("one");
         await Do(() => MainPane.Composer.Send());
 
         await Until(() => Server.Sent("POST", $"{Space}/threads/{threadId}/messages").Should().ContainSingle()
@@ -1049,14 +1344,16 @@ public sealed class TalkViewModelTests : WorkspaceTest
         MainPane.Composer.CanSend.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task A_file_past_the_servers_limit_is_refused_without_being_sent()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_past_the_servers_limit_is_refused_without_being_sent(bool sizeKnown)
     {
         Server.Answer("GET", $"{Space}/threads/{threadId}/attachment-rules", new AttachmentRules(2, 10, false, false));
         await Go($"/talk/{botId}");
         await Until(() => MainPane.Messages.Should().HaveCount(2));
 
-        await Attach(() => MainPane, new SamplePickedFile("big.txt", "three"));
+        await Attach(() => MainPane, new SamplePickedFile("big.txt", "three", sizeKnown));
 
         await Until(() => Status(MainPane).Should().Equal("Larger than this server takes."));
         Server.Sent("POST", $"{Space}/threads/{threadId}/files").Should().BeEmpty();
@@ -1237,7 +1534,154 @@ public sealed class TalkViewModelTests : WorkspaceTest
 
     #endregion
 
+    #region Choosing The Model
+
+    [Fact]
+    public async Task The_conversation_offers_the_bots_models_and_a_choice_goes_to_the_server()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", Models(null));
+        Server.Answer("PUT", $"{Space}/threads/{threadId}/model", Models("sample-stronger"));
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Composer.HasModelChoice.Should().BeTrue());
+        MainPane.Composer.ModelOptions.Select(option => option.Label).Should().Equal("Sample default (the bot's own)", "Sample stronger");
+
+        await Do(() => MainPane.Composer.ChooseModel("sample-stronger"));
+
+        await Until(() => MainPane.Composer.ChosenModel.Should().Be("sample-stronger"));
+        Server.Sent("PUT", $"{Space}/threads/{threadId}/model").Single().Should().Contain("sample-stronger");
+    }
+
+    [Fact]
+    public async Task A_choice_the_server_refuses_is_said_and_the_choice_goes_back()
+    {
+        const string Refusal = "Sample stronger could cost more in one run than this space lets a run cost (10.00 USD).";
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", Models(null));
+        Server.Answer("PUT", $"{Space}/threads/{threadId}/model", new { title = Refusal }, HttpStatusCode.BadRequest);
+
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Composer.HasModelChoice.Should().BeTrue());
+        await Do(() => MainPane.Composer.ChooseModel("sample-stronger"));
+
+        await Until(() => Toasts.Toasts.Should().ContainSingle(toast => toast.Message == Refusal && toast.Kind == ToastKind.Error));
+        await Until(() => MainPane.Composer.ChosenModel.Should().Be(ComposerViewModel.BotsOwnModel));
+    }
+
+    [Fact]
+    public async Task Without_the_models_the_conversation_reads_as_before_and_offers_no_choice()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/models", HttpStatusCode.InternalServerError);
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Composer.HasModelChoice.Should().BeFalse();
+        MainPane.Problem.Should().BeNull("the choice is an option; failing to read it is not the conversation's failure");
+    }
+
+    [Fact]
+    public async Task Each_stored_reply_carries_the_model_that_wrote_it()
+    {
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[]
+        {
+            Said("user", "Sample question"),
+            Said("assistant", "Sample answer") with { RunId = runId, Model = "sample-stronger" },
+        });
+
+        await Go($"/talk/{botId}");
+
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages.Select(message => message.Model).Should().Equal(null, "sample-stronger");
+    }
+
+    #endregion
+
+    #region Versions
+
+    [Fact]
+    public async Task Write_another_reply_asks_the_server_follows_the_new_run_and_reads_the_conversation_again()
+    {
+        var question = Said("user", "Sample question");
+        var reply = Said("assistant", "Sample answer") with { Id = replyId, RunId = failedRunId };
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, reply });
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate", new SendMessageResponse(question, Run("queued")), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages.Select(message => (message.MayEdit, message.MayRegenerate)).Should().Equal((true, false), (false, true));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question });
+
+        await Do(() => MainPane.List.Regenerate(replyId));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate").Should().ContainSingle();
+        MainPane.Messages.Select(message => message.Text).Should().Equal(["Sample question"], "the earlier reply is kept on the server, not shown");
+        MainPane.Messages.Should().OnlyContain(message => !message.MayEdit && !message.MayRegenerate, "nothing new is offered while the bot works");
+    }
+
+    [Fact]
+    public async Task An_edit_goes_to_the_server_with_its_words_and_the_new_run_is_followed()
+    {
+        var question = Said("user", "Sample question");
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, Said("assistant", "Sample answer") });
+        var edited = Said("user", "Sample question, edited");
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{question.Id}/edit", new SendMessageResponse(edited, Run("queued")), HttpStatusCode.Accepted);
+        var events = Server.Stream($"{Space}/runs/{runId}/events");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { edited with { Versions = [question.Id, edited.Id] } });
+
+        await Do(() => MainPane.List.Edit(question.Id, "  Sample question, edited  "));
+        await events.Send(Event(1, RunEventTypes.RunStarted, new RunStatusChanged("running", null, null, 1, null)));
+
+        await Until(() => MainPane.Composer.ShowsStop.Should().BeTrue());
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{question.Id}/edit").Single().Should().Contain("\"Sample question, edited\"", "the edit is sent trimmed");
+        MainPane.Messages.Single().Versions.Should().Be(new VersionSwitch(2, 2, question.Id, null, Enabled: false));
+    }
+
+    [Fact]
+    public async Task Showing_another_version_asks_the_server_and_shows_the_conversation_it_now_holds()
+    {
+        var question = Said("user", "Sample question");
+        var second = Said("assistant", "Second sample answer") with { Id = replyId };
+        var first = Said("assistant", "First sample answer");
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, second with { Versions = [first.Id, replyId] } });
+        Server.Answer("POST", $"{Space}/threads/{threadId}/messages/{first.Id}/show", HttpStatusCode.NoContent);
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+        MainPane.Messages[1].Versions.Should().Be(new VersionSwitch(2, 2, first.Id, null));
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { question, first with { Versions = [first.Id, replyId] } });
+
+        await Do(() => MainPane.List.ShowVersion(first.Id));
+
+        await Until(() => MainPane.Messages[1].Text.Should().Be("First sample answer"));
+        MainPane.Messages[1].Versions.Should().Be(new VersionSwitch(1, 2, null, replyId));
+        Server.Sent("POST", $"{Space}/threads/{threadId}/messages/{first.Id}/show").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Another_reply_the_server_refuses_says_why_and_the_conversation_stays()
+    {
+        var reply = Said("assistant", "Sample answer") with { Id = replyId };
+        Server.Answer("GET", $"{Space}/threads/{threadId}/messages", new[] { Said("user", "Sample question"), reply });
+        Server.Refuse("POST", $"{Space}/threads/{threadId}/messages/{replyId}/regenerate", HttpStatusCode.Conflict, "The bot is still working in this conversation. Wait for it to finish, or stop it.");
+        await Go($"/talk/{botId}");
+        await Until(() => MainPane.Messages.Should().HaveCount(2));
+
+        await Do(() => MainPane.List.Regenerate(replyId));
+
+        await Until(() => MainPane.List.Problem.Should().StartWith("No other reply was asked for. The bot is still working"));
+        MainPane.Messages.Should().HaveCount(2);
+        MainPane.Messages[1].MayRegenerate.Should().BeTrue("the person may ask again once the bot is done");
+    }
+
+    #endregion
+
     #region Private Methods
+
+    private static ConversationModelChoice Models(string? chosen) =>
+        new("sample-default", "Sample default", chosen, [new("sample-default", "Sample default"), new("sample-stronger", "Sample stronger")]);
 
     private static ThreadSummary Thread(Guid? activeRunId) =>
         new(threadId, botId, null, false, DateTimeOffset.UnixEpoch, activeRunId, IsMain: true);

@@ -67,6 +67,7 @@ public sealed class MessageList : Grid
 
     public MessageList()
     {
+        AutomationProperties.SetAutomationId(scroller, "MessageList");
         BuildStart();
         BuildThinking();
         failure.Retry += async (_, _) => await (model?.Retry() ?? Task.CompletedTask);
@@ -140,6 +141,9 @@ public sealed class MessageList : Grid
         QueueDraw();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, ToFoot);
     }
+
+    /// <summary>Draws what the list has now, without waiting for its next turn. For when it is about to be shown.</summary>
+    public void DrawNow() => Draw();
 
     #endregion
 
@@ -228,7 +232,7 @@ public sealed class MessageList : Grid
             start: 1,
             tail: 4);
 
-        thinking.Visibility = Shown(list.Thinking);
+        thinking.Visibility = Shown(list.ShowsThinking);
         thinkingName.Text = list.BotName;
         ShowFailure(list);
         // A note with nothing to say takes no room between the messages and the foot of the column.
@@ -265,6 +269,9 @@ public sealed class MessageList : Grid
             Takeovers = list.Takeovers,
             ReadWhole = list.ReadWhole,
             LoadUsage = list.LoadUsage,
+            ShowVersion = list.OnShowVersion is null ? null : list.ShowVersion,
+            Regenerate = list.OnRegenerate is null ? null : list.Regenerate,
+            Edit = list.OnEdit is null ? null : list.Edit,
         };
 
         return parameters = now == parameters ? parameters : now;

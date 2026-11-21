@@ -66,7 +66,7 @@ public static class BotEndpoints
         ThreadService threads)
     {
         var access = context.GetSpaceAccess();
-        var thread = await threads.Create(botId, request?.Title, access.UserId, context.RequestAborted);
+        var thread = await threads.Create(botId, request?.Title, access.UserId, context.RequestAborted, request?.ProjectId);
 
         return thread is null
             ? TypedResults.NotFound()

@@ -11,10 +11,7 @@ public sealed partial class DroverApi
     /// <summary>Opens a conversation file as a stream; the caller disposes the response.</summary>
     public async Task<HttpResponseMessage> OpenConversationFile(string address, CancellationToken cancellationToken = default)
     {
-        if (http.BaseAddress is not { } origin || !Uri.TryCreate(origin, address, out var file)
-            || !origin.IsBaseOf(file)
-            || file.AbsolutePath.Split('/') is not ["", "api", "spaces", var space, "files", var id]
-            || !Guid.TryParse(space, out var spaceId) || !Guid.TryParse(id, out var fileId))
+        if (!TryConversationFile(address, out var spaceId, out var fileId))
         {
             throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
         }
@@ -33,6 +30,48 @@ public sealed partial class DroverApi
         }
     }
 
+    /// <summary>Issues a short-lived, single-use address for a bot HTML file on the isolated preview origin.</summary>
+    public Task<FilePreviewResponse> PreviewConversationFile(string address, CancellationToken cancellationToken = default)
+    {
+        if (!TryConversationFile(address, out var spaceId, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        return Post<FilePreviewResponse>($"{Space(spaceId)}/files/{fileId}/preview", null, cancellationToken);
+    }
+
+    /// <summary>Invalidates an unused HTML preview grant. An already consumed grant makes this a no-op.</summary>
+    public Task RevokeConversationFilePreview(
+        string address,
+        string grant,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryConversationFile(address, out var spaceId, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        return SendForNothing(
+            HttpMethod.Post,
+            $"{Space(spaceId)}/files/{fileId}/preview/revoke",
+            new FilePreviewRevokeRequest(grant),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads bounded, validated content for the native client's Markdown, static image, PDF, and diagram viewers.
+    /// </summary>
+    public Task<NativeFilePreview> ReadNativePreview(string address, CancellationToken cancellationToken = default)
+    {
+        if (!TryConversationFile(address, out var spaceId, out var fileId))
+        {
+            throw new ArgumentException("A conversation file must be on the Drover server.", nameof(address));
+        }
+
+        return Get<NativeFilePreview>($"{Space(spaceId)}/files/{fileId}/native-preview", cancellationToken);
+    }
+
     /// <summary>What the thread's bot can take and the server's file limits, so the composer can refuse before uploading.</summary>
     public Task<AttachmentRules> GetAttachmentRules(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<AttachmentRules>($"{Space(spaceId)}/threads/{threadId}/attachment-rules", cancellationToken);
@@ -42,32 +81,80 @@ public sealed partial class DroverApi
     /// on so far. A refused file throws <see cref="DroverApiException"/> with the server's sentence and its
     /// <see cref="DroverApiException.Refusal"/> code.
     /// </summary>
-    public async Task<FileResponse> UploadFile(
+    public Task<FileResponse> UploadFile(
         Guid spaceId,
         Guid threadId,
         string name,
         Stream content,
         long size,
         IProgress<long>? progress = null,
-        CancellationToken cancellationToken = default)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}")
-        {
-            Content = new ProgressContent(content, size, progress),
-        };
+        CancellationToken cancellationToken = default) =>
+        SendFile<FileResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}",
+            new ProgressContent(content, size, progress),
+            cancellationToken);
 
-        if (AntiforgeryToken is { Length: > 0 } token)
-        {
-            request.Headers.Add(AntiforgeryHeader, token);
-        }
-
-        using var response = await http.SendAsync(request, cancellationToken);
-        return await Read<FileResponse>(response, cancellationToken);
-    }
+    /// <summary>Measures and uploads a file whose provider may not know its exact byte length.</summary>
+    public Task<FileResponse> UploadFileWithUnverifiedSize(
+        Guid spaceId,
+        Guid threadId,
+        string name,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        BufferAndSendFile<FileResponse>(
+            $"{Space(spaceId)}/threads/{threadId}/files?name={Uri.EscapeDataString(name)}",
+            content,
+            maxBytes,
+            progress,
+            cancellationToken);
 
     /// <summary>Removes a file the caller attached and has not sent.</summary>
     public Task RemoveFile(Guid spaceId, Guid fileId, CancellationToken cancellationToken = default) =>
         SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/files/{fileId}", cancellationToken);
+
+    /// <summary>The files shared in a project, newest first.</summary>
+    public Task<IReadOnlyList<ProjectFileResponse>> ListProjectFiles(Guid spaceId, Guid projectId, CancellationToken cancellationToken = default) =>
+        Get<IReadOnlyList<ProjectFileResponse>>($"{Space(spaceId)}/projects/{projectId}/files", cancellationToken);
+
+    /// <summary>Uploads a shared file to a project.</summary>
+    public Task<ProjectFileResponse> UploadProjectFile(
+        Guid spaceId,
+        Guid projectId,
+        string name,
+        Stream content,
+        long size,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        SendFile<ProjectFileResponse>(
+            $"{Space(spaceId)}/projects/{projectId}/files?name={Uri.EscapeDataString(name)}",
+            new ProgressContent(content, size, progress),
+            cancellationToken);
+
+    /// <summary>Measures and uploads a shared project file whose provider may not know its exact byte length.</summary>
+    public Task<ProjectFileResponse> UploadProjectFileWithUnverifiedSize(
+        Guid spaceId,
+        Guid projectId,
+        string name,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        BufferAndSendFile<ProjectFileResponse>(
+            $"{Space(spaceId)}/projects/{projectId}/files?name={Uri.EscapeDataString(name)}",
+            content,
+            maxBytes,
+            progress,
+            cancellationToken);
+
+    /// <summary>Removes a shared file from a project.</summary>
+    public Task RemoveProjectFile(Guid spaceId, Guid projectId, Guid fileId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Delete, $"{Space(spaceId)}/projects/{projectId}/files/{fileId}", cancellationToken);
+
+    /// <summary>Where a shared project file is read from, for a download link or preview. The server checks who asks.</summary>
+    public string ProjectFileAddress(Guid spaceId, Guid projectId, Guid fileId, bool download = false) =>
+        new Uri(http.BaseAddress!, $"{Space(spaceId)}/projects/{projectId}/files/{fileId}{(download ? "?download=true" : string.Empty)}").ToString();
 
     /// <summary>Where a file is read from, for a picture's source or a download link. The server checks who asks.</summary>
     public string FileAddress(Guid spaceId, Guid fileId, bool download = false) =>
@@ -96,10 +183,67 @@ public sealed partial class DroverApi
 
     #endregion
 
+    #region Private Methods
+
+    private async Task<T> BufferAndSendFile<T>(
+        string path,
+        Stream content,
+        long maxBytes,
+        IProgress<long>? progress,
+        CancellationToken cancellationToken)
+    {
+        using var body = new ProgressContent(content, null, progress);
+        try
+        {
+            // Android's HTTP handler chooses fixed-length framing before it buffers the content. Buffer first so
+            // Content-Length comes from the bytes themselves, even when the picker returned zero or a stale size.
+            await body.LoadIntoBufferAsync(maxBytes, cancellationToken);
+        }
+        catch (HttpRequestException exception) when (exception.HttpRequestError is HttpRequestError.ConfigurationLimitExceeded)
+        {
+            throw new DroverApiException(HttpStatusCode.RequestEntityTooLarge, "The file is larger than the server takes.")
+            {
+                Refusal = FileRefusals.TooLarge,
+            };
+        }
+
+        return await SendFile<T>(path, body, cancellationToken);
+    }
+
+    private async Task<T> SendFile<T>(string path, HttpContent body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = body,
+        };
+
+        if (AntiforgeryToken is { Length: > 0 } token)
+        {
+            request.Headers.Add(AntiforgeryHeader, token);
+        }
+
+        using var response = await http.SendAsync(request, cancellationToken);
+        return await Read<T>(response, cancellationToken);
+    }
+
+    private bool TryConversationFile(string address, out Guid spaceId, out Guid fileId)
+    {
+        spaceId = default;
+        fileId = default;
+        return http.BaseAddress is { } origin
+            && Uri.TryCreate(origin, address, out var file)
+            && origin.IsBaseOf(file)
+            && file.AbsolutePath.Split('/') is ["", "api", "spaces", var space, "files", var id]
+            && Guid.TryParse(space, out spaceId)
+            && Guid.TryParse(id, out fileId);
+    }
+
+    #endregion
+
     #region Nested Types
 
-    /// <summary>The file's bytes as a request body of known length, telling how far the send has read.</summary>
-    private sealed class ProgressContent(Stream content, long size, IProgress<long>? progress) : HttpContent
+    /// <summary>The file's bytes as a request body, telling how far the send has read.</summary>
+    private sealed class ProgressContent(Stream content, long? size, IProgress<long>? progress) : HttpContent
     {
         #region Private Fields
 
@@ -128,8 +272,8 @@ public sealed partial class DroverApi
 
         protected override bool TryComputeLength(out long length)
         {
-            length = size;
-            return true;
+            length = size.GetValueOrDefault();
+            return size.HasValue;
         }
 
         #endregion

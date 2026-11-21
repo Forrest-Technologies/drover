@@ -10,6 +10,7 @@ public enum IconName
     Attach,
     Check,
     ChevronDown,
+    ChevronLeft,
     ChevronRight,
     Close,
     Conversation,

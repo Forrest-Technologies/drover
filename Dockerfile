@@ -4,11 +4,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:11.0@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea AS build
 WORKDIR /src
 
-# The native client's browser build can be served beside the web client under /native/ (docs/adr/0015). Building it
-# needs the WebAssembly workload and Python for its native linker, in this stage only, and adds time and memory, so
-# it stays opt-in until it is shown to fit the image's memory budget:
-#   docker build --build-arg DROVER_BUILD_NATIVE=true .
-ARG DROVER_BUILD_NATIVE=false
+# Serve the Uno browser client at /native/ alongside the existing web client (docs/adr/0015).
+# Set DROVER_BUILD_NATIVE=false to omit the Uno browser client from the image.
+ARG DROVER_BUILD_NATIVE=true
 
 # Keep peak memory low on a small machine, at the cost of some build time (docs/architecture/13-deployment-and-push.md).
 ENV DOTNET_NOLOGO=1 \
@@ -31,6 +29,7 @@ COPY src/Drover.Adapters.DataProtection/Drover.Adapters.DataProtection.csproj sr
 COPY src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj src/Drover.Adapters.LocalFiles/
 COPY src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj src/Drover.Adapters.Mcp/
 COPY src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj src/Drover.Adapters.OpenAICompatible/
+COPY src/Drover.Adapters.SearXng/Drover.Adapters.SearXng.csproj src/Drover.Adapters.SearXng/
 COPY src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj src/Drover.Adapters.Venice/
 COPY src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj src/Drover.Adapters.WebPush/
 COPY src/Drover.Client/Drover.Client.csproj src/Drover.Client/

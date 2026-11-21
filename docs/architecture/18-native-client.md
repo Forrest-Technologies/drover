@@ -22,7 +22,7 @@ The web client (`Drover.Ui`, `Drover.Web`) and the Android shell (`Drover.App`) 
 | `src/Shared/Chat` | Source file, linked | `ShareInbox`, compiled into `Drover.Ui` (with Blazor's `IBrowserFile`) and the native app (with `Shell/IBrowserFile.cs`, the same shape) |
 | `tests/Drover.Presentation.Tests` | xunit, in `Drover.slnx` | Router, view models, token parity and contrast, the interface rules for native source |
 
-`Drover.Native` has its own solution file because it needs workloads the main solution's build does not have (`wasm-tools`, Android), and because the Android preview workflow formats and license-checks everything in `Drover.Apps.slnx` without restoring it.
+`Drover.Native` has its own solution file because it needs workloads the main solution's build does not have (`wasm-tools`, Android). The [Android preview workflow](../android-preview.md) builds and signs the Uno Android head on protected preview tags.
 
 ```
 src/Drover.Native/
@@ -34,10 +34,11 @@ src/Drover.Native/
   Session/                 SessionGate, AccountMenu, ServerChoice
   Shell/                   AppServices, Screens, ShellView, Screen, PendingScreen
   Pages/                   one class per screen, in the folders the web client uses
-  Device/                  compiled for desktop and phones only: server choice, settings, credential store
+  Device/                  compiled for desktop and phones only: server choice, settings, the phone credential store
   Platforms/WebAssembly/   compiled for the browser only: storage, history, cookies, the eval table
-  Platforms/Desktop/       Program.cs
+  Platforms/Desktop/       Program.cs, files out, the desktop credential store
   Platforms/Android/       application, activity, manifest
+  Platforms/iOS/           entry point, manifest, keychain entitlement, safe areas
   Assets/Fonts/            Inter and JetBrains Mono, with their licenses
 ```
 
@@ -46,9 +47,9 @@ src/Drover.Native/
 | Target | Framework | State |
 | --- | --- | --- |
 | Web | `net11.0-browserwasm` | Builds, publishes, and runs in Chromium under the server's security headers |
-| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. macOS and Windows build in CI |
-| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21; no emulator or device run |
-| iOS | `net11.0-ios` | Enabled by `DroverEnableApple`. Not built; startup and device integration remain unverified |
+| Desktop: Linux, macOS, Windows | `net11.0-desktop` | Linux Release builds and renders its first screen under virtual X11 with the bundled font fallback. Linux, Windows and macOS start in CI and pass the [screen checks](#screen-checks) |
+| Android | `net11.0-android` | Release build and signed development APK verified with SDK 37 and Java 21. The API 35 emulator checks text editing and passes the [screen checks](#screen-checks). |
+| iOS | `net11.0-ios` | Hosted macOS builds the simulator app and runs the shared screen checks. The second launch verifies that the saved sign-in is restored from the system credential store. |
 
 Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by the upstream [migration guide](https://github.com/unoplatform/uno/blob/30034eefe42ecf5f3e3fff7d49a05340aaa0152e/doc/articles/migrating-to-uno-7/project-setup.md#mac-catalyst-is-removed).
 
@@ -59,6 +60,7 @@ Uno 7 removed Mac Catalyst. macOS uses the desktop head. This is confirmed by th
 dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -warnaserror
 dotnet build src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFrameworks=net11.0-browserwasm -warnaserror     # needs: dotnet workload install wasm-tools
 dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -warnaserror         # needs the Android SDK
+dotnet build src/Drover.Native -f net11.0-ios -p:DroverNativeTargetFrameworks=net11.0-ios -p:DroverEnableApple=true -p:RuntimeIdentifier=iossimulator-arm64 -p:CodesignKey=- -warnaserror
 
 # Run on desktop
 dotnet run --project src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop
@@ -75,11 +77,61 @@ dotnet publish src/Drover.Native -f net11.0-browserwasm -p:DroverNativeTargetFra
 dotnet test --project tests/Drover.Presentation.Tests
 ```
 
+Android URL fields host an Android `EditText` in the shared field frame. The editor keeps the selection and composing
+text with Android's input connection. The native-client workflow exercises the address field on an API 35 emulator
+with a test keyboard that composes, commits, and deletes text and with hardware key events. Run the same check with
+`bash scripts/check-native-android-text-editing.sh` on a fresh emulator with the Drover development APK installed.
+
+On Android, the edge-to-edge window draws its background behind the system bars. The shell and custom popup
+panels use Uno's visible bounds to keep controls clear of the bars and display cutouts. The emulator check
+compares the first and last rows of the connection screen's yard with Android's system-bar bounds at 360 dp
+and captures the screen in both themes.
+
 Taking a screenshot of the browser build: serve the published `wwwroot` under `/native/` with any static host that falls back to `index.html`, open it in Playwright, wait until the element with class `uno-loader` is gone, then capture. The app is one canvas, so Playwright's full-page capture gives one viewport: use a tall viewport, or send wheel events of about 1300 pixels and capture again. A development build takes about fifteen seconds to start in headless Chromium; a published build about three.
 
 Taking a screenshot of the desktop build on a machine with no display: `xvfb-run -a --server-args="-screen 0 1280x800x24"` around a script that starts `bin/Debug/net11.0-desktop/Drover.Native.dll`, waits, and runs `import -window root out.png`.
 
 The pictures taken for this work are in `docs/screenshots/native-foundation/`, native beside web, at 1280 and 360 pixels, dark and light.
+
+## Screen checks
+
+Every pull request starts the app on Android, iOS, Linux, Windows and macOS and runs one shared set of screen checks:
+the app opens on the connect screen, connects to a test server, signs in, opens the conversation with the test
+bot, sends a message and reads the bot's reply, and goes back to the crew. Every target runs them at phone width,
+so each shows the same controls.
+
+- **In the app.** The checks are in `tests/Drover.Native.UITests/App/`. They are compiled only into a build made
+  for them (`-p:DroverUiChecks=true`, desktop and Android), never into a product build: `App.StartChecks` and
+  `AppServices.AddChecks` are partial methods with no body anywhere else. A check finds each control by its
+  automation id (`AutomationProperties.AutomationId`) and presses it through its automation peer, so renaming or
+  dropping an id fails the step that needs it. The ids in use are `ConnectAddress`, `ConnectSubmit`,
+  `SignInEmail`, `SignInPassword`, `SignInSubmit`, `CrewRow`, `ComposerField`, `ComposerSend`, `MessageList`
+  and `TalkBack`. Each step reports one line, and the last line says whether all of them passed.
+- **The harness.** `tests/Drover.Native.UITests` runs the real server in process on a loopback HTTPS port, with a
+  certificate made for the run, a scripted model, and PostgreSQL from `DROVER_TEST_POSTGRES` or a container. It
+  makes an account and one bot through the API, starts the app with the server's address, the account, and the
+  certificate's SHA-256 hash, and exits with 0 only when the app reports that every check passed. The app trusts
+  that one certificate by its hash and nothing else that a product build would refuse. On Android the server's
+  port is reversed onto the device and the settings travel in the start intent's extras; the report comes back
+  through the device log under the tag `DroverUiCheck`.
+- **Shipping build guard.** After building the shipping Android, iOS, and desktop targets without `-p:DroverUiChecks=true`,
+  `.github/workflows/native.yml` scans the compiled `Drover.Native.dll` for UTF-8 metadata names that only exist in
+  the checks build (`ScreenChecks`, `CheckSettings`, `TryGetIsolatedText`) and fails if any match.
+- **iOS restart.** The simulator runs the same screen flow, closes the app, and opens the installed app again.
+  The second run passes only when the server choice and sign-in from the first run restore and the crew appears.
+- **Adding a check.** Add a step to `ScreenChecks`, give each control it uses an automation id in the app, and
+  keep the step working at phone width on every target.
+
+```bash
+# Desktop: build the app with the checks, then run them (Linux needs a display: xvfb-run -a in front)
+dotnet build src/Drover.Native -f net11.0-desktop -p:DroverNativeTargetFrameworks=net11.0-desktop -p:DroverUiChecks=true -o <folder>
+dotnet run --project tests/Drover.Native.UITests -- desktop <folder>/Drover.Native.dll
+
+# Android: install a build with the checks on the one device adb sees, then run them
+dotnet build src/Drover.Native -f net11.0-android -p:DroverNativeTargetFrameworks=net11.0-android -p:DroverUiChecks=true -o <folder>
+adb install -r <folder>/*-Signed.apk
+dotnet run --project tests/Drover.Native.UITests -- android
+```
 
 ## Tokens
 
@@ -200,6 +252,7 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `ActivityPanel` | `Bot`, `Bots`, `RunId`, `Version` | |
 | `RunMomentDetail` | `Tree`, `Moment`, `BotName`, `ChildName`, `Decide`, `Results` | |
 | `FilesPanel` | `State`, `BotName`, `Files`, `Problem`, `ReadWhole` | `Retry` |
+| `MessageVersions` (native only, inside `ChatEntry`) | `ShowVersion`, `OnAct`; `Show(message)` draws the message's `Versions` switch ("2 of 3" between previous and next) and Edit or Write another reply when the message offers it | |
 | `ExchangedFiles` | `Bot`, `Version` | |
 | `MemoryPanel` | `State`, `BotName`, `Notes`, `NearlyFull`, `Problem`, `EditorHref`, `OnAdd`, `OnChange`; `FocusNote(id)` | `Remove`, `Retry` |
 | `MemoryRail` | `Bot`, `Version` | |
@@ -207,21 +260,24 @@ What a conversation shows and what opens beside one is in `src/Drover.Native/Cha
 | `ScreenPanel` | `Bot`, `Takeover` | `HandedBack` |
 
 - **A piece draws once for a batch of changes.** Setting several values on a piece, or a view model changing several things, ends in one redraw (`Chat/Batch.cs`): the values are handed to the view model, its `ParametersSet` runs once, and the piece draws. This is the order a component had.
+- **A card is drawn before it is first measured.** `ToolCallCard` and `DelegationCard` run their waiting draw in `MeasureOverride` (`Batch.DrawIfWaiting`), and show nothing of their frame until then, so a card appears with its title and state in the frame it first appears in. A question offers Approve and Deny only once it says who asks and what for (`ToolCallCardViewModel.CanAnswer`).
 - **What a person is using is kept.** A piece keeps the elements a person may be in the middle of using (a button with the focus, a box they scrolled, a field they type in) and changes them in place. `Pieces.Detached` moves a kept element into a new drawing.
 - **A panel makes its own view model** with `Pieces.Make<T>()`, as a screen does with `Make<T>()`.
 - **`ScreenPanel` hosts the sandbox screen.** It makes one `Bots.SandboxScreen` when the bot has a screen to show, keeps it while the sandbox's state is read again, and reads the state again when the screen says the sandbox changed. The gallery puts a labeled box in its place, because the screen's own view model would ask a real server.
 - **A line that takes the place of a button** is a `FocusLine`: it can be given the focus and is not a stop on the way through the page, as an element with a tab index of minus one is on the web.
 - **A status** is a text block with a live setting whose automation peer raises `LiveRegionChanged` when its words change (`Pieces.SayWhenShown`, `StatusNote`). That is the native form of a region marked as a status or an alert.
 - **The gallery reads from a sample server.** The panels that load from the server are shown with their real view models, which ask `Pages/Dev/SampleServer.cs` inside the app. Nothing leaves the app.
+- **Native file previews stay inside native controls.** `FileCard` hosts `NativeFilePreviewControl` (`NativeFilePreviewViewModel`) for files other than bot HTML. The server's `/api/spaces/{spaceId}/files/{fileId}/native-preview` endpoint inspects the stored bytes within tight size, page, and pixel caps and returns bounded Markdown text, static PNG or JPEG bytes, extracted PDF pages, a parsed flowchart node-and-edge model, or a refusal code. Markdown is parsed by `FileMarkdown` with raw HTML disabled, node count and depth capped, and remote images converted into external links whose target address is visible; fenced `flowchart` and `graph` blocks draw as native node-and-edge cards. Static images decode through Skia (`SKCodec`) only after single-frame PNG or JPEG format and pixel dimensions (`1 MiB`, `4,000,000` pixels) are verified. PDFs extract up to 10 pages and 16 KiB of text or bounded page images and step through pages with keyboard-focusable Previous page and Next page buttons. Closing a preview or replacing the file clears all decoded bitmaps, pages, and diagram controls and keeps Download available.
 
 Differences from the web client in these pieces, each seen in the pictures in `docs/screenshots/native-chat-pieces`:
 
 | Piece | Difference |
 | --- | --- |
 | Output of a tool | Error output is tagged `stderr: ` in the error color. The web draws the tag in an outlined box, which text here cannot hold |
-| `FileCard` on a device | "Save" and "Share" show when the app registers an `IFileDelivery`. None is registered yet, so a device shows "Download", which opens the file's address outside the app, where the person is not signed in. In a browser "Download" asks the server for the file as one to keep |
-| `ActivityPanel` | Details under a node are kept across redraws, but an element inside them loses the focus when a live run's next event redraws the timeline |
+| `FileCard` on a device | "Save" and "Share" show when the app registers an `IFileDelivery`. None is registered yet, so a device shows "Download", which opens the file's address outside the app, where the person is not signed in. In a browser "Download" asks the server for the file as one to keep. For a bot-shared HTML file, the browser target opens the server's single-use preview grant in a sandboxed, credentialless iframe (`HtmlPreview`), whereas desktop and Android targets refuse in-app HTML preview before requesting a grant and leave Download or Save as the fallback (ADR 0017) |
 | State badge in a card's title | Regular weight. On the web it takes the title's weight |
+| A conversation's model | Only this client offers it. When the bot may answer with more than one model, the row behind the composer's plus button has a `Select` named "Model for this conversation" beside Attach: the bot's own model first, then the others the server allows. A choice the server refuses is said in a toast and the choice goes back. A finished reply's usage line starts with "Written by" and the model that wrote it, when the server kept it |
+| A reply's reasoning and sources | Only this client shows them. A reply's reasoning is a closed `ReplyReasoning` section above its words, with the live edge while it arrives; a reply whose reasoning arrives before any words speaks from the bot's head and says "Thinking", in place of the list's own thinking line (`MessageListViewModel.ShowsThinking`). Its sources are a `ReplySources` list under the words: each the source's title as a link that opens outside the app, and the site beside it. The web client keeps its thinking line and shows neither |
 
 ## The shell
 
@@ -229,20 +285,23 @@ Differences from the web client in these pieces, each seen in the pictures in `d
 - **Services.** `Shell/AppServices.cs` is the one place services are registered. `AddPlatform()` is defined once in `Device/PlatformServices.cs` and once in `Platforms/WebAssembly/PlatformServices.cs`, and adds what differs. A view model is not registered: a screen makes its own with `Make<T>()`, which fills the constructor from the services.
 - **Addresses.** `Shell/Screens.cs` is the one place a screen is given its address patterns. They are the patterns of the web client's `@page` directives; `NativeScreensTests` fails when the two lists differ. `RouteTable` matches literal segments before ids and ids before free text, and hands the screen a `RouteMatch` with the path parameters, the query, and the fragment.
 - **Going somewhere.** Ask the `Navigator`: `navigator.NavigateTo(Addresses.Bots)`, or with `replace: true` to leave no step behind. In XAML use `<dv:Link Address="/bots" Text="..." />`. Never navigate the frame directly.
-- **In a browser** the address bar and the browser's history follow the navigator, and the browser's back and forward buttons move the app, so every address is a link that can be opened, reloaded, and shared.
+- **Back on a device.** Android's Back asks the navigator for one step back (`Navigator.StepBack`). An open dialog or sheet closes first, then an open rail (into its conversation, leaving no step behind), then the app goes to the address before, through `Leaving`, so the bot editor still asks before it drops changes. With nothing open and no address before, Android leaves the app. Something new that opens over a screen and should close on Back registers with `Navigator.AddCloser` while it is open. `Platforms/Android/BackButton.cs` listens to the system only while `CanStepBack` is true, because from Android 16 listening alone decides whether the app takes Back. `scripts/check-native-android-back.py` checks Back on the first screen in the emulator; the other steps are covered by the navigator's tests, because the emulator has no server.
+- **In a browser** the address bar and the browser's history follow the navigator, and the browser's back and forward buttons move the app, so every address is a link that can be opened, reloaded, and shared. The browser's Back arrives through `Navigator.Arrive`, which takes the same step as a device's Back (`StepBack`): an open dialog closes first, and a screen holding work asks first through `Leaving`. When the app stays, `Platforms/WebAssembly/PlatformShell.cs` puts the address bar back. A step the app takes through its own history, such as leaving the bot editor by going back, moves the browser's history the same way. Closing or reloading the tab asks the browser to confirm while `Navigator.HoldsWork` answers true; the bot editor sets it while changes are not saved. `scripts/check-native-browser.mjs` checks both on the bot editor.
 - **Layouts.** A screen's root element is its layout: `EntryLayout` for sign-in and setup, `WorkLayout` for a screen of the workspace. `WorkLayout` holds the `SessionGate`, the bar, and below 560 pixels the dock. Children are stacked in the layout's column.
+- **Diagnostic log.** The app keeps a log of its warnings and failures on the device, so a person can attach it to a bug report. Nothing sends it anywhere. It is written through the app's logging (`DiagnosticLogProvider`, added in `Shell/AppDiagnostics.cs`), and `DiagnosticEntry` keeps only an allow-list: time, level, logger name, event number, the message template of Drover's own code, values that cannot hold text (numbers, flags, durations, times, named choices), and for an exception its type, result code and frames read from the runtime, with source files named without their folders. Formatted messages, text values, ids, exception messages and other libraries' messages are never written. The log is two parts of at most 64 K characters each (`DiagnosticLog`); the last failure nothing handled is kept apart. On a desktop or a phone it is text files under the app's local data folder (`Drover/diagnostics`); in a browser, local storage entries named `drover.diagnostics*`. A failure nothing handled is one the app's or the runtime's unhandled-exception events report, or an error the platform's dispatcher logs after catching it (`Uno.UI.Dispatching.NativeDispatcher`, which on desktop and in a browser catches what an interface callback throws). The next start shows a toast that offers "Save diagnostics", once per failure. "About Drover" in the account menu shows the version and platform and saves the log at any time, through the same save paths as an extension (`PlatformFiles.SaveLog`: the system's save dialog on a device, a download in a browser).
 
 ## Transport and security
 
 Unchanged from the clients this one replaces, because it compiles the same source.
 
-- **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. The only thing in local storage is the theme choice.
-- **On a device:** `AppRequests` sends requests only to the HTTPS origin the person chose, follows no redirects, and keeps cookies in memory. `ServerAddress` keeps the address in plain settings. `NativeSession` keeps the sign-in that outlives the app through `ISecureStorage`: on a phone, the platform's credential store; on desktop, nothing is written and the person signs in again next launch.
+- **In a browser:** the app talks to its own origin. The browser holds the session cookie, which script cannot read. `AntiforgeryHandler` adds the token to every request that changes something. No token is in storage. Local storage holds the theme choice and the diagnostic log (below), which keeps nothing secret. A tool server's sign-in started here names the path the build is served under (`AppSignInReturn`), so the browser comes back to `/native/` on the connection, not to the web client.
+- **On a device:** `AppRequests` sends requests only to the HTTPS origin the person chose, follows no redirects, and keeps cookies in memory. `ServerAddress` keeps the address in plain settings. `NativeSession` keeps the sign-in that outlives the app through `ISecureStorage`: on a phone, the platform's credential store (`DeviceSecrets`); on a desktop, the operating system's (`DesktopSecrets` over `SystemSecrets`): the login Keychain on macOS, the Secret Service on Linux, and on Windows a file under local application data that only the person's Windows account can decrypt (DPAPI). Each key is its own entry, and signing out removes it. When the computer has no store the app can use (a Linux machine with no Secret Service), or the store fails, the app logs one warning and keeps the sign-in only until it closes. No secret is written to a plain file or the log. `tests/Drover.Native.Desktop.Tests` runs the store against the real one of the computer it is on; the desktop workflow runs it on each system, on Linux under a test Secret Service. A tool server's sign-in comes back into the desktop app through `DesktopSignInReturn`, a listener on `127.0.0.1` at a port the system gives it, started the first time a sign-in asks for it. It holds at most a few incomplete connections and refuses any more at once. It reads one request, hands a well-formed ticket to the tools screen through `IncomingNavigation`, and answers with a page that loads nothing ([06-mcp.md](06-mcp.md), "Coming back into a native app"). The same test project covers it.
 - **Content security policy.** The published browser build runs under the policy `SecurityHeaders` sends, with nothing added. The platform's font fallback, which would fetch Noto fonts from another site for a character Inter lacks, is switched off in `Platforms/WebAssembly/Program.cs` (`SkiaBackend.CreateFontProvider(enableFallback: false)`): the policy refused every such fetch anyway, with an error in the console for each. The platform's runtime evaluates five small expressions as script at startup, which the policy forbids. `Platforms/WebAssembly/WasmScripts/NoEval.js` answers exactly those five with functions and passes anything else to the browser's own `eval`, which the policy refuses. So a new expression fails loudly instead of being allowed. After any SDK upgrade, and after first using a platform feature (clipboard, launcher, file picker, share), run the published build under the policy and read the console.
 - **Calling the browser.** Use `[JSImport]` on a browser function, as `Platforms/WebAssembly/Browser.cs` does. Never `WebAssemblyRuntime.InvokeJS`: it is `eval`. A shared script module is imported with `JSHost.ImportAsync` relative to `_framework`, as `PageCookies` (`cookies.js`) and `BrowserPushRegistration` (`push.js`) do.
 - **The page and its worker.** The browser build's page is `Platforms/WebAssembly/index.html`; `DroverIndexHtml` in the project file writes its `<base>` (`/native/` when published, `/` in development) and gives it to the platform as its page template. It loads the web client's `boot.js` before anything is drawn: the stored theme is on the page from the first frame (`boot.css` colors the loader in it), and the service worker is registered with the same update behavior as the web client's (a new build takes over at once, and the page reloads unless the person is writing, then when they look away). The worker is the web client's `service-worker.published.js`: `DroverServiceWorker` in the project file puts it in place of the platform's own worker after publish (the platform's PWA switch stays off, so its worker is never registered) and writes `service-worker-assets.js`, the build's files with a SHA-256 of each that the worker stores at install. The worker keeps to its own client: the web client's worker answers nothing under `/native/`, each keeps its own stored shell, and a notification opens the client that registered it (`NativeServiceWorkerTests`). `manifest.webmanifest` makes `/native/` installable as its own app. The loader's picture comes from the app's own package; the platform's default asks another site for one, which the policy refuses.
 - **Notifications in a browser** go through the same `push.js` and `push-worker.js` as the web client, behind `IPushRegistration` (`BrowserPushRegistration`). A browser failure is reported as `DeviceCallFailedException`. The development build has no service worker (the platform's own module worker is what a development build serves), so notifications need a published build.
-- **On Android** the native build uses the Android shell's code, shared (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims).
+- **On Android** the native build uses the Android shell's code, shared (`src/Shared/Android`): UnifiedPush registration and delivery, notifications with replies, the sign-in return scheme, shares in, and saving and sharing files. The few things that code asks of its host by the shell's framework's names (main thread, current activity, the notification permission, the cache folder, services) are in `Platforms/Android/AndroidShims.cs`; the one share call is behind `ShareSheet`, which each app defines. The application id is `com.forresttechnologies.drover.client`, so it installs beside the preview (`.preview`, ADR 0014), and the server's `ToolSignInOptions.AppSchemes` accepts both. A notification that arrives with no interface running is handled with services made for that work (`IPlatformApplication` in the shims). The activity hides `StreamPresence` when it stops and shows it when it starts, so no live stream stays open in the background and the server wakes the phone by push instead; the native Android build also carries the embedded distributor (`13-deployment-and-push.md`, path 2).
+- **On a desktop** `DesktopNotifications` follows the signed-in person's live signal stream while the app runs. It asks the server for the same safe wake text and per-bot choice as push before showing anything. The foreground conversation stays quiet. A selected conversation in an inactive or minimized window still notifies. `DesktopNotificationSink` uses each system's notification facility. Selecting one opens its main conversation or side chat through `IncomingNavigation`. Session changes cancel pending work and remove old notifications before they can navigate. A missing system facility disables this delivery path without stopping the app. The Notifications dialog describes this live-only delivery and says that system settings can still silence it. It does not offer the background push switch.
 - **On a desktop** a conversation file is saved through the system's save dialog (`DesktopFileDelivery`). Sharing puts a copy in a folder of the app's own and opens the folder: the file itself is never opened, because a bot can send a program.
 
 ## How to move a screen
@@ -278,11 +337,11 @@ A screen is one `.razor` file with a `@code` block or a `.razor.cs`. Moving it m
 
        public BotListViewModel Model { get; } = Make<BotListViewModel>();
 
-       protected override async void Opened(RouteMatch<Type> route) => await Model.Load();
+       protected override Task Opened(RouteMatch<Type> route) => Model.Load();
    }
    ```
 
-   `Pages/SignInPage.xaml` is the worked example. Read parameters from `route` in `Opened`: `route.GuidParameter("BotId")`, `route.QueryValue("section")`.
+   `Pages/SignInPage.xaml` is the worked example. Read parameters from `route` in `Opened`: `route.GuidParameter("BotId")`, `route.QueryValue("section")`. `Opened` returns its task to `Screen`, which awaits it through `SessionState.OpenScreen`: a request that fails because the server cannot be reached is caught there and the screen's `SessionGate` shows "The server did not answer", whose Try again opens the screen again. Never make `Opened` or anything it starts `async void`. The native CI workflow builds a separate check binary with `-p:DroverUnreachableCheck=true` (excluded from shipping builds) and runs it with `DROVER_UNREACHABLE_OPEN_CHECK=1` on desktop and the `drover.unreachable_open` extra on Android (`UnreachableOpenCheck`), verifying that offline deep links catch each screen-open failure without unhandled dispatcher errors.
 5. **Translate the style sheet.** Every `var(--dv-x)` becomes its token. `display: flex; flex-direction: column; gap` is a `StackPanel` with `Spacing`. `flex-wrap` is a `FlowPanel`. `class="dv-facet"` is a `Facet`. `@media (max-width: ...)` is a `SizeChanged` handler that reads a breakpoint from `Styles.xaml`. `::deep` rules become properties set on the child.
 6. **Add its samples to the gallery** if it brings a component the gallery does not show.
 7. **Compare.** Screenshot the web screen and the native one at 1280 and 360, dark and light, and each state. Fix what differs. Put the pictures in the pull request.
@@ -333,10 +392,10 @@ Verified in Chromium against the build of this work. Each needs a decision befor
 | Find in page, reader mode, translation, selection across the page | None works. Measured: `window.find("Use the account you made")` is false on `/native/sign-in` and true on `/sign-in`; the words exist only as labels of the semantic tree, which is not drawn. Selection works inside one text block that enables it |
 | Browser zoom and text size | Page zoom scales the canvas. At 200 percent (a 640 px wide CSS viewport at twice the pixel ratio) sign-in draws sharp, at the same layout as the web client, with no sideways scroll. The browser's text-size setting has no effect (not re-measured) |
 | Clipboard | Copying is asked of the browser without waiting for its answer, so a refusal cannot be told to the person |
-| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client; the native build makes the same requests in the same order, and the time is spent between them, in the interpreted runtime. In that time the native screen says "Loading the conversation", then for about two seconds "Nothing said yet" (an open defect: a conversation is made twice on opening), then loads again. Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
+| Download size and start | Integration pass, Chromium, cache and service worker off, against Drover's server: a first visit to `/native/sign-in` transferred 11.48 MB in 103 requests; `/sign-in` 4.14 MB in 76. The email field was in the accessible tree after 2.4 to 2.6 s (three runs) for the native build and 0.95 to 1.0 s for the web client. A conversation of about a dozen messages showed its messages 10.1 s after navigation in the native build and 2.0 s in the web client, on a machine loaded by other builds; the time is spent between requests, in the interpreted runtime. Remeasured on 2026-11-19 on an unloaded machine against a Release server, twelve messages, median of five page loads: 2.75 s native and 0.59 s web before the fix below, 2.51 s native and 0.55 s web after it; most of the native time is the runtime's start before the first request. The conversation is made once per opening; what showed "Nothing said yet" on the way was the message list, revealed before it had drawn the loaded messages (see "The conversation workspace") Earlier measurement on a Release publish: 46.2 MB of files, 14.5 MB if every file is fetched as its Brotli copy (the web client's publish: 12.5 MB, 4.1 MB). A first visit to `/native/sign-in` with no service worker fetched 104 files: 44.1 MB when nothing is compressed (before XAML resource trimming), 11.2 MB from Drover's server, which serves the build's own Brotli copies (`PrecompressedFiles`). Trimming is already full; IL stripping applies only to ahead-of-time compilation, which is off. See "Size levers" below |
 | Service worker, install, push in a browser | The web client's worker, start script and notification script, shared. Verified in Chromium against Drover's server: the worker installs, stores all 169 shell files with matching hashes, and takes control. A real push delivered to the worker, and the notification tap, are covered by `NativeServiceWorkerTests`; a subscription against a real push service was not made from this machine |
 | Script evaluation | The runtime evaluates script strings. Five are known and answered without `eval`; another may appear with an SDK upgrade or a platform feature |
-| Credential store on desktop | Not implemented by the platform, so the desktop app keeps the sign-in only until it closes |
+| Credential store on desktop | The platform has none, so the desktop app uses the operating system's own through `SystemSecrets` (see "Transport and security"). On a computer without one (Linux with no Secret Service) the sign-in lasts until the app closes, as before |
 | Variable fonts | The resolved 7.0.65 provider applies variation axes. This app still uses static cuts; matching the web’s variable rendering is unverified |
 | Search engines | Nothing to index. Drover's screens are behind sign-in, so this costs nothing today |
 
@@ -366,15 +425,21 @@ technology (`Tokens in: 100 on its own`), and the drawn column names and phone l
 ### The conversation workspace
 
 `TalkPage` is native. Its logic is in `src/Drover.Presentation/ViewModels/Chat/`, moved from the web client's
-`Talk` page and `ConversationPane` with the same calls, order, messages, and failure handling:
+`Talk` page and `ConversationPane` with the same calls, messages, and failure handling (the order of independent reads differs, below):
 
 | View model | Holds |
 | --- | --- |
 | `TalkViewModel` | Everything read from the address (`TalkAddress`): what is beside the conversation, which of crew, main, and side a narrow window shows, the held takeover, the moment, the title with the waiting count. The space, the threads, the signal stream, the screen probe. It makes and ends the conversations on screen |
-| `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
+| `ConversationViewModel` | One conversation: load, resume and watch a run, send, stop, retry, edit the last message, ask for another reply, show another version, decide, forget and restore, attach, take what was shared, mark seen, and what it tells the screen around it |
 | `ComposerViewModel`, `MessageListViewModel` | The field and its actions; the messages, what is read out, the moment to land on |
 | `ReplyUsageViewModel`, `BotNotifyMenuViewModel` | What a reply used; the menu about a bot |
 | `ChatRows` | What a row says and how it is shaped, apart from drawing: a bot's row in the crew, a message, a tool call's card, the tray of files |
+
+Opening reads what does not depend on something else at the same time: the model connections and the bots, then
+every bot's threads; the conversation starts loading as soon as the bots are known, beside the question of whether the
+bot has a screen; a conversation's messages and its tool calls are read together; and the conversation is shown before
+the server is told it was seen. Until the conversation has been read the screen says it is loading, never that nothing
+was said.
 
 A run is still the server's: these only watch it and ask. Three seams replace what the web client took from its
 framework:
@@ -388,7 +453,27 @@ framework:
   `@key` rules, and `TalkViewModelTests` hold them.
 - **Files.** `IPickedFile` is a file a person picked, pasted, dropped, or shared: a name, a size, and a way to read
   it. `ShareInbox` moved to `Drover.Presentation` and holds picked files, so both clients use the one class; the
-  web client's browser files and the Android shell's staged files implement the interface.
+  web client's browser files and the Android shell's staged files implement the interface. Android document providers
+  can report no size or a stale size. The Android composer reads the bytes within the server's file limit before the
+  HTTP handler sends the request, so the request's length matches the bytes it carries.
+
+The conversation's "More" menu ends with "Save conversation as Markdown" and "Save conversation as JSON". The server
+writes the file (`ConversationSaver` asks for it through `DroverApi.ExportConversation`), and the platform saves it
+the way the extension editor's download does (`PlatformFiles.SaveText`): the system's save dialog on desktop and
+Android, a download in a browser. A toast says it was saved or why not; a cancelled dialog says nothing.
+
+When panels sit side by side, drag either divider to change the crew or right panel width. With a divider focused,
+Left and Right move it in 16-pixel steps. The workspace keeps those widths while you switch conversations and
+panels, and limits them to leave room for the conversation. The header uses the remaining conversation width to
+place the panel links beside the title or on one compact row below it. On a phone the links are in the bot menu.
+
+Escape anywhere inside an open rail closes it, as its close control does, and the focus goes back to the way that
+opened it: its link in the header, or the bot menu where the header shows no links (a phone, and handed work, which
+opens from its card). A key a dialog or a menu inside the rail takes for itself closes that first, and a composer
+holding text or attached files inside the rail keeps the key so a draft is never dropped. Non-composer fields inside
+the native rail do not count as drafts, so Escape still closes the rail from them.
+`TalkViewModel.CloseRailFromKeyboard` is the one path, so a device's Back that closes a rail can call it too. The web
+client does the same in `Talk.razor.js`.
 
 The page keeps the workspace while the app moves between this screen's addresses. A change of query or fragment
 goes through the shell's `StaysOpenWhenQueryChanges`. A change of path makes a new page, as for any screen, and the
@@ -398,7 +483,9 @@ scrolled to. Leaving for another screen ends it: the streams stop and unsent fil
 The controls are in `src/Drover.Native/Chat/`: `TalkWorkspace`, `ConversationPane`, `MessageList`, `ChatEntry`,
 `Composer`, `AttachmentTray`, `CrewList`, `SideChatList`, `FailureLine`, `AttentionNote`, `ReplyUsage`,
 `BotNotifyMenu`. `Keyed.Sync` keeps a panel's children in step with a keyed list, so a message, a card, or a chip
-is kept and told what changed, never made again.
+is kept and told what changed, never made again. A new child is put in at its place and only a kept child the list
+moved is taken out, so a child that holds the focus keeps it. The activity timeline keeps its nodes and their open
+details by event the same way, so a node or a control in its details keeps the focus while a live run's events arrive.
 
 **The message list is not virtualized, on purpose.** Every message is an element, kept by its key, and only a
 message that changed is looked at again. That gives what the web client's reversed column gives: the reader at the
@@ -419,6 +506,7 @@ Known differences of this screen from the web client:
 | Area | Difference |
 | --- | --- |
 | Arrow keys | The crew and the side chats also move the focus with the arrow keys, Home, and End. The web client has Tab alone |
+| Escape with text in non-composer rail fields | In the native client only a non-empty `Composer` (or composer attachments) keeps Escape from closing the rail; in the web client (`Talk.razor.js`), any non-empty field inside the rail keeps the key |
 | Pasting and dropping files | Written against the platform's clipboard and drag events. Not exercised: the display used for verification has no clipboard manager or file manager |
 | File chooser | The platform's own. Not exercised under the virtual display |
 | Enter while composing with an input method | The web client leaves Enter to the input method. The platform does not say that a composition is under way |
@@ -478,24 +566,24 @@ directories can be cached immutably; entry files are revalidated. The CSP is unc
 against a real server and PostgreSQL: `/native/sign-in` loaded in Chromium with no policy violation and no console
 error but the expected `401` for the session and `404` for closed setup; signing in through the drawn form sent the
 antiforgery header, set only `HttpOnly` session cookies (plus the readable `XSRF-TOKEN`), left local storage empty,
-and showed the workspace. To include the native publish in a container built from this repository:
-
-```bash
-docker build --build-arg DROVER_BUILD_NATIVE=true -t drover:native-preview .
-```
-
-The default image still contains only the existing client. The opt-in build installs `python3` in the build stage,
-which the WebAssembly native linker (`emcc`) needs and the SDK image lacks. The Compose workflow builds both image
-variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and starts both images.
+and showed the workspace. The default image includes both browser clients in Docker Compose and CapRover.
+To omit the native browser client, set `DROVER_BUILD_NATIVE=false` in Compose's `.env` file or pass
+`--build-arg DROVER_BUILD_NATIVE=false` when building directly with Docker.
+The Uno build installs `python3` in the build stage for the native WebAssembly linker (`emcc`). The Compose workflow
+builds both image variants, checks each BuildKit container's effective 2 GiB memory limit and disabled swap, and
+starts both images.
 The Docker publish caps the managed heap, skips the optional XAML resource-trimming pass, uses one Emscripten
 and Binaryen worker, and links at `-O1`. Managed assembly trimming stays enabled.
 The Uno variant also checks the entry page, a deep link, the manifest, and the service worker through Drover's server.
 
-`.github/workflows/native.yml` builds Android on hosted Linux, builds desktop on hosted Linux, Windows and macOS, and publishes the browser head. It uploads a development-signed Android APK and the browser publish; it does not release either. This configuration is not evidence those remote jobs passed. iOS builds, device tests, production signing,
-packaging, and real provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
+`.github/workflows/native.yml` builds Android on hosted Linux, iOS on hosted macOS, and desktop on hosted Linux,
+Windows and macOS. It also publishes the browser head. The iOS job builds for a simulator with warnings as errors,
+runs the shared screen checks, and relaunches the installed app to verify its saved sign-in. CI uploads a
+development-signed Android APK and the browser publish as artifacts. Production iOS signing, packaging, and real
+provider flows remain to be verified. Incoming links, tool sign-in returns, UnifiedPush
 registration and notifications, and shares in are built on Android from the shell's own code and compile in the
 APK (its manifest was read back: receivers, the file provider, the return scheme, the share targets), but were not
-run on a device. Credential persistence on desktop is not implemented by the platform. `ConnectViewModel` still
+run on a device. `ConnectViewModel` still
 lives in the native app and lacks unit tests. A desktop has no system share target or link scheme, so nothing
 comes into the desktop app from outside it.
 
@@ -531,14 +619,24 @@ pass fixed what it found in the native port: the memory and files rails were emp
 arrived, a text file's card took its width from its neighbour, and several settings screens' layouts. Still open,
 in order of how much they stand in the way of retiring the web client:
 
+Tool and delegation cards appeared as empty frames for seconds before they were drawn, and a waiting call showed only
+Approve and Deny: each card queued its first draw behind the conversation's other work. They are now drawn before
+they are first measured (see "The conversation's pieces").
+
+Opening a conversation took about 10 s in the browser build and showed "Nothing said yet" on the way. The
+conversation was made once, as `TalkViewModelTests` now holds; the empty words came from the message list, which
+was shown before it had drawn the loaded messages, and which said a conversation still being read had nothing in it.
+The list now says nothing about an empty conversation until it has been read, and is drawn before it is shown. The
+reads that do not depend on each other are made together (see "The conversation workspace"). Measured on 2026-11-19
+against a Release server with twelve messages: on the desktop build, moving to the conversation from another screen
+took 136 to 150 ms (five runs; 160 to 181 ms before), and the first conversation after start 244 to 264 ms (480 ms
+before), against 239 to 262 ms for the same move in the web client. The browser build's figure is in the limits table.
+
 Links measured without a role or name in this pass; the browser adapter merged alongside it now gives them the
 link role (see the limits table).
 
-1. Opening a conversation takes about 10 s against the web client's 2 s, and says "Nothing said yet" for about
-   two seconds on the way, because the conversation is made twice.
-2. Tool and delegation cards appear as empty frames for seconds before they are drawn.
-3. No password manager semantics (type, autocomplete, form) on sign-in.
-4. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
+1. No password manager semantics (type, autocomplete, form) on sign-in.
+2. Layout differences listed in the pictures' README (usage table columns, rail buttons wrapping, focus on
    sign-in at load).
 
 Interaction smoke on the browser build (Playwright, through the semantic tree and the keyboard): signing in with
@@ -546,7 +644,7 @@ Enter, sending with Enter and watching the reply stream, Stop, Try again on a fa
 call, opening each rail and closing it with its close button, making a side chat from `/side/new`, browser back
 and forward, back after opening a rail, a deep link straight to each rail, and Tab, Shift+Tab, Enter through the main
 flows all worked. Reload on a rail's deep link failed before the memory rail was fixed and was not run again after.
-Escape does not close a rail in either client. In the crew, the arrow keys did not move the focus in the browser
+Escape closes an open rail in both clients and returns the focus to the way that opened it (see Escape above). In the crew, the arrow keys did not move the focus in the browser
 (they do on desktop), and Tab order passes through the page body between some controls.
 
 ### Linux desktop startup

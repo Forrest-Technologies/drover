@@ -18,6 +18,8 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
 
     public Guid BotId { get; set; }
 
+    public Guid? ProjectId { get; set; }
+
     /// <summary>Never updated after insert: the application role has no privilege on this column.</summary>
     public Guid OwnerUserId { get; set; }
 
@@ -45,6 +47,12 @@ public sealed class ChatThread : ISpaceOwned, IAudienceScoped
     public int? SummaryThroughPosition { get; set; }
 
     public DateTimeOffset? SummaryUpdatedAt { get; set; }
+
+    /// <summary>
+    /// The model this conversation answers with in place of the bot's own: one of the models on the bot's model
+    /// connection that the space may use. Null answers with the bot's model.
+    /// </summary>
+    public string? Model { get; set; }
 
     #endregion
 }

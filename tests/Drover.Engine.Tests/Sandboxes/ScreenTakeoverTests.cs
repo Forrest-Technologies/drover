@@ -155,7 +155,8 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         world.StartHost();
         var asking = await world.Post(await world.NewThread(), "Read my mail");
         await world.WaitForStatus(asking, RunStatus.Waiting, RunStatus.Completed, RunStatus.Failed);
-        var memberThread = await NewThreadOf(world, member);
+        // The member's run is in a shared conversation: a screen action from a private one is refused for the audience (#185).
+        var memberThread = await world.NewSharedThread();
         provider.Commands.Clear();
 
         // The other member's run cannot see the asking run's private call: the hold is read from the shared run rows.
@@ -312,6 +313,32 @@ public sealed class ScreenTakeoverTests(PostgresServer postgres)
         entries.Select(entry => entry.Action).Should().Equal("sandbox.taken_over", "sandbox.input", "sandbox.input", "sandbox.handed_back");
         entries.Should().OnlyContain(entry => entry.ActorId == world.UserId && entry.TargetId == world.BotId && secrets.All(secret => !entry.Data.GetRawText().Contains(secret)));
         entries[^1].Data.GetProperty("outcome").GetString().Should().Be("done");
+    }
+
+    #endregion
+
+    #region Conversation Audience
+
+    [Fact]
+    public async Task A_private_conversation_in_a_shared_space_cannot_type_on_the_screen()
+    {
+        var provider = ComputerToolsTests.DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "computer_type", """{"text":"the secret plan"}""")],
+            [new TextOutput("Done.")]);
+        await using var world = await TakeoverWorld(provider, script);
+        (await world.WithService<AccountService, bool>(accounts => accounts.MakeShared(world.SpaceId, world.UserId, RunWorld.Token))).Should().BeTrue();
+        await world.AddMember(MembershipRole.Admin);
+        world.StartHost();
+
+        var runId = await world.Post(await world.NewThread(), "Type the plan");
+        (await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed)).Status.Should().Be(RunStatus.Completed);
+
+        var call = (await world.ReadToolCalls(runId)).Single();
+        call.IsError.Should().BeTrue("typing from a private conversation would leave the text on a screen others can open");
+        call.Result!.Value.GetProperty("error").GetString().Should().Contain("private");
+        provider.Commands.Should().BeEmpty("the screen was not touched");
+        provider.Created.Should().Be(0);
     }
 
     #endregion

@@ -33,6 +33,12 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>True while the bot is working and has not started to answer.</summary>
     public bool Thinking { get; set; }
 
+    /// <summary>
+    /// The bot is thinking and no reply of its says so: a reply whose reasoning is arriving shows the bot thinking
+    /// itself, so the list does not show it twice.
+    /// </summary>
+    public bool ShowsThinking => Thinking && !Messages.Any(message => message.Thinking);
+
     /// <summary>Why the last reply failed and what to do, when it did.</summary>
     public string? Problem { get; set; }
 
@@ -44,6 +50,18 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>Starts a new run from the message the failed run answered.</summary>
     public Func<Task>? OnRetry { get; set; }
+
+    /// <summary>True while a new version, or another version to show, is being asked for.</summary>
+    public bool Changing { get; set; }
+
+    /// <summary>Shows another version of a place in the conversation, by the id of that version.</summary>
+    public Func<Guid, Task>? OnShowVersion { get; set; }
+
+    /// <summary>Asks for another reply to the message a reply answers, by the id of the reply.</summary>
+    public Func<Guid, Task>? OnRegenerate { get; set; }
+
+    /// <summary>Sends an edit of a person's message, by its id, and has it answered.</summary>
+    public Func<Guid, string, Task>? OnEdit { get; set; }
 
     /// <summary>Something to know about the last reply that is not a failure, such as that it was stopped.</summary>
     public string? Notice { get; set; }
@@ -78,8 +96,14 @@ public sealed class MessageListViewModel : ObservableObject
     /// <summary>The group's accessible name.</summary>
     public string Name => $"Conversation with {BotName}";
 
-    /// <summary>Nothing was said and nothing is on its way: the bot stands there, with one line on what to do.</summary>
-    public bool IsEmpty => Messages.Count == 0 && !Thinking;
+    /// <summary>True until the conversation has been read: until then nothing is known to be said or not.</summary>
+    public bool Loading { get; set; }
+
+    /// <summary>
+    /// Nothing was said and nothing is on its way: the bot stands there, with one line on what to do. Never while the
+    /// conversation is still being read, so a conversation with messages never says it has none.
+    /// </summary>
+    public bool IsEmpty => !Loading && Messages.Count == 0 && !Thinking;
 
     public string StartHint => $"Nothing said yet. Write to {BotName} below.";
 
@@ -103,6 +127,16 @@ public sealed class MessageListViewModel : ObservableObject
 
     /// <summary>Tries the failed run again. While that is being asked for, a second press does nothing.</summary>
     public Task Retry() => Retrying ? Task.CompletedTask : OnRetry?.Invoke() ?? Task.CompletedTask;
+
+    /// <summary>Shows another version. While one change is being asked for, another does nothing.</summary>
+    public Task ShowVersion(Guid messageId) => Changing ? Task.CompletedTask : OnShowVersion?.Invoke(messageId) ?? Task.CompletedTask;
+
+    /// <summary>Asks for another reply. While one change is being asked for, another does nothing.</summary>
+    public Task Regenerate(Guid replyId) => Changing ? Task.CompletedTask : OnRegenerate?.Invoke(replyId) ?? Task.CompletedTask;
+
+    /// <summary>Sends an edit with words in it. While one change is being asked for, another does nothing.</summary>
+    public Task Edit(Guid messageId, string text) =>
+        Changing || string.IsNullOrWhiteSpace(text) ? Task.CompletedTask : OnEdit?.Invoke(messageId, text.Trim()) ?? Task.CompletedTask;
 
     /// <summary>The id a link to a message's moment names: <c>message-</c> and the message's id.</summary>
     public static string Anchor(Guid messageId) => MessageAnchors.Anchor(messageId);

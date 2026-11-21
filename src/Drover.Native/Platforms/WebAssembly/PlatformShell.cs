@@ -4,7 +4,8 @@ namespace Drover.Native.Platform;
 /// The browser's side of the shell. The address bar and the browser's history are kept in step with the app's
 /// navigator in both directions: going somewhere in the app adds a history entry and changes the address, and the
 /// browser's back and forward buttons move the app. Every address is therefore a link that can be opened, shared,
-/// and reloaded.
+/// and reloaded. When the screen holds work, the browser's buttons ask first like any other way of leaving, and so
+/// does closing or reloading the tab.
 /// </summary>
 internal static class PlatformShell
 {
@@ -14,6 +15,22 @@ internal static class PlatformShell
 
     // The folder the app is served from, without a trailing slash: "/native", or nothing when it is at the root.
     private static readonly string basePath = (Environment.GetEnvironmentVariable(BasePathVariable) ?? "/").TrimEnd('/');
+
+    // The address the browser shows, so a step the app takes itself through history can be matched in the browser.
+    private static string shown = string.Empty;
+
+    // True while the app follows the browser, which has already moved.
+    private static bool arriving;
+
+    // True after the shell moved the browser's history itself, until the browser says it arrived.
+    private static bool stepping;
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>The path the app is served under, with its trailing slash: "/native/", or "/" at the root.</summary>
+    public static string ClientPath => $"{basePath}/";
 
     #endregion
 
@@ -32,8 +49,10 @@ internal static class PlatformShell
     public static void Start(Navigator navigator)
     {
         navigator.StartAt(InApp(Browser.Address));
-        navigator.Navigated += Follow;
-        Browser.Listen("popstate", () => navigator.Arrive(InApp(Browser.Address)));
+        shown = navigator.Current;
+        navigator.Navigated += (address, kind) => Follow(navigator, address, kind);
+        Browser.Listen("popstate", () => Arrive(navigator));
+        Browser.Listen("beforeunload", leaving => AskBeforeClosing(navigator, leaving));
     }
 
     /// <summary>One step back, through the browser's own history so the two never disagree.</summary>
@@ -69,7 +88,7 @@ internal static class PlatformShell
 
     #region Private Methods
 
-    private static void Follow(string address, NavigationKind kind)
+    private static void Follow(Navigator navigator, string address, NavigationKind kind)
     {
         switch (kind)
         {
@@ -79,6 +98,83 @@ internal static class PlatformShell
             case NavigationKind.Replace:
                 Browser.ReplaceState(null, string.Empty, $"{basePath}{address}");
                 break;
+            case NavigationKind.Travel when !arriving:
+                StepBrowser(navigator);
+                break;
+        }
+
+        shown = address;
+    }
+
+    // The app took a step through its history itself, so the browser takes the same step. Its popstate then arrives
+    // where the app already is, and is let pass.
+    private static void StepBrowser(Navigator navigator)
+    {
+        stepping = true;
+        if (navigator.Next == shown)
+        {
+            Browser.GoBack();
+        }
+        else
+        {
+            Browser.GoForward();
+        }
+    }
+
+    private static void Arrive(Navigator navigator)
+    {
+        if (stepping)
+        {
+            stepping = false;
+            return;
+        }
+
+        var address = InApp(Browser.Address);
+        arriving = true;
+        try
+        {
+            if (navigator.Arrive(address))
+            {
+                shown = navigator.Current;
+                return;
+            }
+        }
+        finally
+        {
+            arriving = false;
+        }
+
+        PutAddressBack(navigator, address);
+    }
+
+    // The app stayed, so the browser goes back to the entry the app is at. Its popstate is let pass.
+    private static void PutAddressBack(Navigator navigator, string address)
+    {
+        if (address == navigator.Previous)
+        {
+            stepping = true;
+            Browser.GoForward();
+        }
+        else if (address == navigator.Next)
+        {
+            stepping = true;
+            Browser.GoBack();
+        }
+        else
+        {
+            Browser.PushState(null, string.Empty, $"{basePath}{navigator.Current}");
+        }
+    }
+
+    // A non-empty return value is how a page asks the browser to confirm before it closes or reloads.
+    private static void AskBeforeClosing(Navigator navigator, JSObject leaving)
+    {
+        using (leaving)
+        {
+            if (navigator.HoldsWork?.Invoke() is true)
+            {
+                leaving.SetProperty("returnValue", "unsaved");
+            }
         }
     }
 

@@ -81,6 +81,11 @@ public sealed class TalkViewModel(
 
     private bool focusRailClose;
 
+    // The rail was closed from the keyboard, so the focus goes back to the way that opened it once it is gone.
+    private bool focusRailOpener;
+
+    private SideView? railOpener;
+
     // A request for the person at the bot's screen: the one waiting in the main conversation, the one the person took
     // over (from a side chat too, which the screen replaces), and the one they handed back while its events were on
     // their way. The screen beside the conversation shows the controls for whichever is held.
@@ -359,9 +364,17 @@ public sealed class TalkViewModel(
     /// <summary>Raised when the focus belongs on the rail's close control: the controls the person used there are gone.</summary>
     public event Action? RailCloseFocusRequested;
 
+    /// <summary>
+    /// Raised once a rail closed from the keyboard is gone, with the way in the conversation's header that opens it
+    /// again: the focus belongs there. Null when no way in the header opens it, as for work handed to another bot.
+    /// </summary>
+    public event Action<SideView?>? RailOpenerFocusRequested;
+
     private Guid SpaceId => session.Space?.Id ?? throw new InvalidOperationException("A signed-in person always has a space.");
 
     private Guid? ThreadId => Guid.TryParse(address.SideChat, out var id) ? id : null;
+
+    private Guid? RailBotId => Shown?.Id ?? address.BotId;
 
     private Guid? HeldCallId => Side is SideView.Screen ? HeldTakeover?.ToolCallId : null;
 
@@ -379,6 +392,7 @@ public sealed class TalkViewModel(
         }
 
         gone = true;
+        navigator.RemoveCloser(CloseRail);
         listening?.Cancel();
         listening?.Dispose();
         MainPane?.Dispose();
@@ -390,14 +404,41 @@ public sealed class TalkViewModel(
     public Task Open(TalkAddress opened)
     {
         address = opened;
+        HoldRail();
         return Ready = Rendered(AddressSet());
     }
+
+    /// <summary>Where the rail's first control leads: closed, or from a side chat back to the list of them.</summary>
+    public string RailUp(Guid botId) => RailCloses ? Addresses.Talk(botId) : Addresses.SideChats(botId);
 
     /// <summary>Reads the space again, after it could not be read.</summary>
     public Task Retry() => Rendered(LoadSpace());
 
     /// <summary>Opens something beside the conversation, from the conversation's menu.</summary>
     public void OpenSide(string target) => navigator.NavigateTo(target);
+
+    /// <summary>
+    /// Closes what is beside the conversation, as Escape does, and asks for the focus to go back to the way that
+    /// opened it. False when nothing is open beside it or a side chat holds a draft, so the key is left to whatever
+    /// else wants it. A device's Back that closes the rail can call this too: what is open is read from the address,
+    /// so either way leaves the screen in the same state.
+    /// </summary>
+    public bool CloseRailFromKeyboard()
+    {
+        if (!CanShowRail || Shown is not { } bot || HasRailDraft)
+        {
+            return false;
+        }
+
+        (railOpener, focusRailOpener) = (Side.Way(), true);
+        navigator.NavigateTo(Addresses.Talk(bot.Id));
+        return true;
+    }
+
+    private bool HasRailDraft =>
+        Side is SideView.New or SideView.Chat
+        && SidePane?.Composer is { } composer
+        && (composer.Text.Length > 0 || composer.Attachments.Count > 0);
 
     /// <summary>The controls the person used are gone, so the focus goes to the screen's close control, the one way on.</summary>
     public void HandedBack(Guid toolCallId)
@@ -437,6 +478,9 @@ public sealed class TalkViewModel(
         }
 
         KeepOrRenewSidePane();
+
+        // The conversation starts loading now, beside the question of the bot's screen, not after it.
+        Changed();
         await AskForScreen();
     }
 
@@ -445,8 +489,11 @@ public sealed class TalkViewModel(
         spaceProblem = null;
         try
         {
-            connections = await api.ListModelConnections(SpaceId);
-            var found = await api.ListBots(SpaceId);
+            var connected = api.ListModelConnections(SpaceId);
+            var listed = api.ListBots(SpaceId);
+            await Task.WhenAll(connected, listed);
+            connections = await connected;
+            var found = await listed;
             await LoadThreads(found, CancellationToken.None);
             bots = found;
             Listen();
@@ -462,9 +509,9 @@ public sealed class TalkViewModel(
     private async Task LoadThreads(IReadOnlyList<BotSummary> crew, CancellationToken cancellationToken)
     {
         Dictionary<Guid, ThreadSummary> found = [];
-        foreach (var bot in crew)
+        foreach (var threadsOfBot in await Task.WhenAll(crew.Select(bot => api.ListThreads(SpaceId, bot.Id, cancellationToken))))
         {
-            foreach (var thread in await api.ListThreads(SpaceId, bot.Id, cancellationToken))
+            foreach (var thread in threadsOfBot)
             {
                 found[thread.Id] = thread;
             }
@@ -661,6 +708,27 @@ public sealed class TalkViewModel(
 
     #region Private Methods
 
+    // While a rail is open, a step back closes it before it leaves the conversation.
+    private void HoldRail()
+    {
+        if (Side is SideView.Closed || RailBotId is null)
+        {
+            navigator.RemoveCloser(CloseRail);
+        }
+        else
+        {
+            navigator.AddCloser(CloseRail);
+        }
+    }
+
+    private void CloseRail()
+    {
+        if (RailBotId is { } botId)
+        {
+            navigator.ReturnTo(RailUp(botId));
+        }
+    }
+
     private void ScreenTakenOver(Takeover takeover)
     {
         (openedTakeover, handedBack) = (takeover, null);
@@ -855,6 +923,12 @@ public sealed class TalkViewModel(
         {
             focusRailClose = false;
             RailCloseFocusRequested?.Invoke();
+        }
+
+        if (focusRailOpener && Side is SideView.Closed)
+        {
+            focusRailOpener = false;
+            RailOpenerFocusRequested?.Invoke(railOpener);
         }
     }
 

@@ -1,6 +1,7 @@
 global using System;
 global using System.Collections.Generic;
 global using System.Data.Common;
+global using System.IO;
 global using System.Linq;
 global using System.Linq.Expressions;
 global using System.Text;
@@ -26,6 +27,7 @@ global using Drover.Domain.Memory;
 global using Drover.Domain.Models;
 global using Drover.Domain.Permissions;
 global using Drover.Domain.Policy;
+global using Drover.Domain.Projects;
 global using Drover.Domain.Push;
 global using Drover.Domain.Rules;
 global using Drover.Domain.Runs;

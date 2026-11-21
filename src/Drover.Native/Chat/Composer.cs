@@ -4,7 +4,8 @@ namespace Drover.Native.Chat;
 /// The console a person writes to a bot in: the field and its actions in one frame. Enter sends and Shift+Enter
 /// breaks the line; on a touch keyboard Enter breaks the line and Send sends. The field grows with its text up to
 /// a set number of lines. Files chosen with Attach, pasted into the field, or dropped on the composer all go the
-/// same way. While the bot works, a line travels the frame's top edge and Stop stands where Send was.
+/// same way. While the bot works, a line travels the frame's top edge and Stop stands where Send was. The model the
+/// conversation answers with is chosen behind the plus button, beside Attach, when the bot may use more than one.
 /// </summary>
 public sealed class Composer : Grid
 {
@@ -17,6 +18,8 @@ public sealed class Composer : Grid
     private readonly FlowPanel options = new() { Gap = Tokens.Number("DvSpace2"), Visibility = Visibility.Collapsed };
 
     private readonly Button attach = new();
+
+    private readonly Select modelPick = new() { Label = ComposerViewModel.ModelLabel, Visibility = Visibility.Collapsed };
 
     private readonly Facet frame = new();
 
@@ -71,7 +74,10 @@ public sealed class Composer : Grid
         Labelled(stop, IconName.Stop, "Stop");
         Labelled(send, IconName.Send, "Send");
         AutomationProperties.SetName(options, "Message options");
+        AutomationProperties.SetAutomationId(field, "ComposerField");
+        AutomationProperties.SetAutomationId(send, "ComposerSend");
         options.Children.Add(attach);
+        options.Children.Add(modelPick);
 
         BuildField();
         BuildRow();
@@ -85,6 +91,7 @@ public sealed class Composer : Grid
 
         more.Click += (_, _) => model?.ToggleOptions();
         attach.Click += async (_, _) => await Pick();
+        modelPick.RegisterPropertyChangedCallback(Select.ValueProperty, async (_, _) => await ChooseModel());
         stop.Click += async (_, _) => await (model?.Cancel() ?? Task.CompletedTask);
         send.Click += async (_, _) => await Send();
         tray.Remove += async (_, id) => await (model?.Remove(id) ?? Task.CompletedTask);
@@ -243,12 +250,26 @@ public sealed class Composer : Grid
         tray.Items = shown.Attachments;
         options.Visibility = shown.OptionsOpen ? Visibility.Visible : Visibility.Collapsed;
         attach.IsEnabled = !shown.Disabled;
+        ShowModels(shown);
         stop.Visibility = shown.ShowsStop ? Visibility.Visible : Visibility.Collapsed;
         send.Visibility = shown.ShowsSend ? Visibility.Visible : Visibility.Collapsed;
         send.IsEnabled = shown.CanSend;
         travel.IsRunning = shown.IsWorking;
         Fit();
         Paint();
+    }
+
+    private void ShowModels(ComposerViewModel shown)
+    {
+        modelPick.Visibility = shown.HasModelChoice ? Visibility.Visible : Visibility.Collapsed;
+        modelPick.Disabled = shown.Disabled;
+
+        if (!modelPick.Options.Select(option => (option.Value, option.Label)).SequenceEqual(shown.ModelOptions.Select(option => (option.Value, option.Label))))
+        {
+            modelPick.Options = [.. shown.ModelOptions.Select(option => new SelectOption(option.Value, option.Label))];
+        }
+
+        modelPick.Value = shown.ChosenModel;
     }
 
     // A narrow window with Stop and Send side by side gives the field the whole first row and puts the two under it.
@@ -338,6 +359,14 @@ public sealed class Composer : Grid
         key.Handled = true;
         Typed();
         await Send();
+    }
+
+    private async Task ChooseModel()
+    {
+        if (model is not null)
+        {
+            await model.ChooseModel(modelPick.Value);
+        }
     }
 
     private async Task Send()

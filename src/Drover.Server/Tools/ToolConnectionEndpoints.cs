@@ -92,12 +92,13 @@ public static class ToolConnectionEndpoints
 
         var finish = await signIns.Complete(context.User.GetUserId(), state, code, iss, refused, context.RequestAborted);
 
-        // Only words this server chose go into the address: nothing the provider sent is echoed.
+        // Only words this server chose go into the address: nothing the provider sent is echoed. The path is the
+        // browser client the sign-in was started in, one of the few this server serves.
         var outcome = finish.Connected ? "connected" : "failed";
         return TypedResults.LocalRedirect(
             finish is { SpaceId: { } spaceId, ConnectionId: { } connectionId }
-                ? $"/?tool-sign-in={outcome}&space={spaceId}&connection={connectionId}"
-                : $"/?tool-sign-in={outcome}");
+                ? $"{finish.WebPath}?tool-sign-in={outcome}&space={spaceId}&connection={connectionId}"
+                : $"{finish.WebPath}?tool-sign-in={outcome}");
     }
 
     private static async Task<Ok<ToolSignInFinish>> FinishSignIn(FinishToolSignInRequest request, HttpContext context, ToolSignIns signIns)
@@ -151,7 +152,8 @@ public static class ToolConnectionEndpoints
             return TypedResults.Forbid();
         }
 
-        // The web app sends no body. A native app names itself, so the browser can be sent back into it.
+        // The web client sends no body. Another client names where the browser comes back to: a native app its own
+        // scheme or listener, the native client's browser build its path. Only addresses this server knows are taken.
         var request = context.Request.HasJsonContentType() && context.Request.ContentLength is not 0
             ? await context.Request.ReadFromJsonAsync<BeginToolSignInRequest>(context.RequestAborted)
             : null;

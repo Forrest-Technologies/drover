@@ -308,9 +308,10 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
     }
 
     [Theory]
-    [InlineData(AppScheme)]
-    [InlineData("com.forresttechnologies.drover.client")]
-    public async Task A_sign_in_started_in_the_app_comes_back_through_a_browser_that_is_signed_in_as_nobody(string appScheme)
+    [InlineData(AppScheme, $"{AppScheme}://tool-sign-in")]
+    [InlineData("com.forresttechnologies.drover.client", "com.forresttechnologies.drover.client://tool-sign-in")]
+    [InlineData("http://127.0.0.1:53124", "http://127.0.0.1:53124/tool-sign-in")]
+    public async Task A_sign_in_started_in_the_app_comes_back_through_a_browser_that_is_signed_in_as_nobody(string appScheme, string appAddress)
     {
         await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
         var alice = await SeedPerson("alice");
@@ -325,7 +326,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
 
         var page = await NewClient().Get(CallbackPath(answer));
         var words = await page.Content.ReadAsStringAsync(Token);
-        var ticket = TicketIn(words, appScheme);
+        var ticket = TicketIn(words, appAddress);
         var whileWaiting = Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn;
         var secondArrival = await NewClient().Get(CallbackPath(answer));
         var signedOut = await NewClient().Post("/api/tool-sign-ins/finish", new FinishToolSignInRequest(ticket));
@@ -336,7 +337,7 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         unknownApp.Step.Should().Be("failed", "a browser is sent only into Drover's own apps");
         page.StatusCode.Should().Be(HttpStatusCode.OK);
         page.Content.Headers.ContentType!.MediaType.Should().Be("text/html");
-        words.Should().Contain($"{appScheme}://tool-sign-in?ticket=").And.NotContain(answer.Code, "nothing the tool server sent goes into the app's address");
+        words.Should().Contain($"{appAddress}?ticket=").And.NotContain(answer.Code, "nothing the tool server sent goes into the app's address");
         words.Should().NotContain(answer.State!);
         whileWaiting.Should().Be("needs_sign_in", "the browser alone completes nothing");
         secondArrival.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the code is taken once");
@@ -344,6 +345,61 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
         finished.Should().Be(new ToolSignInFinish(true, alice.SpaceId, id));
         again.Should().Be(new ToolSignInFinish(false, null, null), "a ticket works once");
         after.Should().Be("signed_in");
+    }
+
+    [Theory]
+    [InlineData("/native/")]
+    [InlineData("/")]
+    public async Task A_sign_in_started_in_a_browser_client_comes_back_to_that_client_on_the_connection(string clientPath)
+    {
+        await using var server = await SdkToolServer.Start(new ToolServerSpec(ServerGeneration.Stateless) { SignIn = new ToolServerSignIn() });
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        await AllowPrivateAddresses(alice.SpaceId);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", server.Url.ToString(), "oauth"));
+        var id = created.Connection.Id;
+        var start = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{id}/sign-in", new BeginToolSignInRequest(clientPath));
+
+        var back = await ComeBack(admin, await server.Approve(new Uri(start.AuthorizationUrl!)));
+
+        start.Step.Should().Be("redirect", start.Problem);
+        back.Should().Be($"{clientPath}?tool-sign-in=connected&space={alice.SpaceId}&connection={id}");
+        Summary(await (await admin.Get($"{space}/tool-connections")).Content.ReadAsStringAsync(Token), id).SignIn.Should().Be("signed_in");
+    }
+
+    [Theory]
+    [InlineData("https://elsewhere.example.test/")]
+    [InlineData("//elsewhere.example.test/")]
+    [InlineData("/\\elsewhere.example.test/")]
+    [InlineData("/native")]
+    [InlineData("/native/../elsewhere/")]
+    [InlineData("/elsewhere/")]
+    [InlineData("http://localhost:53124")]
+    [InlineData("http://127.0.0.1.elsewhere.example.test:53124")]
+    [InlineData("http://127.0.0.1:53124/")]
+    [InlineData("http://127.0.0.1:53124/elsewhere")]
+    [InlineData("http://user@127.0.0.1:53124")]
+    [InlineData("http://127.0.0.1:0")]
+    [InlineData("http://127.0.0.1:70000")]
+    [InlineData("http://127.0.0.1:+53124")]
+    [InlineData("https://127.0.0.1:53124")]
+    [InlineData("http://[::1]:53124")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("com.forresttechnologies.drover.client.elsewhere")]
+    [InlineData("")]
+    public async Task A_return_address_outside_the_allow_list_is_refused_before_anything_is_started(string returnTo)
+    {
+        var alice = await SeedPerson("alice");
+        var admin = await SignIn(alice.Email, alice.Password);
+        var space = $"/api/spaces/{alice.SpaceId}";
+        var created = await PostFor<ToolConnectionRefresh>(admin, $"{space}/tool-connections", new CreateToolConnectionRequest("Calendar", "https://tools.example.test/mcp", "oauth"));
+
+        var start = await PostFor<ToolSignInStart>(admin, $"{space}/tool-connections/{created.Connection.Id}/sign-in", new BeginToolSignInRequest(returnTo));
+
+        start.Step.Should().Be("failed", "a browser is sent back only into Drover's own apps and clients");
+        start.AuthorizationUrl.Should().BeNull();
+        start.Problem.Should().Be("This server does not know where the sign-in should return to.");
     }
 
     [Fact]
@@ -379,9 +435,9 @@ public sealed class ToolSignInApiTests(PostgresServer postgres) : ToolServerTest
 
     private const string AppScheme = "com.forresttechnologies.drover.preview";
 
-    private static string TicketIn(string page, string appScheme = AppScheme)
+    private static string TicketIn(string page, string appAddress = $"{AppScheme}://tool-sign-in")
     {
-        var marker = $"{appScheme}://tool-sign-in?ticket=";
+        var marker = $"{appAddress}?ticket=";
         var from = page.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
         return page[from..page.IndexOf('"', from)];
     }

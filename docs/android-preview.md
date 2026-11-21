@@ -14,7 +14,14 @@ If alerts arrive late, open **Notifications arriving late? → Open battery sett
 
 ## Build and release
 
-The Android project lives in `Drover.Apps.slnx`. Install JDK 21 and the pinned workloads and SDK packages in the Android preview workflow. Then run `dotnet publish src/Drover.App/Drover.App.csproj -c Release`.
+The Uno Android app uses the `net11.0-android` target in `Drover.Native.slnx`. It installs alongside the earlier MAUI preview, so enter your server address and sign in on first launch.
+
+Install JDK 21, the Android workload, and the SDK packages pinned in the Android preview workflow. Build the APK with:
+
+```bash
+dotnet publish src/Drover.Native -f net11.0-android -c Release \
+  -p:DroverNativeTargetFrameworks=net11.0-android -p:AndroidPackageFormats=apk
+```
 
 Maintainers publish previews by pushing a protected tag like `v0.1.0-android-preview.1` at a commit on `main`:
 
@@ -24,4 +31,4 @@ git tag -a v0.1.0-android-preview.1 origin/main -m 'Android preview 1'
 git push origin refs/tags/v0.1.0-android-preview.1
 ```
 
-The workflow builds on GitHub-hosted runners, signs in the tag-only `android-preview` environment, checks the certificate and alignment, then publishes the APK and SHA-256 checksum as a prerelease. Only the signing job receives the preview keystore and password. Keep the package ID and signing certificate for future preview updates. The ordinary release environment is separate.
+The workflow builds on GitHub-hosted runners, signs in the tag-only `android-preview` environment, checks the certificate and alignment, then publishes the APK and SHA-256 checksum as a prerelease. Only the signing job receives the preview keystore and password. Keep the Uno package ID (`com.forresttechnologies.drover.client`) and signing certificate for future Uno preview updates. The ordinary release environment is separate.

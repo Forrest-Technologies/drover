@@ -2,9 +2,10 @@ namespace Drover.Native.Platform;
 
 /// <summary>
 /// What the app is given on a device. It talks to the one server its person chose, over HTTPS only, following no
-/// redirects, with cookies kept in memory. Only the server's address is kept in plain settings; the sign-in that
-/// outlives the app goes to the platform's credential store. What only one kind of device has (notifications and
-/// shares on a phone, saving files on a desktop) is added by <c>AddDevice</c>, which each platform folder defines.
+/// redirects, with cookies kept in memory. Only the server's address is kept in plain settings. What differs by kind
+/// of device (where the sign-in that outlives the app is kept, notifications and shares on a phone, saving files on a
+/// desktop) is added by <c>AddDevice</c>, which each platform folder defines. A device that says when the app leaves
+/// the screen adds a <see cref="StreamPresence"/>, and the live streams close while it is away.
 /// </summary>
 internal static class PlatformServices
 {
@@ -18,16 +19,17 @@ internal static class PlatformServices
             .AddSingleton<IDeviceSettings, DeviceSettings>()
             .AddSingleton(new UiEnvironment(IsDevelopment: BuildKind.IsDevelopment))
             .AddSingleton<ServerAddress>()
-            .AddSingleton<ISecureStorage, DeviceSecrets>()
             .AddSingleton<NativeSession>()
             .AddSingleton<AppRequests>()
             .AddSingleton<IServerChoice, DeviceServerChoice>()
             .AddSingleton(PlatformShell.Incoming)
             .AddDevice()
-            .AddSingleton(provider => new DroverApi(new HttpClient(provider.GetRequiredService<AppRequests>(), disposeHandler: false)
-            {
-                BaseAddress = AppRequests.Placeholder,
-            }));
+            .AddSingleton(provider => new DroverApi(
+                new HttpClient(provider.GetRequiredService<AppRequests>(), disposeHandler: false)
+                {
+                    BaseAddress = AppRequests.Placeholder,
+                },
+                provider.GetService<StreamPresence>()));
 
     #endregion
 }

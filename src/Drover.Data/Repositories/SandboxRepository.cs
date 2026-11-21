@@ -6,6 +6,13 @@ namespace Drover.Data.Repositories;
 /// </summary>
 public sealed class SandboxRepository(DroverDbContext db)
 {
+    #region Private Fields
+
+    // Mixed into the advisory lock key so a copy fence cannot collide with another lock on the same space.
+    private const long CopyLockSeed = 0x44524F56_45520007;
+
+    #endregion
+
     #region Public Methods
 
     /// <summary>The owner's sandbox that is being created, running, or paused, if it has one.</summary>
@@ -40,6 +47,35 @@ public sealed class SandboxRepository(DroverDbContext db)
             .ExecuteUpdateAsync(
                 update => update.SetProperty(sandbox => sandbox.State, SandboxState.Retiring).SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
                 cancellationToken) > 0;
+
+    /// <summary>
+    /// Makes a copy into a sandbox and a narrowing of who may see one take turns, until this transaction ends.
+    /// A copy holds it while it reads the file's audience again and checks that the sandbox row still exists. A narrowing holds it from
+    /// the retirement through the audience change. Spaces never wait on each other.
+    /// </summary>
+    public Task LockCopies(CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended(sys.current_space()::text, {CopyLockSeed}))",
+            cancellationToken);
+
+    /// <summary>
+    /// Takes every live sandbox of the space out of use, due from <paramref name="retireAfter"/>.
+    /// Holds <see cref="LockCopies"/> first. The next use destroys each one and makes a new one, so a private write
+    /// does not outlive a narrowing of who may see it. How many were retired.
+    /// </summary>
+    public async Task<int> RetireLive(DateTimeOffset retireAfter, CancellationToken cancellationToken)
+    {
+        await LockCopies(cancellationToken);
+        return await db.Sandboxes
+            .Where(sandbox => sandbox.State == SandboxState.Creating
+                || sandbox.State == SandboxState.Running
+                || sandbox.State == SandboxState.Paused)
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(sandbox => sandbox.State, SandboxState.Retiring)
+                    .SetProperty(sandbox => sandbox.RetireAfter, retireAfter),
+                cancellationToken);
+    }
 
     /// <summary>The owner's retiring sandboxes whose time to be destroyed has come.</summary>
     public async Task<IReadOnlyList<Sandbox>> ListDueForOwner(Guid ownerBotId, DateTimeOffset now, CancellationToken cancellationToken) =>

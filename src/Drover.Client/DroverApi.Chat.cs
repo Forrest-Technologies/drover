@@ -23,7 +23,23 @@ public sealed partial class DroverApi
         Get<List<ThreadSummary>>($"{Space(spaceId)}/bots/{botId}/threads", cancellationToken);
 
     public Task<ThreadSummary> CreateThread(Guid spaceId, Guid botId, string? title = null, CancellationToken cancellationToken = default) =>
-        Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title), cancellationToken);
+        CreateThread(spaceId, botId, title, projectId: null, cancellationToken);
+
+    public Task<ThreadSummary> CreateThread(
+        Guid spaceId,
+        Guid botId,
+        string? title,
+        Guid? projectId,
+        CancellationToken cancellationToken = default) =>
+        Post<ThreadSummary>($"{Space(spaceId)}/bots/{botId}/threads", new CreateThreadRequest(title, projectId), cancellationToken);
+
+    /// <summary>Moves a conversation into a project of the same space, or out of its project when <paramref name="projectId"/> is null.</summary>
+    public Task<ThreadSummary> SetThreadProject(
+        Guid spaceId,
+        Guid threadId,
+        Guid? projectId,
+        CancellationToken cancellationToken = default) =>
+        Send<ThreadSummary>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/project", new SetThreadProjectRequest(projectId), cancellationToken);
 
     /// <summary>
     /// The caller's one main thread with the bot, made the first time it is asked for. Asking again returns the same
@@ -43,6 +59,17 @@ public sealed partial class DroverApi
     public Task<ConversationSummary> GetConversationSummary(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<ConversationSummary>($"{Space(spaceId)}/threads/{threadId}/summary", cancellationToken);
 
+    /// <summary>The models the conversation may answer with: the bot's own, the one chosen in its place, and the rest it may choose.</summary>
+    public Task<ConversationModelChoice> GetConversationModels(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
+        Get<ConversationModelChoice>($"{Space(spaceId)}/threads/{threadId}/models", cancellationToken);
+
+    /// <summary>
+    /// Makes the conversation answer with <paramref name="model"/> from its next run; null goes back to the bot's own.
+    /// A model the bot may not use is refused with the reason.
+    /// </summary>
+    public Task<ConversationModelChoice> ChooseConversationModel(Guid spaceId, Guid threadId, string? model, CancellationToken cancellationToken = default) =>
+        Send<ConversationModelChoice>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/model", new ChooseModelRequest(model), cancellationToken);
+
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);
 
@@ -52,6 +79,29 @@ public sealed partial class DroverApi
     /// </summary>
     public Task<List<RunEventResponse>> ListToolEvents(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<RunEventResponse>>($"{Space(spaceId)}/threads/{threadId}/tool-events", cancellationToken);
+
+    /// <summary>
+    /// The conversation as a file to keep, exactly as the server wrote it: <see cref="ExportFormats.Markdown"/> to
+    /// read, or <see cref="ExportFormats.Json"/>, the versioned <see cref="ConversationExport"/>. The name is the one
+    /// the server gave it.
+    /// </summary>
+    public async Task<ConversationFile> ExportConversation(
+        Guid spaceId,
+        Guid threadId,
+        string format,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync(
+            $"{Space(spaceId)}/threads/{threadId}/export?format={Uri.EscapeDataString(format)}",
+            cancellationToken);
+        await response.ThrowIfRefused(cancellationToken);
+        var headers = response.Content.Headers;
+        var name = headers.ContentDisposition?.FileNameStar ?? headers.ContentDisposition?.FileName?.Trim('"');
+        return new ConversationFile(
+            string.IsNullOrWhiteSpace(name) ? $"conversation.{(format is ExportFormats.Json ? "json" : "md")}" : name,
+            headers.ContentType?.MediaType ?? "text/plain",
+            await response.Content.ReadAsStringAsync(cancellationToken));
+    }
 
     /// <summary>
     /// Stores the message and returns the run that answers it. It is never refused because the bot is still working:
@@ -71,6 +121,28 @@ public sealed partial class DroverApi
             $"{Space(spaceId)}/threads/{threadId}/messages",
             new SendMessageRequest(text, whenBusy, fileIds is { Count: > 0 } ? fileIds : null),
             cancellationToken);
+
+    /// <summary>
+    /// Answers again the person's message that <paramref name="replyId"/>, a bot's reply, answers. The reply and what
+    /// followed it are kept as the earlier version. Returns that message and the new run. Throws
+    /// <see cref="DroverApiException"/> with 409 while the bot works on the thread, and 403 for someone else's message.
+    /// </summary>
+    public Task<SendMessageResponse> RegenerateReply(Guid spaceId, Guid threadId, Guid replyId, CancellationToken cancellationToken = default) =>
+        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages/{replyId}/regenerate", null, cancellationToken);
+
+    /// <summary>
+    /// Stores <paramref name="text"/> as a new version of the person's own message and answers it with a new run.
+    /// The message and what followed it are kept as the earlier version.
+    /// </summary>
+    public Task<SendMessageResponse> EditMessage(Guid spaceId, Guid threadId, Guid messageId, string text, CancellationToken cancellationToken = default) =>
+        Post<SendMessageResponse>($"{Space(spaceId)}/threads/{threadId}/messages/{messageId}/edit", new EditMessageRequest(text), cancellationToken);
+
+    /// <summary>
+    /// Shows <paramref name="messageId"/>, one of the <see cref="MessageResponse.Versions"/> of its place, with what
+    /// followed it. List the messages again to read the conversation it shows.
+    /// </summary>
+    public Task ShowMessageVersion(Guid spaceId, Guid threadId, Guid messageId, CancellationToken cancellationToken = default) =>
+        SendForNothing(HttpMethod.Post, $"{Space(spaceId)}/threads/{threadId}/messages/{messageId}/show", null, cancellationToken);
 
     /// <summary>
     /// Marks the thread seen by the signed-in person as far as its newest message. Their other screens hear
@@ -133,15 +205,17 @@ public sealed partial class DroverApi
     /// The events of a run, from after <paramref name="afterSeq"/> to its end, each once and in order. The stream
     /// reconnects by itself with the last number it saw, so a dropped connection or a restarted server loses
     /// nothing and repeats nothing. It ends when the run does. Feed each event to <see cref="RunReducer.Apply(RunView, RunEventResponse)"/>.
-    /// <paramref name="dropped"/> hears why a connection was lost, so a screen can say it is reconnecting.
+    /// <paramref name="dropped"/> hears why a connection was lost, so a screen can say it is reconnecting, and
+    /// <paramref name="connected"/> hears each time the stream is through, so it can stop saying so.
     /// </summary>
     public IAsyncEnumerable<RunEventResponse> WatchRun(
         Guid spaceId,
         Guid runId,
         long afterSeq = 0,
         Action<Exception>? dropped = null,
+        Action? connected = null,
         CancellationToken cancellationToken = default) =>
-        new RunEventReader(http, $"{Space(spaceId)}/runs/{runId}", runId, dropped).Read(afterSeq, cancellationToken);
+        new RunEventReader(http, $"{Space(spaceId)}/runs/{runId}", runId, presence, dropped, connected).Read(afterSeq, cancellationToken);
 
     /// <summary>
     /// Signals for the signed-in person in one space: a thread changed, a run finished, an approval is waiting.
@@ -149,7 +223,11 @@ public sealed partial class DroverApi
     /// until cancelled.
     /// </summary>
     public IAsyncEnumerable<UserSignal> WatchSignals(Guid spaceId, Action<Exception>? dropped = null, CancellationToken cancellationToken = default) =>
-        new SignalReader(http, $"{Space(spaceId)}/stream", dropped).Read(cancellationToken);
+        new SignalReader(http, $"{Space(spaceId)}/stream", presence, dropped).Read(cancellationToken);
 
     #endregion
 }
+
+
+/// <summary>A conversation as a file: the name to save it under, its media type, and its text.</summary>
+public sealed record ConversationFile(string Name, string MediaType, string Text);

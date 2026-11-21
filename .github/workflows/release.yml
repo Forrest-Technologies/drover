@@ -1,10 +1,15 @@
-# Trusted job: it runs only for version tags, which only maintainers can push (tag ruleset "v*"), and it waits for
-# the required reviewer of the "release" environment. It is trusted because of those two controls, not because of
-# where it runs. It never executes pull request code, and it runs on a GitHub-hosted runner like every workflow here.
-# The project publishes no container images. A release is a tag, a source archive, an SBOM, and attestations.
+# Manual runs produce unsigned artifacts only. Protected version tags enter the release environment, where
+# complete secret sets enable signing. Missing secret sets keep the package and its filename explicitly unsigned.
 name: release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version in 1.2.3 form
+        required: true
+        default: 0.1.0
+        type: string
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
@@ -14,47 +19,536 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
 jobs:
-  release:
-    name: SBOM, attest, publish release
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: release
+  metadata:
+    name: Check release version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
-      contents: write # publish the GitHub release and attach the artifacts
-      id-token: write # obtain the identity token for artifact attestations
-      attestations: write # create provenance and SBOM attestations
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate version and source
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_TYPE" == tag ]]; then
+            echo "::error::Choose a branch or commit for a manual dry run."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo "::error::Use a tag like v1.2.3."
+              exit 1
+            fi
+            version=${BASH_REMATCH[1]}
+            git fetch origin main --depth=200
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          else
+            version=$REQUESTED_VERSION
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::The version must have the form 1.2.3."
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  source:
+    name: Source, SBOM and tests
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Tag must point at a commit on main
-        run: |
-          git fetch origin main --depth=200
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: global.json
-      - name: Restore and build
+      - name: Restore, build, format and test
         run: |
           dotnet restore Drover.slnx
           dotnet build Drover.slnx --no-restore -c Release -warnaserror
-      - name: Test
-        run: dotnet test --solution Drover.slnx --no-build -c Release
-      - name: Software bill of materials (CycloneDX)
+          dotnet format Drover.slnx --no-restore --verify-no-changes
+          dotnet test --solution Drover.slnx --no-build -c Release
+      - name: Build source artifacts
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
         run: |
+          mkdir -p artifacts/source artifacts/sbom
           dotnet tool restore
-          dotnet tool run dotnet-CycloneDX Drover.slnx --output artifacts/sbom --filename "drover-${GITHUB_REF_NAME}.cdx.json" --json
-      - name: Source archive
-        run: git archive --format=tar.gz --prefix="drover-${GITHUB_REF_NAME}/" -o "artifacts/drover-${GITHUB_REF_NAME}.tar.gz" "$GITHUB_SHA"
+          dotnet tool run dotnet-CycloneDX Drover.slnx --output artifacts/sbom --filename "drover-v$VERSION.cdx.json" --json
+          git archive --format=tar.gz --prefix="drover-v$VERSION/" -o "artifacts/source/drover-v$VERSION.tar.gz" "$GITHUB_SHA"
+          cd artifacts/source
+          sha256sum "drover-v$VERSION.tar.gz" > "drover-v$VERSION.tar.gz.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-source
+          path: artifacts/
+          if-no-files-found: error
+
+  source-attest:
+    name: Attest source and SBOM
+    needs: [metadata, source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for source attestations
+      attestations: write # write source and SBOM attestations
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-source
+          path: artifacts
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: artifacts/drover-*.tar.gz
+          subject-path: artifacts/source/*.tar.gz
       - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          subject-path: artifacts/drover-*.tar.gz
-          sbom-path: artifacts/sbom/drover-${{ github.ref_name }}.cdx.json
+          subject-path: artifacts/source/*.tar.gz
+          sbom-path: artifacts/sbom/drover-v${{ needs.metadata.outputs.version }}.cdx.json
+
+  linux-build:
+    name: Build unsigned Linux package
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Publish native client
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          dotnet publish src/Drover.Native -f net11.0-desktop -c Release -warnaserror \
+            -p:DroverNativeTargetFrameworks=net11.0-desktop -r linux-x64 --self-contained true \
+            "-p:ApplicationDisplayVersion=$VERSION" -o artifacts/publish
+      - name: Build and inspect deb
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          scripts/package-desktop-linux.sh artifacts/publish artifacts/package "$VERSION"
+          dpkg-deb --contents artifacts/package/*.deb | grep -F './opt/drover/Drover.Native'
+          dpkg-deb --field artifacts/package/*.deb Package Version Architecture
+          cd artifacts/package
+          sha256sum ./*.deb > "$(basename ./*.deb).sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-linux-unsigned
+          path: artifacts/package/*
+          if-no-files-found: error
+
+  linux-attest:
+    name: Attest unsigned Linux package
+    if: github.event_name == 'workflow_dispatch'
+    needs: linux-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for manual package attestations
+      attestations: write # write the manual package attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-linux-unsigned
+          path: package
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: package/*.deb
+
+  windows-build:
+    name: Build unsigned Windows package
+    needs: metadata
+    runs-on: windows-2025
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Publish native client
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: >-
+          dotnet publish src/Drover.Native -f net11.0-desktop -c Release -warnaserror
+          -p:DroverNativeTargetFrameworks=net11.0-desktop -r win-x64 --self-contained true
+          "-p:ApplicationDisplayVersion=$env:VERSION" -o artifacts/publish
+      - name: Build and inspect MSIX
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        shell: pwsh
+        run: |
+          ./scripts/package-desktop-windows.ps1 artifacts/publish artifacts/package $env:VERSION
+          $package = Get-ChildItem artifacts/package/*.msix
+          $package.Name | Select-String -SimpleMatch "-unsigned.msix"
+          $hash = (Get-FileHash $package.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($package.Name)" | Set-Content "$($package.FullName).sha256" -Encoding ascii
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-windows-unsigned
+          path: artifacts/package/*
+          if-no-files-found: error
+
+  windows-attest:
+    name: Attest unsigned Windows package
+    if: github.event_name == 'workflow_dispatch'
+    needs: windows-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for manual package attestations
+      attestations: write # write the manual package attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-windows-unsigned
+          path: package
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: package/*.msix
+
+  macos-build:
+    name: Build unsigned macOS package
+    needs: metadata
+    runs-on: macos-15
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Publish native client
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          [[ "$(uname -m)" == arm64 ]] && rid=osx-arm64 || rid=osx-x64
+          dotnet publish src/Drover.Native -f net11.0-desktop -c Release -warnaserror \
+            -p:DroverNativeTargetFrameworks=net11.0-desktop -r "$rid" --self-contained true \
+            "-p:ApplicationDisplayVersion=$VERSION" -o artifacts/publish
+      - name: Build and inspect DMG
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          scripts/package-desktop-macos.sh artifacts/publish artifacts/package "$VERSION"
+          hdiutil verify artifacts/package/*.dmg
+          cd artifacts/package
+          shasum -a 256 ./*.dmg > "$(basename ./*.dmg).sha256"
+      - name: Preserve publish output for tag signing
+        run: tar -C artifacts/publish -czf artifacts/publish.tar.gz .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-macos-unsigned
+          path: |
+            artifacts/package/*
+            artifacts/publish.tar.gz
+          if-no-files-found: error
+
+  macos-attest:
+    name: Attest unsigned macOS package
+    if: github.event_name == 'workflow_dispatch'
+    needs: macos-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for manual package attestations
+      attestations: write # write the manual package attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-macos-unsigned
+          path: package
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: package/package/*.dmg
+
+  linux-finalize:
+    name: Sign or label Linux package
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: linux-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for final package attestations
+      attestations: write # write the final package attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-linux-unsigned
+          path: unsigned
+      - name: Sign when the private key exists
+        env:
+          GPG_PRIVATE_KEY_BASE64: ${{ secrets.LINUX_GPG_PRIVATE_KEY_BASE64 }}
+          GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          input=$(find unsigned -maxdepth 1 -name '*.deb' -print -quit)
+          set_count=0
+          [[ -n "${GPG_PRIVATE_KEY_BASE64:-}" ]] && set_count=$((set_count + 1))
+          [[ -n "${GPG_PASSPHRASE:-}" ]] && set_count=$((set_count + 1))
+          if [[ "$set_count" -eq 0 ]]; then
+            cp "$input" release/
+            echo "Linux signing secrets are absent. Publishing the unsigned package."
+          elif [[ "$set_count" -ne 2 ]]; then
+            echo "::error::Linux signing secrets are incomplete."
+            exit 1
+          else
+            umask 077
+            home="$RUNNER_TEMP/drover-gnupg"
+            mkdir -m 700 "$home"
+            cleanup() { rm -rf "$home"; }
+            trap cleanup EXIT
+            export GNUPGHOME="$home"
+            key="$home/signing.asc"
+            printf '%s' "$GPG_PRIVATE_KEY_BASE64" | base64 --decode > "$key"
+            gpg --batch --homedir "$home" --import "$key"
+            output="release/$(basename "${input/-unsigned.deb/-signed.deb}")"
+            cp "$input" "$output"
+            gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --homedir "$home" --armor --detach-sign "$output" 3<<< "$GPG_PASSPHRASE"
+            gpg --homedir "$home" --verify "$output.asc" "$output"
+          fi
+          cd release
+          sha256sum ./*.deb > "$(basename ./*.deb).sha256"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.deb
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-linux
+          path: release/*
+          if-no-files-found: error
+
+  windows-finalize:
+    name: Sign or label Windows package
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: windows-build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for final package attestations
+      attestations: write # write the final package attestation
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-windows-unsigned
+          path: unsigned
+      - name: Sign when the certificate exists
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          New-Item release -ItemType Directory | Out-Null
+          $inputPackage = Get-ChildItem unsigned/*.msix
+          $set = 0
+          if (-not [string]::IsNullOrWhiteSpace($env:CERTIFICATE_BASE64)) { $set++ }
+          if (-not [string]::IsNullOrWhiteSpace($env:CERTIFICATE_PASSWORD)) { $set++ }
+          if ($set -eq 0) {
+              Copy-Item $inputPackage.FullName release
+              Write-Output "Windows signing secrets are absent. Publishing the unsigned package."
+              exit 0
+          }
+          if ($set -ne 2) { throw "Windows signing secrets are incomplete." }
+          $certificate = Join-Path $env:RUNNER_TEMP "drover-signing.pfx"
+          $thumbprint = $null
+          $store = $null
+          try {
+              [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:CERTIFICATE_BASE64))
+              $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor `
+                  [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
+              $loaded = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificate, $env:CERTIFICATE_PASSWORD, $flags)
+              $store = [System.Security.Cryptography.X509Certificates.X509Store]::new("My", "CurrentUser")
+              $store.Open("ReadWrite")
+              $store.Add($loaded)
+              $thumbprint = $loaded.Thumbprint
+              $store.Close()
+              $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+                  Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+              if ($null -eq $signtool) { throw "The Windows SDK signtool was not found." }
+              $outputPackage = "release/$($inputPackage.Name.Replace('-unsigned.msix', '-signed.msix'))"
+              Copy-Item $inputPackage.FullName $outputPackage
+              & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $thumbprint $outputPackage
+              if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE." }
+              & $signtool.FullName verify /pa /all $outputPackage
+              if ($LASTEXITCODE -ne 0) { throw "The signed MSIX did not verify." }
+          }
+          finally {
+              if ($null -ne $thumbprint) {
+                  $cleanup = [System.Security.Cryptography.X509Certificates.X509Store]::new("My", "CurrentUser")
+                  $cleanup.Open("ReadWrite")
+                  foreach ($item in @($cleanup.Certificates)) {
+                      if ($item.Thumbprint -eq $thumbprint) { $cleanup.Remove($item) }
+                  }
+                  $cleanup.Close()
+              }
+              if (Test-Path $certificate) { Remove-Item $certificate -Force }
+              if ($null -ne $store) { $store.Dispose() }
+          }
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem release/*.msix
+          $hash = (Get-FileHash $package.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($package.Name)" | Set-Content "$($package.FullName).sha256" -Encoding ascii
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.msix
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-windows
+          path: release/*
+          if-no-files-found: error
+
+  macos-finalize:
+    name: Sign, notarize or label macOS package
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [metadata, macos-build]
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # obtain the identity token for final package attestations
+      attestations: write # write the final package attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-macos-unsigned
+          path: unsigned
+      - name: Sign and notarize when every secret exists
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          mkdir publish release
+          tar -xzf unsigned/publish.tar.gz -C publish
+          set_count=0
+          [[ -n "${CERTIFICATE_BASE64:-}" ]] && set_count=$((set_count + 1))
+          [[ -n "${CERTIFICATE_PASSWORD:-}" ]] && set_count=$((set_count + 1))
+          [[ -n "${NOTARY_KEY_BASE64:-}" ]] && set_count=$((set_count + 1))
+          [[ -n "${NOTARY_KEY_ID:-}" ]] && set_count=$((set_count + 1))
+          [[ -n "${NOTARY_ISSUER_ID:-}" ]] && set_count=$((set_count + 1))
+          if [[ "$set_count" -eq 0 ]]; then
+            scripts/package-desktop-macos.sh publish release "$VERSION"
+            echo "macOS signing secrets are absent. Publishing the unsigned package."
+            exit 0
+          fi
+          if [[ "$set_count" -ne 5 ]]; then
+            echo "::error::macOS signing secrets are incomplete."
+            exit 1
+          fi
+          umask 077
+          keychain="$RUNNER_TEMP/drover-signing.keychain-db"
+          certificate="$RUNNER_TEMP/drover-signing.p12"
+          notary_key="$RUNNER_TEMP/AuthKey.p8"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -f "$certificate" "$notary_key"
+          }
+          trap cleanup EXIT
+          keychain_password=$(openssl rand -hex 24)
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > "$notary_key"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk 'NR == 1 { print $2 }')
+          if [[ -z "$identity" ]]; then
+            echo "::error::The macOS certificate has no code-signing identity."
+            exit 1
+          fi
+          scripts/package-desktop-macos.sh publish release "$VERSION" signed-notarized "$identity"
+          dmg=$(find release -name '*.dmg' -print -quit)
+          xcrun notarytool submit "$dmg" --key "$notary_key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+      - name: Checksum
+        run: |
+          cd release
+          shasum -a 256 ./*.dmg > "$(basename ./*.dmg).sha256"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.dmg
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-macos
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [source-attest, linux-finalize, windows-finalize, macos-finalize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release and upload its artifacts
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-source
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-linux
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-windows
+          path: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-macos
+          path: release
       - name: Publish GitHub release
-        run: gh release create "$GITHUB_REF_NAME" artifacts/drover-*.tar.gz artifacts/sbom/*.cdx.json --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mapfile -d '' assets < <(find release -type f -print0)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --generate-notes --verify-tag

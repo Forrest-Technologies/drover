@@ -27,12 +27,79 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
     /// </summary>
     public const string SignInReturnScheme = "com.forresttechnologies.drover.client";
 
+    /// <summary>
+    /// Whether this screen is in front, for the live streams. One for the process: the services are made again when the
+    /// person changes server, and the screen's state outlives that.
+    /// </summary>
+    internal static readonly StreamPresence Streams = new();
+
+    #endregion
+
+    #region Public Methods
+
+    public override bool DispatchKeyEvent(Android.Views.KeyEvent? e)
+    {
+        var editor = e?.Action is Android.Views.KeyEventActions.Down ? FocusedEditor() : null;
+        var before = EditorText(editor);
+        var handled = base.DispatchKeyEvent(e);
+
+        // Uno handles these edits in XAML. Reopen the Android input connection with the
+        // updated text so a following soft-keyboard edit cannot replay its old buffer.
+        if (before is not null
+            && ReferenceEquals(FocusedEditor(), editor)
+            && before != EditorText(editor)
+            && CurrentFocus is { } view
+            && GetSystemService(InputMethodService) is Android.Views.InputMethods.InputMethodManager keyboard
+            && keyboard.IsActive)
+        {
+            keyboard.RestartInput(view);
+        }
+
+        return handled;
+    }
+
+    internal void UpdateSystemBars(ShellView shell)
+    {
+        var light = shell.ActualTheme is ElementTheme.Light;
+        var status = Windows.UI.ViewManagement.StatusBar.GetForCurrentView();
+        // Uno returns the system's black or white foreground after mapping our theme color.
+        if (status.ForegroundColor is not { } current || (current.R == 0) != light)
+        {
+            status.ForegroundColor = Tokens.Color(shell, "DvText");
+        }
+
+        if (Window is { } window)
+        {
+            using var controller = AndroidX.Core.View.WindowCompat.GetInsetsController(window, window.DecorView);
+            controller?.AppearanceLightNavigationBars = light;
+        }
+    }
+
     #endregion
 
     #region Private Methods
 
+    private static object? FocusedEditor() =>
+        Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content.XamlRoot: { } root }
+            ? FocusManager.GetFocusedElement(root)
+            : null;
+
+    private static string? EditorText(object? editor) => editor switch
+    {
+        TextBox text => text.Text,
+        PasswordBox password => password.Password,
+        _ => null,
+    };
+
     protected override void OnCreate(Bundle? bundle)
     {
+#if DROVER_UNREACHABLE_CHECK
+        if (Intent?.GetBooleanExtra("drover.unreachable_open", false) == true)
+        {
+            UnreachableOpenCheck.Arm();
+        }
+#endif
+
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);
 
@@ -42,6 +109,24 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
         {
             IncomingIntents.Take(Intent, SignInReturnScheme);
         }
+    }
+
+    protected override void OnStart()
+    {
+        base.OnStart();
+        Streams.Show();
+        if (Microsoft.UI.Xaml.Application.Current is App { MainWindow.Content: ShellView shell })
+        {
+            UpdateSystemBars(shell);
+        }
+    }
+
+    // Out of sight the app holds no live stream open. Android keeps a stopped app's process, and its connections, for a
+    // long time; the server counts an open stream as the person watching and would send no push while it lasts.
+    protected override void OnStop()
+    {
+        Streams.Hide();
+        base.OnStop();
     }
 
     protected override void OnNewIntent(Intent? intent)

@@ -3,6 +3,19 @@ namespace Drover.Engine.Threads;
 /// <summary>A thread, the run still working on it, if any, and what it has for the person who asked.</summary>
 public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAttention? Attention = null);
 
+/// <summary>What choosing a conversation's model came to: the models now, or why the choice was refused. Neither when the thread is not found.</summary>
+public sealed record ModelChoice(ConversationModelChoice? Choice, string? Problem = null);
+
+public enum ProjectMembershipOutcome
+{
+    Updated,
+    NotFound,
+    Forbidden,
+}
+
+/// <summary>What moving a conversation into or out of a project came to.</summary>
+public sealed record ProjectMembershipChange(ProjectMembershipOutcome Outcome, ThreadView? Thread = null);
+
 /// <summary>
 /// Threads and their messages, as the caller may see them: row-level security shows a person their own threads and
 /// the shared ones, so a thread that is not theirs simply is not found. Runs in the tenant scope the endpoint filter
@@ -10,6 +23,7 @@ public sealed record ThreadView(ChatThread Thread, Guid? ActiveRunId, ThreadAtte
 /// </summary>
 public sealed class ThreadService(
     ThreadRepository threads,
+    ProjectRepository projects,
     MessageRepository messages,
     BotRepository bots,
     RunRepository runs,
@@ -17,6 +31,8 @@ public sealed class ThreadService(
     BotScheduleRepository schedules,
     TenantScope scope,
     UserSignalHub signals,
+    ConversationModels models,
+    SandboxRepository sandboxes,
     TimeProvider time,
     IOptions<DeploymentPolicyOptions> deployment)
 {
@@ -76,10 +92,39 @@ public sealed class ThreadService(
             cancellationToken);
     }
 
-    /// <summary>A new private thread with the bot, owned by the caller. Null when the bot cannot be talked to.</summary>
-    public async Task<ChatThread?> Create(Guid botId, string? title, Guid ownerUserId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The caller's visible threads in one project, newest activity first, each with what it has for them. Null when
+    /// the project does not exist here.
+    /// </summary>
+    public async Task<List<ThreadView>?> ListThreadsForProject(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        if (await projects.FindProject(projectId, cancellationToken) is null)
+        {
+            return null;
+        }
+
+        var found = await threads.ListThreadsForProject(projectId, ListLimit, cancellationToken);
+        var active = await runs.ListActiveRunIds([.. found.Select(thread => thread.Id)], cancellationToken);
+        return await WithAttention(
+            [.. found.Select(thread => new ThreadView(thread, active.TryGetValue(thread.Id, out var runId) ? runId : null))],
+            userId,
+            cancellationToken);
+    }
+
+    /// <summary>A new private thread with the bot, owned by the caller. Null when the bot or project cannot be used.</summary>
+    public async Task<ChatThread?> Create(
+        Guid botId,
+        string? title,
+        Guid ownerUserId,
+        CancellationToken cancellationToken,
+        Guid? projectId = null)
     {
         if (await bots.FindBot(botId, cancellationToken) is not { Status: BotStatus.Active })
+        {
+            return null;
+        }
+
+        if (projectId is { } targetProjectId && await projects.LockProjectForShare(targetProjectId, cancellationToken) is null)
         {
             return null;
         }
@@ -87,6 +132,7 @@ public sealed class ThreadService(
         var thread = new ChatThread
         {
             BotId = botId,
+            ProjectId = projectId,
             OwnerUserId = ownerUserId,
             AudienceUserId = ownerUserId,
             Title = Shorten(title),
@@ -94,6 +140,73 @@ public sealed class ThreadService(
         };
         threads.Add(thread);
         return thread;
+    }
+
+    /// <summary>
+    /// Moves a conversation into a project of the same space, or out of its project when
+    /// <paramref name="projectId"/> is null. Only the conversation's owner may move it; another member gets forbidden
+    /// on a shared conversation, and row-level security hides private conversations of other people as not found.
+    /// </summary>
+    public async Task<ProjectMembershipChange> SetProject(
+        Guid threadId,
+        Guid? projectId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        if (await threads.FindThread(threadId, cancellationToken) is not { } existing)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        if (existing.OwnerUserId != userId)
+        {
+            return new(ProjectMembershipOutcome.Forbidden);
+        }
+
+        if (projectId is { } targetProjectId && await projects.LockProjectForShare(targetProjectId, cancellationToken) is null)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        if (await threads.GetThreadForUpdate(threadId, cancellationToken) is not { } thread)
+        {
+            return new(ProjectMembershipOutcome.NotFound);
+        }
+
+        thread.ProjectId = projectId;
+        return new(ProjectMembershipOutcome.Updated, await WithAttention(thread, userId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Makes a shared thread private to its owner. Every live sandbox is retired in this same transaction, before
+    /// the audience narrows: a copy was allowed because the whole space could see the conversation, and that is no
+    /// longer true. Nothing on the sandbox says which conversation wrote it, so every live sandbox of the space is
+    /// retired. The retirement holds the space's copy fence, so a copy still in flight re-checks the audience before
+    /// it writes. False when the caller is not the owner, or the thread is not there. A thread that is already
+    /// private is left as it is.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid userId, CancellationToken cancellationToken)
+    {
+        await using var work = await scope.Begin(cancellationToken);
+        var thread = await threads.FindThread(threadId, cancellationToken);
+
+        if (thread is null || thread.OwnerUserId != userId)
+        {
+            return false;
+        }
+
+        if (thread.AudienceUserId == Audience.Everyone)
+        {
+            await sandboxes.RetireLive(time.GetUtcNow(), cancellationToken);
+
+            if (!await threads.MakePrivate(threadId, userId, cancellationToken))
+            {
+                return false;
+            }
+        }
+
+        await work.Commit(cancellationToken);
+        return true;
     }
 
     /// <summary>
@@ -164,6 +277,10 @@ public sealed class ThreadService(
             ? null
             : [.. await messages.ListMessages(threadId, cancellationToken), .. await messages.ListPendingMessages(threadId, cancellationToken)];
 
+    /// <summary>The versions of each place in the thread that has more than one, by the id of every version.</summary>
+    public Task<IReadOnlyDictionary<Guid, IReadOnlyList<Guid>>> ListVersions(Guid threadId, CancellationToken cancellationToken) =>
+        messages.ListVersions(threadId, cancellationToken);
+
     /// <summary>The person each run that wrote one of the messages acts for, by run.</summary>
     public async Task<Dictionary<Guid, Guid>> ListRunPrincipals(IReadOnlyList<Message> sent, CancellationToken cancellationToken) =>
         sent.Any(message => message.RunId is not null)
@@ -215,12 +332,59 @@ public sealed class ThreadService(
 
     private bool ServerWrites => deployment.Value.Rules.AllowConversationSummaries;
 
+    /// <summary>The models the conversation may answer with, or null when the caller may not see the thread.</summary>
+    public async Task<ConversationModelChoice?> GetModels(Guid threadId, CancellationToken cancellationToken) =>
+        await threads.FindThread(threadId, cancellationToken) is { } thread && await bots.FindBot(thread.BotId, cancellationToken) is { } bot
+            ? await DescribeModels(thread, bot, cancellationToken)
+            : null;
+
+    /// <summary>
+    /// Makes the conversation answer with <paramref name="model"/> from its next run, for anyone who may write in it.
+    /// The bot's own model, or none, goes back to the bot's. A model the bot may not use is refused with the reason.
+    /// </summary>
+    public async Task<ModelChoice> ChooseModel(Guid threadId, string? model, CancellationToken cancellationToken)
+    {
+        if (await threads.GetThreadForUpdate(threadId, cancellationToken) is not { } thread
+            || await bots.FindBot(thread.BotId, cancellationToken) is not { } bot)
+        {
+            return new ModelChoice(null);
+        }
+
+        var chosen = string.IsNullOrWhiteSpace(model) || model.Trim() == bot.Model ? null : model.Trim();
+
+        if (chosen is { Length: > BotService.MaxModelLength })
+        {
+            return new ModelChoice(null, $"A model's name is at most {BotService.MaxModelLength} characters.");
+        }
+
+        if (chosen is not null && await models.FindProblem(bot, chosen, cancellationToken) is { } problem)
+        {
+            return new ModelChoice(null, problem);
+        }
+
+        thread.Model = chosen;
+        return new ModelChoice(await DescribeModels(thread, bot, cancellationToken));
+    }
+
     public static string? Shorten(string? title) =>
         string.IsNullOrWhiteSpace(title) ? null : title.Trim()[..Math.Min(title.Trim().Length, MaxTitleLength)];
 
     #endregion
 
     #region Private Methods
+
+    // A choice the bot may no longer use is not shown as chosen: its runs answer with the bot's own model.
+    private async Task<ConversationModelChoice> DescribeModels(ChatThread thread, Bot bot, CancellationToken cancellationToken)
+    {
+        var allowed = await models.ListAllowed(bot, cancellationToken);
+        var answering = await models.ModelFor(thread, bot, cancellationToken);
+        var botModelName = allowed.FirstOrDefault(entry => entry.Model == bot.Model)?.DisplayName ?? bot.Model;
+        return new ConversationModelChoice(
+            bot.Model,
+            botModelName,
+            answering == bot.Model ? null : answering,
+            [.. allowed.Select(entry => new ConversationModelOption(entry.Model, entry.DisplayName))]);
+    }
 
     private async Task<ThreadView> WithAttention(ChatThread thread, Guid userId, CancellationToken cancellationToken)
     {

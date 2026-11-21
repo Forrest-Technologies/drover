@@ -213,7 +213,7 @@ public sealed partial class RunExecutor(
     {
         var runId = run.Id;
         var thread = await services.GetRequiredService<ThreadRepository>().FindThread(run.ThreadId, cancellationToken);
-        var bot = await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken);
+        var bot = await AnsweringBot(services, thread, run, cancellationToken);
         var connections = services.GetRequiredService<ModelConnectionRepository>();
         var connection = bot is null ? null : await connections.FindConnection(bot.ModelConnectionId, cancellationToken);
         var entry = bot is null ? null : await connections.FindCatalogEntry(bot.ModelConnectionId, bot.Model, cancellationToken);
@@ -260,10 +260,29 @@ public sealed partial class RunExecutor(
             ? null
             : await services.GetRequiredService<MemoryService>().Recall(bot, thread, run.PrincipalUserId, cancellationToken);
 
-        var carriesFiles = thread is not null
-            && await services.GetRequiredService<FileRepository>().AnySentInThread(thread.Id, cancellationToken);
+        Project? project = null;
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, carriesFiles);
+        if (thread?.ProjectId is { } projectId)
+        {
+            project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
+        }
+
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project);
+    }
+
+    /// <summary>
+    /// The run's bot, answering with the model its conversation chose when the bot may still use that model. The
+    /// choice is checked again here, because the space's limits may have narrowed since it was made.
+    /// </summary>
+    private static async Task<Bot?> AnsweringBot(IServiceProvider services, ChatThread? thread, Run run, CancellationToken cancellationToken)
+    {
+        if (await services.GetRequiredService<BotRepository>().FindBot(run.BotId, cancellationToken) is not { } bot)
+        {
+            return null;
+        }
+
+        var model = await services.GetRequiredService<ConversationModels>().ModelFor(thread, bot, cancellationToken);
+        return model == bot.Model ? bot : bot.AnsweringWith(model);
     }
 
     /// <summary>The connection's key, or the fact that it cannot be read: a lost key ring fails the run, it does not loop.</summary>
@@ -406,15 +425,14 @@ public sealed partial class RunExecutor(
             loaded.Limits,
             loaded.Steps.Count,
             loaded.Delivered,
-            loaded.Policy.TaintedRunEscalation,
             parent);
     }
 
     /// <summary>
     /// A granted tool as this run uses it. A built-in tool needs its code on this server; a sandbox tool also needs a
     /// bot with a sandbox, and a computer tool a sandbox with a screen and a model that sees images or a model set to
-    /// read the screen for the bot, a crew tool a server that lets bots build bots, and a memory tool a bot with memory
-    /// on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
+    /// read the screen for the bot, a crew tool a server that lets bots build bots, a web tool a server that offers the
+    /// web tools, and a memory tool a bot with memory on in a conversation private to the run's person. A server's tool needs tool connections allowed on this server and its own connection switched on, and is named for the model
     /// with the connection's own prefix, so no server can take another's names or a built-in's.
     /// </summary>
     private RunTool? ToRunTool(GrantedTool granted, LoadedRun loaded)
@@ -450,6 +468,18 @@ public sealed partial class RunExecutor(
                 return null;
             }
 
+            // Where the server does not offer the web tools, they are not offered, whatever the grant says.
+            if (WebTools.IsWebTool(granted.Tool.Name) && !deployment.Value.Rules.AllowWebTools)
+            {
+                return null;
+            }
+
+            // Where the server does not offer image generation, its tool is not offered, whatever the grant says.
+            if (ImageTools.IsImageTool(granted.Tool.Name) && !deployment.Value.Rules.AllowImageGeneration)
+            {
+                return null;
+            }
+
             // A memory tool needs memory on for the bot and a conversation private to the run's person: a note is
             // that person's own, so it is never kept from a conversation other people read.
             if (MemoryTools.IsMemoryTool(granted.Tool.Name)
@@ -481,9 +511,9 @@ public sealed partial class RunExecutor(
             loaded.Bot!.Id,
             loaded.ModelSeesImages,
             hasSandbox,
+            deployment.Value.Rules.MaxDocumentPages,
             fileStore,
             sandboxBrokers.FirstOrDefault(),
-            session.Taint,
             loggers.CreateLogger<RunFiles>());
     }
 
@@ -519,8 +549,6 @@ public sealed partial class RunExecutor(
             return refusal.Status;
         }
 
-        await TaintFromNotes(session, loaded);
-        await TaintFromFiles(session, loaded);
         var bot = loaded.Bot!;
         var connection = loaded.Connection!;
         var provider = providers.First(candidate => candidate.Kind == connection.Kind);
@@ -577,9 +605,7 @@ public sealed partial class RunExecutor(
     }
 
     /// <summary>
-    /// Runs the agent until it ends or waits. When the run becomes tainted part way, the agent is stopped before its
-    /// next model call and built again, this time with its consequential tools asking, and goes on from the stored
-    /// conversation. The answers a waiting run came back with are handed over once, to the first agent.
+    /// Runs the agent until it ends or waits. The answers a waiting run came back with are handed over to the agent.
     /// </summary>
     private async Task<RunOutcome> DriveToAStop(
         RunSession session,
@@ -589,24 +615,8 @@ public sealed partial class RunExecutor(
         RunRules rules,
         CancellationToken cancellationToken)
     {
-        var answers = loaded.Answers;
-
-        while (true)
-        {
-            session.MarkBuilt();
-            session.RulesAtBuild = await rules.Load(cancellationToken);
-
-            try
-            {
-                return await Drive(session, BuildExecution(session, loaded, model) with { Responses = answers }, governor, cancellationToken);
-            }
-            catch (Exception rebuild) when (Find<AgentRebuildRequiredException>(rebuild) is not null && !cancellationToken.IsCancellationRequested)
-            {
-                logger.LogInformation("Run {RunId} read from an untrusted source; its agent is built again so its tools ask", session.RunId);
-                await session.Writer.Write(null, session.CloseOpenWork());
-                answers = [];
-            }
-        }
+        session.RulesAtBuild = await rules.Load(cancellationToken);
+        return await Drive(session, BuildExecution(session, loaded, model) with { Responses = loaded.Answers }, governor, cancellationToken);
     }
 
     private async Task<RunOutcome> Drive(RunSession session, RunExecution execution, RunGovernor governor, CancellationToken cancellationToken)
@@ -709,6 +719,9 @@ public sealed partial class RunExecutor(
         Memory = OfferedMemoryTools(session, loaded) is { Count: > 0 } offered && loaded.Memory is { } memory
             ? memory with { CanList = offered.Contains("memory.list") }
             : null,
+        Project = loaded.Project is null
+            ? null
+            : new ProjectBrief(loaded.Project.Id, loaded.Project.Name, loaded.Project.Instructions),
     };
 
     /// <summary>The memory tools the run is offered. A bot that cannot keep notes is given no notes.</summary>
@@ -720,32 +733,6 @@ public sealed partial class RunExecutor(
             .Where(tool => tool.Builtin is not null && MemoryTools.IsMemoryTool(tool.Tool.Name))
             .Select(tool => tool.Tool.Name),
     ];
-
-    /// <summary>
-    /// A run given a note that a tainted run wrote may be given that run's untrusted text, so it is tainted before its
-    /// agent is built: its consequential tools ask from the first call, as they would in the run that read the text.
-    /// </summary>
-    private static async Task TaintFromNotes(RunSession session, LoadedRun loaded)
-    {
-        if (loaded.Memory is { Tainted: true } && OfferedMemoryTools(session, loaded).Count > 0)
-        {
-            await session.Taint();
-        }
-    }
-
-    /// <summary>
-    /// A file a person attached is text from outside Drover, a document or a picture of anything, so a run whose
-    /// conversation carries one is tainted before its agent is built, as a run given a tool's result would be once it
-    /// had read it: its consequential tools ask from the first call. Every later run of the conversation is given
-    /// the file again, so it is tainted the same way.
-    /// </summary>
-    private static async Task TaintFromFiles(RunSession session, LoadedRun loaded)
-    {
-        if (loaded.CarriesFiles)
-        {
-            await session.Taint();
-        }
-    }
 
     private static ToolDefinition ToDefinition(RunSession session, LoadedRun loaded, RunTool tool) => new()
     {
@@ -1189,7 +1176,7 @@ public sealed partial class RunExecutor(
         bool ModelSeesImages,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,
-        bool CarriesFiles);
+        Project? Project);
 
     #endregion
 }

@@ -1,0 +1,12 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: SearXNG answers 403 Forbidden to format=json when json is not listed in search.formats of its settings.yml (its webapp refuses an output format it does not offer). No real instance produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 403,
+      "body": {}
+    }
+  ]
+}

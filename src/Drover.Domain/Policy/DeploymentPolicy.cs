@@ -140,6 +140,10 @@ public sealed record DeploymentPolicy
 
     public const int HostedMaxSpaceFileMegabytes = 1024;
 
+    public const int SelfHostedMaxDocumentPages = 500;
+
+    public const int HostedMaxDocumentPages = 100;
+
     public const int DelegationDepth = 5;
 
     public const int RunsPerDelegationTree = 50;
@@ -161,6 +165,14 @@ public sealed record DeploymentPolicy
     public const int SelfHostedMaxMemoryCharactersPerPerson = 20_000;
 
     public const int HostedMaxMemoryCharactersPerPerson = 8000;
+
+    public const int SelfHostedMaxWebPageBytes = 4 * 1024 * 1024;
+
+    public const int HostedMaxWebPageBytes = 1024 * 1024;
+
+    public const int SelfHostedMaxWebRequestSeconds = 30;
+
+    public const int HostedMaxWebRequestSeconds = 15;
 
     #endregion
 
@@ -248,6 +260,13 @@ public sealed record DeploymentPolicy
     /// private ones included. A file that would take the space past it is refused when it is uploaded.
     /// </summary>
     public int MaxSpaceFileMegabytes { get; init; } = SelfHostedMaxSpaceFileMegabytes;
+
+    /// <summary>
+    /// The most pages of a PDF document, slides of a presentation, or sheets of a workbook the server reads for a bot.
+    /// The server reads an attached document itself, on its own processor, so this bounds what one file costs it.
+    /// </summary>
+    public int MaxDocumentPages { get; init; } = SelfHostedMaxDocumentPages;
+
     /// <summary>
     /// How many levels below the run a person started a chain of delegations may reach. A space may only lower it.
     /// Each level is another bot working, and a chain is where a runaway loop spends money.
@@ -327,9 +346,6 @@ public sealed record DeploymentPolicy
 
     public QuotaMode SpaceQuotas { get; init; } = QuotaMode.Unlimited;
 
-    /// <summary>A space may turn tainted-run escalation off. It is on unless a space does.</summary>
-    public bool SpaceMayDisableTaintedRunEscalation { get; init; } = true;
-
     /// <summary>A space may turn on loading remote images in bot output. It is off unless a space does.</summary>
     public bool SpaceMayAutoLoadRemoteImages { get; init; } = true;
 
@@ -393,6 +409,28 @@ public sealed record DeploymentPolicy
     /// on a shared server it also bounds the rows one person's bot can make.
     /// </summary>
     public int MaxMemoryCharactersPerPerson { get; init; } = SelfHostedMaxMemoryCharactersPerPerson;
+
+    /// <summary>
+    /// A bot granted the web tools may search the web and read a page by its address. Off in the hosted preset: every
+    /// search and every page is a request from the operator's server, on the operator's address, made for a stranger.
+    /// Off, neither tool is offered to a model and a call of one is refused in words naming this rule.
+    /// </summary>
+    public bool AllowWebTools { get; init; } = true;
+
+    /// <summary>
+    /// The most bytes Drover reads of one web page a bot asks for, or of one answer from the search service. A larger
+    /// answer is refused for a search and cut for a page, and the bot is told which.
+    /// </summary>
+    public int MaxWebPageBytes { get; init; } = SelfHostedMaxWebPageBytes;
+
+    /// <summary>The most seconds one search or one page read may take, redirects included, before it is given up.</summary>
+    public int MaxWebRequestSeconds { get; init; } = SelfHostedMaxWebRequestSeconds;
+
+    /// <summary>
+    /// A bot granted the image tool may create an image through its model connection. Off in the hosted preset until
+    /// the operator can set a per-space spending limit. Off, the tool is not offered and a call is refused.
+    /// </summary>
+    public bool AllowImageGeneration { get; init; } = true;
 
     #endregion
 
@@ -508,6 +546,11 @@ public sealed record DeploymentPolicy
             HostedMaxSpaceFileMegabytes,
             Enforcement.Now("FileService, on every upload, against the space's stored total")),
         PolicyRule.Limit(
+            nameof(MaxDocumentPages),
+            policy => policy.MaxDocumentPages,
+            HostedMaxDocumentPages,
+            Enforcement.Now("FileService on upload and RunFiles on every run, when a document's text is read")),
+        PolicyRule.Limit(
             nameof(MaxDelegationDepth),
             policy => policy.MaxDelegationDepth,
             DelegationDepth,
@@ -566,10 +609,6 @@ public sealed record DeploymentPolicy
             policy => policy.SpaceQuotas,
             Enforcement.Later("Quotas, after Phase 0")),
         PolicyRule.Permission(
-            nameof(SpaceMayDisableTaintedRunEscalation),
-            policy => policy.SpaceMayDisableTaintedRunEscalation,
-            Enforcement.Later("Phase 1: tainted-run escalation (06-mcp.md)")),
-        PolicyRule.Permission(
             nameof(SpaceMayAutoLoadRemoteImages),
             policy => policy.SpaceMayAutoLoadRemoteImages,
             Enforcement.Later("Chat rendering of bot output")),
@@ -625,6 +664,24 @@ public sealed record DeploymentPolicy
             policy => policy.MaxMemoryCharactersPerPerson,
             HostedMaxMemoryCharactersPerPerson,
             Enforcement.Now("MemoryService, on every note saved or changed and on every recall; BotService, when a bot is saved")),
+        PolicyRule.Permission(
+            nameof(AllowWebTools),
+            policy => policy.AllowWebTools,
+            Enforcement.Now("RunExecutor, which offers no web tool, and every web.search and web.fetch call")),
+        PolicyRule.Limit(
+            nameof(MaxWebPageBytes),
+            policy => policy.MaxWebPageBytes,
+            HostedMaxWebPageBytes,
+            Enforcement.Now("Every web.fetch page and every web.search answer")),
+        PolicyRule.Limit(
+            nameof(MaxWebRequestSeconds),
+            policy => policy.MaxWebRequestSeconds,
+            HostedMaxWebRequestSeconds,
+            Enforcement.Now("Every web.fetch and web.search call")),
+        PolicyRule.Permission(
+            nameof(AllowImageGeneration),
+            policy => policy.AllowImageGeneration,
+            Enforcement.Now("RunExecutor, which offers no image.create tool, and every image.create call")),
     ];
 
     #endregion

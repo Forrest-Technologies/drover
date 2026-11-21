@@ -50,7 +50,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var (request, history, cutOff, steers, summary) = await run.Database.Transact(
+        var (request, history, cutOff, steers, summary, projectFiles) = await run.Database.Transact(
             async services =>
             {
                 var repository = services.GetRequiredService<MessageRepository>();
@@ -64,7 +64,7 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                     cancellationToken);
                 var (messages, rerun) = await LoadAndRepair(services, AnsweredIn(reconciled), cancellationToken);
                 var waiting = await ListSteering(services.GetRequiredService<MessageRepository>(), cancellationToken);
-                return (reconciled, messages, rerun, waiting, await ReadSummary(repository, cancellationToken));
+                return (reconciled, messages, rerun, waiting, await ReadSummary(repository, cancellationToken), await ReadProjectFiles(services, cancellationToken));
             },
             cancellationToken);
 
@@ -76,15 +76,44 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
         var ordered = MessageOrder.ResultsAfterCalls(complete);
         var shown = summary is null ? ordered : MessageOrder.After(ordered, summary.ThroughPosition);
 
-        // Attached files are opened with no transaction open too: copying one into a sandbox waits on the network.
-        var files = await run.Governor.OpenFiles([.. shown.Concat(steers).FileIds()], cancellationToken);
+        // Attached files and the project's bounded files are opened with no transaction open: copying an attachment
+        // into a sandbox waits on the network, while project files are read directly and never copied into a sandbox.
+        var attachmentIds = shown.Concat(steers).FileIds();
+        var files = await run.Governor.OpenFiles([.. attachmentIds], cancellationToken);
+        var projectOpened = run.Execution.Project is { } pinnedProject
+            ? await run.Governor.OpenProjectFiles(
+                projectFiles?.ProjectId ?? pinnedProject.Id,
+                projectFiles?.FileIds ?? [],
+                cancellationToken)
+            : new Dictionary<Guid, FileForModel>();
         List<ChatMessage> steered = [.. steers.Select(message => message.ToChatMessage(files))];
         steering = [.. steered.Select(message => message.MessageId!)];
         context.RequestMessages = [.. request, .. steered];
 
-        return summary is null
-            ? shown.Select(message => message.ToChatMessage(files))
-            : [ToSummaryMessage(summary), .. shown.Select(message => message.ToChatMessage(files))];
+        List<ChatMessage> given = [.. shown.Select(message => message.ToChatMessage(files))];
+
+        if (summary is not null)
+        {
+            given.Insert(0, ToSummaryMessage(summary));
+        }
+
+        if (projectFiles is { } shared)
+        {
+            List<FileForModel> opened = [.. shared.FileIds.Where(projectOpened.ContainsKey).Select(id => projectOpened[id])];
+
+            var unavailable = shared.FileIds.Count - opened.Count;
+
+            if (ProjectFileGrant.ToMessage(
+                shared.Name,
+                opened,
+                shared.OmittedCount + unavailable,
+                shared.OversizedCount) is { } sharedFiles)
+            {
+                given.Insert(summary is null ? 0 : 1, sharedFiles);
+            }
+        }
+
+        return given;
     }
 
     protected override async ValueTask StoreChatHistoryAsync(
@@ -116,7 +145,9 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
                     .. reconciled
                         .Select((message, index) => (
                             IsReply: index >= request.Count,
-                            Message: message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId, keepReplyId: index >= request.Count)))
+                            Message: index >= request.Count
+                                ? message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId, keepReplyId: true, model: execution.Bot.Model)
+                                : message.ToMessage(execution.RunId, execution.Bot.BotId, execution.PrincipalUserId)))
                         .Where(pair => pair.Message is not null)
                         .Select(pair => (pair.IsReply, WithRedactedArguments(pair.Message!))),
                 ];
@@ -145,6 +176,33 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
     #endregion
 
     #region Summary
+
+    /// <summary>
+    /// The pinned project for this execution and its bounded file ids, oldest first. Null when the execution has no
+    /// project or the project was removed. Using the pinned execution project keeps project instructions and file grants
+    /// on the same project even if the conversation moves mid-run.
+    /// </summary>
+    private async Task<SharedProjectFiles?> ReadProjectFiles(IServiceProvider services, CancellationToken cancellationToken)
+    {
+        if (run.Execution.Project is not { } pinned
+            || await services.GetRequiredService<ProjectRepository>().FindProject(pinned.Id, cancellationToken) is not { } project)
+        {
+            return null;
+        }
+
+        var files = await services.GetRequiredService<FileRepository>().ListProjectFileWindow(
+            project.Id,
+            ProjectFileLimits.CandidateLimit,
+            ProjectFileLimits.MaxStoredBytes,
+            cancellationToken);
+        var selection = ProjectFileGrant.SelectForOpen(files);
+        return new SharedProjectFiles(
+            project.Id,
+            project.Name,
+            selection.FileIds,
+            selection.OmittedCount,
+            selection.OversizedCount);
+    }
 
     /// <summary>
     /// The thread's summary, when this bot's history is to begin with it: the bot compacts by summarization, the
@@ -436,6 +494,14 @@ public sealed class PostgresChatHistoryProvider(RunContext run, ILogger logger) 
 
     /// <summary>A main thread's summary and the position of the last message it covers.</summary>
     private sealed record HistorySummary(string Text, int ThroughPosition);
+
+    /// <summary>The project files selected to grant on this model call, oldest first.</summary>
+    private sealed record SharedProjectFiles(
+        Guid ProjectId,
+        string Name,
+        IReadOnlyList<Guid> FileIds,
+        int OmittedCount,
+        int OversizedCount);
 
     #endregion
 }

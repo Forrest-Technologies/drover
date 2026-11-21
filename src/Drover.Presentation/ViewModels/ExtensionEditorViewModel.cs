@@ -341,7 +341,7 @@ public sealed partial class ExtensionEditorViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ExtensionEditorViewModel));
-            (Notice, NoticeIsProblem) = (Failures.Sentence(exception), true);
+            (Notice, NoticeIsProblem) = (Failures.Sentence(exception, "Check that the server is running."), true);
             return null;
         }
         finally

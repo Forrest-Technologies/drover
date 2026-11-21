@@ -146,6 +146,35 @@ public sealed class RunAttentionTests(PostgresServer postgres)
     #region Delegation
 
     [Fact]
+    public async Task Replies_from_two_levels_of_delegation_read_new_only_on_the_roots_conversation()
+    {
+        await using var world = await RunWorld.Create(postgres, new ScriptedModel());
+        var childId = await world.NewBotBeneath(world.BotId, "Helper");
+        var grandchildId = await world.NewBotBeneath(childId, "Reader");
+        await world.Grant(DelegateTool.Name, GrantEffect.Allow);
+        await world.GrantTo(childId, DelegateTool.Name, GrantEffect.Allow);
+        world.Script.Then(
+            [Delegate("d1", childId, "Have it read.")],
+            [Delegate("d2", grandchildId, "Read it.")],
+            [new TextOutput("Read.")],
+            [new TextOutput("Reader read it.")],
+            [new TextOutput("Helper finished.")]);
+        world.StartHost();
+        var threadId = await world.NewThread();
+        var rootId = await world.Post(threadId, "Delegate it.");
+        await world.WaitForStatus(rootId, RunStatus.Completed);
+        var tree = await world.ReadTree(rootId);
+
+        tree.Should().HaveCount(3);
+        (await AttentionOf(world, threadId, world.UserId)).Should().Be(new ThreadAttention(false, false, true, null));
+        foreach (var child in tree.Where(run => run.Id != rootId))
+        {
+            child.Status.Should().Be(RunStatus.Completed);
+            (await AttentionOf(world, child.ThreadId, world.UserId)).Should().Be(new ThreadAttention(false, false, false, null));
+        }
+    }
+
+    [Fact]
     public async Task An_approval_a_child_waits_for_makes_the_root_bot_read_waiting_and_answering_it_clears_it()
     {
         var tools = new TestTools().Add("test.write", ToolSensitivity.Write);

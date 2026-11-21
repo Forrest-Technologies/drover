@@ -115,7 +115,7 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
 
     #endregion
 
-    #region Taint
+    #region Allow Means Allow
 
     [Theory]
     [InlineData(NetworkAccess.Off, false)]
@@ -147,6 +147,37 @@ public sealed class ComputerToolsTests(PostgresServer postgres)
 
         run.Tainted.Should().BeFalse();
         JsonElement.DeepEquals((await world.ReadToolCalls(runId)).Single().Result!.Value, JsonElement.Parse("""{"done":true}""")).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("computer_click", """{"x":10,"y":20}""")]
+    [InlineData("computer_type", """{"text":"keep this"}""")]
+    public async Task An_action_on_an_allow_grant_runs_without_asking_after_the_run_read_untrusted_text_and_leaves_the_screen_unmarked(
+        string tool, string arguments)
+    {
+        var provider = DesktopProvider();
+        var script = new ScriptedModel(
+            [new ToolCallOutput("c1", "web__fetch")],
+            [new ToolCallOutput("c2", tool, arguments)],
+            [new TextOutput("Acted.")],
+            [new ToolCallOutput("c3", "computer_screenshot")],
+            [new TextOutput("Seen.")]);
+        await using var world = await ComputerWorld(provider, script, network: NetworkAccess.Off);
+        await SandboxBrokerTests.OfferUntrustedPage(world);
+        world.StartHost();
+
+        var actor = await world.Post(await world.NewThread(), "Read the page and act on it");
+        var acted = await world.WaitForStatus(actor, RunStatus.Completed, RunStatus.Waiting, RunStatus.Failed);
+
+        acted.Status.Should().Be(RunStatus.Completed, "an allowed action runs whatever the run read");
+        acted.Tainted.Should().BeTrue("the run read an untrusted page, which is recorded");
+        (await world.ReadToolCalls(actor)).Should().NotContain(call => call.Status == ToolCallStatus.PendingApproval);
+
+        var looker = await world.Post(await world.NewThread(), "What is on the screen?");
+        var clean = await world.WaitForStatus(looker, RunStatus.Completed, RunStatus.Failed);
+
+        clean.Status.Should().Be(RunStatus.Completed, clean.Error?.Message);
+        clean.Tainted.Should().BeFalse("with the network off, looking at the screen reads nothing from outside");
     }
 
     #endregion

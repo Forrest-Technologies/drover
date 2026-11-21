@@ -63,7 +63,7 @@ public sealed class AttachmentDraft
             return false;
         }
 
-        var percent = entry.Item.Size > 0 ? (int)Math.Clamp(sent * 100 / entry.Item.Size, 0, 99) : 99;
+        var percent = entry.Item.Size > 0 ? (int)Math.Clamp(sent * 100 / entry.Item.Size, 0, 99) : 0;
 
         if (percent == entry.Item.Percent)
         {

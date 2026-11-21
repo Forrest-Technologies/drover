@@ -5,6 +5,7 @@
     <Project Path="src/Drover.Adapters.LocalFiles/Drover.Adapters.LocalFiles.csproj" />
     <Project Path="src/Drover.Adapters.Mcp/Drover.Adapters.Mcp.csproj" />
     <Project Path="src/Drover.Adapters.OpenAICompatible/Drover.Adapters.OpenAICompatible.csproj" />
+    <Project Path="src/Drover.Adapters.SearXng/Drover.Adapters.SearXng.csproj" />
     <Project Path="src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj" />
     <Project Path="src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj" />
     <Project Path="src/Drover.Agents/Drover.Agents.csproj" />
@@ -26,6 +27,7 @@
     <Project Path="tests/Drover.Data.Tests/Drover.Data.Tests.csproj" />
     <Project Path="tests/Drover.Domain.Tests/Drover.Domain.Tests.csproj" />
     <Project Path="tests/Drover.Engine.Tests/Drover.Engine.Tests.csproj" />
+    <Project Path="tests/Drover.Native.UITests/Drover.Native.UITests.csproj" />
     <Project Path="tests/Drover.Presentation.Tests/Drover.Presentation.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
     <Project Path="tests/Drover.Ui.Tests/Drover.Ui.Tests.csproj" />

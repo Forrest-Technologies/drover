@@ -172,7 +172,7 @@ public sealed partial class ToolConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
-            AddProblem = Failures.Sentence(exception);
+            AddProblem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
@@ -189,10 +189,10 @@ public sealed partial class ToolConnectionsViewModel(
             Say(refreshed.Connection, refreshed.Problem, Listed(refreshed));
         });
 
-    public Task SignIn(ToolConnectionSummary connection, Func<string, Task> openAddress, string? returnScheme = null) =>
+    public Task SignIn(ToolConnectionSummary connection, Func<string, Task> openAddress, string? returnTo = null) =>
         Change(connection, async () =>
         {
-            var start = await api.BeginToolSignIn(SpaceId, connection.Id, returnScheme);
+            var start = await api.BeginToolSignIn(SpaceId, connection.Id, returnTo);
 
             if (start is { Step: "redirect", AuthorizationUrl: { } address })
             {
@@ -319,7 +319,7 @@ public sealed partial class ToolConnectionsViewModel(
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed on the {Screen} screen", nameof(ToolConnectionsViewModel));
-            problems[connection.Id] = Failures.Sentence(exception);
+            problems[connection.Id] = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {

@@ -31,7 +31,9 @@ public static class ModelResponses
                 entry.Capabilities.Reasoning,
                 [.. entry.Capabilities.ReasoningEfforts],
                 entry.Capabilities.StructuredOutput,
-                entry.Capabilities.WebSearch),
+                entry.Capabilities.WebSearch,
+                entry.Capabilities.ImageGeneration,
+                entry.Capabilities.VisionSetByOperator),
             new ModelPriceResponse(
                 entry.Pricing.InputPerMillion,
                 entry.Pricing.OutputPerMillion,

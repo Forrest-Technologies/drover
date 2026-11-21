@@ -27,6 +27,18 @@ internal sealed class Batch(FrameworkElement owner, Action apply, Action draw)
     /// <summary>Something the piece shows changed: draw.</summary>
     public void Draw() => Queue();
 
+    /// <summary>
+    /// Draws now if a draw is waiting, so a piece measured for the first time already shows what it was given, not an
+    /// empty frame until the queued draw comes round.
+    /// </summary>
+    public void DrawIfWaiting()
+    {
+        if (queued)
+        {
+            Run();
+        }
+    }
+
     /// <summary>Does now what is waiting, for a piece that must be drawn before it is measured.</summary>
     public void Flush()
     {
@@ -57,8 +69,14 @@ internal sealed class Batch(FrameworkElement owner, Action apply, Action draw)
         }
     }
 
+    // A draw that already ran before it was measured leaves nothing for the queued one to do.
     private void Run()
     {
+        if (!queued)
+        {
+            return;
+        }
+
         queued = false;
         Flush();
     }

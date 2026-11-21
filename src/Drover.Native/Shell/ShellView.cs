@@ -31,6 +31,10 @@ public sealed class ShellView : Grid
 
         Children.Add(frame);
         Children.Add(new ToastHost { Model = ActivatorUtilities.CreateInstance<ToastHostViewModel>(services) });
+#if ANDROID || __IOS__
+        // Keep the window background under the system bars and the controls inside their visible bounds.
+        SafeArea.Attach(this);
+#endif
 
         theme.Load();
         theme.PropertyChanged += (_, _) => ApplyTheme();
@@ -114,7 +118,16 @@ public sealed class ShellView : Grid
         _ => ElementTheme.Dark,
     };
 
-    private void Paint() => Background = Tokens.Brush(this, "DvBg0");
+    private void Paint()
+    {
+        Background = Tokens.Brush(this, "DvBg0");
+#if ANDROID
+        if (Uno.UI.ContextHelper.Current is MainActivity activity)
+        {
+            activity.UpdateSystemBars(this);
+        }
+#endif
+    }
 
     #endregion
 }

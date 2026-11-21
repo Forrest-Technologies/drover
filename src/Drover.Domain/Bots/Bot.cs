@@ -47,4 +47,19 @@ public sealed class Bot : ISpaceOwned
     public Guid? CreatedByBotId { get; set; }
 
     #endregion
+
+    #region Public Methods
+
+    /// <summary>
+    /// A copy of the bot for one run that answers with <paramref name="model"/>, as a conversation that chose another
+    /// of the bot's models does. The copy is not stored: the bot keeps its own model.
+    /// </summary>
+    public Bot AnsweringWith(string model)
+    {
+        var copy = (Bot)MemberwiseClone();
+        copy.Model = model;
+        return copy;
+    }
+
+    #endregion
 }

@@ -4,11 +4,11 @@ namespace Drover.Adapters.OpenAICompatible;
 /// Any endpoint that speaks the OpenAI chat protocol: a hosted provider or a local model server.
 /// A key is optional. Capabilities are conservative until the operator says more.
 /// </summary>
-public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : IModelClientProvider
+public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : IModelClientProvider, IModelImageGenerator
 {
     #region Private Fields
 
-    public const string ConnectionKind = "openai_compatible";
+    public const string ConnectionKind = ModelConnectionKinds.Compatible;
 
     public const string HttpClientName = "drover-openai-compatible";
 
@@ -30,6 +30,22 @@ public sealed class OpenAICompatibleProvider(IHttpClientFactory httpClients) : I
 
     public IModelChatClient CreateProtocolClient(ModelEndpoint connection, string? apiKey, string modelId) =>
         new ProtocolChatClient(httpClients.CreateClient($"drover-{connection.Kind.Replace('_', '-')}"), connection, KeyOrPlaceholder(apiKey), modelId, new ModelSettings(), true);
+
+    public Task<ModelImageResult> Generate(
+        ModelEndpoint connection,
+        string? apiKey,
+        ModelImageRequest request,
+        CancellationToken cancellationToken) =>
+        new ProtocolImageGenerator(httpClients.CreateClient(HttpClientName))
+            .Generate(connection, apiKey, request, cancellationToken);
+
+    public Task<ModelImageResult> GenerateCompatibleImage(
+        ModelEndpoint connection,
+        string? apiKey,
+        ModelImageRequest request,
+        CancellationToken cancellationToken) =>
+        new ProtocolImageGenerator(httpClients.CreateClient($"drover-{connection.Kind.Replace('_', '-')}"))
+            .Generate(connection, apiKey, request, cancellationToken);
 
     public async Task<IReadOnlyList<ModelInfo>> ListModels(
         ModelEndpoint connection,

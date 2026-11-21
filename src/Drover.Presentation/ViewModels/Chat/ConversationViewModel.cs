@@ -69,6 +69,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
 
     private bool retrying;
 
+    private bool changing;
+
     private bool markedOnOpen;
 
     private bool missing;
@@ -101,7 +103,11 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         Composer.OnCancel = () => Rendered(Stop());
         Composer.OnFiles = files => Rendered(Attach(files));
         Composer.OnRemoveFile = id => Rendered(RemoveFile(id));
+        Composer.OnModelChosen = model => Rendered(ChooseModel(model));
         List.OnRetry = () => Rendered(Retry());
+        List.OnShowVersion = messageId => Rendered(ShowVersion(messageId));
+        List.OnRegenerate = replyId => Rendered(Regenerate(replyId));
+        List.OnEdit = (messageId, text) => Rendered(Edit(messageId, text));
         List.Decide = Decide;
         List.Forget = Forget;
         List.ReadWhole = ReadWhole;
@@ -121,6 +127,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     public bool Main => parameters.Main;
 
     public bool ReadOnly => parameters.ReadOnly;
+
+    /// <summary>The conversation's thread once it has one: a side chat has none until its first message.</summary>
+    public Guid? ThreadId => thread?.Id;
 
     /// <summary>The messages, the bot thinking, and how the last reply ended.</summary>
     public MessageListViewModel List { get; } = new();
@@ -274,20 +283,25 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            stored = await api.ListMessages(SpaceId, thread.Id);
-
             if (ReadOnly)
             {
+                stored = await api.ListMessages(SpaceId, thread.Id);
                 await FollowHandedWork(thread.Id);
                 return;
             }
 
-            history = await LoadToolHistory(thread.Id, thread.ActiveRunId);
+            // The messages, the tool calls they made, and the models it may answer with are read together; none
+            // needs another.
+            var said = api.ListMessages(SpaceId, thread.Id);
+            var tools = LoadToolHistory(thread.Id, thread.ActiveRunId);
+            var models = LoadModels(thread.Id);
+            await Task.WhenAll(said, tools, models);
+            (stored, history) = (await said, await tools);
+            Composer.ShowModels(await models);
 
             ResumeActiveRun(thread);
             await ReportBusy();
-            await MarkSeen();
-            markedOnOpen = parameters.Opened;
+            await ShownThenMarkSeen();
         }
         catch (DroverApiException exception) when (!Main && exception.StatusCode is HttpStatusCode.NotFound)
         {
@@ -297,12 +311,21 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = Failures.Sentence(exception);
+            problem = Failures.Sentence(exception, "Check that the server is running.");
         }
         finally
         {
             loading = false;
         }
+    }
+
+    // The conversation is on screen as soon as it is read; telling the server it was seen does not hold it back.
+    private async Task ShownThenMarkSeen()
+    {
+        markedOnOpen = parameters.Opened;
+        loading = false;
+        Changed();
+        await MarkSeen();
     }
 
     // The start page's conversation becomes seen when the person chooses its bot: the conversation stays, the address changes.
@@ -327,6 +350,41 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         {
             logger.LogWarning(exception, "The tool history of thread {ThreadId} could not be loaded", threadId);
             return [];
+        }
+    }
+
+    // Choosing a model is a quiet option: when what it may choose cannot be read, the conversation reads and answers
+    // as before, with the bot's own model, and offers no choice.
+    private async Task<ConversationModelChoice?> LoadModels(Guid threadId)
+    {
+        try
+        {
+            return await api.GetConversationModels(SpaceId, threadId);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The models of thread {ThreadId} could not be read", threadId);
+            return null;
+        }
+    }
+
+    // The server decides whether the bot may answer with the model. A refusal says why, and the choice goes back.
+    private async Task ChooseModel(string? model)
+    {
+        if (thread is not { } shown)
+        {
+            return;
+        }
+
+        try
+        {
+            Composer.ShowModels(await api.ChooseConversationModel(SpaceId, shown.Id, model));
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "The model of thread {ThreadId} could not be chosen", shown.Id);
+            toasts.Show(Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
+            Composer.ShowModels(await LoadModels(shown.Id));
         }
     }
 
@@ -407,7 +465,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"Your message was not sent. {Failures.Sentence(exception)}";
+            problem = $"Your message was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
@@ -449,7 +507,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"The reply was not stopped. {Failures.Sentence(exception)}";
+            problem = $"The reply was not stopped. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -484,7 +542,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            return $"Your answer was not sent. {Failures.Sentence(exception)}";
+            return $"Your answer was not sent. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
     }
 
@@ -517,7 +575,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception)}");
+            return new(false, Problem: $"The note was not forgotten. {Failures.Sentence(exception, "Check that the server is running.")}");
         }
     }
 
@@ -531,7 +589,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception), ToastKind.Error);
+            toasts.Show(exception is DroverApiException { StatusCode: HttpStatusCode.NotFound } ? MemoryWords.Gone : Failures.Sentence(exception, "Check that the server is running."), ToastKind.Error);
         }
     }
 
@@ -567,11 +625,86 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"It was not tried again. {Failures.Sentence(exception)}";
+            problem = $"It was not tried again. {Failures.Sentence(exception, "Check that the server is running.")}";
         }
         finally
         {
             retrying = false;
+        }
+    }
+
+    #endregion
+
+    #region Versions
+
+    private Task Regenerate(Guid replyId) =>
+        StartVersion(thread => api.RegenerateReply(SpaceId, thread.Id, replyId), "No other reply was asked for.");
+
+    private Task Edit(Guid messageId, string text) =>
+        StartVersion(thread => api.EditMessage(SpaceId, thread.Id, messageId, text), "Your edit was not sent.");
+
+    // A new version is answered by a new run, which is followed like any other. The version left is kept on the
+    // server, so the conversation is read again to show the one that is now shown.
+    private async Task StartVersion(Func<ThreadSummary, Task<SendMessageResponse>> ask, string notDone)
+    {
+        if (changing || thread is null)
+        {
+            return;
+        }
+
+        changing = true;
+        (problem, notice) = (null, null);
+        try
+        {
+            var started = await ask(thread);
+            stored = await api.ListMessages(SpaceId, thread.Id);
+            thread = thread with
+            {
+                ActiveRunId = started.Run.Id,
+                Attention = thread.Attention is { } attention ? attention with { Failed = false, LastFailure = null } : null,
+            };
+            await ThreadChanged(thread);
+            Watch(started.Run.Id);
+            await ReportBusy();
+            ShowNewest();
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
+            problem = $"{notDone} {Failures.Sentence(exception, "Check that the server is running.")}";
+        }
+        finally
+        {
+            changing = false;
+        }
+    }
+
+    // The server shows the other version with what followed it; the conversation is read again to show it.
+    private async Task ShowVersion(Guid messageId)
+    {
+        if (changing || thread is null)
+        {
+            return;
+        }
+
+        changing = true;
+        problem = null;
+        try
+        {
+            await api.ShowMessageVersion(SpaceId, thread.Id, messageId);
+            var said = api.ListMessages(SpaceId, thread.Id);
+            var tools = LoadToolHistory(thread.Id, null);
+            await Task.WhenAll(said, tools);
+            (stored, history, run) = (await said, await tools, run is { IsActive: true } ? run : null);
+        }
+        catch (Exception exception) when (Failures.IsReportable(exception))
+        {
+            logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
+            problem = $"The other version was not shown. {Failures.Sentence(exception, "Check that the server is running.")}";
+        }
+        finally
+        {
+            changing = false;
         }
     }
 
@@ -613,7 +746,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         catch (Exception exception) when (Failures.IsReportable(exception))
         {
             logger.LogWarning(exception, "A request to the server failed in the {Screen}", nameof(ConversationViewModel));
-            problem = $"The files were not attached. {Failures.Sentence(exception)}";
+            problem = $"The files were not attached. {Failures.Sentence(exception, "Check that the server is running.")}";
             return;
         }
 
@@ -643,8 +776,9 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         try
         {
             await using var content = await file.OpenRead(maxBytes, left);
-            var uploaded = await api.UploadFile(
-                SpaceId, threadId, file.Name, content, file.Size, progress, left);
+            var uploaded = file.Size is 0
+                ? await api.UploadFileWithUnverifiedSize(SpaceId, threadId, file.Name, content, maxBytes, progress, left)
+                : await api.UploadFile(SpaceId, threadId, file.Name, content, file.Size, progress, left);
 
             // Taken off while it was on its way, or the conversation was left: the server keeps nothing nobody will
             // send, so this removal goes ahead even after leaving.
@@ -759,7 +893,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var tree = RunView.Start(rootRunId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, rootRunId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 tree = RunReducer.Apply(tree, change);
                 (run, reconnecting) = (tree.Find(runId) ?? run, null);
@@ -813,7 +947,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         var view = RunView.Start(runId);
         try
         {
-            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, cancellationToken: cancellationToken))
+            await foreach (var change in api.WatchRun(SpaceId, runId, dropped: ConnectionDropped, connected: ConnectionRestored, cancellationToken: cancellationToken))
             {
                 view = RunReducer.Apply(view, change);
                 (run, reconnecting, notice) = (view, null, view.Notice());
@@ -861,6 +995,17 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             Show();
         });
     }
+
+    // The reader calls this each time it is through again. A run that is waiting on the person, or quiet, sends nothing
+    // after a reconnect, so the notice goes now instead of with the next event.
+    private void ConnectionRestored() => ui.Post(() =>
+    {
+        if (reconnecting is not null)
+        {
+            reconnecting = null;
+            Show();
+        }
+    });
 
     #endregion
 
@@ -932,7 +1077,8 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
             run,
             fileId => api.FileAddress(SpaceId, fileId),
             new Handover(Bot.Name, parameters.Crew.ToDictionary(bot => bot.Id, bot => bot.Name), parameters.WorkAddress),
-            Reader);
+            Reader)
+        .OfferingVersions(idle: !ReadOnly && !loading && !sending && !changing && !Working && thread is not null);
 
     // What a handler changed is shown when it first waits and again when it is done, as a screen does.
     private async Task Rendered(Task work)
@@ -972,6 +1118,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
     private void ShowList()
     {
         List.Messages = Messages;
+        List.Loading = loading;
         List.BotName = Bot.Name;
         List.BotHue = BotIdentity.Hue(Bot.Id);
         List.Thinking = Thinking;
@@ -982,6 +1129,7 @@ public sealed class ConversationViewModel : ObservableObject, IDisposable
         List.MemoryHref = Addresses.Memory(Bot.Id);
         List.Failure = Failure;
         List.Retrying = retrying;
+        List.Changing = changing;
         List.Moment = parameters.Moment;
         List.Takeovers = Takeovers;
         List.RunAddress = Main ? runId => Addresses.Activity(Bot.Id, runId) : null;

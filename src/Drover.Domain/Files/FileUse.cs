@@ -17,6 +17,12 @@ public enum FileUse
     /// <summary>The model is given the text, up to a bound.</summary>
     Text,
 
+    /// <summary>
+    /// The server reads the document's text and the model is given it, up to a bound; a scanned PDF's pages go to a
+    /// model that reads pictures as pictures.
+    /// </summary>
+    Document,
+
     /// <summary>The file is copied into the bot's sandbox and the model is told where.</summary>
     Sandbox,
 
@@ -29,13 +35,15 @@ public static class FileUses
     #region Public Methods
 
     /// <summary>
-    /// A picture goes to a model that reads pictures, text goes in as text, and anything else, a picture the model
-    /// cannot read included, goes to the bot's sandbox when it has one and everyone who can reach it can see the conversation.
+    /// A picture goes to a model that reads pictures, text goes in as text, a document's text is read out for any
+    /// bot, and anything else, a picture the model cannot read included, goes to the bot's sandbox when it has one and
+    /// everyone who can reach it can see the conversation.
     /// </summary>
     public static FileUse For(FileKind kind, FileAbilities abilities) => kind switch
     {
         FileKind.Image when abilities.ModelReadsImages => FileUse.Image,
         FileKind.Text => FileUse.Text,
+        FileKind.Document => FileUse.Document,
         _ when abilities is { HasSandbox: true, AudienceCoversSandbox: true } => FileUse.Sandbox,
         _ => FileUse.None,
     };

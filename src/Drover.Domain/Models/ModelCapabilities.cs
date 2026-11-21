@@ -16,7 +16,14 @@ public sealed record ModelCapabilities
 
     public bool Streaming { get; init; } = true;
 
+    /// <summary>Whether the model reads pictures. For a model whose provider does not say, see <see cref="VisionSetByOperator"/>.</summary>
     public bool Vision { get; init; }
+
+    /// <summary>
+    /// True when a space admin marked the model as reading pictures. A provider that does not know its models'
+    /// capabilities reports none, so a refresh keeps this mark and <see cref="Vision"/> with it.
+    /// </summary>
+    public bool VisionSetByOperator { get; init; }
 
     public bool Reasoning { get; init; }
 
@@ -25,6 +32,8 @@ public sealed record ModelCapabilities
     public bool StructuredOutput { get; init; }
 
     public bool WebSearch { get; init; }
+
+    public bool ImageGeneration { get; init; }
 
     #endregion
 }

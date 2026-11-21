@@ -38,6 +38,8 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
 
     public DbSet<ExtensionInstall> ExtensionInstalls => Set<ExtensionInstall>();
 
+    public DbSet<Project> Projects => Set<Project>();
+
     public DbSet<ModelConnection> ModelConnections => Set<ModelConnection>();
 
     public DbSet<ModelCatalogEntry> ModelCatalog => Set<ModelCatalogEntry>();
@@ -73,6 +75,12 @@ public sealed class DroverDbContext : IdentityUserContext<User, Guid, UserClaim,
     public DbSet<Sandbox> Sandboxes => Set<Sandbox>();
 
     public DbSet<StoredFile> Files => Set<StoredFile>();
+
+    public DbSet<FileByteReservation> FileByteReservations => Set<FileByteReservation>();
+
+    public DbSet<PendingFileDeletion> PendingFileDeletions => Set<PendingFileDeletion>();
+
+    public DbSet<PendingUploadDeletion> PendingUploadDeletions => Set<PendingUploadDeletion>();
 
     public DbSet<Secret> Secrets => Set<Secret>();
 

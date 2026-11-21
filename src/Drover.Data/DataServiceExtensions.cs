@@ -33,6 +33,7 @@ public static class DataServiceExtensions
         services.AddScoped<UsageRepository>();
         services.AddScoped<RunEventRepository>();
         services.AddScoped<ThreadRepository>();
+        services.AddScoped<ProjectRepository>();
         services.AddScoped<BotRepository>();
         services.AddScoped<ToolRepository>();
         services.AddScoped<ToolConnectionRepository>();
@@ -41,6 +42,7 @@ public static class DataServiceExtensions
         services.AddScoped<ExtensionRepository>();
         services.AddScoped<SandboxRepository>();
         services.AddScoped<AuditRepository>();
+        services.AddSingleton(provider => new SandboxCommandLocks(appConnectionString, provider.GetRequiredService<ILogger<SandboxCommandLocks>>()));
         services.AddSingleton(provider => new RunWakeListener(appConnectionString, provider.GetRequiredService<ILogger<RunWakeListener>>()));
         services.AddDbContext<DroverDbContext>((provider, options) => options
             .UseDroverNpgsql(appConnectionString)

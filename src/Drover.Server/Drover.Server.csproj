@@ -16,6 +16,7 @@
     <ProjectReference Include="..\Drover.Adapters.DataProtection\Drover.Adapters.DataProtection.csproj" />
     <ProjectReference Include="..\Drover.Adapters.E2B\Drover.Adapters.E2B.csproj" />
     <ProjectReference Include="..\Drover.Adapters.WebPush\Drover.Adapters.WebPush.csproj" />
+    <ProjectReference Include="..\Drover.Adapters.SearXng\Drover.Adapters.SearXng.csproj" />
     <ProjectReference Include="..\Drover.Web\Drover.Web.csproj" />
   </ItemGroup>
 

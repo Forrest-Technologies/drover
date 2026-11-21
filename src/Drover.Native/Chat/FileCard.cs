@@ -2,8 +2,8 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// One file in a conversation. A picture is shown with its dimensions set; a text file shows its first lines, and all
-/// of it on "Show all"; anything else is a card. Every form has the same way to get the file. Content a bot wrote is
-/// never rendered as a page here: it is shown as text or downloaded.
+/// of it on "Show all"; anything else is a card. Every form has the same way to get the file. A bot HTML file is shown
+/// only in the browser's contained preview surface. A native head that cannot enforce that boundary keeps Download.
 /// </summary>
 public sealed class FileCard : Grid
 {
@@ -47,6 +47,16 @@ public sealed class FileCard : Grid
 
     private readonly StatusNote exported = new();
 
+    private readonly Button openPreview = new() { Content = FileCardViewModel.PreviewFile, HorizontalAlignment = HorizontalAlignment.Left };
+
+    private readonly StatusNote previewProblem = new() { Kind = NoteKind.Danger };
+
+    private readonly HtmlPreview previewSurface = new();
+
+    private readonly Dialog previewDialog = new();
+
+    private readonly NativeFilePreviewControl nativePreview;
+
     private readonly TextBlock caption = Styles.Text(null, "DvTextSecondary");
 
     private Guid? loadedPicture;
@@ -67,6 +77,7 @@ public sealed class FileCard : Grid
     {
         this.model = model;
         api = reads ?? ((App)Application.Current).Services.GetRequiredService<DroverApi>();
+        nativePreview = new(api);
         batch = new(this, Apply, Draw);
 
         // A file takes the width its content needs, up to the width of a picture and the room it is given, as the
@@ -94,6 +105,28 @@ public sealed class FileCard : Grid
         download.MinHeight = Tokens.Number("DvTargetTouch");
         download.Click += (_, _) => OpenFile(toKeep: true);
 
+        openPreview.Click += async (_, _) =>
+        {
+            if (OperatingSystem.IsBrowser())
+            {
+                await model.Preview();
+            }
+            else
+            {
+                model.RefusePreview();
+            }
+        };
+
+        previewDialog.Body = previewSurface;
+        previewDialog.RegisterPropertyChangedCallback(Dialog.OpenProperty, async (_, _) =>
+        {
+            if (!previewDialog.Open && model.PreviewAddress is not null)
+            {
+                previewSurface.Clear();
+                await model.ClosePreview();
+            }
+        });
+
         name.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary["DvWeightLabel"];
         var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         words.Children.Add(name);
@@ -117,7 +150,17 @@ public sealed class FileCard : Grid
         column.Children.Add(card);
         column.Children.Add(exported);
         column.Children.Add(caption);
+        column.Children.Add(openPreview);
+        column.Children.Add(previewProblem);
+        column.Children.Add(nativePreview);
         Children.Add(column);
+        Children.Add(previewDialog);
+
+        Unloaded += async (_, _) =>
+        {
+            previewSurface.Clear();
+            await model.ClosePreview();
+        };
 
         // Nothing shows until the file is drawn, so a card never appears empty with its buttons over each other.
         Visibility = Visibility.Collapsed;
@@ -154,9 +197,19 @@ public sealed class FileCard : Grid
 
     private void Apply()
     {
+        if (model.File is { } before && before.Id != File?.Id)
+        {
+            previewDialog.Open = false;
+            previewSurface.Clear();
+            _ = model.ClosePreview();
+        }
+
         if (File is { } file)
         {
-            (model.File, model.ReadWhole) = (file, ReadWhole);
+            model.File = file;
+            model.ReadWhole = ReadWhole;
+            model.RequestPreview = selected => api.PreviewConversationFile(selected.Href);
+            model.RevokePreview = (selected, grant) => api.RevokeConversationFilePreview(selected.Href, grant);
         }
     }
 
@@ -164,11 +217,13 @@ public sealed class FileCard : Grid
     {
         if (File is null || model.File is null)
         {
+            nativePreview.SetFile(null);
             Visibility = Visibility.Collapsed;
             return;
         }
 
         Visibility = Visibility.Visible;
+        nativePreview.SetFile(model.File);
         DrawPicture();
         DrawText();
 
@@ -186,6 +241,27 @@ public sealed class FileCard : Grid
         exported.Text = model.ExportStatus;
         caption.Text = model.Caption ?? string.Empty;
         caption.Visibility = model.Caption is null ? Visibility.Collapsed : Visibility.Visible;
+
+        openPreview.Visibility = model.CanPreview ? Visibility.Visible : Visibility.Collapsed;
+        openPreview.Content = model.PreviewLabel;
+        openPreview.IsEnabled = !model.Previewing;
+        AutomationProperties.SetName(openPreview, model.PreviewButtonName);
+        previewProblem.Text = model.PreviewProblem;
+        ShowPreview();
+    }
+
+
+    private void ShowPreview()
+    {
+        if (File?.Id != model.File.Id || model.PreviewAddress is not { } address)
+        {
+            previewDialog.Open = false;
+            return;
+        }
+
+        previewDialog.Title = $"Preview of {model.File.Name}";
+        previewSurface.Show(address, model.File.Name);
+        previewDialog.Open = true;
     }
 
     private void DrawPicture()
@@ -238,18 +314,16 @@ public sealed class FileCard : Grid
     {
         try
         {
-            using var response = await api.OpenConversationFile(file.Href);
-            var bytes = new MemoryStream();
-            await response.Content.CopyToAsync(bytes);
-            bytes.Position = 0;
-            var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-            await bitmap.SetSourceAsync(bytes.AsRandomAccessStream());
-            if (model.File.Id == file.Id)
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var preview = await api.ReadNativePreview(file.Href, timeout.Token);
+            if (preview is { Refusal: null, Image: { } bytes }
+                && NativeFilePreviewControl.DecodePicture(bytes, timeout.Token) is { } bitmap
+                && model.File.Id == file.Id)
             {
                 image.Source = bitmap;
             }
         }
-        catch (Exception exception) when (Failures.IsReportable(exception) || exception is ArgumentException or IOException or InvalidOperationException)
+        catch (Exception exception) when (Failures.IsReportable(exception) || exception is OperationCanceledException or ArgumentException or IOException or InvalidOperationException)
         {
             Log.For<FileCard>().LogWarning(exception, "A picture in the conversation could not be read");
         }

@@ -32,7 +32,9 @@ public static class DeploymentPolicyExtensions
             .WithServerStatusForTheOperatorOnly()
             .WithoutWrittenRulePatterns()
             .WithBoundedConversationSummaries()
-            .WithBoundedMemory();
+            .WithBoundedMemory()
+            .WithoutWebTools()
+            .WithoutImageGeneration();
 
     public static DeploymentPolicy WithoutPrivateAddresses(this DeploymentPolicy policy) =>
         policy with { AllowPrivateAddresses = false };
@@ -88,6 +90,7 @@ public static class DeploymentPolicyExtensions
             MaxFileBytes = DeploymentPolicy.HostedMaxFileBytes,
             MaxFilesPerMessage = DeploymentPolicy.HostedMaxFilesPerMessage,
             MaxSpaceFileMegabytes = DeploymentPolicy.HostedMaxSpaceFileMegabytes,
+            MaxDocumentPages = DeploymentPolicy.HostedMaxDocumentPages,
         };
 
     /// <summary>Whether a set lets the server register a provider, by whether the provider is a hard isolation boundary.</summary>
@@ -108,7 +111,7 @@ public static class DeploymentPolicyExtensions
         policy with { SpaceQuotas = QuotaMode.SetByOperator };
 
     public static DeploymentPolicy WithSpacesUnableToLoosen(this DeploymentPolicy policy) =>
-        policy with { SpaceMayDisableTaintedRunEscalation = false, SpaceMayAutoLoadRemoteImages = false };
+        policy with { SpaceMayAutoLoadRemoteImages = false };
 
     public static DeploymentPolicy WithProtectedKeyRing(this DeploymentPolicy policy) =>
         policy with { KeyRingProtection = KeyRingProtection.CertificateOrKeyService };
@@ -137,6 +140,17 @@ public static class DeploymentPolicyExtensions
             MaxMemoryNoteCharacters = DeploymentPolicy.HostedMaxMemoryNoteCharacters,
             MaxMemoryCharactersPerPerson = DeploymentPolicy.HostedMaxMemoryCharactersPerPerson,
         };
+
+    public static DeploymentPolicy WithoutWebTools(this DeploymentPolicy policy) =>
+        policy with
+        {
+            AllowWebTools = false,
+            MaxWebPageBytes = DeploymentPolicy.HostedMaxWebPageBytes,
+            MaxWebRequestSeconds = DeploymentPolicy.HostedMaxWebRequestSeconds,
+        };
+
+    public static DeploymentPolicy WithoutImageGeneration(this DeploymentPolicy policy) =>
+        policy with { AllowImageGeneration = false };
 
     #endregion
 }

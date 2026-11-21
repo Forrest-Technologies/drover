@@ -13,6 +13,12 @@ ASP.NET Core Identity, used directly. It is the platform, it is maintained by Mi
 
 The native app uses the existing sign-in, setup, or registration endpoint first. It exchanges the resulting cookie and antiforgery token at `POST /api/native/session`. If the server supports native sessions, the app discards its session cookie after exchange. A cold start uses `POST /api/native/refresh` with the saved credential. Access and refresh both require the original server session and the current security stamp. Cookie clients still need antiforgery on state-changing requests. The refresh request uses its explicit credential and does not use cookies.
 
+If an access token is rejected while checking the session, the native app tries its stored refresh credential and
+retries the session check once. A refresh response of 401 clears the saved credential. A temporarily missing route,
+an unavailable server, or an unusable refresh response leaves it available for retry. A replacement server needs the
+same database and Data Protection key ring to validate existing credentials. Compose CI checks both access and refresh
+using a session issued before container replacement.
+
 Decisions:
 
 - **Password hashing**: Identity's default hasher. No extra dependency. The alternatives checked were stale or carried an unsuitable license.
@@ -134,4 +140,10 @@ In the single-container compose deployment both passwords sit on the same secret
 - A content security policy with no inline script and no remote origins by default. `wasm-unsafe-eval` is allowed, as Blazor WebAssembly requires.
 - Standard headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, frame denial (`X-Frame-Options: DENY` and `frame-ancestors 'none'`), on every response, plus `Strict-Transport-Security` (180 days, this name only) on responses served over HTTPS. The policy is `default-src 'self'` with `script-src 'self' 'wasm-unsafe-eval'`. Styles and fonts are looser on purpose: `style-src 'self' 'unsafe-inline'` and `font-src 'self' data:`. Drover's own pages use no inline style and no embedded font; the allowance is for browser extensions, which draw their interface inside the page with both and otherwise appear as unstyled text over Drover's. Scripts stay strict, and bot output is sanitized before it is rendered, so no message can carry a style of its own.
 - File downloads are served with `Content-Disposition: attachment` and a neutral content type unless the type is on a short image allowlist.
+- Stored HTML previews use a configured HTTPS origin on a separate site. Only that origin serves the fixed preview
+  path, and it refuses cookies, methods other than GET, reuse, and every application or API path. The server strips
+  scripts, event handlers, forms, embeds, refreshes, base elements, and network-bearing addresses before sending HTML.
+  The response permits only embedded image and font data plus inline static styles. Its CSP denies every other source,
+  adds `sandbox`, and permits framing only by the configured application origin. Preview query strings are suppressed
+  from server request logs, and the provided proxy discards preview access logs.
 - Outbound requests the server makes on a user's behalf (MCP URLs, OAuth discovery, model base URLs) are checked against private and link-local address ranges on the hosted service, so a tenant cannot aim the server at internal addresses. Self-hosters allow private ranges by default, since local models and LAN servers are normal there; a server that opens registration to strangers must forbid them, or it does not start ([16-deployment-policies.md](16-deployment-policies.md)).

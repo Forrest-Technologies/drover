@@ -2,7 +2,8 @@ namespace Drover.Agents.History;
 
 /// <summary>
 /// Translates between the framework's messages and Drover's message parts. Conversation content is Drover's data, so
-/// only what Drover's part schema can hold is stored: text, reasoning, tool calls, and tool results. Approval
+/// only what Drover's part schema can hold is stored: text, reasoning, the sources a reply cites, tool calls, and tool
+/// results. Sources are shown to people and not given back to a model. Approval
 /// requests and responses are working state; they live in the session and in <c>tool_calls</c>, not in messages.
 /// </summary>
 public static class MessageParts
@@ -45,11 +46,18 @@ public static class MessageParts
 
     /// <summary>
     /// Null when the message holds nothing Drover stores. A model's reply keeps the id its model call gave it
-    /// (<paramref name="keepReplyId"/>), so the row has the id the run's events already named.
+    /// (<paramref name="keepReplyId"/>), so the row has the id the run's events already named, and the
+    /// <paramref name="model"/> that wrote it.
     /// </summary>
-    public static Message? ToMessage(this ChatMessage message, Guid runId, Guid botId, Guid principalUserId, bool keepReplyId = false)
+    public static Message? ToMessage(
+        this ChatMessage message,
+        Guid runId,
+        Guid botId,
+        Guid principalUserId,
+        bool keepReplyId = false,
+        string? model = null)
     {
-        List<MessagePart> parts = [.. message.Contents.Select(content => ToPart(content, runId)).OfType<MessagePart>()];
+        List<MessagePart> parts = [.. message.Contents.SelectMany(content => ToParts(content, runId))];
 
         if (parts.Count == 0)
         {
@@ -67,6 +75,7 @@ public static class MessageParts
             AuthorBotId = role is MessageRole.Assistant ? botId : null,
             AuthorUserId = role is MessageRole.User ? principalUserId : null,
             Parts = parts,
+            Model = role is MessageRole.Assistant ? model : null,
             CreatedAt = DateTimeOffset.UtcNow,
         };
     }
@@ -97,9 +106,9 @@ public static class MessageParts
 
         yield return new TextContent(given.Text);
 
-        if (given is { Image: { } image, MediaType: { } mediaType })
+        foreach (var image in given.Images ?? [])
         {
-            yield return new DataContent(image, mediaType);
+            yield return new DataContent(image.Data, image.MediaType);
         }
     }
 
@@ -112,9 +121,21 @@ public static class MessageParts
         _ => null,
     };
 
+    private static IEnumerable<MessagePart> ToParts(AIContent content, Guid runId) =>
+        content is TextContent text
+            ? [.. text.Text is { Length: > 0 } words ? [new TextPart(words)] : Array.Empty<MessagePart>(), .. Sources(text)]
+            : ToPart(content, runId) is { } part ? [part] : [];
+
+    // A citation is the provider's word for where a reply came from. Only a web address is kept, so a source can never
+    // lead anywhere but a browser.
+    private static IEnumerable<SourcePart> Sources(AIContent content) =>
+        (content.Annotations ?? [])
+            .OfType<CitationAnnotation>()
+            .Where(citation => citation.Url is { IsAbsoluteUri: true, Scheme: "http" or "https" })
+            .Select(citation => new SourcePart(citation.Url!, string.IsNullOrWhiteSpace(citation.Title) ? null : citation.Title.Trim()));
+
     private static MessagePart? ToPart(AIContent content, Guid runId) => content switch
     {
-        TextContent { Text.Length: > 0 } text => new TextPart(text.Text),
         TextReasoningContent { Text.Length: > 0 } reasoning => new ReasoningPart(reasoning.Text),
         FunctionCallContent call => new ToolCallPart(
             ToolCallIds.For(runId, call.CallId),

@@ -33,6 +33,52 @@ public sealed class ConversationsTests
     }
 
     [Fact]
+    public void A_reply_shows_its_reasoning_while_it_arrives_and_after_it_is_stored()
+    {
+        var arriving = Message("assistant", true, new PartView("reasoning", "Check the sample"));
+        var stored = Message("assistant", false, new PartView("reasoning", "Check the sample page."), new PartView("text", "Done."));
+
+        var thinking = new[] { arriving }.ToChatMessages().Single();
+        var finished = new[] { stored }.ToChatMessages().Single();
+
+        thinking.Should().Match<ChatMessage>(message => message.Text == string.Empty && message.Thinking);
+        thinking.Reasoning.Should().Be("Check the sample");
+        finished.Reasoning.Should().Be("Check the sample page.");
+        finished.Thinking.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_reply_shows_the_web_sources_it_cites_once_each_with_a_title()
+    {
+        var reply = Message(
+            "assistant",
+            false,
+            new PartView("text", "Cited."),
+            new PartView("source", "Sample page", Url: "https://www.sample.example/page"),
+            new PartView("source", "Same page again", Url: "https://www.sample.example/page"),
+            new PartView("source", Url: "http://sample.example/untitled"),
+            new PartView("source", "Not a web address", Url: "javascript:alert(1)"));
+
+        var sources = new[] { reply }.ToChatMessages().Single().Sources;
+
+        sources.Should().Equal(
+            new SourceLink("Sample page", "https://www.sample.example/page", "sample.example"),
+            new SourceLink("sample.example", "http://sample.example/untitled", "sample.example"));
+    }
+
+    [Fact]
+    public void A_reply_without_reasoning_or_sources_shows_neither()
+    {
+        var reply = Message("assistant", false, new PartView("text", "Plain."));
+
+        var shown = new[] { reply }.ToChatMessages().Single();
+
+        shown.Reasoning.Should().BeNull();
+        shown.Sources.Should().BeEmpty();
+        shown.Thinking.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_message_the_bot_has_not_taken_yet_is_shown_as_pending()
     {
         var waiting = Message("user", false, new PartView("text", "One more thing")) with { IsPending = true };
@@ -198,6 +244,65 @@ public sealed class ConversationsTests
         Offered(shared.ToChatMessages(reader: new UsageReader(alice, IsSpaceAdmin: false))).Should().Equal("Answer for Alice.");
         Offered(shared.ToChatMessages(reader: new UsageReader(Guid.CreateVersion7(), IsSpaceAdmin: true))).Should().Equal("Answer for Alice.", "Answer for Bob.");
         Offered(shared.ToChatMessages()).Should().BeEmpty("without a reader nothing is offered");
+    }
+
+    [Fact]
+    public void A_messages_versions_are_switched_at_the_message_and_a_replys_at_its_last_words()
+    {
+        var earlier = Guid.CreateVersion7();
+        var otherReply = Guid.CreateVersion7();
+        var asked = Message("user", false, new PartView("text", "Sample question, edited."));
+        var callId = Guid.CreateVersion7();
+        var called = Message("assistant", false, new PartView("tool_call", ToolCallId: callId, ToolName: "sample.look", Arguments: "{}"));
+        var answered = Message("assistant", false, new PartView("text", "Sample answer."));
+        MessageView[] timeline =
+        [
+            asked with { Versions = [earlier, asked.Id] },
+            called with { Versions = [otherReply, called.Id, Guid.CreateVersion7()] },
+            Message("tool", false, new PartView("tool_result", ToolCallId: callId, Result: "{}")),
+            answered,
+        ];
+
+        var shown = timeline.ToChatMessages();
+
+        shown[0].Versions.Should().Be(new VersionSwitch(2, 2, earlier, null));
+        shown.Single(message => message.Key == answered.Id.ToString()).Versions.Should().Be(
+            new VersionSwitch(2, 3, otherReply, timeline[1].Versions![2]),
+            "the reply's versions are switched where it ends, at its words");
+        shown.Single(message => message.Key == called.Id.ToString()).Versions.Should().BeNull();
+    }
+
+    [Fact]
+    public void Only_the_last_message_offers_an_edit_and_only_its_reply_offers_another_while_nothing_works()
+    {
+        MessageView[] timeline =
+        [
+            Message("user", false, new PartView("text", "First")),
+            Message("assistant", false, new PartView("text", "First answer.")),
+            Message("user", false, new PartView("text", "Second")),
+            Message("assistant", false, new PartView("text", "Second answer.")) with { Versions = [Guid.CreateVersion7(), Guid.CreateVersion7()] },
+        ];
+        timeline[3] = timeline[3] with { Versions = [Guid.CreateVersion7(), timeline[3].Id] };
+
+        var idle = timeline.ToChatMessages().OfferingVersions(idle: true);
+        var working = timeline.ToChatMessages().OfferingVersions(idle: false);
+        var pending = timeline.Append(Message("user", false, new PartView("text", "Third")) with { IsPending = true }).ToChatMessages().OfferingVersions(idle: true);
+
+        idle.Select(message => (message.MayEdit, message.MayRegenerate)).Should().Equal((false, false), (false, false), (true, false), (false, true));
+        idle[3].Versions!.Enabled.Should().BeTrue();
+        working.Should().OnlyContain(message => !message.MayEdit && !message.MayRegenerate);
+        working[3].Versions!.Enabled.Should().BeFalse("the server does not switch versions while the bot works");
+        pending.Should().OnlyContain(message => !message.MayEdit && !message.MayRegenerate, "a message waits to be answered");
+    }
+
+    [Fact]
+    public void A_conversation_that_ends_with_the_persons_message_offers_its_edit_and_no_other_reply()
+    {
+        MessageView[] timeline = [Message("user", false, new PartView("text", "Unanswered"))];
+
+        var shown = timeline.ToChatMessages().OfferingVersions(idle: true);
+
+        shown.Single().Should().Match<ChatMessage>(message => message.MayEdit && !message.MayRegenerate);
     }
 
     #endregion

@@ -1,0 +1,23 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from the public compatible images format. The image is a generated one-pixel PNG and no live service produced this fixture.",
+  "exchanges": [
+    {
+      "method": "POST",
+      "path": "/images/generations",
+      "status": 200,
+      "body": {
+        "created": 1794400000,
+        "data": [
+          {
+            "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZzB8AAAAASUVORK5CYII="
+          }
+        ],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 34
+        }
+      }
+    }
+  ]
+}

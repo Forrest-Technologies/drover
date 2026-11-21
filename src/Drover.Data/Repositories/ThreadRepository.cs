@@ -17,6 +17,15 @@ public sealed class ThreadRepository(DroverDbContext db)
 
     public void Add(ChatThread thread) => db.Threads.Add(thread);
 
+    /// <summary>
+    /// Makes a shared thread private to its owner. Child rows follow, because their foreign key updates with this
+    /// one. False when the thread is missing or already private.
+    /// </summary>
+    public async Task<bool> MakePrivate(Guid threadId, Guid ownerUserId, CancellationToken cancellationToken) =>
+        await db.Threads
+            .Where(thread => thread.Id == threadId && thread.OwnerUserId == ownerUserId && thread.AudienceUserId == Audience.Everyone)
+            .ExecuteUpdateAsync(set => set.SetProperty(thread => thread.AudienceUserId, ownerUserId), cancellationToken) == 1;
+
     public Task<ChatThread?> FindThread(Guid id, CancellationToken cancellationToken) =>
         db.Threads.AsNoTracking().SingleOrDefaultAsync(thread => thread.Id == id, cancellationToken);
 
@@ -26,6 +35,26 @@ public sealed class ThreadRepository(DroverDbContext db)
     /// </summary>
     public async Task<ChatThread?> GetThreadForUpdate(Guid id, CancellationToken cancellationToken) =>
         (await db.Threads.FromSql($"SELECT * FROM threads WHERE id = {id} FOR UPDATE").ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    /// <summary>
+    /// Locks a thread against message posting without blocking an upload's foreign-key check. A locked thread is
+    /// skipped so one busy conversation cannot hold a cleanup pass.
+    /// </summary>
+    public async Task<ChatThread?> GetThreadForUploadCleanup(Guid id, CancellationToken cancellationToken) =>
+        (await db.Threads
+            .FromSql($"SELECT * FROM threads WHERE id = {id} FOR NO KEY UPDATE SKIP LOCKED")
+            .ToListAsync(cancellationToken))
+            .SingleOrDefault();
+
+    /// <summary>
+    /// Locks a thread against message posting while a person removes an unsent file. The weaker lock stays
+    /// compatible with a concurrent upload's foreign-key check.
+    /// </summary>
+    public async Task<ChatThread?> GetThreadForFileChange(Guid id, CancellationToken cancellationToken) =>
+        (await db.Threads
+            .FromSql($"SELECT * FROM threads WHERE id = {id} FOR NO KEY UPDATE")
+            .ToListAsync(cancellationToken))
             .SingleOrDefault();
 
     /// <summary>The person's main thread with the bot, or null when they have none yet.</summary>
@@ -81,6 +110,15 @@ public sealed class ThreadRepository(DroverDbContext db)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    /// <summary>The threads in one project that the caller may see and has not archived, newest activity first.</summary>
+    public Task<List<ChatThread>> ListThreadsForProject(Guid projectId, int limit, CancellationToken cancellationToken) =>
+        db.Threads.AsNoTracking()
+            .Where(thread => thread.ProjectId == projectId && thread.ArchivedAt == null)
+            .OrderByDescending(thread => thread.LastActivityAt)
+            .ThenByDescending(thread => thread.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+
     #endregion
 
     #region Seen
@@ -96,7 +134,7 @@ public sealed class ThreadRepository(DroverDbContext db)
             INSERT INTO thread_reads (space_id, thread_id, audience_user_id, seen_through_position, seen_at)
             VALUES (
               sys.current_space(), {thread.Id}, {userId},
-              COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id}), 0),
+              COALESCE((SELECT max(position) FROM messages WHERE thread_id = {thread.Id} AND shelved_at IS NULL), 0),
               {now})
             ON CONFLICT (space_id, thread_id, audience_user_id) DO UPDATE
             SET seen_through_position = GREATEST(thread_reads.seen_through_position, EXCLUDED.seen_through_position),
@@ -137,8 +175,9 @@ public sealed class ThreadRepository(DroverDbContext db)
             .Where(read => ids.Contains(read.ThreadId) && read.AudienceUserId == userId)
             .ToDictionaryAsync(read => read.ThreadId, read => read.SeenAt, cancellationToken);
         var withNew = (await db.Messages.AsNoTracking()
-            .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null)
-            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId))
+            .Where(message => ids.Contains(message.ThreadId) && message.Role == MessageRole.Assistant && message.Position != null
+                && message.ShelvedAt == null)
+            .Where(message => db.Runs.Any(run => run.Id == message.RunId && run.PrincipalUserId == userId && run.ParentRunId == null))
             .Where(message => message.Position > (db.ThreadReads
                 .Where(read => read.ThreadId == message.ThreadId && read.AudienceUserId == userId)
                 .Select(read => (int?)read.SeenThroughPosition)

@@ -91,7 +91,16 @@ public sealed class ConversationPane : Grid
         drawQueued = false;
         var (missing, waiting, reading) = (model?.Missing ?? false, model?.Loading ?? true, model?.ReadOnly ?? false);
 
-        list.Visibility = Shown(!missing && !waiting);
+        var listShown = !missing && !waiting;
+
+        // The list draws what it has before it is shown, so the first frame of a loaded conversation is its messages,
+        // not what the list drew while the conversation was still being read.
+        if (listShown && list.Visibility is Visibility.Collapsed)
+        {
+            list.DrawNow();
+        }
+
+        list.Visibility = Shown(listShown);
         center.Visibility = Shown(missing || waiting);
         composer.Visibility = Shown(!missing && !reading && model is not null);
         readBox.Visibility = Shown(!missing && reading);

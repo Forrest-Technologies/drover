@@ -1,0 +1,21 @@
+{
+  "provenance": "hand-written",
+  "note": "hand-written: shaped from SearXNG's documented search API (GET /search with format=json): a search that found nothing answers 200 with an empty results list. No real instance produced this.",
+  "exchanges": [
+    {
+      "method": "GET",
+      "path": "/search",
+      "status": 200,
+      "body": {
+        "query": "barn report 7f3a",
+        "number_of_results": 0,
+        "results": [],
+        "answers": [],
+        "corrections": [],
+        "infoboxes": [],
+        "suggestions": [],
+        "unresponsive_engines": []
+      }
+    }
+  ]
+}

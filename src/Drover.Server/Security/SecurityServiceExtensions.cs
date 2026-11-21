@@ -19,13 +19,22 @@ public static class SecurityServiceExtensions
     /// </summary>
     public static IServiceCollection AddDroverSecurity(this IServiceCollection services, IConfiguration configuration)
     {
+        var previewOrigin = PreviewOrigin.Read(configuration);
         services.Configure<SignInRateLimitOptions>(configuration.GetSection("Drover:SignInRateLimit"));
+        services.Configure<ConversationExportLimitOptions>(configuration.GetSection("Drover:ConversationExportLimit"));
+        services.TryAddSingleton<ConversationExportLimiter>();
         services.AddAuthentication(NativeBearer.SelectForApi).AddCookie(ConfigureSessionCookie).AddNativeBearer();
         services.AddAuthorization();
         services.TryAddSingleton(TimeProvider.System);
         services.AddAntiforgery(ConfigureAntiforgery);
         services.Configure<CookiePolicyOptions>(options => options.Secure = CookieSecurePolicy.Always);
         services.AddTrustedProxies(configuration);
+        services.AddSingleton<PreviewGrantStore>();
+        services.AddSingleton<PreviewFileService>();
+        if (previewOrigin is not null)
+        {
+            services.AddSingleton(previewOrigin);
+        }
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
