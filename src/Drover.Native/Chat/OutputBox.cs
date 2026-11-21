@@ -17,7 +17,8 @@ internal sealed class OutputBox : Grid
 
     private readonly ScrollViewer scroll;
 
-    private readonly CopyButton copy = new() { VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed };
+    // Named from the start: an icon button without a name may not load, even while it is hidden.
+    private readonly CopyButton copy = new() { Label = OutputWords.CopyOutput, VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed };
 
     private string? prompt;
 
