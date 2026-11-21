@@ -55,7 +55,8 @@ public static partial class ToolCards
         var summary = Summarize(toolName, arguments);
 
         // A stored result is JSON. The preview in the call's events is the start of it, which may be cut off.
-        var resultText = result?.Result is { Length: > 0 } stored ? StoredResult(stored) : call.Preview;
+        // Both are read as they came; only what is shown of a structured result is laid out indented.
+        var resultText = result?.Result is { Length: > 0 } stored ? stored : call.Preview;
 
         var commandError = toolName == "sandbox.run" && ObjectIn(resultText) is { } outcome ? ToolResults.StringOf(outcome, "error") : null;
         var exitCode = ExitCodeIn(resultText);
@@ -345,11 +346,6 @@ public static partial class ToolCards
         ToolResults.Read(arguments) is { Form: ResultForm.Whole } read
             ? (read.Value, ToolResults.HasHalfSurrogate(arguments) ? arguments : Pretty(read.Value))
             : (JsonElement.Parse("{}"), arguments);
-
-    // A stored result is JSON, shown indented. One that is not read within the display budget, or holds an escape the
-    // platform will not write out again, is shown as it was stored.
-    private static string StoredResult(string stored) =>
-        ToolResults.Read(stored) is { Form: ResultForm.Whole } read && !ToolResults.HasHalfSurrogate(stored) ? Pretty(read.Value) : stored;
 
     private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, indented);
 

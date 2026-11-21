@@ -14,6 +14,11 @@ public static class ToolResults
 
     private static readonly JsonReaderOptions readerOptions = new() { MaxDepth = MaxReadDepth };
 
+    // Shown as text on screen, never placed in markup or a script, so characters are written as themselves.
+    private static readonly JsonWriterOptions indented = new() { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static readonly string[] streams = ["stdout", "stderr"];
+
     #endregion
 
     #region Public Methods
@@ -47,7 +52,7 @@ public static class ToolResults
         var read = Read(result);
         var pieces = ImmutableList.CreateBuilder<ToolOutputPiece>();
 
-        foreach (var stream in new[] { "stdout", "stderr" })
+        foreach (var stream in streams)
         {
             var text = read switch
             {
@@ -199,11 +204,31 @@ public static class ToolResults
     {
         if (StringOf(file, "content") is not { } content)
         {
-            return new(result, JsonLanguage);
+            return new(Laid(file, result), JsonLanguage);
         }
 
         var path = StringOf(file, "path") ?? StringOf(arguments, "path");
         return new(content, LanguageOfPath(path));
+    }
+
+    // Structured JSON is shown indented. It is read from the text as it came, which is never larger than the display
+    // budget, and laid out only to be shown. Text holding an escape the platform will not write out again is shown as
+    // it came.
+    private static string Laid(JsonElement value, string result)
+    {
+        if (HasHalfSurrogate(result))
+        {
+            return result;
+        }
+
+        var buffer = new ArrayBufferWriter<byte>();
+
+        using (var writer = new Utf8JsonWriter(buffer, indented))
+        {
+            value.WriteTo(writer);
+        }
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     // A tool's text is a JSON string, shown as its value. Anything else structured is JSON, and labeled so.
@@ -212,7 +237,7 @@ public static class ToolResults
         read switch
         {
             { Form: ResultForm.Whole, Value.ValueKind: JsonValueKind.String } => new(StringOf(read.Value) ?? result, null),
-            { Form: ResultForm.Whole, Value.ValueKind: JsonValueKind.Object or JsonValueKind.Array } => new(result, JsonLanguage),
+            { Form: ResultForm.Whole, Value.ValueKind: JsonValueKind.Object or JsonValueKind.Array } => new(Laid(read.Value, result), JsonLanguage),
             { Form: ResultForm.Cut } when result.TrimStart().StartsWith('"') => new(Unescaped(result, result.IndexOf('"')), null),
             _ => new(result, null),
         };

@@ -191,6 +191,32 @@ public sealed class ToolResultTests
     }
 
     [Fact]
+    public void A_stored_command_result_that_indentation_would_push_past_the_budget_still_shows_its_output()
+    {
+        var padding = Enumerable.Repeat(0, (ToolResults.MaxReadLength / 2) - 64).ToArray();
+        var stored = JsonSerializer.Serialize(new { exit_code = 0, stdout = Rows, padding });
+        stored.Length.Should().BeLessThan(ToolResults.MaxReadLength, "the compact result is inside the budget");
+
+        var card = Stored("sandbox_run", """{"command":"cat rows.tsv"}""", stored);
+
+        card.Output.Should().Equal([new ToolOutputPiece("stdout", Rows)], "the result is read as it came, never after it was laid out");
+        card.ExitCode.Should().Be(0);
+        card.ResultLength.Should().Be(stored.Length);
+    }
+
+    [Fact]
+    public void A_stored_structured_result_near_the_budget_is_read_as_it_came_and_shown_indented()
+    {
+        var hours = Enumerable.Repeat(1, (ToolResults.MaxReadLength / 2) - 64).ToArray();
+        var stored = JsonSerializer.Serialize(new { city = "Oslo", hours });
+
+        var card = Stored("weather", "{}", stored);
+
+        card.ResultLanguage.Should().Be(ToolResults.JsonLanguage);
+        card.Result.Should().StartWith("{\n").And.Contain("\"city\": \"Oslo\"");
+    }
+
+    [Fact]
     public void A_stored_result_longer_than_the_read_budget_is_shown_as_it_was_stored()
     {
         var stored = JsonSerializer.Serialize(new string('x', ToolResults.MaxReadLength));
