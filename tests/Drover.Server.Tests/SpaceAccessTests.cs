@@ -126,15 +126,8 @@ public sealed class SpaceAccessTests(PostgresServer postgres) : ServerTestBase(p
     /// This class reads the SQL a request ran from the log, so no hosted loop may write SQL on its own timer while
     /// the recorder is collecting. None of the loops is needed to answer a space request; remove them all.
     /// </summary>
-    protected override void ConfigureServices(IServiceCollection services)
-    {
-        List<ServiceDescriptor> loops = [.. services.Where(service => service.ServiceType == typeof(IHostedService))];
-
-        foreach (var loop in loops)
-        {
-            services.Remove(loop);
-        }
-    }
+    protected override void ConfigureServices(IServiceCollection services) =>
+        TestHosts.WithoutHostedServices(services);
 
     [Fact]
     public void The_server_under_test_has_no_background_loops()
@@ -146,5 +139,4 @@ public sealed class SpaceAccessTests(PostgresServer postgres) : ServerTestBase(p
     }
 
     #endregion
-
 }
