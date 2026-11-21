@@ -3,7 +3,8 @@ namespace Drover.Adapters.E2B;
 /// <summary>
 /// An upload body with its own clock. Bytes must keep moving, the daemon must answer after the last byte, and the
 /// whole transfer has a ceiling. <see cref="Deadline"/> carries the caller's cancellation and whichever limit runs
-/// out first, so the caller's own cancellation stays cancellation and a limit becomes a provider failure.
+/// out first, so the caller's own cancellation stays cancellation and a limit becomes a provider failure. The source
+/// stream belongs to the caller and is left open.
 /// </summary>
 internal sealed class IdleTimedContent : HttpContent
 {
