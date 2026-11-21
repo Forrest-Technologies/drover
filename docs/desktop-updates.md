@@ -13,7 +13,7 @@ the newest release version in a signed feed it has verified, one record for each
 feed that offers an older version in the same channel. A manual check reports a stale feed. An automatic check offers
 nothing and shows nothing.
 A feed this install has never verified is still accepted, including one that is not the newest release published,
-because the app has no other copy of a later version. Losing the key still cannot make an already trusted feed expire.
+because the app has no other copy of a later version. Losing the key still cannot make an already trusted feed expire. A newer offer is recorded before it is offered, and an offer whose version cannot be recorded is refused, so a version signed earlier cannot be accepted again after a restart because the record was lost.
 
 Without both values, a version release still publishes installers but publishes no automatic update feed. A build
 without the public value does not show update controls or make update requests. Each release has a signed feed for
@@ -22,6 +22,8 @@ each desktop operating system, so a package never offers an installer for a diff
 The app and signed feed keep the full release version, including `-preview.N`. Operating system package metadata
 uses numeric versions where required. The numeric revision keeps preview order and reserves its largest value for the
 stable package. Debian packages use `~preview.N`, which has the same order.
+
+A downloaded package is read through a bounded buffer: one over 512 MiB, or one replaced by something larger after the download, is refused before it is read, and is never handed to the installer.
 
 ## Manual run
 

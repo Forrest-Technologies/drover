@@ -29,6 +29,16 @@ internal static class UpdatePackageTrust
 
     public const string SignatureProblem = "The downloaded update did not have a valid signature.";
 
+    public const string TooLargeProblem = "The downloaded update is larger than Drover accepts.";
+
+    /// <summary>
+    /// The most a downloaded package may be, in bytes. The signature is checked over the whole package, so it is held
+    /// in memory once; a download over this, or one replaced by something larger, is refused before it is read.
+    /// </summary>
+    public const long PackageLimit = 512L * 1024 * 1024;
+
+    public const string UnrecordedProblem = "Drover could not record this update, so it is not offered. Try again.";
+
     public const string StaleProblem = "This signed feed is older than one this installation has already verified.";
 
     /// <summary>The setting that holds the newest verified feed version for one release channel.</summary>
@@ -42,8 +52,9 @@ internal static class UpdatePackageTrust
 
     /// <summary>
     /// Checks the version a verified feed offers against the newest one this install has verified for the same
-    /// channel. An older offer is refused and the record is left alone. A newer offer is recorded, and a record
-    /// that cannot be saved is returned but does not refuse the offer.
+    /// channel. An older offer is refused and the record is left alone. A newer offer is recorded first, and an offer
+    /// whose record cannot be saved is refused: without the record, a version signed earlier than this one could be
+    /// accepted again after a restart. An offer no newer than the record needs no new record.
     /// </summary>
     public static FeedVerdict AcceptFeed(IDeviceSettings settings, string channel, string? offered)
     {
@@ -62,7 +73,7 @@ internal static class UpdatePackageTrust
             return new FeedVerdict(false, notSaved);
         }
 
-        if (string.IsNullOrWhiteSpace(offered))
+        if (string.IsNullOrWhiteSpace(offered) || (!string.IsNullOrWhiteSpace(seen) && IsSameVersion(seen, offered)))
         {
             return new FeedVerdict(true, notSaved);
         }
@@ -74,9 +85,17 @@ internal static class UpdatePackageTrust
         }
         catch (Exception exception)
         {
-            return new FeedVerdict(true, exception);
+            return new FeedVerdict(false, exception, Recorded: false);
         }
     }
+
+    /// <summary>
+    /// A newer offer whose version could not be recorded is not offered: nothing is handed to the installer, and a
+    /// manual check says why. An automatic check offers nothing and says nothing.
+    /// </summary>
+    public static DesktopUpdateState AfterUnrecordedFeed(DesktopUpdateState state, bool manual) => manual
+        ? state with { Phase = DesktopUpdatePhase.Failed, Version = null, Problem = UnrecordedProblem }
+        : state with { Phase = DesktopUpdatePhase.Idle, Version = null, Problem = null };
 
     /// <summary>A stale feed is shown only for a manual check. An automatic check offers nothing and says nothing.</summary>
     public static DesktopUpdateState AfterStaleFeed(DesktopUpdateState state, bool manual) => manual
@@ -207,6 +226,37 @@ internal static class UpdatePackageTrust
         return state with { Phase = DesktopUpdatePhase.Idle, Version = null, Problem = null };
     }
 
+    /// <summary>
+    /// Reads the whole package, at most <paramref name="limit"/> bytes, and nothing when it is more: a stream that says
+    /// it is longer than the limit is refused without a byte read, and one that grows past what it said stops at the
+    /// next byte. Returns null for a package over the limit.
+    /// </summary>
+    public static async Task<byte[]?> ReadPackage(Stream stream, long limit)
+    {
+        if (stream.Length > limit)
+        {
+            return null;
+        }
+
+        var package = new byte[stream.Length];
+        var read = 0;
+
+        while (read < package.Length)
+        {
+            var count = await stream.ReadAsync(package.AsMemory(read));
+
+            if (count == 0)
+            {
+                return package[..read];
+            }
+
+            read += count;
+        }
+
+        // A file that grew since its length was read is not the file that was measured.
+        return stream.ReadByte() >= 0 ? null : package;
+    }
+
     public static DownloadDecision Decide(
         string? publicKey,
         string? signature,
@@ -261,6 +311,9 @@ internal static class UpdatePackageTrust
     #endregion
 
     #region Private Methods
+
+    private static bool IsSameVersion(string seen, string offered) =>
+        SemVerLike.Parse(offered).CompareTo(SemVerLike.Parse(seen)) == 0;
 
     private static Exception? MoveLegacyRecord(IDeviceSettings settings, string name, string legacy)
     {
@@ -338,4 +391,4 @@ internal readonly record struct DownloadDecision(DesktopUpdateState State, bool 
 
 
 /// <summary>Whether a verified feed may be used, and why its version could not be recorded if it could not.</summary>
-internal readonly record struct FeedVerdict(bool Accepted, Exception? NotSaved);
+internal readonly record struct FeedVerdict(bool Accepted, Exception? NotSaved, bool Recorded = true);

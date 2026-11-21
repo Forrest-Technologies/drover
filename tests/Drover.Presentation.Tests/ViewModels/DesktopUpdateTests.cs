@@ -262,7 +262,9 @@ public sealed class DesktopUpdateTests
         (await File.ReadAllBytesAsync(path, TestContext.Current.CancellationToken)).Should().Equal(package);
         updater.RelaunchAfterUpdate.Should().BeTrue();
 
-        foreach (var host in new[] { UpdateHost.Windows, UpdateHost.Mac, UpdateHost.Linux })
+        UpdateHost[] hosts = [UpdateHost.Windows, UpdateHost.Mac, UpdateHost.Linux];
+
+        foreach (var host in hosts)
         {
             var decision = UpdatePackageTrust.Decide(
                 publicKey,
@@ -407,15 +409,98 @@ public sealed class DesktopUpdateTests
     }
 
     [Fact]
-    public void A_record_that_cannot_be_saved_does_not_refuse_a_newer_offer()
+    public void A_newer_offer_whose_version_cannot_be_recorded_is_refused_and_nothing_is_offered()
     {
         var settings = new MemorySettings();
+        settings.Values[UpdatePackageTrust.FeedSettingName("stable")] = "1.4.0";
+        var store = new ReadOnlySettings(settings);
 
-        var verdict = UpdatePackageTrust.AcceptFeed(new ReadOnlySettings(settings), "stable", "1.5.0");
+        var verdict = UpdatePackageTrust.AcceptFeed(store, "stable", "1.5.0");
 
-        verdict.Accepted.Should().BeTrue();
+        verdict.Accepted.Should().BeFalse("without the record, a version signed earlier could be accepted again after a restart");
+        verdict.Recorded.Should().BeFalse();
         verdict.NotSaved.Should().NotBeNull();
-        settings.Values.Should().BeEmpty();
+        settings.Values[UpdatePackageTrust.FeedSettingName("stable")].Should().Be("1.4.0", "the record is as it was");
+
+        var manual = UpdatePackageTrust.AfterUnrecordedFeed(new DesktopUpdateState(true, true, DesktopUpdatePhase.Checking), true);
+        manual.Phase.Should().Be(DesktopUpdatePhase.Failed);
+        manual.Problem.Should().Be(UpdatePackageTrust.UnrecordedProblem);
+        manual.Version.Should().BeNull("an offer that is refused names no version, so Install has nothing to start");
+        var automatic = UpdatePackageTrust.AfterUnrecordedFeed(new DesktopUpdateState(true, true, DesktopUpdatePhase.Checking), false);
+        automatic.Phase.Should().Be(DesktopUpdatePhase.Idle);
+        automatic.Problem.Should().BeNull();
+        manual.Phase.Should().NotBe(DesktopUpdatePhase.Available);
+        automatic.Phase.Should().NotBe(DesktopUpdatePhase.Available);
+    }
+
+    [Fact]
+    public void A_version_already_recorded_needs_no_new_record_and_a_first_offer_with_no_record_is_refused_when_it_cannot_be_kept()
+    {
+        var recorded = new MemorySettings();
+        recorded.Values[UpdatePackageTrust.FeedSettingName("stable")] = "1.5.0";
+        var fresh = new MemorySettings();
+
+        UpdatePackageTrust.AcceptFeed(new ReadOnlySettings(recorded), "stable", "1.5.0").Accepted.Should().BeTrue("the record already holds this version");
+        UpdatePackageTrust.AcceptFeed(new ReadOnlySettings(fresh), "stable", "1.5.0").Accepted.Should().BeFalse();
+        UpdatePackageTrust.AcceptFeed(new ReadOnlySettings(fresh), "stable", null).Accepted.Should().BeTrue("no offer needs no record");
+    }
+
+    [Fact]
+    public async Task A_package_over_the_limit_is_refused_without_a_byte_read()
+    {
+        await using var declared = new CountingStream(new byte[2048], 2048);
+
+        var refused = await UpdatePackageTrust.ReadPackage(declared, 1024);
+
+        refused.Should().BeNull();
+        declared.BytesRead.Should().Be(0, "a stream that says it is over the limit is not read");
+    }
+
+    [Fact]
+    public async Task A_package_that_grows_past_what_was_measured_is_refused_after_at_most_one_more_byte()
+    {
+        await using var growing = new CountingStream(new byte[4096], 1024);
+
+        var refused = await UpdatePackageTrust.ReadPackage(growing, 1024);
+
+        refused.Should().BeNull();
+        growing.BytesRead.Should().BeLessThanOrEqualTo(1025, "reading stops at the limit and the one byte that shows it was exceeded");
+    }
+
+    [Fact]
+    public async Task A_package_at_the_limit_is_read_whole()
+    {
+        var bytes = Enumerable.Range(0, 1024).Select(index => (byte)index).ToArray();
+        await using var exact = new CountingStream(bytes, 1024);
+
+        var package = await UpdatePackageTrust.ReadPackage(exact, 1024);
+
+        package.Should().Equal(bytes);
+    }
+
+    [Fact]
+    public async Task A_download_over_the_limit_is_refused_before_the_installer_and_before_it_is_verified()
+    {
+        using var package = await SignedPackage(nameof(A_download_over_the_limit_is_refused_before_the_installer_and_before_it_is_verified));
+        var events = new List<string>();
+        var shown = new List<DesktopUpdatePhase>();
+
+        var state = await UpdateInstall.Run(
+            new RecordingInstaller(events, null),
+            () => Task.FromResult(package.Path),
+            package.PublicKey,
+            package.Signature,
+            UpdateHost.Windows,
+            "2.0.0",
+            () => new DesktopUpdateState(true, true, DesktopUpdatePhase.Available, "2.0.0"),
+            value => shown.Add(value.Phase),
+            () => events.Add("closed"),
+            packageLimit: 8);
+
+        events.Should().BeEmpty("nothing is handed to the installer");
+        shown.Should().Equal(DesktopUpdatePhase.Downloading);
+        state.Phase.Should().Be(DesktopUpdatePhase.Failed);
+        state.Problem.Should().Be(UpdatePackageTrust.TooLargeProblem);
     }
 
     [Fact]
@@ -837,3 +922,78 @@ file sealed class ReadOnlySettings(IDeviceSettings inner) : IDeviceSettings
 
     public void Remove(string name) => throw new InvalidOperationException("Sample: storage is read only.");
 }
+
+
+/// <summary>A stream that counts what is read from it and says how long it is, which may be less than it holds.</summary>
+file sealed class CountingStream(byte[] content, long declared) : Stream
+{
+    #region Private Fields
+
+    private int position;
+
+    #endregion
+
+    #region Properties
+
+    public int BytesRead { get; private set; }
+
+    public override bool CanRead => true;
+
+    public override bool CanSeek => false;
+
+    public override bool CanWrite => false;
+
+    public override long Length => declared;
+
+    public override long Position
+    {
+        get => position;
+        set => throw new NotSupportedException();
+    }
+
+    #endregion
+
+    #region Interface Implementations
+
+    public override int Read(byte[] buffer, int offset, int count)
+    {
+        var read = Math.Min(count, content.Length - position);
+        Array.Copy(content, position, buffer, offset, read);
+        position += read;
+        BytesRead += read;
+        return read;
+    }
+
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        var read = Math.Min(buffer.Length, content.Length - position);
+        content.AsMemory(position, read).CopyTo(buffer);
+        position += read;
+        BytesRead += read;
+        return ValueTask.FromResult(read);
+    }
+
+    public override int ReadByte()
+    {
+        if (position >= content.Length)
+        {
+            return -1;
+        }
+
+        BytesRead++;
+        return content[position++];
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    #endregion
+}
+

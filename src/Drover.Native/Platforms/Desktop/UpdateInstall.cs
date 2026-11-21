@@ -34,11 +34,24 @@ internal static class UpdateInstall
         string version,
         Func<DesktopUpdateState> live,
         Action<DesktopUpdateState> progress,
-        Action closeApplication)
+        Action closeApplication,
+        long packageLimit = UpdatePackageTrust.PackageLimit)
     {
         progress(live() with { Version = version, Phase = DesktopUpdatePhase.Downloading, Problem = null });
         var path = await download();
-        var package = await File.ReadAllBytesAsync(path);
+        byte[]? package;
+
+        // The package is read through a bounded buffer, not allocated whole before any limit applies.
+        await using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+        {
+            package = await UpdatePackageTrust.ReadPackage(file, packageLimit);
+        }
+
+        if (package is null)
+        {
+            return live() with { Version = version, Phase = DesktopUpdatePhase.Failed, Problem = UpdatePackageTrust.TooLargeProblem };
+        }
+
         var decision = UpdatePackageTrust.Decide(publicKey, signature, package, host, path, live() with { Version = version });
         if (!decision.StartInstaller)
         {
@@ -71,6 +84,13 @@ internal sealed class SparkleInstaller(SparkleUpdater updater, AppCastItem item)
     {
         InstallUpdateFailureReason? failure = null;
         var started = false;
+
+        // The library reads the whole file again to check it. A file replaced by a larger one since it was checked
+        // here is not handed over.
+        if (new FileInfo(path).Length > UpdatePackageTrust.PackageLimit)
+        {
+            return InstallUpdateFailureReason.InvalidSignature;
+        }
 
         bool Failed(InstallUpdateFailureReason reason, string? failedPath)
         {

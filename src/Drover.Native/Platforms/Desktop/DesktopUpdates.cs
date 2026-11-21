@@ -149,13 +149,15 @@ internal sealed class DesktopUpdates : IDesktopUpdates, IDisposable
                 available?.Version);
             if (verdict.NotSaved is not null)
             {
-                logger.LogWarning(verdict.NotSaved, "The newest verified update feed could not be saved");
+                logger.LogWarning(verdict.NotSaved, "The newest verified update feed version could not be saved");
             }
 
             if (!verdict.Accepted)
             {
                 available = null;
-                Change(UpdatePackageTrust.AfterStaleFeed(State, reportFailure));
+                Change(verdict.Recorded
+                    ? UpdatePackageTrust.AfterStaleFeed(State, reportFailure)
+                    : UpdatePackageTrust.AfterUnrecordedFeed(State, reportFailure));
                 return;
             }
 
