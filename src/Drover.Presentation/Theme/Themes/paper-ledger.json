@@ -1,0 +1,182 @@
+{
+  "format": 1,
+  "id": "paper-ledger",
+  "name": "Paper Ledger",
+  "intent": "Warm paper and a reading face, for long reading and writing in conversation.",
+  "firstMode": "light",
+  "suits": [],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": "literata",
+    "headings": "interface",
+    "machineNumerals": false,
+    "scale": [13, 14, 16, 18, 22, 30],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 600
+    },
+    "leading": {
+      "text": 1.6,
+      "heading": 1.25
+    },
+    "tracking": 0,
+    "headingTracking": 0,
+    "measure": 68
+  },
+  "density": {
+    "spacing": 1.1,
+    "control": {
+      "pointer": 36,
+      "touch": 44
+    },
+    "row": {
+      "pointer": 44,
+      "touch": 52
+    },
+    "composerLines": 10
+  },
+  "shape": {
+    "corners": "ticked",
+    "cut": {
+      "control": 5,
+      "frame": 8
+    },
+    "registration": false,
+    "radius": {
+      "control": 0,
+      "card": 0,
+      "sheet": 0
+    },
+    "line": 1,
+    "iconStroke": 1.5
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "lines",
+      "strength": 0.35,
+      "step": 24
+    }
+  },
+  "motion": {
+    "scale": 1.2,
+    "bloom": 0,
+    "breath": 3120,
+    "travel": 1560,
+    "live": "loop",
+    "travelLine": 2
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.52,
+      "chroma": 0.08
+    },
+    "facet": 0.05,
+    "line": 2.5,
+    "visor": "outlined"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.78,
+      "chroma": 0.09
+    },
+    "color": {
+      "bg-0": "#14110D",
+      "bg-1": "#1A1611",
+      "bg-2": "#221D17",
+      "bg-3": "#2C261E",
+      "line": "#3A3227",
+      "text": "#EFE8DC",
+      "text-2": "#C6BBA9",
+      "text-3": "#A09482",
+      "ember": "#F0AE62",
+      "ion": "#78D0D4",
+      "violet": "#BCA8F0",
+      "ok": "#82C98A",
+      "warn": "#E3C163",
+      "danger": "#F08C7E",
+      "on-accent": "#14110D",
+      "hue-0": "#E89FB5",
+      "hue-1": "#EBA295",
+      "hue-2": "#E2AA7C",
+      "hue-3": "#CEB573",
+      "hue-4": "#B0C07E",
+      "hue-5": "#8EC899",
+      "hue-6": "#71CBB9",
+      "hue-7": "#6CC7D7",
+      "hue-8": "#81BFEB",
+      "hue-9": "#A1B5F2",
+      "hue-10": "#C0ABE9",
+      "hue-11": "#D9A3D3",
+      "head-0": "#8F5567",
+      "head-1": "#91574D",
+      "head-2": "#8B5D37",
+      "head-3": "#7B672E",
+      "head-4": "#637039",
+      "head-5": "#457650",
+      "head-6": "#27786B",
+      "head-7": "#207582",
+      "head-8": "#3A6F92",
+      "head-9": "#576697",
+      "head-10": "#705E90",
+      "head-11": "#83587F",
+      "on-head": "#FBF8F1",
+      "visor": "#14110D",
+      "visor-lit": "#9BE3E6",
+      "visor-failed": "#FFBFB3"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.46,
+      "chroma": 0.1
+    },
+    "color": {
+      "bg-0": "#F6F1E6",
+      "bg-1": "#FBF8F1",
+      "bg-2": "#EEE7D8",
+      "bg-3": "#E4DBC8",
+      "line": "#D8CDB8",
+      "text": "#211B14",
+      "text-2": "#4A4236",
+      "text-3": "#5E5547",
+      "ember": "#874A0E",
+      "ion": "#0C6470",
+      "violet": "#563CAE",
+      "ok": "#2A662D",
+      "warn": "#6E5100",
+      "danger": "#A0291D",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#843D56",
+      "hue-1": "#874035",
+      "hue-2": "#804810",
+      "hue-3": "#6C5500",
+      "hue-4": "#516012",
+      "hue-5": "#266739",
+      "hue-6": "#05675A",
+      "hue-7": "#066370",
+      "hue-8": "#0E5E8A",
+      "hue-9": "#425490",
+      "hue-10": "#614A87",
+      "hue-11": "#774272",
+      "head-0": "#8F5567",
+      "head-1": "#91574D",
+      "head-2": "#8B5D37",
+      "head-3": "#7B672E",
+      "head-4": "#637039",
+      "head-5": "#457650",
+      "head-6": "#27786B",
+      "head-7": "#207582",
+      "head-8": "#3A6F92",
+      "head-9": "#576697",
+      "head-10": "#705E90",
+      "head-11": "#83587F",
+      "on-head": "#FBF8F1",
+      "visor": "#14110D",
+      "visor-lit": "#9BE3E6",
+      "visor-failed": "#FFBFB3"
+    }
+  }
+}

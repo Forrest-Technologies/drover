@@ -14,6 +14,10 @@ This file holds design facts: identity, palette, type, motion, and what the inte
 | Name of the look | Night Yard |
 | In one sentence | A dark, calm workspace where the bots are the lit things |
 
+## Themes
+
+Night Yard is the default look and Drover's identity, and it is one theme of a family ([ADR 0020](docs/adr/0020-a-family-of-themes.md)). Each theme has a dark and a light mode and may set color, type, density, shape, surfaces, motion and how the characters are drawn, inside the bounds in [09-design-direction.md](docs/architecture/09-design-direction.md#themes). No theme changes what this page holds: the three accent roles, light means live, the four live states and their static equivalents, depth by surface and line only, and everything under "What Drover's interface never does". The first batch is Night Yard, Signal Room, Paper Ledger, Workbench, Blueprint, Quiet Hours and Foundry. The rest of this page describes Night Yard.
+
 ## Personality
 
 Calm at rest, charged when working, a little ahead of its time. Confident enough to stay quiet until something is happening. It shows the work instead of describing it.

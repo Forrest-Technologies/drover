@@ -1,0 +1,182 @@
+{
+  "format": 1,
+  "id": "blueprint",
+  "name": "Blueprint",
+  "intent": "Deep blue and a drawing grid, for people who like precise structure.",
+  "firstMode": "dark",
+  "suits": [],
+  "type": {
+    "interface": "inter",
+    "machine": "jetbrains-mono",
+    "reading": null,
+    "headings": "machine",
+    "machineNumerals": false,
+    "scale": [12, 13, 14, 16, 20, 28],
+    "weights": {
+      "body": 400,
+      "label": 500,
+      "heading": 500
+    },
+    "leading": {
+      "text": 1.5,
+      "heading": 1.25
+    },
+    "tracking": 0.01,
+    "headingTracking": 0,
+    "measure": 68
+  },
+  "density": {
+    "spacing": 0.95,
+    "control": {
+      "pointer": 32,
+      "touch": 44
+    },
+    "row": {
+      "pointer": 36,
+      "touch": 44
+    },
+    "composerLines": 8
+  },
+  "shape": {
+    "corners": "ticked",
+    "cut": {
+      "control": 6,
+      "frame": 10
+    },
+    "registration": true,
+    "radius": {
+      "control": 0,
+      "card": 0,
+      "sheet": 0
+    },
+    "line": 1,
+    "iconStroke": 1.5
+  },
+  "surfaces": {
+    "levels": 2,
+    "yard": {
+      "texture": "grid",
+      "strength": 0.5,
+      "step": 16
+    }
+  },
+  "motion": {
+    "scale": 0.9,
+    "bloom": 3,
+    "breath": 2340,
+    "travel": 1170,
+    "live": "loop",
+    "travelLine": 3
+  },
+  "characters": {
+    "head": {
+      "lightness": 0.52,
+      "chroma": 0.09
+    },
+    "facet": 0.04,
+    "line": 2.0,
+    "visor": "band"
+  },
+  "dark": {
+    "hues": {
+      "lightness": 0.8,
+      "chroma": 0.1
+    },
+    "color": {
+      "bg-0": "#06142A",
+      "bg-1": "#0A1B34",
+      "bg-2": "#0F2340",
+      "bg-3": "#152D50",
+      "line": "#22406B",
+      "text": "#E7EFFA",
+      "text-2": "#AFC2DB",
+      "text-3": "#90A6C4",
+      "ember": "#FFB86B",
+      "ion": "#7DE6F6",
+      "violet": "#BBAAFF",
+      "ok": "#5EDC92",
+      "warn": "#F6CF4E",
+      "danger": "#FF8C8C",
+      "on-accent": "#06142A",
+      "hue-0": "#F3A3BB",
+      "hue-1": "#F7A597",
+      "hue-2": "#EEAE7B",
+      "hue-3": "#D7BB70",
+      "hue-4": "#B5C87D",
+      "hue-5": "#8ED09C",
+      "hue-6": "#6DD3C0",
+      "hue-7": "#66CFE1",
+      "hue-8": "#80C7F8",
+      "hue-9": "#A4BBFF",
+      "hue-10": "#C7AFF5",
+      "hue-11": "#E3A6DD",
+      "head-0": "#935267",
+      "head-1": "#965449",
+      "head-2": "#8F5C2F",
+      "head-3": "#7D6622",
+      "head-4": "#627031",
+      "head-5": "#3F774D",
+      "head-6": "#127A6B",
+      "head-7": "#007785",
+      "head-8": "#316F97",
+      "head-9": "#55669D",
+      "head-10": "#715C95",
+      "head-11": "#865582",
+      "on-head": "#F2F7FD",
+      "visor": "#04101F",
+      "visor-lit": "#7DE6F6",
+      "visor-failed": "#FFB8B8"
+    }
+  },
+  "light": {
+    "hues": {
+      "lightness": 0.46,
+      "chroma": 0.11
+    },
+    "color": {
+      "bg-0": "#F2F6FC",
+      "bg-1": "#FAFCFF",
+      "bg-2": "#E7EEF8",
+      "bg-3": "#D9E3F1",
+      "line": "#B9CBE2",
+      "text": "#0A192D",
+      "text-2": "#30445D",
+      "text-3": "#485B74",
+      "ember": "#844B00",
+      "ion": "#06627A",
+      "violet": "#5236C8",
+      "ok": "#0F6638",
+      "warn": "#6B5000",
+      "danger": "#A3231C",
+      "on-accent": "#FFFFFF",
+      "hue-0": "#873A55",
+      "hue-1": "#8B3C31",
+      "hue-2": "#824700",
+      "hue-3": "#6C5500",
+      "hue-4": "#516003",
+      "hue-5": "#1D6835",
+      "hue-6": "#05675A",
+      "hue-7": "#066370",
+      "hue-8": "#045E8C",
+      "hue-9": "#405395",
+      "hue-10": "#62488C",
+      "hue-11": "#793F75",
+      "head-0": "#935267",
+      "head-1": "#965449",
+      "head-2": "#8F5C2F",
+      "head-3": "#7D6622",
+      "head-4": "#627031",
+      "head-5": "#3F774D",
+      "head-6": "#127A6B",
+      "head-7": "#007785",
+      "head-8": "#316F97",
+      "head-9": "#55669D",
+      "head-10": "#715C95",
+      "head-11": "#865582",
+      "on-head": "#F2F7FD",
+      "visor": "#04101F",
+      "visor-lit": "#7DE6F6",
+      "visor-failed": "#FFB8B8"
+    }
+  }
+}
