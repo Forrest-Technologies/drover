@@ -1,48 +1,97 @@
 namespace Drover.Ui.Chat;
 
-/// <summary>The control that draws a searched piece of text, and its place among the pieces of that kind.</summary>
-public sealed record FindPart(string Name, int Index = 0);
+/// <summary>The control that draws a searched piece of text, its place among that kind of piece, and a path for text
+/// drawn inside another bot's work. The path keeps two pieces of the same kind in delegated work distinct.</summary>
+public sealed record FindPart(string Name, int Index = 0, string? Path = null);
 
 /// <summary>One searchable piece of a message, in the order the conversation draws it.</summary>
 public sealed record FindSegment(string MessageKey, FindPart Part, string Text);
 
 /// <summary>
 /// The text a conversation can search, taken from the words, cards, files and sources the message draws. None of it
-/// is interface chrome: names beside replies, times, buttons and usage numbers are not here. The result is cached by
-/// message key and the length of its drawn text, so a reply that grows by one character recomputes only itself.
+/// is interface chrome: names beside replies, times, buttons and usage numbers are not here. The cache belongs to
+/// this instance so a conversation can clear it when it is left, and its signature covers delegated work too.
 /// </summary>
-public static class FindableText
+public sealed class FindableText
 {
     #region Private Fields
 
-    private static readonly ConcurrentDictionary<(string Key, int Length), IReadOnlyList<FindSegment>> cache = new();
+    private readonly Dictionary<(string Key, int Signature), IReadOnlyList<FindSegment>> cache = [];
 
     #endregion
 
     #region Public Methods
 
-    public static IReadOnlyList<FindSegment> Of(ChatMessage message) =>
-        cache.GetOrAdd((message.Key, Length(message)), _ => Segments(message));
+    public IReadOnlyList<FindSegment> Of(ChatMessage message)
+    {
+        var key = (message.Key, Signature(message));
+
+        if (!cache.TryGetValue(key, out var segments))
+        {
+            segments = Segments(message);
+            cache[key] = segments;
+        }
+
+        return segments;
+    }
+
+    public void Clear() => cache.Clear();
 
     #endregion
 
     #region Private Methods
 
-    private static int Length(ChatMessage message)
+    // A hash of every piece of drawn text, including delegated children, so an edit of the same length and a
+    // growing child both invalidate the entry. The hash is only a cache key inside this process.
+    private static int Signature(ChatMessage message)
     {
-        var length = message.Text.Length + (message.Reasoning?.Length ?? 0) + message.Sources.Sum(source => source.Title.Length)
-            + message.Files.Sum(file => file.Name.Length + (file.Caption?.Length ?? 0) + (file.Preview?.Length ?? 0));
+        HashCode hash = new();
+        hash.Add(message.Text);
+        hash.Add(message.Reasoning);
+
+        foreach (var source in message.Sources)
+        {
+            hash.Add(source.Title);
+        }
+
+        foreach (var file in message.Files)
+        {
+            hash.Add(file.Name);
+            hash.Add(file.Caption);
+            hash.Add(file.Preview);
+        }
 
         foreach (var tool in message.Tools)
         {
-            length += tool.Label.Length + tool.Summary.Length + tool.Arguments.Length + (tool.Result?.Length ?? 0)
-                + tool.Facts.Sum(fact => fact.Name.Length + fact.Value.Length) + tool.Output.Sum(piece => piece.Text.Length);
+            hash.Add(tool.Label);
+            hash.Add(tool.Summary);
+            hash.Add(tool.Arguments);
+            hash.Add(tool.Result);
+
+            foreach (var piece in tool.Output)
+            {
+                hash.Add(piece.Text);
+            }
+
+            foreach (var fact in tool.Facts)
+            {
+                hash.Add(fact.Name);
+                hash.Add(fact.Value);
+            }
+
+            if (tool.Delegation is { } delegation)
+            {
+                foreach (var child in delegation.Work)
+                {
+                    hash.Add(Signature(child));
+                }
+            }
         }
 
-        return length;
+        return hash.ToHashCode();
     }
 
-    private static List<FindSegment> Segments(ChatMessage message)
+    private List<FindSegment> Segments(ChatMessage message)
     {
         List<FindSegment> segments = [];
 
@@ -75,21 +124,18 @@ public static class FindableText
 
             foreach (var (fact, factIndex) in tool.Facts.Select((fact, index) => (fact, index)))
             {
-                Add(segments, message, new("ToolFact", index * 1000 + factIndex), $"{fact.Name}: {fact.Value}");
+                Add(segments, message, new("ToolFact", factIndex, index.ToString(CultureInfo.InvariantCulture)), $"{fact.Name}: {fact.Value}");
             }
 
             if (tool.Delegation is { Work.Count: > 0 } delegation)
             {
-                var workIndex = 0;
-
-                foreach (var child in delegation.Work)
+                foreach (var (child, workIndex) in delegation.Work.Select((child, index) => (child, index)))
                 {
                     foreach (var segment in Of(child))
                     {
-                        Add(segments, message, new($"Delegation{segment.Part.Name}", index * 1000 + workIndex), segment.Text);
+                        var childPath = segment.Part.Path ?? segment.Part.Index.ToString(CultureInfo.InvariantCulture);
+                        Add(segments, message, new FindPart($"Delegation{segment.Part.Name}", segment.Part.Index, $"{index}.{workIndex}.{childPath}"), segment.Text);
                     }
-
-                    workIndex++;
                 }
             }
         }
@@ -101,7 +147,7 @@ public static class FindableText
 
             foreach (var (line, lineIndex) in (file.Preview ?? string.Empty).Split('\n').Select((line, index) => (line, index)))
             {
-                Add(segments, message, new("FilePreview", index * 1000 + lineIndex), line);
+                Add(segments, message, new("FilePreview", lineIndex, index.ToString(CultureInfo.InvariantCulture)), line);
             }
         }
 

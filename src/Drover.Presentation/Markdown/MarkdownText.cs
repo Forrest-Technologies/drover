@@ -11,17 +11,9 @@ public sealed record MarkdownBlock(IReadOnlyList<MarkdownSpan> Spans)
 {
     #region Properties
 
-    public string Text => Normalize(string.Concat(Spans.Select(span => span.Text)));
-
-    #endregion
-
-    #region Private Methods
-
-    // The parser leaves line breaks at the edges of a block and doubled spaces around a task mark. The view draws
-    // one break between lines and one space between words, so find matches that same text.
-    private static string Normalize(string text) =>
-        string.Join('\n', text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => Regex.Replace(line, "[ \\t]{2,}", " ")));
+    // The plain concatenation is the source of truth. Highlight offsets are positions in this string, so it must
+    // never be normalized away from the spans the view draws.
+    public string Text => string.Concat(Spans.Select(span => span.Text));
 
     #endregion
 }
@@ -67,7 +59,7 @@ public static class MarkdownText
             else if (node is ElementNode block && blockElements.Contains(block.Name))
             {
                 Flush();
-                blocks.Add(new(Spans([block], new())));
+                blocks.Add(new(Edges(Spans([block], new()))));
             }
             else
             {
@@ -86,7 +78,7 @@ public static class MarkdownText
 
                 if (!string.IsNullOrWhiteSpace(text))
                 {
-                    blocks.Add(new([.. inline]));
+                    blocks.Add(new(Edges(inline)));
                 }
 
                 inline.Clear();
@@ -97,15 +89,20 @@ public static class MarkdownText
     public static IReadOnlyList<MarkdownSpan> Spans(IReadOnlyList<MarkdownNode> nodes, MarkdownInlineStyle style)
     {
         List<MarkdownSpan> spans = [];
+        var afterTask = false;
 
         foreach (var node in nodes)
         {
             switch (node)
             {
                 case TextNode text:
-                    spans.Add(new(text.Text, style));
+                    // A task mark replaces the checkbox and its following space, so the two are not doubled.
+                    var drawn = afterTask ? text.Text.TrimStart(' ') : text.Text;
+                    afterTask = false;
+                    spans.Add(new(drawn, style));
                     break;
                 case ElementNode { Name: "br" }:
+                    afterTask = false;
                     spans.Add(new("\n", style));
                     break;
                 case ElementNode { Name: "strong" } strong:
@@ -131,6 +128,7 @@ public static class MarkdownText
                     break;
                 case TaskNode task:
                     spans.Add(new(task.Done ? "Done: " : "Not done: ", style));
+                    afterTask = true;
                     break;
                 case CodeNode machine:
                     spans.Add(new(machine.Code, style with { Machine = true }));
@@ -144,6 +142,43 @@ public static class MarkdownText
     #endregion
 
     #region Private Methods
+
+    // The parser puts line breaks at the edges of a block. Those are not drawn as part of the prose, so they are
+    // dropped here. Interior text, including blank lines and the spaces in code, is kept exactly as drawn.
+    private static List<MarkdownSpan> Edges(IReadOnlyList<MarkdownSpan> spans)
+    {
+        var first = 0;
+        var last = spans.Count - 1;
+
+        while (first <= last && string.IsNullOrWhiteSpace(spans[first].Text))
+        {
+            first++;
+        }
+
+        while (last >= first && string.IsNullOrWhiteSpace(spans[last].Text))
+        {
+            last--;
+        }
+
+        if (first > last)
+        {
+            return [];
+        }
+
+        List<MarkdownSpan> trimmed = [.. spans.Skip(first).Take(last - first + 1)];
+
+        if (!trimmed[0].Style.Machine)
+        {
+            trimmed[0] = trimmed[0] with { Text = trimmed[0].Text.TrimStart() };
+        }
+
+        if (!trimmed[^1].Style.Machine)
+        {
+            trimmed[^1] = trimmed[^1] with { Text = trimmed[^1].Text.TrimEnd() };
+        }
+
+        return trimmed;
+    }
 
     // The view draws an image as a button until its address is asked for. That label is the text on screen.
     private static string Placeholder(ImageNode image) =>

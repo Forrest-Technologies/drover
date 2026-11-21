@@ -1,27 +1,71 @@
 namespace Drover.Presentation.Tests.Markdown;
 
-/// <summary>The text find matches is the text the view draws: markup is gone, styles do not split words, and line
-/// breaks and task prefixes are characters in the drawn text.</summary>
+/// <summary>The text find matches is the text the view draws: markup is gone, styles do not split words, code keeps
+/// its exact characters, and line breaks and task prefixes are characters in the drawn text.</summary>
 public sealed class MarkdownTextTests
 {
     #region Public Methods
 
     [Theory]
     [InlineData("plain **bold** and `code`", "plain bold and code")]
-    [InlineData("a  \nb", "a\nb")]
     [InlineData("[label](https://example.test/path)", "label")]
     [InlineData("![alt](https://example.test/a.png)", "Load image from example.test: alt")]
     [InlineData("- [x] write tests", "Done: write tests")]
     [InlineData("- [ ] write tests", "Not done: write tests")]
-    [InlineData("```cs\nvar x = 1;\n```", "var x = 1;")]
     [InlineData("Cafe\u0301 **bold**", "Cafe\u0301 bold")]
-    [InlineData("> quoted words", "quoted words")]
     [InlineData("text <span attribute=\"value\">stays text</span>", "text <span attribute=\"value\">stays text</span>")]
+    [InlineData("# A heading", "A heading")]
+    [InlineData("- first\n- second", "first\nsecond")]
+    [InlineData("1. first\n2. second", "first\nsecond")]
+    [InlineData("- first\n  - nested", "first\n\nnested")]
+    [InlineData("> first\n>\n> second", "first\nsecond")]
     public void The_drawn_text_of_one_block_matches_the_view(string source, string expected)
     {
         var blocks = MarkdownText.Blocks(MarkdownDocument.Parse(source));
 
         blocks.Should().ContainSingle().Which.Text.Should().Be(expected);
+    }
+
+    [Fact]
+    public void Code_keeps_its_indentation_and_blank_lines()
+    {
+        var source = "```py\nif True:\n    x  =  1\n\n    print(x)\n```";
+
+        var block = MarkdownText.Blocks(MarkdownDocument.Parse(source)).Should().ContainSingle().Subject;
+
+        block.Text.Should().Be("if True:\n    x  =  1\n\n    print(x)");
+        block.Spans.Should().ContainSingle().Which.Style.Machine.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Double_spaces_in_inline_code_are_kept()
+    {
+        var block = MarkdownText.Blocks(MarkdownDocument.Parse("use `x  =  1` now")).Should().ContainSingle().Subject;
+
+        block.Spans.Should().ContainSingle(span => span.Text == "x  =  1" && span.Style.Machine);
+        block.Text.Should().Be("use x  =  1 now");
+    }
+
+    [Fact]
+    public void A_table_keeps_empty_cells_and_the_line_breaks_between_rows()
+    {
+        var text = """
+            | A | B |
+            | --- | --- |
+            | 1 |  |
+            """;
+
+        var block = MarkdownText.Blocks(MarkdownDocument.Parse(text)).Should().ContainSingle().Subject;
+
+        block.Text.Should().Be("A\tB\n\t1\t\n");
+    }
+
+    [Fact]
+    public void A_rule_between_blocks_does_not_add_text()
+    {
+        var blocks = MarkdownText.Blocks(MarkdownDocument.Parse("before\n\n---\n\nafter"));
+
+        blocks.Select(block => block.Text).Should().Equal("before", "after");
     }
 
     [Fact]
@@ -33,28 +77,6 @@ public sealed class MarkdownTextTests
         block.Spans.Select(span => span.Text).Should().Equal("bold", "ly");
         block.Spans[0].Style.Strong.Should().BeTrue();
         block.Spans[1].Style.Strong.Should().BeFalse();
-    }
-
-    [Fact]
-    public void Inline_code_carries_the_machine_style_of_the_view()
-    {
-        var block = MarkdownText.Blocks(MarkdownDocument.Parse("run `code` now")).Should().ContainSingle().Subject;
-
-        block.Spans.Should().ContainSingle(span => span.Text == "code" && span.Style.Machine);
-    }
-
-    [Fact]
-    public void A_table_keeps_cell_text_and_the_line_breaks_between_rows()
-    {
-        var text = """
-            | A | B |
-            | --- | --- |
-            | 1 | 2 |
-            """;
-
-        var block = MarkdownText.Blocks(MarkdownDocument.Parse(text)).Should().ContainSingle().Subject;
-
-        block.Text.Should().Be("A\tB\n1\t2");
     }
 
     [Fact]
