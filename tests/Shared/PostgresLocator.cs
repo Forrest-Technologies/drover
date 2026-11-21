@@ -2,104 +2,52 @@ namespace Drover.Tests.Common;
 
 /// <summary>
 /// Finds one PostgreSQL for a test assembly, and says in one sentence what went wrong when it cannot. Environment
-/// and the container start are parameters so the two messages and the once-only rule can be tested without Docker.
-/// A connection string never appears in either message: only its parsed host, port and user do. The fixture locator
-/// sets <paramref name="shareInProcess"/> so every assembly fixture in one process shares the first result, whether
-/// it is a connection or a failure; tests use separate instances with their own state.
+/// and the container start are parameters so the two messages can be tested without Docker. A connection string
+/// never appears in either message: only its parsed host, port and user do. A <see cref="PostgresAttempt"/> makes
+/// every caller that shares it await one attempt; the assembly fixtures share one for the whole process.
 /// </summary>
 public sealed class PostgresLocator(
     Func<string?> environment,
     Func<CancellationToken, Task<string>> startContainer,
-    bool shareInProcess = false)
+    PostgresAttempt? attempt = null)
 {
     #region Private Fields
 
-    private static readonly object sharedGate = new();
+    private readonly object gate = new();
 
-    private static TestEnvironmentException? sharedFailure;
+    private Task<string>? ownAttempt;
 
-    private static string? sharedConnection;
+    #endregion
 
-    private readonly Func<CancellationToken, Task<string>> start = startContainer;
+    #region Properties
 
-    private readonly bool share = shareInProcess;
-
-    private TestEnvironmentException? failure;
-
-    private string? connectionString;
+    /// <summary>The one attempt every assembly fixture in this process uses.</summary>
+    public static PostgresAttempt SharedAttempt { get; } = new();
 
     #endregion
 
     #region Public Methods
 
-    /// <summary>The locator the assembly fixtures use: one result for the whole process.</summary>
+    /// <summary>The locator the assembly fixtures use: the same attempt for the whole process.</summary>
     public static PostgresLocator Shared(Func<CancellationToken, Task<string>> start) =>
-        new(() => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"), start, shareInProcess: true);
+        new(() => Environment.GetEnvironmentVariable("DROVER_TEST_POSTGRES"), start, SharedAttempt);
 
-    public async Task<string> Find(CancellationToken cancellationToken)
-    {
-        if (failure is not null)
-        {
-            throw failure;
-        }
-
-        if (connectionString is not null)
-        {
-            return connectionString;
-        }
-
-        if (share)
-        {
-            lock (sharedGate)
-            {
-                if (sharedFailure is not null)
-                {
-                    failure = sharedFailure;
-                    throw sharedFailure;
-                }
-
-                if (sharedConnection is not null)
-                {
-                    connectionString = sharedConnection;
-                    return sharedConnection;
-                }
-            }
-        }
-
-        try
-        {
-            var found = await FindNow(cancellationToken);
-            connectionString = found;
-
-            if (share)
-            {
-                lock (sharedGate)
-                {
-                    sharedConnection ??= found;
-                }
-            }
-
-            return found;
-        }
-        catch (TestEnvironmentException found)
-        {
-            failure = found;
-
-            if (share)
-            {
-                lock (sharedGate)
-                {
-                    sharedFailure ??= found;
-                }
-            }
-
-            throw;
-        }
-    }
+    public Task<string> Find(CancellationToken cancellationToken) =>
+        attempt is not null
+            ? attempt.Get(() => FindNow(cancellationToken))
+            : Own(() => FindNow(cancellationToken));
 
     #endregion
 
     #region Private Methods
+
+    private Task<string> Own(Func<Task<string>> create)
+    {
+        lock (gate)
+        {
+            return ownAttempt ??= create();
+        }
+    }
 
     private async Task<string> FindNow(CancellationToken cancellationToken)
     {
@@ -113,7 +61,7 @@ public sealed class PostgresLocator(
 
         try
         {
-            return await start(cancellationToken);
+            return await startContainer(cancellationToken);
         }
         catch (Exception failed)
         {

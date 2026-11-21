@@ -50,6 +50,58 @@ public sealed class PostgresLocatorTests
     }
 
     [Fact]
+    public async Task Two_callers_sharing_an_attempt_start_only_one_connection()
+    {
+        var attempt = new PostgresAttempt();
+        var starts = 0;
+        var firstLocator = new PostgresLocator(
+            () => null,
+            _ =>
+            {
+                starts++;
+                return Task.FromResult("Host=fake;Username=fake");
+            },
+            attempt);
+        var secondLocator = new PostgresLocator(
+            () => null,
+            _ =>
+            {
+                starts++;
+                return Task.FromResult("Host=other;Username=other");
+            },
+            attempt);
+
+        var both = await Task.WhenAll(
+            firstLocator.Find(TestContext.Current.CancellationToken),
+            secondLocator.Find(TestContext.Current.CancellationToken));
+
+        both[0].Should().Be(both[1]);
+        starts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Two_callers_sharing_an_attempt_get_the_same_failure()
+    {
+        var attempt = new PostgresAttempt();
+        var starts = 0;
+        var locator = new PostgresLocator(
+            () => null,
+            _ =>
+            {
+                starts++;
+                throw new TaskCanceledException();
+            },
+            attempt);
+
+        var failures = await Task.WhenAll(
+            FluentActions.Awaiting(() => locator.Find(TestContext.Current.CancellationToken)).Should().ThrowAsync<TestEnvironmentException>(),
+            FluentActions.Awaiting(() => locator.Find(TestContext.Current.CancellationToken)).Should().ThrowAsync<TestEnvironmentException>());
+
+        failures[0].Which.Should().BeSameAs(failures[1].Which);
+        starts.Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_successful_lookup_is_remembered_without_starting_twice()
     {
         var starts = 0;

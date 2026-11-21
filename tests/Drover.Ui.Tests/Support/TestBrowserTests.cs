@@ -49,6 +49,7 @@ public sealed class TestBrowserTests
 
     [Theory]
     [InlineData(TestBrowser.TestBrowserOS.Linux, "chromium-200/chrome-linux/chrome", "chromium-100/chrome-linux/chrome")]
+    [InlineData(TestBrowser.TestBrowserOS.MacOS, "chromium-200/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing", "chromium-100/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")]
     [InlineData(TestBrowser.TestBrowserOS.MacOS, "chromium-200/chrome-mac/Chromium.app/Contents/MacOS/Chromium", "chromium-100/chrome-mac/Chromium.app/Contents/MacOS/Chromium")]
     [InlineData(TestBrowser.TestBrowserOS.Windows, "chromium-200/chrome-win/chrome.exe", "chromium-100/chrome-win/chrome.exe")]
     public void The_newest_downloaded_chromium_is_chosen_for_each_system(

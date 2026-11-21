@@ -128,6 +128,10 @@ public static class TestBrowser
         {
             TestBrowserOS.MacOS =>
             [
+                // The browser Playwright 1.63 downloads is Chrome for Testing, under these two names.
+                "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+                "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+                // Older revisions shipped the Chromium spelling; a hand-installed Chromium is in FixedPaths.
                 "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
                 "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
                 "chrome-mac-64/Chromium.app/Contents/MacOS/Chromium",

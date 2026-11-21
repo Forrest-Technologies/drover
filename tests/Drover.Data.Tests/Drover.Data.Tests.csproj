@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="..\Shared\EffectiveGrantCases.cs" Link="Shared\EffectiveGrantCases.cs" />
     <Compile Include="..\Shared\TestRolePasswords.cs" Link="Shared\TestRolePasswords.cs" />
+    <Compile Include="..\Shared\PostgresAttempt.cs" Link="Shared\PostgresAttempt.cs" />
     <Compile Include="..\Shared\PostgresLocator.cs" Link="Shared\PostgresLocator.cs" />
     <Compile Include="..\Shared\TestEnvironmentException.cs" Link="Shared\TestEnvironmentException.cs" />
     <None Include="..\Shared\effective-grants.cases" Link="effective-grants.cases" CopyToOutputDirectory="PreserveNewest" />
