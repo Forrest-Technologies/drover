@@ -20,11 +20,6 @@ public sealed partial class NativeScreensTests
         "/threads/{FormerThreadId:guid}", "/tools", "/usage",
     ];
 
-    // The web client still makes a bot when New bot is pressed. The native client opens the editor on a bot that is
-    // not made yet, at /bots/new, and nothing is stored until it is saved. Project screens are native too. The Razor
-    // client does not grow in this change.
-    private static readonly string[] onlyOnNative = ["/bots/new", "/projects", "/projects/{ProjectId:guid}"];
-
     #endregion
 
     #region Public Methods

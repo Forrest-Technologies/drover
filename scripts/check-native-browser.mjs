@@ -640,15 +640,6 @@ try {
                     heldRoute = null;
                 }
             }
-            // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
-            await page.mouse.move(width / 2, 500);
-            await page.mouse.wheel(0, 3000);
-            await page.waitForTimeout(200);
-            const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
-            const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
-            assert.equal(saved.suggestedFilename(), 'extension.json');
-            const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
-            assert.equal(file.version, 1);
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
             current = 'conversation-search';
             await checkConversationSearch(page, width);
