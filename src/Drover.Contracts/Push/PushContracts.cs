@@ -21,8 +21,22 @@ public sealed record PushDeviceRequest(string Endpoint, string PublicKey, string
 public sealed record PushDeviceQuery(string Endpoint);
 
 
-/// <summary>Whether the server will wake this device for the signed-in person.</summary>
-public sealed record PushDeviceState(bool On);
+/// <summary>
+/// Input only: a device's new subscription, to take the place of the one it had at <see cref="PreviousEndpoint"/>.
+/// The server does it only for the person who had the previous one. Prints nothing of itself when logged.
+/// </summary>
+public sealed record MovePushDeviceRequest(string PreviousEndpoint, PushDeviceRequest Device)
+{
+    public override string ToString() => nameof(MovePushDeviceRequest);
+}
+
+
+/// <summary>
+/// Whether the server will wake this device for the signed-in person, and which person the answer is for: the
+/// account the request was signed in as, so a client can tell an answer for another account (signed in since, in
+/// another tab) from a "no" for the one it asked about.
+/// </summary>
+public sealed record PushDeviceState(bool On, Guid? AccountId = null);
 
 
 /// <summary>Whether a bot may notify the signed-in person. On unless they turned it off.</summary>

@@ -6,8 +6,8 @@ told to do the things the compose files do for you. This page lists them. The co
 ([architecture/13-deployment-and-push.md](architecture/13-deployment-and-push.md)) is unchanged and still the simplest.
 
 CapRover reads `captain-definition` and builds the root `Dockerfile`. The image listens on port 8080 and serves
-the Uno browser client at `/native/` beside the existing web client at `/`. After redeploying the Drover app,
-open `/native/` on the app's HTTPS domain.
+the browser client at `/`. The address it was served at before, `/native/`, sends the browser to the same address
+at `/`.
 
 ## What you set up
 

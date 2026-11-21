@@ -346,24 +346,16 @@ jobs:
         run: |
           dotnet tool restore
           dotnet tool run nuget-license -- -i Drover.Native.slnx -t -a licenses/allowed.json -mapping licenses/url-mappings.json -override licenses/allowed-exceptions.json -err
-      - name: Prepare the existing browser-test runtime
+      - name: Prepare the browser-test runtime
         run: |
-          dotnet build tests/Drover.Ui.Tests -c Release -warnaserror
-          pwsh tests/Drover.Ui.Tests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
+          dotnet build tests/Drover.Presentation.Tests -c Release -warnaserror
+          pwsh tests/Drover.Presentation.Tests/bin/Release/net11.0/playwright.ps1 install --with-deps chromium
       - name: Exercise the trimmed publish under the server CSP
         run: node scripts/check-native-browser.mjs artifacts/native/wwwroot
-      - name: Exercise the same screens in the Blazor client
-        env:
-          DROVER_REFERENCE_ROOT: artifacts/reference/wwwroot
-        run: |
-          dotnet publish src/Drover.Web -c Release -warnaserror -o artifacts/reference
-          node scripts/check-native-browser.mjs artifacts/native/wwwroot artifacts/reference-smoke
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: browser-screen-comparison
-          path: |
-            artifacts/native-smoke
-            artifacts/reference-smoke
+          name: browser-screens
+          path: artifacts/native-smoke
           if-no-files-found: error
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
