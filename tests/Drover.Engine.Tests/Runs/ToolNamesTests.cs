@@ -70,7 +70,7 @@ public sealed class ToolNamesTests
     }
 
     [Fact]
-    public void Two_suffixes_that_collide_are_lengthened()
+    public void Two_suffixes_that_collide_give_the_earlier_tool_the_short_name()
     {
         // Both names clean to x________y, and their SHA-256 values share the first six hex characters.
         var keeper = Tool("x........y", 0, 1);
@@ -80,8 +80,8 @@ public sealed class ToolNamesTests
         var names = ToolNames.ForConnection("repo", [keeper, first, second]);
 
         names.Values.Should().OnlyHaveUniqueItems();
-        names[first.Id].Should().EndWith("_51baad06d2");
-        names[second.Id].Should().EndWith("_51baad19ec");
+        names[first.Id].Should().EndWith("_51baad", "the first-seen tool keeps its short suffix");
+        names[second.Id].Should().EndWith("_51baad19ec", "the later tool takes a longer one");
     }
 
     [Fact]
@@ -98,7 +98,9 @@ public sealed class ToolNamesTests
         var names = ToolNames.ForConnection("verylongslug", tools);
 
         names.Values.Should().OnlyContain(name =>
-            name.Length <= 64 && name.All(character => char.IsAsciiLetterOrDigit(character) || character == '_' || character == '-'));
+            name.Length <= 64
+            && name.All(character =>
+                char.IsAsciiLetterOrDigit(character) || character == '_' || character == '-'));
     }
 
     #endregion
@@ -115,32 +117,37 @@ public sealed class ToolNamesTests
 
         var names = ToolNames.ForConnection("repo", [a, b, c, d]);
         var reversed = ToolNames.ForConnection("repo", [d, c, b, a]);
+        var withoutC = ToolNames.ForConnection("repo", [a, b, d]);
 
         names.Values.Should().OnlyHaveUniqueItems();
         names.Values.Should().OnlyContain(name => name.Length <= 64);
         names[a.Id].Should().Be("repo__repo_get_file");
-        names[c.Id].Should().Be("repo__repo_get_file_f17887");
+        names[b.Id].Should().Be("repo__repo_get_file_f17887");
+        names[b.Id].Should().Be(withoutC[b.Id], "a tool seen later cannot move an earlier one");
+        names[c.Id].Should().Be("repo__repo_get_file_f17887_e066c0",
+            "a crafted plain name still gets a unique name");
         names[d.Id].Should().Be("repo__repo_get_file_f1788792aa");
-        names[b.Id].Should().StartWith("repo__repo_get_file_f17887");
-        names[b.Id].Should().MatchRegex("_f17887[0-9a-f]{8}$");
         reversed.Should().BeEquivalentTo(names);
     }
 
     [Fact]
-    public void A_crafted_tool_only_changes_the_suffix_length_of_a_tool_it_clashes_with()
+    public void A_later_tool_never_moves_an_earlier_tools_name()
     {
         var plain = Tool("unrelated", 0, 1);
         var a = Tool("repo.get_file", 1, 2);
         var b = Tool("repo_get_file", 2, 3);
         var aimed = Tool("repo_get_file_f17887", 3, 4);
+        ToolName[] earlier = [plain, a, b];
 
         var before = ToolNames.ForConnection("repo", [plain, a, b]);
         var after = ToolNames.ForConnection("repo", [plain, a, b, aimed]);
 
         after.Values.Should().OnlyHaveUniqueItems();
-        after[plain.Id].Should().Be(before[plain.Id], "a server cannot rename a tool it does not clash with");
-        after[a.Id].Should().Be(before[a.Id], "the first-seen tool keeps its plain name");
-        after[b.Id].Should().StartWith(before[b.Id][..^6], "the suffix still comes from that tool's own name");
+
+        foreach (var tool in earlier)
+        {
+            after[tool.Id].Should().Be(before[tool.Id], "a tool seen later cannot move an earlier one");
+        }
     }
 
     [Fact]

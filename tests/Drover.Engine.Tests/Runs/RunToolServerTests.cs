@@ -49,7 +49,11 @@ public sealed class RunToolServerTests(PostgresServer postgres)
             [new TextOutput("Both files are in.")]);
         world.StartHost();
 
-        var run = await world.WaitForStatus(await world.Post(await world.NewThread(), "Get both files."), RunStatus.Completed, RunStatus.Failed);
+        var threadId = await world.NewThread();
+        var run = await world.WaitForStatus(
+            await world.Post(threadId, "Get both files."),
+            RunStatus.Completed,
+            RunStatus.Failed);
 
         run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);
         world.Model.ToolsOffered[0].Should().Contain(names.Values);
@@ -82,7 +86,8 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         await world.Grant("repo_get_file", GrantEffect.Allow);
         await world.WaitForStatus(await world.Post(threadId, "Third."), RunStatus.Completed, RunStatus.Failed);
 
-        world.Model.ToolsOffered[2].Should().Contain(names.Values, "a grant removed and given back does not rename a tool");
+        world.Model.ToolsOffered[2].Should().Contain(names.Values,
+            "a grant removed and given back does not rename a tool");
     }
 
     [Fact]
@@ -102,7 +107,8 @@ public sealed class RunToolServerTests(PostgresServer postgres)
         await world.WaitForStatus(runId, RunStatus.Waiting, RunStatus.Failed);
         world.Server.Count("repo.get_file").Should().Be(0);
         world.Server.Count("repo_get_file").Should().Be(0, "the call waits for a person before it reaches the server");
-        (await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true)).Outcome.Should().Be(DecisionOutcome.Recorded);
+        (await world.Decide((await world.ReadToolCalls(runId)).Single().Id, approved: true)).Outcome
+            .Should().Be(DecisionOutcome.Recorded);
         var run = await world.WaitForStatus(runId, RunStatus.Completed, RunStatus.Failed);
 
         run.Status.Should().Be(RunStatus.Completed, run.Error?.Message);

@@ -167,7 +167,9 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     /// The names of every tool of these connections, granted or not, available or missing. This feeds naming only:
     /// a row here says nothing about what a bot may use, and no grant is read.
     /// </summary>
-    public Task<List<ToolName>> ListToolNames(IReadOnlyCollection<Guid> connectionIds, CancellationToken cancellationToken) =>
+    public Task<List<ToolName>> ListToolNames(
+        IReadOnlyCollection<Guid> connectionIds,
+        CancellationToken cancellationToken) =>
         db.Tools.AsNoTracking()
             .Where(tool => tool.ToolConnectionId != null && connectionIds.Contains(tool.ToolConnectionId.Value))
             .Select(tool => new ToolName(tool.Id, tool.ToolConnectionId!.Value, tool.Name, tool.FirstSeenAt))

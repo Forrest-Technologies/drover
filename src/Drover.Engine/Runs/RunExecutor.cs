@@ -291,7 +291,30 @@ public sealed partial class RunExecutor(
             project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
         }
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, toolModelNames, entry?.Capabilities.Vision ?? false, memory, children, project);
+        return new LoadedRun(
+            run,
+            thread,
+            bot,
+            connection,
+            key.Value,
+            key.Readable,
+            policy,
+            limits,
+            entry?.Pricing ?? new ModelPricing(),
+            granted,
+            steps,
+            openMessage,
+            unsettled,
+            rows,
+            answers,
+            [.. delivered.Select(message => message.Id)],
+            requested,
+            toolConnections,
+            toolModelNames,
+            entry?.Capabilities.Vision ?? false,
+            memory,
+            children,
+            project);
     }
 
     /// <summary>
@@ -433,7 +456,8 @@ public sealed partial class RunExecutor(
         HashSet<string> offered = [];
 
         foreach (var candidate in loaded.Granted
-            .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
+            .Where(granted => granted.Effect is not GrantEffect.Deny
+                && granted.Tool.State is AvailabilityState.Available)
             .Select(granted => ToRunTool(granted, loaded))
             .OfType<RunTool>())
         {
@@ -445,7 +469,7 @@ public sealed partial class RunExecutor(
 
             var kept = tools.First(tool => tool.ModelName == candidate.ModelName);
             logger.LogWarning(
-                "Run {RunId} leaves out tool {DroppedToolId} of connection {ConnectionId}: tool {KeptToolId} already has its model name",
+                "Run {RunId} drops tool {DroppedToolId} of {ConnectionId}: {KeptToolId} holds its name",
                 loaded.Run.Id,
                 candidate.Tool.Id,
                 candidate.Connection?.Id,

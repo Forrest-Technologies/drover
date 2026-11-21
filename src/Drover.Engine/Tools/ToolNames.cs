@@ -29,52 +29,24 @@ public static class ToolNames
     }
 
     /// <summary>
-    /// The model-visible name of every tool of one connection, by tool id. Each plain name belongs to the tool that
-    /// had it alone or saw it first; every other tool takes the shortest suffix from its own name that no other
-    /// tool holds. A server-named tool can aim at another tool's suffix, so candidates are checked against all plain
-    /// names as well as the ones already given out. Names are unique by construction, and no tool is left out.
+    /// The model-visible name of every tool of one connection, by tool id. Tools are walked in first-seen order, ties
+    /// by name, and each takes the first name in the sequence plain, six, ten, fourteen, ... that no earlier tool
+    /// holds.
+    /// A tool seen later can never move an earlier one, whether by accident or by a name a server chose. Names are
+    /// unique by construction, and no tool is left out.
     /// </summary>
     public static IReadOnlyDictionary<Guid, string> ForConnection(string connectionSlug, IReadOnlyList<ToolName> tools)
     {
-        Dictionary<Guid, string> baseNames = [];
-
-        foreach (var tool in tools)
-        {
-            baseNames[tool.Id] = ForModel(connectionSlug, tool.Name);
-        }
-
         Dictionary<Guid, string> names = [];
         HashSet<string> taken = [];
-        var ordered = tools
+
+        foreach (var tool in tools
             .OrderBy(tool => tool.FirstSeenAt)
-            .ThenBy(tool => tool.Name, StringComparer.Ordinal)
-            .ToList();
-
-        // The plain names go first: a tool that already works today keeps its name whatever another server lists.
-        foreach (var group in ordered.GroupBy(tool => baseNames[tool.Id], StringComparer.Ordinal))
+            .ThenBy(tool => tool.Name, StringComparer.Ordinal))
         {
-            var keeper = group.First();
-            names[keeper.Id] = baseNames[keeper.Id];
-            taken.Add(baseNames[keeper.Id]);
-        }
-
-        Dictionary<Guid, int> starting = [];
-
-        // Two tools whose six-character suffixes are the same both take a longer one, as the catalog rule says.
-        foreach (var group in ordered
-            .Where(tool => !names.ContainsKey(tool.Id))
-            .GroupBy(tool => Suffixed(connectionSlug, tool.Name, ShortSuffix), StringComparer.Ordinal)
-            .Where(group => group.Count() > 1))
-        {
-            foreach (var tool in group)
-            {
-                starting[tool.Id] = LongSuffix;
-            }
-        }
-
-        foreach (var tool in ordered.Where(tool => !names.ContainsKey(tool.Id)))
-        {
-            names[tool.Id] = FreeName(connectionSlug, tool, starting.GetValueOrDefault(tool.Id, ShortSuffix), taken);
+            var name = FirstFree(connectionSlug, tool, taken);
+            names[tool.Id] = name;
+            taken.Add(name);
         }
 
         return names;
@@ -84,30 +56,39 @@ public static class ToolNames
 
     #region Private Methods
 
-    private static string FreeName(string connectionSlug, ToolName tool, int length, HashSet<string> taken)
+    private static string FirstFree(string connectionSlug, ToolName tool, HashSet<string> taken)
     {
-        for (; length < MaxLength; length += SuffixStep)
-        {
-            var candidate = Suffixed(connectionSlug, tool.Name, length);
+        var plain = ForModel(connectionSlug, tool.Name);
 
-            if (taken.Add(candidate))
+        if (!taken.Contains(plain))
+        {
+            return plain;
+        }
+
+        var suffixLength = ShortSuffix;
+
+        while (suffixLength < MaxLength)
+        {
+            var candidate = Suffixed(connectionSlug, tool.Name, suffixLength);
+
+            if (!taken.Contains(candidate))
             {
                 return candidate;
             }
+
+            suffixLength += SuffixStep;
         }
 
-        // Only reachable if two tools of one connection have the very same name, which the catalog does not allow.
-        // The tie-break is the order the tools were given, so a restart sees the same name and neither is dropped.
+        // About fifteen crafted names can take every short prefix, not only two tools with one hash. The tie-break
+        // counts the names already handed out, so the same tool list gives the same name on every run.
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tool.Name))).ToLowerInvariant();
 
         for (var index = 0; ; index++)
         {
             var suffix = $"{hash[..LongSuffix]}{index:x}";
-            var prefix = Base(connectionSlug, tool.Name);
-            var cut = Math.Min(prefix.Length, MaxLength - suffix.Length - 1);
-            var candidate = $"{prefix[..cut]}_{suffix}";
+            var candidate = WithSuffix(connectionSlug, tool.Name, suffix);
 
-            if (taken.Add(candidate))
+            if (!taken.Contains(candidate))
             {
                 return candidate;
             }
@@ -117,7 +98,11 @@ public static class ToolNames
     private static string Suffixed(string connectionSlug, string toolName, int suffixLength)
     {
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(toolName)));
-        var suffix = hash.ToLowerInvariant()[..suffixLength];
+        return WithSuffix(connectionSlug, toolName, hash.ToLowerInvariant()[..suffixLength]);
+    }
+
+    private static string WithSuffix(string connectionSlug, string toolName, string suffix)
+    {
         var prefix = Base(connectionSlug, toolName);
         var cut = Math.Min(prefix.Length, MaxLength - suffix.Length - 1);
         return $"{prefix[..cut]}_{suffix}";
@@ -126,7 +111,8 @@ public static class ToolNames
     private static string Base(string connectionSlug, string toolName) => $"{connectionSlug}__{Clean(toolName)}";
 
     private static string Clean(string toolName) =>
-        new([.. toolName.Select(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-' ? character : '_')]);
+        new([.. toolName.Select(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '_' or '-' ? character : '_')]);
 
     #endregion
 }
