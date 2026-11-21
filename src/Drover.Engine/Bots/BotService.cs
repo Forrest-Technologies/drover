@@ -66,7 +66,7 @@ public sealed class BotService(
     /// </summary>
     public async Task<BotChange> Create(NewBot request, AuditActor maker, CancellationToken cancellationToken)
     {
-        Guid? botId = null;
+        var botId = (Guid?)null;
 
         if (request.RequestId is { } requestId)
         {

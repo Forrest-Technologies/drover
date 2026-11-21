@@ -13,19 +13,21 @@ public static class BotRequestIds
 
     public static Guid For(Guid spaceId, AuditActor maker, Guid requestId)
     {
-        Span<byte> input = stackalloc byte[16 * 4];
+        var input = (Span<byte>)stackalloc byte[16 * 4];
         spaceId.TryWriteBytes(input[..16]);
         maker.UserId.TryWriteBytes(input[16..32]);
         (maker.BotId ?? Guid.Empty).TryWriteBytes(input[32..48]);
         requestId.TryWriteBytes(input[48..]);
 
-        Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
+        var hash = (Span<byte>)stackalloc byte[SHA256.HashSizeInBytes];
         SHA256.HashData(input, hash);
 
-        // Version 8 (custom) and the standard variant, so it reads as an ordinary Guid.
+        // The hash is read as the big-endian (network order) bytes of the id, so byte 6 holds the version and byte 8 the
+        // variant where they belong: version 8 (custom) and the standard variant. The Guid is built from those bytes
+        // in the same order, so it reports them as set.
         hash[6] = (byte)((hash[6] & 0x0F) | 0x80);
         hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return new Guid(hash[..16]);
+        return new Guid(hash[..16], bigEndian: true);
     }
 
     #endregion
