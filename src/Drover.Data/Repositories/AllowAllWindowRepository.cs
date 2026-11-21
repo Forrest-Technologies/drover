@@ -38,6 +38,23 @@ public sealed class AllowAllWindowRepository(DroverDbContext db)
             FOR UPDATE
             """).ToListAsync(cancellationToken)).SingleOrDefault();
 
+    /// <summary>
+    /// Ends a window only while it is still open, in one statement. True exactly when this call changed the row,
+    /// so the caller writes one audit entry for the one ending that won.
+    /// </summary>
+    public async Task<bool> TryEnd(Guid id, DateTimeOffset endedAt, AllowAllWindowEndReason reason, CancellationToken cancellationToken) =>
+        await db.AllowAllWindows
+            .Where(window => window.Id == id && window.EndedAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(window => window.EndedAt, endedAt)
+                    .SetProperty(window => window.EndedReason, reason),
+                cancellationToken) == 1;
+
+    /// <summary>A window by id, open or ended, for the audit facts written after <see cref="TryEnd"/>.</summary>
+    public Task<AllowAllWindow?> Find(Guid id, CancellationToken cancellationToken) =>
+        db.AllowAllWindows.AsNoTracking().SingleOrDefaultAsync(window => window.Id == id, cancellationToken);
+
     /// <summary>An open window by id, locked for the caller that ends it.</summary>
     public async Task<AllowAllWindow?> FindOpenById(Guid id, CancellationToken cancellationToken) =>
         (await db.AllowAllWindows.FromSql(

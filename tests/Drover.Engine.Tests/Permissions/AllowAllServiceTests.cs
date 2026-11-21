@@ -177,6 +177,60 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
     }
 
     [Fact]
+    public async Task The_database_refuses_a_bot_window_that_names_a_call()
+    {
+        var window = NewWindow(world.BotId, world.UserId, AllowAllWindowKind.UntilOff);
+        window.ToolCallId = Guid.CreateVersion7();
+
+        await AssertRefused(window);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_unknown_kind()
+    {
+        await AssertSqlRefused($"""
+            INSERT INTO allow_all_windows (id, space_id, bot_id, audience_user_id, kind, started_at, started_from, ends_at)
+            VALUES (gen_random_uuid(), sys.current_space(), '{world.BotId}', sys.current_user_id(), 'sometimes', now(), 'bot', now())
+            """);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_unknown_end_reason()
+    {
+        await AssertSqlRefused($"""
+            INSERT INTO allow_all_windows (id, space_id, bot_id, audience_user_id, kind, started_at, started_from, ended_at, ended_reason)
+            VALUES (gen_random_uuid(), sys.current_space(), '{world.BotId}', sys.current_user_id(), 'until_off', now(), 'bot', now(), 'sometimes')
+            """);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_end_reason_without_an_end()
+    {
+        await AssertSqlRefused($"""
+            INSERT INTO allow_all_windows (id, space_id, bot_id, audience_user_id, kind, started_at, started_from, ended_reason)
+            VALUES (gen_random_uuid(), sys.current_space(), '{world.BotId}', sys.current_user_id(), 'until_off', now(), 'bot', 'expired')
+            """);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_end_without_a_reason()
+    {
+        await AssertSqlRefused($"""
+            INSERT INTO allow_all_windows (id, space_id, bot_id, audience_user_id, kind, started_at, started_from, ended_at)
+            VALUES (gen_random_uuid(), sys.current_space(), '{world.BotId}', sys.current_user_id(), 'until_off', now(), 'bot', now())
+            """);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_an_unknown_start_source()
+    {
+        await AssertSqlRefused($"""
+            INSERT INTO allow_all_windows (id, space_id, bot_id, audience_user_id, kind, started_at, started_from)
+            VALUES (gen_random_uuid(), sys.current_space(), '{world.BotId}', sys.current_user_id(), 'until_off', now(), 'sometimes')
+            """);
+    }
+
+    [Fact]
     public async Task Finding_a_window_uses_the_server_clock_and_ends_it_when_it_expires()
     {
         var window = await Open(world.BotId, world.UserId, AllowAllWindowKind.Minutes30, AllowAllWindowSource.Bot, null, world.UserId);
@@ -306,6 +360,18 @@ public sealed class AllowAllServiceTests(PostgresServer postgres) : IAsyncLifeti
     #endregion
 
     #region Private Methods
+
+    private async Task AssertSqlRefused(string sql)
+    {
+        var insert = async () => await world.Transact(async services =>
+        {
+            await services.GetRequiredService<DroverDbContext>().Database.ExecuteSqlRawAsync(sql, RunWorld.Token);
+            return true;
+        });
+        var failure = await insert.Should().ThrowAsync<PostgresException>();
+
+        failure.Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
+    }
 
     private async Task AssertRefused(AllowAllWindow window)
     {

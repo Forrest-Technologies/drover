@@ -37,7 +37,8 @@ public sealed class AllowAllService(
 
         if (await windows.FindOpen(botId, audienceUserId, cancellationToken) is { } previous)
         {
-            End(previous, HasExpired(previous, now) ? AllowAllWindowEndReason.Expired : AllowAllWindowEndReason.AskedAgain, actorUserId);
+            var reason = HasExpired(previous, now) ? AllowAllWindowEndReason.Expired : AllowAllWindowEndReason.AskedAgain;
+            await End(previous.Id, reason, actorUserId, cancellationToken);
         }
 
         var window = new AllowAllWindow
@@ -76,19 +77,25 @@ public sealed class AllowAllService(
     }
 
     /// <summary>
-    /// Ends a window the caller has already locked. A second end writes nothing: the caller reads with
-    /// <c>FOR UPDATE</c>, so another ending waits for this transaction and then sees the row as ended.
+    /// Ends a window with one guarded statement that changes the row only while <c>ended_at</c> is null, and reports
+    /// whether this call was the one that ended it. The audit entry is written only for the call that changed the row,
+    /// so two overlapping endings leave one reason and one entry whatever order they commit in.
     /// </summary>
-    private bool End(AllowAllWindow window, AllowAllWindowEndReason reason, Guid actorUserId)
+    public async Task<bool> End(Guid windowId, AllowAllWindowEndReason reason, Guid actorUserId, CancellationToken cancellationToken)
     {
-        if (window.EndedAt is not null)
+        var now = time.GetUtcNow();
+
+        if (!await windows.TryEnd(windowId, now, reason, cancellationToken))
         {
             return false;
         }
 
-        var now = time.GetUtcNow();
-        window.EndedAt = now;
-        window.EndedReason = reason;
+        var window = await windows.Find(windowId, cancellationToken);
+
+        if (window is null)
+        {
+            return false;
+        }
 
         audit.Record(
             actorUserId,
@@ -112,13 +119,6 @@ public sealed class AllowAllService(
         return true;
     }
 
-    /// <summary>Ends a window by id, for the API's Ask again. False when it is not open or not visible in this space.</summary>
-    public async Task<bool> End(Guid windowId, AllowAllWindowEndReason reason, Guid actorUserId, CancellationToken cancellationToken)
-    {
-        var window = await windows.FindOpenById(windowId, cancellationToken);
-        return window is not null && End(window, reason, actorUserId);
-    }
-
     /// <summary>
     /// Ends the open windows of a bot that the caller can see, when it is paused or removed. Row-level security shows
     /// a caller only their own audience, so each person's window is ended by a transaction running for that person;
@@ -128,7 +128,7 @@ public sealed class AllowAllService(
     {
         foreach (var window in await windows.ListOpenForBot(botId, cancellationToken))
         {
-            End(window, reason, actorUserId);
+            await End(window.Id, reason, actorUserId, cancellationToken);
         }
     }
 
@@ -140,7 +140,7 @@ public sealed class AllowAllService(
     {
         foreach (var window in await windows.ListOpenForAudience(audienceUserId, cancellationToken))
         {
-            End(window, reason, actorUserId);
+            await End(window.Id, reason, actorUserId, cancellationToken);
         }
     }
 
@@ -154,7 +154,7 @@ public sealed class AllowAllService(
 
         if (window is not null && HasExpired(window, time.GetUtcNow()))
         {
-            End(window, AllowAllWindowEndReason.Expired, audienceUserId);
+            await End(window.Id, AllowAllWindowEndReason.Expired, audienceUserId, cancellationToken);
             return null;
         }
 
@@ -172,7 +172,7 @@ public sealed class AllowAllService(
         if (window is { Kind: AllowAllWindowKind.UntilDone }
             && !await runs.AnyRunWorkingFor(botId, audienceUserId, cancellationToken))
         {
-            End(window, AllowAllWindowEndReason.WorkDone, audienceUserId);
+            await End(window.Id, AllowAllWindowEndReason.WorkDone, audienceUserId, cancellationToken);
         }
     }
 
