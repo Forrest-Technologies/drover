@@ -372,7 +372,7 @@ A lease is held on the root run and covers its tree. Child runs are rows with th
 
 ### Teams
 
-Beyond one-to-one delegation, a parent bot can lead its children with one of the framework's orchestration patterns: sequential, concurrent, handoff, group chat, or a planner-led pattern. The pattern is data on the parent bot. A team run is a framework workflow:
+Beyond one-to-one delegation, a parent bot can lead its children with one of the framework's orchestration patterns: sequential, concurrent, handoff, group chat, or a planner-led pattern. The pattern is data on the parent bot. The owner chose option A on 2026-11-21 ([issue 155](https://github.com/Forrest-Technologies/drover/issues/155), [ADR 0019](../adr/0019-rooms-are-the-leads-conversation.md)): the lead's conversation is the room, and the person may mention any member bot to address it directly there. No new kind of conversation is added. Between two messages from the person, bots may take at most four turns by default, configurable per space under a deployment ceiling. A team run is a framework workflow:
 
 - Each member is wrapped in `GovernedAgent`, so each still gets its own child run, grants, and events.
 - Checkpoints are saved to PostgreSQL at each workflow step. After a restart the workflow resumes from the latest checkpoint.
