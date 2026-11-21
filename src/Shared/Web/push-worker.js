@@ -17,8 +17,7 @@ function readWakeUp(event) {
     }
 }
 
-// The folder of the client this worker serves: "/" for the web client, "/native/" for the native client's browser
-// build. A notification opens that client.
+// The folder of the client this worker serves. A notification opens that client.
 const pushHome = new URL(self.registration.scope).pathname;
 
 const look = { lang: "en", icon: `${pushHome}icon-192.png` };
@@ -141,11 +140,7 @@ async function openConversation(data) {
     return self.clients.openWindow(url.href);
 }
 
-// A window of this client: the same origin, inside this worker's folder, and not in the folder of the native
-// client's browser build, which sits inside the web client's.
+// A window of this client: the same origin, inside this worker's folder.
 function isThisClient(url) {
-    const nested = pushHome === "/" ? ["/native/"] : [];
-    return url.origin === self.location.origin
-        && url.pathname.startsWith(pushHome)
-        && !nested.some(path => url.pathname.startsWith(path));
+    return url.origin === self.location.origin && url.pathname.startsWith(pushHome);
 }

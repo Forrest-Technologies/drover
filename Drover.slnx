@@ -16,8 +16,6 @@
     <Project Path="src/Drover.Engine/Drover.Engine.csproj" />
     <Project Path="src/Drover.Presentation/Drover.Presentation.csproj" />
     <Project Path="src/Drover.Server/Drover.Server.csproj" />
-    <Project Path="src/Drover.Ui/Drover.Ui.csproj" />
-    <Project Path="src/Drover.Web/Drover.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Drover.Adapters.Conformance/Drover.Adapters.Conformance.csproj" />
@@ -30,7 +28,6 @@
     <Project Path="tests/Drover.Native.UITests/Drover.Native.UITests.csproj" />
     <Project Path="tests/Drover.Presentation.Tests/Drover.Presentation.Tests.csproj" />
     <Project Path="tests/Drover.Server.Tests/Drover.Server.Tests.csproj" />
-    <Project Path="tests/Drover.Ui.Tests/Drover.Ui.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Drover.Analyzers.CodeFixes/Drover.Analyzers.CodeFixes.csproj" />

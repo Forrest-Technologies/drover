@@ -1,10 +1,10 @@
-// Smoke-test the trimmed publish under the server's exact CSP. Build Drover.Ui.Tests first for its Playwright runtime,
-// or name another copy of the same Playwright version in DROVER_PLAYWRIGHT.
+// Smoke-test the trimmed publish under the server's exact CSP, served at the root as Drover's server serves it. Build
+// Drover.Presentation.Tests first for its Playwright runtime, or name another copy of the same Playwright version in
+// DROVER_PLAYWRIGHT.
 //
-// With DROVER_LIVE_ORIGIN set to a running Drover server that serves the native publish under /native/, it instead
-// captures each scene of the JSON file DROVER_LIVE_SCENES in both clients against that server's real data, signed in
-// as DROVER_LIVE_EMAIL / DROVER_LIVE_PASSWORD when given: web/<scene>-<width>-<theme>.png and
-// native/<scene>-<width>-<theme>.png under the folder in argv[2]. See captureLive at the end of this file.
+// With DROVER_LIVE_ORIGIN set to a running Drover server, it instead captures each scene of the JSON file
+// DROVER_LIVE_SCENES against that server's real data, signed in as DROVER_LIVE_EMAIL / DROVER_LIVE_PASSWORD when given:
+// <scene>-<width>-<theme>.png under the folder in argv[2]. See captureLive at the end of this file.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -14,11 +14,8 @@ import { fileURLToPath } from 'node:url';
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const published = path.resolve(process.argv[2] ?? 'artifacts/native/wwwroot');
 const pictures = path.resolve(process.argv[3] ?? 'artifacts/native-smoke');
-const referenceOrigin = process.env.DROVER_REFERENCE_ORIGIN;
-const referenceRoot = process.env.DROVER_REFERENCE_ROOT;
-const reference = Boolean(referenceOrigin || referenceRoot);
-const webRoot = referenceRoot ? path.resolve(referenceRoot) : published;
-const { chromium } = await import(process.env.DROVER_PLAYWRIGHT ?? path.join(repository, 'tests/Drover.Ui.Tests/bin/Release/net11.0/.playwright/package/index.mjs'));
+const webRoot = published;
+const { chromium } = await import(process.env.DROVER_PLAYWRIGHT ?? path.join(repository, 'tests/Drover.Presentation.Tests/bin/Release/net11.0/.playwright/package/index.mjs'));
 if (process.env.DROVER_LIVE_ORIGIN) {
     await captureLive(process.env.DROVER_LIVE_ORIGIN, published);
     process.exit(0);
@@ -34,7 +31,7 @@ const previewBasePolicy = [...previewPolicyBlock.matchAll(/"([^"\n]*)"/g)].map(m
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.manifest': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ttf': 'font/ttf' };
 const server = http.createServer(async (request, response) => {
     const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-    const relative = pathname.replace(reference ? /^\// : /^\/native\/?/, '');
+    const relative = pathname.replace(/^\//, '');
     let file = path.resolve(webRoot, relative);
     response.setHeader('Content-Security-Policy', policy);
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -55,7 +52,7 @@ const server = http.createServer(async (request, response) => {
     }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const origin = referenceOrigin ?? `http://127.0.0.1:${server.address().port}`;
+const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
 const spaceId = '00000000-0000-7000-8000-0000000000b1';
 const botId = '0196f1a0-0000-7000-8000-000000000004';
@@ -101,9 +98,7 @@ const exchangedFiles = [
 ];
 const samplePng = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg2HCBNDSqYVTD8NUAAFV1gBC4fs/iAAAAAElFTkSuQmCC';
 const sampleImageAddress = 'https://preview-image.example.test/sample.png';
-if (!reference) {
-    messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
-}
+messages[0].parts.push({ kind: 'file', fileId: sampleFile.id, file: sampleFile });
 const searchTopMessageId = '0196f1a0-0000-7000-8000-000000000101';
 const searchBottomMessageId = '0196f1a0-0000-7000-8000-000000000125';
 const searchMessages = Array.from({ length: 25 }, (_, index) => ({
@@ -288,7 +283,7 @@ try {
                 else if (address.endsWith(`/bots/${botId}`)) { body = bot; }
                 else if (address.endsWith(`/bots/${botId}/definition`)) { body = botDetail; }
                 else if (address.endsWith(`/bots/${botId}/notify`)) { body = { notifies: false }; }
-                else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: !reference && current === 'conversation', state: 'running' }; }
+                else if (address.endsWith(`/bots/${botId}/sandbox`)) { body = { available: true, hasSandbox: true, desktop: current === 'conversation', state: 'running' }; }
                 else if (address.endsWith('/sandbox/options')) { body = { available: true, maxIdleMinutes: 60 }; }
                 else if (address.endsWith('/rules/options')) { body = { writtenPatterns: true }; }
                 else if (address.endsWith('/limits/options')) { body = { maxSteps: 20, maxTokens: 10000, maxDelegations: 3 }; }
@@ -451,24 +446,18 @@ try {
                 else { await route.fulfill({ status: 404, body: '' }); return; }
                 await route.fulfill({ json: body });
             });
-            const activeScreens = reference ? screens : [...screens, ...nativeProjectScreens];
+            const activeScreens = [...screens, ...nativeProjectScreens];
             for (const [name, address, title, heading = title] of activeScreens) {
-                if (reference && name === 'bot-new') {
-                    continue;
-                }
-
                 current = name;
                 const titleBefore = await page.title();
                 if (name === 'project' || name === 'project-member') { projectMoved = false; }
                 const editorLoaded = name === 'bot-editor'
                     ? page.waitForResponse(response => response.ok() && new URL(response.url()).pathname.endsWith(`/bots/${botId}/sandbox`))
                     : null;
-                const target = `${reference ? '' : '/native'}${address}`;
-                if (name === 'account' || name === 'sign-in' || name === 'project-member' || (reference && (name.startsWith('tools') || name.startsWith('extension-editor')))) {
+                const target = address;
+                if (name === 'account' || name === 'sign-in' || name === 'project-member') {
                     await page.goto(`${origin}${target}`);
-                    await page.locator(reference ? '.dv-boot' : '.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
-                } else if (reference) {
-                    await page.evaluate(target => globalThis.Blazor.navigateTo(target), target);
+                    await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
                 } else {
                     // Exercise the browser-history integration while keeping the already-started runtime.
                     await page.evaluate(target => { history.pushState(null, '', target); dispatchEvent(new PopStateEvent('popstate')); }, target);
@@ -547,8 +536,8 @@ try {
                     await page.mouse.move(width / 2, 500);
                     await page.mouse.wheel(0, 3000);
                     await page.waitForTimeout(200);
-                    const exportControl = page.getByRole(reference ? 'link' : 'button', { name: 'Download extension.json', exact: true });
-                    const [saved] = await Promise.all([page.waitForEvent('download'), reference ? exportControl.click() : exportControl.dispatchEvent('click')]);
+                    const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
+                    const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
                     assert.equal(saved.suggestedFilename(), 'extension.json');
                     const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
                     assert.equal(file.version, 1);
@@ -573,11 +562,11 @@ try {
                     await page.getByText("Owners and admins change a project's name, instructions, and files. You can read them and use the conversations.", { exact: true }).waitFor({ state: 'attached', timeout: 5000 });
                     assert.equal(await page.getByRole('button', { name: 'Save project', exact: true }).isDisabled(), true);
                 }
-                if (name === 'conversation' && !reference) {
+                if (name === 'conversation') {
                     await checkComposerBounds(page);
                     await checkStopBounds(page, width);
                 }
-                if (name === 'conversation' && !reference) {
+                if (name === 'conversation') {
                     const preview = page.getByRole('button', { name: 'Preview sample-preview.md', exact: true });
                     const closePreview = page.getByRole('button', { name: 'Close preview of sample-preview.md' });
                     const download = page.getByRole('link', { name: 'Download sample-preview.md' });
@@ -630,19 +619,14 @@ try {
                         await page.getByRole('button', { name: 'Close preview of sample-panel.png' }).press('Space');
                     }
                 }
-                if (name === 'bot-editor' && !reference) {
+                if (name === 'bot-editor') {
                     await checkLeavingWithEdits(page, address);
                 }
                 if (name === 'bot-new') {
                     await checkLeavingNewBot(page, titleBefore, () => botCreates);
                 }
                 if (name === 'usage') {
-                    const botLink = page.getByRole('link', { name: 'Sample bot', exact: true });
-                    if (reference) {
-                        await botLink.click();
-                    } else {
-                        await botLink.dispatchEvent('click');
-                    }
+                    await page.getByRole('link', { name: 'Sample bot', exact: true }).dispatchEvent('click');
                     await page.waitForURL(url => url.searchParams.get('bot') === botId);
                     await page.getByText("Sample bot's most expensive runs in the last 30 days", { exact: true })
                         .waitFor({ state: 'attached' });
@@ -656,11 +640,18 @@ try {
                     heldRoute = null;
                 }
             }
+            // The export is an ordinary download under CSP; verify the delivered bytes, not only the button.
+            await page.mouse.move(width / 2, 500);
+            await page.mouse.wheel(0, 3000);
+            await page.waitForTimeout(200);
+            const exportControl = page.getByRole('button', { name: 'Download extension.json', exact: true });
+            const [saved] = await Promise.all([page.waitForEvent('download'), exportControl.dispatchEvent('click')]);
+            assert.equal(saved.suggestedFilename(), 'extension.json');
+            const file = JSON.parse(await fs.readFile(await saved.path(), 'utf8'));
+            assert.equal(file.version, 1);
             assert.equal(extensionFailures, 2, 'Both deliberate API failures must reach the browser.');
-            if (!reference) {
-                current = 'conversation-search';
-                await checkConversationSearch(page, width);
-            }
+            current = 'conversation-search';
+            await checkConversationSearch(page, width);
             await context.close();
         }
     }
@@ -1096,7 +1087,7 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
 // Exercises conversation search (empty state, clear, hit list, ArrowDown/ArrowUp) and verifies opening an older hit
 // scrolls its message into the viewport rather than remaining stuck at the conversation foot.
 async function checkConversationSearch(page, width) {
-    const target = width === 360 ? '/native/' : `/native/talk/${botId}`;
+    const target = width === 360 ? '/' : `/talk/${botId}`;
     await page.evaluate(url => { history.pushState(null, '', url); dispatchEvent(new PopStateEvent('popstate')); }, target);
 
     const searchBox = page.getByRole('textbox', { name: 'Search conversations', exact: true });
@@ -1173,8 +1164,8 @@ async function checkConversationSearch(page, width) {
 }
 
 /**
- * Captures each scene in both clients against a running server. A scene is
- * { name, path, title?, signedOut?, clients?, height?, hold?, fail?, steps?, webSteps?, nativeSteps?, settle? }, where
+ * Captures each scene against a running server. A scene is
+ * { name, path, title?, signedOut?, height?, hold?, fail?, steps?, nativeWait?, settle? }, where
  * hold and fail name the end of an API path whose requests are left unanswered (loading) or answered 503 (failed);
  * a step is one of
  * { click: { role, name } }, { focus: { role, name } }, { type: text }, { key: name }, { wheel: pixels },
@@ -1312,7 +1303,6 @@ async function captureLive(origin, folder) {
     const only = process.env.DROVER_LIVE_ONLY?.split(',');
     const themes = process.env.DROVER_LIVE_THEMES?.split(',') ?? ['dark', 'light'];
     const widths = (process.env.DROVER_LIVE_WIDTHS?.split(',') ?? ['1280', '360']).map(Number);
-    const clients = process.env.DROVER_LIVE_CLIENTS?.split(',');
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     const record = JSON.parse(await fs.readFile(path.join(folder, 'captures.json'), 'utf8').catch(() => '{}'));
     let signedIn;
@@ -1332,50 +1322,47 @@ async function captureLive(origin, folder) {
         for (const scene of scenes.filter(scene => !only || only.includes(scene.name))) {
             for (const theme of themes) {
                 for (const width of widths) {
-                    for (const client of (scene.clients ?? ['web', 'native']).filter(client => !clients || clients.includes(client))) {
-                        const native = client === 'native';
-                        const context = await browser.newContext({
-                            viewport: { width, height: scene.height ?? 1000 },
-                            reducedMotion: 'reduce',
-                            serviceWorkers: 'block',
-                            ...(scene.signedOut || !signedIn ? {} : { storageState: signedIn }),
+                    const context = await browser.newContext({
+                        viewport: { width, height: scene.height ?? 1000 },
+                        reducedMotion: 'reduce',
+                        serviceWorkers: 'block',
+                        ...(scene.signedOut || !signedIn ? {} : { storageState: signedIn }),
+                    });
+                    await context.addInitScript(theme => localStorage.setItem('drover.theme', theme), theme);
+                    const page = await context.newPage();
+                    const errors = [];
+                    page.on('pageerror', error => errors.push(String(error)));
+                    page.on('console', message => message.type() === 'error' && errors.push(message.text()));
+                    const name = `${scene.name}-${width}-${theme}`;
+                    // A loading state is an API request held unanswered; a failed state is one answered 503.
+                    if (scene.hold || scene.fail) {
+                        await page.route(url => url.pathname.startsWith('/api/') && url.pathname.endsWith(scene.hold ?? scene.fail), async route => {
+                            if (scene.fail) {
+                                await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
+                            }
                         });
-                        await context.addInitScript(theme => localStorage.setItem('drover.theme', theme), theme);
-                        const page = await context.newPage();
-                        const errors = [];
-                        page.on('pageerror', error => errors.push(String(error)));
-                        page.on('console', message => message.type() === 'error' && errors.push(message.text()));
-                        const name = `${scene.name}-${width}-${theme}`;
-                        // A loading state is an API request held unanswered; a failed state is one answered 503.
-                        if (scene.hold || scene.fail) {
-                            await page.route(url => url.pathname.startsWith('/api/') && url.pathname.endsWith(scene.hold ?? scene.fail), async route => {
-                                if (scene.fail) {
-                                    await route.fulfill({ status: 503, json: { title: 'Sample: the server is unavailable.', status: 503 } });
-                                }
-                            });
-                        }
-                        try {
-                            await page.goto(`${origin}${native ? '/native' : ''}${scene.path}`);
-                            await page.locator(native ? '.uno-loader' : '.dv-boot').waitFor({ state: 'hidden', timeout: 60000 });
-                            if (scene.title) {
-                                await page.waitForFunction(title => document.title.startsWith(title), scene.title, { timeout: 15000 });
-                            }
-                            // The native build starts later and reads its data more slowly; give it longer before acting.
-                            await page.waitForTimeout(native ? scene.nativeWait ?? Number(process.env.DROVER_LIVE_NATIVE_WAIT ?? 1500) : 800);
-                            for (const step of (native ? scene.nativeSteps : scene.webSteps) ?? scene.steps ?? []) {
-                                await perform(page, step, native);
-                            }
-                            await page.waitForTimeout(scene.settle ?? 600);
-                            await fs.mkdir(path.join(folder, client), { recursive: true });
-                            await page.screenshot({ path: path.join(folder, client, `${name}.png`) });
-                            record[`${client}/${name}`] = { url: page.url(), title: await page.title(), errors };
-                            process.stdout.write(`${client} ${name}: captured\n`);
-                        } catch (failure) {
-                            record[`${client}/${name}`] = { url: page.url(), failed: String(failure).split('\n')[0], errors };
-                            process.stdout.write(`${client} ${name}: FAILED ${String(failure).split('\n')[0]}\n`);
-                        }
-                        await context.close();
                     }
+                    try {
+                        await page.goto(`${origin}${scene.path}`);
+                        await page.locator('.uno-loader').waitFor({ state: 'hidden', timeout: 60000 });
+                        if (scene.title) {
+                            await page.waitForFunction(title => document.title.startsWith(title), scene.title, { timeout: 15000 });
+                        }
+                        // The app starts and reads its data before it can be acted on.
+                        await page.waitForTimeout(scene.nativeWait ?? Number(process.env.DROVER_LIVE_NATIVE_WAIT ?? 1500));
+                        for (const step of scene.nativeSteps ?? scene.steps ?? []) {
+                            await perform(page, step);
+                        }
+                        await page.waitForTimeout(scene.settle ?? 600);
+                        await fs.mkdir(folder, { recursive: true });
+                        await page.screenshot({ path: path.join(folder, `${name}.png`) });
+                        record[name] = { url: page.url(), title: await page.title(), errors };
+                        process.stdout.write(`${name}: captured\n`);
+                    } catch (failure) {
+                        record[name] = { url: page.url(), failed: String(failure).split('\n')[0], errors };
+                        process.stdout.write(`${name}: FAILED ${String(failure).split('\n')[0]}\n`);
+                    }
+                    await context.close();
                 }
             }
         }
@@ -1385,10 +1372,10 @@ async function captureLive(origin, folder) {
     }
 }
 
-async function perform(page, step, native) {
+async function perform(page, step) {
     const find = target => page.getByRole(target.role, { name: target.name, exact: target.exact ?? true }).first();
     if (step.click) {
-        await (native ? find(step.click).dispatchEvent('click') : find(step.click).click());
+        await find(step.click).dispatchEvent('click');
     } else if (step.focus) {
         await find(step.focus).focus();
     } else if (step.type !== undefined) {

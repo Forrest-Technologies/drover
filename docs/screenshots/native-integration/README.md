@@ -1,5 +1,9 @@
 # Native integration pass
 
+The existing client in these pictures is the Blazor web client, retired on 2026-11-20; the native build is now
+served at `/`, and the script's live mode captures that one client. The pictures and `captures.json` are kept as
+the record of this pass.
+
 Captured on 2026-11-18 in Chromium (Playwright 1.63), reduced motion, against one running Drover server: the
 Release server publish (Production environment) on a throwaway PostgreSQL, the existing client at `/`, and the
 Release native browser publish served under `/native/` (`NativeClient:Path`), with the server's own security

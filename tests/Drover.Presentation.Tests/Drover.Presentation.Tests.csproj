@@ -7,11 +7,12 @@
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
-    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" />
+    <PackageReference Include="Microsoft.Playwright" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
-  <!-- The fake server builds its client through the client factory, as every client in Drover does. -->
+  <!-- The fake server builds its client through the client factory, as every client in Drover does. The browser
+       tests serve the client's shared web files from a small server of their own. -->
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
@@ -20,25 +21,18 @@
     <ProjectReference Include="..\..\src\Drover.Presentation\Drover.Presentation.csproj" />
   </ItemGroup>
 
-  <!-- The stand-ins and the contrast arithmetic are the ones the web client's tests use: one source, two suites. -->
+  <!-- The device checks' guard, report, and automation names, read by the rules that hold them in step with the app. -->
   <ItemGroup>
     <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdatePackageTrust.cs" Link="Platform\UpdatePackageTrust.cs" />
     <Compile Include="..\..\src\Drover.Native\Platforms\Desktop\UpdateInstall.cs" Link="Platform\UpdateInstall.cs" />
-    <Compile Include="..\Drover.Ui.Tests\Support\FakeServer.cs" Link="Support\FakeServer.cs" />
-    <Compile Include="..\Drover.Ui.Tests\Support\LiveEvents.cs" Link="Support\LiveEvents.cs" />
-    <Compile Include="..\Drover.Ui.Tests\Support\FakeServerChoice.cs" Link="Support\FakeServerChoice.cs" />
-    <Compile Include="..\Drover.Ui.Tests\Rules\Contrast.cs" Link="Rules\Contrast.cs" />
-    <!-- What a conversation is made of, and what is read out of it, is tested once and runs in both suites. -->
-    <Compile Include="..\Drover.Ui.Tests\Chat\ConversationsTests.cs" Link="ViewModels\Chat\ConversationsTests.cs" />
-    <Compile Include="..\Drover.Ui.Tests\Chat\SentenceAnnouncerTests.cs" Link="ViewModels\Chat\SentenceAnnouncerTests.cs" />
     <Compile Include="..\Drover.Native.UITests\AndroidCheckGuard.cs" Link="Rules\AndroidCheckGuard.cs" />
     <Compile Include="..\Drover.Native.UITests\IosCheckReport.cs" Link="Rules\IosCheckReport.cs" />
     <Compile Include="..\Drover.Native.UITests\App\AutomationIds.cs" Link="Rules\AutomationIds.cs" />
   </ItemGroup>
 
-  <!-- The event logs recorded from a real server are the ones the web client's tests read: linked, not copied. -->
+  <!-- Event logs recorded from a real server. -->
   <ItemGroup>
-    <None Include="..\Drover.Ui.Tests\Fixtures\*.json" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

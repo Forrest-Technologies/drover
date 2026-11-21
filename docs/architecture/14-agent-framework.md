@@ -20,7 +20,7 @@ Drover does this the way the framework intends: by implementing its storage abst
 | Rule | Reason |
 | --- | --- |
 | Framework types appear in `Drover.Agents` and in `Drover.Server`'s wiring. Nowhere else. | The framework ships breaking changes weekly. One project absorbs them. |
-| `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Ui`, and API responses stay free of framework types. | Clients and the database schema must not change when the framework does. |
+| `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Presentation`, `Drover.Native`, and API responses stay free of framework types. | Clients and the database schema must not change when the framework does. |
 | Conversation content is stored in Drover's own `messages` schema. | It is the product's data and must outlive any framework version. |
 | Framework session state and workflow checkpoints are stored as opaque JSON with the framework version beside them. | They are working state, not records. If a new framework version cannot read an old blob, Drover discards it and rebuilds from `messages`. An in-flight run restarts its current step. |
 

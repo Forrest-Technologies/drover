@@ -4,10 +4,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:11.0@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea AS build
 WORKDIR /src
 
-# Serve the Uno browser client at /native/ alongside the existing web client (docs/adr/0015).
-# Set DROVER_BUILD_NATIVE=false to omit the Uno browser client from the image.
-ARG DROVER_BUILD_NATIVE=true
-
 # Keep peak memory low on a small machine, at the cost of some build time (docs/architecture/13-deployment-and-push.md).
 ENV DOTNET_NOLOGO=1 \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
@@ -34,26 +30,22 @@ COPY src/Drover.Adapters.Venice/Drover.Adapters.Venice.csproj src/Drover.Adapter
 COPY src/Drover.Adapters.WebPush/Drover.Adapters.WebPush.csproj src/Drover.Adapters.WebPush/
 COPY src/Drover.Client/Drover.Client.csproj src/Drover.Client/
 COPY src/Drover.Presentation/Drover.Presentation.csproj src/Drover.Presentation/
-COPY src/Drover.Ui/Drover.Ui.csproj src/Drover.Ui/
-COPY src/Drover.Web/Drover.Web.csproj src/Drover.Web/
 COPY src/Drover.Server/Drover.Server.csproj src/Drover.Server/
 RUN dotnet restore src/Drover.Server/Drover.Server.csproj
 
 # Only the browser target of the native client is restored and built here: the image needs no phone or desktop app.
 COPY src/Drover.Native/Drover.Native.csproj src/Drover.Native/
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# The WebAssembly linker (emcc) needs python3.
 # hadolint ignore=DL3008
-RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
-        apt-get update \
-        && apt-get install -y --no-install-recommends python3 \
-        && rm -rf /var/lib/apt/lists/* \
-        && dotnet workload install wasm-tools \
-        && dotnet restore src/Drover.Native/Drover.Native.csproj \
-            -p:Configuration=Release -p:DroverNativeTargetFrameworks=net11.0-browserwasm; \
-    fi
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && dotnet workload install wasm-tools \
+    && dotnet restore src/Drover.Native/Drover.Native.csproj \
+        -p:Configuration=Release -p:DroverNativeTargetFrameworks=net11.0-browserwasm
 
-# Publishing the server brings the web client with it. Only the server's project graph is built:
-# no tests, no app host, no Android shell.
+# Only the server's project graph is built: no tests, no app host.
 COPY BannedSymbols.txt .editorconfig ./
 COPY tools tools
 COPY src src
@@ -61,18 +53,16 @@ RUN dotnet publish src/Drover.Server/Drover.Server.csproj \
     --no-restore -c Release -o /app/publish \
     -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
 
-# The server serves the native client from wwwroot/native beside it (NativeClient:Path names another folder).
-# Keep the managed linker and the WebAssembly optimizer within the container build's memory budget.
-RUN if [[ "$DROVER_BUILD_NATIVE" == true ]]; then \
-        DOTNET_GCHeapHardLimit=0x56000000 DOTNET_GCConserveMemory=7 EMCC_CORES=1 BINARYEN_CORES=1 \
-        dotnet publish src/Drover.Native/Drover.Native.csproj \
-            --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
-            -p:DroverNativeTargetFrameworks=net11.0-browserwasm -p:EmccLinkOptimizationFlag=-O1 \
-            -p:UnoXamlResourcesTrimming=false \
-            -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \
-        && mkdir -p /app/publish/wwwroot/native \
-        && cp -a /src/native-publish/wwwroot/. /app/publish/wwwroot/native/; \
-    fi
+# The browser client goes in the server's web root, which the server serves at / (NativeClient:Path names another
+# folder). Keep the managed linker and the WebAssembly optimizer within the container build's memory budget.
+RUN DOTNET_GCHeapHardLimit=0x56000000 DOTNET_GCConserveMemory=7 EMCC_CORES=1 BINARYEN_CORES=1 \
+    dotnet publish src/Drover.Native/Drover.Native.csproj \
+        --no-restore -c Release -f net11.0-browserwasm -o /src/native-publish -warnaserror \
+        -p:DroverNativeTargetFrameworks=net11.0-browserwasm -p:EmccLinkOptimizationFlag=-O1 \
+        -p:UnoXamlResourcesTrimming=false \
+        -maxcpucount:1 -p:UseSharedCompilation=false -p:BuildInParallel=false \
+    && mkdir -p /app/publish/wwwroot \
+    && cp -a /src/native-publish/wwwroot/. /app/publish/wwwroot/
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0@sha256:bc0d6653979efba491ab3d6f589d691f96c309c3c3ef81325efa6978e7b7f242 AS runtime
 WORKDIR /app

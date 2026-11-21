@@ -43,7 +43,7 @@ Inside a space, bots are separated by grants. These hold everywhere:
 ## 4. Interfaces and adapters
 
 - External providers sit behind an interface Drover owns, in `Drover.Domain`: models, agent runtime, tools, sandbox, memory, search, voice, push, files, email, secrets.
-- A vendor package is referenced by exactly one `Drover.Adapters.*` project. Vendor types never appear in `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Data`, `Drover.Ui`, a database column, or an API response.
+- A vendor package is referenced by exactly one `Drover.Adapters.*` project. Vendor types never appear in `Drover.Contracts`, `Drover.Domain`, `Drover.Engine`, `Drover.Data`, `Drover.Presentation`, a database column, or an API response.
 - The agent framework is the one exception in kind, not in rule: Drover builds on Microsoft Agent Framework fully, and all of it lives in `Drover.Agents`. Use its features (sessions, history providers, context providers, skills, workflows, orchestration, approval, middleware) before writing your own. Do not re-implement something it provides. Its types still never leave `Drover.Agents` and the server's wiring. Read `docs/architecture/14-agent-framework.md` before touching that project.
 - Framework session and checkpoint data is opaque working state. Conversation content lives in Drover's own `messages` schema. Never make a feature depend on reading a framework blob.
 - A new adapter must pass the conformance suite for its interface in `Drover.Adapters.Conformance`. A new behavior every adapter must have goes into that suite first.
@@ -72,7 +72,7 @@ Why: providers change, and the agent framework ships breaking changes weekly, so
 
 - Clients express intent and render state. Authorization, validation, orchestration, retries, and provider calls live on the server.
 - A run is a durable server-side job with a persisted event log. Clients are viewers. Never put run logic in a component.
-- Every screen works through `Drover.Client` over the API. There is no web-only data path, because the same components run in the MAUI shell.
+- Every screen works through `Drover.Client` over the API. There is no web-only data path, because the same native client runs in a browser, on a desktop, and on a phone.
 - Tool activity (arguments, output, result, outcome) is part of the event model. A new tool emits the standard tool events; do not invent a side channel.
 
 ## 8. Secrets
@@ -97,7 +97,7 @@ A change is not done until its tests exist and pass.
 | Data and isolation | `tests/Drover.Data.Tests` | Real PostgreSQL. The fixture uses `DROVER_TEST_POSTGRES` when set and starts a container otherwise. No Docker in your session? Run `eval "$(scripts/dev-postgres.sh start)"` first. |
 | Adapter conformance | `tests/Drover.Adapters.Tests` | Recorded fixtures. Offline. |
 | API | `tests/Drover.Server.Tests` | In-process server, real PostgreSQL. |
-| Components | `tests/Drover.Ui.Tests` | Assert roles and accessible names as well as content. |
+| Interface | `tests/Drover.Presentation.Tests` | View models against a fake server, the native client's interface rules, and the shared web files in a real Chromium. Assert accessible names as well as content. |
 
 A test that cannot run in your environment is a reason to stop and say so, never a reason to skip it. Tests are deterministic and offline by default. A test that needs a live provider is marked `Live` and never runs in pull request CI. Do not delete, skip, or loosen a failing test to pass; fix the cause or stop and report.
 
@@ -135,12 +135,11 @@ hadolint Dockerfile
 ## 12. User interface
 
 - **Read `DESIGN.md` before any change a person can see.** It is the direction: identity, palette, type, motion, and the list of things Drover's interface never does. Build toward it; do not invent a look.
-- **Start from the starter when there is one.** `src/Drover.Ui/Starters/` holds designed, tested pieces for screens that are not built yet, each tied to an issue. If your issue has a "Start from" section, read `src/Drover.Ui/Starters/README.md`, look at the pieces at `/dev/starters`, and build by moving them into place. Change the design only for a reason you state in the pull request. Delete what you moved from the starter folder in the same pull request. Never reference a starter from product code.
 - Before you finish, check your change against every item under "What Drover's interface never does". The ones marked (test) fail the build. The rest are yours to hold.
 - No invented content: no made-up numbers, names, activity, or filler copy, in screens or in the gallery. Real data, an honest empty state, or a value visibly marked as a sample.
 - Name the screen's job in one sentence before laying it out, and put that sentence in the pull request.
 - A pull request that changes the interface includes screenshots: dark, light, and 360 px wide, and each state it adds (empty, loading, error).
-- Use the tokens in `tokens.css`. No raw colors, sizes, or durations in components.
+- Use the tokens in `Tokens.xaml`, which restates `tokens.css`. No raw colors, sizes, or durations in controls.
 - Dark is primary; light must work. Every text and status color keeps 4.5:1 contrast.
 - Motion shows state: thinking, streaming, tool running, delegation. Nothing loops when nothing is happening. Honor reduced motion with a static equivalent.
 - Minimal copy and chrome. Reveal advanced controls when a choice makes them relevant. Never a wall of settings.

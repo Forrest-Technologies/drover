@@ -121,10 +121,6 @@
   </ItemGroup>
 
   <PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
-    <!-- A published browser build is served by Drover's own server beside the web client, under this path. A
-         development build is served from the root by the development host. -->
-    <WasmShellWebAppBasePath Condition="'$(Configuration)' == 'Release'">/native/</WasmShellWebAppBasePath>
-
     <!-- The platform's XAML resources that no page uses are trimmed from a published build: about 0.9 MB less on a
          first load (docs/architecture/18-native-client.md, "Size levers"). -->
     <UnoXamlResourcesTrimming Condition="'$(Configuration)' == 'Release'">true</UnoXamlResourcesTrimming>
@@ -142,8 +138,8 @@
     <Compile Remove="Shell/UnreachableOpenCheck.cs" />
   </ItemGroup>
 
-  <!-- How requests reach the server. In a browser: the same-origin handler the web client uses. On a device: the
-       handler and session the Android shell uses. Each is one source, compiled into both apps. -->
+  <!-- How requests reach the server. In a browser: the same-origin handler. On a device: the handler and session
+       kept in src/Shared/Transport. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
     <Compile Remove="Device/**" />
     <!-- Loaded by the page before the app starts. It keeps the platform's runtime within the content security policy. -->
@@ -154,9 +150,9 @@
     <Compile Include="../Shared/Transport/AntiforgeryHandler.cs" Link="Transport/AntiforgeryHandler.cs" />
   </ItemGroup>
 
-  <!-- The page's start script, the cookie reader, notifications, the service worker, and the icons are the web
-       client's own files, shared, so both behave the same: the stored theme from the first frame, a new build that
-       takes over and reloads the page unless the person is writing, and notifications through the same worker. -->
+  <!-- The page's start script, the cookie reader, notifications, the service worker, and the icons are in
+       src/Shared/Web: the stored theme from the first frame, a new build that takes over and reloads the page unless
+       the person is writing, and notifications through the worker. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
     <Content Include="../Shared/Web/*.js;../Shared/Web/*.png;../Shared/Web/*.svg" Exclude="../Shared/Web/service-worker.published.js">
       <Link>%(Filename)%(Extension)</Link>
@@ -166,7 +162,7 @@
   </ItemGroup>
 
   <!-- The page names its files relative to the folder it is served from, so an address deep in the app still finds
-       them. The folder differs between a published build (/native/) and a development one (/). -->
+       them. Drover's server serves a published build at the root, as the development host does. -->
   <Target Name="DroverIndexHtml"
           BeforeTargets="GenerateUnoWasmAssets"
           Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'browserwasm'">
@@ -180,7 +176,7 @@
     <WriteLinesToFile File="$(_DroverIndexHtml)" Lines="$([MSBuild]::Escape('$(_DroverIndexText)'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 
-  <!-- A published build gets the web client's published service worker, with the list of the build's files and a
+  <!-- A published build gets Drover's published service worker, with the list of the build's files and a
        hash of each that the worker stores at install. It takes the place of the platform's own worker, which is
        never registered (the platform's PWA switch is off). Runs after the platform's last change to the page. -->
   <Target Name="DroverServiceWorker"
@@ -216,10 +212,6 @@
     <Delete Files="$(_DroverWebRoot)service-worker.js.br;$(_DroverWebRoot)service-worker.js.gz" />
   </Target>
 
-  <!-- Holds what another app shared until a conversation takes it: the web client's, with this app's file type. -->
-  <ItemGroup>
-  </ItemGroup>
-
   <!-- Push with no distributor app installed: an embedded distributor over the phone's own platform push service. It
        needs no project or key of Drover's: it hands the app a standard Web Push endpoint, which the server signs for
        with its own VAPID key as it does for every device. The library ships an optional relay for apps that pass no
@@ -237,9 +229,9 @@
     <AndroidMavenLibrary Include="org.unifiedpush.android:embedded-fcm-distributor" Version="3.1.0" Bind="false" VerifyDependencies="false" />
   </ItemGroup>
 
-  <!-- The Android shell's notifications over UnifiedPush, shares in, files out, and what Android hands the activity:
-       one source in both apps. The few things it asks of its host by that shell's framework's names are in
-       Platforms/Android/AndroidShims.cs. -->
+  <!-- Notifications over UnifiedPush, shares in, files out, and what Android hands the activity, kept in
+       src/Shared/Android from the retired Android shell. The few things it asks of its host by that shell's
+       framework's names are in Platforms/Android/AndroidShims.cs. -->
   <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
     <Compile Include="../Shared/Android/*.cs" Link="Platforms/Android/Shared/%(Filename)%(Extension)" />
     <AndroidResource Include="../Shared/Android/drover_notification.xml" Link="Platforms/Android/Resources/drawable/drover_notification.xml" />
