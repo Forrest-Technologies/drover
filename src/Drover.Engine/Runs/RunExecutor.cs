@@ -232,6 +232,30 @@ public sealed partial class RunExecutor(
             [.. granted.Where(tool => tool.Tool.SourceKind is ToolSourceKind.Mcp).Select(tool => tool.Tool.Id)],
             cancellationToken);
         granted = [.. granted.Where(tool => !unreviewed.Contains(tool.Tool.Id))];
+
+        // Every tool of a connection a granted tool belongs to counts, not just the granted ones: a name must stay
+        // the same when a tool goes away and comes back, and when grants are read in another order.
+        List<Guid> connectionIds = [.. granted
+            .Where(tool => tool.Tool.SourceKind is ToolSourceKind.Mcp)
+            .Select(tool => tool.Tool.ToolConnectionId)
+            .OfType<Guid>()
+            .Distinct()];
+        var listedNames = await toolConnectionRows.ListToolNames(connectionIds, cancellationToken);
+        var toolModelNames = new Dictionary<Guid, string>();
+
+        foreach (var group in listedNames.GroupBy(tool => tool.ToolConnectionId))
+        {
+            if (toolConnections.FirstOrDefault(found => found.Id == group.Key) is not { } toolConnection)
+            {
+                continue;
+            }
+
+            foreach (var (toolId, name) in ToolNames.ForConnection(toolConnection.Slug, [.. group]))
+            {
+                toolModelNames[toolId] = name;
+            }
+        }
+
         var events = services.GetRequiredService<RunEventRepository>();
         var steps = ReadSteps(await events.ListEventsOfRun(runId, stepEventTypes, cancellationToken));
         var openMessage = steps.Open is { } open
@@ -267,7 +291,7 @@ public sealed partial class RunExecutor(
             project = await services.GetRequiredService<ProjectRepository>().FindProject(projectId, cancellationToken);
         }
 
-        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, entry?.Capabilities.Vision ?? false, memory, children, project);
+        return new LoadedRun(run, thread, bot, connection, key.Value, key.Readable, policy, limits, entry?.Pricing ?? new ModelPricing(), granted, steps, openMessage, unsettled, rows, answers, [.. delivered.Select(message => message.Id)], requested, toolConnections, toolModelNames, entry?.Capabilities.Vision ?? false, memory, children, project);
     }
 
     /// <summary>
@@ -403,15 +427,30 @@ public sealed partial class RunExecutor(
             time,
             loggers.CreateLogger<RunEventWriter>(),
             parent?.Fence ?? new RunFence(workerId, loaded.Run.Attempt));
-        // Two tools never share the name the model sees: the first keeps it, and a later one is left out.
-        List<RunTool> tools =
-        [
-            .. loaded.Granted
-                .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
-                .Select(granted => ToRunTool(granted, loaded))
-                .OfType<RunTool>()
-                .DistinctBy(tool => tool.ModelName, StringComparer.Ordinal),
-        ];
+        // Two tools never share the name the model sees. Naming at load should have made that impossible, so a drop
+        // here is a bug: say which two tool ids collided, and on which connection, without saying their names.
+        List<RunTool> tools = [];
+        HashSet<string> offered = [];
+
+        foreach (var candidate in loaded.Granted
+            .Where(granted => granted.Effect is not GrantEffect.Deny && granted.Tool.State is AvailabilityState.Available)
+            .Select(granted => ToRunTool(granted, loaded))
+            .OfType<RunTool>())
+        {
+            if (offered.Add(candidate.ModelName))
+            {
+                tools.Add(candidate);
+                continue;
+            }
+
+            var kept = tools.First(tool => tool.ModelName == candidate.ModelName);
+            logger.LogWarning(
+                "Run {RunId} leaves out tool {DroppedToolId} of connection {ConnectionId}: tool {KeptToolId} already has its model name",
+                loaded.Run.Id,
+                candidate.Tool.Id,
+                candidate.Connection?.Id,
+                kept.Tool.Id);
+        }
         return new RunSession(
             loaded.Run,
             thread,
@@ -494,7 +533,7 @@ public sealed partial class RunExecutor(
         // With tool connections turned off on this server, a tool of one cannot be called, so the model is not offered it.
         return deployment.Value.Rules.AllowToolConnections
             && toolConnections.FirstOrDefault(found => found.Id == granted.Tool.ToolConnectionId) is { Status: not ConnectionStatus.Disabled } connection
-            ? new RunTool(granted.Tool, granted.Effect, ToolNames.ForModel(connection.Slug, granted.Tool.Name), null, connection)
+            ? new RunTool(granted.Tool, granted.Effect, loaded.ToolModelNames[granted.Tool.Id], null, connection)
             : null;
     }
 
@@ -1173,6 +1212,7 @@ public sealed partial class RunExecutor(
         IReadOnlyList<Guid> Delivered,
         IReadOnlyList<Guid> RequestedCalls,
         IReadOnlyList<ToolConnection> ToolConnections,
+        IReadOnlyDictionary<Guid, string> ToolModelNames,
         bool ModelSeesImages,
         RecalledMemory? Memory,
         IReadOnlyList<Bot> Children,

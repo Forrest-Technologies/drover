@@ -163,6 +163,16 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
     public Task<List<Tool>> ListTools(Guid connectionId, CancellationToken cancellationToken) =>
         db.Tools.AsNoTracking().Where(tool => tool.ToolConnectionId == connectionId).OrderBy(tool => tool.Name).ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// The names of every tool of these connections, granted or not, available or missing. This feeds naming only:
+    /// a row here says nothing about what a bot may use, and no grant is read.
+    /// </summary>
+    public Task<List<ToolName>> ListToolNames(IReadOnlyCollection<Guid> connectionIds, CancellationToken cancellationToken) =>
+        db.Tools.AsNoTracking()
+            .Where(tool => tool.ToolConnectionId != null && connectionIds.Contains(tool.ToolConnectionId.Value))
+            .Select(tool => new ToolName(tool.Id, tool.ToolConnectionId!.Value, tool.Name, tool.FirstSeenAt))
+            .ToListAsync(cancellationToken);
+
     public Task<Tool?> GetTool(Guid connectionId, Guid toolId, CancellationToken cancellationToken) =>
         db.Tools.SingleOrDefaultAsync(tool => tool.Id == toolId && tool.ToolConnectionId == connectionId, cancellationToken);
 
@@ -200,6 +210,9 @@ public sealed class ToolConnectionRepository(DroverDbContext db)
 
     #endregion
 }
+
+/// <summary>A tool's own name and first sight, used only to work out the name a model sees for it.</summary>
+public sealed record ToolName(Guid Id, Guid ToolConnectionId, string Name, DateTimeOffset FirstSeenAt);
 
 /// <summary>A sign-in to a tool server that is waiting for its callback: where it was started, by whom, and for which connection.</summary>
 public sealed record SignInInProgress(Guid SpaceId, Guid UserId, Guid ToolConnectionId);
