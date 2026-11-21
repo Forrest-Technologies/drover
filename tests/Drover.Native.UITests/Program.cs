@@ -16,6 +16,10 @@ internal static class Program
 
     private const string Passed = "ui-check result: passed";
 
+    // How long the server gets to say it is ready. It listens in process, so a healthy one answers at once; this is
+    // the bound for one that does not, and it fails with the server's own log.
+    private static readonly TimeSpan serverPatience = TimeSpan.FromSeconds(60);
+
     #endregion
 
     #region Public Methods
@@ -77,6 +81,7 @@ internal static class Program
         await using var server = new CheckServer(database, certificate, folder);
 
         server.Start();
+        await server.WaitUntilReady(serverPatience, logger);
         var account = await CheckAccount.Create(server, certificate);
         logger.LogInformation("The test server is at {Origin}; starting the app", server.Origin);
 

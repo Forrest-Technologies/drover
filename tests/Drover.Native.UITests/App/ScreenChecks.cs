@@ -23,6 +23,10 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
 
     private static readonly TimeSpan startPatience = TimeSpan.FromSeconds(120);
 
+    // The connect screen gives the server 30 s to answer, retrying a refusal. The check waits longer, so a server that
+    // does not answer is reported with the screen's own problem text and not as a screen that never changed.
+    private static readonly TimeSpan connectPatience = TimeSpan.FromSeconds(45);
+
     // The widths a desktop window is made in turn, in pixels: the two the app is required to work at. A phone has the
     // one width it has, which is taken as it is (0).
     private static readonly int[] requiredWidths = OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? [0] : [360, 1280];
@@ -123,7 +127,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
         await Press("ConnectSubmit");
         try
         {
-            await Shown("SignInEmail");
+            await Shown("SignInEmail", connectPatience);
         }
         catch (CheckFailedException failure)
             when (Find("ConnectProblem") is StatusNote { Text: { Length: > 0 } problem })

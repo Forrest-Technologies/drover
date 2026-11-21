@@ -75,10 +75,10 @@ else
 
         busy = true;
         problem = null;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
-            if (await Requests.IsDroverServer(origin, timeout.Token))
+            if (await Requests.IsDroverServer(origin, Logger, timeout.Token))
             {
                 Server.Set(origin);
             }
