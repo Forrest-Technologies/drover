@@ -729,13 +729,11 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     }
 
     [Fact]
-    public async Task A_create_whose_answer_was_lost_is_found_again_and_not_made_a_second_time()
+    public async Task A_create_whose_answer_was_lost_is_sent_again_with_the_same_id_after_the_draft_was_edited()
     {
-        var existing = BotSummaryOf(botId, "Marshal");
         var committed = Made("writer") with { Name = "Writer", Instructions = "Write briefly." };
-        Server.Answer("GET", $"{space}/bots", new[] { existing });
         Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped after the server committed."));
-        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer", Handle = "writer" });
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer the second", Handle = "writer" });
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
         editor.Rename("Writer");
@@ -744,65 +742,78 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.Save();
 
         editor.SaveProblem.Should().NotBeNullOrWhiteSpace("the person is told the save failed");
-        editor.IsMade.Should().BeFalse("the id of the bot was never heard");
-        Navigator.Current.Should().Be(Addresses.Home);
+        editor.IsMade.Should().BeFalse("the answer that carried the id of the bot was lost");
 
-        // The server did commit the create: the bot is in the list now. The next Save finds it instead of sending another.
-        Server.Answer("GET", $"{space}/bots", new[] { existing, committed });
+        // The person edits the draft before trying again. Neither the name nor the instructions matter: the retry
+        // carries the id chosen for this draft, so the server returns the bot it made.
+        editor.Rename("Writer the second");
+        editor.Edit(draft => draft.Instructions = "Write at length.");
+        Server.Answer("POST", $"{space}/bots", committed, HttpStatusCode.Created);
         await editor.Save();
 
-        Server.Sent("POST", $"{space}/bots").Should().ContainSingle("a committed create whose answer was lost is not sent again");
+        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        created.Should().HaveCount(2).And.OnlyContain(id => id != null);
+        created[1].Should().Be(created[0], "a create is replayed with the id chosen for the draft, whatever was edited since");
         Navigator.Current.Should().Be(Addresses.Bot(madeId));
-        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Which.Should().Contain("Write briefly.");
+        Server.Sent("PUT", $"{space}/bots/{madeId}/definition").Should().ContainSingle().Which
+            .Should().Contain("Writer the second").And.Contain("Write at length.", "the edited draft is what is set on the bot that was made");
     }
 
     [Fact]
-    public async Task A_create_whose_answer_was_lost_and_that_did_not_commit_is_sent_again_once()
+    public async Task A_bot_of_the_same_name_that_someone_else_made_is_never_taken_for_the_one_being_made()
     {
+        var another = Made("writer") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), Name = "Writer", Instructions = "Write briefly." };
+        Server.Answer("GET", $"{space}/bots", new[] { another });
         Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped before the server saw it."));
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
+        editor.Rename("Writer");
+        editor.Edit(draft => draft.Instructions = "Write briefly.");
         await editor.Save();
 
-        Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
-        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId });
-        await editor.Save();
+        Server.Answer("POST", $"{space}/bots", Made("writer-2"), HttpStatusCode.Created);
+        Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId, Name = "Writer", Handle = "writer-2" });
         await editor.Save();
 
-        Server.Sent("POST", $"{space}/bots").Should().HaveCount(2, "one try that never reached the server and one that did");
-        Navigator.Current.Should().Be(Addresses.Bot(madeId));
+        Navigator.Current.Should().Be(Addresses.Bot(madeId), "the bot the server made for this draft, not the other person's");
+        Server.Sent("PUT", $"{space}/bots/{another.Id}/definition").Should().BeEmpty("the other person's bot is never written to");
+        Server.Sent("POST", $"{space}/bots").Should().HaveCount(2);
     }
 
     [Fact]
-    public async Task Two_bots_that_could_be_the_lost_one_are_not_guessed_between_and_no_third_is_made()
+    public async Task A_create_the_server_refused_made_nothing_so_the_next_try_chooses_another_id()
     {
-        var one = Made("new-bot") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1") };
-        var two = Made("new-bot-2") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a2") };
+        Server.Refuse("POST", $"{space}/bots", HttpStatusCode.BadRequest, "That bot id is already used. Try again.");
+        var editor = Make<BotEditorViewModel>();
+        await editor.OpenUnmade(null);
+
+        await editor.Save();
+        await editor.Save();
+
+        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        created.Should().HaveCount(2);
+        (created[1] == created[0]).Should().BeFalse("a refusal is an answer: the id is not spoken for, so the next try has its own");
+        editor.SaveProblem.Should().Be("That bot id is already used. Try again.");
+    }
+
+    [Fact]
+    public async Task The_id_chosen_for_a_draft_is_kept_for_that_draft_only()
+    {
+        Server.Answer("GET", $"{space}/bots", new[] { BotSummaryOf(botId, "Marshal") });
         Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped."));
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
         await editor.Save();
-        Server.Answer("GET", $"{space}/bots", new[] { one, two });
-
         await editor.Save();
 
-        editor.SaveProblem.Should().Be(BotEditorViewModel.AmbiguousCreate);
-        Server.Sent("POST", $"{space}/bots").Should().ContainSingle();
-        Navigator.Current.Should().Be(Addresses.Home);
-    }
-
-    [Fact]
-    public async Task A_create_the_server_refused_is_not_looked_for_because_it_was_not_made()
-    {
-        Server.Refuse("POST", $"{space}/bots", HttpStatusCode.Conflict, "This space holds at most 1 bot.");
-        var editor = Make<BotEditorViewModel>();
-        await editor.OpenUnmade(null);
-
-        await editor.Save();
+        // A different draft, under a bot, is a different bot to make: it has an id of its own.
+        await editor.OpenUnmade(botId);
         await editor.Save();
 
-        Server.Sent("POST", $"{space}/bots").Should().HaveCount(2, "a refusal is an answer: the person may try again");
-        editor.SaveProblem.Should().Be("This space holds at most 1 bot.");
+        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        created.Should().HaveCount(3);
+        created[1].Should().Be(created[0], "the same draft keeps its id across tries");
+        (created[2] == created[0]).Should().BeFalse("the next draft chooses its own");
     }
 
     [Fact]
@@ -1772,6 +1783,13 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     // Opens the editor and checks it read everything, as the web tests wait for a section's summary.
     private static BotSummary Made(string handle = "new-bot") =>
         new(madeId, "New bot", handle, string.Empty, connectionId, "sample-large", "active");
+
+    // The id a create request carries, or null when it carries none.
+    private static Guid? Id(string body)
+    {
+        using var document = JsonDocument.Parse(body);
+        return document.RootElement.TryGetProperty("id", out var id) && id.ValueKind is JsonValueKind.String ? id.GetGuid() : null;
+    }
 
     private static BotSummary BotSummaryOf(Guid id, string name) =>
         new(id, name, name.ToLowerInvariant(), "Sample instructions", connectionId, "sample-large", "active");

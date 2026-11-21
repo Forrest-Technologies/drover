@@ -40,6 +40,12 @@ public sealed record NewBot(
     string? Model,
     Guid? ParentBotId)
 {
+    /// <summary>
+    /// The id the bot will have, when the client chose one so that asking again after a lost answer returns the bot
+    /// that was made. A person's request for an id that a bot of theirs already holds is a replay of it.
+    /// </summary>
+    public Guid? Id { get; init; }
+
     /// <summary>The bot starts paused: it does nothing until a person turns it on. For a bot whose instructions came from a file.</summary>
     public bool Paused { get; init; }
 }

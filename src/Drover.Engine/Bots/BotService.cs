@@ -65,6 +65,11 @@ public sealed class BotService(
     /// </summary>
     public async Task<BotChange> Create(NewBot request, AuditActor maker, CancellationToken cancellationToken)
     {
+        if (request.Id is { } chosenId && await FindReplay(chosenId, maker, cancellationToken) is { } replay)
+        {
+            return replay;
+        }
+
         var (name, description, instructions) = (request.Name, request.DescriptionForBots, request.Instructions);
 
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > MaxNameLength)
@@ -120,6 +125,7 @@ public sealed class BotService(
 
         var bot = new Bot
         {
+            Id = request.Id ?? Guid.CreateVersion7(),
             Name = name.Trim(),
             Handle = await FindFreeHandle(name, null, cancellationToken),
             DescriptionForBots = description,
@@ -138,6 +144,31 @@ public sealed class BotService(
 
         logger.LogInformation("Bot {BotId} created", bot.Id);
         return new BotChange(bot, null);
+    }
+
+    // A request that names the id the bot will have is a replay when a bot of the space already holds that id and its
+    // maker is the one asking: the answer to the first request was lost, so it returns that bot and makes nothing. The
+    // tree lock is taken first, so a replay that overlaps the request it repeats waits for it to commit and then finds
+    // its bot. A bot is never found by what it is called or says, so another person's bot of the same name is never
+    // taken for this one. An id that is empty, held by a bot someone else made, or held by a bot that was removed is
+    // refused. An id held by a bot of another space cannot be seen from here and is refused when it is stored.
+    private async Task<BotChange?> FindReplay(Guid id, AuditActor maker, CancellationToken cancellationToken)
+    {
+        if (id == Guid.Empty)
+        {
+            return new BotChange(null, "Choose an id for the bot that is not empty.");
+        }
+
+        await bots.LockTree(cancellationToken);
+
+        if (await bots.FindBot(id, cancellationToken) is not { } held)
+        {
+            return null;
+        }
+
+        return held.Status is not BotStatus.Removed && held.CreatedByUserId == maker.UserId && held.CreatedByBotId == maker.BotId
+            ? new BotChange(held, null)
+            : new BotChange(null, "That bot id is already used. Try again.");
     }
 
     /// <summary>Replaces a bot's definition with the edit, when every part of the edit holds.</summary>
