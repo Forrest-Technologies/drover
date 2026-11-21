@@ -4,16 +4,16 @@ namespace Drover.Tests.Common;
 /// One real PostgreSQL for a test assembly. It uses the server named by <c>DROVER_TEST_POSTGRES</c> (a superuser
 /// connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It migrates one
 /// template database, and each test class copies that template into a database of its own. Role passwords are
-/// generated for the run. Roles belong to the server, not the database, so a server-wide lease keeps assemblies
-/// that were launched together from resetting one another's passwords while their connections are active.
+/// derived from the server (see <see cref="TestRolePasswords"/>), so assemblies launched together against one
+/// server agree on them and need no lease or queue.
 /// </summary>
 public sealed class PostgresServer : IAsyncLifetime
 {
     #region Private Fields
 
-    private readonly string ownerPassword = NewPassword();
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
 
-    private readonly string appPassword = NewPassword();
+    private string appPassword = null!;
 
     private readonly string privilegedPassword = NewPassword();
 
@@ -25,8 +25,6 @@ public sealed class PostgresServer : IAsyncLifetime
     private readonly SemaphoreSlim creating = new(1, 1);
 
     private PostgreSqlContainer? container;
-
-    private PostgresRoleLease? roleLease;
 
     private NpgsqlConnectionStringBuilder server = null!; // set first thing in InitializeAsync
 
@@ -47,21 +45,14 @@ public sealed class PostgresServer : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         server = [with(await FindServer())];
-        roleLease = await PostgresRoleLease.Acquire(server.ConnectionString);
+        ownerPassword = TestRolePasswords.For(server, "drover_owner");
+        appPassword = TestRolePasswords.For(server, "drover_app");
 
-        try
-        {
-            await CreatePrivilegedRole();
-            await ExecuteOnServer($"CREATE DATABASE {templateName}");
-            await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
-            await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
-            NpgsqlConnection.ClearAllPools();
-        }
-        catch
-        {
-            await ReleaseRoleLease();
-            throw;
-        }
+        await CreatePrivilegedRole();
+        await ExecuteOnServer($"CREATE DATABASE {templateName}");
+        await DatabaseBootstrap.Run(ForDatabase(templateName).ConnectionString, ownerPassword, appPassword);
+        await DatabaseMigrator.Run(ForRole("drover_owner", ownerPassword, templateName).ConnectionString);
+        NpgsqlConnection.ClearAllPools();
     }
 
     public async ValueTask DisposeAsync()
@@ -69,7 +60,6 @@ public sealed class PostgresServer : IAsyncLifetime
         NpgsqlConnection.ClearAllPools();
         await ExecuteOnServer($"DROP DATABASE IF EXISTS {templateName} WITH (FORCE)");
         await DropPrivilegedRole();
-        await ReleaseRoleLease();
 
         if (container is not null)
         {
@@ -166,16 +156,6 @@ public sealed class PostgresServer : IAsyncLifetime
         return builder;
     }
 
-    private async Task ReleaseRoleLease()
-    {
-        if (roleLease is null)
-        {
-            return;
-        }
-
-        await roleLease.DisposeAsync();
-        roleLease = null;
-    }
 
     private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 

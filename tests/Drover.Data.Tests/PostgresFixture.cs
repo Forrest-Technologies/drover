@@ -5,7 +5,8 @@ namespace Drover.Data.Tests;
 /// superuser connection string, see scripts/dev-postgres.sh) and starts a container when that is not set. It makes
 /// a database of its own, bootstraps the roles with passwords generated for this run, applies the migrations as
 /// <c>drover_owner</c>, and hands out connections as <c>drover_app</c>. Roles belong to the server, not the
-/// database, so a server-wide lease keeps assemblies launched together from resetting one another's passwords.
+/// database, so their passwords are derived from the server (see <see cref="TestRolePasswords"/>) and assemblies
+/// launched together agree on them without a lease.
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
@@ -13,17 +14,15 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly string databaseName = $"drover_test_{Guid.NewGuid():N}";
 
-    private readonly string ownerPassword = NewPassword();
+    private string ownerPassword = null!; // set in InitializeAsync, from the server found there
 
-    private readonly string appPassword = NewPassword();
+    private string appPassword = null!;
 
     private readonly Stopwatch elapsed = new();
 
     private readonly Lazy<Task<string>> scratchTemplate;
 
     private PostgreSqlContainer? container;
-
-    private PostgresRoleLease? roleLease;
 
     private string? scratchTemplateName;
 
@@ -52,19 +51,12 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         elapsed.Start();
         serverConnection = [with(await FindServer())];
-        roleLease = await PostgresRoleLease.Acquire(serverConnection.ConnectionString);
+        ownerPassword = TestRolePasswords.For(serverConnection, "drover_owner");
+        appPassword = TestRolePasswords.For(serverConnection, "drover_app");
 
-        try
-        {
-            await CreateDatabase();
-            await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
-            await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);
-        }
-        catch
-        {
-            await ReleaseRoleLease();
-            throw;
-        }
+        await CreateDatabase();
+        await DatabaseBootstrap.Run(AdminConnectionString, ownerPassword, appPassword);
+        await DatabaseMigrator.Run(ConnectionStringFor("drover_owner", ownerPassword).ConnectionString);
     }
 
     public async ValueTask DisposeAsync()
@@ -78,8 +70,6 @@ public sealed class PostgresFixture : IAsyncLifetime
         {
             await new NpgsqlCommand($"DROP DATABASE IF EXISTS {scratchTemplateName} WITH (FORCE)", connection).ExecuteNonQueryAsync();
         }
-
-        await ReleaseRoleLease();
 
         if (container is not null)
         {
@@ -215,16 +205,6 @@ public sealed class PostgresFixture : IAsyncLifetime
         }
     }
 
-    private async Task ReleaseRoleLease()
-    {
-        if (roleLease is null)
-        {
-            return;
-        }
-
-        await roleLease.DisposeAsync();
-        roleLease = null;
-    }
 
     private static string NewPassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
 

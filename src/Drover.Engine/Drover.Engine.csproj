@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Drover.Engine.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Drover.Data\Drover.Data.csproj" />
     <ProjectReference Include="..\Drover.Domain\Drover.Domain.csproj" />
     <ProjectReference Include="..\Drover.Contracts\Drover.Contracts.csproj" />
