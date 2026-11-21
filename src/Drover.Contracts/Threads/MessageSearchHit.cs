@@ -23,7 +23,7 @@ public sealed record SnippetMatch(int Start, int Length);
 
 
 /// <summary>
-/// What one search found. A search looks at the newest <paramref name="Window"/> messages of the caller's own conversations, or
+/// What one search found. A search looks at the newest <paramref name="Window"/> messages of the conversations it covers (the caller's own and the shared ones, or only their own), or
 /// at the next <paramref name="Window"/> before the cursor it was given. <paramref name="Older"/> is null when
 /// every message of those conversations has been looked at, and otherwise the cursor that continues the search into older messages.
 /// </summary>

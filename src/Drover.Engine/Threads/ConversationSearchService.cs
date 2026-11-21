@@ -1,10 +1,10 @@
 namespace Drover.Engine.Threads;
 
 /// <summary>
-/// Finds the messages of a person's own conversations that contain the words they typed. It runs in a tenant scope
-/// opened after validation and concurrency checks, so row-level security keeps every search to the caller's space and
-/// to the threads they may read, and the repository narrows it to the threads the caller owns. A conversation someone
-/// else shared with the space is not searched.
+/// Finds the messages of the conversations a person may read that contain the words they typed: their own, and the ones
+/// shared with everyone in the space. It runs in a tenant scope opened after validation and concurrency checks, so
+/// row-level security keeps every search to the caller's space and to the threads whose audience includes them, in
+/// every mode. Mine only narrows it further, to the threads the caller owns; it never widens it.
 /// </summary>
 public sealed class ConversationSearchService(MessageRepository messages)
 {
@@ -23,12 +23,13 @@ public sealed class ConversationSearchService(MessageRepository messages)
     /// <paramref name="before"/>. Words that match nothing, such as only very common words, find nothing. The result
     /// says where the search stopped, so a person can search further back.
     /// </summary>
-    public async Task<MessageSearchResult> Search(string words, SearchCursor? before, CancellationToken cancellationToken)
+    public async Task<MessageSearchResult> Search(string words, SearchCursor? before, bool mineOnly, CancellationToken cancellationToken)
     {
         var found = await messages.SearchMessages(
             words.Trim(),
             MaxHits,
             before is null ? null : new(before.SentAt.ToUniversalTime(), before.MessageId),
+            mineOnly,
             cancellationToken);
         return new(
             [.. found.Matches.Select(ToHit)],
@@ -61,7 +62,7 @@ public sealed class ConversationSearchService(MessageRepository messages)
     {
         var text = new StringBuilder(marked.Length);
         List<SnippetMatch> matches = [];
-        int? start = null;
+        var start = (int?)null;
 
         foreach (var character in marked)
         {

@@ -2,7 +2,8 @@ namespace Drover.Data.Tests;
 
 /// <summary>
 /// Searching conversations reads through the same policies as every other query: a person finds words only in
-/// their own space, only in the threads whose audience includes them, and only in what a person or a bot said.
+/// their own space, only in the threads whose audience includes them (their own and the ones shared with everyone,
+/// or only their own with Mine only), only in bots that are not removed, and only in what a person or a bot said.
 /// </summary>
 [Collection(PostgresFixtureDefinition.Name)]
 public sealed class ConversationSearchTests(PostgresFixture postgres)
@@ -32,7 +33,24 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task A_conversation_is_found_only_by_its_owner_even_when_it_is_shared()
+    public async Task Another_spaces_conversations_never_appear_in_either_mode()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var botB = await SaveBot(provider, world.SpaceB, world.UserB1);
+        await SaveThread(provider, world.SpaceB, world.UserB1, botB, Audience.Everyone, "The marmot ledger belongs to space B.");
+
+        var travelerInA = await Search(provider, world.SpaceA, world.Traveler, "marmot");
+        var travelerInAMine = await Search(provider, world.SpaceA, world.Traveler, "marmot", mineOnly: true);
+        var ownerOfAShared = await Search(provider, world.SpaceA, world.UserA1, "marmot");
+
+        travelerInA.Should().BeEmpty("a shared conversation of another space is not in this space");
+        travelerInAMine.Should().BeEmpty();
+        ownerOfAShared.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_conversation_another_member_shared_is_found_by_everyone_in_the_space_and_Mine_only_hides_it()
     {
         await using var provider = postgres.BuildServices();
         var world = await TenantWorld.Seed(provider);
@@ -43,12 +61,69 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         var otherBefore = await Search(provider, world.SpaceA, world.UserA2, "wombat");
         await Share(provider, world.SpaceA, world.UserA1, said.ThreadId);
         var otherAfter = await Search(provider, world.SpaceA, world.UserA2, "wombat");
+        var otherMine = await Search(provider, world.SpaceA, world.UserA2, "wombat", mineOnly: true);
+        var ownerMine = await Search(provider, world.SpaceA, world.UserA1, "wombat", mineOnly: true);
+        var ownerAfter = await Search(provider, world.SpaceA, world.UserA1, "wombat");
 
         owner.Should().ContainSingle().Which.Should().Match<MessageMatch>(hit =>
             hit.MessageId == said.Id && hit.ThreadId == said.ThreadId && hit.BotId == bot.Id && hit.InMainConversation);
-        otherBefore.Should().BeEmpty("another member of the space may not read a private thread");
-        otherAfter.Should().BeEmpty("search covers a person's own conversations, and a shared one belongs to its owner");
-        (await Search(provider, world.SpaceA, world.UserA1, "wombat")).Should().ContainSingle("sharing does not hide it from its owner");
+        otherBefore.Should().BeEmpty("another member of the space may not read a private conversation");
+        otherAfter.Should().ContainSingle().Which.Should().Match<MessageMatch>(
+            hit => hit.MessageId == said.Id && !hit.InMainConversation,
+            "a shared conversation is found by another member, and it is not that member's main conversation");
+        otherMine.Should().BeEmpty("Mine only hides what someone else shared");
+        ownerMine.Should().ContainSingle("Mine only keeps the person's own conversation");
+        ownerAfter.Should().ContainSingle().Which.InMainConversation.Should().BeTrue("sharing does not change whose main conversation it is");
+    }
+
+    [Fact]
+    public async Task Another_members_private_conversation_never_appears_in_either_mode()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var bot = await SaveBot(provider, world.SpaceA, world.UserA1);
+        await SaveThread(provider, world.SpaceA, world.UserA2, bot, world.UserA2, "The ocelot password reset is private.");
+
+        var everything = await Search(provider, world.SpaceA, world.UserA1, "ocelot");
+        var mine = await Search(provider, world.SpaceA, world.UserA1, "ocelot", mineOnly: true);
+        var theirs = await Search(provider, world.SpaceA, world.UserA2, "ocelot");
+
+        everything.Should().BeEmpty("the audience is one other person");
+        mine.Should().BeEmpty();
+        theirs.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_removed_bots_conversation_is_not_searched_in_either_mode_and_does_not_use_up_the_window()
+    {
+        await using var provider = postgres.BuildServices();
+        var world = await TenantWorld.Seed(provider);
+        var kept = await SaveBot(provider, world.SpaceA, world.UserA1);
+        var gone = await SaveBot(provider, world.SpaceA, world.UserA1);
+        var start = DateTimeOffset.UtcNow.AddHours(-1);
+        var visible = await SaveThread(provider, world.SpaceA, world.UserA1, kept, world.UserA1, "The lynx report is ready.");
+        var sharedByGone = await SaveThread(provider, world.SpaceA, world.UserA2, gone, Audience.Everyone, "The lynx archive is shared.");
+        var ownedByGone = await SaveThread(provider, world.SpaceA, world.UserA1, gone, world.UserA1, "The lynx notes are mine.");
+        await Stamp(provider, world.SpaceA, world.UserA1, visible.Id, start);
+        await Stamp(provider, world.SpaceA, world.UserA1, ownedByGone.Id, start.AddMinutes(1));
+        await Stamp(provider, world.SpaceA, world.UserA2, sharedByGone.Id, start.AddMinutes(2));
+        await using (var session = await TenantSession.Open(provider, world.SpaceA, world.UserA1))
+        {
+            await session.Db.Bots.Where(bot => bot.Id == gone.Id)
+                .ExecuteUpdateAsync(set => set.SetProperty(bot => bot.Status, BotStatus.Removed), Token);
+            await session.Commit();
+        }
+
+        var everything = await Search(provider, world.SpaceA, world.UserA1, "lynx");
+        var mine = await Search(provider, world.SpaceA, world.UserA1, "lynx", mineOnly: true);
+        var narrow = await SearchWindow(provider, world.SpaceA, world.UserA1, "lynx", null, candidateLimit: 1);
+
+        everything.Select(hit => hit.MessageId).Should().Equal(visible.Id);
+        mine.Select(hit => hit.MessageId).Should().Equal(visible.Id);
+        narrow.Matches.Select(hit => hit.MessageId).Should().Equal(
+            [visible.Id],
+            "messages of a removed bot are not in the window, so they cannot push a visible one out of it");
+        narrow.Older.Should().BeNull("nothing searchable is left past the window");
     }
 
     #endregion
@@ -259,7 +334,7 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         session.Tenant.SetUser(world.UserA1);
         session.Tenant.SetSpace(world.SpaceA);
 
-        var act = () => new MessageRepository(session.Db).SearchMessages("nautilus", 30, null, Token);
+        var act = () => new MessageRepository(session.Db).SearchMessages("nautilus", 30, null, false, Token);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
@@ -273,8 +348,16 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    private static async Task<IReadOnlyList<MessageMatch>> Search(IServiceProvider provider, Guid spaceId, Guid userId, string words) =>
-        (await SearchWindow(provider, spaceId, userId, words, null)).Matches;
+    private static async Task<IReadOnlyList<MessageMatch>> Search(IServiceProvider provider, Guid spaceId, Guid userId, string words, bool mineOnly = false) =>
+        (await SearchWindow(provider, spaceId, userId, words, null, mineOnly: mineOnly)).Matches;
+
+    private static async Task Stamp(IServiceProvider provider, Guid spaceId, Guid userId, Guid messageId, DateTimeOffset at)
+    {
+        await using var session = await TenantSession.Open(provider, spaceId, userId);
+        await session.Db.Messages.Where(message => message.Id == messageId)
+            .ExecuteUpdateAsync(set => set.SetProperty(message => message.CreatedAt, at), Token);
+        await session.Commit();
+    }
 
     private static async Task<MessageSearch> SearchWindow(
         IServiceProvider provider,
@@ -282,10 +365,11 @@ public sealed class ConversationSearchTests(PostgresFixture postgres)
         Guid userId,
         string words,
         MessageKey? before,
-        int candidateLimit = MessageRepository.SearchCandidateLimit)
+        int candidateLimit = MessageRepository.SearchCandidateLimit,
+        bool mineOnly = false)
     {
         await using var session = await TenantSession.Open(provider, spaceId, userId);
-        return await new MessageRepository(session.Db).SearchMessages(words, 30, before, Token, candidateLimit);
+        return await new MessageRepository(session.Db).SearchMessages(words, 30, before, mineOnly, Token, candidateLimit);
     }
 
     private static async Task<Bot> SaveBot(IServiceProvider provider, Guid spaceId, Guid userId)

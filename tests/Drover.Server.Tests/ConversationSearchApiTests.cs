@@ -119,6 +119,35 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
         (await outsiderInAlices.Content.ReadAsStringAsync(Token)).Should().NotContain("marmalade");
     }
 
+    [Fact]
+    public async Task A_shared_conversation_is_found_by_another_member_and_Mine_only_hides_it_through_the_api()
+    {
+        script = new ScriptedModel([new TextOutput("The wombat schedule is posted.")]);
+        var alice = await SeedPerson("alice");
+        var member = await SeedMember(alice.SpaceId, "member", MembershipRole.Member);
+        var outsider = await SeedPerson("outsider");
+        var asAlice = await SignIn(alice.Email, alice.Password);
+        var asMember = await SignIn(member.Email, member.Password);
+        var asOutsider = await SignIn(outsider.Email, outsider.Password);
+        var bot = await CreateBot(asAlice, alice.SpaceId);
+        var main = await OpenMain(asAlice, alice.SpaceId, bot.Id);
+        await Ask(asAlice, alice.SpaceId, main.Id, "Post the wombat schedule.");
+
+        var beforeSharing = await Search(asMember, alice.SpaceId, "wombat");
+        await ShareWithTheSpace(alice.SpaceId, alice.UserId, main.Id);
+        var shared = await Search(asMember, alice.SpaceId, "wombat");
+        var sharedMine = await Search(asMember, alice.SpaceId, "wombat", mineOnly: true);
+        var ownerMine = await Search(asAlice, alice.SpaceId, "wombat", mineOnly: true);
+        var outsiderInAlices = await asOutsider.Post(SearchPath(alice.SpaceId), new SearchMessagesRequest("wombat", MineOnly: false));
+
+        beforeSharing.Should().BeEmpty("a private conversation is not shared yet");
+        shared.Should().HaveCount(2, "the member finds what was shared with the space");
+        shared.Should().OnlyContain(hit => !hit.InMainConversation, "someone else's main conversation opens as a side chat");
+        sharedMine.Should().BeEmpty("Mine only leaves out what someone else shared");
+        ownerMine.Should().HaveCount(2).And.OnlyContain(hit => hit.InMainConversation);
+        outsiderInAlices.IsSuccessStatusCode.Should().BeFalse("a person outside the space finds nothing in either mode");
+    }
+
     #endregion
 
     #region Limits
@@ -209,8 +238,20 @@ public sealed class ConversationSearchApiTests(PostgresServer postgres) : Server
 
     private static string SearchPath(Guid spaceId) => $"{Space(spaceId)}/threads/search";
 
-    private static async Task<List<MessageSearchHit>> Search(ApiClient client, Guid spaceId, string words) =>
-        [.. (await PostFor<MessageSearchResult>(client, SearchPath(spaceId), new SearchMessagesRequest(words), HttpStatusCode.OK)).Hits];
+    private static async Task<List<MessageSearchHit>> Search(ApiClient client, Guid spaceId, string words, bool mineOnly = false) =>
+        [.. (await PostFor<MessageSearchResult>(client, SearchPath(spaceId), new SearchMessagesRequest(words, MineOnly: mineOnly), HttpStatusCode.OK)).Hits];
+
+    /// <summary>Shares the thread with every member of the space, as its owner would.</summary>
+    private async Task ShareWithTheSpace(Guid spaceId, Guid ownerId, Guid threadId)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TenantContext>().Set(spaceId, ownerId);
+        await using var work = await scope.ServiceProvider.GetRequiredService<TenantScope>().Begin(Token);
+        var db = scope.ServiceProvider.GetRequiredService<DroverDbContext>();
+        await db.Threads.Where(found => found.Id == threadId)
+            .ExecuteUpdateAsync(set => set.SetProperty(found => found.AudienceUserId, Audience.Everyone), Token);
+        await work.Commit(Token);
+    }
 
     private async Task<ApiClient> SignIn(string email, string password)
     {

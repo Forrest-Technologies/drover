@@ -71,13 +71,13 @@ public sealed partial class DroverApi
         Send<ConversationModelChoice>(HttpMethod.Put, $"{Space(spaceId)}/threads/{threadId}/model", new ChooseModelRequest(model), cancellationToken);
 
     /// <summary>
-    /// The messages of the caller's conversations whose words match <paramref name="words"/>, best match first. Only
-    /// the conversations the caller owns are searched, and only the newest of their messages: the answer carries the
-    /// cursor that searches older ones, which goes in <paramref name="before"/>. Blank words, or more than the server
-    /// allows, are refused.
+    /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
+    /// first: their own and the ones shared with the space, or only their own with <paramref name="mineOnly"/>. Only the
+    /// newest of those messages are searched: the answer carries the cursor that searches older ones, which goes in
+    /// <paramref name="before"/>. Blank words, or more than the server allows, are refused.
     /// </summary>
-    public Task<MessageSearchResult> SearchMessages(Guid spaceId, string words, SearchCursor? before = null, CancellationToken cancellationToken = default) =>
-        Post<MessageSearchResult>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words, before), cancellationToken);
+    public Task<MessageSearchResult> SearchMessages(Guid spaceId, string words, SearchCursor? before = null, bool mineOnly = false, CancellationToken cancellationToken = default) =>
+        Post<MessageSearchResult>($"{Space(spaceId)}/threads/search", new SearchMessagesRequest(words, before, mineOnly), cancellationToken);
 
     public Task<List<MessageResponse>> ListMessages(Guid spaceId, Guid threadId, CancellationToken cancellationToken = default) =>
         Get<List<MessageResponse>>($"{Space(spaceId)}/threads/{threadId}/messages", cancellationToken);

@@ -34,7 +34,7 @@ public static class ThreadEndpoints
         space.MapPost("/threads/search", SearchMessages)
             .WithBodyLimit(SearchBodyLimit)
             .WithName("SearchMessages")
-            .WithSummary("The messages of the caller's conversations whose words match the query in the request body, best match first, each with a snippet around the match. Only the caller's own conversations are searched.");
+            .WithSummary("The messages of the caller's conversations whose words match the query in the request body, best match first, each with a snippet around the match. The caller's own and the shared conversations of the space are searched, or only their own with mineOnly.");
         space.MapGet("/threads/{threadId:guid}/export", ExportConversation)
             .WithName("ExportConversation")
             .WithSummary("The conversation as a file to keep: format=markdown (the default) or format=json, the versioned ConversationExport. Tool calls are listed by name and outcome, files by name and size.");
@@ -84,7 +84,7 @@ public static class ThreadEndpoints
         }
 
         await using var work = await scope.Begin(context.RequestAborted);
-        return TypedResults.Ok(await search.Search(request.Query!, request.Before, context.RequestAborted));
+        return TypedResults.Ok(await search.Search(request.Query!, request.Before, request.MineOnly, context.RequestAborted));
     }
 
     private static async Task<Results<Ok<ThreadSummary>, NotFound>> GetThread(Guid threadId, HttpContext context, ThreadService threads) =>

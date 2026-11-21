@@ -181,23 +181,26 @@ public sealed class MessageRepository(DroverDbContext db)
     }
 
     /// <summary>
-    /// The messages of the caller's own conversations whose words match <paramref name="words"/>, best match first,
-    /// at most <paramref name="limit"/> within a window of <paramref name="candidateLimit"/> placed messages: the
+    /// The messages of the conversations the caller may read whose words match <paramref name="words"/>, best match
+    /// first, at most <paramref name="limit"/> within a window of <paramref name="candidateLimit"/> placed messages: the
     /// newest ones, or the newest sent before <paramref name="before"/>. Only what a person or a bot said is searched:
-    /// the text parts of placed messages in threads the caller owns that are not archived. Row-level security keeps
-    /// this to the caller's space and to the threads whose audience includes them, and the owner test narrows it to
-    /// threads that belong to the caller. A partial descending index over the space's recent placed messages bounds
-    /// the window so text extraction, tokenization, and ranking never scan unbounded history, and a statement
-    /// timeout caps execution time. The hits and the place where the window ended come from one statement, so they
-    /// describe the same set of messages even while threads are archived or messages shelved: the next page starts
-    /// at the last message this one looked at. Each snippet marks a matched word with <see cref="MatchStart"/> and
-    /// <see cref="MatchEnd"/>, which are taken out of the text before it is marked. Call it inside a tenant
-    /// transaction: it throws without one, because the timeout is set for the transaction.
+    /// the text parts of placed messages in threads that are not archived, of bots that are not removed (a hit in a
+    /// conversation with a removed bot could not be opened). Row-level security keeps this to the caller's space and to
+    /// the threads whose audience includes them: their own, and the ones shared with everyone. With
+    /// <paramref name="mineOnly"/> an owner test narrows it further to the threads that belong to the caller; the
+    /// policies apply in both modes, and the owner test only ever narrows. A partial descending index over the space's
+    /// recent placed messages bounds the window so text extraction, tokenization, and ranking never scan unbounded
+    /// history, and a statement timeout caps execution time. The hits and the place where the window ended come from one
+    /// statement, so they describe the same set of messages even while threads are archived or messages shelved: the
+    /// next page starts at the last message this one looked at. Each snippet marks a matched word with
+    /// <see cref="MatchStart"/> and <see cref="MatchEnd"/>, which are taken out of the text before it is marked. Call it
+    /// inside a tenant transaction: it throws without one, because the timeout is set for the transaction.
     /// </summary>
     public async Task<MessageSearch> SearchMessages(
         string words,
         int limit,
         MessageKey? before,
+        bool mineOnly,
         CancellationToken cancellationToken,
         int candidateLimit = SearchCandidateLimit)
     {
@@ -221,27 +224,29 @@ public sealed class MessageRepository(DroverDbContext db)
                     SELECT pool.*, row_number() OVER (ORDER BY pool.created_at DESC, pool.id DESC) AS rn
                     FROM (
                         SELECT m.id, m.space_id, m.thread_id, m.role, m.created_at, m.parts,
-                               t.bot_id, t.title AS thread_title, t.is_main AS in_main_conversation
+                               t.bot_id, b.name AS bot_name, t.title AS thread_title,
+                               (t.is_main AND t.owner_user_id = sys.current_user_id()) AS in_main_conversation
                         FROM messages m
                         JOIN threads t ON t.space_id = m.space_id AND t.id = m.thread_id
+                        JOIN bots b ON b.space_id = t.space_id AND b.id = t.bot_id
                         WHERE m.position IS NOT NULL
                           AND m.shelved_at IS NULL
                           AND m.role IN ('user', 'assistant')
                           AND t.archived_at IS NULL
-                          AND t.owner_user_id = sys.current_user_id()
+                          AND b.status <> 'removed'
+                          AND (NOT {mineOnly} OR t.owner_user_id = sys.current_user_id())
                           AND (m.created_at, m.id) < ({after.SentAt}, {after.Id})
                         ORDER BY m.created_at DESC, m.id DESC
                         LIMIT {extra}
                     ) AS pool
                 ),
                 found AS (
-                    SELECT c.id AS message_id, c.thread_id, c.bot_id, b.name AS bot_name, c.thread_title,
+                    SELECT c.id AS message_id, c.thread_id, c.bot_id, c.bot_name, c.thread_title,
                            c.in_main_conversation,
                            c.role = 'assistant' AS from_bot, c.created_at,
                            ts_headline('english', said.text, q.query, said.marks) AS snippet,
                            row_number() OVER (ORDER BY ts_rank(doc.document, q.query) DESC, c.created_at DESC, c.id DESC) AS place
                     FROM ranked c
-                    JOIN bots b ON b.space_id = c.space_id AND b.id = c.bot_id
                     CROSS JOIN websearch_to_tsquery('english', {words}) AS q(query)
                     CROSS JOIN LATERAL (
                         SELECT string_agg(translate(part.text, E'\u0001\u0002', ''), E'\n') AS text,
