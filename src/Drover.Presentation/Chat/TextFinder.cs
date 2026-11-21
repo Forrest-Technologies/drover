@@ -50,6 +50,8 @@ public sealed class TextFinder
             return new(matches, true, new(all.Count, 0));
         }
 
+        // A window shorter than the query cannot hold a match and would leave the resume cursor where it started.
+        var allowance = Math.Max(budget, query.Length);
         var effective = options ?? new();
         var comparison = effective.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var index = start?.SegmentIndex ?? 0;
@@ -66,15 +68,9 @@ public sealed class TextFinder
                 continue;
             }
 
-            var end = Math.Min(text.Length, offset + (budget - CharactersExamined));
-
-            if (end <= offset)
-            {
-                return new(matches, false, new(index, offset));
-            }
-
+            var remaining = allowance - CharactersExamined;
+            var end = Math.Min(text.Length, offset + remaining);
             var slice = text[offset..end];
-            CharactersExamined += slice.Length;
             var from = 0;
 
             while (from <= slice.Length - query.Length)
@@ -83,10 +79,18 @@ public sealed class TextFinder
 
                 if (at < 0)
                 {
+                    CharactersExamined += slice.Length - from;
                     break;
                 }
 
-                CharactersExamined += Math.Min(query.Length, budget - CharactersExamined);
+                var cost = at - from + query.Length;
+
+                if (CharactersExamined + cost > allowance)
+                {
+                    return new(matches, false, new(index, offset + from));
+                }
+
+                CharactersExamined += cost;
 
                 if (!effective.WholeWords || IsWholeWord(text, offset + at, query.Length))
                 {
@@ -95,22 +99,21 @@ public sealed class TextFinder
 
                 from = at + 1;
 
-                if (CharactersExamined >= budget)
+                if (CharactersExamined >= allowance)
                 {
                     return new(matches, false, new(index, offset + from));
                 }
             }
 
-            index++;
-
             if (end < text.Length)
             {
-                // A query that began just before the cut can finish after it. Resume early enough to see it;
-                // matches wholly before the cut were already reported and are not revisited.
-                var resume = Math.Max(0, end - (query.Length - 1));
-                return new(matches, false, new(index - 1, resume));
+                // A query that began just before the cut can finish after it. Resume early enough to see it, but
+                // always advance so a caller looping on the cursor cannot stall.
+                var resume = Math.Max(offset + 1, end - (query.Length - 1));
+                return new(matches, false, new(index, resume));
             }
 
+            index++;
             offset = 0;
         }
 

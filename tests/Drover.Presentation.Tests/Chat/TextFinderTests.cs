@@ -91,7 +91,7 @@ public sealed class TextFinderTests
             }
 
             cursor = result.Next;
-            slices.Should().BeLessThan(2000, "the search must make progress");
+            slices.Should().BeLessThan(200, "the search must not re-examine a whole budget for every match");
         }
 
         slices.Should().BeGreaterThan(1);
@@ -128,6 +128,33 @@ public sealed class TextFinderTests
 
         all.Should().ContainSingle(match => match.Start == 98);
         sliced.Should().Equal(all);
+    }
+
+    [Fact]
+    public void A_budget_smaller_than_the_query_still_makes_progress_and_finishes()
+    {
+        var text = new string('a', 100);
+        FindSegment[] segments = [new("m", new FindPart("Markdown"), text)];
+        var finder = new TextFinder();
+        FindCursor? cursor = null;
+        var calls = 0;
+
+        while (true)
+        {
+            var result = finder.Find("words", segments, default, budget: 1, start: cursor);
+            calls++;
+
+            if (result.Finished)
+            {
+                break;
+            }
+
+            result.Next.Offset.Should().BeGreaterThan(cursor?.Offset ?? 0, "each slice must advance");
+            cursor = result.Next;
+            calls.Should().BeLessThan(200, "the loop must finish");
+        }
+
+        calls.Should().BeGreaterThan(1);
     }
 
     [Fact]

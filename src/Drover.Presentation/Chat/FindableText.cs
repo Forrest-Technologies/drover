@@ -20,9 +20,13 @@ public sealed class FindableText
 
     #endregion
 
-    #region Public Methods
+    #region Properties
 
     public int Count => cache.Count;
+
+    #endregion
+
+    #region Public Methods
 
     public IReadOnlyList<FindSegment> Of(ChatMessage message)
     {
