@@ -8,11 +8,35 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
     protected override IReadOnlyDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
     {
         ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "Information",
-
-        // The run worker claims runs on a real-time poll even in a test with no runs, and its query names
-        // principal_user_id. With no workers it never asks the database, so the recorder sees only the request.
-        ["Runs:Workers"] = "0",
     };
+
+    #endregion
+
+    #region Host Configuration
+
+    /// <summary>
+    /// Every hosted loop uses a real timer, whatever the test clock says, and each one queries the database on its
+    /// own schedule. None of them is needed to answer an account request, so this class starts a server without
+    /// them: the recorder then sees only the requests it is comparing.
+    /// </summary>
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        List<ServiceDescriptor> loops = [.. services.Where(service => service.ServiceType == typeof(IHostedService))];
+
+        foreach (var loop in loops)
+        {
+            services.Remove(loop);
+        }
+    }
+
+    [Fact]
+    public void The_server_under_test_has_no_background_loops()
+    {
+        // The one service left is the test server itself, which does not poll the database.
+        var hosted = Services.GetServices<IHostedService>().Select(service => service.GetType().Name);
+
+        hosted.Should().Equal("GenericWebHostService");
+    }
 
     #endregion
 
@@ -497,9 +521,18 @@ public sealed class PasswordAndSessionTests(PostgresServer postgres) : ServerTes
                 .Where(sql => sql.Contains("user", StringComparison.Ordinal)),
         ];
 
-        // The run worker is off for this class (Runs:Workers = 0). Guard that it stayed off: a claim query names
-        // principal_user_id and would otherwise be mistaken for one of the account calls being compared.
-        commands.Should().NotContain(sql => sql.Contains("claim_runs", StringComparison.Ordinal));
+        // This host has no background loops. Guard against the ones a normal server runs on its own schedule; the
+        // request paths call find_user_for_sign_in, so a guard on the whole sys schema would reject a real call.
+        string[] backgroundCalls =
+        [
+            "claim_runs",
+            "claim_due_schedules",
+            "claim_pending_upload_deletions",
+            "expired_uploads",
+            "sandboxes_to_sweep",
+            "tool_sign_ins_running_out",
+        ];
+        commands.Should().NotContain(sql => backgroundCalls.Any(call => sql.Contains(call, StringComparison.Ordinal)));
         return commands;
     }
 
