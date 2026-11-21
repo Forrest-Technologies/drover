@@ -71,6 +71,10 @@ public sealed partial class RunService(
     private const string HandoffReadOnlyChange =
         "To change the work, send your message in the conversation where the task was given.";
 
+    #endregion
+
+    #region Properties
+
     public static string HandoffIsReadOnly => $"{HandoffReadOnlyStart} {HandoffReadOnlyChange}";
 
     #endregion
