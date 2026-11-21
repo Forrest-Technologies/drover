@@ -2,8 +2,8 @@ namespace Drover.Native.Chat;
 
 /// <summary>
 /// The line under a message that has versions, or may have a new one: the switch between the versions, which says
-/// "2 of 3" between the previous and the next, and the one way to make a new version, Edit under a person's last
-/// message and Write another reply under the last reply. Each control works by keyboard and is named.
+/// "2 of 3" between the previous and the next, and the one way to make a new version, the edit icon under a person's
+/// last message and the regenerate icon under the last reply. Each control works by keyboard and is named.
 /// </summary>
 public sealed class MessageVersions : Grid
 {
@@ -20,16 +20,7 @@ public sealed class MessageVersions : Grid
 
     private readonly TextBlock place = Styles.Text(null, "DvTextCaption");
 
-    private readonly PlainButton action = new()
-    {
-        Ink = "DvText2",
-        HoverInk = "DvText",
-        MinHeight = Targets.Minimum,
-        Padding = Tokens.Space("DvSpace2", "DvSpace1"),
-        FontSize = Tokens.Number("DvText13"),
-    };
-
-    private readonly TextBlock actionWords = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly IconButton action = new() { Icon = IconName.Regenerate, Label = ChatRows.RegenerateLabel, Ink = "DvText3" };
 
     private VersionSwitch? shown;
 
@@ -45,8 +36,6 @@ public sealed class MessageVersions : Grid
         switcher.Children.Add(place);
         switcher.Children.Add(next);
         AutomationProperties.SetLandmarkType(switcher, AutomationLandmarkType.Custom);
-
-        action.Content = actionWords;
 
         previous.Click += async (_, _) => await Switch(shown?.Previous);
         next.Click += async (_, _) => await Switch(shown?.Next);
@@ -88,10 +77,10 @@ public sealed class MessageVersions : Grid
             next.IsEnabled = versions is { Enabled: true, Next: not null };
         }
 
-        var offered = OnAct is not null && (message.FromPerson ? message.MayEdit : message.MayRegenerate);
+        var offered = message.FromPerson ? OnAct is not null && message.MayEdit : ChatRows.OffersRegenerate(message, OnAct is not null);
         action.Visibility = offered ? Visibility.Visible : Visibility.Collapsed;
-        actionWords.Text = message.FromPerson ? ChatRows.EditLabel : ChatRows.RegenerateLabel;
-        AutomationProperties.SetName(action, actionWords.Text);
+        action.Icon = message.FromPerson ? IconName.Edit : IconName.Regenerate;
+        action.Label = message.FromPerson ? ChatRows.EditMessageName : ChatRows.RegenerateLabel;
         Paint();
     }
 

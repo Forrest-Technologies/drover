@@ -91,7 +91,7 @@ public sealed class ChatEntry : ContentControl
 
     private readonly TextBlock pending = Styles.Text(null, "DvTextCaption");
 
-    private readonly ReplyUsage usage = new();
+    private readonly ReplyFooter footer = new();
 
     private readonly MessageVersions versions = new();
 
@@ -225,7 +225,7 @@ public sealed class ChatEntry : ContentControl
 
     private FrameworkElement Lay(ChatEntryShape wanted)
     {
-        Detach(words, reasoning, sources, tools, files, usage, versions, editor, bubble, sentBy, pending, plate, name, writing, run);
+        Detach(words, reasoning, sources, tools, files, footer, versions, editor, bubble, sentBy, pending, plate, name, writing, run);
 
         return wanted switch
         {
@@ -250,7 +250,9 @@ public sealed class ChatEntry : ContentControl
         from.Children.Add(writing);
         from.Children.Add(run);
 
-        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, usage, versions);
+        // A reply's versions and the way to another reply stand on its footer's one line, after copy.
+        footer.Hold(versions);
+        var body = Column(HorizontalAlignment.Stretch, from, reasoning, words, sources, tools, files, footer);
         body.Padding = new(0, Tokens.Number("DvSpace1"), 0, 0);
 
         var row = new Grid { ColumnSpacing = Tokens.Number("DvSpace3") };
@@ -375,6 +377,20 @@ public sealed class ChatEntry : ContentControl
 
         ShowUsage(message, parameters);
         ShowVersions(message, parameters);
+        ShowFooter(message);
+    }
+
+    // The footer is for a finished reply: copy, another reply, and the hint of what wrote it and what it used.
+    private void ShowFooter(ChatMessage message)
+    {
+        if (shape is ChatEntryShape.Person or ChatEntryShape.Tools or ChatEntryShape.Compact)
+        {
+            return;
+        }
+
+        // While the bot writes, nothing stands under its words.
+        footer.Offer(ChatRows.OffersCopy(message) ? message.Text : null);
+        footer.Visibility = Shown(!message.Streaming && footer.HasAny);
     }
 
     private void ShowVersions(ChatMessage message, ChatEntryParameters parameters)
@@ -432,12 +448,11 @@ public sealed class ChatEntry : ContentControl
     private void ShowUsage(ChatMessage message, ChatEntryParameters parameters)
     {
         var offered = ChatRows.OffersUsage(message, parameters.LoadUsage is not null) ? message.RunId : null;
-        usage.Visibility = Shown(offered is not null);
 
         if (offered != usageRun || message.Model != usageModel)
         {
             (usageRun, usageModel) = (offered, message.Model);
-            usage.Model = offered is { } runId ? new(runId, parameters.LoadUsage!, Log.For<ReplyUsage>(), message.Model) : null;
+            footer.Model = offered is { } runId ? new(runId, parameters.LoadUsage!, Log.For<ReplyFooter>(), message.Model) : null;
         }
     }
 
