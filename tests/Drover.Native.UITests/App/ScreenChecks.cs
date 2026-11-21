@@ -330,7 +330,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
                 box.Password = text;
                 break;
 #if __ANDROID__
-            case Droid.AndroidAddressEditor box:
+            case Droid.AndroidTextEditor box:
                 box.Text = text;
                 break;
 #endif
@@ -470,7 +470,7 @@ internal sealed class ScreenChecks(Window window, CheckSettings settings)
     {
         TextBox or PasswordBox => true,
 #if __ANDROID__
-        Droid.AndroidAddressEditor => true,
+        Droid.AndroidTextEditor => true,
 #endif
         _ => false,
     };

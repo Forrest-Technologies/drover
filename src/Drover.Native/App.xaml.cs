@@ -85,6 +85,9 @@ public partial class App : Application
         DialogSurface.Navigator = navigator;
         PlatformShell.Start(navigator);
         services.GetRequiredService<ILiveNotifications>().Start();
+#if ANDROID
+        AndroidFileDelivery.ClearSharedCopiesOnSignOut(services.GetRequiredService<SessionState>());
+#endif
 
         var shell = new ShellView(services, window);
         window.Content = shell;
@@ -102,6 +105,9 @@ public partial class App : Application
 #if DROVER_UNREACHABLE_CHECK
             UnreachableOpenCheck.ArmFromEnvironment();
 #endif
+#if DROVER_FIELD_CHECK
+            FieldInputCheck.ArmFromEnvironment();
+#endif
             PlatformShell.ReadDevice();
             MainWindow = new Window { Title = "Drover" };
             MainWindow.Activated += (_, activated) =>
@@ -110,6 +116,14 @@ public partial class App : Application
             if (Environment.GetEnvironmentVariable("DROVER_TIMELINE_FOCUS_CHECK") == "1")
             {
                 TimelineFocusCheck.Start(MainWindow);
+                MainWindow.Activate();
+                return;
+            }
+#endif
+#if DROVER_FIELD_CHECK
+            if (FieldInputCheck.Armed)
+            {
+                FieldInputCheck.Start(MainWindow);
                 MainWindow.Activate();
                 return;
             }

@@ -13,6 +13,9 @@ public static class ThreadEndpoints
     public static IEndpointRouteBuilder MapThreadEndpoints(this RouteGroupBuilder space)
     {
         var threads = space.MapGroup("/threads").AddEndpointFilter<TenantScopeFilter>();
+        threads.MapGet("", ListOwnedThreads)
+            .WithName("ListOwnedThreads")
+            .WithSummary("The caller's own unarchived conversations across bots in this space, newest activity first.");
         threads.MapGet("/{threadId:guid}", GetThread).WithName("GetThread");
         threads.MapGet("/{threadId:guid}/messages", ListMessages).WithName("ListMessages");
         threads.MapGet("/{threadId:guid}/summary", GetConversationSummary)
@@ -60,6 +63,12 @@ public static class ThreadEndpoints
     #endregion
 
     #region Endpoints
+
+    private static async Task<Ok<List<ThreadSummary>>> ListOwnedThreads(HttpContext context, ThreadService threads)
+    {
+        var found = await threads.ListOwnedThreads(context.GetSpaceAccess().UserId, context.RequestAborted);
+        return TypedResults.Ok(found.Select(view => view.Thread.ToSummary(view.ActiveRunId, view.Attention)).ToList());
+    }
 
     private static async Task<Results<Ok<MessageSearchResult>, ProblemHttpResult>> SearchMessages(
         SearchMessagesRequest request,

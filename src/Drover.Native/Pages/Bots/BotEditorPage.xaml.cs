@@ -16,9 +16,9 @@ public sealed partial class BotEditorPage : Screen
 
     private readonly Avatar avatar = new() { Size = 96 };
 
-    private readonly Field name = new() { Label = BotEditorViewModel.NameLabel };
+    private readonly Field name = new() { Label = BotEditorViewModel.NameLabel, MaxLength = FieldLimits.BotName };
 
-    private readonly Field handle = new() { Label = BotEditorViewModel.HandleLabel, Hint = BotEditorViewModel.HandleHint };
+    private readonly Field handle = new() { Label = BotEditorViewModel.HandleLabel, Hint = BotEditorViewModel.HandleHint, MaxLength = FieldLimits.BotHandle };
 
     private readonly FlowPanel handleRow = new() { Gap = Tokens.Number("DvSpace2") };
 

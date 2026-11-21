@@ -40,7 +40,7 @@ public static class SecurityServiceExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.AddPolicy(SignInRateLimit, PartitionByAddress);
-            options.AddPolicy(PushTestRateLimit, context => Partition(context, 5, TimeSpan.FromMinutes(1)));
+            options.AddPolicy(PushTestRateLimit, PartitionByPerson);
         });
         return services;
     }
@@ -95,6 +95,19 @@ public static class SecurityServiceExtensions
     {
         var limits = context.RequestServices.GetRequiredService<IOptions<SignInRateLimitOptions>>().Value;
         return Partition(context, limits.PermitLimit, limits.Window);
+    }
+
+    // Runs after sign-in, so the person is known: the limit is theirs, whatever address they come from and however many
+    // people share an address behind a proxy. How many tests a minute is a rule of the deployment.
+    private static RateLimitPartition<string> PartitionByPerson(HttpContext context)
+    {
+        var permits = context.RequestServices.GetRequiredService<IOptions<DeploymentPolicyOptions>>().Value.Rules.MaxPushTestsPerMinute;
+        var person = context.User.Identity?.IsAuthenticated == true ? context.User.GetUserId().ToString() : null;
+        return person is null
+            ? Partition(context, permits, TimeSpan.FromMinutes(1))
+            : RateLimitPartition.GetFixedWindowLimiter(
+                $"person:{person}",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = permits, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
     }
 
     private static RateLimitPartition<string> Partition(HttpContext context, int permits, TimeSpan window) =>

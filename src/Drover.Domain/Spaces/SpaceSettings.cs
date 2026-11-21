@@ -35,5 +35,8 @@ public sealed record SpaceSettings
     /// <summary>True turns remote images on where the deployment lets a space. Null leaves them off.</summary>
     public bool? AutoLoadRemoteImages { get; init; }
 
+    /// <summary>Ordered models used when a bot has no fallback list of its own.</summary>
+    public IReadOnlyList<ModelFallback> ModelFallbacks { get; init; } = [];
+
     #endregion
 }

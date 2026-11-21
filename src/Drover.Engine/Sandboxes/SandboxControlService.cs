@@ -55,7 +55,13 @@ public sealed class SandboxControlService(
 
     #region Properties
 
-    public const int MaxCommandCharacters = 4000;
+    public const int MaxCommandCharacters = FieldLimits.SandboxCommand;
+
+    /// <summary>
+    /// Runs when a screen request has joined the shared screenshot, taken or being taken, and before it waits for it.
+    /// A test uses it to know every request has met before it lets the provider answer. Not used outside tests.
+    /// </summary>
+    internal Action? ScreenRequested { get; set; }
 
     #endregion
 
@@ -247,6 +253,7 @@ public sealed class SandboxControlService(
         CancellationToken cancellationToken)
     {
         var shot = screens.GetOrAdd(key, _ => new Lazy<Task<SandboxScreenshot>>(() => TakeScreenshot(sandbox, person, key)));
+        ScreenRequested?.Invoke();
         return await shot.Value.WaitAsync(cancellationToken);
     }
 

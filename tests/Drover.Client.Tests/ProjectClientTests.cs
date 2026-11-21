@@ -50,6 +50,27 @@ public sealed class ProjectClientTests
         server.Respond(HttpStatusCode.NoContent, string.Empty);
         await api.RemoveProject(spaceId, projectId, TestContext.Current.CancellationToken);
         server.LastRequest.Should().Be((HttpMethod.Delete, $"/api/spaces/{spaceId}/projects/{projectId}", "xsrf", false));
+
+        var fileId = Guid.CreateVersion7();
+        server.Respond(HttpStatusCode.OK, new FileRules(10_485_760));
+        (await api.GetFileRules(spaceId, TestContext.Current.CancellationToken)).Should().Be(new FileRules(10_485_760));
+        server.LastRequest.Should().Be((HttpMethod.Get, $"/api/spaces/{spaceId}/files/rules", null, false));
+
+        server.Respond(HttpStatusCode.OK, new List<ThreadSummary> { expectedThread });
+        (await api.ListOwnedThreads(spaceId, TestContext.Current.CancellationToken)).Should().Equal([expectedThread]);
+        server.LastRequest.Should().Be((HttpMethod.Get, $"/api/spaces/{spaceId}/threads", null, false));
+
+        server.Respond(HttpStatusCode.OK, "hello");
+        using var downloaded = await api.OpenConversationFile(
+            api.ProjectFileAddress(spaceId, projectId, fileId, download: true),
+            TestContext.Current.CancellationToken);
+        downloaded.StatusCode.Should().Be(HttpStatusCode.OK);
+        server.LastRequest.Should().Be((HttpMethod.Get, $"/api/spaces/{spaceId}/projects/{projectId}/files/{fileId}", null, false));
+
+        var outsideOrigin = () => api.OpenConversationFile(
+            $"https://other.example.test/api/spaces/{spaceId}/projects/{projectId}/files/{fileId}",
+            TestContext.Current.CancellationToken);
+        await outsideOrigin.Should().ThrowAsync<ArgumentException>();
     }
 
     [Theory]
