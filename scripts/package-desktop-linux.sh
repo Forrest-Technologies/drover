@@ -6,9 +6,13 @@ output_dir=${2:?output directory is required}
 version=${3:?version is required}
 status=${4:-unsigned}
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "version must have the form 1.2.3" >&2
+if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-preview\.([0-9]+))?$ ]]; then
+  echo "version must have the form 1.2.3 or 1.2.3-preview.1" >&2
   exit 1
+fi
+package_version=${BASH_REMATCH[1]}
+if [[ -n "${BASH_REMATCH[3]:-}" ]]; then
+  package_version="${package_version}~preview.${BASH_REMATCH[3]}"
 fi
 if [[ ! -x "$publish_dir/Drover.Native" ]]; then
   echo "the publish directory does not contain the Drover.Native executable" >&2
@@ -26,7 +30,7 @@ install -m 0644 src/Shared/Web/icon-512.png "$root/usr/share/icons/hicolor/512x5
 
 cat > "$root/DEBIAN/control" <<EOF
 Package: drover
-Version: $version
+Version: $package_version
 Section: utils
 Priority: optional
 Architecture: amd64

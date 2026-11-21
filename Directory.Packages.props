@@ -66,6 +66,8 @@
     <PackageVersion Include="HtmlSanitizer" Version="11.0.26" />
     <PackageVersion Include="AngleSharp" Version="1.10.1" />
     <PackageVersion Include="Markdig" Version="1.6.0" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="11.0.0" />
+    <PackageVersion Include="NetSparkleUpdater.SparkleUpdater" Version="3.1.0" />
   </ItemGroup>
 
   <ItemGroup Label="Server">

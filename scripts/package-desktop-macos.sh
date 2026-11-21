@@ -7,10 +7,21 @@ version=${3:?version is required}
 status=${4:-unsigned}
 signing_identity=${5:-}
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "version must have the form 1.2.3" >&2
+if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-preview\.([0-9]+))?$ ]]; then
+  echo "version must have the form 1.2.3 or 1.2.3-preview.1" >&2
   exit 1
 fi
+major=${BASH_REMATCH[1]}
+minor=${BASH_REMATCH[2]}
+patch=${BASH_REMATCH[3]}
+preview_revision=${BASH_REMATCH[5]:-}
+revision=${preview_revision:-99999}
+if [[ -n "$preview_revision" ]] && (( revision > 99998 )); then
+  echo "preview number must be at most 99998" >&2
+  exit 1
+fi
+short_version="$major.$minor.$patch"
+bundle_version="$major.$minor.$((patch * 100000 + revision))"
 if [[ ! -x "$publish_dir/Drover.Native" ]]; then
   echo "the publish directory does not contain the Drover.Native executable" >&2
   exit 1
@@ -42,8 +53,8 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>Drover</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$version</string>
-  <key>CFBundleVersion</key><string>$version</string>
+  <key>CFBundleShortVersionString</key><string>$short_version</string>
+  <key>CFBundleVersion</key><string>$bundle_version</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
