@@ -91,7 +91,7 @@ public sealed class ManagementViewModelTests : IDisposable
     [Fact]
     public async Task A_new_bot_opens_an_unsaved_draft_beneath_the_chosen_parent_and_stores_nothing()
     {
-        server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
         var model = new BotListViewModel(server.CreateApi(), session, navigator, NullLogger<BotListViewModel>.Instance);
         await model.Open();
@@ -105,7 +105,7 @@ public sealed class ManagementViewModelTests : IDisposable
     [Fact]
     public async Task Replacing_a_model_key_clears_the_input_and_preserves_other_connections()
     {
-        server.Answer("GET", $"{space}/model-connections", new[] { Connection, Connection with { Id = parentId, Name = "Sample second" } });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, Connection with { Id = parentId, Name = "Sample second" }]);
         server.Answer("PUT", $"{space}/model-connections/{connectionId}/key", Connection with { HasKey = true });
         var model = Models();
         await model.Open();
@@ -136,7 +136,7 @@ public sealed class ManagementViewModelTests : IDisposable
                 "available",
                 DateTimeOffset.UnixEpoch),
         ];
-        server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         server.Answer("POST", $"{space}/model-connections/{connectionId}/test", new Drover.Contracts.Models.ConnectionTestResponse(true, "Sample connected.", null, Connection));
         server.Answer("GET", $"{space}/model-connections/{connectionId}/models", catalog);
         var model = Models();
@@ -153,7 +153,7 @@ public sealed class ManagementViewModelTests : IDisposable
     public async Task Only_an_admin_is_offered_to_mark_a_compatible_endpoints_model_and_a_providers_own_models_offer_no_toggle()
     {
         var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", new[] { Connection, compatible });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, compatible]);
         var model = Models();
         await model.Open();
 
@@ -171,8 +171,8 @@ public sealed class ManagementViewModelTests : IDisposable
     public async Task Marking_a_model_sends_the_model_and_the_answer_replaces_only_its_row_in_the_shown_catalog()
     {
         var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", new[] { compatible });
-        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Entry("meta/plain", vision: false), Entry("other", vision: false) });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[compatible]);
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[Entry("meta/plain", vision: false), Entry("other", vision: false)]);
         server.Answer("PUT", $"{space}/model-connections/{connectionId}/models/vision", Entry("meta/plain", vision: true));
         var model = Models();
         await model.Open();
@@ -192,8 +192,8 @@ public sealed class ManagementViewModelTests : IDisposable
     public async Task A_refused_mark_reports_on_the_connection_and_leaves_the_catalog_as_it_was()
     {
         var compatible = Connection with { Kind = "openai_compatible" };
-        server.Answer("GET", $"{space}/model-connections", new[] { compatible });
-        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { Entry("plain", vision: false) });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[compatible]);
+        server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[Entry("plain", vision: false)]);
         server.Refuse("PUT", $"{space}/model-connections/{connectionId}/models/vision", HttpStatusCode.NotFound, "Sample model is gone.");
         var model = Models();
         await model.Open();
@@ -216,7 +216,7 @@ public sealed class ManagementViewModelTests : IDisposable
     [Fact]
     public async Task A_refused_connection_action_reports_only_on_its_own_row()
     {
-        server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         server.Refuse("POST", $"{space}/model-connections/{connectionId}/test", HttpStatusCode.BadRequest, "Sample connection refused.");
         var model = Models();
         await model.Open();

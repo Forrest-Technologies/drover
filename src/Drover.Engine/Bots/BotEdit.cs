@@ -41,10 +41,11 @@ public sealed record NewBot(
     Guid? ParentBotId)
 {
     /// <summary>
-    /// The id the bot will have, when the client chose one so that asking again after a lost answer returns the bot
-    /// that was made. A person's request for an id that a bot of theirs already holds is a replay of it.
+    /// The retry identity the client chose for this create, so that asking again after a lost answer returns the bot
+    /// that was made. It is kept with the space and the maker: the same one from another space or person is another
+    /// request.
     /// </summary>
-    public Guid? Id { get; init; }
+    public Guid? RequestId { get; init; }
 
     /// <summary>The bot starts paused: it does nothing until a person turns it on. For a bot whose instructions came from a file.</summary>
     public bool Paused { get; init; }

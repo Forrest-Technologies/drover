@@ -36,7 +36,7 @@ public static class BotEndpoints
         var change = await bots.Create(
             new NewBot(request.Name ?? string.Empty, string.Empty, request.Instructions ?? string.Empty, request.ModelConnectionId, request.Model, request.ParentBotId)
             {
-                Id = request.Id,
+                RequestId = request.RequestId,
             },
             AuditActor.Person(access.UserId),
             context.RequestAborted);

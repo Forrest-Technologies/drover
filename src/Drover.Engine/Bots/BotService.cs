@@ -66,9 +66,26 @@ public sealed class BotService(
     /// </summary>
     public async Task<BotChange> Create(NewBot request, AuditActor maker, CancellationToken cancellationToken)
     {
-        if (request.Id is { } chosenId && await FindReplay(chosenId, maker, cancellationToken) is { } replay)
+        Guid? botId = null;
+
+        if (request.RequestId is { } requestId)
         {
-            return replay;
+            if (requestId == Guid.Empty)
+            {
+                return new BotChange(null, "Choose a request id that is not empty.");
+            }
+
+            if (tenant.SpaceId is not { } spaceId)
+            {
+                return new BotChange(null, "Choose a space for the bot.");
+            }
+
+            botId = BotRequestIds.For(spaceId, maker, requestId);
+
+            if (await FindReplay(botId.Value, cancellationToken) is { } replay)
+            {
+                return replay;
+            }
         }
 
         var (name, description, instructions) = (request.Name, request.DescriptionForBots, request.Instructions);
@@ -126,7 +143,7 @@ public sealed class BotService(
 
         var bot = new Bot
         {
-            Id = request.Id ?? Guid.CreateVersion7(),
+            Id = botId ?? Guid.CreateVersion7(),
             Name = name.Trim(),
             Handle = await FindFreeHandle(name, null, cancellationToken),
             DescriptionForBots = description,
@@ -147,19 +164,15 @@ public sealed class BotService(
         return new BotChange(bot, null);
     }
 
-    // A request that names the id the bot will have is a replay when a bot of the space already holds that id and its
-    // maker is the one asking: the answer to the first request was lost, so it returns that bot and makes nothing. The
-    // tree lock is taken first, so a replay that overlaps the request it repeats waits for it to commit and then finds
-    // its bot. A bot is never found by what it is called or says, so another person's bot of the same name is never
-    // taken for this one. An id that is empty, held by a bot someone else made, or held by a bot that was removed is
-    // refused. An id held by a bot of another space cannot be seen from here and is refused when it is stored.
-    private async Task<BotChange?> FindReplay(Guid id, AuditActor maker, CancellationToken cancellationToken)
+    // A request with a retry identity makes a bot whose id is worked out from the space, the maker and that identity, so
+    // the bot a lost answer left behind is the one a repeat of the request finds, and nothing else is: a bot is never
+    // found by what it is called or says, so another person's bot of the same name is never taken for this one. The id
+    // is never one the client picked, so it cannot meet a bot of another space: the same identity sent from two spaces
+    // makes two bots, and what a caller sees does not depend on any other space. The tree lock is taken first, so a
+    // repeat that overlaps the request it repeats waits for it to commit and then finds its bot. A bot that was removed
+    // is not brought back by a repeat.
+    private async Task<BotChange?> FindReplay(Guid id, CancellationToken cancellationToken)
     {
-        if (id == Guid.Empty)
-        {
-            return new BotChange(null, "Choose an id for the bot that is not empty.");
-        }
-
         await bots.LockTree(cancellationToken);
 
         if (await bots.FindBot(id, cancellationToken) is not { } held)
@@ -167,9 +180,9 @@ public sealed class BotService(
             return null;
         }
 
-        return held.Status is not BotStatus.Removed && held.CreatedByUserId == maker.UserId && held.CreatedByBotId == maker.BotId
+        return held.Status is not BotStatus.Removed
             ? new BotChange(held, null)
-            : new BotChange(null, "That bot id is already used. Try again.");
+            : new BotChange(null, "That request was already used for a bot that was removed. Start the bot again.");
     }
 
     /// <summary>Replaces a bot's definition with the edit, when every part of the edit holds.</summary>
@@ -455,7 +468,8 @@ public sealed class BotService(
     {
         var after = await bots.CountChildren(newParent.Id, cancellationToken) - 1 + moving;
         var caps = await GetSpaceCaps(cancellationToken);
-        var most = new[] { caps.MaxChildrenPerBot, newParent.BuildLimits.MaxChildren }.Min();
+        int?[] limits = [caps.MaxChildrenPerBot, newParent.BuildLimits.MaxChildren];
+        var most = limits.Min();
 
         return moving > 1 && most is { } cap && after > cap
             ? $"{newParent.Name} may have at most {Count(cap, "bot")} directly beneath it, so the {moving} bots beneath {removed.Name} cannot move up to it. Remove them with {removed.Name}, or remove some of them first."

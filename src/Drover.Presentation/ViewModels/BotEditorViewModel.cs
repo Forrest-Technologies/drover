@@ -59,7 +59,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
     // create is lost, sending it again with the same id returns the bot the server made and never a second one,
     // whatever was edited in the draft in between. A create the server refused made nothing, so the next try chooses a
     // new id.
-    private Guid? createId;
+    private Guid? createRequestId;
 
     private bool leaveConfirmed;
 
@@ -384,7 +384,7 @@ public sealed partial class BotEditorViewModel : ObservableObject
             return;
         }
 
-        (IsNew, newParentId, madeBotId, madeAndOpened, createId, BotId, shownBotId, leaveConfirmed) =
+        (IsNew, newParentId, madeBotId, madeAndOpened, createRequestId, BotId, shownBotId, leaveConfirmed) =
             (true, parentBotId, null, false, null, Guid.Empty, null, false);
         await LoadNew();
     }
@@ -843,22 +843,22 @@ public sealed partial class BotEditorViewModel : ObservableObject
         Notify();
     }
 
-    // Sends the create. It carries the id chosen for this draft, so a create whose answer was lost and is sent again
-    // returns the bot that was made. A bot is never found by what it is called or says: another person's bot of the
+    // Sends the create. It carries the request id chosen for this draft, so a create whose answer was lost and is sent
+    // again returns the bot that was made. A bot is never found by what it is called or says: another person's bot of the
     // same name is not this one.
     private async Task<BotSummary> MakeOnce()
     {
-        createId ??= Guid.CreateVersion7();
+        createRequestId ??= Guid.CreateVersion7();
 
         try
         {
-            return await api.CreateBot(SpaceId, new(Draft!.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId, createId));
+            return await api.CreateBot(SpaceId, new(Draft!.Name, Draft.Instructions, Draft.ModelConnectionId, Draft.Model, newParentId, createRequestId));
         }
         catch (DroverApiException refused) when (refused.StatusCode < HttpStatusCode.InternalServerError)
         {
-            // The server answered that it did not make the bot, so the id is not spoken for: the next try chooses another.
+            // The server answered that it did not make the bot, so the request id is not spoken for: the next try chooses another.
             logger.LogInformation(refused, "The server refused to make a bot on the {Screen} screen", nameof(BotEditorViewModel));
-            createId = null;
+            createRequestId = null;
             throw;
         }
     }

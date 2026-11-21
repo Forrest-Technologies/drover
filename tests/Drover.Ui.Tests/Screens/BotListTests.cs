@@ -101,8 +101,8 @@ public sealed class BotListTests : ScreenTest
     public void A_member_sees_the_bots_and_is_told_who_changes_them()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[Marshal]);
 
         var page = Render<BotList>();
 
@@ -131,7 +131,7 @@ public sealed class BotListTests : ScreenTest
     private void Space(BotSummary[] bots)
     {
         SignedIn();
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", bots);
     }
 

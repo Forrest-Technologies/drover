@@ -196,40 +196,40 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
     }
 
     [Fact]
-    public async Task A_create_sent_again_with_the_same_id_returns_the_bot_it_made_even_when_the_request_was_edited()
+    public async Task A_create_sent_again_with_the_same_request_id_returns_the_bot_it_made_even_when_the_request_was_edited()
     {
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var connection = await CreateConnection(client, alice.SpaceId, "For the draft");
-        var id = Guid.CreateVersion7();
+        var requestId = Guid.CreateVersion7();
         var path = $"{Space(alice.SpaceId)}/bots";
 
         // The answer to the first request is lost, so the person sends it again with the draft edited in between.
-        var first = await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: id), HttpStatusCode.Created);
-        var replay = await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer the second", "Write at length.", connection.Id, null, Id: id), HttpStatusCode.Created);
+        var first = await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: requestId), HttpStatusCode.Created);
+        var replay = await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer the second", "Write at length.", connection.Id, null, RequestId: requestId), HttpStatusCode.Created);
 
-        first.Id.Should().Be(id, "the bot has the id the client chose");
-        replay.Id.Should().Be(id);
+        first.Id.Should().NotBe(requestId, "the server gives the bot its own id, never the one the client sent");
+        replay.Id.Should().Be(first.Id);
         replay.Name.Should().Be("Writer", "the replay returns the bot as it was made and changes nothing");
-        (await GetFor<List<BotSummary>>(client, path)).Should().ContainSingle(bot => bot.Id == id);
-        var entries = await InSpace(alice.SpaceId, alice.UserId, services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(id, Token));
+        (await GetFor<List<BotSummary>>(client, path)).Should().ContainSingle(bot => bot.Id == first.Id);
+        var entries = await InSpace(alice.SpaceId, alice.UserId, services => services.GetRequiredService<AuditRepository>().ListEntriesAbout(first.Id, Token));
         entries.Where(entry => entry.Action == "bot.created").Should().ContainSingle("a replay is not a second creation");
     }
 
     [Fact]
-    public async Task Two_requests_with_the_same_id_sent_at_once_make_one_bot()
+    public async Task Two_requests_with_the_same_request_id_sent_at_once_make_one_bot()
     {
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var connection = await CreateConnection(client, alice.SpaceId, "For the draft");
-        var id = Guid.CreateVersion7();
+        var requestId = Guid.CreateVersion7();
         var path = $"{Space(alice.SpaceId)}/bots";
 
         var answers = await Task.WhenAll(
-            Enumerable.Range(0, 4).Select(_ => client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: id))));
+            Enumerable.Range(0, 4).Select(_ => client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: requestId))));
 
         answers.Should().OnlyContain(answer => answer.StatusCode == HttpStatusCode.Created);
-        (await GetFor<List<BotSummary>>(client, path)).Where(bot => bot.Id == id).Should().ContainSingle();
+        (await GetFor<List<BotSummary>>(client, path)).Where(bot => bot.Name == "Writer").Should().ContainSingle();
     }
 
     [Fact]
@@ -241,40 +241,72 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var asOther = await SignIn(other.Email, other.Password);
         var connection = await CreateConnection(asAlice, alice.SpaceId, "Shared");
         var path = $"{Space(alice.SpaceId)}/bots";
-        var alicesId = Guid.CreateVersion7();
-        var othersId = Guid.CreateVersion7();
+        var alicesRequest = Guid.CreateVersion7();
 
-        var alices = await PostFor<BotSummary>(asAlice, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: alicesId), HttpStatusCode.Created);
-        var others = await PostFor<BotSummary>(asOther, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: othersId), HttpStatusCode.Created);
-        // The other admin sends alice's id: it is not theirs to replay, whatever it is called.
-        var takingOver = await asOther.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: alicesId));
+        var alices = await PostFor<BotSummary>(asAlice, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: alicesRequest), HttpStatusCode.Created);
+        // The other admin sends alice's request id with the same words: the retry identity is kept with the maker, so it
+        // is their own request, and it makes their own bot instead of returning, adopting or overwriting alice's.
+        var others = await PostFor<BotSummary>(asOther, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: alicesRequest), HttpStatusCode.Created);
+        var othersAgain = await PostFor<BotSummary>(asOther, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: alicesRequest), HttpStatusCode.Created);
 
-        alices.Id.Should().Be(alicesId);
-        others.Id.Should().Be(othersId).And.NotBe(alices.Id);
-        takingOver.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a bot someone else made is never returned, adopted or overwritten");
-        (await takingOver.Content.ReadAsStringAsync(Token)).Should().Contain("already used");
-        (await GetFor<List<BotSummary>>(asAlice, path)).Select(bot => bot.Id).Should().BeEquivalentTo([alicesId, othersId]);
+        others.Id.Should().NotBe(alices.Id);
+        othersAgain.Id.Should().Be(others.Id, "their own repeat finds their own bot");
+        (await GetFor<List<BotSummary>>(asAlice, path)).Select(bot => bot.Id).Should().BeEquivalentTo([alices.Id, others.Id]);
     }
 
     [Fact]
-    public async Task An_empty_id_and_the_id_of_a_removed_bot_are_refused_and_a_create_without_an_id_works_as_before()
+    public async Task A_request_id_used_in_another_space_makes_no_difference_to_a_create_and_shows_nothing_of_that_space()
+    {
+        var alice = await SeedPerson("alice");
+        var bob = await SeedPerson("bob");
+        var asAlice = await SignIn(alice);
+        var asBob = await SignIn(bob);
+        var alicesConnection = await CreateConnection(asAlice, alice.SpaceId, "Alice's");
+        var bobsConnection = await CreateConnection(asBob, bob.SpaceId, "Bob's");
+        var alicesPath = $"{Space(alice.SpaceId)}/bots";
+        var bobsPath = $"{Space(bob.SpaceId)}/bots";
+        var shared = Guid.CreateVersion7();
+        var fresh = Guid.CreateVersion7();
+
+        var alices = await PostFor<BotSummary>(asAlice, alicesPath, new CreateBotRequest("Writer", "Alice writes.", alicesConnection.Id, null, RequestId: shared), HttpStatusCode.Created);
+        // The same request id in another space, an id nobody used, and the id of alice's bot itself: each makes a bot and
+        // is answered the same way, so nothing tells bob that alice's space holds any of them.
+        var sameRequest = await PostFor<BotSummary>(asBob, bobsPath, new CreateBotRequest("Writer", "Bob writes.", bobsConnection.Id, null, RequestId: shared), HttpStatusCode.Created);
+        var unused = await PostFor<BotSummary>(asBob, bobsPath, new CreateBotRequest("Editor", "Bob edits.", bobsConnection.Id, null, RequestId: fresh), HttpStatusCode.Created);
+        var aliceBotId = await PostFor<BotSummary>(asBob, bobsPath, new CreateBotRequest("Reader", "Bob reads.", bobsConnection.Id, null, RequestId: alices.Id), HttpStatusCode.Created);
+
+        Guid[] bobsIds = [sameRequest.Id, unused.Id, aliceBotId.Id];
+        bobsIds.Should().OnlyHaveUniqueItems().And.NotContain(alices.Id);
+        sameRequest.Instructions.Should().Be("Bob writes.", "bob's bot is his own, not alice's returned");
+        (await GetFor<List<BotSummary>>(asBob, bobsPath)).Select(bot => bot.Id).Should().BeEquivalentTo(bobsIds);
+        (await GetFor<List<BotSummary>>(asAlice, alicesPath)).Should().ContainSingle(bot => bot.Id == alices.Id, "bob's creates changed nothing in alice's space");
+
+        // Each space still finds its own bot on a repeat.
+        var bobsRepeat = await PostFor<BotSummary>(asBob, bobsPath, new CreateBotRequest("Writer", "Bob writes.", bobsConnection.Id, null, RequestId: shared), HttpStatusCode.Created);
+        var alicesRepeat = await PostFor<BotSummary>(asAlice, alicesPath, new CreateBotRequest("Writer", "Alice writes.", alicesConnection.Id, null, RequestId: shared), HttpStatusCode.Created);
+        bobsRepeat.Id.Should().Be(sameRequest.Id);
+        alicesRepeat.Id.Should().Be(alices.Id);
+    }
+
+    [Fact]
+    public async Task An_empty_request_id_and_the_request_id_of_a_removed_bot_are_refused_and_a_create_without_one_works_as_before()
     {
         var alice = await SeedPerson("alice");
         var client = await SignIn(alice);
         var connection = await CreateConnection(client, alice.SpaceId, "For the draft");
         var path = $"{Space(alice.SpaceId)}/bots";
-        var id = Guid.CreateVersion7();
-        await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: id), HttpStatusCode.Created);
-        (await client.Delete($"{path}/{id}")).EnsureSuccessStatusCode();
+        var requestId = Guid.CreateVersion7();
+        var made = await PostFor<BotSummary>(client, path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: requestId), HttpStatusCode.Created);
+        (await client.Delete($"{path}/{made.Id}")).EnsureSuccessStatusCode();
 
-        var empty = await client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: Guid.Empty));
-        var removed = await client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, Id: id));
+        var empty = await client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: Guid.Empty));
+        var removed = await client.Post(path, new CreateBotRequest("Writer", "Write briefly.", connection.Id, null, RequestId: requestId));
         var one = await PostFor<BotSummary>(client, path, new CreateBotRequest("Twin", "Write briefly.", connection.Id, null), HttpStatusCode.Created);
         var two = await PostFor<BotSummary>(client, path, new CreateBotRequest("Twin", "Write briefly.", connection.Id, null), HttpStatusCode.Created);
 
         empty.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         removed.StatusCode.Should().Be(HttpStatusCode.BadRequest, "a removed bot is not brought back by a replay");
-        two.Id.Should().NotBe(one.Id, "without an id there is no replay: each request makes a bot, as before");
+        two.Id.Should().NotBe(one.Id, "without a request id there is no replay: each request makes a bot, as before");
         two.Handle.Should().Be("twin-2");
     }
 
@@ -791,7 +823,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         var taken = (await Audit(alice, bot.Id)).Single(entry => entry.Action == "grant.changed");
 
         listed.Grant.Should().Be("off", "a deny shows as off");
-        foreach (var entry in new[] { created, duplicated })
+        foreach (var entry in (AuditLogEntry[])[created, duplicated])
         {
             var grants = entry.Data.GetProperty("changes").GetProperty("grants").GetProperty("after");
             grants.EnumerateArray().Select(grant => (grant.GetProperty("tool").GetString(), grant.GetProperty("effect").GetString(), grant.GetProperty("review_state").GetString()))
@@ -940,7 +972,7 @@ public sealed class BotEditorTests(PostgresServer postgres) : ServerTestBase(pos
         audit.TargetKind.Should().Be(AuditTargets.Space);
         audit.Data.GetProperty("changes").TryGetProperty("model_fallbacks", out _).Should().BeTrue();
 
-        var botFallbacks = new[] { new ModelFallbackBody(definition.ModelConnectionId, "bot-backup") };
+        ModelFallbackBody[] botFallbacks = [new(definition.ModelConnectionId, "bot-backup")];
         var updated = await PutFor<BotDetail>(
             asOwner,
             $"{Space(alice.SpaceId)}/bots/{bot.Id}/definition",

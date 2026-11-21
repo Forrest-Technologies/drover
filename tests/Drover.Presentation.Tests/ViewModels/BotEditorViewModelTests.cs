@@ -47,11 +47,11 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         SignedIn();
         Server.Answer("GET", $"{bot}/definition", Marshal);
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
-        Server.Answer("GET", $"{space}/model-connections/{connectionId}/models", new[] { CatalogModel("sample-large", toolCalling: true), CatalogModel("sample-plain", toolCalling: false) });
+        Server.Answer("GET", $"{space}/model-connections/{connectionId}/models", (ModelCatalogResponse[])[CatalogModel("sample-large", toolCalling: true), CatalogModel("sample-plain", toolCalling: false)]);
         Server.Answer("GET", $"{space}/tool-connections", Array.Empty<ToolConnectionSummary>());
-        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null) });
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null)]);
         Server.Answer("GET", $"{bot}/schedules", Array.Empty<BotScheduleResponse>());
         Server.Answer("GET", $"{bot}/rules", Array.Empty<BotRuleResponse>());
         Server.Answer("GET", $"{bot}/rules/options", new BotRuleOptions(true));
@@ -100,7 +100,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         var helper = new BotSummary(Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), "Sample helper", "sample-helper", string.Empty, connectionId, "sample-large", "active", botId);
         var deeper = helper with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a2"), Name = "Sample deeper", ParentBotId = helper.Id };
-        Server.Answer("GET", $"{space}/bots", new[] { helper, deeper });
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[helper, deeper]);
         Server.Answer("DELETE", $"{space}/bots/{botId}", HttpStatusCode.NoContent);
         var editor = await OpenEditor();
 
@@ -110,7 +110,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.RemoveTitle.Should().Be("Remove Marshal");
         editor.HasBeneath.Should().BeTrue();
         editor.BeneathWords.Should().Be("2 bots work beneath it. Remove them too, or keep them? Kept bots move up under the top of the crew.");
-        new[] { BotEditorViewModel.KeepBot, BotEditorViewModel.RemoveKeepRest, editor.RemoveAllWords }.Should().Equal("Keep bot", "Remove it, keep the rest", "Remove all 3");
+        string[] labels = [BotEditorViewModel.KeepBot, BotEditorViewModel.RemoveKeepRest, editor.RemoveAllWords];
+        labels.Should().Equal("Keep bot", "Remove it, keep the rest", "Remove all 3");
 
         await editor.Remove(false);
 
@@ -127,7 +128,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.AskToRemove();
 
         editor.HasBeneath.Should().BeFalse();
-        new[] { BotEditorViewModel.KeepBot, BotEditorViewModel.RemoveBot }.Should().Equal("Keep bot", "Remove bot");
+        string[] labels = [BotEditorViewModel.KeepBot, BotEditorViewModel.RemoveBot];
+        labels.Should().Equal("Keep bot", "Remove bot");
     }
 
     [Fact]
@@ -138,7 +140,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.State.Should().Be(BotEditorState.Shown);
         editor.Heading.Should().Be("Edit Marshal");
         editor.ShownName.Should().Be("Marshal");
-        new[] { BotEditorViewModel.PurposeLabel, BotEditorViewModel.InstructionsLabel }.Should().Equal("What this bot is for", "Instructions");
+        string[] labels = [BotEditorViewModel.PurposeLabel, BotEditorViewModel.InstructionsLabel];
+        labels.Should().Equal("What this bot is for", "Instructions");
         BotEditorViewModel.Sections.Should().OnlyContain(section => !editor.IsOpen(section));
         BotEditorViewModel.Sections.Select(section => $"{section}, {editor.Summary(section)}").Should().Equal(
             "Model, Sample connection · sample-large",
@@ -161,7 +164,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Toggle(Model, true);
 
         editor.IsOpen(Model).Should().BeTrue();
-        new[] { ModelSectionViewModel.ConnectionLabel, ModelSectionViewModel.ModelLabel, ModelSectionViewModel.TemperatureLabel }
+        string[] labels = [ModelSectionViewModel.ConnectionLabel, ModelSectionViewModel.ModelLabel, ModelSectionViewModel.TemperatureLabel];
+        labels
             .Should().Equal("Connection", "Model", "Temperature");
         editor.ModelPart.ModelChosenFromList.Should().BeTrue();
     }
@@ -190,7 +194,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         part.ReasoningOptions.Should().NotBeNull();
         part.StructuredOutputShown.Should().BeTrue();
         part.WebSearchShown.Should().BeTrue();
-        new[] { ModelSectionViewModel.ReasoningLabel, ModelSectionViewModel.StructuredOutputLabel, ModelSectionViewModel.WebSearchLabel }
+        string[] labels = [ModelSectionViewModel.ReasoningLabel, ModelSectionViewModel.StructuredOutputLabel, ModelSectionViewModel.WebSearchLabel];
+        labels
             .Should().Equal("Reasoning effort", "Answer as a JSON object", "Built-in web search");
 
         part.ChooseModel("sample-plain");
@@ -253,7 +258,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task A_tool_the_parent_lacks_cannot_be_turned_on_and_says_whose_it_is()
     {
-        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("off", "off", "Sample parent") });
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("off", "off", "Sample parent")]);
         var editor = await OpenEditor();
         editor.Toggle(Tools, true);
         var tool = editor.Tools!.Single();
@@ -272,12 +277,11 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             Reviewed = new ToolDefinitionSnapshot("Look up", "Sample old words", "{}"),
         };
         var gone = changed with { ToolId = Guid.Parse("0196f1a0-0000-7000-8000-00000000000a"), Name = "gone", Title = "Gone", NeedsReview = false, Reviewed = null, State = "missing" };
-        Server.Answer("GET", $"{space}/tool-connections", new[]
-        {
+        Server.Answer("GET", $"{space}/tool-connections", (ToolConnectionSummary[])[
             new ToolConnectionSummary(connection, "Sample server", "sample", "https://tools.example.test/mcp", "none", "untrusted", "automatic", "connected", null, null, null),
             new ToolConnectionSummary(Guid.Parse("0196f1a0-0000-7000-8000-00000000000b"), "Quiet server", "quiet", "https://quiet.example.test/mcp", "none", "untrusted", "automatic", "failed", null, null, "Sample failure."),
-        });
-        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null), changed, gone });
+        ]);
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), changed, gone]);
         Server.Answer("POST", $"{space}/tool-connections/{connection}/tools/{changed.ToolId}/review", new ConnectionToolSummary(changed.ToolId, connection, "lookup", "sample_lookup", "Look up", "Sample new words", "write", "available", DateTimeOffset.UnixEpoch));
         var editor = await OpenEditor();
         editor.Summary(Tools).Should().Be("1 allowed · 1 ask first · 1 to review");
@@ -292,13 +296,14 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         ToolsSectionViewModel.NeedsReview.Should().Be("Changed, needs review");
         part.ReviewWords.Should().Contain("Marshal asks before each use");
         var reviewed = editor.Tools!.Single(tool => tool.NeedsReview);
-        new[] { ToolsSectionViewModel.ReviewedWords(reviewed, reviewed.Reviewed!), ToolsSectionViewModel.NowWords(reviewed) }
+        string[] labels = [ToolsSectionViewModel.ReviewedWords(reviewed, reviewed.Reviewed!), ToolsSectionViewModel.NowWords(reviewed)];
+        labels
             .Should().Equal("Look up\nSample old words", "Look up\nSample new words");
         var sampleServer = part.Groups[1];
         sampleServer.Tools.Where(tool => tool.State is "missing").Select(_ => ToolsSectionViewModel.NoLongerListed(sampleServer))
             .Should().Equal("Sample server no longer lists this tool, so it cannot be used.");
 
-        Server.Answer("GET", $"{bot}/tools", new[] { TimeTool("allow", "allow", null), changed with { NeedsReview = false, Reviewed = null }, gone });
+        Server.Answer("GET", $"{bot}/tools", (BotToolEntry[])[TimeTool("allow", "allow", null), changed with { NeedsReview = false, Reviewed = null }, gone]);
         await part.AcceptChange(reviewed, connection);
 
         editor.Tools!.Should().NotContain(tool => tool.NeedsReview);
@@ -332,8 +337,10 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Toggle(Limits, true);
         var options = editor.RunLimitOptions;
 
-        new[] { LimitsSectionFields.StepsLabel, LimitsSectionFields.TokensLabel, LimitsSectionFields.DelegationsLabel }.Should().Equal("Model calls", "Tokens", "Handoffs");
-        new[] { options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations }.Select(LimitsSectionFields.Placeholder).Should().Equal("50", "5,000,000", "49");
+        string[] labels = [LimitsSectionFields.StepsLabel, LimitsSectionFields.TokensLabel, LimitsSectionFields.DelegationsLabel];
+        labels.Should().Equal("Model calls", "Tokens", "Handoffs");
+        int?[] limits = [options?.MaxSteps, options?.MaxTokens, options?.MaxDelegations];
+        limits.Select(LimitsSectionFields.Placeholder).Should().Equal("50", "5,000,000", "49");
         LimitsSectionFields.Note.Should().Contain("before it spends your model credit").And.Contain("Leave a limit empty to use the space's.");
         LimitsSectionFields.StepsHint(options).Should().EndWith("This space allows up to 50.");
         LimitsSectionFields.TokensHint(options).Should().EndWith("This space allows up to 5,000,000.");
@@ -441,7 +448,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
         editor.SaveProblem.Should().Contain("Give the bot a name");
         editor.ShowsSaveBar.Should().BeTrue();
-        new[] { BotEditorViewModel.DiscardLabel, editor.SaveLabel }.Should().Equal("Discard", "Save changes");
+        string[] labels = [BotEditorViewModel.DiscardLabel, editor.SaveLabel];
+        labels.Should().Equal("Discard", "Save changes");
     }
 
     [Fact]
@@ -566,8 +574,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task A_connection_with_no_default_model_gives_the_draft_the_model_a_bot_already_uses_on_it()
     {
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection with { DefaultModel = null } });
-        Server.Answer("GET", $"{space}/bots", new[] { BotSummaryOf(botId, "Marshal") with { Model = "sample-plain" } });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection with { DefaultModel = null }]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[BotSummaryOf(botId, "Marshal") with { Model = "sample-plain" }]);
         var editor = Make<BotEditorViewModel>();
 
         await editor.OpenUnmade(null);
@@ -634,7 +642,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task New_bot_under_a_bot_keeps_its_parent_through_the_draft()
     {
         var parent = BotSummaryOf(botId, "Marshal");
-        Server.Answer("GET", $"{space}/bots", new[] { parent });
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[parent]);
         Server.Answer("POST", $"{space}/bots", Made(), HttpStatusCode.Created);
         Server.Answer("PUT", $"{space}/bots/{madeId}/definition", Marshal with { Id = madeId });
         var editor = Make<BotEditorViewModel>();
@@ -751,7 +759,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Server.Answer("POST", $"{space}/bots", committed, HttpStatusCode.Created);
         await editor.Save();
 
-        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        var created = Server.Sent("POST", $"{space}/bots").Select(RequestId).ToList();
         created.Should().HaveCount(2).And.OnlyContain(id => id != null);
         created[1].Should().Be(created[0], "a create is replayed with the id chosen for the draft, whatever was edited since");
         Navigator.Current.Should().Be(Addresses.Bot(madeId));
@@ -763,7 +771,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task A_bot_of_the_same_name_that_someone_else_made_is_never_taken_for_the_one_being_made()
     {
         var another = Made("writer") with { Id = Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), Name = "Writer", Instructions = "Write briefly." };
-        Server.Answer("GET", $"{space}/bots", new[] { another });
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[another]);
         Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped before the server saw it."));
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
@@ -790,29 +798,29 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         await editor.Save();
         await editor.Save();
 
-        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        var created = Server.Sent("POST", $"{space}/bots").Select(RequestId).ToList();
         created.Should().HaveCount(2);
         (created[1] == created[0]).Should().BeFalse("a refusal is an answer: the id is not spoken for, so the next try has its own");
         editor.SaveProblem.Should().Be("That bot id is already used. Try again.");
     }
 
     [Fact]
-    public async Task The_id_chosen_for_a_draft_is_kept_for_that_draft_only()
+    public async Task The_request_id_chosen_for_a_draft_is_kept_for_that_draft_only()
     {
-        Server.Answer("GET", $"{space}/bots", new[] { BotSummaryOf(botId, "Marshal") });
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[BotSummaryOf(botId, "Marshal")]);
         Server.Fail("POST", $"{space}/bots", new HttpRequestException("The connection dropped."));
         var editor = Make<BotEditorViewModel>();
         await editor.OpenUnmade(null);
         await editor.Save();
         await editor.Save();
 
-        // A different draft, under a bot, is a different bot to make: it has an id of its own.
+        // A different draft, under a bot, is a different bot to make: it has a request id of its own.
         await editor.OpenUnmade(botId);
         await editor.Save();
 
-        var created = Server.Sent("POST", $"{space}/bots").Select(Id).ToList();
+        var created = Server.Sent("POST", $"{space}/bots").Select(RequestId).ToList();
         created.Should().HaveCount(3);
-        created[1].Should().Be(created[0], "the same draft keeps its id across tries");
+        created[1].Should().Be(created[0], "the same draft keeps its request id across tries");
         (created[2] == created[0]).Should().BeFalse("the next draft chooses its own");
     }
 
@@ -974,7 +982,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task A_sandbox_shared_with_chosen_bots_lists_the_other_bots_to_choose()
     {
         var other = new BotSummary(Guid.Parse("0196f1a0-0000-7000-8000-0000000000a1"), "Sample helper", "sample-helper", string.Empty, connectionId, "sample-large", "active");
-        Server.Answer("GET", $"{space}/bots", new[] { other });
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[other]);
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "named" });
         var editor = await OpenEditor();
         editor.Toggle(Sandbox, true);
@@ -1098,7 +1106,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             LastThreadId = threadId,
             LastReason = "The model connection could not be reached.",
         };
-        Server.Answer("GET", $"{bot}/schedules", new[] { failed });
+        Server.Answer("GET", $"{bot}/schedules", (BotScheduleResponse[])[failed]);
         Server.Answer("POST", $"{bot}/schedules/{failed.Id}/run-once", new ScheduleRunOnceResponse(threadId, Guid.CreateVersion7()), HttpStatusCode.Accepted);
         var editor = await OpenEditor("Routines, 1 routine");
         editor.Toggle(Routines, true);
@@ -1122,7 +1130,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
             OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1"),
             Prompt = "Sample prompt.\nSecond line of the sample.",
         };
-        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Answer("GET", $"{bot}/schedules", (BotScheduleResponse[])[theirs]);
         Server.Answer("POST", $"{bot}/schedules/{theirs.Id}/run-once", new ScheduleRunOnceResponse(Guid.CreateVersion7(), Guid.CreateVersion7()), HttpStatusCode.Accepted);
         var editor = await OpenEditor("Routines, 1 routine");
         editor.Toggle(Routines, true);
@@ -1148,7 +1156,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         const string Refusal = "Marshal is paused, so its routines do not run. Resume it first.";
         var theirs = Routine(enabled: true) with { OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1") };
-        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Answer("GET", $"{bot}/schedules", (BotScheduleResponse[])[theirs]);
         Server.Refuse("POST", $"{bot}/schedules/{theirs.Id}/run-once", HttpStatusCode.Conflict, Refusal);
         var editor = await OpenEditor("Routines, 1 routine");
         editor.Toggle(Routines, true);
@@ -1170,7 +1178,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task Removing_a_routine_asks_first()
     {
         var routine = Routine(enabled: true);
-        Server.Answer("GET", $"{bot}/schedules", new[] { routine });
+        Server.Answer("GET", $"{bot}/schedules", (BotScheduleResponse[])[routine]);
         Server.Answer("DELETE", $"{bot}/schedules/{routine.Id}", HttpStatusCode.NoContent);
         var editor = await OpenEditor("Routines, 1 routine");
         editor.Toggle(Routines, true);
@@ -1190,7 +1198,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task Another_admins_routine_offers_no_change_and_a_member_reads_routines_without_controls()
     {
         var theirs = Routine(enabled: true) with { OwnerUserId = Guid.Parse("0196f1a0-0000-7000-8000-0000000000d1") };
-        Server.Answer("GET", $"{bot}/schedules", new[] { theirs });
+        Server.Answer("GET", $"{bot}/schedules", (BotScheduleResponse[])[theirs]);
         var editor = await OpenEditor("Routines, 1 routine");
         editor.Toggle(Routines, true);
         var part = editor.RoutinesPart;
@@ -1227,7 +1235,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
 
         part.Own.Should().BeEmpty();
         part.Inherited.Should().BeEmpty();
-        new[] { RulesSectionViewModel.WriteRule }.Concat(part.Starters.Select(starter => starter.Label)).Should().Equal(
+        string[] labels = [RulesSectionViewModel.WriteRule];
+        labels.Concat(part.Starters.Select(starter => starter.Label)).Should().Equal(
             "Write a rule",
             "Ask before anything that writes",
             "Block common forms of a card number or key",
@@ -1253,7 +1262,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         Server.Sent("POST", $"{bot}/rules").Should().ContainSingle().Which.Should().Contain("\"checkpoint\":\"before_tool\"").And.Contain("\"effect\":\"ask\"").And.Contain("\"toolKinds\":[\"write\",\"critical\"]");
         RulesSectionViewModel.SwitchLabel.Should().Be("On");
         rule.Name.Should().Be("Ask before anything that writes");
-        new[] { RulesSectionViewModel.ChangeLabel(rule), RulesSectionViewModel.RemoveLabel(rule) }.Should().Equal(
+        string[] labels = [RulesSectionViewModel.ChangeLabel(rule), RulesSectionViewModel.RemoveLabel(rule)];
+        labels.Should().Equal(
             "Change the rule Ask before anything that writes",
             "Remove the rule Ask before anything that writes");
     }
@@ -1288,7 +1298,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         editor.Toggle(Rules, true);
         var part = editor.RulesPart;
         part.Add();
-        new[] { part.FormLegend, RulesSectionViewModel.WhenLabel, RulesSectionViewModel.ConditionName(1), RulesSectionViewModel.IfLabel(1) }
+        string[] labels = [part.FormLegend, RulesSectionViewModel.WhenLabel, RulesSectionViewModel.ConditionName(1), RulesSectionViewModel.IfLabel(1)];
+        labels
             .Should().Equal("New rule", "When", "Condition 1", "If");
         part.Effects.Select(choice => choice.Label).Should().Equal("Ask a person first", "Do not run it", "Remove what matched", "Stop the run");
 
@@ -1327,7 +1338,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         RuleWords.Intro.Should().Be(
             "The server checks a rule every time, whatever the bot's instructions say. Conditions about the tool, the time, counts, and named inputs are exact. Conditions that look for something in text catch common forms and are not a guarantee.");
         editor.RulesPart.Loading.Should().BeFalse();
-        new[] { RuleWords.Intro, editor.RulesPart.TryHint, RulesSectionViewModel.StartersLegend }.Should().NotContain(text =>
+        string[] labels = [RuleWords.Intro, editor.RulesPart.TryHint, RulesSectionViewModel.StartersLegend];
+        labels.Should().NotContain(text =>
             text.Contains("hard limit", StringComparison.Ordinal) || text.Contains("never leaks", StringComparison.Ordinal) || text.Contains("guarantees that", StringComparison.Ordinal));
     }
 
@@ -1336,7 +1348,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         const string Note = "No tool has that name now: sample.typo. The rule does not apply to it until one does. Check the spelling.";
         var noted = Rule("Sample rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_is") { Tools = ["sample.typo"] }) with { Notes = [Note] };
-        Server.Answer("GET", $"{bot}/rules", new[] { noted });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[noted]);
         Server.Answer("PUT", $"{bot}/rules/{ruleId}", noted);
         var editor = await OpenEditor("Rules, 1 rule");
         editor.Toggle(Rules, true);
@@ -1352,7 +1364,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task A_trial_decided_by_a_pattern_condition_says_it_is_not_a_guarantee()
     {
-        Server.Answer("GET", $"{bot}/rules", new[] { Rule("Sample rule", RuleWords.BeforeReply, "block", new RuleConditionBody("text_holds") { Builtin = "card_number" }) });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[Rule("Sample rule", RuleWords.BeforeReply, "block", new RuleConditionBody("text_holds") { Builtin = "card_number" })]);
         Server.Answer("POST", $"{bot}/rules/try", new TryRulesResponse("block", ruleId, "Sample rule", "the text holds a card number", null, null, ["Sample rule"]) { CatchesCommonForms = true });
         var editor = await OpenEditor("Rules, 1 rule");
         editor.Toggle(Rules, true);
@@ -1401,12 +1413,13 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         var parent = Rule("Sample parent rule", RuleWords.BeforeTool, "block", new RuleConditionBody("tool_kind") { ToolKinds = ["critical"] }) with { BotName = "Sample parent", Inherited = true };
         var own = Rule("Sample own rule", RuleWords.MessageArrives, "stop", new RuleConditionBody("text_holds") { Builtin = "key" }) with { Id = Guid.Parse("0196f1a0-0000-7000-8000-000000000008"), Enabled = false };
-        Server.Answer("GET", $"{bot}/rules", new[] { parent, own });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[parent, own]);
         var editor = await OpenEditor("Rules, 2 rules, 1 off");
         editor.Toggle(Rules, true);
         var part = editor.RulesPart;
 
-        new[] { RulesSectionViewModel.InheritedName, RulesSectionViewModel.OwnName }.Should().Equal("Rules from the bots above", "Rules");
+        string[] labels = [RulesSectionViewModel.InheritedName, RulesSectionViewModel.OwnName];
+        labels.Should().Equal("Rules from the bots above", "Rules");
         var inherited = part.Inherited.Should().ContainSingle().Subject;
         $"{RuleWords.Sentence(inherited)} {RulesSectionViewModel.InheritedLine(inherited)}".Should().Be(
             "When a tool is about to run, if the tool is critical, then do not run it. Sample parent rule · from Sample parent, changed there");
@@ -1418,7 +1431,7 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task Trying_a_sample_asks_the_server_and_shows_its_answer_in_words()
     {
-        Server.Answer("GET", $"{bot}/rules", new[] { Rule("Sample rule", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample words"] }) });
+        Server.Answer("GET", $"{bot}/rules", (BotRuleResponse[])[Rule("Sample rule", RuleWords.BeforeReply, "redact", new RuleConditionBody("text_contains") { Entries = ["sample words"] })]);
         Server.Answer("POST", $"{bot}/rules/try", new TryRulesResponse("redact", ruleId, "Sample rule", "the text contains text the rule names", "Some [removed by a rule] here.", null, ["Sample rule"]));
         var editor = await OpenEditor("Rules, 1 rule");
         editor.Toggle(Rules, true);
@@ -1429,7 +1442,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
         part.TrySample = "Some sample words here.";
         await part.Try();
 
-        new[] { part.TrialWords, RulesSectionViewModel.WhatWouldBeLeft, part.Left }.Should().Equal(
+        string?[] labels = [part.TrialWords, RulesSectionViewModel.WhatWouldBeLeft, part.Left];
+        labels.Should().Equal(
             "The rule \"Sample rule\" would remove what matched: the text contains text the rule names.",
             "What would be left",
             "Some [removed by a rule] here.");
@@ -1659,8 +1673,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     public async Task A_text_only_bot_can_choose_a_model_of_another_connection_to_read_its_screen_in_the_model_section()
     {
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = new SandboxSettingsBody("off", [], null, Desktop: true) });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
-        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { CatalogModel("sample-eyes", toolCalling: true, vision: true), CatalogModel("sample-blind", toolCalling: true) });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, EyesConnection]);
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", (ModelCatalogResponse[])[CatalogModel("sample-eyes", toolCalling: true, vision: true), CatalogModel("sample-blind", toolCalling: true)]);
         Server.Answer("PUT", $"{bot}/definition", Marshal with { SandboxPolicy = "private" });
         var editor = await OpenEditor();
         editor.Toggle(Sandbox, true);
@@ -1689,8 +1703,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     [Fact]
     public async Task A_text_only_bot_without_a_screen_is_offered_a_screen_reader_with_a_way_to_give_it_a_screen()
     {
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
-        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { CatalogModel("sample-eyes", toolCalling: true, vision: true) });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, EyesConnection]);
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", (ModelCatalogResponse[])[CatalogModel("sample-eyes", toolCalling: true, vision: true)]);
         var editor = await OpenEditor();
         editor.Toggle(Model, true);
         var part = editor.ModelPart;
@@ -1709,8 +1723,8 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     {
         var chosen = new SandboxSettingsBody("off", [], null, Desktop: true, new ScreenReaderBody(eyesConnectionId, "sample-eyes"));
         Server.Answer("GET", $"{bot}/definition", Marshal with { SandboxPolicy = "private", SandboxSettings = chosen });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection, EyesConnection });
-        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", new[] { CatalogModel("sample-eyes", toolCalling: true, vision: true) });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection, EyesConnection]);
+        Server.Answer("GET", $"{space}/model-connections/{eyesConnectionId}/models", (ModelCatalogResponse[])[CatalogModel("sample-eyes", toolCalling: true, vision: true)]);
         var editor = await OpenEditor();
 
         editor.Summary(Sandbox).Should().Contain("Private · network off · desktop · screen read by sample-eyes");
@@ -1784,11 +1798,11 @@ public sealed class BotEditorViewModelTests : ViewModelTest
     private static BotSummary Made(string handle = "new-bot") =>
         new(madeId, "New bot", handle, string.Empty, connectionId, "sample-large", "active");
 
-    // The id a create request carries, or null when it carries none.
-    private static Guid? Id(string body)
+    // The request id a create request carries, or null when it carries none.
+    private static Guid? RequestId(string body)
     {
         using var document = JsonDocument.Parse(body);
-        return document.RootElement.TryGetProperty("id", out var id) && id.ValueKind is JsonValueKind.String ? id.GetGuid() : null;
+        return document.RootElement.TryGetProperty("requestId", out var id) && id.ValueKind is JsonValueKind.String ? id.GetGuid() : null;
     }
 
     private static BotSummary BotSummaryOf(Guid id, string name) =>

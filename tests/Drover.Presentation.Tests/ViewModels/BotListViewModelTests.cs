@@ -76,7 +76,8 @@ public sealed class BotListViewModelTests : ViewModelTest
         beneath.Bot.Name.Should().Be("Sample helper");
         list.Facts(beneath.Bot).Should().Be("@sample-helper · sample-default · made by Marshal");
         list.ShowsAddUnder.Should().BeTrue();
-        new[] { top.Bot, beneath.Bot }.Select(BotListViewModel.AddUnderLabel).Should().Equal("New bot under Marshal", "New bot under Sample helper");
+        BotSummary[] rows = [top.Bot, beneath.Bot];
+        rows.Select(BotListViewModel.AddUnderLabel).Should().Equal("New bot under Marshal", "New bot under Sample helper");
 
         list.CreateCommand.Execute(helperId);
 
@@ -117,8 +118,8 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task A_member_sees_the_bots_and_is_told_who_changes_them()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[Marshal]);
         var list = Make<BotListViewModel>();
 
         await list.Open();
@@ -134,7 +135,7 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task A_member_in_a_space_with_no_bot_is_told_who_makes_one()
     {
         Server.Answer("GET", "/api/session", Person with { Spaces = [new(SpaceId, "personal", "Sam Sample", "sam", "member")] });
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", Array.Empty<BotSummary>());
         var list = Make<BotListViewModel>();
 
@@ -163,8 +164,8 @@ public sealed class BotListViewModelTests : ViewModelTest
     public async Task The_list_says_it_is_loading_until_the_server_answers()
     {
         SignedIn();
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
-        Server.Answer("GET", $"{space}/bots", new[] { Marshal });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
+        Server.Answer("GET", $"{space}/bots", (BotSummary[])[Marshal]);
         var held = Server.Hold("GET", $"{space}/bots");
         var list = Make<BotListViewModel>();
 
@@ -184,7 +185,7 @@ public sealed class BotListViewModelTests : ViewModelTest
     private void Space(BotSummary[] bots)
     {
         SignedIn();
-        Server.Answer("GET", $"{space}/model-connections", new[] { Connection });
+        Server.Answer("GET", $"{space}/model-connections", (ModelConnectionSummary[])[Connection]);
         Server.Answer("GET", $"{space}/bots", bots);
     }
 
