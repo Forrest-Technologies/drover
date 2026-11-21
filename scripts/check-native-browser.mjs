@@ -55,6 +55,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox'] });
 const spaceId = '00000000-0000-7000-8000-0000000000b1';
+const previewApiRequests = [];
 const botId = '0196f1a0-0000-7000-8000-000000000004';
 const connectionId = '0196f1a0-0000-7000-8000-000000000003';
 const htmlFileId = '0196f1a0-0000-7000-8000-0000000000f1';
@@ -188,6 +189,11 @@ try {
                 errors.push(String(error));
             });
             let externalPreviewRequests = 0;
+            previewApiRequests.length = 0;
+            page.on('request', request => previewApiRequests.push({
+                method: request.method(),
+                path: new URL(request.url()).pathname,
+            }));
             await page.route('https://preview-image.example.test/**', async route => {
                 externalPreviewRequests++;
                 await route.abort();
@@ -591,13 +597,12 @@ try {
                     await page.screenshot({ path: path.join(pictures, `preview-markdown-${width}-${theme}.png`) });
                     await closePreview.press('Space');
                     for (const state of ['pdf', 'diagram', 'limit', 'error', 'malformed', 'unsupported']) {
-                        const event = state === 'error' ? 'requestfailed' : 'requestfinished';
-                        const finished = page.waitForEvent(event, request => request.method() === 'GET'
-                            && new URL(request.url()).pathname === `/api/spaces/${spaceId}${previewPath}`);
+                        const before = previewRequestCount(`/api/spaces/${spaceId}${previewPath}`);
                         await preview.press('Enter');
-                        await finished;
                         await closePreview.waitFor({ state: 'attached', timeout: 10000 });
                         await download.waitFor({ state: 'attached' });
+                        assert.equal(previewRequestCount(`/api/spaces/${spaceId}${previewPath}`), before + 1,
+                            `${state}: expected exactly one preview request`);
                         await page.waitForTimeout(500);
                         if (state === 'pdf') {
                             await page.getByRole('button', { name: 'Next PDF page', exact: true }).press('Enter');
@@ -621,11 +626,11 @@ try {
                     const closePanel = page.getByRole('button', { name: 'Close preview of sample-panel.png' });
                     const panelPath = `/files/${panelFile.id}/native-preview`;
                     for (const state of ['picture', 'picture-error']) {
-                        const finished = page.waitForEvent('requestfinished', request => request.method() === 'GET'
-                            && new URL(request.url()).pathname === `/api/spaces/${spaceId}${panelPath}`);
+                        const before = previewRequestCount(`/api/spaces/${spaceId}${panelPath}`);
                         await panelPreview.press('Enter');
-                        await finished;
                         await closePanel.waitFor({ state: 'attached', timeout: 10000 });
+                        assert.equal(previewRequestCount(`/api/spaces/${spaceId}${panelPath}`), before + 1,
+                            `${state}: expected exactly one panel preview request`);
                         await page.screenshot({ path: path.join(pictures, `preview-${state}-${width}-${theme}.png`) });
                         await closePanel.press('Space');
                         await panelPreview.waitFor({ state: 'attached', timeout: 10000 });
@@ -1085,6 +1090,10 @@ async function checkHtmlPreviewContainment(page, previewFrameRequests, revokedPr
     await iframe.waitFor({ state: 'detached', timeout: 5000 });
     await revoked;
     assert.deepEqual(revokedPreviewGrants, ['sample-grant']);
+}
+
+function previewRequestCount(path) {
+    return previewApiRequests.filter(request => request.method === 'GET' && request.path === path).length;
 }
 
 // The exact search request, registered before the typing that triggers it. The hybrid text field updates its value
