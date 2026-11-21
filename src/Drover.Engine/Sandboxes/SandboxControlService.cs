@@ -291,7 +291,7 @@ public sealed class SandboxControlService(
         }
         catch (Exception exception) when (rethrowing)
         {
-            logger.LogError(exception, "Could not audit a sandbox action on bot {BotId}; the failure was {Failure}", botId, exception.GetType().Name);
+            logger.LogError("Could not audit a sandbox action on bot {BotId}; the failure was {Failure}", botId, exception.GetType().Name);
         }
     }
 

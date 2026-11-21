@@ -848,6 +848,10 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         (await Actions(world)).Should().BeEmpty();
     }
 
+    #endregion
+
+    #region Helpers
+
     private static async IAsyncEnumerable<CommandOutput> FailAfterStarting()
     {
         await Task.Yield();
@@ -885,9 +889,6 @@ public sealed class SandboxControlTests(PostgresServer postgres)
         return [.. data.Select(entry => entry.GetProperty("outcome").GetString())];
     }
 
-    #endregion
-
-    #region Helpers
 
     private async Task<RunWorld> ControlWorld(
         FakeSandboxProvider provider,
