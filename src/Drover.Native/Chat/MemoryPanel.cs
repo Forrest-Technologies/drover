@@ -37,7 +37,7 @@ public sealed class MemoryPanel : Grid
 
     private readonly StackPanel notes = new() { Spacing = Tokens.Number("DvSpace2") };
 
-    private readonly Dictionary<Guid, Button> changeButtons = [];
+    private readonly Dictionary<Guid, IconButton> changeButtons = [];
 
     private readonly Dictionary<Guid, Button> removeButtons = [];
 
@@ -303,8 +303,8 @@ public sealed class MemoryPanel : Grid
         var actions = Actions(remove);
         if (changeable)
         {
-            var change = new Button { Content = MemoryPanelViewModel.ChangeAction };
-            AutomationProperties.SetName(change, MemoryPanelViewModel.ChangeName(note));
+            // Changing a note is known by the edit icon; its name says which note, also as its tooltip.
+            var change = new IconButton { Icon = IconName.Edit, Label = MemoryPanelViewModel.ChangeName(note) };
             change.Click += (_, _) => model.Edit(note);
             changeButtons[note.Id] = change;
             actions.Children.Insert(0, change);
@@ -342,7 +342,7 @@ public sealed class MemoryPanel : Grid
             case { AddField: true }:
                 Pieces.FocusWhenShown(addField, addField.TakeFocus);
                 break;
-            case { Note: { } id } when (changeButtons.GetValueOrDefault(id) ?? removeButtons.GetValueOrDefault(id)) is { } button:
+            case { Note: { } id } when (changeButtons.GetValueOrDefault(id) as Pressable ?? removeButtons.GetValueOrDefault(id)) is { } button:
                 Pieces.FocusWhenShown(button, button.TakeFocus);
                 break;
         }

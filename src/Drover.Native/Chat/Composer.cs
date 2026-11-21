@@ -71,8 +71,8 @@ public sealed class Composer : Grid
         MaxWidth = Tokens.Number("DvMeasure") + Tokens.Number("DvSpace6");
 
         Labelled(attach, IconName.Attach, "Attach");
-        Labelled(stop, IconName.Stop, "Stop");
-        Labelled(send, IconName.Send, "Send");
+        IconOnly(stop, IconName.Stop, StopLabel);
+        IconOnly(send, IconName.Send, SendLabel);
         AutomationProperties.SetName(options, "Message options");
         AutomationProperties.SetName(this, "Message composer");
         AutomationProperties.SetName(frame, "Write a message");
@@ -238,6 +238,21 @@ public sealed class Composer : Grid
     }
 
     // An icon and the word for what the button does. The icon takes the color the button's words have.
+    // Send and Stop are known by their icons. Each keeps its name in words, as its accessible name and its tooltip, and
+    // a full touch target whatever the pointer, since it is the composer's main action.
+    private static void IconOnly(Button button, IconName icon, string label)
+    {
+        var mark = new Icon { NameOfIcon = icon, Size = 20, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        button.Content = mark;
+        button.Padding = new(0);
+        button.Width = button.Height = Tokens.Number("DvTargetTouch");
+        AutomationProperties.SetName(button, label);
+        ToolTipService.SetToolTip(button, label);
+        button.RegisterPropertyChangedCallback(Control.ForegroundProperty, (_, _) => mark.Foreground = button.Foreground);
+    }
+
+    // Attach keeps its word: it stands in the options list beside the model choice, where a lone icon would read as
+    // a mark rather than an action.
     private static void Labelled(Button button, IconName icon, string label)
     {
         var mark = new Icon { NameOfIcon = icon, VerticalAlignment = VerticalAlignment.Center };
@@ -458,6 +473,14 @@ public sealed class Composer : Grid
             return PickedFiles.Holds(carried);
         }
     }
+
+    #endregion
+
+    #region Fixed Words
+
+    public const string SendLabel = "Send";
+
+    public const string StopLabel = "Stop";
 
     #endregion
 }
