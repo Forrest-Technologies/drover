@@ -1,12 +1,11 @@
 namespace Drover.Native.Controls;
 
 /// <summary>
-/// A block of code or machine output, drawn by what it holds (<see cref="CodeContent"/>): code highlighted for its
-/// language, a shell command after a quiet prompt mark, JSON laid out, a table as a table, a diff and a log with their
-/// lines marked, and bytes as a summary with a hex view on demand. The header names the kind, and holds the wrap
-/// toggle and the copy icon. Lines never wrap unless the wrap toggle says so: a long line scrolls sideways inside the
-/// block and never widens the page. Past the cap only the start is laid out, with a button for the rest. The body is
-/// one tab stop named by the kind, so it scrolls by keyboard too.
+/// A block of code or machine output, drawn by what it holds (<see cref="CodeContent"/>, drawn by
+/// <see cref="CodeDrawing"/>). The header names the kind, and holds the wrap toggle, the button that opens the block
+/// full screen, and the copy icon. Lines never wrap unless the wrap toggle says so: a long line scrolls sideways
+/// inside the block and never widens the page. Past the cap only the start is laid out, with a button for the rest.
+/// The body is one tab stop named by the kind, so it scrolls by keyboard too.
 /// </summary>
 public sealed class CodeBlock : Grid
 {
@@ -22,6 +21,8 @@ public sealed class CodeBlock : Grid
     private readonly TextBlock label = Styles.Text(null, "DvTextMono");
 
     private readonly IconButton wrap = new() { Icon = IconName.Wrap, Label = CodeContent.WrapLabel, Ink = "DvText2", Pressed = false };
+
+    private readonly IconButton expand = new() { Icon = IconName.Expand, Label = CodeViewerModel.OpenLabel, Ink = "DvText2" };
 
     private readonly CopyButton copy = new() { Label = OutputWords.CopyCode, Ink = "DvText2", VerticalAlignment = VerticalAlignment.Center };
 
@@ -41,7 +42,7 @@ public sealed class CodeBlock : Grid
 
     private bool all;
 
-    private BytesView bytesView = BytesView.Summary;
+    private CodeBytesView bytesView = CodeBytesView.Summary;
 
     #endregion
 
@@ -51,14 +52,16 @@ public sealed class CodeBlock : Grid
     {
         label.VerticalAlignment = VerticalAlignment.Center;
         label.TextTrimming = TextTrimming.CharacterEllipsis;
-        copy.Text = () => content?.Source ?? Code;
+        copy.Text = () => Shown.Source;
         wrap.Click += (_, _) => Wrap();
+        expand.Click += (_, _) => CodeViewer.Open(this, Shown, wraps, CopyLabel, expand);
         showAll.Click += (_, _) => ShowAll();
-        hex.Click += (_, _) => Show(bytesView is BytesView.Hex ? BytesView.Summary : BytesView.Hex);
-        literal.Click += (_, _) => Show(bytesView is BytesView.Literal ? BytesView.Summary : BytesView.Literal);
+        hex.Click += (_, _) => Show(bytesView is CodeBytesView.Hex ? CodeBytesView.Summary : CodeBytesView.Hex);
+        literal.Click += (_, _) => Show(bytesView is CodeBytesView.Literal ? CodeBytesView.Summary : CodeBytesView.Literal);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         actions.Children.Add(wrap);
+        actions.Children.Add(expand);
         actions.Children.Add(copy);
 
         var top = new Grid { ColumnSpacing = Tokens.Number("DvSpace2") };
@@ -151,8 +154,8 @@ public sealed class CodeBlock : Grid
         set => SetValue(BoundedProperty, value);
     }
 
-    /// <summary>What the block holds, once read.</summary>
-    public CodeContent? Content => content;
+    // What the block holds, read once for its text and language.
+    private CodeContent Shown => content ??= CodeContent.Detect(Code, CodeLanguage, PlainLabel);
 
     #endregion
 
@@ -160,9 +163,9 @@ public sealed class CodeBlock : Grid
 
     private void Read()
     {
-        content = CodeContent.Detect(Code, CodeLanguage, PlainLabel);
+        content = null;
         all = false;
-        bytesView = BytesView.Summary;
+        bytesView = CodeBytesView.Summary;
 
         if (IsLoaded)
         {
@@ -183,7 +186,7 @@ public sealed class CodeBlock : Grid
         body.Focus(FocusState.Keyboard);
     }
 
-    private void Show(BytesView view)
+    private void Show(CodeBytesView view)
     {
         bytesView = view;
         Draw();
@@ -197,7 +200,7 @@ public sealed class CodeBlock : Grid
         label.Foreground = Tokens.Brush(this, "DvText2");
         body.FocusVisualPrimaryBrush = Tokens.Brush(this, "DvEmber");
 
-        var read = content ??= CodeContent.Detect(Code, CodeLanguage, PlainLabel);
+        var read = Shown;
         label.Text = read.Label;
         AutomationProperties.SetName(body, read.Label);
 
@@ -207,24 +210,16 @@ public sealed class CodeBlock : Grid
             ? read with { Kind = CodeKind.Plain, Family = CodeFamily.None }
             : read;
 
-        var isText = shown.Kind is not (CodeKind.Table or CodeKind.Binary or CodeKind.Bytes) || bytesView is BytesView.Literal;
+        var isText = shown.Kind is not (CodeKind.Table or CodeKind.Binary or CodeKind.Bytes) || bytesView is CodeBytesView.Literal;
         wrap.Visibility = isText ? Visibility.Visible : Visibility.Collapsed;
         wrap.Pressed = wraps;
         Fit(isText && wraps);
 
         hex.Visibility = shown.Kind is CodeKind.Binary or CodeKind.Bytes ? Visibility.Visible : Visibility.Collapsed;
-        hex.Content = bytesView is BytesView.Hex ? CodeContent.HideHex : CodeContent.ShowHex;
+        hex.Content = bytesView is CodeBytesView.Hex ? CodeContent.HideHex : CodeContent.ShowHex;
         literal.Visibility = shown.Kind is CodeKind.Bytes ? Visibility.Visible : Visibility.Collapsed;
 
-        var (drawn, cutTo) = shown.Kind switch
-        {
-            CodeKind.Table => DrawTable(shown.Table!),
-            CodeKind.Binary or CodeKind.Bytes when bytesView is BytesView.Hex => DrawHex(shown.Bytes),
-            CodeKind.Bytes when bytesView is BytesView.Literal => DrawText(shown),
-            CodeKind.Binary or CodeKind.Bytes => (Summary(shown), null),
-            _ => DrawText(shown),
-        };
-
+        var (drawn, cutTo) = new CodeDrawing(this).Body(shown, wraps, all, bytesView);
         body.Content = drawn;
         showAll.Visibility = cutTo is null ? Visibility.Collapsed : Visibility.Visible;
         showAll.Content = cutTo ?? string.Empty;
@@ -239,271 +234,6 @@ public sealed class CodeBlock : Grid
         body.VerticalScrollMode = Bounded ? ScrollMode.Auto : ScrollMode.Disabled;
         body.VerticalScrollBarVisibility = Bounded ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
         body.MaxHeight = Bounded ? Tokens.Number("DvOutputLines") * (double)Styles.Dictionary["DvLine13"] : double.PositiveInfinity;
-    }
-
-    #endregion
-
-    #region Text
-
-    // Text kinds as one block of runs: highlighted code, marked diff and log lines, a quiet prompt before a command.
-    private (FrameworkElement Drawn, string? CutTo) DrawText(CodeContent shown)
-    {
-        var capped = all ? new CappedText(shown.Text, CodeLines.LineCount(shown.Text), false) : CodeLines.Capped(shown.Text);
-        var text = CodeLines.ExpandTabs(capped.Shown);
-        var block = Styles.Text(null, "DvTextCode");
-        block.IsTextSelectionEnabled = true;
-        block.TextWrapping = wraps ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        block.Foreground = Tokens.Brush(this, "DvText");
-
-        if (shown.Kind is CodeKind.Shell)
-        {
-            // The prompt is decoration: the command after it is what is read and copied.
-            block.Inlines.Add(Run(CodeContent.PromptMark, "DvText3"));
-        }
-
-        switch (shown.Kind)
-        {
-            case CodeKind.Diff:
-                AddLines(block, text, DiffRuns);
-                break;
-            case CodeKind.Log:
-                AddLines(block, text, LogRuns);
-                break;
-            default:
-                AddTokens(block, text, CodeHighlighter.Tokens(text, shown.Family));
-                break;
-        }
-
-        return (block, capped.IsCut ? CodeLines.ShowAll(capped.TotalLines) : null);
-    }
-
-    private void AddTokens(TextBlock block, string text, IReadOnlyList<CodeToken> tokens)
-    {
-        var at = 0;
-
-        foreach (var token in tokens)
-        {
-            if (token.Start > at)
-            {
-                block.Inlines.Add(Run(text[at..token.Start]));
-            }
-
-            block.Inlines.Add(TokenRun(text.Substring(token.Start, token.Length), token.Kind));
-            at = token.Start + token.Length;
-        }
-
-        if (at < text.Length)
-        {
-            block.Inlines.Add(Run(text[at..]));
-        }
-    }
-
-    // Syntax keeps to text colors and weights; the accents keep their one meaning each.
-    private Microsoft.UI.Xaml.Documents.Run TokenRun(string text, CodeTokenKind kind) => kind switch
-    {
-        CodeTokenKind.Keyword => Run(text, "DvText", "DvWeightHeading"),
-        CodeTokenKind.Key => Run(text, "DvText", "DvWeightLabel"),
-        CodeTokenKind.Comment => Run(text, "DvText3"),
-        CodeTokenKind.Quoted or CodeTokenKind.Punctuation => Run(text, "DvText2"),
-        _ => Run(text, "DvText"),
-    };
-
-    private void AddLines(TextBlock block, string text, Func<string, IEnumerable<Microsoft.UI.Xaml.Documents.Run>> runs)
-    {
-        var lines = CodeLines.Split(text);
-
-        for (var index = 0; index < lines.Count; index++)
-        {
-            foreach (var run in runs(lines[index]))
-            {
-                block.Inlines.Add(run);
-            }
-
-            if (index < lines.Count - 1)
-            {
-                block.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
-            }
-        }
-    }
-
-    // Each line keeps its own + or -, so the color is never the only sign of what changed.
-    private IEnumerable<Microsoft.UI.Xaml.Documents.Run> DiffRuns(string line) => CodeLines.DiffKindOf(line) switch
-    {
-        DiffLineKind.Added => [Run(line, "DvOk")],
-        DiffLineKind.Removed => [Run(line, "DvDanger")],
-        DiffLineKind.Hunk => [Run(line, "DvText3")],
-        DiffLineKind.Header => [Run(line, "DvText2", "DvWeightLabel")],
-        _ => [Run(line)],
-    };
-
-    // A level word keeps its word and takes its status color; a time is a caption.
-    private IEnumerable<Microsoft.UI.Xaml.Documents.Run> LogRuns(string line)
-    {
-        var read = CodeLines.LogLineOf(line);
-        List<(Range Span, string Ink, string? Weight)> marks = [];
-
-        if (read.Time is { } time)
-        {
-            marks.Add((time, "DvText3", null));
-        }
-
-        if (read.Level is { } level)
-        {
-            marks.Add((level, read.Severity switch
-            {
-                LogSeverity.Failure => "DvDanger",
-                LogSeverity.Attention => "DvWarn",
-                _ => "DvText2",
-            }, "DvWeightLabel"));
-        }
-
-        var at = 0;
-        foreach (var (span, ink, weight) in marks.OrderBy(mark => mark.Span.Start.Value))
-        {
-            var (start, end) = (span.Start.Value, span.End.Value);
-            if (start > at)
-            {
-                yield return Run(line[at..start]);
-            }
-
-            yield return Run(line[start..end], ink, weight);
-            at = end;
-        }
-
-        if (at < line.Length)
-        {
-            yield return Run(line[at..]);
-        }
-    }
-
-    private Microsoft.UI.Xaml.Documents.Run Run(string text, string ink = "DvText", string? weight = null)
-    {
-        var run = new Microsoft.UI.Xaml.Documents.Run { Text = text, Foreground = Tokens.Brush(this, ink) };
-
-        if (weight is not null)
-        {
-            run.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[weight];
-        }
-
-        return run;
-    }
-
-    #endregion
-
-    #region Table
-
-    // A real table: the header row in label weight over a line, numeric columns aligned to the end, monospaced cells.
-    // Each value is named with its column for someone who cannot see the grid.
-    private (FrameworkElement Drawn, string? CutTo) DrawTable(CodeTable table)
-    {
-        var cut = !all && CodeLines.TableLayoutOf(table) is TableLayout.FirstRows;
-        var rows = table.Rows.Take(cut ? CodeLines.MaxLines : table.Rows.Count);
-        var grid = new Grid { ColumnSpacing = Tokens.Number("DvSpace4") };
-        AutomationProperties.SetName(grid, table.Label);
-
-        for (var column = 0; column < table.ColumnCount; column++)
-        {
-            grid.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        }
-
-        var row = 0;
-        if (table.Header is { } header)
-        {
-            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
-            var line = new Border { BorderThickness = new(0, 0, 0, Tokens.Number("DvBorder")), BorderBrush = Tokens.Brush(this, "DvLine") };
-            SetColumnSpan(line, table.ColumnCount);
-            grid.Children.Add(line);
-
-            for (var column = 0; column < table.ColumnCount; column++)
-            {
-                var cell = Cell(header[column], table.Numeric[column], "DvWeightLabel");
-                cell.Margin = new(0, 0, 0, Tokens.Number("DvSpace1"));
-                SetColumn(cell, column);
-                grid.Children.Add(cell);
-            }
-
-            row++;
-        }
-
-        foreach (var values in rows)
-        {
-            grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
-
-            for (var column = 0; column < table.ColumnCount; column++)
-            {
-                var cell = Cell(values[column], table.Numeric[column], null);
-                AutomationProperties.SetName(cell, table.Header is { } names ? $"{names[column]}: {values[column]}" : values[column]);
-                SetRow(cell, row);
-                SetColumn(cell, column);
-                grid.Children.Add(cell);
-            }
-
-            row++;
-        }
-
-        return (grid, cut ? CodeLines.ShowAllRows(table.Rows.Count) : null);
-    }
-
-    private TextBlock Cell(string value, bool numeric, string? weight)
-    {
-        var cell = Styles.Text(value, "DvTextCode");
-        cell.Foreground = Tokens.Brush(this, "DvText");
-        cell.IsTextSelectionEnabled = true;
-        cell.HorizontalAlignment = numeric ? HorizontalAlignment.Right : HorizontalAlignment.Left;
-        cell.TextAlignment = numeric ? TextAlignment.Right : TextAlignment.Left;
-
-        if (weight is not null)
-        {
-            cell.FontWeight = (Windows.UI.Text.FontWeight)Tokens.Dictionary[weight];
-        }
-
-        return cell;
-    }
-
-    #endregion
-
-    #region Bytes
-
-    // Bytes are never shown as escapes: their size says what they are, and the hex view is one press away.
-    private TextBlock Summary(CodeContent shown)
-    {
-        var words = Styles.Text(shown.Label, "DvTextCaption");
-        words.Foreground = Tokens.Brush(this, "DvText2");
-        return words;
-    }
-
-    // Offset, hex, and printable characters, a line for every 16 bytes; past the cap, the first lines.
-    private (FrameworkElement Drawn, string? CutTo) DrawHex(IReadOnlyList<byte> bytes)
-    {
-        var lines = CodeBytes.HexLines(bytes);
-        var cut = !all && lines.Count > CodeLines.MaxLines;
-        var block = Styles.Text(null, "DvTextCode");
-        block.IsTextSelectionEnabled = true;
-
-        foreach (var line in cut ? lines.Take(CodeLines.MaxLines) : lines)
-        {
-            if (block.Inlines.Count > 0)
-            {
-                block.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
-            }
-
-            block.Inlines.Add(Run($"{line.Offset}  ", "DvText3"));
-            block.Inlines.Add(Run(line.Hex.PadRight((CodeBytes.BytesPerLine * 3) + 1)));
-            block.Inlines.Add(Run($"  {line.Printable}", "DvText2"));
-        }
-
-        return (block, cut ? CodeLines.ShowAll(lines.Count) : null);
-    }
-
-    #endregion
-
-    #region Nested Types
-
-    private enum BytesView
-    {
-        Summary,
-        Hex,
-        Literal,
     }
 
     #endregion
