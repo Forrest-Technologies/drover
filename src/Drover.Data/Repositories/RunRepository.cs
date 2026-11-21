@@ -54,6 +54,16 @@ public sealed class RunRepository(DroverDbContext db)
     public Task<bool> IsBotWorking(Guid botId, CancellationToken cancellationToken) =>
         db.Runs.AnyAsync(run => run.BotId == botId && run.Status == RunStatus.Running, cancellationToken);
 
+    /// <summary>
+    /// Whether the bot has a run queued, running, or waiting for one person. An until-done window stays open while
+    /// any of them exists; a run waiting on something the window cannot answer still counts.
+    /// </summary>
+    public Task<bool> AnyRunWorkingFor(Guid botId, Guid principalUserId, CancellationToken cancellationToken) =>
+        db.Runs.AnyAsync(
+            run => run.BotId == botId && run.PrincipalUserId == principalUserId
+                && (run.Status == RunStatus.Queued || run.Status == RunStatus.Running || run.Status == RunStatus.Waiting),
+            cancellationToken);
+
     /// <summary>The bots with a run that waits for this reason, each once.</summary>
     public Task<List<Guid>> ListBotsWaitingFor(string reason, CancellationToken cancellationToken) =>
         db.Runs.AsNoTracking()

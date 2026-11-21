@@ -1116,6 +1116,83 @@ namespace Drover.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AudienceUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audience_user_id");
+
+                    b.Property<Guid>("BotId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bot_id");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<string>("EndedReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("ended_reason");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("SpaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("space_id");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("StartedFrom")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("started_from");
+
+                    b.Property<Guid?>("ToolCallId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tool_call_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_allow_all_windows");
+
+                    b.HasIndex("SpaceId", "BotId", "AudienceUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_allow_all_windows_one_open")
+                        .HasFilter("ended_at IS NULL");
+
+                    b.ToTable("allow_all_windows", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_allow_all_windows_ended", "(ended_at IS NULL AND ended_reason IS NULL) OR (ended_at IS NOT NULL AND ended_reason IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_ended_reason", "ended_reason IN ('expired', 'work_done', 'asked_again', 'bot_paused', 'bot_removed', 'member_left')");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_kind", "kind IN ('minutes_30', 'hour_1', 'until_done', 'until_off')");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_ends_at", "(kind IN ('minutes_30', 'hour_1')) = (ends_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_started_from", "started_from IN ('bot', 'approval')");
+
+                            t.HasCheckConstraint("ck_allow_all_windows_source", "(started_from = 'approval') = (tool_call_id IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Drover.Domain.Permissions.ToolGrant", b =>
                 {
                     b.Property<Guid>("SpaceId")
@@ -1635,6 +1712,10 @@ namespace Drover.Data.Migrations
                     b.Property<Guid?>("DecidedByUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("decided_by_user_id");
+
+                    b.Property<Guid?>("DecidedByWindowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_window_id");
 
                     b.Property<DateTimeOffset?>("FinishedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2928,6 +3009,17 @@ namespace Drover.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_model_catalog_model_connections_space_id_model_connection_id");
+                });
+
+            modelBuilder.Entity("Drover.Domain.Permissions.AllowAllWindow", b =>
+                {
+                    b.HasOne("Drover.Domain.Bots.Bot", null)
+                        .WithMany()
+                        .HasForeignKey("SpaceId", "BotId")
+                        .HasPrincipalKey("SpaceId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_allow_all_windows_bots_space_id_bot_id");
                 });
 
             modelBuilder.Entity("Drover.Domain.Permissions.ToolGrant", b =>
