@@ -251,7 +251,7 @@ public sealed class RunMomentDetail : StackPanel
 
             if (card.Result is { } text)
             {
-                result.Children.Add(new CodeBlock { Code = text });
+                result.Children.Add(new CodeBlock { Code = text, CodeLanguage = card.ResultLanguage });
             }
 
             if (model.ResultIsCut)

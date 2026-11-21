@@ -289,7 +289,7 @@
         RunTimelines.CallOf(Tree, Moment)?.ToolName is "sandbox.run" && card.Summary.Length > 0;
 
     private bool IsCut(ToolCard card) =>
-        Results?.ContainsKey(card.Id) is not true && card.Result is { Length: >= ResultKept };
+        Results?.ContainsKey(card.Id) is not true && card.ResultLength >= ResultKept;
 
     private static string Money(decimal cost, string? currency) =>
         $"{cost.ToString("0.######", CultureInfo.InvariantCulture)}{(currency is { Length: > 0 } ? $" {currency}" : string.Empty)}";

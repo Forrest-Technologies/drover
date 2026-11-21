@@ -135,8 +135,9 @@ public sealed partial class ActivityPanelTests : ScreenTest
         var detail = page.Find(".dv-timeline-detail");
         detail.QuerySelector(".dv-moment-terminal")!.TextContent.Should().StartWith("$ ls -la /home/user && echo done");
         detail.QuerySelector(".dv-moment-terminal")!.GetAttribute("aria-label").Should().Be("Command and its output");
-        JsonElement.DeepEquals(JsonElement.Parse(detail.QuerySelector(".dv-code-body")!.TextContent), JsonElement.Parse(storedResult.Result!))
-            .Should().BeTrue("the result is the stored one, whole");
+        detail.QuerySelector(".dv-code-body")!.TextContent.Should().Be(
+            JsonElement.Parse(storedResult.Result!).GetProperty("error").GetString(),
+            "the stored result is read whole and said in words, not shown as JSON");
         detail.QuerySelectorAll(".dv-moment-fact").Select(fact => (fact.QuerySelector("dt")!.TextContent, fact.QuerySelector("dd")!.TextContent))
             .Should().Equal(("Took", Words.Duration(TimeSpan.FromMilliseconds(completed.DurationMs))));
         detail.TextContent.Should().NotContain("start of the result", "the conversation holds this call's whole result");

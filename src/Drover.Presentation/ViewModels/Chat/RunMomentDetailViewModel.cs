@@ -78,7 +78,7 @@ public sealed class RunMomentDetailViewModel : ObservableObject
     public string? ExitLine => Card?.ExitCode is { } exitCode ? $"Exit code {exitCode}" : null;
 
     /// <summary>The log keeps only the start of a result. Said when that start is all there is.</summary>
-    public bool ResultIsCut => Card is { } card && Results?.ContainsKey(card.Id) is not true && card.Result is { Length: >= ResultKept };
+    public bool ResultIsCut => Card is { } card && Results?.ContainsKey(card.Id) is not true && card.ResultLength >= ResultKept;
 
     public bool ShowsQuiet => Card is { IsLive: true, Output.Count: 0 };
 
