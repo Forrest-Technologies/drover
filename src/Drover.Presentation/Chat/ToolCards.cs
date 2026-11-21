@@ -50,19 +50,15 @@ public static partial class ToolCards
     {
         var phase = PhaseOf(call);
         var words = WordsFor(call);
-        var arguments = JsonElement.Parse(call.Arguments);
+        var (arguments, argumentsText) = ArgumentsOf(call.Arguments);
         var toolName = Canonical(call.ToolName);
         var summary = Summarize(toolName, arguments);
 
         // A stored result is JSON. The preview in the call's events is the start of it, which may be cut off.
-        var resultText = result?.Result is { Length: > 0 } stored ? Pretty(JsonElement.Parse(stored)) : call.Preview;
+        var resultText = result?.Result is { Length: > 0 } stored ? StoredResult(stored) : call.Preview;
 
-        var command = toolName == "sandbox.run" && ParsedOrNull(resultText) is { ValueKind: JsonValueKind.Object } parsed
-            ? parsed
-            : (JsonElement?)null;
+        var commandError = toolName == "sandbox.run" && ObjectIn(resultText) is { } outcome ? ToolResults.StringOf(outcome, "error") : null;
         var exitCode = ExitCodeIn(resultText);
-        var commandError = command is { } finished && finished.TryGetProperty("error", out var error)
-            && error.ValueKind is JsonValueKind.String ? error.GetString() : null;
 
         if (phase is ToolPhase.Done && toolName == "sandbox.run"
             && (exitCode is not (null or 0) || !string.IsNullOrWhiteSpace(commandError)))
@@ -78,7 +74,7 @@ public static partial class ToolCards
             LabelFor(words, phase),
             words.Ask,
             summary,
-            Pretty(arguments),
+            argumentsText,
             CoversAll(arguments, summary),
             shown?.Text,
             exitCode,
@@ -211,7 +207,7 @@ public static partial class ToolCards
             return card;
         }
 
-        var kept = ParsedOrNull(result) is { ValueKind: JsonValueKind.Object } whole ? whole : (JsonElement?)null;
+        var kept = ObjectIn(result);
         var note = kept is { } found && found.TryGetProperty("note", out var saved) && saved.ValueKind is JsonValueKind.Object ? saved : (JsonElement?)null;
         var text = (note is { } written ? Text(written, "text") : string.Empty) is { Length: > 0 } stored ? stored : Text(arguments, "text");
 
@@ -240,18 +236,10 @@ public static partial class ToolCards
         };
     }
 
-    // A result's start, as a call's events carry it, can be cut off. Read as a block with more to come, a cut-off
-    // result is simply not a whole value yet. A result that is not a JSON object, such as plain text, is no note.
-    private static JsonElement? ParsedOrNull(string result)
-    {
-        if (!result.TrimStart().StartsWith('{'))
-        {
-            return null;
-        }
-
-        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(result), isFinalBlock: false, state: default);
-        return JsonElement.TryParseValue(ref reader, out var parsed) ? parsed : null;
-    }
+    // A result's start, as a call's events carry it, can be cut off: it is no whole object yet. A result that is not a
+    // JSON object, such as plain text, holds no note and no command outcome.
+    private static JsonElement? ObjectIn(string result) =>
+        ToolResults.Read(result) is { Form: ResultForm.Whole, Value.ValueKind: JsonValueKind.Object } read ? read.Value : null;
 
     #endregion
 
@@ -330,7 +318,7 @@ public static partial class ToolCards
         values.EnumerateObject().ToList() switch
         {
             [] => string.Empty,
-            [{ Value.ValueKind: JsonValueKind.String } only] => OneLine(only.Value.GetString() ?? string.Empty),
+            [{ Value.ValueKind: JsonValueKind.String } only] => OneLine(ToolResults.StringOf(only.Value) ?? string.Empty),
             _ => OneLine(values.GetRawText()),
         };
 
@@ -345,10 +333,22 @@ public static partial class ToolCards
 
     private static string Text(JsonElement values, string name) =>
         values.TryGetProperty(name, out var value)
-            ? value.ValueKind is JsonValueKind.String ? value.GetString() ?? string.Empty : value.GetRawText()
+            ? value.ValueKind is JsonValueKind.String ? ToolResults.StringOf(value) ?? string.Empty : value.GetRawText()
             : string.Empty;
 
     private static string OneLine(string text) => WhiteSpace().Replace(text, " ").Trim();
+
+    // Arguments are stored as JSON, and shown indented. Arguments that cannot be read, or hold an escape the platform
+    // will not write out again, are shown as they were stored, and read as none, so the card still shows.
+    private static (JsonElement Values, string Shown) ArgumentsOf(string arguments) =>
+        ToolResults.Read(arguments, int.MaxValue) is { Form: ResultForm.Whole } read
+            ? (read.Value, ToolResults.HasHalfSurrogate(arguments) ? arguments : Pretty(read.Value))
+            : (JsonElement.Parse("{}"), arguments);
+
+    // A stored result is JSON, shown indented. One that is not read within the display budget, or holds an escape the
+    // platform will not write out again, is shown as it was stored.
+    private static string StoredResult(string stored) =>
+        ToolResults.Read(stored) is { Form: ResultForm.Whole } read && !ToolResults.HasHalfSurrogate(stored) ? Pretty(read.Value) : stored;
 
     private static string Pretty(JsonElement value) => JsonSerializer.Serialize(value, indented);
 

@@ -106,6 +106,169 @@ public sealed class ToolResultTests
 
     #endregion
 
+    #region Results That Cannot Be Read
+
+    [Theory]
+    [InlineData("sandbox.run", "{\"exit_code\":0,\"stdout\":oops}")]
+    [InlineData("sandbox.run", "{\"exit_code\":0,\"stdout\":\"a\" \"b\"")]
+    [InlineData("weather", "[\"a\" \"b\"]")]
+    [InlineData("weather", "{\"city\" \"Oslo\"}")]
+    public void A_malformed_result_is_shown_as_it_came_and_never_fails_the_card(string tool, string malformed)
+    {
+        var call = Call(tool, "{}") with { Preview = malformed };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(malformed);
+        card.ResultLanguage.Should().BeNull();
+        card.Output.Should().BeEmpty("a result that is not JSON holds no output to decode");
+    }
+
+    [Fact]
+    public void A_malformed_stored_result_is_shown_as_it_was_stored()
+    {
+        var malformed = "{\"city\":\"Oslo\",}";
+
+        var card = FluentActions.Invoking(() => Stored("weather", "{}", malformed)).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(malformed);
+    }
+
+    [Theory]
+    [InlineData("sandbox.run")]
+    [InlineData("weather")]
+    public void A_result_nested_deeper_than_the_read_budget_is_shown_as_it_came(string tool)
+    {
+        var deep = $"{new string('[', ToolResults.MaxReadDepth + 1)}{new string(']', ToolResults.MaxReadDepth + 1)}";
+        var call = Call(tool, "{}") with { Preview = deep };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(deep);
+        card.ResultLanguage.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_stored_result_nested_deeper_than_the_read_budget_is_shown_as_it_was_stored()
+    {
+        var deep = $"{string.Concat(Enumerable.Repeat("{\"a\":", ToolResults.MaxReadDepth + 1))}1{new string('}', ToolResults.MaxReadDepth + 1)}";
+
+        var card = FluentActions.Invoking(() => Stored("weather", "{}", deep)).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(deep);
+    }
+
+    [Fact]
+    public void A_cut_off_result_is_read_as_far_as_it_goes_where_an_invalid_one_is_shown_as_it_came()
+    {
+        var cut = Call("sandbox.run", "{}") with { Preview = "{\"exit_code\":0,\"stdout\":\"a\\tb" };
+        var invalid = Call("sandbox.run", "{}") with { Preview = "{\"exit_code\":0,\"stdout\":\"a\\tb\" x" };
+
+        var cutCard = cut.ToCard();
+        var invalidCard = invalid.ToCard();
+
+        cutCard.Output.Should().Equal([new ToolOutputPiece("stdout", "a\tb")]);
+        cutCard.Result.Should().BeNull("the start of a result is told by what it holds so far");
+        invalidCard.Output.Should().BeEmpty();
+        invalidCard.Result.Should().Be(invalid.Preview);
+    }
+
+    [Theory]
+    [InlineData("sandbox.run")]
+    [InlineData("weather")]
+    public void A_result_longer_than_the_read_budget_is_shown_as_it_came_without_being_read(string tool)
+    {
+        var text = new string('x', ToolResults.MaxReadLength);
+        var stored = JsonSerializer.Serialize(new { exit_code = 0, stdout = text });
+        var call = Call(tool, "{}") with { Preview = stored };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(stored);
+        card.ResultLanguage.Should().BeNull();
+        card.Output.Should().BeEmpty("a result too long to read for display is not decoded");
+        card.ResultLength.Should().Be(stored.Length);
+    }
+
+    [Fact]
+    public void A_stored_result_longer_than_the_read_budget_is_shown_as_it_was_stored()
+    {
+        var stored = JsonSerializer.Serialize(new string('x', ToolResults.MaxReadLength));
+
+        var card = Stored("search_web", "{}", stored);
+
+        card.Result.Should().Be(stored);
+    }
+
+    [Theory]
+    [InlineData("\"bad \\x escape\"")]
+    [InlineData("\"bad \\uZZZZ escape\"")]
+    public void A_text_result_with_an_escape_json_does_not_have_is_shown_as_it_came(string result)
+    {
+        var call = Call("search_web", "{}") with { Preview = result };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be(result);
+    }
+
+    [Fact]
+    public void A_text_result_escaping_half_a_surrogate_pair_reads_as_what_it_says()
+    {
+        var call = Call("search_web", "{}") with { Preview = "\"half \\ud800 a pair\"" };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be("half \ud800 a pair");
+    }
+
+    [Fact]
+    public void A_stored_result_escaping_half_a_surrogate_pair_never_fails_the_card()
+    {
+        var stored = "{\"exit_code\":1,\"stdout\":\"half \\ud800 a pair\",\"error\":\"\\udc00 alone\"}";
+
+        var card = FluentActions.Invoking(() => Stored("sandbox_run", "{}", stored)).Should().NotThrow().Subject;
+
+        card.Output.Should().Equal([new ToolOutputPiece("stdout", "half \ud800 a pair")]);
+        card.CommandError.Should().Be("\udc00 alone");
+        card.ExitCode.Should().Be(1);
+    }
+
+    [Fact]
+    public void Arguments_escaping_half_a_surrogate_pair_are_shown_as_they_were_written()
+    {
+        var arguments = "{\"query\":\"\\ud800\"}";
+        var call = Call("search_web", arguments) with { Preview = "\"found\"" };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Arguments.Should().Be(arguments);
+        card.Result.Should().Be("found");
+    }
+
+    [Fact]
+    public void A_result_with_a_lone_surrogate_character_is_shown_as_valid_text()
+    {
+        var call = Call("search_web", "{}") with { Preview = "\"half \ud800 a pair\"" };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Result.Should().Be("half \ufffd a pair", "a lone surrogate is read as the replacement character");
+    }
+
+    [Fact]
+    public void Arguments_that_are_not_json_never_fail_the_card()
+    {
+        var call = Call("weather", "{not json") with { Preview = "\"sunny\"" };
+
+        var card = call.Invoking(called => called.ToCard()).Should().NotThrow().Subject;
+
+        card.Arguments.Should().Be("{not json");
+        card.Result.Should().Be("sunny");
+    }
+
+    #endregion
+
     #region Private Methods
 
     private static ToolCard Stored(string tool, string arguments, string result)
