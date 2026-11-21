@@ -330,14 +330,14 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
         var messagesPath = $"{space}/threads/{child.ThreadId}";
         var retryPath = $"{space}/runs/{child.RunId}/retry";
 
-        var writes = new[]
-        {
+        HttpResponseMessage[] writes =
+        [
             await asOwner.Post($"{messagesPath}/messages", new SendMessageRequest("Let me help.")),
             await asOwner.Post($"{messagesPath}/messages/{child.ReplyId}/regenerate"),
             await asOwner.Post($"{messagesPath}/messages/{child.TaskId}/edit", new EditMessageRequest("Change the task.")),
             await asOwner.Post($"{messagesPath}/messages/{child.TaskId}/show"),
             await asOwner.Post(retryPath),
-        };
+        ];
 
         for (var index = 0; index < writes.Length; index++)
         {
@@ -350,23 +350,23 @@ public sealed class RunApiTests(PostgresServer postgres) : ServerTestBase(postgr
             body.RootElement.GetProperty("title").GetString().Should().Be(RunService.HandoffIsReadOnly);
         }
 
-        var memberWrites = new[]
-        {
+        HttpResponseMessage[] memberWrites =
+        [
             await asMember.Post($"{messagesPath}/messages", new SendMessageRequest("Let me in")),
             await asMember.Post($"{messagesPath}/messages/{child.ReplyId}/regenerate"),
             await asMember.Post($"{messagesPath}/messages/{child.TaskId}/edit", new EditMessageRequest("Let me in")),
             await asMember.Post($"{messagesPath}/messages/{child.TaskId}/show"),
             await asMember.Post(retryPath),
-        };
+        ];
         var outsiderSpace = Space(outsider.SpaceId);
-        var outsiderWrites = new[]
-        {
+        HttpResponseMessage[] outsiderWrites =
+        [
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages", new SendMessageRequest("Let me in")),
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.ReplyId}/regenerate"),
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.TaskId}/edit", new EditMessageRequest("Let me in")),
             await asOutsider.Post($"{outsiderSpace}/threads/{child.ThreadId}/messages/{child.TaskId}/show"),
             await asOutsider.Post($"{outsiderSpace}/runs/{child.RunId}/retry"),
-        };
+        ];
 
         memberWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound, "someone outside the audience learns nothing about the conversation");
         outsiderWrites.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound, "another space cannot reach the conversation or its run");
