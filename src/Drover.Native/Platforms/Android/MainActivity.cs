@@ -102,6 +102,7 @@ public sealed class MainActivity : Uno.UI.Runtime.Android.ApplicationActivity
 
         AndroidX.Core.SplashScreen.SplashScreen.InstallSplashScreen(this);
         base.OnCreate(bundle);
+        AndroidFileDelivery.RecoverFromInterruption();
 
         // The launch intent is acted on once: not when Android rebuilds the activity, and not when the app is opened
         // again from the recent apps.
